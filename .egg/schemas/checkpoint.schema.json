@@ -78,6 +78,12 @@
       "description": "Pipeline run ID for multi-agent workflow correlation",
       "default": null
     },
+    "repo": {
+      "type": ["string", "null"],
+      "description": "Source repository in owner/repo format (e.g. 'jwbron/egg')",
+      "pattern": "^[a-zA-Z0-9._-]+/[a-zA-Z0-9._-]+$",
+      "default": null
+    },
     "session": {
       "$ref": "#/$defs/sessionMetadata"
     },

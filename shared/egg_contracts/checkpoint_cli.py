@@ -249,6 +249,7 @@ def print_checkpoint_summary(
     trigger = data.get("trigger_type", "")
     status = data.get("session_status", "")
     agent = data.get("agent_type", "")
+    repo = data.get("repo", "")
 
     # Extract metrics depending on model type
     if isinstance(checkpoint, CheckpointV2):
@@ -285,6 +286,8 @@ def print_checkpoint_summary(
         parts.append(f"phase:{phase}")
     if agent and agent != "unknown":
         parts.append(f"agent:{agent}")
+    if repo:
+        parts.append(f"repo:{repo}")
     parts.append(f"msgs:{msg_count}")
     parts.append(f"tools:{tool_count}")
     parts.append(f"tokens:{format_tokens(tokens)}")
@@ -317,6 +320,8 @@ def print_checkpoint_details(checkpoint: CheckpointV2 | dict[str, Any]) -> None:
         print(f"  PR: #{data.get('pr_number')}")
     if data.get("pipeline_phase"):
         print(f"  Phase: {data.get('pipeline_phase')}")
+    if data.get("repo"):
+        print(f"  Repo: {data.get('repo')}")
 
     agent = data.get("agent_type", "")
     if agent and agent != "unknown":
@@ -439,6 +444,7 @@ def cmd_list(args: argparse.Namespace) -> int:
         agent_type=getattr(args, "agent_type", None),
         pipeline_phase=getattr(args, "phase", None),
         pipeline_id=getattr(args, "pipeline", None),
+        repo=getattr(args, "repo", None),
         limit=args.limit,
     )
 
@@ -511,6 +517,7 @@ def cmd_browse(args: argparse.Namespace) -> int:
     summaries = filter_checkpoints_v2(
         index,
         issue_number=args.issue,
+        repo=getattr(args, "repo", None),
         limit=args.limit,
     )
 
@@ -570,6 +577,7 @@ def cmd_context(args: argparse.Namespace) -> int:
         issue_number=getattr(args, "issue", None),
         agent_type=getattr(args, "agent_type", None),
         pipeline_phase=getattr(args, "phase", None),
+        repo=getattr(args, "repo", None),
         limit=args.limit,
     )
 
@@ -706,6 +714,7 @@ def create_parser() -> argparse.ArgumentParser:
         help="Filter by pipeline phase",
     )
     list_parser.add_argument("--pipeline", help="Filter by pipeline run ID")
+    list_parser.add_argument("--repo", help="Filter by source repository (owner/repo format)")
     list_parser.add_argument("--limit", type=int, default=50, help="Maximum checkpoints to show")
     list_parser.add_argument("--json", action="store_true", help="Output as JSON")
     list_parser.set_defaults(func=cmd_list)
@@ -719,6 +728,7 @@ def create_parser() -> argparse.ArgumentParser:
     # browse command
     browse_parser = subparsers.add_parser("browse", help="Filter checkpoints by issue")
     browse_parser.add_argument("--issue", type=int, required=True, help="Issue number to browse")
+    browse_parser.add_argument("--repo", help="Filter by source repository (owner/repo format)")
     browse_parser.add_argument("--limit", type=int, default=100, help="Maximum checkpoints to show")
     browse_parser.add_argument("--json", action="store_true", help="Output as JSON")
     browse_parser.set_defaults(func=cmd_browse)
@@ -742,6 +752,7 @@ def create_parser() -> argparse.ArgumentParser:
     context_parser.add_argument(
         "--files", action="store_true", help="Show file paths touched by each checkpoint"
     )
+    context_parser.add_argument("--repo", help="Filter by source repository (owner/repo format)")
     context_parser.add_argument("--limit", type=int, default=100, help="Maximum checkpoints to show")
     context_parser.add_argument("--json", action="store_true", help="Output as JSON")
     context_parser.set_defaults(func=cmd_context)

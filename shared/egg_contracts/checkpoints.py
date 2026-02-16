@@ -219,6 +219,10 @@ class CheckpointV2(BaseModel):
     pipeline_id: str | None = Field(
         default=None, description="Pipeline run ID for multi-agent workflow correlation"
     )
+    repo: str | None = Field(
+        default=None,
+        description="Source repository in owner/repo format (e.g. 'jwbron/egg')",
+    )
 
     # Session details
     session: SessionMetadata = Field(..., description="Session metadata")
@@ -277,6 +281,7 @@ class CheckpointSummaryV2(BaseModel):
     )
     pipeline_phase: str | None = Field(default=None, description="Pipeline phase")
     pipeline_id: str | None = Field(default=None, description="Pipeline run ID")
+    repo: str | None = Field(default=None, description="Source repository (owner/repo)")
 
     # Metrics
     created_at: datetime = Field(..., description="When checkpoint was created")
@@ -300,6 +305,7 @@ class CheckpointSummaryV2(BaseModel):
             agent_type=checkpoint.agent_type,
             pipeline_phase=checkpoint.pipeline_phase,
             pipeline_id=checkpoint.pipeline_id,
+            repo=checkpoint.repo,
             created_at=checkpoint.created_at,
             message_count=checkpoint.transcript.message_count if checkpoint.transcript else 0,
             tool_call_count=len(checkpoint.tool_calls),
@@ -361,6 +367,9 @@ class CheckpointIndexV2(BaseModel):
     by_pipeline: dict[str, list[str]] = Field(
         default_factory=dict, description="pipeline_id -> [checkpoint_ids]"
     )
+    by_repo: dict[str, list[str]] = Field(
+        default_factory=dict, description="repo (owner/repo) -> [checkpoint_ids]"
+    )
 
     def get_by_session(self, session_id: str) -> list[str]:
         """Get checkpoint IDs for a session."""
@@ -397,3 +406,7 @@ class CheckpointIndexV2(BaseModel):
     def get_by_pipeline(self, pipeline_id: str) -> list[str]:
         """Get checkpoint IDs for a pipeline run."""
         return self.by_pipeline.get(pipeline_id, [])
+
+    def get_by_repo(self, repo: str) -> list[str]:
+        """Get checkpoint IDs for a source repository."""
+        return self.by_repo.get(repo, [])

@@ -311,6 +311,9 @@ def add_checkpoint_to_index_v2(
     if checkpoint.pipeline_id is not None:
         _append_to_index(index.by_pipeline, checkpoint.pipeline_id, checkpoint.id)
 
+    if checkpoint.repo is not None:
+        _append_to_index(index.by_repo, checkpoint.repo, checkpoint.id)
+
     if checkpoint.session_status is not None:
         _append_to_index(index.by_status, checkpoint.session_status.value, checkpoint.id)
 
@@ -391,6 +394,7 @@ def filter_checkpoints_v2(
     agent_type: str | None = None,
     pipeline_phase: str | None = None,
     pipeline_id: str | None = None,
+    repo: str | None = None,
     limit: int | None = None,
 ) -> list[CheckpointSummaryV2]:
     """
@@ -409,6 +413,7 @@ def filter_checkpoints_v2(
         agent_type: Filter by agent type value
         pipeline_phase: Filter by pipeline phase
         pipeline_id: Filter by pipeline run ID
+        repo: Filter by source repository (owner/repo format)
         limit: Maximum number of results
 
     Returns:
@@ -453,6 +458,9 @@ def filter_checkpoints_v2(
     if pipeline_id is not None:
         _intersect(index.get_by_pipeline(pipeline_id))
 
+    if repo is not None:
+        _intersect(index.get_by_repo(repo))
+
     # Filter summaries
     results = []
     for summary in index.checkpoints:
@@ -483,6 +491,7 @@ def list_checkpoints_v2(
     agent_type: str | None = None,
     pipeline_phase: str | None = None,
     pipeline_id: str | None = None,
+    repo: str | None = None,
     limit: int | None = None,
 ) -> list[CheckpointSummaryV2]:
     """
@@ -502,6 +511,7 @@ def list_checkpoints_v2(
         agent_type: Filter by agent type value
         pipeline_phase: Filter by pipeline phase
         pipeline_id: Filter by pipeline run ID
+        repo: Filter by source repository (owner/repo format)
         limit: Maximum number of results
 
     Returns:
@@ -523,5 +533,6 @@ def list_checkpoints_v2(
         agent_type=agent_type,
         pipeline_phase=pipeline_phase,
         pipeline_id=pipeline_id,
+        repo=repo,
         limit=limit,
     )
