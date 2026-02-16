@@ -2112,6 +2112,7 @@ def _run_multi_agent_phase(
             sandbox_command=sandbox_command,
             store=store,
             certs_volume=certs_volume,
+            branch=pipeline.branch,
         )
 
         with logs_lock:
@@ -2238,6 +2239,7 @@ def _spawn_and_wait(
     timeout: int = 3600,
     store=None,
     certs_volume: str | None = None,
+    branch: str | None = None,
 ) -> tuple[int, str]:
     """Spawn a container, wait for it to exit, clean up, return (exit_code, logs).
 
@@ -2272,6 +2274,7 @@ def _spawn_and_wait(
         command=sandbox_command,
         repo_volumes=repo_volumes,
         certs_volume=certs_volume,
+        branch=branch,
     )
 
     # Record container and agent in phase execution state
@@ -3065,6 +3068,8 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                 "EGG_ORCHESTRATOR_URL": orchestrator_url,
                 "EGG_ORCHESTRATOR_MODE": "distributed",
             }
+            if pipeline.branch:
+                sandbox_env["EGG_BRANCH"] = pipeline.branch
             if pipeline.prompt:
                 sandbox_env["EGG_PIPELINE_PROMPT"] = pipeline.prompt
 
@@ -3221,6 +3226,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                             sandbox_command=sandbox_command,
                             store=store,
                             certs_volume=certs_volume,
+                            branch=pipeline.branch,
                         )
                     except ContainerSpawnError as e:
                         with get_pipeline_state_lock(pipeline_id):
@@ -3329,6 +3335,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                                 timeout=1800,
                                 store=store,
                                 certs_volume=certs_volume,
+                                branch=pipeline.branch,
                             )
                         except ContainerSpawnError as e:
                             logger.warning(
@@ -3398,6 +3405,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                                 sandbox_command=autofix_command,
                                 store=store,
                                 certs_volume=certs_volume,
+                                branch=pipeline.branch,
                             )
                         except ContainerSpawnError as e:
                             logger.warning(
@@ -3510,6 +3518,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                             timeout=1800,
                             store=store,
                             certs_volume=certs_volume,
+                            branch=_pipeline.branch,
                         )
                     except Exception as e:
                         logger.warning(

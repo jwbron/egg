@@ -2552,6 +2552,7 @@ def session_create() -> tuple[Response, int] | Response:
     pr_number = data.get("pr_number")  # Optional GitHub PR number
     agent_role = data.get("agent_role")  # Optional agent role
     claude_code_version = data.get("claude_code_version")  # Optional Claude Code version
+    branch = data.get("branch")  # Optional git branch for non-pushing sessions
 
     # Validate required fields
     if not container_id:
@@ -2603,6 +2604,13 @@ def session_create() -> tuple[Response, int] | Response:
             return make_error("Invalid claude_code_version: must be a string")
         if len(claude_code_version) > 64:
             return make_error("Invalid claude_code_version: must be 64 characters or fewer")
+
+    # Validate branch if provided
+    if branch is not None:
+        if not isinstance(branch, str):
+            return make_error("Invalid branch: must be a string")
+        if len(branch) > 256:
+            return make_error("Invalid branch: must be 256 characters or fewer")
 
     # Step 1: Query visibility for all repos
     repo_visibilities = {}
@@ -2711,6 +2719,7 @@ def session_create() -> tuple[Response, int] | Response:
         pr_number=pr_number,
         agent_role=agent_role,
         claude_code_version=claude_code_version,
+        branch=branch,
     )
 
     # Pre-populate checkpoint context so non-pushing sessions (reviewers,

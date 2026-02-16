@@ -1367,6 +1367,47 @@ class TestSessionPipelineId:
         assert session.pipeline_id is None
 
 
+class TestSessionBranchPropagation:
+    """Tests for branch propagation in register_session."""
+
+    def test_register_session_with_branch(self, tmp_path):
+        """register_session sets session.last_branch when branch is provided."""
+        manager = SessionManager(persistence_file=tmp_path / "sessions.json")
+        token, session = manager.register_session(
+            container_id="test-container",
+            container_ip="172.18.0.5",
+            mode="private",
+            branch="egg/fix-auth-bug",
+        )
+        assert session.last_branch == "egg/fix-auth-bug"
+
+    def test_register_session_without_branch(self, tmp_path):
+        """register_session leaves last_branch as None when branch is omitted."""
+        manager = SessionManager(persistence_file=tmp_path / "sessions.json")
+        token, session = manager.register_session(
+            container_id="test-container",
+            container_ip="172.18.0.5",
+            mode="private",
+        )
+        assert session.last_branch is None
+
+    def test_register_session_branch_persists(self, tmp_path):
+        """Branch set during registration persists across save/load."""
+        persistence_file = tmp_path / "sessions.json"
+        manager = SessionManager(persistence_file=persistence_file)
+        token, session = manager.register_session(
+            container_id="test-container",
+            container_ip="172.18.0.5",
+            mode="private",
+            branch="egg/add-feature",
+        )
+        # Reload from disk
+        manager2 = SessionManager(persistence_file=persistence_file)
+        result = manager2.validate_session(token, source_ip="172.18.0.5")
+        assert result.session is not None
+        assert result.session.last_branch == "egg/add-feature"
+
+
 class TestSessionCheckpointFields:
     """Tests for Session checkpoint_repo and last_repo_path fields."""
 
