@@ -6,7 +6,7 @@
   "mode": "issue",
   "prompt": null,
   "status": "running",
-  "current_phase": "refine",
+  "current_phase": "plan",
   "config": {
     "auto_create_pr": true,
     "multi_agent": true,
@@ -126,10 +126,10 @@
     }
   ],
   "created_at": "2026-02-16T23:25:21.059858",
-  "updated_at": "2026-02-16T23:40:20.921641",
+  "updated_at": "2026-02-16T23:40:20.940637",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
   "error": null,
-  "version": 18
+  "version": 19
 }
