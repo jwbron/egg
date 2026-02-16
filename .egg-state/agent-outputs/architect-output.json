@@ -1,0 +1,384 @@
+{
+  "issue": 644,
+  "phase": "plan",
+  "agent": "architect",
+  "title": "Enforce phase file restrictions via readonly mounts and commit-time validation",
+  "summary": "Architecture analysis for closing three enforcement gaps in the gateway's phase file restriction system: local modification bypass, unrestricted branch switching, and late enforcement token waste. The solution is a four-layer defense-in-depth approach: branch lock, readonly filesystem mounts, commit-time gateway validation, and post-agent auto-commit.",
+
+  "problem_statement": {
+    "description": "The gateway's file restriction enforcement only fires on git push. Three gaps exist: (1) agents can modify protected files locally without pushing, and the orchestrator may read those modifications from the worktree; (2) agents can switch branches freely, breaking the deterministic post-agent commit/push invariant; (3) agents waste tokens discovering restrictions only at push time after spending tokens on read/modify/stage/commit/push cycles.",
+    "goals": [
+      "Close the local modification bypass by enforcing restrictions at the filesystem level",
+      "Lock agents to their assigned branch for deterministic post-agent work capture",
+      "Shift enforcement earlier (filesystem > commit-time > push-time) to reduce token waste",
+      "Auto-commit and push uncommitted work after agent completion to prevent silent work loss",
+      "Wire the existing but unused agent-role restrictions into the push handler"
+    ]
+  },
+
+  "current_architecture": {
+    "enforcement_layers": {
+      "push_time_phase_restrictions": {
+        "location": "gateway/gateway.py git_push() handler",
+        "mechanism": "get_changed_files_in_push() extracts file list via git diff, then check_phase_file_restrictions() validates against per-phase patterns",
+        "patterns": "Defined in gateway/phase_filter.py _get_default_phase_file_restrictions() — refine/plan allow .egg-state/ only, implement blocks .egg-state/contracts|drafts|pipelines|reviews, pr allows everything",
+        "fail_closed": true,
+        "gap": "Only fires on push. Local modifications and commits are unrestricted."
+      },
+      "push_time_role_restrictions": {
+        "location": "gateway/gateway.py git_push() handler",
+        "mechanism": "check_file_restrictions() validates session.agent_role against role-based blocked patterns",
+        "gap": "Only checks 'implementer' role blocking .egg-state/contracts/. The more granular agent_restrictions.py (coder/tester/documenter/integrator patterns) exists but check_agent_restrictions() is never called from the push handler."
+      },
+      "git_execute_local_ops": {
+        "location": "gateway/gateway.py git_execute()",
+        "mechanism": "Validates operation is in GIT_ALLOWED_COMMANDS, validates args against per-operation allowlist, adds --no-verify for commit/merge/am",
+        "gap": "No phase or file restriction checks for commit, checkout, or switch operations"
+      }
+    },
+    "session_model": {
+      "location": "gateway/session_manager.py Session dataclass",
+      "fields": ["session_token_hash", "container_id", "container_ip", "mode", "phase", "agent_role", "issue_number", "pipeline_id", "last_branch", "last_repo_path"],
+      "note": "Session has phase and agent_role but no assigned_branch field. last_branch is set only after successful push."
+    },
+    "worktree_model": {
+      "location": "gateway/worktree_manager.py",
+      "branch_pattern": "egg/{container_id}/work",
+      "info_class": "WorktreeInfo with branch, worktree_path, git_dir fields",
+      "tracking": "_active_worktrees[container_id] -> WorktreeInfo"
+    },
+    "mount_pipeline": {
+      "data_structure": "MountSpec(mount_type, source, destination, readonly) in shared/egg_container/__init__.py",
+      "assembly": "container_spawner.py builds mounts list: repo bind mounts + git_shadow_mounts() + cert volume",
+      "readonly_support": "Already supported end-to-end: MountSpec(readonly=True) -> to_dockerpy_kwargs() sets ReadOnly:True, mount_spec_to_cli_args() appends ,readonly",
+      "phase_available": "spawn_agent_container() receives phase parameter, passes to gateway session registration",
+      "extensibility": "Mounts list is built incrementally, new MountSpec entries can be appended before build_sandbox_config()"
+    },
+    "cleanup_flow": {
+      "container_exit": "runtime.py _cleanup_session() -> calls gateway API DELETE /api/v1/sessions/{token}",
+      "session_deletion": "session_manager.py delete_session() -> _capture_and_cleanup_session() captures checkpoint",
+      "worktree_removal": "worktree_manager.py remove_worktree() checks for uncommitted changes, force removes",
+      "insertion_point": "Post-agent auto-commit should run between session deletion and worktree removal"
+    }
+  },
+
+  "recommended_approach": {
+    "name": "Four-layer defense-in-depth with incremental delivery",
+    "summary": "Implement all four enforcement layers from the issue proposal, structured as independently shippable units. Each layer addresses a different gap and provides defense-in-depth when combined.",
+
+    "layers": [
+      {
+        "id": "L0",
+        "title": "Branch lock — prevent agents from switching branches",
+        "priority": "P0 — highest value, lowest risk",
+        "gap_addressed": "Gap 2: Unrestricted branch switching breaks deterministic post-agent commit/push",
+        "mechanism": "In git_execute(), intercept checkout and switch operations. Allow file-targeting operations (git checkout -- file.txt, git checkout HEAD -- path/) but block branch-switching operations (git checkout other-branch, git checkout -b new-branch, git switch --create new-branch).",
+        "detection_heuristic": {
+          "description": "Distinguish branch-switching from file-checkout by analyzing the validated arguments",
+          "rules": [
+            "If --  separator is present: everything after it is file paths (allowed)",
+            "If -b, -B, --create, --force-create, -c, -C flags are present: branch create (blocked)",
+            "If --detach, -d flags present on switch: detach (blocked)",
+            "If no -- and no branch-create flags: check if first non-flag argument is an existing ref via git rev-parse --verify. If it resolves to a ref and is not the assigned branch, block it. If it doesn't resolve, treat as file path (git will error naturally if wrong)",
+            "Edge case: git checkout HEAD file.txt (no --) — HEAD resolves as a ref but is followed by a file path. Handle by checking if subsequent args are existing files in the worktree"
+          ],
+          "conservative_alternative": "Simpler approach: always block checkout/switch if -b/-B/-c/-C/--create/--force-create flags are present, or if no -- separator is present AND the first non-flag arg resolves as a branch/ref different from the assigned branch. Allow anything with -- separator or with no non-flag args (bare checkout/switch for status)."
+        },
+        "session_changes": {
+          "add_field": "assigned_branch: str | None = None on Session dataclass",
+          "set_during": "Session registration, populated from WorktreeInfo.branch during worktree creation",
+          "used_by": "git_execute() reads g.session.assigned_branch to validate checkout/switch"
+        },
+        "error_message": "Branch switching is disabled. You are on branch 'egg/{container_id}/work' — all your work should be committed here. Use 'git checkout -- <file>' to restore individual files.",
+        "files_to_modify": [
+          {"path": "gateway/gateway.py", "change": "Add branch-switch detection in git_execute() for checkout/switch operations, after existing arg validation"},
+          {"path": "gateway/git_client.py", "change": "Add is_branch_switching(operation, args, assigned_branch, repo_path) helper that classifies checkout/switch args as branch-targeting vs file-targeting"},
+          {"path": "gateway/session_manager.py", "change": "Add assigned_branch field to Session dataclass; populate during register_session()"},
+          {"path": "gateway/worktree_manager.py", "change": "Return branch name from create_worktree() (already does via WorktreeInfo); ensure session registration flow passes it through"}
+        ],
+        "test_strategy": "Unit tests in gateway/tests/: test branch-switching blocked, file-checkout allowed, -- separator handling, -b flag detection, bare checkout (no args) allowed"
+      },
+      {
+        "id": "L1",
+        "title": "Readonly filesystem mounts — primary file restriction enforcement",
+        "priority": "P1 — high value, higher risk (mount configuration)",
+        "gap_addressed": "Gap 1: Local-only modifications bypass phase restrictions",
+        "mechanism": "Mount phase-restricted directories as readonly in the container filesystem via Docker bind mounts. Each phase gets a new container, so mounts are set at creation time.",
+        "mount_strategy": {
+          "implement_phase": {
+            "approach": "Mount specific .egg-state/ subdirectories readonly",
+            "readonly_mounts": [
+              ".egg-state/contracts/ (readonly)",
+              ".egg-state/drafts/ (readonly)",
+              ".egg-state/pipelines/ (readonly)",
+              ".egg-state/reviews/ (readonly)"
+            ],
+            "writable": [".egg-state/checkpoints/", ".egg-state/agent-outputs/", "all source code"],
+            "rationale": "Only 4 subdirectories need blocking. Mounting them individually is simpler than readonly-root + writable overlays and avoids accidentally blocking source code."
+          },
+          "refine_plan_phases": {
+            "approach": "Mount entire repo readonly, overlay writable mounts for allowed .egg-state/ subdirs",
+            "readonly_mount": "Entire worktree root mounted readonly",
+            "writable_overlays": [
+              ".egg-state/contracts/ (writable)",
+              ".egg-state/drafts/ (writable)",
+              ".egg-state/checkpoints/ (writable)",
+              ".egg-state/agent-outputs/ (writable)",
+              ".egg-state/reviews/ (writable)"
+            ],
+            "rationale": "Refine/plan should not modify source code. Readonly root with writable overlays is the safest approach. Docker supports nested mounts where inner mounts override outer."
+          },
+          "pr_phase": {
+            "approach": "No readonly mounts",
+            "rationale": "PR phase has full write access"
+          }
+        },
+        "prerequisite": ".egg-state/ subdirectories must exist in the worktree before container starts. Add mkdir -p calls to worktree setup or a pre-spawn step in container_spawner.py.",
+        "marker_files": {
+          "description": "Place .egg-readonly marker files in readonly directories explaining the restriction and what to do instead",
+          "generation": "Created during worktree setup or pre-spawn, not manually maintained. Content is phase-specific.",
+          "example_content": "This directory is read-only during the 'implement' phase.\nContract files (.egg-state/contracts/) are managed by the orchestrator.\nUse `egg-contract` CLI to interact with the contract system.\nAttempting to write here will fail with 'Read-only file system'."
+        },
+        "mount_granularity_limitation": "Readonly mounts work at directory granularity. Fine-grained filename patterns (e.g., .egg-state/drafts/*analysis* vs .egg-state/drafts/*plan*) cannot be enforced via mounts. Layer 2 (commit-time validation) handles pattern-level restrictions as defense-in-depth.",
+        "files_to_modify": [
+          {"path": "shared/egg_container/__init__.py", "change": "Add phase_readonly_mounts(repo_volumes, phase) function that returns list[MountSpec] based on phase. Follows pattern of existing git_shadow_mounts()."},
+          {"path": "orchestrator/container_spawner.py", "change": "Call phase_readonly_mounts() during mount assembly in spawn_agent_container(), after git_shadow_mounts(). Pass phase parameter."},
+          {"path": "gateway/worktree_manager.py", "change": "Add ensure_egg_state_dirs() that creates required .egg-state/ subdirectories in the worktree before container spawn."}
+        ],
+        "test_strategy": "Unit tests for phase_readonly_mounts() output per phase. Integration tests (marked @pytest.mark.integration) with actual Docker containers to verify mount behavior, especially nested writable-over-readonly ordering.",
+        "risks": [
+          {"risk": "Incorrect mount configuration blocks all writes in the container", "mitigation": "Unit test mount specs per phase. Integration test in CI with actual container. Fail-open design: if phase is unknown, skip readonly mounts (log warning)."},
+          {"risk": "Docker nested mount ordering not deterministic", "mitigation": "Docker applies mounts in order. Inner mounts override outer. Validate with integration test that writable inner mount works over readonly outer mount."},
+          {"risk": ".egg-state/ dirs don't exist in worktree", "mitigation": "ensure_egg_state_dirs() creates them before container spawn. Also handle in mount generation: skip readonly mount if source path doesn't exist."}
+        ]
+      },
+      {
+        "id": "L2",
+        "title": "Commit-time gateway validation — defense-in-depth",
+        "priority": "P1 — high value, moderate risk",
+        "gap_addressed": "Gap 3: Late enforcement wastes tokens (shifts enforcement from push to commit)",
+        "mechanism": "In git_execute(), when operation is 'commit', run git diff --cached --name-only to get staged files, then apply the same PhaseFileRestriction checks used at push time. Reject the commit with an actionable error if blocked files are staged.",
+        "flow": {
+          "steps": [
+            "Agent runs git commit -m 'message' via gateway",
+            "git_execute() validates args (existing logic)",
+            "NEW: If operation is 'commit' and session has a phase, run git diff --cached --name-only in the worktree",
+            "NEW: Apply check_phase_file_restrictions(session.phase, staged_files)",
+            "NEW: If blocked, return 403 with actionable error listing blocked files, unstage command, and alternative CLI",
+            "If allowed, proceed with existing commit execution"
+          ],
+          "also_check": "Agent-role restrictions via check_agent_restrictions(session.agent_role, staged_files) — this is the fix for the dead-code bug identified in the issue comment"
+        },
+        "error_message_format": "Phase '{phase}' cannot commit changes to {blocked_paths}.\n\nBlocked files:\n  - {file1}\n  - {file2}\n\nTo unstage these files: git reset HEAD {blocked_path}\nTo interact with contracts: egg-contract show",
+        "complementary_to_l1": "Readonly mounts (L1) prevent files from being modified at all. Commit-time validation (L2) catches cases where mounts can't enforce the restriction (filename patterns like .egg-state/drafts/*analysis*) and serves as a safety net if mounts are misconfigured.",
+        "agent_role_wiring": {
+          "description": "Wire the existing check_agent_restrictions() function into git_push() handler. Currently, check_file_restrictions() checks role='implementer' against blocked_patterns, but the more granular agent_restrictions.py (coder/tester/documenter patterns) is never invoked.",
+          "change": "In git_push(), after existing role-based check, also call check_agent_restrictions(session.agent_role, changed_files) if session has an agent_role. Apply same logic at commit time.",
+          "note": "This is a one-line addition to the push handler but closes a significant enforcement gap."
+        },
+        "files_to_modify": [
+          {"path": "gateway/gateway.py", "change": "In git_execute(), add commit-time file validation after arg validation. Extract staged files via subprocess git diff --cached --name-only. Apply phase + agent-role restrictions. Also add check_agent_restrictions() call in git_push()."},
+          {"path": "gateway/git_client.py", "change": "Add get_staged_files(repo_path) helper that runs git diff --cached --name-only and returns file list."}
+        ],
+        "test_strategy": "Unit tests: mock subprocess for staged file list, verify phase restrictions applied, verify actionable error message format. Test agent-role restriction wiring in push handler."
+      },
+      {
+        "id": "L4",
+        "title": "Post-agent auto-commit and push",
+        "priority": "P2 — moderate value, moderate risk",
+        "gap_addressed": "Prevents silent work loss when agent exits without committing/pushing",
+        "mechanism": "After agent container exits but before worktree cleanup, a script checks for uncommitted changes, filters them against phase restrictions, commits allowed files, and pushes to remote.",
+        "execution_context": {
+          "where": "Runs in the gateway/orchestrator process (host-side), not inside the agent container",
+          "when": "After container exits, before worktree removal. Integration point: session_manager.py _capture_and_cleanup_session() or a new callback in the cleanup chain.",
+          "access": "Direct git access to worktree (no gateway proxy needed since this is host-side code)"
+        },
+        "flow": [
+          "Receive container_id, resolve worktree path + assigned branch from WorktreeInfo",
+          "Run git status --porcelain in worktree to detect uncommitted changes",
+          "If changes exist: get modified file list via git diff --name-only + git diff --cached --name-only",
+          "Filter against phase restrictions (reuse PhaseFileRestriction logic) — only commit allowed files",
+          "If blocked files were modified locally: log warning, run git checkout -- <blocked_files> to restore them",
+          "Stage allowed files: git add <allowed_files>",
+          "Commit: 'auto-commit: uncommitted changes from agent {container_id}', author egg <egg@localhost>",
+          "Push: git push origin {assigned_branch}",
+          "If push fails: log error, include in session-end checkpoint"
+        ],
+        "files_to_create": [
+          {"path": "gateway/post_agent_commit.py", "purpose": "Auto-commit+push logic. Importable as a function for testing."}
+        ],
+        "files_to_modify": [
+          {"path": "gateway/session_manager.py", "change": "Call post_agent_commit() from _capture_and_cleanup_session() before worktree cleanup"},
+          {"path": "gateway/worktree_manager.py", "change": "Expose worktree path lookup by container_id (may already be available via _active_worktrees)"}
+        ],
+        "test_strategy": "Unit tests: mock git subprocess calls, verify only allowed files committed, blocked files restored. Test push failure handling.",
+        "risks": [
+          {"risk": "Auto-commit creates noisy commits with unintended partial work", "mitigation": "Only commits if there are uncommitted changes. Commit message clearly identifies it as auto-commit. Agent can still commit and push explicitly during its session."},
+          {"risk": "Race condition between checkpoint capture and auto-commit", "mitigation": "Auto-commit runs before checkpoint capture. Checkpoint includes auto-commit SHA if applicable."}
+        ]
+      }
+    ],
+
+    "agent_instructions_update": {
+      "description": "Update sandbox/.claude/rules/mission.md to reflect new constraints",
+      "sections_to_add": [
+        {
+          "topic": "Branch lock",
+          "content": "You are on a fixed branch for this session. Do not attempt to switch or create branches — these operations are blocked. Your branch name is available via git branch --show-current."
+        },
+        {
+          "topic": "Phase restrictions",
+          "content": "Depending on your phase, some directories are read-only. If you see 'Read-only file system', check the .egg-readonly marker file in that directory for guidance. Do not retry — the restriction is intentional."
+        },
+        {
+          "topic": "Auto-commit/push",
+          "content": "When your session ends, any uncommitted changes to allowed files are automatically committed and pushed. You should still commit and push your own work as you go (for checkpoint tracking), but nothing will be lost if you don't."
+        },
+        {
+          "topic": "Phase-specific guidance",
+          "content": "Implement: You can modify source code, tests, and documentation. You cannot modify .egg-state/contracts/, .egg-state/drafts/, .egg-state/pipelines/, or .egg-state/reviews/. Use egg-contract CLI for contract operations. Refine/Plan: You can modify .egg-state/ subdirectories. Source code is read-only. PR: All files are writable."
+        }
+      ],
+      "file": "sandbox/.claude/rules/mission.md"
+    },
+
+    "rationale": [
+      "The issue provides a prescriptive, well-thought-out solution. Analysis confirmed the identified gaps are real and the proposed layers are sound.",
+      "Each layer addresses a different gap: L0 (determinism), L1 (local modification bypass), L2 (token waste + fine-grained patterns), L4 (work loss prevention).",
+      "The existing mount infrastructure (MountSpec, to_dockerpy_kwargs, mount_spec_to_cli_args) already supports readonly mounts end-to-end.",
+      "Phase is already available in session registration and container spawning, so no new plumbing needed to pass it to mount generation.",
+      "The agent-role restriction dead code is a straightforward fix that should be included since this issue is about comprehensive enforcement."
+    ],
+
+    "constraints": [
+      "Each phase runs in a new container — readonly mounts can be set at creation time without dynamic updates",
+      "Docker nested mounts work (inner writable overrides outer readonly) but mount order matters",
+      "Bind mount source paths must exist before container creation",
+      "Readonly mounts operate at directory granularity, not filename patterns — commit-time validation is needed for fine-grained patterns",
+      "Post-agent auto-commit runs on the host side with direct git access, must reuse phase restriction logic from gateway",
+      "The gateway's git_cmd() wrapper always disables hooks (core.hooksPath=/dev/null) and adds --no-verify — auto-commit should use the same approach",
+      "Session already tracks phase and agent_role but not assigned_branch"
+    ],
+
+    "alternatives_considered": [
+      {
+        "name": "Gateway-only enforcement (no readonly mounts)",
+        "description": "Implement branch lock + commit-time validation only. Skip readonly mounts and post-agent auto-commit.",
+        "rejected_because": "Does not close Gap 1 (local modification bypass). Agents can still modify protected files locally and the orchestrator could read them from the worktree, which is critical for #641 (DinD deployment validation)."
+      },
+      {
+        "name": "Readonly mounts only (no branch lock or commit-time validation)",
+        "description": "Mount protected directories readonly. No gateway-level validation changes.",
+        "rejected_because": "Does not address Gap 2 (branch switching). Also cannot enforce fine-grained filename patterns (e.g., .egg-state/drafts/*analysis* vs .egg-state/drafts/*plan*) since mounts are directory-granular."
+      },
+      {
+        "name": "Inotify-based monitoring instead of readonly mounts",
+        "description": "Use filesystem watchers to detect and revert unauthorized modifications.",
+        "rejected_because": "Reactive instead of preventive. More complex, race conditions between detection and revert, doesn't prevent the modification from being read by concurrent processes."
+      },
+      {
+        "name": "chroot or user-level filesystem permissions",
+        "description": "Use Linux filesystem permissions (chown/chmod) to restrict write access.",
+        "rejected_because": "Containers run as a fixed user. Would need different UIDs for different file sets, adding complexity to the container setup. Readonly bind mounts are simpler and already supported by the mount infrastructure."
+      }
+    ]
+  },
+
+  "implementation_plan": {
+    "delivery_order": [
+      "L0 (branch lock) — smallest scope, no mount changes, unblocks deterministic post-agent work capture",
+      "L2 (commit-time validation + agent-role wiring) — moderate scope, gateway-only changes, immediate token savings",
+      "L1 (readonly mounts) — larger scope, touches container spawner and shared library, needs integration testing",
+      "L4 (post-agent auto-commit) — moderate scope, new module, depends on L0 for assigned_branch",
+      "Agent instructions update — can be done with any layer, ideally with L0"
+    ],
+    "note": "Each layer is independently shippable and testable. L0 and L2 can be implemented in parallel. L1 depends on neither but benefits from L2 for fine-grained patterns. L4 depends on L0 for assigned_branch.",
+
+    "key_files_touched": [
+      {"path": "gateway/gateway.py", "layers": ["L0", "L2"], "change": "Branch-switch detection in git_execute(); commit-time file validation; agent-role restriction wiring in git_push()"},
+      {"path": "gateway/git_client.py", "layers": ["L0", "L2"], "change": "is_branch_switching() helper; get_staged_files() helper"},
+      {"path": "gateway/session_manager.py", "layers": ["L0", "L4"], "change": "assigned_branch field on Session; post-agent-commit call in cleanup"},
+      {"path": "gateway/worktree_manager.py", "layers": ["L0", "L1"], "change": "Pass branch to session; ensure_egg_state_dirs()"},
+      {"path": "gateway/post_agent_commit.py", "layers": ["L4"], "change": "NEW — auto-commit+push logic"},
+      {"path": "shared/egg_container/__init__.py", "layers": ["L1"], "change": "phase_readonly_mounts() function"},
+      {"path": "orchestrator/container_spawner.py", "layers": ["L1"], "change": "Call phase_readonly_mounts() in mount assembly"},
+      {"path": "sandbox/.claude/rules/mission.md", "layers": ["L0", "L1", "L4"], "change": "Branch lock, phase restriction, auto-commit guidance"}
+    ],
+
+    "testing_requirements": [
+      {"layer": "L0", "type": "unit", "location": "gateway/tests/", "description": "Branch-switching detection: -b flag, -- separator, ref resolution, file-targeting checkout"},
+      {"layer": "L2", "type": "unit", "location": "gateway/tests/", "description": "Commit-time staged file extraction, phase restriction application, actionable error messages, agent-role restriction wiring"},
+      {"layer": "L1", "type": "unit", "location": "tests/shared/", "description": "phase_readonly_mounts() output correctness per phase"},
+      {"layer": "L1", "type": "integration", "location": "integration_tests/", "description": "Docker container with readonly mounts, verify write fails, nested writable overlay works"},
+      {"layer": "L4", "type": "unit", "location": "gateway/tests/", "description": "Auto-commit logic: only allowed files committed, blocked files restored, push failure handling"}
+    ]
+  },
+
+  "open_questions": [
+    {
+      "id": "Q1",
+      "question": "Should the branch lock allow git checkout -b for creating feature branches within the assigned branch?",
+      "context": "The issue says agents should be locked to egg/{container_id}/work. However, some workflows may want agents to create branches. The current proposal blocks all branch creation/switching.",
+      "recommendation": "Block all branch creation/switching. The worktree is already on a dedicated branch. If the agent needs to work on a different branch, the orchestrator should spawn a new container. This simplifies the invariant: one agent = one branch = deterministic capture."
+    },
+    {
+      "id": "Q2",
+      "question": "Should readonly mount errors be distinguishable from other filesystem errors in agent output?",
+      "context": "When an agent hits a readonly mount, it gets a generic 'Read-only file system' error from the OS. The .egg-readonly marker files help, but the agent needs to know to look for them.",
+      "recommendation": "Use .egg-readonly marker files as proposed. Also add a brief note in the agent instructions: 'If you see Read-only file system errors, check for .egg-readonly files in that directory.' This is sufficient — agents already handle filesystem errors."
+    },
+    {
+      "id": "Q3",
+      "question": "Should the post-agent auto-commit (L4) go through the gateway or use direct git access?",
+      "context": "The auto-commit runs on the host side (gateway process). It could use direct git (skipping its own validation) or route through the gateway API (applying all validations). Direct access is simpler but bypasses enforcement. Gateway routing applies restrictions but creates circular dependency (gateway calling itself).",
+      "recommendation": "Use direct git access with manual phase restriction checks (import and call PhaseFileRestriction logic directly). The auto-commit is a trusted, host-side operation — it IS the enforcement layer, not something that needs to be validated by the enforcement layer. Use git_cmd() wrapper to disable hooks."
+    },
+    {
+      "id": "Q4",
+      "question": "Should the implement phase readonly mounts block individual .egg-state/ subdirs or mount all of .egg-state/ readonly with writable overlays?",
+      "context": "Issue proposes individual subdirectory mounts. Alternative: mount .egg-state/ readonly and overlay writable mounts for checkpoints/ and agent-outputs/.",
+      "recommendation": "Use individual subdirectory readonly mounts for implement phase (4 mounts). The 'readonly root + writable overlays' approach is better for refine/plan (where source code is the large readonly surface). For implement phase, only 4 specific .egg-state/ subdirs need blocking — simpler to mount those 4 as readonly than to mount .egg-state/ readonly and carve out exceptions. Also avoids accidentally blocking .egg-state/ paths that may be added in the future."
+    }
+  ],
+
+  "risk_assessment": [
+    {
+      "risk": "Readonly mounts misconfigured, blocking agent from writing anywhere",
+      "severity": "HIGH",
+      "mitigation": "Extensive unit tests for mount spec generation per phase. Integration test with actual Docker container. Fail-open for unknown phases (no readonly mounts, log warning). Phase-specific smoke test in CI."
+    },
+    {
+      "risk": "Branch lock heuristic misclassifies file-checkout as branch-switch",
+      "severity": "MEDIUM",
+      "mitigation": "Conservative heuristic: only block if branch-create flags detected or argument resolves as a non-assigned ref. Always allow -- separator. Comprehensive unit test coverage for edge cases. If in doubt, allow (log warning) rather than block."
+    },
+    {
+      "risk": "Commit-time validation adds latency to every git commit",
+      "severity": "LOW",
+      "mitigation": "git diff --cached --name-only is fast (sub-100ms). Only runs when session has a phase (SDLC pipeline). Non-pipeline commits are unaffected."
+    },
+    {
+      "risk": "Post-agent auto-commit creates unintended commits",
+      "severity": "MEDIUM",
+      "mitigation": "Auto-commit only runs if there are uncommitted changes to allowed files. Commit message clearly identifies auto-commit source. Agent is encouraged to commit explicitly during session. Auto-commit is a safety net, not primary workflow."
+    },
+    {
+      "risk": "Docker nested mount ordering is platform-dependent",
+      "severity": "LOW",
+      "mitigation": "Docker Engine documentation states inner mounts override outer mounts. Test with integration test on Linux (production platform). The mount order in the mounts list should place outer readonly mounts first, then inner writable overlays."
+    },
+    {
+      "risk": "Agent-role restriction wiring blocks legitimate pushes",
+      "severity": "LOW",
+      "mitigation": "Agent role patterns are well-defined in agent_restrictions.py with comprehensive tests. Unknown roles are allowed for backward compatibility. This is existing code being wired in, not new restriction logic."
+    }
+  ],
+
+  "metrics": {
+    "files_to_modify": 8,
+    "files_to_create": 1,
+    "enforcement_layers": 4,
+    "gaps_closed": 3,
+    "existing_dead_code_wired": 1
+  }
+}
