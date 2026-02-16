@@ -205,9 +205,9 @@ The pipeline creates a draft PR automatically when entering the implement phase.
 
 When a pipeline fails, the orchestrator automatically preserves work-in-progress by:
 
-1. **Preserving worktrees**: Skips cleanup of the pipeline's isolated git worktree so work is not lost
+1. **Emitting failure event**: Sends `pipeline.failed` event to terminate SSE streams
 2. **Best-effort push**: Attempts to push the worktree branch to remote for backup (continues if push fails)
-3. **Emitting failure event**: Sends `pipeline.failed` event to terminate SSE streams
+3. **Preserving worktrees**: Skips cleanup of the pipeline's isolated git worktree so work is not lost
 
 You can restart a failed pipeline from the failed phase using:
 

@@ -662,10 +662,10 @@ The local orchestrator's decision queue (`orchestrator/decision_queue.py`):
 
 When a pipeline phase fails (container exit code non-zero), the orchestrator:
 
-1. **Emits failure event**: Sends `pipeline.failed` event to terminate SSE streams
-2. **Preserves worktree**: Skips cleanup of the pipeline's isolated git worktree so in-progress work is not lost
+1. **Sets pipeline status to FAILED**: Marks the phase and pipeline as failed during phase execution
+2. **Emits failure event**: Sends `pipeline.failed` event to terminate SSE streams
 3. **Best-effort push**: Attempts to push the worktree branch to remote as a backup (using a temporary session token)
-4. **Sets pipeline status to FAILED**: Allows restart from the failed phase without losing state
+4. **Preserves worktree**: Skips cleanup in the `finally` block so in-progress work is not lost
 
 **Restart behavior**:
 - `egg-sdlc` CLI detects failed pipelines and automatically restarts from the failed phase (preserving worktrees)
