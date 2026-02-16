@@ -223,7 +223,7 @@ class TestConstants:
         assert _BUFFER_WARNING_THRESHOLD == 50 * 1024 * 1024
 
 
-class TestResolveclaudeBin:
+class TestResolveClaudeBin:
     """Tests for _resolve_claude_bin function."""
 
     @patch("shutil.which", return_value="/usr/local/bin/claude")
