@@ -240,19 +240,18 @@ The orchestrator runs multiple specialized reviewers in parallel, with phase-spe
 | Phase | Reviewers | Focus |
 |-------|-----------|-------|
 | **Refine** | Refine, Agent-Design | Analysis quality, agent-mode alignment |
-| **Plan** | Unified, Plan | Plan quality, plan-specific criteria |
-| **Implement** | Unified, Contract, Code | Quality, contract, security |
+| **Plan** | Plan | Plan quality, task breakdown, alignment with analysis |
+| **Implement** | Contract, Code | Contract fulfillment, security, correctness |
 
 **Specialized Reviewers:**
 
 | Reviewer | Focus |
 |----------|-------|
-| **Unified** | Phase-specific quality criteria (general) |
 | **Refine** | Analysis quality, research depth, options evaluation |
-| **Plan** | Task breakdown, dependencies, test strategy |
+| **Plan** | Task breakdown, dependencies, test strategy, alignment with analysis |
 | **Agent-Design** | Agent-mode design alignment (anti-patterns) |
 | **Contract** | Task completion, acceptance criteria |
-| **Code** | Security, correctness, robustness |
+| **Code** | Security, correctness, robustness, testing, documentation |
 
 **Verdict Aggregation:**
 - All reviewers run in parallel
@@ -332,7 +331,7 @@ The refine and plan phases include an automated internal review step before huma
 **Review Verdict JSON Schema:**
 ```json
 {
-  "reviewer": "unified" | "agent-design" | "contract" | "code",
+  "reviewer": "refine" | "plan" | "agent-design" | "contract" | "code",
   "verdict": "approved" | "needs_revision",
   "summary": "Brief summary of findings",
   "feedback": "Detailed feedback (empty if approved)",
