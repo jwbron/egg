@@ -4,7 +4,7 @@ A structurally enforced SDLC pipeline for autonomous LLM agents — turning task
 
 > *Inspired by Andy Weir's short story "The Egg" — a contained environment where development happens before emerging into the world. The agent works inside the egg; when ready, it "hatches" via human review and merge.*
 
-**Note**: this project is currently under heavy development. The core workflow is functional, but continually being refined and refactored. Expect breakages and changing behavior for the forseeable future.
+**Note**: this project is currently under heavy development. The core workflow is functional, but continually being refined and refactored. Expect breakages and changing behavior for the foreseeable future.
 
 ## How It Works
 
@@ -31,6 +31,8 @@ The `egg-sdlc` CLI supports two modes:
 - **Local mode** (`egg-sdlc` with no args): Prompt-driven pipeline that runs entirely locally
 
 Both modes create a pipeline in the orchestrator, which spawns sandbox containers to execute each phase as a DAG. Pipeline state lives in a JSON contract (`.egg-state/contracts/{identifier}.json`) committed to the feature branch, giving full auditability of every phase transition.
+
+**Short-circuit mode**: For simple tasks (typos, small bug fixes, config changes), the refine phase can signal `short_circuit: true` to skip the plan phase entirely and jump straight to implementation. This avoids unnecessary overhead for work that doesn't need task breakdown or risk analysis.
 
 For convenience, the `/sdlc` skill inside the `egg` interactive session redirects to `egg-sdlc`, so you can invoke it either way.
 
@@ -109,6 +111,16 @@ Each pipeline phase has a defined set of permitted operations:
 - **Zero credential exposure**: Anthropic API requests route through gateway; GitHub operations use wrappers that call gateway API. Container environment is sanitized.
 - **Git isolation**: Each agent gets an isolated worktree. The `.git/` directory is shadowed (tmpfs mount) — the agent cannot access git metadata directly.
 - **Network modes**: Public mode allows full internet + credential-injected API calls. Private mode restricts to Anthropic API + private GitHub repos only.
+
+### Why Wrappers, Not MCP
+
+MCP servers front-load tool schemas, parameter descriptions, and usage instructions into the agent's context before it does anything. For a proprietary API or internal tool the agent has never seen, that cost is justified — without it, the agent is blind.
+
+But for `git`, `gh`, `curl`, and standard CLI tools, agents already know how to use them. The training data *is* the documentation. Re-describing `git push` as an MCP tool wastes context and adds indirection to something the agent can already do natively.
+
+In egg, agents use these tools normally. Wrappers intercept operations and route them through the gateway, which enforces per-agent, per-phase restrictions. When an operation is denied, the agent gets a clear error explaining why — not upfront as a preamble, but at the exact moment it matters. The agent doesn't need to be taught what it can do; it finds out what it can't, only when it tries.
+
+This keeps agents working with familiar tools in a predictable way, without burning context on tool definitions they don't need. MCP is the right choice for tools agents need to learn. Wrappers are the right choice for tools they already know.
 
 ## Multi-Agent Orchestration
 
@@ -315,6 +327,34 @@ For programmatic interaction with the orchestrator API (usable by both agents an
 
 All commands support `--json` for machine-readable output. Run `egg-orch <command> --help` for detailed usage.
 
+### egg-contract CLI
+
+For tracking SDLC pipeline progress (used by agents and humans):
+
+| Command | Description |
+|---------|-------------|
+| `egg-contract show` | View current contract state |
+| `egg-contract add-commit --task <id> --commit <sha>` | Link a commit to a task |
+| `egg-contract update-notes --task <id> --notes <text>` | Add implementation notes to a task |
+| `egg-contract add-decision --question <text> --options <a> <b>` | Create a HITL decision (multiple choice) |
+| `egg-contract add-feedback --question <text>` | Create a HITL feedback request (open-ended) |
+| `egg-contract verify-criterion --criterion <id>` | Mark acceptance criterion as verified (reviewer role) |
+| `egg-contract agent-status` | Show agent execution status for multi-agent orchestration |
+| `egg-contract agent-start --role <role>` | Mark an agent as started (running) |
+| `egg-contract agent-complete --role <role>` | Mark an agent as complete |
+| `egg-contract agent-fail --role <role> --error <msg>` | Mark an agent as failed |
+| `egg-contract agent-next` | Get the next wave of agents to dispatch |
+
+### egg-onboarding-docs CLI
+
+For generating repository documentation to onboard agents:
+
+| Command | Description |
+|---------|-------------|
+| `egg-onboarding-docs <name>` | Generate onboarding docs (`<name>` is a directory under `~/repos/`) |
+| `egg-onboarding-docs --dry-run <name>` | Survey and report without creating files or a PR |
+| `egg-onboarding-docs --scope <pattern> <name>` | Limit documentation to files matching the pattern |
+
 ### egg-checkpoint CLI
 
 For querying agent session checkpoints across multi-agent pipelines:
@@ -349,6 +389,27 @@ See the [Checkpoint Access Guide](docs/guides/checkpoint-access.md) for detailed
 | `--time` | Show startup timing breakdown for debugging |
 | `-v, --verbose` | Show detailed output instead of progress bar |
 
+## GitHub Action
+
+egg ships as a [composite GitHub Action](action/) for CI/CD integration. It powers automated PR workflows including code review, auto-fixing failing checks, merge conflict resolution, and review feedback addressing.
+
+```yaml
+- uses: jwbron/egg@main
+  with:
+    prompt: "Review this pull request"
+    anthropic-oauth-token: ${{ secrets.ANTHROPIC_OAUTH_TOKEN }}
+```
+
+The action supports bot identity via GitHub App credentials, dual-identity review (separate bot and reviewer apps), and both public/private network modes. See [action/README.md](action/README.md) for full input/output documentation.
+
+Built-in workflows (`.github/workflows/`) demonstrate usage for:
+- **PR review** (`on-pull-request.yml`) — AI code review on PR open/sync
+- **Auto-fix** (`on-check-failure.yml`) — Automatically fix failing CI checks
+- **Conflict resolution** (`on-merge-conflict.yml`) — Auto-resolve merge conflicts
+- **Review feedback** (`on-review-feedback.yml`) — Address review comments on bot PRs
+- **Doc updates** (`on-push-doc-updater.yml`) — Auto-update docs after merge
+- **Contract verification** (`on-pull-request-contract-verify.yml`) — Verify SDLC contract compliance
+
 ## Documentation
 
 ### SDLC Pipeline
@@ -369,6 +430,8 @@ See the [Checkpoint Access Guide](docs/guides/checkpoint-access.md) for detailed
 - [SDLC Pipeline](docs/adr/implemented/ADR-SDLC-Pipeline.md) — Structurally enforced agent checkpoints
 - [Git Isolation](docs/adr/implemented/ADR-Git-Isolation-Architecture.md) — Worktree isolation design
 - [Credential Injection](docs/adr/implemented/ADR-Gateway-Credential-Injection.md) — Zero-credential sandbox design
+- [Anthropic API Credential Injection](docs/adr/implemented/ADR-Anthropic-API-Credential-Injection.md) — Route API traffic through gateway
+- [Context Sync Strategy](docs/adr/implemented/ADR-Context-Sync-Strategy-Custom-vs-MCP.md) — Hybrid GitHub MCP + Confluence sync
 - [Declarative Setup](docs/adr/implemented/ADR-Declarative-Setup-Architecture.md) — Setup wizard architecture
 - [Standardized Logging](docs/adr/implemented/ADR-Standardized-Logging-Interface.md) — Structured logging interface
 - [All ADRs](docs/adr/README.md) — Complete index (7 implemented, 3 in-progress)
@@ -377,12 +440,15 @@ See the [Checkpoint Access Guide](docs/guides/checkpoint-access.md) for detailed
 
 - [Shared Libraries](shared/README.md) — Config, logging, and git utilities
 - [Configuration](config/README.md) — Repository and host configuration
+- [GitHub Action](action/README.md) — CI/CD composite action for PR automation
 
 ### Guides
 
 - [Local Quickstart](docs/guides/local-quickstart.md) — Get running locally with PAT authentication
 - [Deployment Guide](docs/guides/deployment.md) — Deployment options
 - [Deploy Migration](docs/guides/deploy-migration.md) — Migrating from legacy deployments
+- [GitHub Automation](docs/guides/github-automation.md) — PR review, auto-fix, and conflict resolution workflows
+- [Reusable Workflows](docs/guides/reusable-workflows.md) — Shared GitHub Actions workflow components
 - [Agent Development](docs/guides/agent-development.md) — Developing agent strategies
 - [Agent Mode Design](docs/guides/agent-mode-design.md) — When to use constraints vs. freedom
 
