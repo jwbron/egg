@@ -111,6 +111,7 @@ Browse and query checkpoints via the `egg-checkpoint` CLI:
 - `--issue <n>` — Filter by issue number
 - `--pr <n>` — Filter by PR number
 - `--pipeline <id>` — Filter by pipeline run ID (for multi-agent workflows)
+- `--repo <owner/repo>` — Filter by source repository
 - `--session <id>` — Filter by session ID
 - `--trigger <commit|session_end>` — Filter by trigger type
 - `--status <completed|expired|failed>` — Filter by session status

@@ -52,6 +52,8 @@ Group checkpoints by session for an issue.
 egg-checkpoint browse --issue 530
 ```
 
+**Flags**: `--issue`, `--repo`, `--limit`, `--json`
+
 ### `egg-checkpoint context`
 
 Cross-agent context summary grouped by phase and agent type.
