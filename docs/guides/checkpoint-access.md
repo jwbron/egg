@@ -71,6 +71,28 @@ egg-checkpoint context --pipeline $EGG_PIPELINE_ID --json
 
 **Flags**: `--pipeline`, `--issue`, `--agent-type`, `--phase`, `--repo`, `--files`, `--limit`, `--json`
 
+### `egg-checkpoint cost`
+
+Show cost breakdown (token usage and USD) aggregated by phase and agent type.
+
+```bash
+# Cost for a specific pipeline
+egg-checkpoint cost --pipeline $EGG_PIPELINE_ID
+
+# Cost for an issue
+egg-checkpoint cost --issue 530
+
+# Cost for a PR
+egg-checkpoint cost --pr 42
+
+# JSON output for programmatic use
+egg-checkpoint cost --issue 530 --json
+```
+
+**Flags**: `--pipeline`, `--issue`, `--pr`, `--limit`, `--json`
+
+**Output**: Displays a table with per-phase/per-agent breakdowns showing input tokens, output tokens, and estimated cost in USD. JSON output includes checkpoint count and detailed breakdown array.
+
 ## Filtering Guide
 
 All list/context filters use AND logic (all must match). Filters available:
@@ -118,6 +140,16 @@ egg-checkpoint list --issue $EGG_ISSUE_NUMBER --status failed
 
 # Show the transcript to understand what went wrong
 egg-checkpoint show ckpt-<id>
+```
+
+### Cost Tracking: See token usage and costs
+
+```bash
+# See total cost for this pipeline
+egg-checkpoint cost --pipeline $EGG_PIPELINE_ID
+
+# See cost breakdown for a specific issue
+egg-checkpoint cost --issue $EGG_ISSUE_NUMBER
 ```
 
 ## Programmatic Access
