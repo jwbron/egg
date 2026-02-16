@@ -5,7 +5,7 @@
   "branch": "egg/issue-644",
   "mode": "issue",
   "prompt": null,
-  "status": "failed",
+  "status": "running",
   "current_phase": "plan",
   "config": {
     "auto_create_pr": true,
@@ -101,7 +101,8 @@
         {
           "cycle": 0,
           "started_at": "2026-02-15T23:16:12.643158",
-          "completed_at": "2026-02-15T23:23:03.201711"
+          "completed_at": "2026-02-15T23:23:03.201711",
+          "commit_sha": null
         }
       ],
       "artifacts": {},
@@ -109,47 +110,24 @@
     },
     "plan": {
       "phase": "plan",
-      "status": "failed",
-      "started_at": "2026-02-15T23:30:28.772518",
-      "work_started_at": "2026-02-15T23:30:28.791721",
-      "completed_at": "2026-02-15T23:30:35.986665",
-      "containers": [
-        {
-          "container_id": "0941b20260ab8f8e5f19a7809a637d21bad4cad54a91cff4b48c9611abf515be",
-          "container_name": "egg-sandbox-egg-issue-644-architect",
-          "status": "exited",
-          "started_at": "2026-02-15T23:30:29.640552",
-          "exited_at": "2026-02-15T23:30:32.376161",
-          "exit_code": 1,
-          "agent_role": "architect",
-          "session_token": null
-        }
-      ],
-      "agents": [
-        {
-          "role": "architect",
-          "status": "failed",
-          "container_id": "0941b20260ab8f8e5f19a7809a637d21bad4cad54a91cff4b48c9611abf515be",
-          "started_at": "2026-02-15T23:30:29.640556",
-          "completed_at": "2026-02-15T23:30:32.376166",
-          "commit": null,
-          "outputs": {},
-          "error": "Container exited with code 1",
-          "retry_count": 0,
-          "conflicts": []
-        }
-      ],
+      "status": "pending",
+      "started_at": null,
+      "work_started_at": null,
+      "completed_at": null,
+      "containers": [],
+      "agents": [],
       "review_cycles": 0,
       "hitl_review_cycles": 0,
       "cycle_timings": [
         {
           "cycle": 0,
           "started_at": "2026-02-15T23:30:28.791721",
-          "completed_at": "2026-02-15T23:30:35.986654"
+          "completed_at": "2026-02-15T23:30:35.986654",
+          "commit_sha": null
         }
       ],
       "artifacts": {},
-      "error": "Container exited with code 1\n--- container logs (last 10 lines) ---\n2026-02-15T23:30:32.204336024Z     Status: healthy\n2026-02-15T23:30:32.204361858Z     GitHub token valid: True\n2026-02-15T23:30:32.204387525Z     Auth configured: True\n2026-02-15T23:30:32.204416233Z ✓ Gateway ready! (public mode - direct internet access)\n2026-02-15T23:30:32.204443816Z ✓ Anthropic API routed through gateway: http://egg-gateway:9848\n2026-02-15T23:30:32.204471150Z   Credentials injected by gateway (not in container)\n2026-02-15T23:30:32.204497733Z Signaled error to orchestrator\n2026-02-15T23:30:32.204523608Z \n2026-02-15T23:30:32.204547900Z Cleaning up on container exit...\n2026-02-15T23:30:32.204574067Z ✓ Cleanup complete"
+      "error": null
     }
   },
   "decisions": [
@@ -168,11 +146,11 @@
       "timeout_seconds": 3600
     }
   ],
-  "created_at": "2026-02-15T23:16:12.445769",
-  "updated_at": "2026-02-15T23:30:35.986877",
+  "created_at": "2026-02-16T23:22:08.700478",
+  "updated_at": "2026-02-16T23:22:08.700545",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
-  "error": "Container exited with code 1\n--- container logs (last 10 lines) ---\n2026-02-15T23:30:32.204336024Z     Status: healthy\n2026-02-15T23:30:32.204361858Z     GitHub token valid: True\n2026-02-15T23:30:32.204387525Z     Auth configured: True\n2026-02-15T23:30:32.204416233Z ✓ Gateway ready! (public mode - direct internet access)\n2026-02-15T23:30:32.204443816Z ✓ Anthropic API routed through gateway: http://egg-gateway:9848\n2026-02-15T23:30:32.204471150Z   Credentials injected by gateway (not in container)\n2026-02-15T23:30:32.204497733Z Signaled error to orchestrator\n2026-02-15T23:30:32.204523608Z \n2026-02-15T23:30:32.204547900Z Cleaning up on container exit...\n2026-02-15T23:30:32.204574067Z ✓ Cleanup complete",
-  "version": 24
+  "error": null,
+  "version": 25
 }
