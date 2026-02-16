@@ -488,24 +488,21 @@ def render_phase_detail(
             role = container.agent_role.value if container.agent_role else "worker"
             lines.append(f"  {c_status} {container.container_name[:20]} ({role})")
 
-    # Agent details, grouped by wave.
-    # Duplicate runs of the same role are collapsed with a count.
+    # Agent details — show ALL runs (no deduplication).
+    # The detail view intentionally preserves every execution so that
+    # commit SHAs and error messages from earlier runs are not lost.
+    # Deduplication is only applied in the DAG overview (_render_phase_box)
+    # where space is limited.
     if phase_exec.agents:
-        deduped_agents, run_counts = _deduplicate_agents(phase_exec.agents)
         lines.append("")
-        lines.append(f"Agents ({len(deduped_agents)}):")
-        wave_groups = _compute_wave_order(phase, deduped_agents)
-        mult = "x" if use_ascii else "\u00d7"
+        lines.append(f"Agents ({len(phase_exec.agents)}):")
+        wave_groups = _compute_wave_order(phase, phase_exec.agents)
         for wave_idx, wave in enumerate(wave_groups):
             if wave_idx > 0:
                 lines.append("")  # Blank line between waves
             for agent in wave:
                 a_status = _get_agent_status_symbol(agent.status, use_ascii)
-                count = run_counts.get(agent.role.value, 1)
-                if count > 1:
-                    lines.append(f"  {a_status} {agent.role.value} {mult}{count}")
-                else:
-                    lines.append(f"  {a_status} {agent.role.value}")
+                lines.append(f"  {a_status} {agent.role.value}")
                 if agent.commit:
                     lines.append(f"      Commit: {agent.commit[:8]}")
                 if agent.error:
@@ -622,6 +619,10 @@ def generate_status_report(
                     if phase.value in pipeline.phases
                     else 0
                 ),
+                # Agents are intentionally NOT deduplicated here.
+                # The API exposes raw execution data so clients can
+                # see every run (with commit/error per run).  Visual
+                # deduplication is only applied in _render_phase_box.
                 "agents": (
                     [
                         {"role": a.role.value, "status": a.status.value}

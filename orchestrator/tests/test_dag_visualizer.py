@@ -1209,8 +1209,8 @@ class TestRunCountDisplay:
         assert "x2" in result
         assert "\u00d7" not in result
 
-    def test_phase_detail_shows_count(self):
-        """Phase detail view also shows deduplicated run counts."""
+    def test_phase_detail_shows_all_runs(self):
+        """Phase detail view shows every run without deduplication."""
         phases = {
             "implement": PhaseExecution(
                 phase=PipelinePhase.IMPLEMENT,
@@ -1218,10 +1218,14 @@ class TestRunCountDisplay:
                 agents=[
                     AgentExecution(role=AgentRole.CODER, status=AgentExecutionStatus.COMPLETE),
                     AgentExecution(
-                        role=AgentRole.CHECKER, status=AgentExecutionStatus.COMPLETE
+                        role=AgentRole.CHECKER,
+                        status=AgentExecutionStatus.FAILED,
+                        error="lint failure",
                     ),
                     AgentExecution(
-                        role=AgentRole.CHECKER, status=AgentExecutionStatus.COMPLETE
+                        role=AgentRole.CHECKER,
+                        status=AgentExecutionStatus.COMPLETE,
+                        commit="abc12345",
                     ),
                 ],
             )
@@ -1229,10 +1233,15 @@ class TestRunCountDisplay:
         pipeline = create_test_pipeline(phases=phases)
         result = render_phase_detail(pipeline, PipelinePhase.IMPLEMENT)
 
-        # Should show "Agents (2):" (2 unique roles) not "Agents (3):"
-        assert "Agents (2):" in result
-        assert "×2" in result
-        assert result.count("checker") == 1
+        # Should show total agent count (all runs), not unique roles
+        assert "Agents (3):" in result
+        # Both checker runs should appear
+        assert result.count("checker") == 2
+        # Commit and error from different runs are preserved
+        assert "abc12345" in result
+        assert "lint failure" in result
+        # No dedup multiplier in the detail view
+        assert "×" not in result
 
     def test_full_scenario_from_issue(self):
         """Reproduce the exact scenario from issue #769."""
