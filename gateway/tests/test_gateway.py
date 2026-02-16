@@ -3747,3 +3747,159 @@ class TestSessionDeleteByContainerWorktreeCleanup:
             )
 
             assert response.status_code == 404
+
+
+class TestBranchIsolation:
+    """Tests for branch isolation enforcement in worktree sessions.
+
+    When a container has a worktree, branch-switching operations (checkout <branch>,
+    switch) should be blocked. File operations (checkout -- <file>, restore) should
+    still be allowed. See issue #773.
+    """
+
+    def _git_execute(self, client, auth_headers, operation, args=None, container_id="test-container"):
+        """Helper to call git_execute endpoint."""
+        return client.post(
+            "/api/v1/git/execute",
+            headers=auth_headers,
+            data=json.dumps(
+                {
+                    "repo_path": "/home/egg/repos/test",
+                    "operation": operation,
+                    "args": args or [],
+                    "container_id": container_id,
+                }
+            ),
+            content_type="application/json",
+        )
+
+    def test_checkout_branch_blocked_in_worktree(self, client, auth_headers):
+        """git checkout <branch> should be blocked when in a worktree."""
+        with patch.object(
+            gateway, "map_container_path_to_worktree",
+            return_value="/home/egg/.egg-worktrees/test-container/test",
+        ):
+            response = self._git_execute(client, auth_headers, "checkout", ["main"])
+
+            assert response.status_code == 403
+            data = json.loads(response.data)
+            assert "branch switching" in data["message"].lower()
+
+    def test_checkout_b_blocked_in_worktree(self, client, auth_headers):
+        """git checkout -b <branch> should be blocked when in a worktree."""
+        with patch.object(
+            gateway, "map_container_path_to_worktree",
+            return_value="/home/egg/.egg-worktrees/test-container/test",
+        ):
+            response = self._git_execute(
+                client, auth_headers, "checkout", ["-b", "new-branch", "origin/main"]
+            )
+
+            assert response.status_code == 403
+
+    def test_checkout_file_allowed_in_worktree(self, client, auth_headers):
+        """git checkout -- <file> should be allowed when in a worktree."""
+        with (
+            patch.object(
+                gateway, "map_container_path_to_worktree",
+                return_value="/home/egg/.egg-worktrees/test-container/test",
+            ),
+            patch("subprocess.run") as mock_run,
+        ):
+            mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+
+            response = self._git_execute(
+                client, auth_headers, "checkout", ["--", "file.txt"]
+            )
+
+            assert response.status_code == 200
+
+    def test_checkout_ours_allowed_in_worktree(self, client, auth_headers):
+        """git checkout --ours <file> should be allowed when in a worktree."""
+        with (
+            patch.object(
+                gateway, "map_container_path_to_worktree",
+                return_value="/home/egg/.egg-worktrees/test-container/test",
+            ),
+            patch("subprocess.run") as mock_run,
+        ):
+            mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+
+            response = self._git_execute(
+                client, auth_headers, "checkout", ["--ours", "file.txt"]
+            )
+
+            assert response.status_code == 200
+
+    def test_switch_blocked_in_worktree(self, client, auth_headers):
+        """git switch should be blocked when in a worktree."""
+        with patch.object(
+            gateway, "map_container_path_to_worktree",
+            return_value="/home/egg/.egg-worktrees/test-container/test",
+        ):
+            response = self._git_execute(client, auth_headers, "switch", ["main"])
+
+            assert response.status_code == 403
+            data = json.loads(response.data)
+            assert "branch switching" in data["message"].lower()
+
+    def test_switch_create_blocked_in_worktree(self, client, auth_headers):
+        """git switch --create should be blocked when in a worktree."""
+        with patch.object(
+            gateway, "map_container_path_to_worktree",
+            return_value="/home/egg/.egg-worktrees/test-container/test",
+        ):
+            response = self._git_execute(
+                client, auth_headers, "switch", ["--create", "new-branch"]
+            )
+
+            assert response.status_code == 403
+
+    def test_checkout_allowed_without_worktree(self, client, auth_headers):
+        """git checkout <branch> should be allowed without a worktree (interactive session)."""
+        with (
+            patch.object(
+                gateway, "map_container_path_to_worktree",
+                return_value="/home/egg/repos/test",
+            ),
+            patch("subprocess.run") as mock_run,
+        ):
+            mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+
+            response = self._git_execute(client, auth_headers, "checkout", ["-b", "new-branch"])
+
+            assert response.status_code == 200
+
+    def test_restore_allowed_in_worktree(self, client, auth_headers):
+        """git restore should be allowed when in a worktree (it's the file-restore alternative)."""
+        with (
+            patch.object(
+                gateway, "map_container_path_to_worktree",
+                return_value="/home/egg/.egg-worktrees/test-container/test",
+            ),
+            patch("subprocess.run") as mock_run,
+        ):
+            mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+
+            response = self._git_execute(
+                client, auth_headers, "restore", ["--staged", "file.txt"]
+            )
+
+            assert response.status_code == 200
+
+    def test_status_allowed_in_worktree(self, client, auth_headers):
+        """Non-branch-switching operations should be allowed in worktree."""
+        with (
+            patch.object(
+                gateway, "map_container_path_to_worktree",
+                return_value="/home/egg/.egg-worktrees/test-container/test",
+            ),
+            patch("subprocess.run") as mock_run,
+        ):
+            mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+
+            response = self._git_execute(
+                client, auth_headers, "status", ["--porcelain"]
+            )
+
+            assert response.status_code == 200

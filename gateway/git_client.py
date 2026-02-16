@@ -888,6 +888,104 @@ def validate_git_args(operation: str, args: list[str]) -> tuple[bool, str, list[
 
 
 # =============================================================================
+# Branch Isolation (Worktree Sessions)
+# =============================================================================
+
+# Flags that indicate a checkout is a file restore, not a branch switch
+_CHECKOUT_FILE_FLAGS = {"--ours", "--theirs", "--merge"}
+
+
+def is_branch_switching_checkout(args: list[str]) -> bool:
+    """
+    Determine if a ``git checkout`` invocation is switching branches.
+
+    In worktree sessions, agents must stay on their assigned branch.
+    ``git checkout`` is dual-purpose: it can switch branches *or* restore files.
+    This function distinguishes the two so the gateway can block only the
+    branch-switching form.
+
+    Rules:
+    - ``-b`` / ``-B`` present → branch creation → **switch** (True)
+    - ``--`` separator present → everything after is pathspecs → **file** (False)
+    - ``--ours`` / ``--theirs`` / ``--merge`` present → merge conflict resolution
+      → **file** (False)
+    - Positional (non-flag) args exist without ``--`` → ambiguous, assume branch
+      → **switch** (True)
+    - No positional args and no branch flags → harmless no-op → **file** (False)
+
+    Args:
+        args: The validated/normalized argument list for ``git checkout``.
+
+    Returns:
+        True if the command would switch branches; False if it is a file operation.
+    """
+    has_branch_create_flag = False
+    has_double_dash = False
+    has_file_flag = False
+    positional_args: list[str] = []
+
+    i = 0
+    while i < len(args):
+        arg = args[i]
+
+        if arg == "--":
+            has_double_dash = True
+            break  # Everything after -- is pathspecs
+
+        if arg.startswith("-"):
+            # Detect branch-creation flags
+            if arg in ("-b", "-B", "--track", "-t"):
+                has_branch_create_flag = True
+            # Detect file-operation flags
+            if arg.split("=")[0] in _CHECKOUT_FILE_FLAGS:
+                has_file_flag = True
+        else:
+            positional_args.append(arg)
+
+        i += 1
+
+    # Explicit branch creation
+    if has_branch_create_flag:
+        return True
+
+    # Explicit file operation (-- separator or merge conflict flags)
+    if has_double_dash or has_file_flag:
+        return False
+
+    # Positional args without -- could be a branch name
+    if positional_args:
+        return True
+
+    # No positional args, no branch flags — bare `git checkout` is a no-op
+    return False
+
+
+def is_branch_switching_operation(operation: str, args: list[str]) -> bool:
+    """
+    Check if a git operation would change the active branch.
+
+    Used by the gateway to enforce branch isolation in worktree sessions.
+    Agents in worktrees must stay on their assigned branch; they should use
+    ``git restore`` for file operations instead of ``git checkout``.
+
+    Args:
+        operation: The git sub-command (e.g., "checkout", "switch").
+        args: The validated/normalized argument list.
+
+    Returns:
+        True if the operation would switch or create a branch.
+    """
+    if operation == "switch":
+        # git switch is always branch-related — no file-restore form
+        return True
+
+    if operation == "checkout":
+        return is_branch_switching_checkout(args)
+
+    return False
+
+
+# =============================================================================
 # Credential Helper Management
 # =============================================================================
 

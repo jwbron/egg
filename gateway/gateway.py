@@ -67,6 +67,7 @@ try:
         get_changed_files_in_push,
         get_token_for_repo,
         git_cmd,
+        is_branch_switching_operation,
         is_repos_parent_directory,
         validate_git_args,
         validate_repo_path,
@@ -121,6 +122,7 @@ except ImportError:
         get_changed_files_in_push,
         get_token_for_repo,
         git_cmd,
+        is_branch_switching_operation,
         is_repos_parent_directory,
         validate_git_args,
         validate_repo_path,
@@ -1059,6 +1061,30 @@ def git_execute() -> tuple[Response, int] | Response:
 
     # Map container path to worktree path if container_id is provided
     exec_path = map_container_path_to_worktree(repo_path, container_id, operation)
+    is_worktree = exec_path != repo_path
+
+    # SECURITY: Enforce branch isolation in worktree sessions.
+    # Agents in worktrees must stay on their assigned branch (egg/{container_id}/work).
+    # Block checkout/switch operations that would change the active branch.
+    # Agents should use `git restore` for file operations instead. See issue #773.
+    if is_worktree and is_branch_switching_operation(operation, validated_args):
+        audit_log(
+            "git_execute_blocked",
+            operation,
+            success=False,
+            details={
+                "repo_path": repo_path,
+                "git_args": args,
+                "container_id": container_id,
+                "reason": "Branch switching blocked in worktree session",
+            },
+        )
+        return make_error(
+            f"Branch switching is not allowed in worktree sessions. "
+            f"You are locked to your assigned branch. "
+            f"Use 'git restore' for file operations instead of 'git checkout'.",
+            status_code=403,
+        )
 
     # SECURITY: Belt-and-suspenders hook prevention for operations that support it.
     # The primary protection is core.hooksPath=/dev/null in git_cmd() which disables
