@@ -8,8 +8,7 @@ Covers:
 - Non-integrator roles are unaffected by complexity_tier
 """
 
-import pytest
-from phase_filter import FileRestrictionResult, check_agent_restrictions
+from phase_filter import check_agent_restrictions
 
 
 class TestCheckAgentRestrictionsTier3:
@@ -112,16 +111,12 @@ class TestOtherRolesUnaffectedByTier:
     def test_coder_unaffected_by_high_tier(self):
         """Coder role behavior unchanged with complexity_tier='high'."""
         result_default = check_agent_restrictions("coder", ["src/main.py"])
-        result_high = check_agent_restrictions(
-            "coder", ["src/main.py"], complexity_tier="high"
-        )
+        result_high = check_agent_restrictions("coder", ["src/main.py"], complexity_tier="high")
         assert result_default.allowed == result_high.allowed
 
     def test_tester_unaffected_by_high_tier(self):
         """Tester role behavior unchanged with complexity_tier='high'."""
-        result_default = check_agent_restrictions(
-            "tester", ["tests/test_main.py"]
-        )
+        result_default = check_agent_restrictions("tester", ["tests/test_main.py"])
         result_high = check_agent_restrictions(
             "tester", ["tests/test_main.py"], complexity_tier="high"
         )

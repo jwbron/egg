@@ -86,9 +86,7 @@ class TestCompositeKeyLookup:
     def test_get_execution_with_phase_id(self):
         """get_execution returns phase-scoped execution."""
         state = OrchestrationState()
-        state.set_execution(
-            AgentRole.CODER, AgentExecutionStatus.PENDING, phase_id="phase-1"
-        )
+        state.set_execution(AgentRole.CODER, AgentExecutionStatus.PENDING, phase_id="phase-1")
 
         result = state.get_execution(AgentRole.CODER, phase_id="phase-1")
         assert result is not None
@@ -97,9 +95,7 @@ class TestCompositeKeyLookup:
     def test_get_execution_wrong_phase_returns_none(self):
         """get_execution returns None for wrong phase_id."""
         state = OrchestrationState()
-        state.set_execution(
-            AgentRole.CODER, AgentExecutionStatus.PENDING, phase_id="phase-1"
-        )
+        state.set_execution(AgentRole.CODER, AgentExecutionStatus.PENDING, phase_id="phase-1")
 
         result = state.get_execution(AgentRole.CODER, phase_id="phase-2")
         assert result is None
@@ -120,9 +116,7 @@ class TestCompositeKeyMarking:
     def test_mark_running_with_phase_id(self):
         """mark_running sets status for phase-scoped execution."""
         state = OrchestrationState()
-        state.set_execution(
-            AgentRole.CODER, AgentExecutionStatus.PENDING, phase_id="phase-1"
-        )
+        state.set_execution(AgentRole.CODER, AgentExecutionStatus.PENDING, phase_id="phase-1")
 
         state.mark_running(AgentRole.CODER, phase_id="phase-1")
         ex = state.get_execution(AgentRole.CODER, phase_id="phase-1")
@@ -132,9 +126,7 @@ class TestCompositeKeyMarking:
     def test_mark_complete_with_phase_id(self):
         """mark_complete sets status and commit for phase-scoped execution."""
         state = OrchestrationState()
-        state.set_execution(
-            AgentRole.CODER, AgentExecutionStatus.RUNNING, phase_id="phase-1"
-        )
+        state.set_execution(AgentRole.CODER, AgentExecutionStatus.RUNNING, phase_id="phase-1")
 
         state.mark_complete(AgentRole.CODER, commit="abc123", phase_id="phase-1")
         ex = state.get_execution(AgentRole.CODER, phase_id="phase-1")
@@ -145,9 +137,7 @@ class TestCompositeKeyMarking:
     def test_mark_failed_with_phase_id(self):
         """mark_failed sets status and error for phase-scoped execution."""
         state = OrchestrationState()
-        state.set_execution(
-            AgentRole.CODER, AgentExecutionStatus.RUNNING, phase_id="phase-1"
-        )
+        state.set_execution(AgentRole.CODER, AgentExecutionStatus.RUNNING, phase_id="phase-1")
 
         state.mark_failed(AgentRole.CODER, error="test error", phase_id="phase-1")
         ex = state.get_execution(AgentRole.CODER, phase_id="phase-1")
@@ -229,14 +219,11 @@ class TestToExecutionList:
     def test_to_execution_list_includes_phase_executions(self):
         """to_execution_list includes both role-only and phase-scoped executions."""
         state = OrchestrationState()
+        state.set_execution(AgentRole.CODER, AgentExecutionStatus.PENDING, phase_id="phase-1")
+        state.set_execution(AgentRole.CODER, AgentExecutionStatus.PENDING, phase_id="phase-2")
         state.set_execution(
-            AgentRole.CODER, AgentExecutionStatus.PENDING, phase_id="phase-1"
-        )
-        state.set_execution(
-            AgentRole.CODER, AgentExecutionStatus.PENDING, phase_id="phase-2"
-        )
-        state.set_execution(
-            AgentRole.TESTER, AgentExecutionStatus.PENDING,
+            AgentRole.TESTER,
+            AgentExecutionStatus.PENDING,
         )
 
         result = state.to_execution_list()
@@ -259,18 +246,14 @@ class TestPhaseScopedDispatch:
     def test_can_agent_run_phase_scoped(self):
         """can_agent_run checks phase-scoped status."""
         state = OrchestrationState()
-        state.set_execution(
-            AgentRole.CODER, AgentExecutionStatus.PENDING, phase_id="phase-1"
-        )
+        state.set_execution(AgentRole.CODER, AgentExecutionStatus.PENDING, phase_id="phase-1")
 
         assert can_agent_run(AgentRole.CODER, state, phase_id="phase-1")
 
     def test_can_agent_run_wrong_phase(self):
         """can_agent_run returns False for non-existent phase."""
         state = OrchestrationState()
-        state.set_execution(
-            AgentRole.CODER, AgentExecutionStatus.PENDING, phase_id="phase-1"
-        )
+        state.set_execution(AgentRole.CODER, AgentExecutionStatus.PENDING, phase_id="phase-1")
 
         assert not can_agent_run(AgentRole.CODER, state, phase_id="phase-2")
 
@@ -278,13 +261,9 @@ class TestPhaseScopedDispatch:
         """get_runnable_agents filters by phase_id."""
         state = OrchestrationState()
         # Phase 1: CODER pending
-        state.set_execution(
-            AgentRole.CODER, AgentExecutionStatus.PENDING, phase_id="phase-1"
-        )
+        state.set_execution(AgentRole.CODER, AgentExecutionStatus.PENDING, phase_id="phase-1")
         # Phase 2: CODER also pending
-        state.set_execution(
-            AgentRole.CODER, AgentExecutionStatus.PENDING, phase_id="phase-2"
-        )
+        state.set_execution(AgentRole.CODER, AgentExecutionStatus.PENDING, phase_id="phase-2")
 
         # Only phase-1 agents should be returned when scoped to phase-1
         runnable = get_runnable_agents(state, phase_id="phase-1")
@@ -294,12 +273,8 @@ class TestPhaseScopedDispatch:
         """Dependencies are checked within phase scope."""
         state = OrchestrationState()
         # Phase 1: CODER complete, TESTER pending
-        state.set_execution(
-            AgentRole.CODER, AgentExecutionStatus.COMPLETE, phase_id="phase-1"
-        )
-        state.set_execution(
-            AgentRole.TESTER, AgentExecutionStatus.PENDING, phase_id="phase-1"
-        )
+        state.set_execution(AgentRole.CODER, AgentExecutionStatus.COMPLETE, phase_id="phase-1")
+        state.set_execution(AgentRole.TESTER, AgentExecutionStatus.PENDING, phase_id="phase-1")
 
         # TESTER depends on CODER, which is complete in phase-1
         assert can_agent_run(AgentRole.TESTER, state, phase_id="phase-1")

@@ -9,7 +9,7 @@ Covers:
 """
 
 from pathlib import Path
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from worktree_manager import WorktreeInfo, WorktreeManager, WorktreeRemovalResult
@@ -125,9 +125,7 @@ class TestCleanupPhaseWorktrees:
     def test_cleanup_specific_phases(self, manager: WorktreeManager):
         """cleanup_phase_worktrees removes specific phase worktrees."""
         success_result = WorktreeRemovalResult(success=True)
-        with patch.object(
-            manager, "remove_worktree", return_value=success_result
-        ) as mock_remove:
+        with patch.object(manager, "remove_worktree", return_value=success_result) as mock_remove:
             results = manager.cleanup_phase_worktrees(
                 container_id="ctr-abc",
                 repo_name="myrepo",
@@ -159,9 +157,7 @@ class TestCleanupPhaseWorktrees:
         (repo_dir / "other-container").mkdir()  # Should not be cleaned
 
         success_result = WorktreeRemovalResult(success=True)
-        with patch.object(
-            manager, "remove_worktree", return_value=success_result
-        ) as mock_remove:
+        with patch.object(manager, "remove_worktree", return_value=success_result) as mock_remove:
             results = manager.cleanup_phase_worktrees(
                 container_id="ctr-abc",
                 repo_name="myrepo",
@@ -194,9 +190,7 @@ class TestCleanupPhaseWorktrees:
     def test_cleanup_sanitizes_phase_ids(self, manager: WorktreeManager):
         """cleanup_phase_worktrees sanitizes phase_ids for container_id construction."""
         success_result = WorktreeRemovalResult(success=True)
-        with patch.object(
-            manager, "remove_worktree", return_value=success_result
-        ) as mock_remove:
+        with patch.object(manager, "remove_worktree", return_value=success_result) as mock_remove:
             manager.cleanup_phase_worktrees(
                 container_id="ctr-abc",
                 repo_name="myrepo",

@@ -9,13 +9,12 @@ Covers:
 
 from __future__ import annotations
 
-import re
+import sys
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
-import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from models import ComplexityTier, Pipeline, PipelineConfig
@@ -71,6 +70,7 @@ class TestHighComplexitySignalDetection:
         """Import the signal detection function."""
         try:
             from pipelines import _check_high_complexity_signal, _get_draft_path
+
             self._check_signal = _check_high_complexity_signal
             self._get_draft_path = _get_draft_path
         except ImportError:
@@ -182,6 +182,7 @@ class TestPhaseScopedPrompt:
         """Import the prompt builder function."""
         try:
             from pipelines import _build_phase_scoped_prompt
+
             self._build = _build_phase_scoped_prompt
         except ImportError:
             pytest.skip("Cannot import pipelines module")
@@ -207,9 +208,7 @@ class TestPhaseScopedPrompt:
     def test_prompt_contains_phase_id(self, tmp_path: Path):
         """Phase-scoped prompt contains the phase ID."""
         phase = self._make_phase("phase-1", "Schema changes")
-        pipeline = Pipeline(
-            id="test-1", issue_number=42, repo="owner/repo", branch="egg/test"
-        )
+        pipeline = Pipeline(id="test-1", issue_number=42, repo="owner/repo", branch="egg/test")
 
         result = self._build(
             phase_obj=phase,
@@ -229,9 +228,7 @@ class TestPhaseScopedPrompt:
             self._make_task("TASK-1-2", "Update schema", ["schema.json"]),
         ]
         phase = self._make_phase("phase-1", "Schema changes", tasks)
-        pipeline = Pipeline(
-            id="test-1", issue_number=42, repo="owner/repo", branch="egg/test"
-        )
+        pipeline = Pipeline(id="test-1", issue_number=42, repo="owner/repo", branch="egg/test")
 
         result = self._build(
             phase_obj=phase,
@@ -249,9 +246,7 @@ class TestPhaseScopedPrompt:
     def test_prompt_scoped_instruction(self, tmp_path: Path):
         """Phase-scoped prompt instructs agent to only implement this phase."""
         phase = self._make_phase("phase-2", "Testing")
-        pipeline = Pipeline(
-            id="test-1", issue_number=42, repo="owner/repo", branch="egg/test"
-        )
+        pipeline = Pipeline(id="test-1", issue_number=42, repo="owner/repo", branch="egg/test")
 
         result = self._build(
             phase_obj=phase,
@@ -267,9 +262,7 @@ class TestPhaseScopedPrompt:
     def test_prompt_includes_review_feedback(self, tmp_path: Path):
         """Phase-scoped prompt includes review feedback on retries."""
         phase = self._make_phase("phase-1", "Schema changes")
-        pipeline = Pipeline(
-            id="test-1", issue_number=42, repo="owner/repo", branch="egg/test"
-        )
+        pipeline = Pipeline(id="test-1", issue_number=42, repo="owner/repo", branch="egg/test")
 
         result = self._build(
             phase_obj=phase,

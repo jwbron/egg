@@ -12,7 +12,6 @@ from __future__ import annotations
 
 from egg_contracts.agent_roles import AgentRole
 from egg_contracts.models import (
-    AgentExecutionModel,
     AgentExecutionStatus,
     AgentRoleType,
     Contract,
@@ -82,9 +81,7 @@ class TestOrchestratorStartAgent:
         orch = Orchestrator(contract, phase_id="phase-1")
 
         # Need to set up execution for phase-2 first
-        orch.state.set_execution(
-            AgentRole.CODER, AgentExecutionStatus.PENDING, phase_id="phase-2"
-        )
+        orch.state.set_execution(AgentRole.CODER, AgentExecutionStatus.PENDING, phase_id="phase-2")
 
         execution = orch.start_agent(AgentRole.CODER, phase_id="phase-2")
         assert execution.status == AgentExecutionStatus.RUNNING
@@ -119,9 +116,7 @@ class TestOrchestratorCompleteAgent:
 
         orch.start_agent(AgentRole.CODER)
         outputs = {"summary": "Implemented phase 1"}
-        execution = orch.complete_agent(
-            AgentRole.CODER, commit="abc123", outputs=outputs
-        )
+        execution = orch.complete_agent(AgentRole.CODER, commit="abc123", outputs=outputs)
 
         assert execution.status == AgentExecutionStatus.COMPLETE
         assert execution.outputs == outputs
@@ -132,14 +127,10 @@ class TestOrchestratorCompleteAgent:
         orch = Orchestrator(contract, phase_id="phase-1")
 
         # Set up and start for phase-2
-        orch.state.set_execution(
-            AgentRole.CODER, AgentExecutionStatus.PENDING, phase_id="phase-2"
-        )
+        orch.state.set_execution(AgentRole.CODER, AgentExecutionStatus.PENDING, phase_id="phase-2")
         orch.state.mark_running(AgentRole.CODER, phase_id="phase-2")
 
-        execution = orch.complete_agent(
-            AgentRole.CODER, commit="def456", phase_id="phase-2"
-        )
+        execution = orch.complete_agent(AgentRole.CODER, commit="def456", phase_id="phase-2")
         assert execution.status == AgentExecutionStatus.COMPLETE
         assert execution.commit == "def456"
 
@@ -164,14 +155,10 @@ class TestOrchestratorFailAgent:
         orch = Orchestrator(contract, phase_id="phase-1")
 
         # Set up and start for phase-2
-        orch.state.set_execution(
-            AgentRole.CODER, AgentExecutionStatus.PENDING, phase_id="phase-2"
-        )
+        orch.state.set_execution(AgentRole.CODER, AgentExecutionStatus.PENDING, phase_id="phase-2")
         orch.state.mark_running(AgentRole.CODER, phase_id="phase-2")
 
-        execution = orch.fail_agent(
-            AgentRole.CODER, error="phase-2 error", phase_id="phase-2"
-        )
+        execution = orch.fail_agent(AgentRole.CODER, error="phase-2 error", phase_id="phase-2")
         assert execution.status == AgentExecutionStatus.FAILED
         assert execution.error == "phase-2 error"
 
@@ -207,9 +194,7 @@ class TestOrchestratorGetNextDispatch:
 
         decision = orch.get_next_dispatch()
         # CODER is running, so should indicate waiting
-        assert decision.agents_to_run == [] or (
-            AgentRole.CODER not in decision.agents_to_run
-        )
+        assert decision.agents_to_run == [] or (AgentRole.CODER not in decision.agents_to_run)
 
     def test_dispatch_returns_failed_on_failure(self):
         """Dispatch returns failed decision when an agent fails."""
@@ -254,9 +239,7 @@ class TestOrchestratorPhaseIndependence:
         updated_contract = orch.apply_to_contract()
         # Find coder execution
         coder_execs = [
-            ex
-            for ex in updated_contract.agent_executions
-            if ex.role == AgentRoleType.CODER
+            ex for ex in updated_contract.agent_executions if ex.role == AgentRoleType.CODER
         ]
         assert len(coder_execs) > 0
         # At least one should have phase_id set

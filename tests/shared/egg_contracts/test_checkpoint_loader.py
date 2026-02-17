@@ -808,9 +808,7 @@ class TestListCheckpointsV2:
             add_checkpoint_to_index_v2(cp1, index_path)
             add_checkpoint_to_index_v2(cp2, index_path)
 
-            results = list_checkpoints_v2(
-                checkpoints_dir, index_path, repo="jwbron/egg"
-            )
+            results = list_checkpoints_v2(checkpoints_dir, index_path, repo="jwbron/egg")
             assert len(results) == 1
             assert results[0].id == "ckpt-aa00000001"
 

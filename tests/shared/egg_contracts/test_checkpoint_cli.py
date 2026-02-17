@@ -93,13 +93,12 @@ class TestCostCommand:
     @patch("egg_contracts.checkpoint_cli.filter_checkpoints_v2")
     @patch("egg_contracts.checkpoint_cli.load_index_from_ref")
     @patch("egg_contracts.checkpoint_cli.ensure_checkpoint_ref")
-    def test_cost_aggregation(
-        self, mock_ref, mock_index, mock_filter, mock_load, capsys
-    ):
+    def test_cost_aggregation(self, mock_ref, mock_index, mock_filter, mock_load, capsys):
         """cost subcommand aggregates token usage by phase and agent."""
         mock_ref.return_value = "origin/egg/checkpoints/v2"
         mock_index.return_value = CheckpointIndexV2(
-            schemaVersion="2.0", checkpoints=[],
+            schemaVersion="2.0",
+            checkpoints=[],
             last_updated=datetime(2026, 1, 15, 12, 0, 0, tzinfo=UTC),
         )
 
@@ -112,16 +111,25 @@ class TestCostCommand:
 
         checkpoints = [
             _make_checkpoint(
-                "ckpt-aaa11111", phase="plan", agent_type=AgentType.ARCHITECT,
-                input_tokens=10000, output_tokens=5000,
+                "ckpt-aaa11111",
+                phase="plan",
+                agent_type=AgentType.ARCHITECT,
+                input_tokens=10000,
+                output_tokens=5000,
             ),
             _make_checkpoint(
-                "ckpt-bbb22222", phase="implement", agent_type=AgentType.CODER,
-                input_tokens=50000, output_tokens=20000,
+                "ckpt-bbb22222",
+                phase="implement",
+                agent_type=AgentType.CODER,
+                input_tokens=50000,
+                output_tokens=20000,
             ),
             _make_checkpoint(
-                "ckpt-ccc33333", phase="implement", agent_type=AgentType.TESTER,
-                input_tokens=20000, output_tokens=8000,
+                "ckpt-ccc33333",
+                phase="implement",
+                agent_type=AgentType.TESTER,
+                input_tokens=20000,
+                output_tokens=8000,
             ),
         ]
         mock_load.side_effect = checkpoints
@@ -143,13 +151,12 @@ class TestCostCommand:
     @patch("egg_contracts.checkpoint_cli.filter_checkpoints_v2")
     @patch("egg_contracts.checkpoint_cli.load_index_from_ref")
     @patch("egg_contracts.checkpoint_cli.ensure_checkpoint_ref")
-    def test_cost_json_output(
-        self, mock_ref, mock_index, mock_filter, mock_load, capsys
-    ):
+    def test_cost_json_output(self, mock_ref, mock_index, mock_filter, mock_load, capsys):
         """cost --json outputs structured JSON with breakdown."""
         mock_ref.return_value = "origin/egg/checkpoints/v2"
         mock_index.return_value = CheckpointIndexV2(
-            schemaVersion="2.0", checkpoints=[],
+            schemaVersion="2.0",
+            checkpoints=[],
             last_updated=datetime(2026, 1, 15, 12, 0, 0, tzinfo=UTC),
         )
 
@@ -159,7 +166,9 @@ class TestCostCommand:
         mock_filter.return_value = summaries
 
         checkpoint = _make_checkpoint(
-            "ckpt-ddd44444", input_tokens=100000, output_tokens=40000,
+            "ckpt-ddd44444",
+            input_tokens=100000,
+            output_tokens=40000,
         )
         mock_load.return_value = checkpoint
 
@@ -202,7 +211,8 @@ class TestCostCommand:
         """Checkpoints without token_usage are skipped in cost calculation."""
         mock_ref.return_value = "origin/egg/checkpoints/v2"
         mock_index.return_value = CheckpointIndexV2(
-            schemaVersion="2.0", checkpoints=[],
+            schemaVersion="2.0",
+            checkpoints=[],
             last_updated=datetime(2026, 1, 15, 12, 0, 0, tzinfo=UTC),
         )
 

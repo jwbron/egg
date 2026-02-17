@@ -213,9 +213,7 @@ class OrchestrationState:
 
         return execution
 
-    def mark_running(
-        self, role: AgentRole, phase_id: str | None = None
-    ) -> AgentExecutionModel:
+    def mark_running(self, role: AgentRole, phase_id: str | None = None) -> AgentExecutionModel:
         """Mark an agent as running."""
         return self.set_execution(role, AgentExecutionStatus.RUNNING, phase_id=phase_id)
 
@@ -249,9 +247,7 @@ class OrchestrationState:
             phase_id=phase_id,
         )
 
-    def mark_skipped(
-        self, role: AgentRole, phase_id: str | None = None
-    ) -> AgentExecutionModel:
+    def mark_skipped(self, role: AgentRole, phase_id: str | None = None) -> AgentExecutionModel:
         """Mark an agent as skipped."""
         return self.set_execution(role, AgentExecutionStatus.SKIPPED, phase_id=phase_id)
 

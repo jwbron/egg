@@ -1212,14 +1212,10 @@ def _check_high_complexity_signal(
         return tier, parallel_phases
     except Exception:
         # Fall back to regex parsing if YAML parsing fails
-        tier_match = re.search(
-            r"^\s*complexity_tier\s*:\s*(low|mid|high)\s*$", block, re.MULTILINE
-        )
+        tier_match = re.search(r"^\s*complexity_tier\s*:\s*(low|mid|high)\s*$", block, re.MULTILINE)
         tier = tier_match.group(1) if tier_match else "mid"
 
-        parallel_match = re.search(
-            r"^\s*parallel_phases\s*:\s*true\s*$", block, re.MULTILINE
-        )
+        parallel_match = re.search(r"^\s*parallel_phases\s*:\s*true\s*$", block, re.MULTILINE)
         parallel_phases = bool(parallel_match)
 
         return tier, parallel_phases
@@ -2452,7 +2448,9 @@ def _run_tier3_implement(
             review_feedback_text = None
             if retry > 0:
                 review_feedback_text = _read_last_review_feedback(
-                    worktree_repo_path, pipeline_id, pipeline_mode,
+                    worktree_repo_path,
+                    pipeline_id,
+                    pipeline_mode,
                     pipeline.issue_number,
                 )
 
@@ -2467,19 +2465,33 @@ def _run_tier3_implement(
             )
 
             sandbox_command = [
-                "claude", "--dangerously-skip-permissions", "--print",
-                "--verbose", "--output-format", "stream-json",
-                "--model", "opus", "--max-turns", "200", coder_prompt,
+                "claude",
+                "--dangerously-skip-permissions",
+                "--print",
+                "--verbose",
+                "--output-format",
+                "stream-json",
+                "--model",
+                "opus",
+                "--max-turns",
+                "200",
+                coder_prompt,
             ]
 
             coder_exit, coder_logs = _spawn_and_wait(
-                spawner=spawner, pipeline_id=pipeline_id,
-                agent_role=AgentRole.CODER, issue_number=pipeline.issue_number,
-                repo_volumes=repo_volumes, gateway_mode=gateway_mode,
-                repos=repos, phase="implement",
+                spawner=spawner,
+                pipeline_id=pipeline_id,
+                agent_role=AgentRole.CODER,
+                issue_number=pipeline.issue_number,
+                repo_volumes=repo_volumes,
+                gateway_mode=gateway_mode,
+                repos=repos,
+                phase="implement",
                 sandbox_env={**sandbox_env, "EGG_PLAN_PHASE_ID": phase_id},
-                sandbox_command=sandbox_command, store=store,
-                certs_volume=certs_volume, branch=pipeline.branch,
+                sandbox_command=sandbox_command,
+                store=store,
+                certs_volume=certs_volume,
+                branch=pipeline.branch,
             )
 
             phase_logs.append(
@@ -2489,35 +2501,54 @@ def _run_tier3_implement(
             if coder_exit != 0:
                 logger.error(
                     "Coder failed for plan phase",
-                    pipeline_id=pipeline_id, phase_id=phase_id,
+                    pipeline_id=pipeline_id,
+                    phase_id=phase_id,
                     exit_code=coder_exit,
                 )
                 return 1, phase_logs
 
             # Run tester
             tester_prompt = _build_agent_prompt(
-                role_value="tester", phase="implement",
-                pipeline_id=pipeline_id, pipeline_mode=pipeline_mode,
-                prompt=pipeline.prompt, issue_number=pipeline.issue_number,
-                repo=pipeline.repo, branch=pipeline.branch,
+                role_value="tester",
+                phase="implement",
+                pipeline_id=pipeline_id,
+                pipeline_mode=pipeline_mode,
+                prompt=pipeline.prompt,
+                issue_number=pipeline.issue_number,
+                repo=pipeline.repo,
+                branch=pipeline.branch,
                 repo_path=str(worktree_repo_path),
                 short_circuit=pipeline.short_circuit,
             )
 
             tester_command = [
-                "claude", "--dangerously-skip-permissions", "--print",
-                "--verbose", "--output-format", "stream-json",
-                "--model", "opus", "--max-turns", "200", tester_prompt,
+                "claude",
+                "--dangerously-skip-permissions",
+                "--print",
+                "--verbose",
+                "--output-format",
+                "stream-json",
+                "--model",
+                "opus",
+                "--max-turns",
+                "200",
+                tester_prompt,
             ]
 
             tester_exit, tester_logs = _spawn_and_wait(
-                spawner=spawner, pipeline_id=pipeline_id,
-                agent_role=AgentRole.TESTER, issue_number=pipeline.issue_number,
-                repo_volumes=repo_volumes, gateway_mode=gateway_mode,
-                repos=repos, phase="implement",
+                spawner=spawner,
+                pipeline_id=pipeline_id,
+                agent_role=AgentRole.TESTER,
+                issue_number=pipeline.issue_number,
+                repo_volumes=repo_volumes,
+                gateway_mode=gateway_mode,
+                repos=repos,
+                phase="implement",
                 sandbox_env={**sandbox_env, "EGG_PLAN_PHASE_ID": phase_id},
-                sandbox_command=tester_command, store=store,
-                certs_volume=certs_volume, branch=pipeline.branch,
+                sandbox_command=tester_command,
+                store=store,
+                certs_volume=certs_volume,
+                branch=pipeline.branch,
             )
 
             phase_logs.append(
@@ -2527,33 +2558,50 @@ def _run_tier3_implement(
             if tester_exit != 0:
                 logger.warning(
                     "Tester failed for plan phase",
-                    pipeline_id=pipeline_id, phase_id=phase_id,
+                    pipeline_id=pipeline_id,
+                    phase_id=phase_id,
                     exit_code=tester_exit,
                 )
 
             # Run agentic code review
             review_prompt = _build_review_prompt(
-                phase="implement", pipeline_id=pipeline_id,
-                pipeline_mode=pipeline_mode, reviewer_type="code",
+                phase="implement",
+                pipeline_id=pipeline_id,
+                pipeline_mode=pipeline_mode,
+                reviewer_type="code",
                 issue_number=pipeline.issue_number,
                 review_cycle=retry + 1,
                 repo_path=str(worktree_repo_path),
             )
 
             review_command = [
-                "claude", "--dangerously-skip-permissions", "--print",
-                "--verbose", "--output-format", "stream-json",
-                "--model", "opus", "--max-turns", "200", review_prompt,
+                "claude",
+                "--dangerously-skip-permissions",
+                "--print",
+                "--verbose",
+                "--output-format",
+                "stream-json",
+                "--model",
+                "opus",
+                "--max-turns",
+                "200",
+                review_prompt,
             ]
 
             review_exit, review_logs = _spawn_and_wait(
-                spawner=spawner, pipeline_id=pipeline_id,
-                agent_role=AgentRole.REVIEWER_CODE, issue_number=pipeline.issue_number,
-                repo_volumes=repo_volumes, gateway_mode=gateway_mode,
-                repos=repos, phase="implement",
+                spawner=spawner,
+                pipeline_id=pipeline_id,
+                agent_role=AgentRole.REVIEWER_CODE,
+                issue_number=pipeline.issue_number,
+                repo_volumes=repo_volumes,
+                gateway_mode=gateway_mode,
+                repos=repos,
+                phase="implement",
                 sandbox_env={**sandbox_env, "EGG_PLAN_PHASE_ID": phase_id},
-                sandbox_command=review_command, store=store,
-                certs_volume=certs_volume, branch=pipeline.branch,
+                sandbox_command=review_command,
+                store=store,
+                certs_volume=certs_volume,
+                branch=pipeline.branch,
             )
 
             phase_logs.append(
@@ -2561,32 +2609,42 @@ def _run_tier3_implement(
             )
 
             verdict = _read_review_verdict(
-                worktree_repo_path, "implement", "code",
-                pipeline_mode, pipeline.issue_number, pipeline_id,
+                worktree_repo_path,
+                "implement",
+                "code",
+                pipeline_mode,
+                pipeline.issue_number,
+                pipeline_id,
             )
 
             if verdict and verdict.get("verdict") == "approved":
                 logger.info(
                     "Phase approved by reviewer",
-                    pipeline_id=pipeline_id, phase_id=phase_id, retry=retry,
+                    pipeline_id=pipeline_id,
+                    phase_id=phase_id,
+                    retry=retry,
                 )
                 break
             elif retry < max_retries:
                 logger.info(
                     "Phase needs revision, retrying",
-                    pipeline_id=pipeline_id, phase_id=phase_id, retry=retry,
+                    pipeline_id=pipeline_id,
+                    phase_id=phase_id,
+                    retry=retry,
                 )
                 continue
             else:
                 logger.warning(
                     "Phase exhausted review retries",
-                    pipeline_id=pipeline_id, phase_id=phase_id,
+                    pipeline_id=pipeline_id,
+                    phase_id=phase_id,
                     max_retries=max_retries,
                 )
 
         logger.info(
             "Completed implement cycle for plan phase",
-            pipeline_id=pipeline_id, phase_id=phase_id,
+            pipeline_id=pipeline_id,
+            phase_id=phase_id,
         )
         return 0, phase_logs
 
@@ -2605,12 +2663,9 @@ def _run_tier3_implement(
 
             if wave.is_parallel():
                 # Run independent phases concurrently
-                with ThreadPoolExecutor(
-                    max_workers=pipeline.config.max_parallel_agents
-                ) as pool:
+                with ThreadPoolExecutor(max_workers=pipeline.config.max_parallel_agents) as pool:
                     futures = {
-                        pool.submit(_run_single_phase_cycle, pid): pid
-                        for pid in wave.phase_ids
+                        pool.submit(_run_single_phase_cycle, pid): pid for pid in wave.phase_ids
                     }
                     for future in as_completed(futures):
                         pid = futures[future]
@@ -2702,8 +2757,9 @@ def _read_last_review_feedback(
     Returns:
         Review feedback string, or None if not found
     """
-    verdict = _read_review_verdict(repo_path, "implement", "code",
-                                   pipeline_mode, issue_number, pipeline_id)
+    verdict = _read_review_verdict(
+        repo_path, "implement", "code", pipeline_mode, issue_number, pipeline_id
+    )
     if verdict and verdict.get("feedback"):
         return verdict["feedback"]
     return None

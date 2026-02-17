@@ -714,14 +714,16 @@ def cmd_cost(args: argparse.Namespace) -> int:
         phase = checkpoint.pipeline_phase or "(none)"
         agent = checkpoint.agent_type.value if checkpoint.agent_type else "unknown"
 
-        rows.append({
-            "phase": phase,
-            "agent": agent,
-            "input_tokens": tu.input_tokens,
-            "output_tokens": tu.output_tokens,
-            "cost": cost,
-            "model": model,
-        })
+        rows.append(
+            {
+                "phase": phase,
+                "agent": agent,
+                "input_tokens": tu.input_tokens,
+                "output_tokens": tu.output_tokens,
+                "cost": cost,
+                "model": model,
+            }
+        )
 
     if not rows:
         print("No checkpoints with token usage data found")
@@ -777,9 +779,7 @@ def cmd_cost(args: argparse.Namespace) -> int:
     print()
 
     # Table header
-    print(
-        f"  {'Phase':<12s}  {'Agent':<14s}  {'Input':>8s}  {'Output':>8s}  {'Cost':>8s}"
-    )
+    print(f"  {'Phase':<12s}  {'Agent':<14s}  {'Input':>8s}  {'Output':>8s}  {'Cost':>8s}")
     print(f"  {'─' * 12}  {'─' * 14}  {'─' * 8}  {'─' * 8}  {'─' * 8}")
 
     for (phase, agent), vals in sorted(agg.items()):
@@ -880,7 +880,9 @@ def create_parser() -> argparse.ArgumentParser:
         "--files", action="store_true", help="Show file paths touched by each checkpoint"
     )
     context_parser.add_argument("--repo", help="Filter by source repository (owner/repo format)")
-    context_parser.add_argument("--limit", type=int, default=100, help="Maximum checkpoints to show")
+    context_parser.add_argument(
+        "--limit", type=int, default=100, help="Maximum checkpoints to show"
+    )
     context_parser.add_argument("--json", action="store_true", help="Output as JSON")
     context_parser.set_defaults(func=cmd_context)
 

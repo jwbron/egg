@@ -1007,40 +1007,40 @@ class TestDeduplicateAgents:
     def test_duplicate_roles_collapsed(self):
         """Multiple runs of the same role are collapsed to one entry."""
         agents = [
-            AgentExecution(role=AgentRole.CHECKER, status=AgentExecutionStatus.COMPLETE),
-            AgentExecution(role=AgentRole.CHECKER, status=AgentExecutionStatus.COMPLETE),
+            AgentExecution(role=AgentRole.REFINER, status=AgentExecutionStatus.COMPLETE),
+            AgentExecution(role=AgentRole.REFINER, status=AgentExecutionStatus.COMPLETE),
         ]
         deduped, counts = _deduplicate_agents(agents)
 
         assert len(deduped) == 1
-        assert deduped[0].role == AgentRole.CHECKER
-        assert counts == {"checker": 2}
+        assert deduped[0].role == AgentRole.REFINER
+        assert counts == {"refiner": 2}
 
     def test_latest_status_kept(self):
         """The latest (last) execution status is used."""
         agents = [
-            AgentExecution(role=AgentRole.CHECKER, status=AgentExecutionStatus.FAILED),
-            AgentExecution(role=AgentRole.CHECKER, status=AgentExecutionStatus.COMPLETE),
+            AgentExecution(role=AgentRole.REFINER, status=AgentExecutionStatus.FAILED),
+            AgentExecution(role=AgentRole.REFINER, status=AgentExecutionStatus.COMPLETE),
         ]
         deduped, counts = _deduplicate_agents(agents)
 
         assert deduped[0].status == AgentExecutionStatus.COMPLETE
-        assert counts["checker"] == 2
+        assert counts["refiner"] == 2
 
     def test_first_seen_order_preserved(self):
         """Deduplicated list preserves first-seen ordering."""
         agents = [
             AgentExecution(role=AgentRole.CODER, status=AgentExecutionStatus.COMPLETE),
-            AgentExecution(role=AgentRole.CHECKER, status=AgentExecutionStatus.COMPLETE),
+            AgentExecution(role=AgentRole.REFINER, status=AgentExecutionStatus.COMPLETE),
             AgentExecution(role=AgentRole.CODER, status=AgentExecutionStatus.COMPLETE),
-            AgentExecution(role=AgentRole.CHECKER, status=AgentExecutionStatus.COMPLETE),
+            AgentExecution(role=AgentRole.REFINER, status=AgentExecutionStatus.COMPLETE),
         ]
         deduped, counts = _deduplicate_agents(agents)
 
         assert len(deduped) == 2
         assert deduped[0].role == AgentRole.CODER
-        assert deduped[1].role == AgentRole.CHECKER
-        assert counts == {"coder": 2, "checker": 2}
+        assert deduped[1].role == AgentRole.REFINER
+        assert counts == {"coder": 2, "refiner": 2}
 
     def test_empty_list(self):
         """Empty input returns empty output."""
@@ -1049,71 +1049,65 @@ class TestDeduplicateAgents:
         assert counts == {}
 
 
-class TestCheckerOrdering:
-    """Tests for checker placement relative to reviewers in the DAG."""
+class TestNonGraphAgentOrdering:
+    """Tests for non-graph agent placement relative to reviewers in the DAG."""
 
-    def test_checker_before_reviewers_in_implement(self):
-        """Checker agents appear between integrator and reviewers."""
+    def test_non_graph_agent_before_reviewers_in_implement(self):
+        """Non-graph agents appear between integrator and reviewers."""
         agents = [
             AgentExecution(role=AgentRole.CODER, status=AgentExecutionStatus.COMPLETE),
             AgentExecution(role=AgentRole.TESTER, status=AgentExecutionStatus.COMPLETE),
             AgentExecution(role=AgentRole.DOCUMENTER, status=AgentExecutionStatus.COMPLETE),
             AgentExecution(role=AgentRole.INTEGRATOR, status=AgentExecutionStatus.COMPLETE),
-            AgentExecution(role=AgentRole.CHECKER, status=AgentExecutionStatus.COMPLETE),
-            AgentExecution(
-                role=AgentRole.REVIEWER_UNIFIED, status=AgentExecutionStatus.RUNNING
-            ),
-            AgentExecution(
-                role=AgentRole.REVIEWER_CODE, status=AgentExecutionStatus.RUNNING
-            ),
+            AgentExecution(role=AgentRole.REFINER, status=AgentExecutionStatus.COMPLETE),
+            AgentExecution(role=AgentRole.REVIEWER_CONTRACT, status=AgentExecutionStatus.RUNNING),
+            AgentExecution(role=AgentRole.REVIEWER_CODE, status=AgentExecutionStatus.RUNNING),
         ]
         waves = _compute_wave_order(PipelinePhase.IMPLEMENT, agents)
 
-        # Find checker and reviewer wave indices
-        checker_wave = None
+        # Find refiner and reviewer wave indices
+        refiner_wave = None
         reviewer_wave = None
         for i, wave in enumerate(waves):
             for agent in wave:
-                if agent.role == AgentRole.CHECKER:
-                    checker_wave = i
+                if agent.role == AgentRole.REFINER:
+                    refiner_wave = i
                 if agent.role.value.startswith("reviewer"):
                     reviewer_wave = i
 
-        assert checker_wave is not None
+        assert refiner_wave is not None
         assert reviewer_wave is not None
-        assert checker_wave < reviewer_wave, (
-            f"Checker wave ({checker_wave}) should precede reviewer wave ({reviewer_wave})"
+        assert refiner_wave < reviewer_wave, (
+            f"Non-graph agent wave ({refiner_wave}) should precede reviewer wave ({reviewer_wave})"
         )
 
-    def test_checker_after_integrator_in_implement(self):
-        """Checker appears after the integrator wave."""
+    def test_non_graph_agent_after_integrator_in_implement(self):
+        """Non-graph agent appears after the integrator wave."""
         agents = [
             AgentExecution(role=AgentRole.CODER, status=AgentExecutionStatus.COMPLETE),
             AgentExecution(role=AgentRole.TESTER, status=AgentExecutionStatus.COMPLETE),
             AgentExecution(role=AgentRole.DOCUMENTER, status=AgentExecutionStatus.COMPLETE),
             AgentExecution(role=AgentRole.INTEGRATOR, status=AgentExecutionStatus.COMPLETE),
-            AgentExecution(role=AgentRole.CHECKER, status=AgentExecutionStatus.COMPLETE),
-            AgentExecution(
-                role=AgentRole.REVIEWER_UNIFIED, status=AgentExecutionStatus.RUNNING
-            ),
+            AgentExecution(role=AgentRole.REFINER, status=AgentExecutionStatus.COMPLETE),
+            AgentExecution(role=AgentRole.REVIEWER_CONTRACT, status=AgentExecutionStatus.RUNNING),
         ]
         waves = _compute_wave_order(PipelinePhase.IMPLEMENT, agents)
 
         integrator_wave = None
-        checker_wave = None
+        refiner_wave = None
         for i, wave in enumerate(waves):
             for agent in wave:
                 if agent.role == AgentRole.INTEGRATOR:
                     integrator_wave = i
-                if agent.role == AgentRole.CHECKER:
-                    checker_wave = i
+                if agent.role == AgentRole.REFINER:
+                    refiner_wave = i
 
         assert integrator_wave is not None
-        assert checker_wave is not None
-        assert checker_wave > integrator_wave
+        assert refiner_wave is not None
+        assert refiner_wave > integrator_wave
 
-    def test_dag_render_checker_before_reviewers(self):
-        """Full DAG render places checker line before reviewer lines."""
+    def test_dag_render_non_graph_agent_before_reviewers(self):
+        """Full DAG render places non-graph agent line before reviewer lines."""
         phases = {
             "implement": PhaseExecution(
                 phase=PipelinePhase.IMPLEMENT,
@@ -1121,18 +1115,9 @@ class TestCheckerOrdering:
                 agents=[
                     AgentExecution(role=AgentRole.CODER, status=AgentExecutionStatus.COMPLETE),
                     AgentExecution(role=AgentRole.TESTER, status=AgentExecutionStatus.COMPLETE),
-                    AgentExecution(
-                        role=AgentRole.DOCUMENTER, status=AgentExecutionStatus.COMPLETE
-                    ),
-                    AgentExecution(
-                        role=AgentRole.INTEGRATOR, status=AgentExecutionStatus.COMPLETE
-                    ),
-                    AgentExecution(
-                        role=AgentRole.CHECKER, status=AgentExecutionStatus.COMPLETE
-                    ),
-                    AgentExecution(
-                        role=AgentRole.REVIEWER_UNIFIED, status=AgentExecutionStatus.RUNNING
-                    ),
+                    AgentExecution(role=AgentRole.DOCUMENTER, status=AgentExecutionStatus.COMPLETE),
+                    AgentExecution(role=AgentRole.INTEGRATOR, status=AgentExecutionStatus.COMPLETE),
+                    AgentExecution(role=AgentRole.REFINER, status=AgentExecutionStatus.COMPLETE),
                     AgentExecution(
                         role=AgentRole.REVIEWER_CODE, status=AgentExecutionStatus.RUNNING
                     ),
@@ -1146,39 +1131,35 @@ class TestCheckerOrdering:
         result = render_pipeline_dag(pipeline, include_header=False)
         lines = result.split("\n")
 
-        checker_line = next(i for i, l in enumerate(lines) if "checker" in l)
-        reviewer_line = next(i for i, l in enumerate(lines) if "reviewer_unified" in l)
+        refiner_line = next(i for i, line in enumerate(lines) if "refiner" in line)
+        reviewer_line = next(i for i, line in enumerate(lines) if "reviewer_code" in line)
 
-        assert checker_line < reviewer_line
+        assert refiner_line < reviewer_line
 
 
 class TestRunCountDisplay:
     """Tests for run count display in DAG and phase detail views."""
 
-    def test_duplicate_checker_shows_count(self):
-        """Two checker runs render as 'checker ×2' instead of two entries."""
+    def test_duplicate_role_shows_count(self):
+        """Two runs of the same role render with '×2' instead of two entries."""
         phases = {
             "implement": PhaseExecution(
                 phase=PipelinePhase.IMPLEMENT,
                 status=PipelineStatus.RUNNING,
                 agents=[
                     AgentExecution(role=AgentRole.CODER, status=AgentExecutionStatus.COMPLETE),
-                    AgentExecution(
-                        role=AgentRole.CHECKER, status=AgentExecutionStatus.COMPLETE
-                    ),
-                    AgentExecution(
-                        role=AgentRole.CHECKER, status=AgentExecutionStatus.COMPLETE
-                    ),
+                    AgentExecution(role=AgentRole.REFINER, status=AgentExecutionStatus.COMPLETE),
+                    AgentExecution(role=AgentRole.REFINER, status=AgentExecutionStatus.COMPLETE),
                 ],
             )
         }
         pipeline = create_test_pipeline(phases=phases, current_phase=PipelinePhase.IMPLEMENT)
         result = render_pipeline_dag(pipeline, include_header=False)
 
-        # Should show single checker entry with count
+        # Should show single refiner entry with count
         assert "\u00d7" + "2" in result or "×2" in result
-        # Should NOT show checker twice on separate entries
-        assert result.count("checker") == 1
+        # Should NOT show refiner twice on separate entries
+        assert result.count("refiner") == 1
 
     def test_single_run_no_count(self):
         """Agents with a single run show no count suffix."""
@@ -1205,12 +1186,8 @@ class TestRunCountDisplay:
                 status=PipelineStatus.RUNNING,
                 agents=[
                     AgentExecution(role=AgentRole.CODER, status=AgentExecutionStatus.COMPLETE),
-                    AgentExecution(
-                        role=AgentRole.CHECKER, status=AgentExecutionStatus.COMPLETE
-                    ),
-                    AgentExecution(
-                        role=AgentRole.CHECKER, status=AgentExecutionStatus.COMPLETE
-                    ),
+                    AgentExecution(role=AgentRole.REFINER, status=AgentExecutionStatus.COMPLETE),
+                    AgentExecution(role=AgentRole.REFINER, status=AgentExecutionStatus.COMPLETE),
                 ],
             )
         }
@@ -1229,12 +1206,12 @@ class TestRunCountDisplay:
                 agents=[
                     AgentExecution(role=AgentRole.CODER, status=AgentExecutionStatus.COMPLETE),
                     AgentExecution(
-                        role=AgentRole.CHECKER,
+                        role=AgentRole.REFINER,
                         status=AgentExecutionStatus.FAILED,
                         error="lint failure",
                     ),
                     AgentExecution(
-                        role=AgentRole.CHECKER,
+                        role=AgentRole.REFINER,
                         status=AgentExecutionStatus.COMPLETE,
                         commit="abc12345",
                     ),
@@ -1246,8 +1223,8 @@ class TestRunCountDisplay:
 
         # Should show total agent count (all runs), not unique roles
         assert "Agents (3):" in result
-        # Both checker runs should appear
-        assert result.count("checker") == 2
+        # Both refiner runs should appear
+        assert result.count("refiner") == 2
         # Commit and error from different runs are preserved
         assert "abc12345" in result
         assert "lint failure" in result
@@ -1296,7 +1273,7 @@ class TestRunCountDisplay:
         assert "build error" in result
 
     def test_full_scenario_from_issue(self):
-        """Reproduce the exact scenario from issue #769."""
+        """Reproduce the exact scenario from issue #769 with valid roles."""
         phases = {
             "implement": PhaseExecution(
                 phase=PipelinePhase.IMPLEMENT,
@@ -1304,21 +1281,10 @@ class TestRunCountDisplay:
                 agents=[
                     AgentExecution(role=AgentRole.CODER, status=AgentExecutionStatus.COMPLETE),
                     AgentExecution(role=AgentRole.TESTER, status=AgentExecutionStatus.COMPLETE),
-                    AgentExecution(
-                        role=AgentRole.DOCUMENTER, status=AgentExecutionStatus.COMPLETE
-                    ),
-                    AgentExecution(
-                        role=AgentRole.INTEGRATOR, status=AgentExecutionStatus.COMPLETE
-                    ),
-                    AgentExecution(
-                        role=AgentRole.CHECKER, status=AgentExecutionStatus.COMPLETE
-                    ),
-                    AgentExecution(
-                        role=AgentRole.CHECKER, status=AgentExecutionStatus.COMPLETE
-                    ),
-                    AgentExecution(
-                        role=AgentRole.REVIEWER_UNIFIED, status=AgentExecutionStatus.RUNNING
-                    ),
+                    AgentExecution(role=AgentRole.DOCUMENTER, status=AgentExecutionStatus.COMPLETE),
+                    AgentExecution(role=AgentRole.INTEGRATOR, status=AgentExecutionStatus.COMPLETE),
+                    AgentExecution(role=AgentRole.REFINER, status=AgentExecutionStatus.COMPLETE),
+                    AgentExecution(role=AgentRole.REFINER, status=AgentExecutionStatus.COMPLETE),
                     AgentExecution(
                         role=AgentRole.REVIEWER_CODE, status=AgentExecutionStatus.RUNNING
                     ),
@@ -1332,15 +1298,15 @@ class TestRunCountDisplay:
         result = render_pipeline_dag(pipeline, include_header=False)
         lines = result.split("\n")
 
-        # Checker should appear once with ×2, before reviewers
-        assert result.count("checker") == 1
+        # Refiner should appear once with ×2, before reviewers
+        assert result.count("refiner") == 1
         assert "×2" in result
 
-        checker_line = next(i for i, l in enumerate(lines) if "checker" in l)
-        reviewer_line = next(i for i, l in enumerate(lines) if "reviewer" in l)
-        assert checker_line < reviewer_line
+        refiner_line = next(i for i, line in enumerate(lines) if "refiner" in line)
+        reviewer_line = next(i for i, line in enumerate(lines) if "reviewer" in line)
+        assert refiner_line < reviewer_line
 
-        # Ordering should be: coder, tester+documenter, integrator, checker, reviewers
-        coder_line = next(i for i, l in enumerate(lines) if "coder" in l)
-        integrator_line = next(i for i, l in enumerate(lines) if "integrator" in l)
-        assert coder_line < integrator_line < checker_line < reviewer_line
+        # Ordering should be: coder, tester+documenter, integrator, refiner, reviewers
+        coder_line = next(i for i, line in enumerate(lines) if "coder" in line)
+        integrator_line = next(i for i, line in enumerate(lines) if "integrator" in line)
+        assert coder_line < integrator_line < refiner_line < reviewer_line

@@ -185,9 +185,7 @@ class Orchestrator:
 
         return 1  # Default to wave 1
 
-    def start_agent(
-        self, role: AgentRole, phase_id: str | None = None
-    ) -> AgentExecutionModel:
+    def start_agent(self, role: AgentRole, phase_id: str | None = None) -> AgentExecutionModel:
         """Mark an agent as started.
 
         Args:

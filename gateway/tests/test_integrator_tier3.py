@@ -9,12 +9,9 @@ Covers:
 - validate_agent_push passes complexity_tier through
 """
 
-import pytest
 from agent_restrictions import (
     INTEGRATOR_PATTERNS,
     INTEGRATOR_TIER3_PATTERNS,
-    AgentFilePattern,
-    AgentRestrictionResult,
     AgentRole,
     check_agent_file_access,
     get_agent_pattern,
@@ -95,15 +92,11 @@ class TestIntegratorTier3WriteAccess:
 
     def test_can_write_agent_outputs(self):
         """Tier 3 integrator can write to agent-outputs."""
-        assert INTEGRATOR_TIER3_PATTERNS.can_write(
-            ".egg-state/agent-outputs/handoff.json"
-        ) is True
+        assert INTEGRATOR_TIER3_PATTERNS.can_write(".egg-state/agent-outputs/handoff.json") is True
 
     def test_blocked_from_contracts(self):
         """Tier 3 integrator is still blocked from contracts."""
-        assert INTEGRATOR_TIER3_PATTERNS.can_write(
-            ".egg-state/contracts/contract.json"
-        ) is False
+        assert INTEGRATOR_TIER3_PATTERNS.can_write(".egg-state/contracts/contract.json") is False
 
     def test_blocked_from_github(self):
         """Tier 3 integrator is blocked from .github/."""
@@ -127,9 +120,7 @@ class TestDefaultIntegratorBlocked:
 
     def test_can_write_agent_outputs(self):
         """Default integrator can write to agent-outputs."""
-        assert INTEGRATOR_PATTERNS.can_write(
-            ".egg-state/agent-outputs/handoff.json"
-        ) is True
+        assert INTEGRATOR_PATTERNS.can_write(".egg-state/agent-outputs/handoff.json") is True
 
 
 class TestCheckAgentFileAccessTier3:

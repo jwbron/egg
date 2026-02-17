@@ -545,7 +545,6 @@ class GatewayClient:
         except Exception as e:
             raise GatewayError(f"Failed to delete worktrees: {e}") from e
 
-
     def push_worktree_branch(
         self,
         pipeline_id: str,

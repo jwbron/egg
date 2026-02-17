@@ -44,6 +44,7 @@ class TestRunTier3ImplementSequential:
         """Import the function under test."""
         try:
             from pipelines import _run_tier3_implement
+
             self._run = _run_tier3_implement
         except ImportError:
             pytest.skip("Cannot import pipelines module")
@@ -70,20 +71,22 @@ class TestRunTier3ImplementSequential:
         """Create contract JSON with phases at the expected path."""
         phases = []
         for i in range(1, phase_count + 1):
-            phases.append({
-                "id": f"phase-{i}",
-                "name": f"Phase {i}",
-                "status": "pending",
-                "tasks": [
-                    {
-                        "id": f"task-{i}-1",
-                        "description": f"Task {i}.1",
-                        "status": "pending",
-                        "files_affected": [f"src/module{i}.py"],
-                    }
-                ],
-                "dependencies": [f"phase-{i-1}"] if i > 1 else [],
-            })
+            phases.append(
+                {
+                    "id": f"phase-{i}",
+                    "name": f"Phase {i}",
+                    "status": "pending",
+                    "tasks": [
+                        {
+                            "id": f"task-{i}-1",
+                            "description": f"Task {i}.1",
+                            "status": "pending",
+                            "files_affected": [f"src/module{i}.py"],
+                        }
+                    ],
+                    "dependencies": [f"phase-{i - 1}"] if i > 1 else [],
+                }
+            )
 
         contract = {
             "schemaVersion": "1.0",
@@ -93,9 +96,7 @@ class TestRunTier3ImplementSequential:
 
         contract_dir = tmp_path / ".egg-state" / "contracts"
         contract_dir.mkdir(parents=True, exist_ok=True)
-        (contract_dir / "42.json").write_text(
-            json.dumps(contract), encoding="utf-8"
-        )
+        (contract_dir / "42.json").write_text(json.dumps(contract), encoding="utf-8")
         return contract
 
     @patch("pipelines._spawn_and_wait")
@@ -187,9 +188,7 @@ class TestRunTier3ImplementSequential:
         }
         contract_dir = tmp_path / ".egg-state" / "contracts"
         contract_dir.mkdir(parents=True, exist_ok=True)
-        (contract_dir / "42.json").write_text(
-            json.dumps(contract), encoding="utf-8"
-        )
+        (contract_dir / "42.json").write_text(json.dumps(contract), encoding="utf-8")
 
         mock_multi_agent.return_value = (0, "multi-agent logs")
 
@@ -339,8 +338,11 @@ class TestRunTier3ImplementSequential:
         # Last spawn call should be for the integrator
         last_call = mock_spawn.call_args_list[-1]
         # Check agent_role is INTEGRATOR
-        agent_role = last_call[1].get("agent_role", last_call[0][2] if len(last_call[0]) > 2 else None)
+        agent_role = last_call[1].get(
+            "agent_role", last_call[0][2] if len(last_call[0]) > 2 else None
+        )
         from models import AgentRole
+
         assert agent_role == AgentRole.INTEGRATOR
 
     @patch("pipelines._spawn_and_wait")
@@ -359,7 +361,7 @@ class TestRunTier3ImplementSequential:
         self._make_contract_with_phases(tmp_path, phase_count=1)
         # Phase agents succeed, integrator fails
         mock_spawn.side_effect = [
-            (0, "coder logs"),   # coder
+            (0, "coder logs"),  # coder
             (0, "tester logs"),  # tester
             (0, "review logs"),  # reviewer
             (1, "integrator fail"),  # integrator
@@ -395,6 +397,7 @@ class TestRunTier3ImplementParallel:
         """Import the function under test."""
         try:
             from pipelines import _run_tier3_implement
+
             self._run = _run_tier3_implement
         except ImportError:
             pytest.skip("Cannot import pipelines module")
@@ -442,9 +445,7 @@ class TestRunTier3ImplementParallel:
         }
         contract_dir = tmp_path / ".egg-state" / "contracts"
         contract_dir.mkdir(parents=True, exist_ok=True)
-        (contract_dir / "42.json").write_text(
-            json.dumps(contract), encoding="utf-8"
-        )
+        (contract_dir / "42.json").write_text(json.dumps(contract), encoding="utf-8")
 
     @patch("pipelines._spawn_and_wait")
     @patch("pipelines._read_review_verdict")
@@ -522,9 +523,7 @@ class TestRunTier3ImplementParallel:
         }
         contract_dir = tmp_path / ".egg-state" / "contracts"
         contract_dir.mkdir(parents=True, exist_ok=True)
-        (contract_dir / "42.json").write_text(
-            json.dumps(contract), encoding="utf-8"
-        )
+        (contract_dir / "42.json").write_text(json.dumps(contract), encoding="utf-8")
 
     @patch("pipelines._spawn_and_wait")
     @patch("pipelines._read_review_verdict")
@@ -573,15 +572,14 @@ class TestReadReviewVerdict:
         """Import the function under test."""
         try:
             from pipelines import _read_review_verdict
+
             self._read = _read_review_verdict
         except ImportError:
             pytest.skip("Cannot import pipelines module")
 
     def test_returns_none_for_missing_file(self, tmp_path: Path):
         """Returns None when verdict file doesn't exist."""
-        result = self._read(
-            tmp_path, "implement", "code", "issue", 42, "test-pipeline"
-        )
+        result = self._read(tmp_path, "implement", "code", "issue", 42, "test-pipeline")
         assert result is None
 
     def test_reads_valid_verdict(self, tmp_path: Path):
@@ -594,9 +592,7 @@ class TestReadReviewVerdict:
             json.dumps(verdict), encoding="utf-8"
         )
 
-        result = self._read(
-            tmp_path, "implement", "code", "issue", 42, "test-pipeline"
-        )
+        result = self._read(tmp_path, "implement", "code", "issue", 42, "test-pipeline")
         # May return None if the path convention doesn't match exactly;
         # the test validates the function doesn't crash
         if result is not None:
@@ -611,6 +607,7 @@ class TestReadLastReviewFeedback:
         """Import the function under test."""
         try:
             from pipelines import _read_last_review_feedback
+
             self._read = _read_last_review_feedback
         except ImportError:
             pytest.skip("Cannot import pipelines module")
