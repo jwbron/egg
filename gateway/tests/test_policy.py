@@ -64,6 +64,10 @@ class TestExtractRepoFromRemote:
         url = "https://github.com/my-org/some.project"
         assert extract_repo_from_remote(url) == "my-org/some.project"
 
+    def test_dotted_repo_name_ssh(self):
+        url = "git@github.com:my-org/some.project.git"
+        assert extract_repo_from_remote(url) == "my-org/some.project"
+
 
 class TestExtractBranchFromRefspec:
     """Tests for extract_branch_from_refspec function."""
