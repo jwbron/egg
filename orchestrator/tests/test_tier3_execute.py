@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import sys
+import threading
 from pathlib import Path
 from types import ModuleType
 from unittest.mock import MagicMock, patch
@@ -807,16 +808,18 @@ class TestCancelEventParallelCancellation:
         mock_read_verdict.return_value = ReviewVerdict(verdict="approved")
 
         # First coder call fails; subsequent calls succeed (but should be
-        # skipped due to cancellation).  We make the second call slow via
-        # side_effect so that the first failure triggers cancel_event before
-        # the sibling's tester/reviewer spawns.
+        # skipped due to cancellation).  Use a lock to ensure the call
+        # counter is thread-safe so exactly one call hits the failure path.
         call_count = 0
+        call_lock = threading.Lock()
 
         def spawn_side_effect(*args, **kwargs):
             nonlocal call_count
-            call_count += 1
+            with call_lock:
+                call_count += 1
+                current = call_count
             # First call (phase-1 or phase-2 coder) fails
-            if call_count == 1:
+            if current == 1:
                 return (1, "coder error")
             return (0, "ok")
 
