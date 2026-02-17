@@ -183,6 +183,7 @@ def phase_readonly_mounts(
     repo_volumes: dict[str, str],
     phase: str | None,
     container_base: str = "/home/egg/repos",
+    local_volumes: dict[str, str] | None = None,
 ) -> list[MountSpec]:
     """Create readonly overlay mounts for phase-protected directories.
 
@@ -192,10 +193,16 @@ def phase_readonly_mounts(
     modifying plan/contract artifacts via direct filesystem writes.
 
     Args:
-        repo_volumes: Mapping of repo_name -> host_path.
+        repo_volumes: Mapping of repo_name -> host_path.  These paths are
+            used as Docker mount sources and may be host-absolute paths
+            that are not accessible from the orchestrator container.
         phase: Current SDLC phase (e.g., "implement").  If ``None`` or a
             phase without restrictions, returns an empty list.
         container_base: Base path in container for repos.
+        local_volumes: Optional mapping of repo_name -> local_path used
+            for ``is_dir()`` filesystem checks when ``repo_volumes``
+            contains host paths inaccessible to the current process.
+            Mount sources still come from ``repo_volumes``.
 
     Returns:
         List of MountSpec for readonly overlay mounts.
@@ -203,12 +210,16 @@ def phase_readonly_mounts(
     if phase != "implement":
         return []
 
+    check_volumes = local_volumes if local_volumes is not None else repo_volumes
+
     mounts: list[MountSpec] = []
     for repo_name, host_path in repo_volumes.items():
+        check_path = check_volumes.get(repo_name, host_path)
         for dirname in _IMPLEMENT_READONLY_DIRS:
             host_dir = Path(host_path) / ".egg-state" / dirname
+            check_dir = Path(check_path) / ".egg-state" / dirname
             container_dir = f"{container_base}/{repo_name}/.egg-state/{dirname}"
-            if host_dir.is_dir():
+            if check_dir.is_dir():
                 mounts.append(
                     MountSpec(
                         mount_type="bind",
