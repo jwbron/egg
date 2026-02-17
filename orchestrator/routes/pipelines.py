@@ -2423,6 +2423,7 @@ def _run_tier3_implement(
 
     all_logs: list[str] = []
     logs_lock = threading.Lock()
+    cancel_event = threading.Event()  # Signals parallel phases to abort early
     max_retries = pipeline.config.max_review_cycles
     enable_parallel = pipeline.config.enable_parallel_phases and phase_waves is not None
 
@@ -2435,7 +2436,11 @@ def _run_tier3_implement(
     )
 
     def _run_single_phase_cycle(phase_id: str) -> tuple[int, list[str]]:
-        """Run a single phase implementation cycle (coder -> tester -> review)."""
+        """Run a single phase implementation cycle (coder -> tester -> review).
+
+        Checks ``cancel_event`` before each container spawn so that parallel
+        phases can abort early when a sibling phase fails.
+        """
         phase_logs: list[str] = []
         phase_obj = phase_map.get(phase_id)
         if phase_obj is None:
@@ -2488,6 +2493,11 @@ def _run_tier3_implement(
                 "200",
                 coder_prompt,
             ]
+
+            # Check if a sibling phase signalled cancellation
+            if cancel_event.is_set():
+                phase_logs.append(f"--- coder ({phase_id}, retry={retry}) cancelled ---")
+                return 1, phase_logs
 
             coder_exit, coder_logs = _spawn_and_wait(
                 spawner=spawner,
@@ -2559,6 +2569,10 @@ def _run_tier3_implement(
                 tester_prompt,
             ]
 
+            if cancel_event.is_set():
+                phase_logs.append(f"--- tester ({phase_id}, retry={retry}) cancelled ---")
+                return 1, phase_logs
+
             tester_exit, tester_logs = _spawn_and_wait(
                 spawner=spawner,
                 pipeline_id=pipeline_id,
@@ -2612,6 +2626,10 @@ def _run_tier3_implement(
                 "200",
                 review_prompt,
             ]
+
+            if cancel_event.is_set():
+                phase_logs.append(f"--- reviewer ({phase_id}, retry={retry}) cancelled ---")
+                return 1, phase_logs
 
             review_exit, review_logs = _spawn_and_wait(
                 spawner=spawner,
@@ -2713,7 +2731,10 @@ def _run_tier3_implement(
                             all_logs.extend(phase_logs)
                         if exit_code != 0:
                             failed = True
-                            # Cancel remaining futures to avoid wasting resources
+                            # Signal sibling phases to abort before their
+                            # next container spawn.  f.cancel() alone is
+                            # ineffective for already-running futures.
+                            cancel_event.set()
                             for f in futures:
                                 f.cancel()
                             break
@@ -4349,6 +4370,11 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                 # 3. Spawn reviewers and read verdicts (reviewed phases)
                 # Reviewers always run as a separate step after workers +
                 # checker, for both multi-agent and single-agent paths.
+                # Exception: Tier 3 already runs per-phase reviewers inside
+                # _run_tier3_implement(), so skip the outer reviewer loop to
+                # avoid redundant review and potential full-pipeline retry.
+                if use_tier3:
+                    break  # Per-phase reviews already handled; advance phase
                 from egg_contracts.agent_roles import (
                     _PHASE_REVIEWERS as _phase_reviewer_roles,
                 )
