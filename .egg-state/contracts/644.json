@@ -8,7 +8,258 @@
   "pipeline_id": null,
   "current_phase": "refine",
   "acceptance_criteria": [],
-  "phases": [],
+  "phases": [
+    {
+      "id": "phase-1",
+      "name": "Branch Lock + Agent Instructions",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-1-1",
+          "description": "Add assigned_branch field to Session dataclass, populate during register_session from worktree branch name, persist and restore",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Session has assigned_branch field that is set, persisted, and restored correctly with unit tests",
+          "files_affected": [
+            "gateway/session_manager.py",
+            "gateway/worktree_manager.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-2",
+          "description": "Implement is_branch_switching() helper in git_client.py and wire into git_execute() for checkout/switch operations with conservative heuristic",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Branch-create flags blocked, file restores allowed, ambiguous cases allowed with warning log, helpful error message, comprehensive unit tests, only enforced when assigned_branch is set",
+          "files_affected": [
+            "gateway/git_client.py",
+            "gateway/gateway.py",
+            "gateway/tests/test_branch_lock.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-3",
+          "description": "Add commit-time staged-file validation in git_execute() using get_staged_files() helper with 10-second timeout and fail-open",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Blocked staged files rejected with actionable error, allowed files pass, timeout fails open, non-pipeline commits unaffected, unit tests",
+          "files_affected": [
+            "gateway/gateway.py",
+            "gateway/git_client.py",
+            "gateway/tests/test_commit_validation.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-4",
+          "description": "Update mission.md and environment.md to remove git checkout -b branch-switching instructions and add branch lock, phase restriction, and auto-commit guidance",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "No git checkout -b for branch switching in mission.md or environment.md, branch lock and phase guidance sections present",
+          "files_affected": [
+            "sandbox/.claude/rules/mission.md",
+            "sandbox/.claude/rules/environment.md"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        }
+      ],
+      "review_feedback": []
+    },
+    {
+      "id": "phase-2",
+      "name": "Agent-Role Restriction Wiring",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-2-1",
+          "description": "Wire check_agent_restrictions() into git_push() with EGG_AGENT_RESTRICTIONS_ENFORCE config flag defaulting to false (warn-only mode logs violations but allows push)",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Called when session has agent_role, default warn-only with audit log, enforce mode behind flag, unknown roles pass, unit tests for warn mode, enforce mode, unknown role, no-role cases",
+          "files_affected": [
+            "gateway/gateway.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        }
+      ],
+      "review_feedback": []
+    },
+    {
+      "id": "phase-3",
+      "name": "Readonly Filesystem Mounts",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-3-1",
+          "description": "Implement phase_readonly_mounts() in egg_container alongside git_shadow_mounts() returning readonly MountSpec for implement-phase .egg-state/ subdirs, fail-open for unknown phases",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "4 readonly MountSpec for implement phase, empty for unknown/None, skips missing source dirs with warning, TODO for refine/plan, unit tests",
+          "files_affected": [
+            "shared/egg_container/__init__.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-3-2",
+          "description": "Add ensure_egg_state_dirs() with shared constant for directory list, call before mount assembly, add EGG_PHASE to container environment variables",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Directories created idempotently, shared constant, called before mounts in spawn_agent_container, EGG_PHASE set on containers, unit tests",
+          "files_affected": [
+            "gateway/worktree_manager.py",
+            "orchestrator/container_spawner.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-3-3",
+          "description": "Wire phase_readonly_mounts() into spawn_agent_container mount assembly and place .egg-readonly marker files in readonly directories",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Readonly mounts added after repo and git shadow mounts, marker files explain restriction and phase, integration test verifies EROFS on readonly and write on allowed paths",
+          "files_affected": [
+            "orchestrator/container_spawner.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        }
+      ],
+      "review_feedback": []
+    },
+    {
+      "id": "phase-4",
+      "name": "Post-Agent Auto-Commit",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-4-1",
+          "description": "Create post_agent_commit.py with auto_commit_allowed_changes() that detects uncommitted changes, filters via check_phase_file_restrictions(), restores blocked files, commits allowed files, pushes via gateway API",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Reuses check_phase_file_restrictions (not reimplemented), blocked files restored, allowed files committed with egg author, push via gateway using session token, audit log, no-op when clean, errors don't block cleanup, unit tests",
+          "files_affected": [
+            "gateway/post_agent_commit.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-4-2",
+          "description": "Integrate auto-commit into session cleanup flow with ordering auto-commit then checkpoint then session-delete then worktree-cleanup, keeping session alive during auto-commit",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Auto-commit runs before checkpoint capture, session alive during auto-commit, auto-commit SHA in checkpoint metadata, failure does not prevent cleanup, unit tests verify ordering",
+          "files_affected": [
+            "gateway/session_manager.py",
+            "gateway/worktree_manager.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        }
+      ],
+      "review_feedback": []
+    },
+    {
+      "id": "phase-5",
+      "name": "Final Validation",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-5-1",
+          "description": "Run full test suite (pytest gateway/tests/ orchestrator/tests/ tests/) and fix any regressions from Phases 1-4",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "All existing tests pass with no modifications except genuine regression fixes",
+          "files_affected": [
+            "gateway/tests/"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-5-2",
+          "description": "Run linter and fix any issues",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Linter passes cleanly",
+          "files_affected": [
+            "gateway/",
+            "shared/",
+            "orchestrator/"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        }
+      ],
+      "review_feedback": []
+    }
+  ],
   "decisions": [],
   "workflow_owner": null,
   "audit_log": [],
@@ -22,9 +273,9 @@
   "agent_executions": [
     {
       "role": "coder",
-      "status": "pending",
-      "started_at": null,
-      "completed_at": null,
+      "status": "complete",
+      "started_at": "2026-02-17T01:17:52.532471Z",
+      "completed_at": "2026-02-17T02:16:55.109822Z",
       "commit": null,
       "checkpoint_id": null,
       "outputs": {},
@@ -34,9 +285,9 @@
     },
     {
       "role": "tester",
-      "status": "pending",
-      "started_at": null,
-      "completed_at": null,
+      "status": "complete",
+      "started_at": "2026-02-17T01:35:57.631082Z",
+      "completed_at": "2026-02-17T01:46:53.619400Z",
       "commit": null,
       "checkpoint_id": null,
       "outputs": {},
@@ -46,9 +297,9 @@
     },
     {
       "role": "documenter",
-      "status": "pending",
-      "started_at": null,
-      "completed_at": null,
+      "status": "complete",
+      "started_at": "2026-02-17T01:35:57.632990Z",
+      "completed_at": "2026-02-17T01:43:25.294728Z",
       "commit": null,
       "checkpoint_id": null,
       "outputs": {},
@@ -58,9 +309,9 @@
     },
     {
       "role": "integrator",
-      "status": "pending",
-      "started_at": null,
-      "completed_at": null,
+      "status": "complete",
+      "started_at": "2026-02-17T01:46:53.631063Z",
+      "completed_at": "2026-02-17T01:54:32.113589Z",
       "commit": null,
       "checkpoint_id": null,
       "outputs": {},
@@ -69,10 +320,22 @@
       "conflicts": []
     },
     {
-      "role": "reviewer_agent_design",
+      "role": "reviewer_contract",
       "status": "complete",
       "started_at": null,
-      "completed_at": "2026-02-16T23:34:19.452481Z",
+      "completed_at": "2026-02-17T02:23:08.116600Z",
+      "commit": null,
+      "checkpoint_id": null,
+      "outputs": {},
+      "error": null,
+      "retry_count": 0,
+      "conflicts": []
+    },
+    {
+      "role": "reviewer_code",
+      "status": "complete",
+      "started_at": null,
+      "completed_at": "2026-02-17T02:29:15.558981Z",
       "commit": null,
       "checkpoint_id": null,
       "outputs": {},
