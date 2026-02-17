@@ -267,7 +267,7 @@ def auto_commit_worktree(
 
         # Get the commit SHA
         rev = _git("rev-parse", "HEAD", cwd=worktree_path)
-        sha = rev.stdout.strip() if rev.returncode == 0 else "unknown"
+        sha = rev.stdout.strip() if rev.returncode == 0 else None
 
         logger.info(
             "Auto-committed uncommitted work",

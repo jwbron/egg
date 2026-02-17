@@ -460,8 +460,8 @@ class TestAutoCommitWorktreeErrors:
         assert result is None
 
     @patch("post_agent_commit.subprocess.run")
-    def test_rev_parse_failure_returns_unknown(self, mock_run, tmp_path):
-        """rev-parse failure should still return a SHA (unknown)."""
+    def test_rev_parse_failure_returns_none(self, mock_run, tmp_path):
+        """rev-parse failure returns None instead of an invalid SHA."""
         mock_run.side_effect = [
             MagicMock(returncode=0, stdout=" M file.py\n", stderr=""),
             MagicMock(returncode=0, stdout="", stderr=""),
@@ -469,7 +469,7 @@ class TestAutoCommitWorktreeErrors:
             MagicMock(returncode=128, stdout="", stderr="rev-parse failed"),
         ]
         result = auto_commit_worktree(str(tmp_path), container_id="c1")
-        assert result == "unknown"
+        assert result is None
 
     @patch("post_agent_commit.subprocess.run")
     def test_timeout_returns_none(self, mock_run, tmp_path):
