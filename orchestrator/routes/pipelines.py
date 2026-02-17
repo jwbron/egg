@@ -2857,7 +2857,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
         # We use the pipeline_id as the worktree container_id so all
         # containers in the pipeline share the same working trees.
         worktree_id = pipeline_id
-        repo_volumes = dict(host_repo_map)  # fallback: raw host paths
+        repo_volumes: dict[str, str] = {}
         worktree_repo_path = repo_path  # default; overridden when worktrees exist
         host_uid = int(os.environ.get("HOST_UID", 1000))
         host_gid = int(os.environ.get("HOST_GID", 1000))
@@ -2906,22 +2906,27 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                         worktrees=list(repo_volumes.keys()),
                     )
                 else:
-                    logger.warning(
-                        "Worktree creation returned no worktrees, using raw host paths",
-                        pipeline_id=pipeline_id,
-                        errors=wt_result.errors,
+                    raise RuntimeError(
+                        f"Worktree creation returned no worktrees for pipeline {pipeline_id}: "
+                        f"errors={wt_result.errors}"
                     )
 
                 if wt_result.errors:
                     for err in wt_result.errors:
                         logger.warning("Worktree error", pipeline_id=pipeline_id, error=err)
 
+            except RuntimeError:
+                raise  # Re-raise our own RuntimeError
             except Exception as wt_err:
-                logger.warning(
-                    "Failed to create worktrees, falling back to raw host paths",
-                    pipeline_id=pipeline_id,
-                    error=str(wt_err),
-                )
+                raise RuntimeError(
+                    f"Failed to create worktrees for pipeline {pipeline_id}: {wt_err}"
+                ) from wt_err
+
+        if not repo_volumes:
+            raise RuntimeError(
+                f"No repo volumes available for pipeline {pipeline_id} — "
+                f"worktree creation is required"
+            )
 
         # Resolve the certs named volume for gateway CA trust.
         # The docker-compose stack creates ${COMPOSE_PROJECT_NAME:-egg}-certs.

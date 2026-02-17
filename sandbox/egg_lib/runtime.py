@@ -52,7 +52,6 @@ from .context import get_context
 from .docker import build_image, create_dockerfile, image_exists
 from .gateway import (
     create_session,
-    create_worktrees,
     delete_session,
     delete_worktrees,
 )
@@ -240,95 +239,6 @@ def _allocate_container_ip(network: str | None = None) -> str | None:
         return None
 
 
-def _setup_repo_mounts(
-    container_id: str,
-    mount_args: list[str],
-    quiet: bool = False,
-    use_gateway_worktrees: bool = True,
-) -> dict[str, Path]:
-    """Configure repository mounts for a container.
-
-    In the gateway-managed worktree architecture:
-    - Gateway creates worktrees for the container before it starts
-    - Container mounts gateway-created worktrees at /home/egg/repos/{repo_name}
-    - The .git directory is shadowed by a tmpfs mount (no git metadata in container)
-    - All git operations must go through the gateway API
-
-    Args:
-        container_id: Unique container identifier
-        mount_args: List to append mount arguments to
-        quiet: Suppress output
-        use_gateway_worktrees: If True, request worktrees from gateway (default)
-                               If False, mount repos directly (fallback)
-
-    Returns:
-        Dict of repo_name -> repo_path for tracking
-    """
-    repos: dict[str, Path] = {}
-    local_repos = get_local_repos(config_file=_get_repos_config_file())
-
-    if not local_repos:
-        if not quiet:
-            info("No local repositories configured.")
-        return repos
-
-    repo_names = [repo_path.name for repo_path in local_repos if repo_path.is_dir()]
-
-    if not repo_names:
-        return repos
-
-    if use_gateway_worktrees:
-        # Request gateway to create worktrees with correct ownership
-        wt_success, worktrees, wt_errors = create_worktrees(
-            container_id, repo_names, uid=os.getuid(), gid=os.getgid()
-        )
-
-        if wt_errors and not quiet:
-            for err in wt_errors:
-                warn(f"Worktree error: {err}")
-
-        if not wt_success and not worktrees:
-            # Fall back to direct mounts if gateway fails
-            if not quiet:
-                warn("Gateway worktree creation failed, using direct mounts")
-            use_gateway_worktrees = False
-
-    for repo_path in local_repos:
-        if not repo_path.is_dir():
-            continue
-
-        repo_name = repo_path.name
-        container_path = f"/home/egg/repos/{repo_name}"
-
-        if use_gateway_worktrees and repo_name in worktrees:
-            # Mount gateway-created worktree
-            worktree_path = worktrees[repo_name]
-            mount_args.extend(["-v", f"{worktree_path}:{container_path}:rw"])
-
-            if not quiet:
-                print(f"  • ~/repos/{repo_name} (gateway worktree)")
-        else:
-            # Fallback: mount repo directly
-            mount_args.extend(["-v", f"{repo_path}:{container_path}:rw"])
-
-            if not quiet:
-                print(f"  • ~/repos/{repo_name} (direct mount)")
-
-        # Shadow .git using shared helper to prevent local git operations.
-        # The helper checks whether .git is a file (worktree) or directory
-        # and chooses the appropriate mount type (/dev/null bind or tmpfs).
-        if use_gateway_worktrees and repo_name in worktrees:
-            host_path = worktrees[repo_name]
-        else:
-            host_path = str(repo_path)
-        for shadow in git_shadow_mounts({repo_name: host_path}):
-            mount_args.extend(mount_spec_to_cli_args(shadow))
-
-        repos[repo_name] = repo_path
-
-    return repos
-
-
 def _cleanup_worktrees(container_id: str, force: bool = True) -> None:
     """Clean up gateway worktrees for a container.
 
@@ -454,7 +364,7 @@ def _setup_session_repos(
 
     if not success_flag:
         if not quiet:
-            warn("Session creation failed, falling back to legacy mode")
+            warn("Session creation failed — cannot start container without a session")
         return None, repos, []
 
     if not quiet:

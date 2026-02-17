@@ -91,7 +91,7 @@ def _setup_mocks(
 
     mock_gateway = MagicMock()
     mock_gateway.create_worktrees.return_value = MagicMock(
-        success=False, worktrees={}, errors=[]
+        success=True, worktrees={"repo": "/tmp/wt/repo"}, errors=[]
     )
     mock_spawner = MagicMock()
     mock_spawner.gateway = mock_gateway
@@ -284,3 +284,61 @@ class TestFailurePathPreservesWorktrees:
 
         # delete_worktrees should NOT be called since pipeline is FAILED
         mock_gateway.delete_worktrees.assert_not_called()
+
+
+class TestWorktreeCreationFailure:
+    """Verify pipeline fails when worktree creation returns empty worktrees."""
+
+    @patch(_COMMON_PATCHES[7])
+    @patch(_COMMON_PATCHES[6])
+    @patch(_COMMON_PATCHES[5])
+    @patch(_COMMON_PATCHES[4])
+    @patch(_COMMON_PATCHES[3])
+    @patch(_COMMON_PATCHES[2])
+    @patch(_COMMON_PATCHES[1])
+    @patch(_COMMON_PATCHES[0])
+    def test_pipeline_fails_on_empty_worktrees(
+        self,
+        mock_emit,
+        mock_get_spawner,
+        mock_get_store,
+        mock_spawn_wait,
+        mock_state_lock,
+        mock_build_prompt,
+        mock_read_draft,
+        mock_report,
+    ):
+        """When create_worktrees returns empty worktrees, pipeline should fail."""
+        from routes.pipelines import _run_pipeline
+
+        pipeline = _make_running_pipeline()
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = pipeline
+        mock_store.repo_path = Path("/repo")
+        mock_get_store.return_value = mock_store
+
+        mock_gateway = MagicMock()
+        mock_gateway.create_worktrees.return_value = MagicMock(
+            success=False, worktrees={}, errors=["gateway unavailable"]
+        )
+        mock_spawner = MagicMock()
+        mock_spawner.gateway = mock_gateway
+        mock_get_spawner.return_value = mock_spawner
+
+        mock_state_lock.return_value.__enter__ = MagicMock(return_value=None)
+        mock_state_lock.return_value.__exit__ = MagicMock(return_value=False)
+        mock_build_prompt.return_value = "test prompt"
+        mock_read_draft.return_value = None
+
+        with patch.dict(
+            os.environ,
+            {"EGG_HOST_REPO_MAP": '{"repo": "/host/repo"}'},
+            clear=False,
+        ):
+            _run_pipeline("issue-42", Path("/repo"))
+
+        # Pipeline should be FAILED because worktree creation is now mandatory
+        assert pipeline.status == PipelineStatus.FAILED
+
+        # _spawn_and_wait should NOT have been called — we failed before reaching it
+        mock_spawn_wait.assert_not_called()
