@@ -613,11 +613,17 @@ AGENT_ROLES: dict[AgentRole, AgentRoleDefinition] = {
 }
 
 
-def get_role_definition(role: AgentRole | str) -> AgentRoleDefinition:
+def get_role_definition(
+    role: AgentRole | str,
+    complexity_tier: str | None = None,
+) -> AgentRoleDefinition:
     """Get the definition for an agent role.
 
     Args:
         role: The role to get (string or AgentRole enum)
+        complexity_tier: Optional complexity tier ('low', 'mid', 'high').
+            When 'high', the INTEGRATOR role gets write access to source,
+            test, and doc files for integration fixes.
 
     Returns:
         The AgentRoleDefinition for this role
@@ -627,7 +633,51 @@ def get_role_definition(role: AgentRole | str) -> AgentRoleDefinition:
     """
     if isinstance(role, str):
         role = AgentRole(role)
-    return AGENT_ROLES[role]
+    role_def = AGENT_ROLES[role]
+
+    # In Tier 3 (high complexity), the integrator gets write access
+    # to source, test, and doc files to fix integration issues
+    if role == AgentRole.INTEGRATOR and complexity_tier == "high":
+        return AgentRoleDefinition(
+            role=role_def.role,
+            description=role_def.description
+            + " (Tier 3: can modify source/tests/docs to fix integration issues)",
+            responsibilities=[
+                *role_def.responsibilities,
+                "Fix integration issues across phase boundaries",
+                "Resolve merge conflicts between phase implementations",
+                "Ensure all tests pass end-to-end",
+            ],
+            dependencies=role_def.dependencies,
+            file_access=FileAccessPattern(
+                allowed_read=[],  # Can read all files
+                allowed_write=[
+                    ".egg-state/agent-outputs/",
+                    "src/",
+                    "lib/",
+                    "docs/",
+                    "tests/",
+                    "test/",
+                    # Allow writing to common source directories
+                    "shared/",
+                    "orchestrator/",
+                    "gateway/",
+                    "action/",
+                    "bin/",
+                    "config/",
+                    "scripts/",
+                    "integration_tests/",
+                ],
+                blocked_write=[
+                    ".egg-state/contracts/",
+                ],
+            ),
+            can_run_in_parallel=role_def.can_run_in_parallel,
+            produces_outputs=role_def.produces_outputs,
+            requires_inputs=role_def.requires_inputs,
+        )
+
+    return role_def
 
 
 def get_all_roles() -> list[AgentRoleDefinition]:
