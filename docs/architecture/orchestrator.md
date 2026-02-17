@@ -96,6 +96,8 @@ During the `implement` phase, certain `.egg-state/` subdirectories are mounted r
 
 The orchestrator calls `ensure_egg_state_dirs()` before spawning containers to create the required directories (bind mounts require existing source paths) and place `.egg-readonly` marker files explaining the restriction and current phase. Then `phase_readonly_mounts()` generates the readonly `MountSpec` entries, which are added alongside the existing `.git` shadow mounts. Only directories that exist on the host are mounted (missing directories are skipped). See `shared/egg_container/__init__.py` and `orchestrator/container_spawner.py`.
 
+**Host path translation:** The gateway returns worktree paths relative to the Docker host (e.g., `/home/jwies/.egg-worktrees/...`), but the orchestrator container only mounts these via `/home/egg/...`. The `_host_to_local_volumes()` helper in `container_spawner.py` uses the `HOST_HOME` env var to translate host paths to orchestrator-accessible local paths for `is_dir()` checks and `ensure_egg_state_dirs()`. Docker mount sources still use the original host paths unchanged.
+
 This architecture ensures the orchestrator reads artifacts from the correct isolated workspace rather than the main repository, preventing cross-contamination between pipelines.
 
 See `orchestrator/routes/pipelines.py:WORKTREE_BASE_DIR` and `gateway/worktree_manager.py` for implementation details.
@@ -417,6 +419,7 @@ if is_orchestrator_mode():
 | `EGG_PIPELINE_ID` | Current pipeline identifier | None |
 | `EGG_AGENT_ROLE` | Agent role for multi-agent mode | None |
 | `EGG_PRIVATE_MODE` | Private network mode (set by host wrapper, detected by `egg-sdlc`) | None |
+| `HOST_HOME` | Docker host's home directory (e.g., `/home/jwies`); used to translate host worktree paths to orchestrator-accessible paths | None |
 
 ### Constants
 
