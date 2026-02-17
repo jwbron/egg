@@ -351,3 +351,186 @@ def format_execution_plan(plan: ExecutionPlan) -> str:
         lines.append(f"  Wave {wave.wave_number}{parallel_marker}: {agents_str}")
 
     return "\n".join(lines)
+
+
+# --- Phase-level dependency graph for Tier 3 ---
+
+
+@dataclass
+class PhaseWave:
+    """A wave of plan phases that can execute in parallel.
+
+    All phases in a wave have their phase-level dependencies satisfied,
+    so they can be implemented concurrently.
+    """
+
+    wave_number: int
+    phase_ids: list[str] = field(default_factory=list)
+
+    def __len__(self) -> int:
+        return len(self.phase_ids)
+
+    def is_parallel(self) -> bool:
+        """Check if this wave has multiple phases."""
+        return len(self.phase_ids) > 1
+
+
+class PhaseDependencyGraph:
+    """Dependency graph for plan phases (Tier 3 dispatch).
+
+    Computes execution waves for plan phases based on their declared
+    dependencies. Independent phases are grouped into the same wave
+    for parallel execution.
+
+    Example:
+        phases = [
+            Phase(id="phase-1", dependencies=[]),
+            Phase(id="phase-2", dependencies=["phase-1"]),
+            Phase(id="phase-3", dependencies=["phase-1"]),
+            Phase(id="phase-4", dependencies=["phase-2", "phase-3"]),
+        ]
+        graph = PhaseDependencyGraph(phases)
+        waves = graph.compute_waves()
+        # waves[0] = PhaseWave(1, ["phase-1"])
+        # waves[1] = PhaseWave(2, ["phase-2", "phase-3"])  # parallel
+        # waves[2] = PhaseWave(3, ["phase-4"])
+    """
+
+    def __init__(self, phases: list | None = None) -> None:
+        """Initialize with optional list of Phase models.
+
+        Args:
+            phases: List of Phase models (from contract). Each phase must have
+                an `id` (str) and `dependencies` (list[str]) attribute.
+        """
+        self.nodes: dict[str, list[str]] = {}  # phase_id -> list of dependency phase_ids
+        if phases:
+            for phase in phases:
+                deps = getattr(phase, "dependencies", []) or []
+                self.nodes[phase.id] = list(deps)
+
+    def add_phase(self, phase_id: str, dependencies: list[str] | None = None) -> None:
+        """Add a phase to the graph.
+
+        Args:
+            phase_id: The phase identifier (e.g., 'phase-1')
+            dependencies: Phase IDs this phase depends on
+        """
+        self.nodes[phase_id] = list(dependencies or [])
+
+    def has_cycle(self) -> bool:
+        """Check if the graph has any cycles.
+
+        Returns:
+            True if a cycle is detected
+        """
+        visited: set[str] = set()
+        rec_stack: set[str] = set()
+
+        def dfs(node: str) -> bool:
+            visited.add(node)
+            rec_stack.add(node)
+
+            for dep in self.nodes.get(node, []):
+                if dep not in self.nodes:
+                    continue  # Skip unknown dependencies
+                if dep not in visited:
+                    if dfs(dep):
+                        return True
+                elif dep in rec_stack:
+                    return True
+
+            rec_stack.discard(node)
+            return False
+
+        for node in self.nodes:
+            if node not in visited:
+                if dfs(node):
+                    return True
+
+        return False
+
+    def topological_sort(self) -> list[str]:
+        """Return phase IDs in topological order.
+
+        Raises:
+            ValueError: If the graph has cycles
+        """
+        if self.has_cycle():
+            raise ValueError("Phase dependency graph has cycles")
+
+        in_degree: dict[str, int] = {pid: 0 for pid in self.nodes}
+        for pid, deps in self.nodes.items():
+            for dep in deps:
+                if dep in self.nodes:
+                    in_degree[pid] += 1
+
+        queue = sorted(pid for pid in self.nodes if in_degree[pid] == 0)
+        result: list[str] = []
+
+        while queue:
+            pid = queue.pop(0)
+            result.append(pid)
+
+            # Find all nodes that depend on pid
+            for other_pid, deps in self.nodes.items():
+                if pid in deps:
+                    in_degree[other_pid] -= 1
+                    if in_degree[other_pid] == 0:
+                        # Insert sorted to get deterministic ordering
+                        import bisect
+
+                        bisect.insort(queue, other_pid)
+
+        if len(result) != len(self.nodes):
+            raise ValueError("Could not process all phases - cycle detected")
+
+        return result
+
+    def compute_waves(self) -> list[PhaseWave]:
+        """Compute execution waves for parallel phase execution.
+
+        Returns a list of PhaseWave objects, where each wave contains
+        phases that can run concurrently.
+
+        Raises:
+            ValueError: If the graph has cycles
+        """
+        if not self.nodes:
+            return []
+
+        sorted_phases = self.topological_sort()
+
+        # Track which wave each phase is assigned to
+        phase_wave: dict[str, int] = {}
+        waves: list[list[str]] = []
+
+        for pid in sorted_phases:
+            deps = self.nodes.get(pid, [])
+
+            # Find the wave this phase can join (after all dependencies)
+            max_dep_wave = -1
+            for dep in deps:
+                if dep in phase_wave:
+                    max_dep_wave = max(max_dep_wave, phase_wave[dep])
+
+            assigned_wave = max_dep_wave + 1
+            phase_wave[pid] = assigned_wave
+
+            while len(waves) <= assigned_wave:
+                waves.append([])
+            waves[assigned_wave].append(pid)
+
+        return [
+            PhaseWave(wave_number=i + 1, phase_ids=phase_ids)
+            for i, phase_ids in enumerate(waves)
+            if phase_ids
+        ]
+
+    def get_sequential_order(self) -> list[str]:
+        """Get phases in sequential execution order.
+
+        Returns phases in topological order, suitable for sequential
+        (non-parallel) Tier 3 execution.
+        """
+        return self.topological_sort()

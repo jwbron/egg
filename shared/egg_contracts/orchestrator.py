@@ -99,20 +99,26 @@ class Orchestrator:
     - Determining which agents to run next
     - Recording agent results
     - Managing handoffs between agents
+
+    Supports two modes:
+    - Role-only (Tier 2): Default mode, dispatch by role
+    - Phase-scoped (Tier 3): Dispatch by (phase_id, role) composite key
     """
 
-    def __init__(self, contract: Contract):
+    def __init__(self, contract: Contract, phase_id: str | None = None):
         """Initialize the orchestrator with a contract.
 
         Args:
             contract: The contract to orchestrate
+            phase_id: Optional plan phase ID for Tier 3 phase-scoped dispatch
         """
         self.contract = contract
+        self.phase_id = phase_id
         self.state = OrchestrationState.from_contract(contract)
 
         # If no executions exist, initialize them
         if not self.state.executions:
-            self.state = initialize_orchestration(contract)
+            self.state = initialize_orchestration(contract, phase_id=phase_id)
 
     def get_next_dispatch(self) -> DispatchDecision:
         """Determine which agents to dispatch next.
@@ -129,8 +135,8 @@ class Orchestrator:
         if self.state.all_complete():
             return DispatchDecision.complete()
 
-        # Get runnable agents
-        runnable = get_runnable_agents(self.state)
+        # Get runnable agents (phase-scoped if phase_id is set)
+        runnable = get_runnable_agents(self.state, phase_id=self.phase_id)
 
         if not runnable:
             # No agents can run - check why
@@ -179,22 +185,27 @@ class Orchestrator:
 
         return 1  # Default to wave 1
 
-    def start_agent(self, role: AgentRole) -> AgentExecutionModel:
+    def start_agent(
+        self, role: AgentRole, phase_id: str | None = None
+    ) -> AgentExecutionModel:
         """Mark an agent as started.
 
         Args:
             role: The agent role to start
+            phase_id: Optional phase ID override (uses self.phase_id if not set)
 
         Returns:
             Updated AgentExecutionModel
         """
-        return self.state.mark_running(role)
+        pid = phase_id if phase_id is not None else self.phase_id
+        return self.state.mark_running(role, phase_id=pid)
 
     def complete_agent(
         self,
         role: AgentRole,
         commit: str | None = None,
         outputs: dict[str, Any] | None = None,
+        phase_id: str | None = None,
     ) -> AgentExecutionModel:
         """Mark an agent as complete.
 
@@ -202,23 +213,29 @@ class Orchestrator:
             role: The agent role
             commit: Git commit SHA if agent made changes
             outputs: Handoff data produced by agent
+            phase_id: Optional phase ID override
 
         Returns:
             Updated AgentExecutionModel
         """
-        return self.state.mark_complete(role, commit=commit, outputs=outputs)
+        pid = phase_id if phase_id is not None else self.phase_id
+        return self.state.mark_complete(role, commit=commit, outputs=outputs, phase_id=pid)
 
-    def fail_agent(self, role: AgentRole, error: str) -> AgentExecutionModel:
+    def fail_agent(
+        self, role: AgentRole, error: str, phase_id: str | None = None
+    ) -> AgentExecutionModel:
         """Mark an agent as failed.
 
         Args:
             role: The agent role
             error: Error message
+            phase_id: Optional phase ID override
 
         Returns:
             Updated AgentExecutionModel
         """
-        return self.state.mark_failed(role, error)
+        pid = phase_id if phase_id is not None else self.phase_id
+        return self.state.mark_failed(role, error, phase_id=pid)
 
     def record_result(self, result: AgentResult) -> AgentExecutionModel:
         """Record the result of an agent execution.

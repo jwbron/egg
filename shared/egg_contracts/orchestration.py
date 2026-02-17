@@ -46,6 +46,19 @@ class AgentHandoff:
         return self.data.get(key, default)
 
 
+def _composite_key(role: AgentRole, phase_id: str | None = None) -> tuple[str | None, AgentRole]:
+    """Create a composite key for execution tracking.
+
+    Args:
+        role: The agent role
+        phase_id: Optional plan phase ID (e.g., 'phase-1')
+
+    Returns:
+        Tuple of (phase_id, role) for use as dict key
+    """
+    return (phase_id, role)
+
+
 @dataclass
 class OrchestrationState:
     """Complete state of multi-agent orchestration.
@@ -53,9 +66,17 @@ class OrchestrationState:
     Tracks all agent executions, their status, and coordination data.
     This state is persisted in the contract and used by the orchestrator
     to determine which agents to run next.
+
+    Supports two keying modes:
+    - Role-only (Tier 2): executions keyed by (None, role) for backward compatibility
+    - Composite (Tier 3): executions keyed by (phase_id, role) for phase-level dispatch
     """
 
     executions: dict[AgentRole, AgentExecutionModel] = field(default_factory=dict)
+    # Composite key executions: (phase_id, role) -> AgentExecutionModel
+    phase_executions: dict[tuple[str | None, AgentRole], AgentExecutionModel] = field(
+        default_factory=dict
+    )
     handoffs: list[AgentHandoff] = field(default_factory=list)
     started_at: str | None = None  # ISO format
     completed_at: str | None = None  # ISO format
@@ -78,6 +99,9 @@ class OrchestrationState:
             try:
                 role = AgentRole(execution.role.value)
                 state.executions[role] = execution
+                # Also populate phase_executions for composite key support
+                key = _composite_key(role, execution.phase_id)
+                state.phase_executions[key] = execution
             except ValueError:
                 # Skip unknown roles
                 pass
@@ -90,10 +114,38 @@ class OrchestrationState:
         Returns:
             List of AgentExecutionModel objects
         """
-        return list(self.executions.values())
+        # If phase_executions has entries that aren't in executions,
+        # include them too (Tier 3 mode)
+        seen = set()
+        result = []
+        for execution in self.executions.values():
+            key = (execution.phase_id, AgentRole(execution.role.value))
+            if key not in seen:
+                seen.add(key)
+                result.append(execution)
 
-    def get_execution(self, role: AgentRole) -> AgentExecutionModel | None:
-        """Get the execution state for a role."""
+        for key, execution in self.phase_executions.items():
+            if key not in seen:
+                seen.add(key)
+                result.append(execution)
+
+        return result
+
+    def get_execution(
+        self, role: AgentRole, phase_id: str | None = None
+    ) -> AgentExecutionModel | None:
+        """Get the execution state for a role, optionally scoped to a phase.
+
+        Args:
+            role: The agent role
+            phase_id: Optional plan phase ID for composite key lookup
+
+        Returns:
+            AgentExecutionModel or None
+        """
+        if phase_id is not None:
+            key = _composite_key(role, phase_id)
+            return self.phase_executions.get(key)
         return self.executions.get(role)
 
     def set_execution(
@@ -103,6 +155,7 @@ class OrchestrationState:
         commit: str | None = None,
         outputs: dict[str, Any] | None = None,
         error: str | None = None,
+        phase_id: str | None = None,
     ) -> AgentExecutionModel:
         """Set or update the execution state for a role.
 
@@ -112,19 +165,34 @@ class OrchestrationState:
             commit: Git commit SHA if agent made changes
             outputs: Handoff data produced by agent
             error: Error message if failed
+            phase_id: Optional plan phase ID for composite key
 
         Returns:
             The updated AgentExecutionModel
         """
         now = datetime.utcnow().isoformat() + "Z"
 
-        if role not in self.executions:
-            self.executions[role] = AgentExecutionModel(
-                role=AgentRoleType(role.value),
-                status=status,
-            )
+        key = _composite_key(role, phase_id)
 
-        execution = self.executions[role]
+        # For phase-scoped lookups
+        if phase_id is not None:
+            if key not in self.phase_executions:
+                self.phase_executions[key] = AgentExecutionModel(
+                    role=AgentRoleType(role.value),
+                    phase_id=phase_id,
+                    status=status,
+                )
+            execution = self.phase_executions[key]
+        else:
+            if role not in self.executions:
+                self.executions[role] = AgentExecutionModel(
+                    role=AgentRoleType(role.value),
+                    status=status,
+                )
+            execution = self.executions[role]
+            # Mirror to phase_executions
+            self.phase_executions[key] = execution
+
         execution.status = status
 
         if status == AgentExecutionStatus.RUNNING and execution.started_at is None:
@@ -145,15 +213,18 @@ class OrchestrationState:
 
         return execution
 
-    def mark_running(self, role: AgentRole) -> AgentExecutionModel:
+    def mark_running(
+        self, role: AgentRole, phase_id: str | None = None
+    ) -> AgentExecutionModel:
         """Mark an agent as running."""
-        return self.set_execution(role, AgentExecutionStatus.RUNNING)
+        return self.set_execution(role, AgentExecutionStatus.RUNNING, phase_id=phase_id)
 
     def mark_complete(
         self,
         role: AgentRole,
         commit: str | None = None,
         outputs: dict[str, Any] | None = None,
+        phase_id: str | None = None,
     ) -> AgentExecutionModel:
         """Mark an agent as complete."""
         return self.set_execution(
@@ -161,23 +232,28 @@ class OrchestrationState:
             AgentExecutionStatus.COMPLETE,
             commit=commit,
             outputs=outputs,
+            phase_id=phase_id,
         )
 
     def mark_failed(
         self,
         role: AgentRole,
         error: str,
+        phase_id: str | None = None,
     ) -> AgentExecutionModel:
         """Mark an agent as failed."""
         return self.set_execution(
             role,
             AgentExecutionStatus.FAILED,
             error=error,
+            phase_id=phase_id,
         )
 
-    def mark_skipped(self, role: AgentRole) -> AgentExecutionModel:
+    def mark_skipped(
+        self, role: AgentRole, phase_id: str | None = None
+    ) -> AgentExecutionModel:
         """Mark an agent as skipped."""
-        return self.set_execution(role, AgentExecutionStatus.SKIPPED)
+        return self.set_execution(role, AgentExecutionStatus.SKIPPED, phase_id=phase_id)
 
     def add_handoff(
         self,
@@ -273,6 +349,7 @@ class OrchestrationState:
 def initialize_orchestration(
     contract: Contract,
     roles: list[AgentRole] | None = None,
+    phase_id: str | None = None,
 ) -> OrchestrationState:
     """Initialize orchestration state for a contract.
 
@@ -284,6 +361,8 @@ def initialize_orchestration(
         roles: Specific roles to use. If None, uses the contract's
             multi_agent_config.roles_enabled or defaults to the 4
             implement-phase roles for backward compatibility.
+        phase_id: Optional plan phase ID for Tier 3 composite keying.
+            When set, executions are keyed by (phase_id, role).
 
     Returns:
         Initialized OrchestrationState
@@ -306,10 +385,14 @@ def initialize_orchestration(
 
     # Create pending execution for each enabled role
     for role in enabled_roles:
-        state.executions[role] = AgentExecutionModel(
+        execution = AgentExecutionModel(
             role=AgentRoleType(role.value),
+            phase_id=phase_id,
             status=AgentExecutionStatus.PENDING,
         )
+        state.executions[role] = execution
+        key = _composite_key(role, phase_id)
+        state.phase_executions[key] = execution
 
     return state
 
@@ -331,7 +414,11 @@ def update_contract_orchestration(
     return contract
 
 
-def can_agent_run(role: AgentRole, state: OrchestrationState) -> bool:
+def can_agent_run(
+    role: AgentRole,
+    state: OrchestrationState,
+    phase_id: str | None = None,
+) -> bool:
     """Check if an agent can run based on its dependencies.
 
     An agent can run if:
@@ -341,11 +428,12 @@ def can_agent_run(role: AgentRole, state: OrchestrationState) -> bool:
     Args:
         role: The agent role to check
         state: Current orchestration state
+        phase_id: Optional plan phase ID for phase-scoped check
 
     Returns:
         True if the agent can run
     """
-    execution = state.executions.get(role)
+    execution = state.get_execution(role, phase_id=phase_id)
 
     # Can't run if not pending
     if execution is not None and execution.status != AgentExecutionStatus.PENDING:
@@ -354,14 +442,17 @@ def can_agent_run(role: AgentRole, state: OrchestrationState) -> bool:
     # Check dependencies
     role_def = get_role_definition(role)
     for dep in role_def.dependencies:
-        dep_execution = state.executions.get(dep)
+        dep_execution = state.get_execution(dep, phase_id=phase_id)
         if dep_execution is None or dep_execution.status != AgentExecutionStatus.COMPLETE:
             return False
 
     return True
 
 
-def get_runnable_agents(state: OrchestrationState) -> list[AgentRole]:
+def get_runnable_agents(
+    state: OrchestrationState,
+    phase_id: str | None = None,
+) -> list[AgentRole]:
     """Get all agents that can currently run.
 
     Returns agents that are pending and have all dependencies satisfied.
@@ -370,18 +461,29 @@ def get_runnable_agents(state: OrchestrationState) -> list[AgentRole]:
 
     Args:
         state: Current orchestration state
+        phase_id: Optional plan phase ID for phase-scoped check
 
     Returns:
         List of roles that can run now
     """
     runnable = []
-    for role in state.executions:
-        if can_agent_run(role, state):
-            runnable.append(role)
+    if phase_id is not None:
+        # Phase-scoped: only consider executions for this phase
+        for key, _execution in state.phase_executions.items():
+            key_phase_id, key_role = key
+            if key_phase_id == phase_id and can_agent_run(key_role, state, phase_id=phase_id):
+                runnable.append(key_role)
+    else:
+        for role in state.executions:
+            if can_agent_run(role, state):
+                runnable.append(role)
     return runnable
 
 
-def get_next_wave(state: OrchestrationState) -> list[AgentRole]:
+def get_next_wave(
+    state: OrchestrationState,
+    phase_id: str | None = None,
+) -> list[AgentRole]:
     """Get the next wave of agents to run.
 
     A wave is a set of agents that can run in parallel. This function
@@ -389,8 +491,9 @@ def get_next_wave(state: OrchestrationState) -> list[AgentRole]:
 
     Args:
         state: Current orchestration state
+        phase_id: Optional plan phase ID for phase-scoped check
 
     Returns:
         List of roles in the next wave
     """
-    return get_runnable_agents(state)
+    return get_runnable_agents(state, phase_id=phase_id)
