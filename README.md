@@ -93,6 +93,7 @@ The gateway enforces both process controls (SDLC phases) and security controls (
 | Agent pushes to main | Gateway enforces branch policies; agent can only push to `egg/*` branches |
 | Agent tampers with contracts | File-level restrictions block implementers from modifying contract files via `git push` |
 | Agent exfiltrates code | Private mode restricts network to Anthropic API + private GitHub repos only |
+| Agent switches branches mid-session | Gateway blocks `git checkout`/`git switch` branch ops in pipeline worktree sessions; agents are locked to their assigned branch |
 | Agent accesses other workspaces | Each agent gets isolated git worktree; `.git/` is shadowed |
 
 ### Phase Permissions
