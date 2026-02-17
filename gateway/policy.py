@@ -947,7 +947,7 @@ def extract_repo_from_remote(remote_url: str) -> str | None:
     - git@github.com:owner/repo.git
     """
     patterns = [
-        r"github\.com[/:]([^/]+)/([^/\.]+?)(?:\.git)?$",
+        r"github\.com[/:]([^/]+)/([^/]+?)(?:\.git)?$",
     ]
 
     for pattern in patterns:
