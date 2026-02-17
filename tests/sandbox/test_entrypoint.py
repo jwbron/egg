@@ -1180,3 +1180,125 @@ class TestCleanupOnExitSignaling:
             entrypoint.cleanup_on_exit(config, logger, exit_code=1)
 
             mock_signal.assert_called_once_with(config, logger, 1)
+
+
+class TestResolveGidConflict:
+    """Tests for _resolve_gid_conflict helper (macOS GID collision fix)."""
+
+    @patch("subprocess.run")
+    def test_renames_conflicting_group(self, mock_run):
+        """Renames a conflicting group when target GID is already taken."""
+        mock_run.return_value = MagicMock(returncode=0)
+        logger = entrypoint.Logger(quiet=True)
+
+        # Simulate: egg group has GID 1000, but target GID 20 is held by "dialout"
+        mock_grp_egg = MagicMock(gr_gid=1000, gr_name="egg")
+        mock_grp_dialout = MagicMock(gr_gid=20, gr_name="dialout")
+
+        with patch("grp.getgrnam", return_value=mock_grp_egg):
+            with patch("grp.getgrgid", return_value=mock_grp_dialout):
+                entrypoint._resolve_gid_conflict(20, "egg", logger)
+
+        # Should have called groupmod to rename dialout
+        mock_run.assert_called_once()
+        call_args = mock_run.call_args[0][0]
+        assert call_args == ["groupmod", "-n", "_orig_dialout", "dialout"]
+
+    @patch("subprocess.run")
+    def test_no_rename_when_no_conflict(self, mock_run):
+        """Does nothing when target GID is not taken."""
+        logger = entrypoint.Logger(quiet=True)
+
+        mock_grp_egg = MagicMock(gr_gid=1000, gr_name="egg")
+
+        with patch("grp.getgrnam", return_value=mock_grp_egg):
+            with patch("grp.getgrgid", side_effect=KeyError("not found")):
+                entrypoint._resolve_gid_conflict(20, "egg", logger)
+
+        mock_run.assert_not_called()
+
+    @patch("subprocess.run")
+    def test_no_rename_when_already_matching(self, mock_run):
+        """Does nothing when egg group already has the target GID."""
+        logger = entrypoint.Logger(quiet=True)
+
+        mock_grp_egg = MagicMock(gr_gid=20, gr_name="egg")
+
+        with patch("grp.getgrnam", return_value=mock_grp_egg):
+            entrypoint._resolve_gid_conflict(20, "egg", logger)
+
+        mock_run.assert_not_called()
+
+    @patch("subprocess.run")
+    def test_no_rename_when_getgrgid_returns_our_group(self, mock_run):
+        """Does nothing when getgrgid returns our own group name."""
+        logger = entrypoint.Logger(quiet=True)
+
+        mock_grp_egg_by_name = MagicMock(gr_gid=1000, gr_name="egg")
+        mock_grp_egg_by_gid = MagicMock(gr_gid=20, gr_name="egg")
+
+        with patch("grp.getgrnam", return_value=mock_grp_egg_by_name):
+            with patch("grp.getgrgid", return_value=mock_grp_egg_by_gid):
+                entrypoint._resolve_gid_conflict(20, "egg", logger)
+
+        mock_run.assert_not_called()
+
+
+class TestResolveUidConflict:
+    """Tests for _resolve_uid_conflict helper (macOS UID collision fix)."""
+
+    @patch("subprocess.run")
+    def test_reassigns_conflicting_user(self, mock_run):
+        """Reassigns a conflicting user to a high UID."""
+        mock_run.return_value = MagicMock(returncode=0)
+        logger = entrypoint.Logger(quiet=True)
+
+        mock_pwd_egg = MagicMock(pw_uid=1000, pw_name="egg")
+        mock_pwd_other = MagicMock(pw_uid=501, pw_name="ubuntu")
+
+        with patch("pwd.getpwnam", return_value=mock_pwd_egg):
+            with patch("pwd.getpwuid", return_value=mock_pwd_other):
+                entrypoint._resolve_uid_conflict(501, "egg", logger)
+
+        mock_run.assert_called_once()
+        call_args = mock_run.call_args[0][0]
+        assert call_args == ["usermod", "-u", "60501", "ubuntu"]
+
+    @patch("subprocess.run")
+    def test_no_reassign_when_no_conflict(self, mock_run):
+        """Does nothing when target UID is not taken."""
+        logger = entrypoint.Logger(quiet=True)
+
+        mock_pwd_egg = MagicMock(pw_uid=1000, pw_name="egg")
+
+        with patch("pwd.getpwnam", return_value=mock_pwd_egg):
+            with patch("pwd.getpwuid", side_effect=KeyError("not found")):
+                entrypoint._resolve_uid_conflict(501, "egg", logger)
+
+        mock_run.assert_not_called()
+
+    @patch("subprocess.run")
+    def test_no_reassign_when_already_matching(self, mock_run):
+        """Does nothing when egg user already has the target UID."""
+        logger = entrypoint.Logger(quiet=True)
+
+        mock_pwd_egg = MagicMock(pw_uid=501, pw_name="egg")
+
+        with patch("pwd.getpwnam", return_value=mock_pwd_egg):
+            entrypoint._resolve_uid_conflict(501, "egg", logger)
+
+        mock_run.assert_not_called()
+
+    @patch("subprocess.run")
+    def test_no_reassign_when_getpwuid_returns_our_user(self, mock_run):
+        """Does nothing when getpwuid returns our own user name."""
+        logger = entrypoint.Logger(quiet=True)
+
+        mock_pwd_egg_by_name = MagicMock(pw_uid=1000, pw_name="egg")
+        mock_pwd_egg_by_uid = MagicMock(pw_uid=501, pw_name="egg")
+
+        with patch("pwd.getpwnam", return_value=mock_pwd_egg_by_name):
+            with patch("pwd.getpwuid", return_value=mock_pwd_egg_by_uid):
+                entrypoint._resolve_uid_conflict(501, "egg", logger)
+
+        mock_run.assert_not_called()

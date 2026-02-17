@@ -538,7 +538,7 @@ def run_claude(
                 f"  1. Gateway sidecar is running: curl http://localhost:{GATEWAY_PORT}/api/v1/health"
             )
             error("  2. Launcher secret exists: ~/.config/egg/launcher-secret")
-            error("  Fix: Re-run gateway/setup.sh to sync secrets")
+            error("  Fix: Re-run 'egg --setup' to sync secrets")
             return False
     else:
         # repo_mode is required since PR #669 - all containers need sessions
@@ -832,7 +832,7 @@ def exec_in_new_container(
                 f"  1. Gateway sidecar is running: curl http://localhost:{GATEWAY_PORT}/api/v1/health"
             )
             error("  2. Launcher secret exists: ~/.config/egg/launcher-secret")
-            error("  Fix: Re-run gateway/setup.sh to sync secrets")
+            error("  Fix: Re-run 'egg --setup' to sync secrets")
             return False
     else:
         # repo_mode is required since PR #669 - all containers need sessions

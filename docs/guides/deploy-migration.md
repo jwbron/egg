@@ -188,15 +188,17 @@ egg --public
 
 ## Rollback
 
-If you need to rollback:
+If you need to rollback to a previous version:
 
 ```bash
 # Stop compose
 bin/egg-deploy down
 
-# Restart old way
-./gateway/create-networks.sh
-./gateway/start-gateway.sh
+# Checkout the previous version
+git checkout v<previous-version>
+
+# Restart
+bin/egg-deploy up
 ```
 
 ## Troubleshooting

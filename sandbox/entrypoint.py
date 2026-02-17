@@ -369,6 +369,71 @@ def chown_recursive(path: Path, uid: int, gid: int) -> None:
 # =============================================================================
 
 
+def _resolve_gid_conflict(target_gid: int, container_user: str, logger: Logger) -> None:
+    """Rename any existing group that holds target_gid (if it's not our group).
+
+    On macOS, os.getgid() returns 20 ("staff"). Inside the Ubuntu container,
+    GID 20 belongs to "dialout". When groupmod tries to assign GID 20 to the
+    egg group, it fails because that GID is already taken.
+
+    Fix: rename the conflicting group out of the way first.
+    """
+    import grp
+
+    try:
+        existing = grp.getgrnam(container_user)
+        if existing.gr_gid == target_gid:
+            return  # Already owns it
+    except KeyError:
+        pass
+
+    try:
+        conflicting = grp.getgrgid(target_gid)
+    except KeyError:
+        return  # No group holds this GID
+
+    if conflicting.gr_name == container_user:
+        return  # Already ours
+
+    new_name = f"_orig_{conflicting.gr_name}"
+    logger.info(
+        f"GID {target_gid} is held by '{conflicting.gr_name}', "
+        f"renaming to '{new_name}' to avoid conflict"
+    )
+    run_cmd(["groupmod", "-n", new_name, conflicting.gr_name])
+
+
+def _resolve_uid_conflict(target_uid: int, container_user: str, logger: Logger) -> None:
+    """Reassign any existing user that holds target_uid to a high UID.
+
+    Similar to the GID conflict: if the target UID is already taken by a
+    different user, move that user out of the way first.
+    """
+    import pwd
+
+    try:
+        existing = pwd.getpwnam(container_user)
+        if existing.pw_uid == target_uid:
+            return  # Already owns it
+    except KeyError:
+        pass
+
+    try:
+        conflicting = pwd.getpwuid(target_uid)
+    except KeyError:
+        return  # No user holds this UID
+
+    if conflicting.pw_name == container_user:
+        return  # Already ours
+
+    high_uid = 60000 + target_uid
+    logger.info(
+        f"UID {target_uid} is held by '{conflicting.pw_name}', "
+        f"reassigning to UID {high_uid} to avoid conflict"
+    )
+    run_cmd(["usermod", "-u", str(high_uid), conflicting.pw_name])
+
+
 def setup_user(config: Config, logger: Logger) -> None:
     """Adjust egg user's UID/GID to match host user for proper file permissions."""
     import grp
@@ -386,6 +451,12 @@ def setup_user(config: Config, logger: Logger) -> None:
     except KeyError:
         logger.error(f"User {config.container_user} not found - container image may be corrupt")
         raise
+
+    # Resolve conflicts before adjusting (e.g. macOS GID 20 = "dialout" in Ubuntu)
+    if current_gid != config.runtime_gid:
+        _resolve_gid_conflict(config.runtime_gid, config.container_user, logger)
+    if current_uid != config.runtime_uid:
+        _resolve_uid_conflict(config.runtime_uid, config.container_user, logger)
 
     # Adjust GID if needed
     if current_gid != config.runtime_gid:

@@ -84,7 +84,7 @@ def get_github_username() -> str:
     Get the configured GitHub username.
 
     This is used to construct repo names and as the default reviewer.
-    Set via setup.sh or directly in repositories.yaml.
+    Set via 'egg --setup' or directly in repositories.yaml.
 
     Returns:
         GitHub username string

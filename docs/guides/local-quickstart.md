@@ -4,7 +4,9 @@ Get egg running locally with the full SDLC pipeline using a GitHub Personal Acce
 
 ## Prerequisites
 
-- **Docker** installed and running (Docker Desktop or Docker Engine with Compose v2)
+- **Docker** installed and running:
+  - **Linux**: Docker Engine with Compose v2
+  - **macOS**: [Docker Desktop](https://www.docker.com/products/docker-desktop/) (ensure it is running before starting egg)
 - **GitHub CLI** (`gh`) installed and authenticated: `gh auth login`
 - **Anthropic credentials**: either a Claude OAuth token or API key
 - **GitHub PAT**: a fine-grained Personal Access Token with Contents (R/W), Pull requests (R/W), Issues (R/W)

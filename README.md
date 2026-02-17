@@ -228,6 +228,15 @@ At each phase boundary (refine and plan), the pipeline pauses for human approval
 - **Override**: Mark complete, skip tasks, cancel pipeline
 - **Manual**: Complete manually, reassign
 
+## Platform Support
+
+| Platform | Status | Notes |
+|----------|--------|-------|
+| **Linux** (x86_64, arm64) | Supported | Primary development platform |
+| **macOS** (Apple Silicon, Intel) | Supported | Requires Docker Desktop |
+
+Both platforms use the same Docker-based architecture. The `egg` CLI detects the host platform and passes the appropriate UID/GID to the container. On macOS, UID/GID conflicts (e.g., GID 20 "staff" colliding with Ubuntu's "dialout") are resolved automatically at container startup.
+
 ## Quick Start
 
 ```bash
