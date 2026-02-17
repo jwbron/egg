@@ -184,7 +184,7 @@ def make_gateway_request(
     # Add session token if available
     token = get_session_token()
     if token:
-        headers["X-Egg-Session-Token"] = token
+        headers["Authorization"] = f"Bearer {token}"
 
     body = json.dumps(data).encode() if data else None
 
