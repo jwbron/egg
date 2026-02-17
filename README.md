@@ -91,7 +91,7 @@ The gateway enforces both process controls (SDLC phases) and security controls (
 | Agent merges its own PR | Gateway has no merge endpoint — humans must merge via GitHub UI |
 | Agent steals credentials | Credentials never enter sandbox; gateway injects them at request time |
 | Agent pushes to main | Gateway enforces branch policies; agent can only push to `egg/*` branches |
-| Agent tampers with contracts | File-level restrictions block implementers from modifying contract files via `git push` |
+| Agent tampers with contracts | Defense-in-depth: `.egg-state/` dirs mounted readonly (OS level) during implement; commit-time validation rejects staged restricted files; push-time validation blocks the push |
 | Agent exfiltrates code | Private mode restricts network to Anthropic API + private GitHub repos only |
 | Agent switches branches mid-session | Gateway blocks `git checkout`/`git switch` branch ops in pipeline worktree sessions; agents are locked to their assigned branch |
 | Agent accesses other workspaces | Each agent gets isolated git worktree; `.git/` is shadowed |
