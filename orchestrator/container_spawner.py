@@ -325,13 +325,9 @@ class ContainerSpawner:
                 )
 
             except GatewayError as e:
-                logger.warning(
-                    "Failed to pre-register gateway session",
-                    container_name=container_name,
-                    error=str(e),
-                )
-                # Continue without session - container can still run
-                # but won't have gateway access
+                raise ContainerSpawnError(
+                    f"Failed to register gateway session for {container_name}: {e}"
+                ) from e
 
             # Build spawner-specific env vars that override the shared defaults.
             # CONTAINER_ID must match the worktree container_id so the gateway

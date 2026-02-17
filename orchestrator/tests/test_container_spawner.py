@@ -221,25 +221,24 @@ class TestSpawnAgentContainer:
 
         assert result is not None
 
-    def test_spawn_continues_without_session(
+    def test_spawn_raises_on_session_failure(
         self, spawner, mock_gateway_client, mock_docker_client
     ):
-        """Test that spawn continues even if session registration fails."""
+        """Test that spawn raises ContainerSpawnError if session registration fails."""
         mock_gateway_client.check_health.return_value = GatewayHealth(
             healthy=True,
             status="healthy",
         )
         mock_gateway_client.register_session.side_effect = GatewayError("Registration failed")
 
-        # Should not raise - just spawn without session
-        result = spawner.spawn_agent_container(
-            pipeline_id="issue-123",
-            agent_role=AgentRole.CODER,
-            issue_number=123,
-        )
+        with pytest.raises(ContainerSpawnError) as exc_info:
+            spawner.spawn_agent_container(
+                pipeline_id="issue-123",
+                agent_role=AgentRole.CODER,
+                issue_number=123,
+            )
 
-        assert result.session_info is None
-        assert result.container_info is not None
+        assert "session" in str(exc_info.value).lower()
 
     def test_spawn_sets_labels(self, spawner, mock_docker_client):
         """Test that proper labels are set on container."""
