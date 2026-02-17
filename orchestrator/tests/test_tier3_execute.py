@@ -33,7 +33,7 @@ if "docker" not in sys.modules:
     sys.modules["docker"] = docker_mock
     sys.modules["docker.errors"] = docker_errors_mock
 
-from models import ComplexityTier, Pipeline, PipelineConfig, PipelinePhase
+from models import ComplexityTier, Pipeline, PipelineConfig
 
 
 class TestRunTier3ImplementSequential:
@@ -76,7 +76,7 @@ class TestRunTier3ImplementSequential:
                 "status": "pending",
                 "tasks": [
                     {
-                        "id": f"TASK-{i}-1",
+                        "id": f"task-{i}-1",
                         "description": f"Task {i}.1",
                         "status": "pending",
                         "files_affected": [f"src/module{i}.py"],
@@ -429,14 +429,14 @@ class TestRunTier3ImplementParallel:
                     "name": "Phase 1",
                     "status": "pending",
                     "dependencies": [],
-                    "tasks": [{"id": "T-1-1", "description": "t1", "status": "pending"}],
+                    "tasks": [{"id": "task-1-1", "description": "t1", "status": "pending"}],
                 },
                 {
                     "id": "phase-2",
                     "name": "Phase 2",
                     "status": "pending",
                     "dependencies": [],
-                    "tasks": [{"id": "T-2-1", "description": "t2", "status": "pending"}],
+                    "tasks": [{"id": "task-2-1", "description": "t2", "status": "pending"}],
                 },
             ],
         }
@@ -495,28 +495,28 @@ class TestRunTier3ImplementParallel:
                     "name": "Phase 1",
                     "status": "pending",
                     "dependencies": [],
-                    "tasks": [{"id": "T-1-1", "description": "t1", "status": "pending"}],
+                    "tasks": [{"id": "task-1-1", "description": "t1", "status": "pending"}],
                 },
                 {
                     "id": "phase-2",
                     "name": "Phase 2",
                     "status": "pending",
                     "dependencies": ["phase-1"],
-                    "tasks": [{"id": "T-2-1", "description": "t2", "status": "pending"}],
+                    "tasks": [{"id": "task-2-1", "description": "t2", "status": "pending"}],
                 },
                 {
                     "id": "phase-3",
                     "name": "Phase 3",
                     "status": "pending",
                     "dependencies": ["phase-1"],
-                    "tasks": [{"id": "T-3-1", "description": "t3", "status": "pending"}],
+                    "tasks": [{"id": "task-3-1", "description": "t3", "status": "pending"}],
                 },
                 {
                     "id": "phase-4",
                     "name": "Phase 4",
                     "status": "pending",
                     "dependencies": ["phase-2", "phase-3"],
-                    "tasks": [{"id": "T-4-1", "description": "t4", "status": "pending"}],
+                    "tasks": [{"id": "task-4-1", "description": "t4", "status": "pending"}],
                 },
             ],
         }

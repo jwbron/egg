@@ -567,13 +567,6 @@ class WorktreeManager:
         validate_identifier(container_id, "container_id")
         validate_identifier(repo_name, "repo_name")
 
-        # Derive branch name: append phase to existing branch
-        # e.g., egg/issue-732 -> egg/issue-732/phase-1
-        if base_branch.startswith("egg/"):
-            phase_branch = f"{base_branch}/{safe_phase_id}"
-        else:
-            phase_branch = f"egg/{container_id}/{safe_phase_id}"
-
         # Create worktree using existing infrastructure
         return self.create_worktree(
             repo_name=repo_name,

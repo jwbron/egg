@@ -459,7 +459,7 @@ class PhaseDependencyGraph:
         if self.has_cycle():
             raise ValueError("Phase dependency graph has cycles")
 
-        in_degree: dict[str, int] = {pid: 0 for pid in self.nodes}
+        in_degree: dict[str, int] = dict.fromkeys(self.nodes, 0)
         for pid, deps in self.nodes.items():
             for dep in deps:
                 if dep in self.nodes:

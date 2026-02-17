@@ -2253,10 +2253,10 @@ def _build_phase_scoped_prompt(
     Returns:
         Phase-scoped prompt string
     """
-    lines = [f"You are in the **implement** phase of the SDLC pipeline.\n"]
+    lines = ["You are in the **implement** phase of the SDLC pipeline.\n"]
     lines.append("## Context\n")
     lines.append(f"Pipeline ID: {pipeline_id}")
-    lines.append(f"Phase: implement")
+    lines.append("Phase: implement")
     lines.append(f"Mode: {pipeline_mode}")
     lines.append(f"Plan Phase: {phase_obj.id} — {phase_obj.name}")
     if pipeline.repo:
