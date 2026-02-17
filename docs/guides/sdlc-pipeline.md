@@ -779,12 +779,12 @@ repo_settings:
         command: npm test
 ```
 
-When configured, the implement phase checker agent runs these commands sequentially instead of auto-discovering test/lint commands. This is useful when:
+When configured, the implement phase checker+autofixer agent runs these commands sequentially instead of auto-discovering test/lint commands. This is useful when:
 - Auto-discovery doesn't find the right commands
 - You want to run checks in a specific order
 - You need to run custom validation scripts
 
-If not configured, the checker falls back to auto-discovery (scanning for Makefile, package.json, pyproject.toml, etc.). See [Configuration](../../config/README.md#per-repo-check-commands) for setup details.
+If not configured, the checker+autofixer agent falls back to auto-discovery (scanning for Makefile, package.json, pyproject.toml, etc.). See [Configuration](../../config/README.md#per-repo-check-commands) for setup details.
 
 ### Built-in Checks
 
@@ -919,41 +919,20 @@ merge-fix ─┬─> lint ──┬─> fixer ─> review
 
 This parallel execution reduces cycle time by running independent checks concurrently. The fixer step allows the agent to attempt automated corrections before requiring human intervention.
 
-### Autofix Retry and Re-Validation
+### Combined Checker+Autofixer Agent
 
-When lint, test, or integration checks fail, the pipeline triggers the autofixer agent to attempt repairs. The autofix process now includes synchronous waiting and re-validation:
+After the coder completes, the pipeline runs a single combined checker+autofixer agent that:
+
+1. **Runs all checks** — Discovers and executes test/lint commands (or uses configured commands)
+2. **Fixes issues inline** — Attempts auto-fixable repairs without leaving the session
+3. **Repeats up to 3 times** — Re-runs checks after each fix attempt until all pass or attempts are exhausted
+
+Running checks and fixes in the same agent session avoids context loss that occurred when separate checker and autofixer containers passed results through intermediate files.
 
 **Flow:**
 ```
-work → lint/test (parallel) → fail → autofixer → re-run checks → pass → review
-                                                               → fail → autofixer (retry)
-                                                               → fail (max retries) → escalate
+work → checker+autofixer (run checks → fix → re-run, up to 3x) → review
 ```
-
-**Key behaviors:**
-
-1. **Synchronous wait**: The check-fixer job waits for the autofix workflow to complete (30-minute timeout) instead of fire-and-forget
-2. **Re-validation**: After autofix completes, the work loop re-dispatches itself in `checks-only` mode to re-run lint/test/integration
-3. **Circuit breaker**: Maximum 3 autofix attempts per implement phase cycle (configurable via `max_autofix_attempts` in contract)
-4. **Escalation**: When max attempts exceeded, pipeline posts an escalation comment and pauses for human intervention
-
-**Contract fields:**
-
-| Field | Default | Description |
-|-------|---------|-------------|
-| `autofix_attempts` | 0 | Current autofix attempt count in this phase cycle |
-| `max_autofix_attempts` | 3 | Maximum attempts before circuit breaker triggers |
-
-**Work loop modes:**
-
-| Mode | Description |
-|------|-------------|
-| `full` (default) | Execute work, then run checks and review |
-| `checks-only` | Skip work, only run checks and review (used after autofix) |
-
-The `autofix_attempts` counter resets to 0 when:
-- A new implement phase starts
-- The work loop is manually re-triggered via `workflow_dispatch`
 
 ## Implementation Reference
 
