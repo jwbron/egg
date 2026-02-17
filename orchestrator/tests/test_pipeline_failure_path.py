@@ -143,7 +143,8 @@ class TestFailurePathEmitsPipelineEvent:
             pipeline,
         )
 
-        with patch.dict(os.environ, {"EGG_HOST_REPO_MAP": "{}"}, clear=False):
+        with patch.dict(os.environ, {"EGG_HOST_REPO_MAP": '{"repo": "/host/repo"}'}, clear=False), \
+             patch("pathlib.Path.exists", return_value=True):
             _run_pipeline("issue-42", Path("/repo"))
 
         # Verify _emit_pipeline_event was called with "pipeline.failed"
@@ -238,7 +239,8 @@ class TestFailurePathPushesWorktreeBranch:
             pipeline,
         )
 
-        with patch.dict(os.environ, {"EGG_HOST_REPO_MAP": "{}"}, clear=False):
+        with patch.dict(os.environ, {"EGG_HOST_REPO_MAP": '{"repo": "/host/repo"}'}, clear=False), \
+             patch("pathlib.Path.exists", return_value=True):
             _run_pipeline("issue-42", Path("/repo"))
 
         mock_gateway.push_worktree_branch.assert_not_called()
@@ -276,7 +278,8 @@ class TestFailurePathPreservesWorktrees:
             pipeline,
         )
 
-        with patch.dict(os.environ, {"EGG_HOST_REPO_MAP": "{}"}, clear=False):
+        with patch.dict(os.environ, {"EGG_HOST_REPO_MAP": '{"repo": "/host/repo"}'}, clear=False), \
+             patch("pathlib.Path.exists", return_value=True):
             _run_pipeline("issue-42", Path("/repo"))
 
         # Pipeline should now be in FAILED state (set by the exit_code != 0 handler)
