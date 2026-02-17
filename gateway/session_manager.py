@@ -99,7 +99,7 @@ def _capture_and_cleanup_session(
                 except ImportError:
                     pass
 
-            auto_commit_worktree(
+            auto_commit_sha = auto_commit_worktree(
                 worktree_path=session.last_repo_path,
                 container_id=session.container_id,
                 agent_role=session.agent_role,
@@ -108,6 +108,8 @@ def _capture_and_cleanup_session(
                 session_token=session.session_token,
                 gateway_url=gateway_url,
             )
+            if auto_commit_sha:
+                session.auto_commit_sha = auto_commit_sha
         except ImportError:
             logger.debug(
                 "post_agent_commit not available, skipping auto-commit",
@@ -239,6 +241,7 @@ class Session:
     last_branch: str | None = None  # Last known branch from git push
     claude_code_version: str | None = None  # Claude Code version from container
     assigned_branch: str | None = None  # Worktree branch locked to this session
+    auto_commit_sha: str | None = None  # SHA from post-agent auto-commit
 
     def is_expired(self) -> bool:
         """Check if session has expired."""
@@ -280,6 +283,8 @@ class Session:
             result["claude_code_version"] = self.claude_code_version
         if self.assigned_branch is not None:
             result["assigned_branch"] = self.assigned_branch
+        if self.auto_commit_sha is not None:
+            result["auto_commit_sha"] = self.auto_commit_sha
         return result
 
     @classmethod
@@ -304,6 +309,7 @@ class Session:
             last_branch=data.get("last_branch"),
             claude_code_version=data.get("claude_code_version"),
             assigned_branch=data.get("assigned_branch"),
+            auto_commit_sha=data.get("auto_commit_sha"),
         )
 
 

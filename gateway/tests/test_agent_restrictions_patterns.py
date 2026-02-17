@@ -326,7 +326,6 @@ class TestReviewerRoles:
     @pytest.mark.parametrize(
         "role",
         [
-            AgentRole.REVIEWER_UNIFIED,
             AgentRole.REVIEWER_CODE,
             AgentRole.REVIEWER_CONTRACT,
             AgentRole.REVIEWER_AGENT_DESIGN,
@@ -341,7 +340,6 @@ class TestReviewerRoles:
     @pytest.mark.parametrize(
         "role",
         [
-            AgentRole.REVIEWER_UNIFIED,
             AgentRole.REVIEWER_CODE,
             AgentRole.REVIEWER_CONTRACT,
             AgentRole.REVIEWER_AGENT_DESIGN,
@@ -356,7 +354,6 @@ class TestReviewerRoles:
     @pytest.mark.parametrize(
         "role",
         [
-            AgentRole.REVIEWER_UNIFIED,
             AgentRole.REVIEWER_CODE,
             AgentRole.REVIEWER_CONTRACT,
             AgentRole.REVIEWER_AGENT_DESIGN,
@@ -371,7 +368,6 @@ class TestReviewerRoles:
     @pytest.mark.parametrize(
         "role",
         [
-            AgentRole.REVIEWER_UNIFIED,
             AgentRole.REVIEWER_CODE,
             AgentRole.REVIEWER_CONTRACT,
             AgentRole.REVIEWER_AGENT_DESIGN,
@@ -386,7 +382,6 @@ class TestReviewerRoles:
     @pytest.mark.parametrize(
         "role",
         [
-            AgentRole.REVIEWER_UNIFIED,
             AgentRole.REVIEWER_CODE,
             AgentRole.REVIEWER_CONTRACT,
             AgentRole.REVIEWER_AGENT_DESIGN,

@@ -49,6 +49,13 @@ def _parse_changed_files(porcelain_output: str) -> list[str]:
     Handles renames (``R  old -> new`` keeps the new path) and
     strips the two-character status prefix.
 
+    Limitations:
+        Filenames containing literal `` -> `` would be split incorrectly,
+        and filenames with intentional leading/trailing spaces are stripped.
+        Git uses quoting for such paths in porcelain output, which this
+        parser does not handle.  These are extreme edge cases unlikely to
+        occur in practice.
+
     Returns:
         List of relative file paths with changes.
     """
@@ -84,6 +91,10 @@ def _push_via_gateway(
         import json
         import urllib.request
 
+        # repo_path is the worktree path, which is a valid git working
+        # directory.  The gateway's git_push() handler resolves remotes and
+        # branches from the working directory, so this works correctly for
+        # worktrees (not just the main .git dir).
         payload = json.dumps(
             {
                 "repo_path": worktree_path,

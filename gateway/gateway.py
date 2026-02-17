@@ -1208,7 +1208,7 @@ def git_execute() -> tuple[Response, int] | Response:
             except Exception:
                 # Fail open for commit-time check — push-time check is the
                 # authoritative gate and will catch any violations.
-                logger.debug(
+                logger.warning(
                     "Staged-file check skipped due to error",
                     operation=operation,
                     container_id=container_id,

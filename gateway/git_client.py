@@ -1243,7 +1243,6 @@ def is_branch_switch(operation: str, args: list[str]) -> bool:
     branch_creating_flags = {"-b", "-B", "--orphan"}
     file_flags = {"-p", "--patch"}
 
-    seen_flag_with_value = False
     for arg in args:
         if arg == "--":
             break
@@ -1252,17 +1251,13 @@ def is_branch_switch(operation: str, args: list[str]) -> bool:
                 return True
             if arg in file_flags:
                 return False
-            # Flags that consume the next arg
-            if arg in ("-b", "-B", "--orphan"):
-                seen_flag_with_value = True
-                continue
-            continue
-        if seen_flag_with_value:
-            seen_flag_with_value = False
             continue
         positional_before_dd.append(arg)
 
-    # If there's a positional arg before -- it's treated as a branch ref
+    # If there's a positional arg before -- it's treated as a branch ref.
+    # Known false positive: ``checkout HEAD -- file.txt`` classifies HEAD as
+    # a branch ref.  In practice, pipeline agents use ``checkout -- file.txt``
+    # instead, and the branch lock only fires for pipeline sessions.
     if positional_before_dd and not has_double_dash:
         return True
 
