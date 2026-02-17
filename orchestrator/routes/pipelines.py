@@ -1061,14 +1061,18 @@ def _read_phase_draft(
     issue_number: int | None = None,
     pipeline_id: str | None = None,
     max_chars: int = 32000,
-) -> str:
-    """Read draft file contents. Truncates at max_chars."""
+) -> str | None:
+    """Read draft file contents. Truncates at max_chars.
+
+    Returns None when the draft cannot be found (no path configured or
+    file missing on disk).
+    """
     draft_rel = _get_draft_path(phase, pipeline_mode, issue_number, pipeline_id)
     if not draft_rel:
-        return f"(No draft file for {phase} phase)"
+        return None
     draft_path = repo_path / draft_rel
     if not draft_path.exists():
-        return f"(Draft file not found: {draft_rel})"
+        return None
     content = draft_path.read_text(encoding="utf-8")
     if len(content) > max_chars:
         return content[:max_chars] + f"\n\n... (truncated, {len(content)} chars total)"
@@ -1626,80 +1630,68 @@ def _build_phase_prompt(
         )
 
     elif phase == "implement":
-        # Embed plan or analysis text directly (avoids file-I/O turns)
-        _draft_embedded = False
+        # Embed plan or analysis text directly on first cycle
+        # (avoids file-I/O turns inside the sandbox).
+        draft_embedded = False
         if repo_path and review_cycle == 0:
-            _draft_phase = "refine" if short_circuit else "plan"
-            _draft_text = _read_phase_draft(
+            draft_phase = "refine" if short_circuit else "plan"
+            draft_text = _read_phase_draft(
                 Path(repo_path),
-                _draft_phase,
+                draft_phase,
                 pipeline_mode,
                 issue_number=issue_number,
                 pipeline_id=pipeline_id,
             )
-            if _draft_text and not _draft_text.startswith("("):
-                _label = "Analysis" if short_circuit else "Plan"
-                lines.append(f"## {_label}\n")
-                lines.append(f"```markdown\n{_draft_text}\n```\n")
-                _draft_embedded = True
+            if draft_text is not None:
+                label = "Analysis" if short_circuit else "Plan"
+                lines.append(f"## {label}\n")
+                lines.append(f"```markdown\n{draft_text}\n```\n")
+                draft_embedded = True
 
             # Embed contract task checklist on first cycle
-            _contract_tasks = _render_contract_tasks(
+            contract_tasks = _render_contract_tasks(
                 repo_path, pipeline_id, pipeline_mode, issue_number
             )
-            if _contract_tasks:
-                lines.append(_contract_tasks)
+            if contract_tasks:
+                lines.append(contract_tasks)
                 lines.append("")
 
         if review_cycle == 0:
+            # Build numbered step list; only include the "review" step
+            # when the draft wasn't already embedded above.
             if short_circuit:
-                lines.extend(
-                    [
-                        "Implement the changes described in the analysis (plan phase was skipped):",
-                        "",
-                        *(
-                            []
-                            if _draft_embedded
-                            else [
-                                "1. Review the analysis (check `.egg-state/drafts/` for the analysis document)",
-                            ]
-                        ),
-                        "1. Implement the required changes"
-                        if _draft_embedded
-                        else "2. Implement the required changes",
-                        "2. Run tests to verify correctness"
-                        if _draft_embedded
-                        else "3. Run tests to verify correctness",
-                        "3. Commit with descriptive messages"
-                        if _draft_embedded
-                        else "4. Commit with descriptive messages",
-                        "",
-                    ]
+                lines.append(
+                    "Implement the changes described in the analysis (plan phase was skipped):"
                 )
             else:
-                lines.extend(
-                    [
-                        "Implement the changes described in the task and plan:",
-                        "",
-                        *(
-                            []
-                            if _draft_embedded
-                            else ["1. Review the plan (check `.egg-state/drafts/`)"]
-                        ),
-                        "1. Implement the required changes"
-                        if _draft_embedded
-                        else "2. Implement the required changes",
-                        "2. Run tests to verify correctness"
-                        if _draft_embedded
-                        else "3. Run tests to verify correctness",
-                        "3. Commit with descriptive messages"
-                        if _draft_embedded
-                        else "4. Commit with descriptive messages",
-                        "",
-                    ]
-                )
+                lines.append("Implement the changes described in the task and plan:")
+            lines.append("")
+
+            steps: list[str] = []
+            if not draft_embedded:
+                review_target = "analysis" if short_circuit else "plan"
+                steps.append(f"Review the {review_target} (check `.egg-state/drafts/`)")
+            steps.extend(
+                [
+                    "Implement the required changes",
+                    "Run tests to verify correctness",
+                    "Commit with descriptive messages",
+                ]
+            )
+            for i, step in enumerate(steps, 1):
+                lines.append(f"{i}. {step}")
+            lines.append("")
         else:
-            # Revision cycle: slim delta-focused prompt
+            # Revision cycle: slim delta-focused prompt.
+            # Guard: if review_feedback is unexpectedly missing, fall
+            # back to including the task description so the coder isn't
+            # left with a nearly empty prompt.
+            if not review_feedback:
+                if prompt:
+                    lines.append("## Task Description\n")
+                    lines.append(prompt)
+                    lines.append("")
+
             lines.extend(
                 [
                     "## Revision Instructions\n",
@@ -2814,23 +2806,6 @@ def _build_check_and_fix_prompt(
     return "\n".join(lines)
 
 
-def _read_check_results(repo_path: Path) -> dict | None:
-    """Read checker output from .egg-state/checks/implement-results.json.
-
-    Returns None if the file is missing or malformed.
-    """
-    check_file = repo_path / ".egg-state/checks/implement-results.json"
-    if not check_file.exists():
-        logger.warning("Check results file not found", path=str(check_file))
-        return None
-    try:
-        raw = check_file.read_text()
-        return json.loads(raw)
-    except (json.JSONDecodeError, Exception) as e:
-        logger.warning("Failed to parse check results", path=str(check_file), error=str(e))
-        return None
-
-
 # Minimum characters of non-heading content required for a synthesized plan
 # draft to be written.  This prevents writing near-empty drafts that contain
 # only section headings (e.g. when agents produced no meaningful output).
@@ -3589,7 +3564,9 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                     checker_env = {**sandbox_env, "EGG_AGENT_ROLE": "checker"}
 
                     try:
-                        _spawn_and_wait(
+                        # 45 min: combined check+fix budget, up from
+                        # 30 min for the old check-only container.
+                        exit_code, _ = _spawn_and_wait(
                             spawner=spawner,
                             pipeline_id=pipeline_id,
                             agent_role=AgentRole.CHECKER,
@@ -3605,6 +3582,12 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                             certs_volume=certs_volume,
                             branch=pipeline.branch,
                         )
+                        if exit_code != 0:
+                            logger.warning(
+                                "Checker+autofixer exited non-zero",
+                                pipeline_id=pipeline_id,
+                                exit_code=exit_code,
+                            )
                     except ContainerSpawnError as e:
                         logger.warning(
                             "Checker+autofixer failed to spawn, skipping checks",
@@ -3917,7 +3900,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                 dq = get_decision_queue(pipeline_id, repo_path)
                 decision = dq.queue_decision(
                     question=question,
-                    context=draft_content,
+                    context=draft_content or "",
                     options=["approve", "request changes"],
                 )
 

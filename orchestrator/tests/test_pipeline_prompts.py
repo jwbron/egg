@@ -306,8 +306,10 @@ class TestReadSharedCriteriaEdgeCases:
                 return docker_content
             return original_read_text(self, *args, **kwargs)
 
-        with patch.object(Path, "is_file", mock_is_file), \
-             patch.object(Path, "read_text", mock_read_text):
+        with (
+            patch.object(Path, "is_file", mock_is_file),
+            patch.object(Path, "read_text", mock_read_text),
+        ):
             content = _read_shared_criteria("docker-only-test.md")
             assert content == docker_content
 
@@ -529,6 +531,24 @@ class TestBuildPhasePromptRevisionMode:
         )
         assert "## Task Description" in result
         assert "Build a widget with many features" in result
+
+    def test_revision_cycle_without_feedback_includes_task_description(self):
+        """Cycle 2+ with no feedback falls back to including the task description."""
+        result = _build_phase_prompt(
+            phase="implement",
+            pipeline_id="test-pid",
+            pipeline_mode="local",
+            prompt="Build a widget with many features",
+            review_cycle=1,
+            review_feedback=None,
+        )
+        # Without feedback the revision prompt should include the task
+        # description as a fallback so the coder isn't left with an
+        # empty prompt.
+        assert "## Task Description" in result
+        assert "Build a widget with many features" in result
+        # Revision instructions should still be present
+        assert "Revision Instructions" in result
 
 
 class TestBuildCheckAndFixPrompt:
