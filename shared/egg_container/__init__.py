@@ -125,6 +125,79 @@ def git_shadow_mounts(
     return mounts
 
 
+# Directories under .egg-state/ that are readonly during the implement phase.
+# These contain plan/contract artifacts that must not be modified by code agents.
+_IMPLEMENT_READONLY_DIRS = ("drafts", "contracts", "reviews")
+
+
+def ensure_egg_state_dirs(
+    repo_volumes: dict[str, str],
+    uid: int | None = None,
+    gid: int | None = None,
+) -> None:
+    """Ensure ``.egg-state/`` subdirectories exist in each repo worktree.
+
+    Called before spawning a container so that readonly bind mounts have
+    valid source directories.  Creates ``drafts/``, ``contracts/``, and
+    ``reviews/`` under each repo's ``.egg-state/``.
+
+    Args:
+        repo_volumes: Mapping of repo_name -> host_path.
+        uid: Owner UID for created directories (default: current user).
+        gid: Owner GID for created directories (default: current group).
+    """
+    import os
+
+    for _repo_name, host_path in repo_volumes.items():
+        egg_state = Path(host_path) / ".egg-state"
+        for dirname in _IMPLEMENT_READONLY_DIRS:
+            target = egg_state / dirname
+            target.mkdir(parents=True, exist_ok=True)
+            if uid is not None and gid is not None:
+                os.chown(str(target), uid, gid)
+
+
+def phase_readonly_mounts(
+    repo_volumes: dict[str, str],
+    phase: str | None,
+    container_base: str = "/home/egg/repos",
+) -> list[MountSpec]:
+    """Create readonly overlay mounts for phase-protected directories.
+
+    During the *implement* phase, ``.egg-state/drafts/``,
+    ``.egg-state/contracts/``, and ``.egg-state/reviews/`` are mounted
+    readonly to prevent agents from modifying plan/contract artifacts via
+    direct filesystem writes.
+
+    Args:
+        repo_volumes: Mapping of repo_name -> host_path.
+        phase: Current SDLC phase (e.g., "implement").  If ``None`` or a
+            phase without restrictions, returns an empty list.
+        container_base: Base path in container for repos.
+
+    Returns:
+        List of MountSpec for readonly overlay mounts.
+    """
+    if phase != "implement":
+        return []
+
+    mounts: list[MountSpec] = []
+    for repo_name, host_path in repo_volumes.items():
+        for dirname in _IMPLEMENT_READONLY_DIRS:
+            host_dir = Path(host_path) / ".egg-state" / dirname
+            container_dir = f"{container_base}/{repo_name}/.egg-state/{dirname}"
+            if host_dir.is_dir():
+                mounts.append(
+                    MountSpec(
+                        mount_type="bind",
+                        source=str(host_dir),
+                        destination=container_dir,
+                        readonly=True,
+                    )
+                )
+    return mounts
+
+
 def mount_spec_to_cli_args(mount: MountSpec) -> list[str]:
     """Convert a MountSpec to docker CLI mount arguments.
 

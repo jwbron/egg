@@ -71,6 +71,8 @@ git branch --show-current && git log --oneline -3
 
 **WORKTREE WARNING**: `git checkout main` FAILS. Always use: `git checkout -b egg/<name> origin/main`
 
+**BRANCH LOCK (Pipeline mode)**: In pipeline sessions, branch switching is blocked by the gateway. You are locked to your assigned worktree branch. Use `git checkout -- <file>` to restore individual files.
+
 **Wrong branch fix**: `git log --oneline -1` (save hash), create correct branch, `git cherry-pick <hash>`
 
 ### PR Lifecycle

@@ -42,6 +42,8 @@ All git/gh operations are routed through the gateway sidecar. You do NOT have di
 Key restrictions enforced by the gateway:
 - `git push`: Only to branches you own (`egg/` or `egg-` prefixed, or has your open PR)
 - `git worktree add/remove`: **Unsupported** — use `git checkout -b` instead
+- `git checkout/switch` (branch): **Blocked in pipeline mode** — you are locked to your worktree branch
+- `git commit`: **Phase-validated** — staged files must comply with phase restrictions
 - `gh pr merge`: **Blocked** — human must merge via GitHub UI
 
 ## Git Push

@@ -67,6 +67,7 @@ try:
         get_changed_files_in_push,
         get_token_for_repo,
         git_cmd,
+        is_branch_switch,
         is_repos_parent_directory,
         validate_git_args,
         validate_repo_path,
@@ -83,6 +84,7 @@ try:
     )
     from .phase_filter import (
         OperationType,
+        check_agent_restrictions,
         check_file_restrictions,
         check_phase_file_restrictions,
         filter_operation,
@@ -121,6 +123,7 @@ except ImportError:
         get_changed_files_in_push,
         get_token_for_repo,
         git_cmd,
+        is_branch_switch,
         is_repos_parent_directory,
         validate_git_args,
         validate_repo_path,
@@ -137,6 +140,7 @@ except ImportError:
     )
     from phase_filter import (  # type: ignore[no-redef, import-not-found]
         OperationType,
+        check_agent_restrictions,
         check_file_restrictions,
         check_phase_file_restrictions,
         filter_operation,
@@ -683,6 +687,22 @@ def git_push() -> tuple[Response, int] | Response:
                 },
             )
 
+    # Agent-role file restrictions (warn-only).
+    # Checks agent_restrictions rules (coder vs tester vs documenter file scopes).
+    # Currently logs warnings only; will be enforced in a future release.
+    if session_role and changed_files and not is_checkpoint_push:
+        agent_result = check_agent_restrictions(session_role, changed_files)
+        if not agent_result.allowed:
+            logger.warning(
+                "Agent-role file restriction would block push (warn-only)",
+                event_type="agent_role_restriction_warning",
+                repo=repo,
+                branch=branch,
+                role=session_role,
+                blocked_files=agent_result.blocked_files,
+                message=agent_result.message,
+            )
+
     # SECURITY: Check phase-based file restrictions for local mode sessions.
     # This replaces the blanket local-mode push block with granular phase-based
     # restrictions. Each phase has specific allowed/blocked file patterns:
@@ -1057,8 +1077,90 @@ def git_execute() -> tuple[Response, int] | Response:
         )
         return make_error(args_error, status_code=400)
 
+    # SECURITY: Block branch-switching for pipeline sessions.
+    # Pipeline containers are locked to their worktree branch to prevent
+    # cross-contamination between pipeline tasks.
+    if is_branch_switch(operation, validated_args):
+        session = getattr(g, "session", None)
+        assigned = getattr(session, "assigned_branch", None) if session else None
+        if isinstance(assigned, str) and assigned:
+            audit_log(
+                "git_execute_blocked",
+                operation,
+                success=False,
+                details={
+                    "repo_path": repo_path,
+                    "git_args": validated_args,
+                    "container_id": container_id,
+                    "assigned_branch": assigned,
+                    "reason": "Branch switching blocked in pipeline session",
+                },
+            )
+            return make_error(
+                f"Branch switching is not allowed in pipeline sessions. "
+                f"You are locked to branch '{assigned}'. "
+                f"Use 'git checkout -- <file>' to restore files instead.",
+                status_code=403,
+            )
+
     # Map container path to worktree path if container_id is provided
     exec_path = map_container_path_to_worktree(repo_path, container_id, operation)
+
+    # SECURITY: Validate staged files at commit time for pipeline sessions.
+    # This is an early-catch complement to push-time validation — prevents the
+    # agent from building up invalid commits that would only be rejected at push.
+    if operation == "commit":
+        session = getattr(g, "session", None)
+        session_phase = getattr(g, "session_phase", None) if session else None
+        if session_phase:
+            import subprocess as _sp
+
+            try:
+                staged_result = _sp.run(
+                    git_cmd("diff", "--cached", "--name-only"),
+                    cwd=exec_path,
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                    check=False,
+                )
+                if staged_result.returncode == 0:
+                    staged_files = [
+                        f.strip()
+                        for f in staged_result.stdout.strip().split("\n")
+                        if f.strip()
+                    ]
+                    if staged_files:
+                        phase_result = check_phase_file_restrictions(
+                            session_phase, staged_files
+                        )
+                        if not phase_result.allowed:
+                            audit_log(
+                                "git_execute_blocked",
+                                operation,
+                                success=False,
+                                details={
+                                    "repo_path": repo_path,
+                                    "git_args": validated_args,
+                                    "container_id": container_id,
+                                    "phase": session_phase,
+                                    "blocked_files": phase_result.blocked_files,
+                                    "reason": "Staged files violate phase restrictions",
+                                },
+                            )
+                            return make_error(
+                                f"Commit blocked: {phase_result.message}. "
+                                f"Unstage the blocked files with 'git reset HEAD <file>'.",
+                                status_code=403,
+                            )
+            except Exception:
+                # Fail open for commit-time check — push-time check is the
+                # authoritative gate and will catch any violations.
+                logger.debug(
+                    "Staged-file check skipped due to error",
+                    operation=operation,
+                    container_id=container_id,
+                )
 
     # SECURITY: Belt-and-suspenders hook prevention for operations that support it.
     # The primary protection is core.hooksPath=/dev/null in git_cmd() which disables
@@ -2662,6 +2764,7 @@ def session_create() -> tuple[Response, int] | Response:
     worktree_errors = []
     first_worktree_path: str | None = None  # Gateway-side path for checkpoint context
     first_repo: str | None = None  # First filtered repo in "owner/repo" format
+    worktree_branch: str | None = None  # Worktree branch name for branch lock
 
     for repo in filtered_repos:
         # Extract repo name from owner/repo format
@@ -2682,6 +2785,7 @@ def session_create() -> tuple[Response, int] | Response:
             if first_worktree_path is None:
                 first_worktree_path = str(info.worktree_path)
                 first_repo = repo
+                worktree_branch = info.branch
             # Translate container path to host path for egg launcher mount sources
             worktrees[repo_name] = translate_to_host_path(str(info.worktree_path))
         except ValueError as e:
@@ -2721,6 +2825,10 @@ def session_create() -> tuple[Response, int] | Response:
         _session.last_repo_path = first_worktree_path
     if first_repo is not None:
         _session.checkpoint_repo = get_checkpoint_repo(first_repo)
+
+    # Lock pipeline sessions to their assigned worktree branch
+    if worktree_branch and pipeline_id:
+        _session.assigned_branch = worktree_branch
 
     audit_log(
         "session_created",

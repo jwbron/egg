@@ -908,7 +908,10 @@ def check_agent_restrictions(agent_role: str, files: list[str]) -> FileRestricti
     Returns:
         FileRestrictionResult indicating whether the files are allowed
     """
-    from .agent_restrictions import validate_agent_push
+    try:
+        from .agent_restrictions import validate_agent_push
+    except ImportError:
+        from agent_restrictions import validate_agent_push  # type: ignore[no-redef]
 
     result = validate_agent_push(agent_role, files)
 

@@ -81,6 +81,31 @@ def _capture_and_cleanup_session(
             return
         _captured_containers.add(session.container_id)
 
+    # Auto-commit any uncommitted work before capturing the checkpoint.
+    # This preserves the agent's WIP so it can be recovered if the agent
+    # exits without committing (e.g., timeout, crash, or oversight).
+    if session.last_repo_path and session.pipeline_id:
+        try:
+            from post_agent_commit import auto_commit_worktree
+
+            auto_commit_worktree(
+                worktree_path=session.last_repo_path,
+                container_id=session.container_id,
+                agent_role=session.agent_role,
+                pipeline_id=session.pipeline_id,
+            )
+        except ImportError:
+            logger.debug(
+                "post_agent_commit not available, skipping auto-commit",
+                container_id=session.container_id,
+            )
+        except Exception as e:
+            logger.warning(
+                "Auto-commit failed during session cleanup",
+                container_id=session.container_id,
+                error=str(e),
+            )
+
     try:
         from checkpoint_handler import (
             SESSION_END_CAPTURE_TIMEOUT,
@@ -199,6 +224,7 @@ class Session:
     last_repo_path: str | None = None  # Last known repo path from git operations
     last_branch: str | None = None  # Last known branch from git push
     claude_code_version: str | None = None  # Claude Code version from container
+    assigned_branch: str | None = None  # Worktree branch locked to this session
 
     def is_expired(self) -> bool:
         """Check if session has expired."""
@@ -238,6 +264,8 @@ class Session:
             result["last_branch"] = self.last_branch
         if self.claude_code_version is not None:
             result["claude_code_version"] = self.claude_code_version
+        if self.assigned_branch is not None:
+            result["assigned_branch"] = self.assigned_branch
         return result
 
     @classmethod
@@ -261,6 +289,7 @@ class Session:
             last_repo_path=data.get("last_repo_path"),
             last_branch=data.get("last_branch"),
             claude_code_version=data.get("claude_code_version"),
+            assigned_branch=data.get("assigned_branch"),
         )
 
 
@@ -408,6 +437,7 @@ class SessionManager:
         pipeline_id: str | None = None,
         agent_role: str | None = None,
         claude_code_version: str | None = None,
+        branch: str | None = None,
     ) -> tuple[str, Session]:
         """
         Register a new session for a container.
@@ -447,6 +477,12 @@ class SessionManager:
             agent_role=agent_role,
             claude_code_version=claude_code_version,
         )
+
+        if branch:
+            session.last_branch = branch
+            # Lock pipeline sessions to their assigned branch
+            if pipeline_id:
+                session.assigned_branch = branch
 
         with self._lock:
             self._sessions[token_hash] = session

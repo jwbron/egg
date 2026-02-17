@@ -1059,6 +1059,70 @@ def get_changed_files_in_push(
         return [], f"Error determining changed files: {e}"
 
 
+def is_branch_switch(operation: str, args: list[str]) -> bool:
+    """Detect if a checkout/switch invocation changes branches.
+
+    Returns True when the command would switch the active branch (e.g.
+    ``git checkout other-branch``, ``git checkout -b new``).  Returns False
+    for file-level operations (``git checkout -- file.txt``,
+    ``git checkout HEAD -- file``).
+
+    Only meaningful for ``checkout`` and ``switch`` operations; returns
+    False for everything else.
+
+    The heuristic:
+    * If ``--`` separator is present, everything after it is a pathspec
+      → NOT a branch switch if there are no positional args before ``--``.
+    * ``switch`` always operates on branches, so any invocation of
+      ``switch`` is considered a branch switch.
+    * ``checkout`` with ``-b``/``-B`` or ``--orphan`` is a branch switch.
+    * ``checkout`` with a positional arg (no ``--`` before it) and without
+      ``-p``/``--patch`` is a branch switch.
+    """
+    if operation not in ("checkout", "switch"):
+        return False
+
+    # git switch always targets branches
+    if operation == "switch":
+        return True
+
+    # Parse the checkout args
+    has_double_dash = "--" in args
+    positional_before_dd: list[str] = []
+    branch_creating_flags = {"-b", "-B", "--orphan"}
+    file_flags = {"-p", "--patch"}
+
+    seen_flag_with_value = False
+    for arg in args:
+        if arg == "--":
+            break
+        if arg.startswith("-"):
+            if arg in branch_creating_flags:
+                return True
+            if arg in file_flags:
+                return False
+            # Flags that consume the next arg
+            if arg in ("-b", "-B", "--orphan"):
+                seen_flag_with_value = True
+                continue
+            continue
+        if seen_flag_with_value:
+            seen_flag_with_value = False
+            continue
+        positional_before_dd.append(arg)
+
+    # If there's a positional arg before -- it's treated as a branch ref
+    if positional_before_dd and not has_double_dash:
+        return True
+
+    # If there's a positional arg before -- AND after, the first is branch
+    if positional_before_dd and has_double_dash:
+        return True
+
+    # No positional args before -- → file checkout (e.g., checkout -- file.txt)
+    return False
+
+
 def get_token_for_repo(repo: str) -> tuple[str | None, str, str]:
     """
     Get the authentication token for a repository.
