@@ -687,21 +687,52 @@ def git_push() -> tuple[Response, int] | Response:
                 },
             )
 
-    # Agent-role file restrictions (warn-only).
+    # Agent-role file restrictions.
     # Checks agent_restrictions rules (coder vs tester vs documenter file scopes).
-    # Currently logs warnings only; will be enforced in a future release.
+    # Default: warn-only (logs but allows push).
+    # Set EGG_AGENT_RESTRICTIONS_ENFORCE=true to block pushes that violate
+    # agent-role boundaries.
     if session_role and changed_files and not is_checkpoint_push:
         agent_result = check_agent_restrictions(session_role, changed_files)
         if not agent_result.allowed:
-            logger.warning(
-                "Agent-role file restriction would block push (warn-only)",
-                event_type="agent_role_restriction_warning",
-                repo=repo,
-                branch=branch,
-                role=session_role,
-                blocked_files=agent_result.blocked_files,
-                message=agent_result.message,
+            enforce = os.environ.get("EGG_AGENT_RESTRICTIONS_ENFORCE", "false").lower() in (
+                "true",
+                "1",
+                "yes",
             )
+
+            if enforce:
+                audit_log(
+                    "push_denied_agent_role_restriction",
+                    "git_push",
+                    success=False,
+                    details={
+                        "repo": repo,
+                        "branch": branch,
+                        "role": session_role,
+                        "blocked_files": agent_result.blocked_files,
+                        "restriction_message": agent_result.message,
+                    },
+                )
+                return make_error(
+                    f"Push denied: agent role '{session_role}' cannot modify "
+                    f"these files. {agent_result.message}",
+                    status_code=403,
+                    details={
+                        "role": session_role,
+                        "blocked_files": agent_result.blocked_files,
+                    },
+                )
+            else:
+                logger.warning(
+                    "Agent-role file restriction would block push (warn-only)",
+                    event_type="agent_role_restriction_warning",
+                    repo=repo,
+                    branch=branch,
+                    role=session_role,
+                    blocked_files=agent_result.blocked_files,
+                    restriction_message=agent_result.message,
+                )
 
     # SECURITY: Check phase-based file restrictions for local mode sessions.
     # This replaces the blanket local-mode push block with granular phase-based
@@ -1126,14 +1157,10 @@ def git_execute() -> tuple[Response, int] | Response:
                 )
                 if staged_result.returncode == 0:
                     staged_files = [
-                        f.strip()
-                        for f in staged_result.stdout.strip().split("\n")
-                        if f.strip()
+                        f.strip() for f in staged_result.stdout.strip().split("\n") if f.strip()
                     ]
                     if staged_files:
-                        phase_result = check_phase_file_restrictions(
-                            session_phase, staged_files
-                        )
+                        phase_result = check_phase_file_restrictions(session_phase, staged_files)
                         if not phase_result.allowed:
                             audit_log(
                                 "git_execute_blocked",

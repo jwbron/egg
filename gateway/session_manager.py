@@ -84,15 +84,29 @@ def _capture_and_cleanup_session(
     # Auto-commit any uncommitted work before capturing the checkpoint.
     # This preserves the agent's WIP so it can be recovered if the agent
     # exits without committing (e.g., timeout, crash, or oversight).
+    # Phase filtering ensures blocked files are restored, not committed.
     if session.last_repo_path and session.pipeline_id:
         try:
             from post_agent_commit import auto_commit_worktree
+
+            # Build gateway URL for push-via-gateway support.
+            gateway_url = None
+            if session.session_token:
+                try:
+                    from egg_config import GATEWAY_PORT
+
+                    gateway_url = f"http://localhost:{GATEWAY_PORT}"
+                except ImportError:
+                    pass
 
             auto_commit_worktree(
                 worktree_path=session.last_repo_path,
                 container_id=session.container_id,
                 agent_role=session.agent_role,
                 pipeline_id=session.pipeline_id,
+                phase=session.phase,
+                session_token=session.session_token,
+                gateway_url=gateway_url,
             )
         except ImportError:
             logger.debug(

@@ -127,24 +127,31 @@ def git_shadow_mounts(
 
 # Directories under .egg-state/ that are readonly during the implement phase.
 # These contain plan/contract artifacts that must not be modified by code agents.
-_IMPLEMENT_READONLY_DIRS = ("drafts", "contracts", "reviews")
+# Must stay in sync with .egg/phase-permissions.json blocked_patterns for "implement".
+_IMPLEMENT_READONLY_DIRS = ("drafts", "contracts", "pipelines", "reviews")
 
 
 def ensure_egg_state_dirs(
     repo_volumes: dict[str, str],
     uid: int | None = None,
     gid: int | None = None,
+    phase: str | None = None,
 ) -> None:
     """Ensure ``.egg-state/`` subdirectories exist in each repo worktree.
 
     Called before spawning a container so that readonly bind mounts have
-    valid source directories.  Creates ``drafts/``, ``contracts/``, and
-    ``reviews/`` under each repo's ``.egg-state/``.
+    valid source directories.  Creates ``drafts/``, ``contracts/``,
+    ``pipelines/``, and ``reviews/`` under each repo's ``.egg-state/``.
+
+    When ``phase`` is ``"implement"``, ``.egg-readonly`` marker files are
+    placed in each readonly directory to explain the restriction to agents.
 
     Args:
         repo_volumes: Mapping of repo_name -> host_path.
         uid: Owner UID for created directories (default: current user).
         gid: Owner GID for created directories (default: current group).
+        phase: Current SDLC phase.  When ``"implement"``, marker files
+            are written into readonly directories.
     """
     import os
 
@@ -156,6 +163,20 @@ def ensure_egg_state_dirs(
             if uid is not None and gid is not None:
                 os.chown(str(target), uid, gid)
 
+            # Place marker files in readonly directories during implement phase.
+            if phase == "implement":
+                marker = target / ".egg-readonly"
+                marker.write_text(
+                    f"This directory is readonly during the '{phase}' phase.\n"
+                    f"Directory: .egg-state/{dirname}/\n"
+                    f"Reason: Plan and contract artifacts must not be modified "
+                    f"by code agents during implementation.\n"
+                    f"To modify these files, use the appropriate SDLC phase "
+                    f"(refine or plan).\n"
+                )
+                if uid is not None and gid is not None:
+                    os.chown(str(marker), uid, gid)
+
 
 def phase_readonly_mounts(
     repo_volumes: dict[str, str],
@@ -165,9 +186,9 @@ def phase_readonly_mounts(
     """Create readonly overlay mounts for phase-protected directories.
 
     During the *implement* phase, ``.egg-state/drafts/``,
-    ``.egg-state/contracts/``, and ``.egg-state/reviews/`` are mounted
-    readonly to prevent agents from modifying plan/contract artifacts via
-    direct filesystem writes.
+    ``.egg-state/contracts/``, ``.egg-state/pipelines/``, and
+    ``.egg-state/reviews/`` are mounted readonly to prevent agents from
+    modifying plan/contract artifacts via direct filesystem writes.
 
     Args:
         repo_volumes: Mapping of repo_name -> host_path.

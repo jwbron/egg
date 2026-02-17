@@ -286,7 +286,7 @@ class ContainerSpawner:
             # Phase-based readonly mounts: make .egg-state/ subdirectories
             # readonly during implement phase to prevent direct modifications.
             if phase:
-                ensure_egg_state_dirs(repo_volumes, uid=host_uid, gid=host_gid)
+                ensure_egg_state_dirs(repo_volumes, uid=host_uid, gid=host_gid, phase=phase)
                 mounts.extend(phase_readonly_mounts(repo_volumes, phase))
         if certs_volume:
             mounts.append(

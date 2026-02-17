@@ -21,7 +21,12 @@ class TestImplementReadonlyDirs:
     def test_contains_expected_dirs(self):
         assert "drafts" in _IMPLEMENT_READONLY_DIRS
         assert "contracts" in _IMPLEMENT_READONLY_DIRS
+        assert "pipelines" in _IMPLEMENT_READONLY_DIRS
         assert "reviews" in _IMPLEMENT_READONLY_DIRS
+
+    def test_has_four_dirs(self):
+        """Must match the 4 blocked_patterns in phase-permissions.json for implement."""
+        assert len(_IMPLEMENT_READONLY_DIRS) == 4
 
     def test_is_tuple(self):
         assert isinstance(_IMPLEMENT_READONLY_DIRS, tuple)
@@ -72,6 +77,7 @@ class TestEnsureEggStateDirs:
         repo_volumes = {"repo": str(tmp_path)}
         with patch("os.chown") as mock_chown:
             ensure_egg_state_dirs(repo_volumes, uid=1000, gid=1000)
+            # Only directory chowns (no marker files without phase)
             assert mock_chown.call_count == len(_IMPLEMENT_READONLY_DIRS)
             for call_args in mock_chown.call_args_list:
                 assert call_args[0][1] == 1000  # uid
@@ -94,6 +100,45 @@ class TestEnsureEggStateDirs:
     def test_empty_repo_volumes(self):
         """Empty repo_volumes does nothing."""
         ensure_egg_state_dirs({})
+
+    def test_marker_files_created_for_implement_phase(self, tmp_path):
+        """Marker files are placed in readonly dirs during implement phase."""
+        repo_volumes = {"repo": str(tmp_path)}
+        ensure_egg_state_dirs(repo_volumes, phase="implement")
+
+        for dirname in _IMPLEMENT_READONLY_DIRS:
+            marker = tmp_path / ".egg-state" / dirname / ".egg-readonly"
+            assert marker.exists(), f"Missing marker in {dirname}"
+            content = marker.read_text()
+            assert "implement" in content
+            assert dirname in content
+            assert "readonly" in content
+
+    def test_no_marker_files_without_phase(self, tmp_path):
+        """No marker files created when phase is None."""
+        repo_volumes = {"repo": str(tmp_path)}
+        ensure_egg_state_dirs(repo_volumes)
+
+        for dirname in _IMPLEMENT_READONLY_DIRS:
+            marker = tmp_path / ".egg-state" / dirname / ".egg-readonly"
+            assert not marker.exists()
+
+    def test_no_marker_files_for_non_implement_phase(self, tmp_path):
+        """No marker files created for non-implement phases."""
+        repo_volumes = {"repo": str(tmp_path)}
+        ensure_egg_state_dirs(repo_volumes, phase="plan")
+
+        for dirname in _IMPLEMENT_READONLY_DIRS:
+            marker = tmp_path / ".egg-state" / dirname / ".egg-readonly"
+            assert not marker.exists()
+
+    def test_marker_files_chowned_when_uid_gid_provided(self, tmp_path):
+        """Marker files get chown'd when uid and gid are given."""
+        repo_volumes = {"repo": str(tmp_path)}
+        with patch("os.chown") as mock_chown:
+            ensure_egg_state_dirs(repo_volumes, uid=1000, gid=1000, phase="implement")
+            # 3 directory chowns + 3 marker file chowns
+            assert mock_chown.call_count == 2 * len(_IMPLEMENT_READONLY_DIRS)
 
 
 class TestPhaseReadonlyMounts:
@@ -145,16 +190,12 @@ class TestPhaseReadonlyMounts:
             (tmp_path / ".egg-state" / dirname).mkdir(parents=True)
 
         repo_volumes = {"myrepo": str(tmp_path)}
-        mounts = phase_readonly_mounts(
-            repo_volumes, "implement", container_base="/custom/path"
-        )
+        mounts = phase_readonly_mounts(repo_volumes, "implement", container_base="/custom/path")
 
         for mount in mounts:
             assert mount.destination.startswith("/custom/path/myrepo/")
 
-    @pytest.mark.parametrize(
-        "phase", ["plan", "refine", "pr", "review", None, ""]
-    )
+    @pytest.mark.parametrize("phase", ["plan", "refine", "pr", "review", None, ""])
     def test_non_implement_phases_return_empty(self, phase, tmp_path):
         """Non-implement phases return no mounts."""
         for dirname in _IMPLEMENT_READONLY_DIRS:
