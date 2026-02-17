@@ -1157,9 +1157,7 @@ def _check_short_circuit_signal(
     # Only the *last* YAML block is checked to avoid false positives from
     # example/quoted YAML earlier in the document.  The refine prompt
     # instructs the LLM to place the metadata block at the very end.
-    yaml_block_pattern = re.compile(
-        r"```ya?ml\s*\n(.*?)```", re.DOTALL
-    )
+    yaml_block_pattern = re.compile(r"```ya?ml\s*\n(.*?)```", re.DOTALL)
     matches = list(yaml_block_pattern.finditer(content))
     if matches:
         block = matches[-1].group(1)
@@ -3622,8 +3620,10 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                 if current_phase.value == "refine" and pipeline.config.allow_short_circuit:
                     pipeline.short_circuit = False
                     if _check_short_circuit_signal(
-                        worktree_repo_path, pipeline_mode,
-                        pipeline.issue_number, pipeline_id,
+                        worktree_repo_path,
+                        pipeline_mode,
+                        pipeline.issue_number,
+                        pipeline_id,
                     ):
                         pipeline.short_circuit = True
                         logger.info("Short-circuit detected", pipeline_id=pipeline_id)

@@ -206,7 +206,7 @@ class Redactor:
         Returns:
             Dictionary with sensitive values redacted
         """
-        result = {}
+        result: dict[str, Any] = {}
         for key, value in data.items():
             full_key = f"{parent_key}.{key}" if parent_key else key
 
@@ -238,7 +238,7 @@ class Redactor:
         Returns:
             List with sensitive values redacted
         """
-        result = []
+        result: list[Any] = []
         for i, item in enumerate(data):
             item_key = f"{parent_key}[{i}]"
             if isinstance(item, dict):

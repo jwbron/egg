@@ -53,9 +53,7 @@ class TestPytestConfigConsolidation:
         markers = cfg["tool"]["pytest"]["ini_options"]["markers"]
         marker_names = {m.split(":")[0].strip() for m in markers}
         required = {"integration", "functional", "e2e", "security", "agent_flaky"}
-        assert required.issubset(marker_names), (
-            f"Missing markers: {required - marker_names}"
-        )
+        assert required.issubset(marker_names), f"Missing markers: {required - marker_names}"
 
     def test_pyproject_has_docker_dev_dependency(self):
         """docker package must be in dev dependencies for orchestrator tests."""
@@ -83,13 +81,10 @@ class TestCIWorkflowConsistency:
         """Find the 'Run unit tests' step by name rather than by index."""
         wf = self._load_test_workflow()
         run_cmd = next(
-            (s["run"] for s in wf["jobs"]["unit"]["steps"]
-             if s.get("name") == "Run unit tests"),
+            (s["run"] for s in wf["jobs"]["unit"]["steps"] if s.get("name") == "Run unit tests"),
             None,
         )
-        assert run_cmd is not None, (
-            "No step named 'Run unit tests' found in unit job"
-        )
+        assert run_cmd is not None, "No step named 'Run unit tests' found in unit job"
         return run_cmd
 
     def test_unit_job_runs_all_test_directories(self):
@@ -97,9 +92,7 @@ class TestCIWorkflowConsistency:
         run_cmd = self._get_unit_test_run_cmd()
 
         for test_dir in ["tests/", "gateway/tests/", "orchestrator/tests/"]:
-            assert test_dir in run_cmd, (
-                f"'{test_dir}' not found in unit test run command"
-            )
+            assert test_dir in run_cmd, f"'{test_dir}' not found in unit test run command"
 
     def test_unit_job_pythonpath_includes_orchestrator(self):
         """PYTHONPATH must include orchestrator for import resolution."""
@@ -117,9 +110,7 @@ class TestCIWorkflowConsistency:
         assert len(bandit_step) == 1, "Expected exactly one bandit step"
 
         bandit_cmd = bandit_step[0]["run"]
-        assert "orchestrator" in bandit_cmd, (
-            "orchestrator not included in bandit security scan"
-        )
+        assert "orchestrator" in bandit_cmd, "orchestrator not included in bandit security scan"
 
 
 class TestDocumentationConsistency:

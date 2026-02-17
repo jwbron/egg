@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from egg_config import GATEWAY_PROXY_PORT
 
@@ -337,7 +338,7 @@ def build_sandbox_config(
     )
 
 
-def to_dockerpy_kwargs(config: SandboxContainerConfig) -> dict:
+def to_dockerpy_kwargs(config: SandboxContainerConfig) -> dict[str, Any]:
     """Convert SandboxContainerConfig to docker-py ``containers.create()`` kwargs.
 
     Returns a dict suitable for passing to ``DockerClient.create_container()``.
@@ -345,7 +346,7 @@ def to_dockerpy_kwargs(config: SandboxContainerConfig) -> dict:
     collisions when multiple mounts share the same source (e.g. multiple
     /dev/null .git shadow mounts).
     """
-    mount_list: list[dict] = []
+    mount_list: list[dict[str, Any]] = []
 
     for mount in config.mounts:
         if mount.mount_type in ("bind", "volume") and mount.source is not None:
@@ -365,7 +366,7 @@ def to_dockerpy_kwargs(config: SandboxContainerConfig) -> dict:
                 }
             )
 
-    kwargs: dict = {
+    kwargs: dict[str, Any] = {
         "name": config.container_name,
         "image": config.image,
         "environment": dict(config.environment),

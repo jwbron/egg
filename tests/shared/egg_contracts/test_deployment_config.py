@@ -29,9 +29,7 @@ class TestServiceMapping:
         assert m.container_mount_path == "/app"
 
     def test_custom_mount_path(self):
-        m = ServiceMapping(
-            source_dir="src/", service_name="web", container_mount_path="/opt/app"
-        )
+        m = ServiceMapping(source_dir="src/", service_name="web", container_mount_path="/opt/app")
         assert m.container_mount_path == "/opt/app"
 
     def test_rejects_path_traversal_in_source_dir(self):
@@ -56,9 +54,7 @@ class TestServiceMapping:
 
     def test_rejects_relative_mount_path(self):
         with pytest.raises(ValidationError, match="absolute"):
-            ServiceMapping(
-                source_dir="src/", service_name="web", container_mount_path="app"
-            )
+            ServiceMapping(source_dir="src/", service_name="web", container_mount_path="app")
 
     def test_rejects_traversal_in_mount_path(self):
         with pytest.raises(ValidationError, match="path traversal"):
@@ -99,9 +95,7 @@ class TestValidationTest:
         assert t.expected_body_contains == "ok"
 
     def test_custom_status_code(self):
-        t = ValidationTest(
-            service="api", path="/redirect", expected_status=302
-        )
+        t = ValidationTest(service="api", path="/redirect", expected_status=302)
         assert t.expected_status == 302
 
     def test_invalid_status_code_too_low(self):
@@ -144,17 +138,13 @@ class TestDeploymentConfig:
         assert config.compose_file == "docker-compose.dev.yml"
 
     def test_health_endpoints(self):
-        config = self._minimal_config(
-            health_endpoints={"api": "/_api/ping", "worker": "/healthz"}
-        )
+        config = self._minimal_config(health_endpoints={"api": "/_api/ping", "worker": "/healthz"})
         assert config.health_endpoints["api"] == "/_api/ping"
         assert config.health_endpoints["worker"] == "/healthz"
 
     def test_health_endpoint_must_start_with_slash(self):
         with pytest.raises(ValidationError, match="start with '/'"):
-            self._minimal_config(
-                health_endpoints={"api": "health"}
-            )
+            self._minimal_config(health_endpoints={"api": "health"})
 
     def test_rejects_compose_path_traversal(self):
         with pytest.raises(ValidationError, match="path traversal"):
@@ -230,9 +220,11 @@ class TestLoadDeploymentConfig:
         egg_dir.mkdir()
         config_path = egg_dir / "deployment.json"
         config_path.write_text(
-            json.dumps({
-                "services": [{"source_dir": "app/", "service_name": "web"}],
-            })
+            json.dumps(
+                {
+                    "services": [{"source_dir": "app/", "service_name": "web"}],
+                }
+            )
         )
         config = load_deployment_config(tmp_path)
         assert config is not None

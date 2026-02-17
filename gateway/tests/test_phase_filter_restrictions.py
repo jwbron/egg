@@ -270,9 +270,7 @@ class TestPhaseFilterDefaultPermissions:
     def test_implement_allows_checkpoints(self):
         """Checkpoints should NOT be blocked during implement phase."""
         pf = PhaseFilter()
-        result = pf.check_phase_file_restrictions(
-            "implement", [".egg-state/checkpoints/ckpt.json"]
-        )
+        result = pf.check_phase_file_restrictions("implement", [".egg-state/checkpoints/ckpt.json"])
         assert result.allowed is True
 
     def test_implement_allows_agent_outputs(self):

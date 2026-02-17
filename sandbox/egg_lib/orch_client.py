@@ -7,7 +7,7 @@ pattern established by egg-pipeline-watch.
 import json
 import os
 from http.client import HTTPConnection, HTTPResponse
-from typing import Any
+from typing import Any, cast
 from urllib.parse import urlparse
 
 
@@ -83,7 +83,7 @@ class OrchClient:
                 msg = data.get("message", raw) if isinstance(data, dict) else raw
                 raise OrchestratorError(msg, status_code=response.status)
 
-            return data
+            return cast(dict[str, Any], data)
         except OrchestratorError:
             raise
         except ConnectionRefusedError:
@@ -161,7 +161,7 @@ class OrchClient:
         if network_mode:
             body["network_mode"] = network_mode
         data = self._request("POST", "/api/v1/pipelines", body=body)
-        return data.get("data", {}).get("pipeline", data)
+        return cast(dict[str, Any], data.get("data", {}).get("pipeline", data))
 
     def start_pipeline(self, pipeline_id: str) -> dict[str, Any]:
         """Start a pipeline."""
@@ -170,12 +170,12 @@ class OrchClient:
     def get_pipeline(self, pipeline_id: str) -> dict[str, Any]:
         """Get pipeline details."""
         data = self._request("GET", f"/api/v1/pipelines/{pipeline_id}")
-        return data.get("data", data)
+        return cast(dict[str, Any], data.get("data", data))
 
     def get_pipeline_status(self, pipeline_id: str) -> dict[str, Any]:
         """Get pipeline status for polling."""
         data = self._request("GET", f"/api/v1/pipelines/{pipeline_id}/status")
-        return data.get("data", data)
+        return cast(dict[str, Any], data.get("data", data))
 
     def list_decisions(self, pipeline_id: str, pending_only: bool = False) -> list[dict[str, Any]]:
         """List HITL decisions for a pipeline."""
@@ -183,7 +183,7 @@ class OrchClient:
         if pending_only:
             path += "?pending_only=true"
         data = self._request("GET", path)
-        return data.get("data", {}).get("decisions", [])
+        return cast(list[dict[str, Any]], data.get("data", {}).get("decisions", []))
 
     def resolve_decision(
         self, pipeline_id: str, decision_id: str, resolution: str

@@ -39,7 +39,7 @@ logger = get_logger("gateway.session-manager")
 def _cleanup_transcript_buffer(container_id: str) -> None:
     """Clean up transcript buffer for a container when session ends."""
     try:
-        from transcript_buffer import cleanup_transcript_buffer
+        from transcript_buffer import cleanup_transcript_buffer  # type: ignore[import-not-found]
 
         cleanup_transcript_buffer(container_id)
         logger.debug("Transcript buffer cleaned up", container_id=container_id)
@@ -87,7 +87,7 @@ def _capture_and_cleanup_session(
     # Phase filtering ensures blocked files are restored, not committed.
     if session.last_repo_path and session.pipeline_id:
         try:
-            from post_agent_commit import auto_commit_worktree
+            from post_agent_commit import auto_commit_worktree  # type: ignore[import-not-found]
 
             # Build gateway URL for push-via-gateway support.
             gateway_url = None
@@ -121,7 +121,7 @@ def _capture_and_cleanup_session(
             )
 
     try:
-        from checkpoint_handler import (
+        from checkpoint_handler import (  # type: ignore[import-not-found]
             SESSION_END_CAPTURE_TIMEOUT,
             capture_session_end_checkpoint,
         )
@@ -251,7 +251,7 @@ class Session:
 
     def to_dict_for_persistence(self) -> dict[str, Any]:
         """Convert to dictionary for persistence (excludes raw token)."""
-        result = {
+        result: dict[str, Any] = {
             "session_token_hash": self.session_token_hash,
             "container_id": self.container_id,
             "container_ip": self.container_ip,
@@ -821,13 +821,13 @@ class SessionManager:
                     session = s
                     break
 
-            if token_hash:
+            if token_hash and session:
                 self._sessions.pop(token_hash)
                 if session.session_token:
                     self._token_to_hash.pop(session.session_token, None)
                 self._save_to_disk()
 
-        if session:
+        if session and token_hash:
             # Capture session-end checkpoint outside the lock to avoid
             # blocking other session operations during the up-to-30s wait
             _capture_and_cleanup_session(session, "completed")

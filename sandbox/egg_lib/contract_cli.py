@@ -40,9 +40,9 @@ try:
     from .config import GATEWAY_PORT
 except ImportError:
     try:
-        from egg_lib.config import GATEWAY_PORT  # type: ignore[no-redef]
+        from egg_lib.config import GATEWAY_PORT
     except ImportError:
-        from egg_config.constants import GATEWAY_PORT  # type: ignore[no-redef]
+        from egg_config.constants import GATEWAY_PORT
 
 # Regex for validating git commit SHAs (7-40 hex characters)
 COMMIT_SHA_PATTERN = re.compile(r"^[0-9a-fA-F]{7,40}$")
@@ -903,7 +903,7 @@ def cmd_agent_next(args: argparse.Namespace) -> int:
             failed.append(role)
 
     if failed:
-        output = {
+        output: dict[str, Any] = {
             "status": "failed",
             "agents": [],
             "reason": f"Agents failed: {', '.join(failed)}",

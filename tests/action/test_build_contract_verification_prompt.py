@@ -65,7 +65,10 @@ class TestInitialVerification:
             prompt = read_prompt_file(tmpdir, "50")
             assert "PR #50" in prompt
             assert "owner/repo" in prompt
-            assert "comprehensive contract verification" in prompt.lower() or "Verify contract" in prompt
+            assert (
+                "comprehensive contract verification" in prompt.lower()
+                or "Verify contract" in prompt
+            )
 
     def test_includes_egg_contract_cli(self) -> None:
         """Prompt includes egg-contract CLI usage instructions."""

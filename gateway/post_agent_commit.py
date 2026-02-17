@@ -102,7 +102,7 @@ def _push_via_gateway(
             method="POST",
         )
         with urllib.request.urlopen(req, timeout=timeout) as resp:
-            return resp.status == 200
+            return bool(resp.status == 200)
     except Exception as e:
         logger.warning(
             "Push via gateway failed",
@@ -171,12 +171,12 @@ def auto_commit_worktree(
 
         if phase and changed_files:
             try:
-                from phase_filter import check_phase_file_restrictions
+                from phase_filter import check_phase_file_restrictions  # type: ignore[import-not-found]  # noqa: I001
             except ImportError:
                 try:
                     from gateway.phase_filter import check_phase_file_restrictions
                 except ImportError:
-                    check_phase_file_restrictions = None  # type: ignore[assignment]
+                    check_phase_file_restrictions = None  # type: ignore[assignment, unused-ignore]
 
             if check_phase_file_restrictions is not None:
                 result = check_phase_file_restrictions(phase, changed_files)

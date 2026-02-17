@@ -3,6 +3,7 @@
 import json
 import sys
 import threading
+from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -23,6 +24,12 @@ sys.modules.setdefault("docker.errors", MagicMock())
 sys.modules.setdefault("docker.types", MagicMock())
 
 from models import AgentExecution, Pipeline, PipelinePhase, PipelineStatus
+
+
+@contextmanager
+def _noop_lock(*args, **kwargs):
+    """No-op context manager to replace get_pipeline_state_lock in tests."""
+    yield
 
 
 @pytest.fixture
@@ -63,32 +70,38 @@ def _make_pipeline(status, phase=PipelinePhase.REFINE, phase_status=None):
             execution.review_cycles = 1
             pipeline.error = "Container exited with code 1"
         # Add stale agent/artifact state to verify reset
-        execution.agents = [
-            AgentExecution(role="coder", container_id="old-container")
-        ]
+        execution.agents = [AgentExecution(role="coder", container_id="old-container")]
         execution.artifacts = {"pr_url": "https://github.com/old/pr"}
         execution.containers = [MagicMock()]
     return pipeline
 
 
+def _setup_mocks(mock_get_repo, mock_resolve, pipeline):
+    """Configure common mocks for start-pipeline tests."""
+    mock_get_repo.return_value = Path("/repo")
+    mock_store = MagicMock()
+    mock_store.repo_path = Path("/repo")
+    mock_store.load_pipeline.return_value = pipeline
+    mock_resolve.return_value = (mock_store, pipeline)
+    return mock_store
+
+
 class TestStartFailedPipeline:
     """Restarting a failed pipeline resets the failed phase."""
 
+    @patch("routes.pipelines.get_pipeline_state_lock", side_effect=_noop_lock)
     @patch("routes.pipelines._run_pipeline")
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
     def test_restart_failed_pipeline_returns_200(
-        self, mock_get_repo, mock_resolve, mock_run, client
+        self, mock_get_repo, mock_resolve, mock_run, mock_lock, client
     ):
-        mock_get_repo.return_value = Path("/repo")
         pipeline = _make_pipeline(
             PipelineStatus.FAILED,
             phase=PipelinePhase.REFINE,
             phase_status=PipelineStatus.FAILED,
         )
-        mock_store = MagicMock()
-        mock_store.repo_path = Path("/repo")
-        mock_resolve.return_value = (mock_store, pipeline)
+        _setup_mocks(mock_get_repo, mock_resolve, pipeline)
 
         resp = client.post("/api/v1/pipelines/issue-42/start")
         data = json.loads(resp.data)
@@ -96,21 +109,19 @@ class TestStartFailedPipeline:
         assert resp.status_code == 200
         assert data["success"] is True
 
+    @patch("routes.pipelines.get_pipeline_state_lock", side_effect=_noop_lock)
     @patch("routes.pipelines._run_pipeline")
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
     def test_restart_resets_failed_phase_to_pending(
-        self, mock_get_repo, mock_resolve, mock_run, client
+        self, mock_get_repo, mock_resolve, mock_run, mock_lock, client
     ):
-        mock_get_repo.return_value = Path("/repo")
         pipeline = _make_pipeline(
             PipelineStatus.FAILED,
             phase=PipelinePhase.REFINE,
             phase_status=PipelineStatus.FAILED,
         )
-        mock_store = MagicMock()
-        mock_store.repo_path = Path("/repo")
-        mock_resolve.return_value = (mock_store, pipeline)
+        _setup_mocks(mock_get_repo, mock_resolve, pipeline)
 
         client.post("/api/v1/pipelines/issue-42/start")
 
@@ -124,63 +135,56 @@ class TestStartFailedPipeline:
         assert phase_exec.review_cycles == 0
         assert phase_exec.hitl_review_cycles == 0
 
+    @patch("routes.pipelines.get_pipeline_state_lock", side_effect=_noop_lock)
     @patch("routes.pipelines._run_pipeline")
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
     def test_restart_clears_pipeline_error(
-        self, mock_get_repo, mock_resolve, mock_run, client
+        self, mock_get_repo, mock_resolve, mock_run, mock_lock, client
     ):
-        mock_get_repo.return_value = Path("/repo")
         pipeline = _make_pipeline(
             PipelineStatus.FAILED,
             phase=PipelinePhase.REFINE,
             phase_status=PipelineStatus.FAILED,
         )
-        mock_store = MagicMock()
-        mock_store.repo_path = Path("/repo")
-        mock_resolve.return_value = (mock_store, pipeline)
+        _setup_mocks(mock_get_repo, mock_resolve, pipeline)
 
         client.post("/api/v1/pipelines/issue-42/start")
 
         assert pipeline.error is None
         assert pipeline.status == PipelineStatus.RUNNING
 
+    @patch("routes.pipelines.get_pipeline_state_lock", side_effect=_noop_lock)
     @patch("routes.pipelines._run_pipeline")
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
     def test_restart_saves_pipeline_state(
-        self, mock_get_repo, mock_resolve, mock_run, client
+        self, mock_get_repo, mock_resolve, mock_run, mock_lock, client
     ):
-        mock_get_repo.return_value = Path("/repo")
         pipeline = _make_pipeline(
             PipelineStatus.FAILED,
             phase=PipelinePhase.REFINE,
             phase_status=PipelineStatus.FAILED,
         )
-        mock_store = MagicMock()
-        mock_store.repo_path = Path("/repo")
-        mock_resolve.return_value = (mock_store, pipeline)
+        mock_store = _setup_mocks(mock_get_repo, mock_resolve, pipeline)
 
         client.post("/api/v1/pipelines/issue-42/start")
 
         mock_store.save_pipeline.assert_called_once_with(pipeline)
 
-
+    @patch("routes.pipelines.get_pipeline_state_lock", side_effect=_noop_lock)
     @patch("routes.pipelines._run_pipeline")
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
     def test_restart_clears_agents_and_artifacts(
-        self, mock_get_repo, mock_resolve, mock_run, client
+        self, mock_get_repo, mock_resolve, mock_run, mock_lock, client
     ):
-        mock_get_repo.return_value = Path("/repo")
         pipeline = _make_pipeline(
             PipelineStatus.FAILED,
             phase=PipelinePhase.REFINE,
             phase_status=PipelineStatus.FAILED,
         )
-        mock_store = MagicMock()
-        mock_store.repo_path = Path("/repo")
-        mock_resolve.return_value = (mock_store, pipeline)
+        _setup_mocks(mock_get_repo, mock_resolve, pipeline)
 
         client.post("/api/v1/pipelines/issue-42/start")
 
@@ -189,42 +193,38 @@ class TestStartFailedPipeline:
         assert phase_exec.artifacts == {}
         assert phase_exec.containers == []
 
+    @patch("routes.pipelines.get_pipeline_state_lock", side_effect=_noop_lock)
     @patch("routes.pipelines._run_pipeline")
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
     def test_restart_bumps_created_at(
-        self, mock_get_repo, mock_resolve, mock_run, client
+        self, mock_get_repo, mock_resolve, mock_run, mock_lock, client
     ):
-        mock_get_repo.return_value = Path("/repo")
         pipeline = _make_pipeline(
             PipelineStatus.FAILED,
             phase=PipelinePhase.REFINE,
             phase_status=PipelineStatus.FAILED,
         )
         original_created_at = pipeline.created_at
-        mock_store = MagicMock()
-        mock_store.repo_path = Path("/repo")
-        mock_resolve.return_value = (mock_store, pipeline)
+        _setup_mocks(mock_get_repo, mock_resolve, pipeline)
 
         client.post("/api/v1/pipelines/issue-42/start")
 
         assert pipeline.created_at > original_created_at
 
+    @patch("routes.pipelines.get_pipeline_state_lock", side_effect=_noop_lock)
     @patch("routes.pipelines._run_pipeline")
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
     def test_restart_calls_run_pipeline(
-        self, mock_get_repo, mock_resolve, mock_run, client
+        self, mock_get_repo, mock_resolve, mock_run, mock_lock, client
     ):
-        mock_get_repo.return_value = Path("/repo")
         pipeline = _make_pipeline(
             PipelineStatus.FAILED,
             phase=PipelinePhase.REFINE,
             phase_status=PipelineStatus.FAILED,
         )
-        mock_store = MagicMock()
-        mock_store.repo_path = Path("/repo")
-        mock_resolve.return_value = (mock_store, pipeline)
+        _setup_mocks(mock_get_repo, mock_resolve, pipeline)
 
         client.post("/api/v1/pipelines/issue-42/start")
 
@@ -240,13 +240,13 @@ class TestStartFailedPipeline:
 class TestStartFailedPipelineWithRunningPhase:
     """Pipeline-level failure with phase still in RUNNING state."""
 
+    @patch("routes.pipelines.get_pipeline_state_lock", side_effect=_noop_lock)
     @patch("routes.pipelines._run_pipeline")
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
     def test_restart_resets_running_phase_to_pending(
-        self, mock_get_repo, mock_resolve, mock_run, client
+        self, mock_get_repo, mock_resolve, mock_run, mock_lock, client
     ):
-        mock_get_repo.return_value = Path("/repo")
         pipeline = _make_pipeline(
             PipelineStatus.FAILED,
             phase=PipelinePhase.REFINE,
@@ -254,9 +254,7 @@ class TestStartFailedPipelineWithRunningPhase:
         )
         # Simulate pipeline-level failure (pipeline.error set, but phase not FAILED)
         pipeline.error = "Unexpected orchestrator error"
-        mock_store = MagicMock()
-        mock_store.repo_path = Path("/repo")
-        mock_resolve.return_value = (mock_store, pipeline)
+        _setup_mocks(mock_get_repo, mock_resolve, pipeline)
 
         resp = client.post("/api/v1/pipelines/issue-42/start")
 
@@ -273,9 +271,7 @@ class TestStartCompletePipeline:
 
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
-    def test_complete_pipeline_returns_409(
-        self, mock_get_repo, mock_resolve, client
-    ):
+    def test_complete_pipeline_returns_409(self, mock_get_repo, mock_resolve, client):
         mock_get_repo.return_value = Path("/repo")
         pipeline = _make_pipeline(PipelineStatus.COMPLETE)
         mock_store = MagicMock()
@@ -292,9 +288,7 @@ class TestStartCancelledPipeline:
 
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
-    def test_cancelled_pipeline_returns_409(
-        self, mock_get_repo, mock_resolve, client
-    ):
+    def test_cancelled_pipeline_returns_409(self, mock_get_repo, mock_resolve, client):
         mock_get_repo.return_value = Path("/repo")
         pipeline = _make_pipeline(PipelineStatus.CANCELLED)
         mock_store = MagicMock()

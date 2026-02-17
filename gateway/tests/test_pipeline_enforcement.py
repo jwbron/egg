@@ -228,14 +228,10 @@ class TestCommitTimePhaseValidation:
     @pytest.fixture
     def auth_implement_phase(self):
         """Auth setup with implement phase session."""
-        session = _make_session_with_branch(
-            "egg/c1/work", phase="implement", agent_role="coder"
-        )
+        session = _make_session_with_branch("egg/c1/work", phase="implement", agent_role="coder")
         return _setup_auth(session)
 
-    def test_commit_with_blocked_staged_files_returns_403(
-        self, client, auth_implement_phase
-    ):
+    def test_commit_with_blocked_staged_files_returns_403(self, client, auth_implement_phase):
         """Commit is blocked if staged files violate phase restrictions."""
         headers, mock_result, mock_policy, current_sm = auth_implement_phase
 
@@ -268,9 +264,7 @@ class TestCommitTimePhaseValidation:
             data = json.loads(response.data)
             assert "blocked" in data.get("message", "").lower()
 
-    def test_commit_with_allowed_files_not_blocked(
-        self, client, auth_implement_phase
-    ):
+    def test_commit_with_allowed_files_not_blocked(self, client, auth_implement_phase):
         """Commit with only allowed files is not blocked at phase check."""
         headers, mock_result, mock_policy, current_sm = auth_implement_phase
 

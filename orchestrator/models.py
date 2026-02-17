@@ -203,7 +203,9 @@ class PipelineConfig(BaseModel):
     )
     max_review_cycles: int = Field(default=3, ge=1, description="Max review cycles per phase")
     max_hitl_review_cycles: int = Field(
-        default=3, ge=1, description="Max HITL revision cycles per phase (independent of agentic review budget)"
+        default=3,
+        ge=1,
+        description="Max HITL revision cycles per phase (independent of agentic review budget)",
     )
     decision_timeout: int = Field(
         default=3600, ge=60, description="HITL decision timeout in seconds"

@@ -302,8 +302,10 @@ class TestReadSharedCriteriaEdgeCases:
                 return docker_content
             return original_read_text(self, *args, **kwargs)
 
-        with patch.object(Path, "is_file", mock_is_file), \
-             patch.object(Path, "read_text", mock_read_text):
+        with (
+            patch.object(Path, "is_file", mock_is_file),
+            patch.object(Path, "read_text", mock_read_text),
+        ):
             content = _read_shared_criteria("docker-only-test.md")
             assert content == docker_content
 

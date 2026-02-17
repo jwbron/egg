@@ -164,7 +164,7 @@ def extract_messages_from_proxy_buffer(
                         role=MessageRole.USER,
                         content=str(content),
                         content_summary=content_summary,
-                        timestamp=ts,
+                        timestamp=ts or datetime.now(UTC),
                     )
                 )
 
@@ -190,7 +190,7 @@ def extract_messages_from_proxy_buffer(
                         role=MessageRole.ASSISTANT,
                         content=text,
                         content_summary=content_summary,
-                        timestamp=ts,
+                        timestamp=ts or datetime.now(UTC),
                     )
                 )
 

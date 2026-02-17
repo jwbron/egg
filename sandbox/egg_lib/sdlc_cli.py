@@ -24,6 +24,9 @@ import signal
 import subprocess
 import sys
 import time
+from collections.abc import Iterator
+from http.client import HTTPResponse
+from typing import Any
 
 from .orch_client import OrchClient, OrchestratorError
 from .sdlc_hitl import _parse_egg_repos, handle_hitl_checkpoint
@@ -57,7 +60,7 @@ def _detect_network_mode() -> str | None:
     return None
 
 
-def _write(text: str, file=None) -> None:
+def _write(text: str, file: Any = None) -> None:
     """Write text, stripping ANSI if not a TTY."""
     import re
 
@@ -118,7 +121,7 @@ def _resolve_repo_dir(repo_dir: str) -> str | None:
 # --- SSE Parsing (reused from egg-pipeline-watch) ---
 
 
-def parse_sse_stream(response):
+def parse_sse_stream(response: HTTPResponse) -> Iterator[tuple[str, dict[str, Any]]]:
     """Parse an SSE stream from an HTTP response.
 
     Yields (event_type, data_dict) tuples.
@@ -159,7 +162,7 @@ def render_header(pipeline_id: str, event_type: str | None = None) -> str:
     return "\n".join(lines)
 
 
-def render_event_info(data: dict) -> str:
+def render_event_info(data: dict[str, Any]) -> str:
     """Render event metadata below the DAG."""
     status = data.get("status", "")
     phase = data.get("current_phase", "")
@@ -180,7 +183,7 @@ def render_event_info(data: dict) -> str:
     return "\n".join(lines)
 
 
-def display_visualization(data: dict) -> None:
+def display_visualization(data: dict[str, Any]) -> None:
     """Display the DAG visualization with in-place update."""
     _clear_screen()
 
@@ -361,7 +364,9 @@ def run_local_mode(client: OrchClient, prompt: str | None = None, repo: str | No
     print(f"\n{DIM}Creating local pipeline...{RESET}")
 
     try:
-        pipeline = client.create_pipeline(mode="local", prompt=prompt, repo=repo, network_mode=_detect_network_mode())
+        pipeline = client.create_pipeline(
+            mode="local", prompt=prompt, repo=repo, network_mode=_detect_network_mode()
+        )
     except OrchestratorError as e:
         _write(f"{RED}Failed to create pipeline: {e}{RESET}\n", file=sys.stderr)
         return 1
@@ -453,7 +458,9 @@ def run_issue_mode(client: OrchClient, issue_number: int, repo: str | None = Non
                 if status in ("complete", "failed", "cancelled"):
                     # Terminal state — safe to delete and re-create
                     print(f"  Pipeline was {status}. Restarting...")
-                    _restart_pipeline(client, pipeline_id, issue_number, repo, branch, network_mode=network_mode)
+                    _restart_pipeline(
+                        client, pipeline_id, issue_number, repo, branch, network_mode=network_mode
+                    )
                 elif status in ("running", "awaiting_human"):
                     print(f"  Pipeline status: {status}. Attaching to watch loop...")
                 else:
@@ -474,7 +481,9 @@ def run_issue_mode(client: OrchClient, issue_number: int, repo: str | None = Non
                             file=sys.stderr,
                         )
                         return 1
-                    _restart_pipeline(client, pipeline_id, issue_number, repo, branch, network_mode=network_mode)
+                    _restart_pipeline(
+                        client, pipeline_id, issue_number, repo, branch, network_mode=network_mode
+                    )
             except OrchestratorError as e2:
                 _write(f"{RED}Failed to restart pipeline: {e2}{RESET}\n", file=sys.stderr)
                 return 1

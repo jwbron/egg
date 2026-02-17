@@ -260,7 +260,6 @@ def require_pipeline_id(args: argparse.Namespace) -> str:
     return validate_id(pid, "pipeline_id")
 
 
-
 # ---------------------------------------------------------------------------
 # Health
 # ---------------------------------------------------------------------------
@@ -1249,7 +1248,8 @@ def main(argv: list[str] | None = None) -> int:
         parser.parse_args([sub, "--help"])
         return 1
 
-    return func(args)
+    result: int = func(args)
+    return result
 
 
 if __name__ == "__main__":

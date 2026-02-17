@@ -1292,7 +1292,7 @@ def cleanup_on_exit(config: Config, logger: Logger, exit_code: int = 0) -> None:
 
 
 def _tee_stderr_to_file(
-    process: subprocess.Popen,
+    process: subprocess.Popen[bytes],
     log_path: Path,
     max_lines: int = 500,
 ) -> None:
@@ -1306,8 +1306,10 @@ def _tee_stderr_to_file(
     from collections import deque
 
     try:
-        stderr_out = getattr(sys.stderr, "buffer", sys.stderr)
+        stderr_out: Any = getattr(sys.stderr, "buffer", sys.stderr)
         ring: deque[bytes] = deque(maxlen=max_lines)
+        if process.stderr is None:
+            return
         while True:
             line = process.stderr.readline()
             if not line:

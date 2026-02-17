@@ -322,7 +322,8 @@ def load_agent_output(repo_path: Path, role: AgentRole) -> dict[str, Any]:
 
     try:
         with output_file.open() as f:
-            return json.load(f)
+            result: dict[str, Any] = json.load(f)
+            return result
     except (json.JSONDecodeError, OSError):
         return {}
 

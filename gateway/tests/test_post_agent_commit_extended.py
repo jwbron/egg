@@ -123,9 +123,7 @@ class TestMultipleBlockedFiles:
             assert result == "sha_multi"
 
             # Verify 3 checkout calls (one per blocked file)
-            checkout_calls = [
-                c for c in mock_run.call_args_list if "checkout" in c[0][0]
-            ]
+            checkout_calls = [c for c in mock_run.call_args_list if "checkout" in c[0][0]]
             assert len(checkout_calls) == 3
 
             # Verify add only includes allowed file
@@ -247,9 +245,7 @@ class TestPushBranchDetection:
             session_token="tok",
             gateway_url="http://gw:9848",
         )
-        mock_push.assert_called_once_with(
-            str(tmp_path), "tok", "http://gw:9848", "egg/issue-644"
-        )
+        mock_push.assert_called_once_with(str(tmp_path), "tok", "http://gw:9848", "egg/issue-644")
 
     @patch("post_agent_commit._push_via_gateway", return_value=True)
     @patch("post_agent_commit.subprocess.run")

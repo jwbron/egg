@@ -648,9 +648,8 @@ def stop_compose_services() -> bool:
         return True
 
     # Use existing override file if present (contains per-repo mounts)
-    override_file = compose_file.parent / "docker-compose.override.yml"
-    if not override_file.exists():
-        override_file = None
+    override_candidate = compose_file.parent / "docker-compose.override.yml"
+    override_file: Path | None = override_candidate if override_candidate.exists() else None
 
     return compose_down(compose_file, override_file=override_file)
 
@@ -723,9 +722,8 @@ def run_compose_mode(down: bool = False, build: bool = False) -> int:
 
     # Handle --compose --down
     if down:
-        override_file = compose_file.parent / "docker-compose.override.yml"
-        if not override_file.exists():
-            override_file = None
+        down_candidate = compose_file.parent / "docker-compose.override.yml"
+        override_file: Path | None = down_candidate if down_candidate.exists() else None
         if compose_down(compose_file, override_file=override_file):
             return 0
         return 1

@@ -911,7 +911,7 @@ def check_agent_restrictions(agent_role: str, files: list[str]) -> FileRestricti
     try:
         from .agent_restrictions import validate_agent_push
     except ImportError:
-        from agent_restrictions import validate_agent_push  # type: ignore[no-redef]
+        from agent_restrictions import validate_agent_push  # type: ignore[no-redef, import-not-found]  # noqa: I001
 
     result = validate_agent_push(agent_role, files)
 

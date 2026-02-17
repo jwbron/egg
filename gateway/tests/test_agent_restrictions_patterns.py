@@ -527,9 +527,7 @@ class TestAgentRestrictionResult:
         assert result.blocked_files == []
 
     def test_block_factory(self):
-        result = AgentRestrictionResult.block(
-            "coder", ["file.py"], "Blocked"
-        )
+        result = AgentRestrictionResult.block("coder", ["file.py"], "Blocked")
         assert result.allowed is False
         assert result.role == "coder"
         assert result.blocked_files == ["file.py"]

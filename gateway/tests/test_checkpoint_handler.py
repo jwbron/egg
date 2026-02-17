@@ -881,12 +881,8 @@ class TestStoreCheckpointV2GitOps:
             pass
 
         # Find branch -D call (should come before orphan checkout)
-        branch_delete_calls = [
-            c for c in git_calls if "branch" in c[1] and "-D" in c[1]
-        ]
-        orphan_calls = [
-            c for c in git_calls if "checkout" in c[1] and "--orphan" in c[1]
-        ]
+        branch_delete_calls = [c for c in git_calls if "branch" in c[1] and "-D" in c[1]]
+        orphan_calls = [c for c in git_calls if "checkout" in c[1] and "--orphan" in c[1]]
 
         assert len(branch_delete_calls) >= 1, "Expected branch -D call for stale cleanup"
         assert len(orphan_calls) >= 1, "Expected orphan checkout call"
@@ -1113,9 +1109,7 @@ class TestStoreCheckpointWithToken:
         )
 
         try:
-            handler.store_checkpoint_v2(
-                checkpoint, "/fake/repo", github_token="fresh-token-456"
-            )
+            handler.store_checkpoint_v2(checkpoint, "/fake/repo", github_token="fresh-token-456")
         except Exception:
             pass
 

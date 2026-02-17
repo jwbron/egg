@@ -339,10 +339,10 @@ class TranscriptBuffer:
             with open(self.buffer_path, "r+b") as f:
                 fcntl.flock(f.fileno(), fcntl.LOCK_EX)
                 try:
-                    for line in f:
-                        line = line.decode("utf-8", errors="replace").strip()
-                        if line:
-                            entries.append(line)
+                    for raw_line in f:
+                        decoded_line = raw_line.decode("utf-8", errors="replace").strip()
+                        if decoded_line:
+                            entries.append(decoded_line)
 
                     if not entries:
                         return
@@ -407,7 +407,7 @@ class TranscriptBuffer:
         Returns:
             List of parsed entry dictionaries.
         """
-        entries = []
+        entries: list[dict[str, Any]] = []
         if not self.buffer_path.exists():
             return entries
 

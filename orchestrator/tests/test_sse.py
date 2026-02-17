@@ -562,7 +562,6 @@ class TestCreateSSEStream:
             assert "event: snapshot" not in events[0]
             assert "pipeline.completed" in events[0]
 
-
     def test_refresh_sent_when_queue_empty(self):
         """Test that a refresh event is sent when no real events arrive."""
         pipeline = create_test_pipeline()

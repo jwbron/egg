@@ -524,15 +524,25 @@ class TestSetupAgentRules:
 
     @patch("os.lchown")
     @patch("os.chown")
-    def test_includes_all_rules_in_any_session(self, mock_chown, mock_lchown, temp_dir, monkeypatch):
+    def test_includes_all_rules_in_any_session(
+        self, mock_chown, mock_lchown, temp_dir, monkeypatch
+    ):
         """All rules including CLI tools are included regardless of pipeline mode."""
         monkeypatch.delenv("EGG_PIPELINE_ID", raising=False)
 
         # Create mock rules directory
         rules_dir = temp_dir / "opt-claude-rules"
         rules_dir.mkdir()
-        all_rules = ["mission.md", "environment.md", "code-standards.md", "test-workflow.md",
-                      "pr-descriptions.md", "orchestrator.md", "contract.md", "checkpoint.md"]
+        all_rules = [
+            "mission.md",
+            "environment.md",
+            "code-standards.md",
+            "test-workflow.md",
+            "pr-descriptions.md",
+            "orchestrator.md",
+            "contract.md",
+            "checkpoint.md",
+        ]
         for f in all_rules:
             (rules_dir / f).write_text(f"# {f} content")
 
@@ -573,9 +583,16 @@ class TestSetupAgentRules:
 
         rules_dir = temp_dir / "opt-claude-rules"
         rules_dir.mkdir()
-        core_rules = ["mission.md", "environment.md", "code-standards.md",
-                       "test-workflow.md", "pr-descriptions.md", "orchestrator.md",
-                       "contract.md", "checkpoint.md"]
+        core_rules = [
+            "mission.md",
+            "environment.md",
+            "code-standards.md",
+            "test-workflow.md",
+            "pr-descriptions.md",
+            "orchestrator.md",
+            "contract.md",
+            "checkpoint.md",
+        ]
         for f in core_rules:
             (rules_dir / f).write_text(f"## {f} marker")
 
@@ -615,7 +632,9 @@ class TestSetupAgentRules:
 
     @patch("os.lchown")
     @patch("os.chown")
-    def test_missing_optional_rule_file_skipped(self, mock_chown, mock_lchown, temp_dir, monkeypatch):
+    def test_missing_optional_rule_file_skipped(
+        self, mock_chown, mock_lchown, temp_dir, monkeypatch
+    ):
         """Missing individual rule files are gracefully skipped."""
         monkeypatch.delenv("EGG_PIPELINE_ID", raising=False)
 
