@@ -184,7 +184,7 @@ def _extract_repo_from_remote(repo_path: str) -> str | None:
             return None
 
         remote_url = result.stdout.strip()
-        match = re.search(r"github\.com[:/]([^/]+)/([^/\.]+?)(?:\.git)?$", remote_url)
+        match = re.search(r"github\.com[:/]([^/]+)/([^/]+?)(?:\.git)?$", remote_url)
         if match:
             return f"{match.group(1)}/{match.group(2)}"
     except Exception:
@@ -229,7 +229,7 @@ def _resolve_github_token(repo_path: str) -> str | None:
             return None
 
         remote_url = result.stdout.strip()
-        match = re.search(r"github\.com[:/]([^/]+)/([^/\.]+?)(?:\.git)?$", remote_url)
+        match = re.search(r"github\.com[:/]([^/]+)/([^/]+?)(?:\.git)?$", remote_url)
         if not match:
             logger.debug(
                 "Could not extract owner/repo from remote URL",
@@ -1269,7 +1269,7 @@ def _get_checkpoint_repo_for_path(repo_path: str) -> str | None:
             from config.repo_config import get_checkpoint_repo
 
             # Extract owner/repo from URL
-            match = re.search(r"github\.com[:/]([^/]+)/([^/\.]+?)(?:\.git)?$", remote_url)
+            match = re.search(r"github\.com[:/]([^/]+)/([^/]+?)(?:\.git)?$", remote_url)
             if match:
                 repo = f"{match.group(1)}/{match.group(2)}"
                 return get_checkpoint_repo(repo)
