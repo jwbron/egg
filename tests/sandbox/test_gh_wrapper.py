@@ -1718,6 +1718,84 @@ class TestSelfReviewFallbackDetection:
         assert self._run_detection(error_msg) == "PROPAGATE"
 
 
+class TestGetRepoFallback:
+    """Test the get_repo() function's EGG_REPO environment variable fallback.
+
+    When the agent runs outside a git repo directory (e.g., /home/egg/repos
+    instead of /home/egg/repos/egg), git remote get-url fails. The gh wrapper
+    should fall back to EGG_REPO env var, which is set by the orchestrator
+    for all pipeline containers.
+    """
+
+    # Bash snippet that replicates the get_repo() fallback logic.
+    # We skip the ARGS parsing (--repo flag) and git remote since we're
+    # testing the EGG_REPO fallback specifically.
+    GET_REPO_FALLBACK = textwrap.dedent("""\
+        repo=""
+
+        # Simulate: no --repo flag was passed (repo is empty)
+
+        # Simulate: git remote get-url fails (not in a git repo)
+        # In production, this happens when cwd is not inside a git repo
+        url=$(git remote get-url origin 2>/dev/null)
+        if [ -n "$url" ]; then
+            repo=$(echo "$url" | sed -E 's|.*github\\.com[:/]([^/]+)/([^/.]+)(\\.git)?$|\\1/\\2|')
+        fi
+
+        # Fall back to EGG_REPO env var
+        if [ -z "$repo" ] && [ -n "$EGG_REPO" ]; then
+            repo="$EGG_REPO"
+        fi
+
+        echo "$repo"
+    """)
+
+    def _run_get_repo(self, egg_repo: str = "", cwd: str | None = None) -> str:
+        """Run the get_repo fallback logic and return the detected repo."""
+        env = os.environ.copy()
+        env.pop("EGG_REPO", None)
+        if egg_repo:
+            env["EGG_REPO"] = egg_repo
+
+        result = subprocess.run(
+            ["bash", "-c", self.GET_REPO_FALLBACK],
+            capture_output=True,
+            text=True,
+            env=env,
+            cwd=cwd or "/tmp",
+            timeout=10,
+        )
+        assert result.returncode == 0, f"Script failed: {result.stderr}"
+        return result.stdout.strip()
+
+    def test_egg_repo_used_when_no_git_remote(self):
+        """EGG_REPO should be used when not in a git repo."""
+        repo = self._run_get_repo(egg_repo="owner/repo")
+        assert repo == "owner/repo"
+
+    def test_empty_when_no_git_remote_and_no_egg_repo(self):
+        """Empty result when not in a git repo and EGG_REPO is not set."""
+        repo = self._run_get_repo(egg_repo="")
+        assert repo == ""
+
+    def test_egg_repo_various_formats(self):
+        """EGG_REPO should pass through various owner/repo formats."""
+        for value in ["org/project", "my-org/my-repo", "user123/repo_name"]:
+            repo = self._run_get_repo(egg_repo=value)
+            assert repo == value
+
+    def test_git_remote_takes_precedence_over_egg_repo(self):
+        """When inside a git repo, git remote should win over EGG_REPO."""
+        # Use the actual repo directory — its remote (jwbron/egg) should
+        # take precedence over the EGG_REPO fallback value.
+        repo_dir = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+        repo = self._run_get_repo(
+            egg_repo="fallback-owner/fallback-repo", cwd=repo_dir
+        )
+        assert repo == "jwbron/egg"
+
+
+
 class TestIssueEditBodyFile:
     """Test --body-file/-F support in handle_issue_edit."""
 
