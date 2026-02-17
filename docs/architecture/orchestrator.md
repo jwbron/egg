@@ -106,6 +106,56 @@ For Tier 3 parallel dispatch, the gateway's `WorktreeManager` can create sub-wor
 
 See `orchestrator/routes/pipelines.py:WORKTREE_BASE_DIR` and `gateway/worktree_manager.py` for implementation details.
 
+## Multi-Agent Roles
+
+The orchestrator coordinates specialized agent roles across pipeline phases. Each role runs in its own sandbox container with scoped permissions enforced by the gateway.
+
+### Refine Phase Roles
+
+| Role | Responsibility |
+|------|----------------|
+| **Refiner** | Analyze task, research codebase, evaluate options, recommend approach |
+
+**Execution model**: Refiner runs first, then reviewers validate the analysis before human approval.
+
+**Reviewers:**
+- **Refine Reviewer**: Analysis quality and completeness
+- **Agent Design Reviewer**: Agent-mode alignment and anti-patterns
+
+### Plan Phase Roles
+
+| Role | Responsibility |
+|------|----------------|
+| **Architect** | Analyze task, research codebase, recommend approach |
+| **Task Planner** | Break work into phases and discrete tasks with acceptance criteria |
+| **Risk Analyst** | Identify technical risks, propose mitigation strategies |
+
+**Execution model**: Architect runs first, then task planner and risk analyst run in parallel (both depend on architect's analysis).
+
+**Reviewers:**
+- **Plan Reviewer**: Plan quality, task breakdown, dependencies, test strategy, alignment with analysis
+
+### Implement Phase Roles
+
+| Role | Responsibility |
+|------|----------------|
+| **Coder** | Write code, create commits, push branches |
+| **Tester** | Write and run tests, validate acceptance criteria |
+| **Documenter** | Update docs, READMEs, and changelogs |
+| **Integrator** | Run full test suite, validate integration |
+
+**Execution model (Tier 2)**: Wave-based with dependencies. The coder runs first, then tester and documenter run in parallel (both depend on coder's output). The integrator runs after the coder and tester complete (it does not wait for the documenter).
+
+**Execution model (Tier 3)**: For high-complexity tasks, each plan phase runs its own implement cycle (Coder → Tester → Agentic Review). Independent phases can execute in parallel. After all phase cycles complete, the integrator runs with write access to fix cross-phase integration issues.
+
+**Reviewers:**
+- **Code Reviewer**: Security, correctness, code quality, testing, documentation
+- **Contract Reviewer**: Verify acceptance criteria met, task completion status
+
+### Reviewer Execution
+
+Reviewers always run as a separate step after all workers (and checkers, if applicable) complete. They spawn in parallel with a configurable concurrency limit (`max_parallel_agents`). In implement phase, reviewers run after the integrator completes. In plan phase, reviewers run after the task planner and risk analyst complete. In refine phase, reviewers run after the refiner completes.
+
 ## Deployment Modes
 
 egg supports three deployment modes, each suited to different use cases:

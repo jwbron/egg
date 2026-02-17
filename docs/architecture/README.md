@@ -186,6 +186,16 @@ See [ADR Overview](../adr/README.md) for the full list. Key decisions:
 - [Standardized Logging Interface](../adr/implemented/ADR-Standardized-Logging-Interface.md) - Structured JSON logging
 - [Internet Tool Access Lockdown](../adr/in-progress/ADR-Internet-Tool-Access-Lockdown.md) - Public/private network modes
 
+## Why Wrappers, Not MCP
+
+MCP servers front-load tool schemas, parameter descriptions, and usage instructions into the agent's context before it does anything. For a proprietary API or internal tool the agent has never seen, that cost is justified — without it, the agent is blind.
+
+But for `git`, `gh`, `curl`, and standard CLI tools, agents already know how to use them. The training data *is* the documentation. Re-describing `git push` as an MCP tool wastes context and adds indirection to something the agent can already do natively.
+
+In egg, agents use these tools normally. Wrappers intercept operations and route them through the gateway, which enforces per-agent, per-phase restrictions. When an operation is denied, the agent gets a clear error explaining why — not upfront as a preamble, but at the exact moment it matters. The agent doesn't need to be taught what it can do; it finds out what it can't, only when it tries.
+
+This keeps agents working with familiar tools in a predictable way, without burning context on tool definitions they don't need. MCP is the right choice for tools agents need to learn. Wrappers are the right choice for tools they already know.
+
 ## Design Guidelines
 
 - [Agent Mode Design](../guides/agent-mode-design.md) - When to let the agent operate freely vs. when constraints are appropriate
