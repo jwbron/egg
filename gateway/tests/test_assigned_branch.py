@@ -7,11 +7,7 @@ Validates that:
 - Register session populates assigned_branch for pipeline sessions
 """
 
-import hashlib
 from datetime import UTC, datetime, timedelta
-from unittest.mock import MagicMock, patch
-
-import pytest
 
 from session_manager import (
     Session,

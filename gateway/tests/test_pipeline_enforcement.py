@@ -9,13 +9,13 @@ import json
 import sys
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 import auth
-import gateway
+import pytest
 import session_manager as session_manager_module
 from private_repo_policy import PrivateRepoPolicyResult
-from session_manager import Session, SessionValidationResult, _hash_token
+from session_manager import SessionValidationResult
+
+import gateway
 
 # Re-use the test client fixtures from the gateway test module
 TEST_LAUNCHER_SECRET = "test-launcher-secret-12345"

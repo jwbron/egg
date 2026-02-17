@@ -5,10 +5,7 @@ stages them, creates a WIP commit, and handles error cases.
 """
 
 import subprocess
-from pathlib import Path
 from unittest.mock import MagicMock, patch
-
-import pytest
 
 from post_agent_commit import auto_commit_worktree
 

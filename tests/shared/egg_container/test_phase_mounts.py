@@ -4,15 +4,12 @@ Validates the readonly mount generation for phase-protected directories
 and the directory creation helper used before container spawn.
 """
 
-import os
-from pathlib import Path
 from unittest.mock import patch
 
 import pytest
-
 from egg_container import (
-    MountSpec,
     _IMPLEMENT_READONLY_DIRS,
+    MountSpec,
     ensure_egg_state_dirs,
     phase_readonly_mounts,
 )
