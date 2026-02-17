@@ -10,7 +10,6 @@ Covers:
 
 from unittest.mock import patch
 
-import pytest
 from egg_container import (
     _IMPLEMENT_READONLY_DIRS,
     ensure_egg_state_dirs,

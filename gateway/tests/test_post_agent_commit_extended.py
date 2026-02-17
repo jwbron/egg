@@ -8,11 +8,9 @@ Covers:
 - _push_via_gateway() HTTP request construction
 """
 
-import subprocess
 import types
 from unittest.mock import MagicMock, patch
 
-import pytest
 from post_agent_commit import _parse_changed_files, _push_via_gateway, auto_commit_worktree
 
 
