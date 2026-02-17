@@ -1064,13 +1064,16 @@ def git_execute() -> tuple[Response, int] | Response:
     is_worktree = exec_path != repo_path
 
     # SECURITY: Enforce branch isolation in pipeline worktree sessions.
-    # Pipeline agents (session_mode == "local") in worktrees must stay on their
-    # assigned branch. Interactive sessions are unrestricted even if they use
-    # worktrees. Block checkout/switch operations that would change the active
-    # branch. Agents should use `git restore` for file operations instead.
+    # Pipeline agents in worktrees must stay on their assigned branch.
+    # Interactive sessions are unrestricted even if they use worktrees.
+    # We detect pipeline sessions by the presence of pipeline_id on the
+    # session (set for both "issue" and "local" pipeline modes), rather
+    # than checking session_mode, because issue-mode pipelines use
+    # session_mode="public" while local-mode pipelines use "local".
     # See issue #773.
-    session_mode = getattr(g, "session_mode", None)
-    if session_mode == "local" and is_worktree and is_branch_switching_operation(operation, validated_args):
+    session = getattr(g, "session", None)
+    is_pipeline = session is not None and getattr(session, "pipeline_id", None) is not None
+    if is_pipeline and is_worktree and is_branch_switching_operation(operation, validated_args):
         audit_log(
             "git_execute_blocked",
             operation,
@@ -1079,7 +1082,8 @@ def git_execute() -> tuple[Response, int] | Response:
                 "repo_path": repo_path,
                 "git_args": args,
                 "container_id": container_id,
-                "session_mode": session_mode,
+                "pipeline_id": session.pipeline_id,
+                "session_mode": getattr(g, "session_mode", None),
                 "reason": "Branch switching blocked in pipeline worktree session",
             },
         )

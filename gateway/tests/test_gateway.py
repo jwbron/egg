@@ -61,6 +61,7 @@ def auth_headers():
     mock_session.mode = "public"
     mock_session.container_id = "test-container"
     mock_session.expires_at = None
+    mock_session.pipeline_id = None  # Interactive session, not a pipeline
 
     mock_result = SessionValidationResult(valid=True, session=mock_session)
 
@@ -3734,8 +3735,9 @@ class TestSessionDeleteByContainerWorktreeCleanup:
 class TestBranchIsolation:
     """Tests for branch isolation enforcement in pipeline worktree sessions.
 
-    Branch isolation only applies to pipeline sessions (session_mode == "local").
-    Interactive sessions (public/private mode) are unrestricted even with worktrees.
+    Branch isolation applies to all pipeline sessions (identified by pipeline_id),
+    regardless of session_mode. Both "local" and "issue" pipeline modes are covered.
+    Interactive sessions (no pipeline_id) are unrestricted even with worktrees.
     File operations (checkout -- <file>, restore) are always allowed.
     See issue #773.
     """
@@ -3752,6 +3754,7 @@ class TestBranchIsolation:
         mock_session.container_id = "test-container"
         mock_session.expires_at = None
         mock_session.phase = "implement"
+        mock_session.pipeline_id = "test-pipeline"
 
         mock_result = SessionValidationResult(valid=True, session=mock_session)
 
@@ -3915,10 +3918,10 @@ class TestBranchIsolation:
             assert "-b" in cmd
 
     def test_checkout_branch_allowed_in_interactive_worktree(self, client, auth_headers):
-        """git checkout <branch> should be allowed in interactive (public mode) worktree.
+        """git checkout <branch> should be allowed in interactive (no pipeline_id) worktree.
 
         Interactive sessions are unrestricted even when using worktrees.
-        Only pipeline sessions (session_mode == "local") enforce branch isolation.
+        Only pipeline sessions (with pipeline_id) enforce branch isolation.
         """
         with (
             patch.object(
@@ -3944,7 +3947,7 @@ class TestBranchIsolation:
         """git checkout <branch> should be allowed in private mode worktree.
 
         Both public and private interactive sessions are unrestricted.
-        Only pipeline sessions (session_mode == "local") enforce branch isolation.
+        Only pipeline sessions (with pipeline_id) enforce branch isolation.
         """
         import sys
 
@@ -3954,6 +3957,7 @@ class TestBranchIsolation:
         mock_session.mode = "private"
         mock_session.container_id = "test-container"
         mock_session.expires_at = None
+        mock_session.pipeline_id = None  # Interactive session, not a pipeline
 
         mock_result = SessionValidationResult(valid=True, session=mock_session)
 
@@ -4002,6 +4006,63 @@ class TestBranchIsolation:
                 cmd = mock_run.call_args[0][0]
                 assert "checkout" in cmd
                 assert "main" in cmd
+
+    def test_checkout_blocked_in_issue_mode_pipeline_worktree(self, client):
+        """git checkout <branch> should be blocked in issue-mode pipeline worktree.
+
+        Issue-mode pipelines use session_mode="public" but still have a pipeline_id.
+        Branch isolation is keyed on pipeline_id, not session_mode, so issue-mode
+        pipeline agents in worktrees are also restricted.
+        """
+        import sys
+
+        import auth
+
+        mock_session = MagicMock()
+        mock_session.mode = "public"  # Issue-mode pipelines get "public" session mode
+        mock_session.container_id = "test-container"
+        mock_session.expires_at = None
+        mock_session.phase = "implement"
+        mock_session.pipeline_id = "issue-42"  # Pipeline session
+
+        mock_result = SessionValidationResult(valid=True, session=mock_session)
+
+        from private_repo_policy import PrivateRepoPolicyResult
+
+        mock_policy_result = PrivateRepoPolicyResult(
+            allowed=True,
+            reason="Test mode - access allowed",
+            visibility="public",
+        )
+
+        auth._session_manager = None
+        auth._rate_limiter = None
+
+        if "gateway.auth" in sys.modules:
+            sys.modules["gateway.auth"]._session_manager = None
+            sys.modules["gateway.auth"]._rate_limiter = None
+
+        current_session_manager = sys.modules.get("session_manager", session_manager)
+
+        with (
+            patch.object(
+                current_session_manager, "validate_session_for_request", return_value=mock_result
+            ),
+            patch.object(gateway, "check_private_repo_access", return_value=mock_policy_result),
+        ):
+            issue_headers = {"Authorization": "Bearer test-session-token"}
+
+            with patch.object(
+                gateway,
+                "map_container_path_to_worktree",
+                return_value="/home/egg/.egg-worktrees/test-container/test",
+            ):
+                response = self._git_execute(client, issue_headers, "checkout", ["main"])
+
+                assert response.status_code == 403
+                data = json.loads(response.data)
+                assert "branch switching" in data["message"].lower()
+                assert "pipeline" in data["message"].lower()
 
     def test_restore_allowed_in_worktree(self, client, local_mode_headers):
         """git restore should be allowed in pipeline worktree (file-restore alternative)."""
