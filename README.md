@@ -71,7 +71,7 @@ Each box is a pipeline phase. Within each phase, specialized agents run in depen
 1. **Refine** — Agents analyze the task, research the codebase, and produce a requirements document. Reviewers validate the analysis. Human approves before planning begins.
 2. **Plan** — An architect recommends an approach, a task planner breaks it into discrete tasks with acceptance criteria, and a risk analyst flags concerns. Human approves before any code is written.
 3. **Implement** — A coder writes code, a tester validates it, a documenter updates docs, and an integrator runs the full test suite. Code and contract reviewers provide line-level feedback. Re-implementation cycles continue until all checks pass.
-4. **PR** — The draft PR is marked ready for review. Only a human can merge via GitHub UI.
+4. **PR** — Agents create the PR and push the branch. Only a human can merge via GitHub UI.
 
 **Short-circuit mode**: Simple tasks (typos, config changes) skip the plan phase entirely — the refine phase signals `short_circuit: true` and jumps straight to implementation.
 
