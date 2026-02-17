@@ -17,13 +17,28 @@
     "hitl_gates": true,
     "allow_short_circuit": true
   },
-  "phases": {},
+  "phases": {
+    "refine": {
+      "phase": "refine",
+      "status": "running",
+      "started_at": "2026-02-17T06:07:15.354267",
+      "work_started_at": null,
+      "completed_at": null,
+      "containers": [],
+      "agents": [],
+      "review_cycles": 0,
+      "hitl_review_cycles": 0,
+      "cycle_timings": [],
+      "artifacts": {},
+      "error": null
+    }
+  },
   "decisions": [],
   "created_at": "2026-02-17T06:07:15.132009",
-  "updated_at": "2026-02-17T06:07:15.166992",
-  "contract_synced": false,
+  "updated_at": "2026-02-17T06:07:15.354826",
+  "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
   "error": null,
-  "version": 3
+  "version": 5
 }
