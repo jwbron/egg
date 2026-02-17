@@ -1232,20 +1232,24 @@ def git_fetch() -> tuple[Response, int] | Response:
     exec_path = map_container_path_to_worktree(repo_path, container_id, operation)
 
     # Get remote URL to determine repo
-    try:
-        result = subprocess.run(
-            git_cmd("remote", "get-url", remote),
-            cwd=exec_path,
-            capture_output=True,
-            text=True,
-            timeout=10,
-            check=False,
-        )
-        if result.returncode != 0:
-            return make_error(f"Failed to get remote URL: {result.stderr}")
-        remote_url = result.stdout.strip()
-    except Exception as e:
-        return make_error(f"Failed to get remote URL: {e}")
+    # If remote is already a URL (not a named remote), use it directly
+    if remote.startswith(("https://", "http://", "git@", "ssh://")):
+        remote_url = remote
+    else:
+        try:
+            result = subprocess.run(
+                git_cmd("remote", "get-url", remote),
+                cwd=exec_path,
+                capture_output=True,
+                text=True,
+                timeout=10,
+                check=False,
+            )
+            if result.returncode != 0:
+                return make_error(f"Failed to get remote URL: {result.stderr}")
+            remote_url = result.stdout.strip()
+        except Exception as e:
+            return make_error(f"Failed to get remote URL: {e}")
 
     # Extract repo from URL
     repo = extract_repo_from_remote(remote_url)

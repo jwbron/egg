@@ -465,6 +465,10 @@ def setup_environment(config: Config) -> None:
     # Claude settings
     os.environ["DISABLE_AUTOUPDATER"] = "1"
 
+    # Set EGG_REPO_PATH if not already provided (orchestrator sets it, CLI doesn't)
+    if "EGG_REPO_PATH" not in os.environ:
+        os.environ["EGG_REPO_PATH"] = str(config.user_home / "repos")
+
     # Git editor - use 'true' (no-op) for non-interactive environment
     # This allows git rebase --continue to work without an interactive editor.
     # Side effects: git commit without -m creates empty messages, git rebase -i

@@ -2177,6 +2177,86 @@ class TestGitFetch:
             assert data["success"] is True
             assert "refs/heads/main" in data["data"]["stdout"]
 
+    def test_fetch_with_url_remote(self, client, auth_headers):
+        """Fetch succeeds when remote is a URL instead of a named remote."""
+        with (
+            patch("subprocess.run") as mock_run,
+            patch.object(gateway, "get_token_for_repo") as mock_get_token,
+        ):
+            def run_side_effect(*args, **kwargs):
+                cmd = args[0] if args else kwargs.get("args", [])
+                result = MagicMock()
+                result.returncode = 0
+                result.stderr = ""
+                # Should NOT see "remote get-url" since remote is already a URL
+                if "remote" in cmd and "get-url" in cmd:
+                    raise AssertionError("Should not call git remote get-url for URL remotes")
+                elif "fetch" in cmd:
+                    result.stdout = ""
+                else:
+                    result.stdout = ""
+                return result
+
+            mock_run.side_effect = run_side_effect
+            mock_get_token.return_value = ("test-token", "bot", "")
+
+            response = client.post(
+                "/api/v1/git/fetch",
+                headers=auth_headers,
+                data=json.dumps(
+                    {
+                        "repo_path": "/home/egg/repos/test",
+                        "remote": "https://github.com/owner/repo.git",
+                    }
+                ),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 200
+            data = json.loads(response.data)
+            assert data["success"] is True
+
+    def test_ls_remote_with_url_remote(self, client, auth_headers):
+        """ls-remote succeeds when remote is a URL instead of a named remote."""
+        with (
+            patch("subprocess.run") as mock_run,
+            patch.object(gateway, "get_token_for_repo") as mock_get_token,
+        ):
+            def run_side_effect(*args, **kwargs):
+                cmd = args[0] if args else kwargs.get("args", [])
+                result = MagicMock()
+                result.returncode = 0
+                result.stderr = ""
+                # Should NOT see "remote get-url" since remote is already a URL
+                if "remote" in cmd and "get-url" in cmd:
+                    raise AssertionError("Should not call git remote get-url for URL remotes")
+                elif "ls-remote" in cmd:
+                    result.stdout = "abc123\trefs/heads/main\n"
+                else:
+                    result.stdout = ""
+                return result
+
+            mock_run.side_effect = run_side_effect
+            mock_get_token.return_value = ("test-token", "bot", "")
+
+            response = client.post(
+                "/api/v1/git/fetch",
+                headers=auth_headers,
+                data=json.dumps(
+                    {
+                        "repo_path": "/home/egg/repos/test",
+                        "operation": "ls-remote",
+                        "remote": "https://github.com/owner/repo.git",
+                    }
+                ),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 200
+            data = json.loads(response.data)
+            assert data["success"] is True
+            assert "refs/heads/main" in data["data"]["stdout"]
+
     def test_fetch_unsupported_operation_rejected(self, client, auth_headers):
         """Unsupported operations are rejected."""
         response = client.post(
