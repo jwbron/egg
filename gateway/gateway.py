@@ -67,6 +67,7 @@ try:
         get_changed_files_in_push,
         get_token_for_repo,
         git_cmd,
+        is_branch_switching_operation,
         is_repos_parent_directory,
         resolve_remote_url,
         validate_git_args,
@@ -122,6 +123,7 @@ except ImportError:
         get_changed_files_in_push,
         get_token_for_repo,
         git_cmd,
+        is_branch_switching_operation,
         is_repos_parent_directory,
         resolve_remote_url,
         validate_git_args,
@@ -1050,6 +1052,38 @@ def git_execute() -> tuple[Response, int] | Response:
 
     # Map container path to worktree path if container_id is provided
     exec_path = map_container_path_to_worktree(repo_path, container_id, operation)
+    is_worktree = exec_path != repo_path
+
+    # SECURITY: Enforce branch isolation in pipeline worktree sessions.
+    # Pipeline agents in worktrees must stay on their assigned branch.
+    # Interactive sessions are unrestricted even if they use worktrees.
+    # We detect pipeline sessions by the presence of pipeline_id on the
+    # session (set for both "issue" and "local" pipeline modes), rather
+    # than checking session_mode, because issue-mode pipelines use
+    # session_mode="public" while local-mode pipelines use "local".
+    # See issue #773.
+    session = getattr(g, "session", None)
+    is_pipeline = session is not None and getattr(session, "pipeline_id", None) is not None
+    if is_pipeline and is_worktree and is_branch_switching_operation(operation, validated_args):
+        audit_log(
+            "git_execute_blocked",
+            operation,
+            success=False,
+            details={
+                "repo_path": repo_path,
+                "git_args": args,
+                "container_id": container_id,
+                "pipeline_id": session.pipeline_id,
+                "session_mode": getattr(g, "session_mode", None),
+                "reason": "Branch switching blocked in pipeline worktree session",
+            },
+        )
+        return make_error(
+            "Branch switching is not allowed in pipeline worktree sessions. "
+            "You are locked to your assigned branch. "
+            "Use 'git restore' for file operations instead of 'git checkout'.",
+            status_code=403,
+        )
 
     # SECURITY: Belt-and-suspenders hook prevention for operations that support it.
     # The primary protection is core.hooksPath=/dev/null in git_cmd() which disables
@@ -2560,6 +2594,8 @@ def session_create() -> tuple[Response, int] | Response:
     if pipeline_id is not None:
         if not isinstance(pipeline_id, str):
             return make_error("Invalid pipeline_id: must be a string")
+        if not pipeline_id:
+            return make_error("Invalid pipeline_id: must be a non-empty string")
         if len(pipeline_id) > 256:
             return make_error("Invalid pipeline_id: must be 256 characters or fewer")
 
