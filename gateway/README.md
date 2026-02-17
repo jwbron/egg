@@ -122,9 +122,17 @@ When a pipeline agent container exits (normally or via timeout), the gateway aut
 **How it works:**
 - Triggered during session cleanup in `session_manager.py`, before checkpoint capture
 - Only runs for pipeline sessions (`pipeline_id` is set)
-- Uses `post_agent_commit.auto_commit_worktree()` to stage all changes, commit with a descriptive WIP message, and return the commit SHA
+- Uses `post_agent_commit.auto_commit_worktree()` which:
+  1. Detects uncommitted changes via `git status --porcelain`
+  2. When a phase is set, imports `check_phase_file_restrictions` from `phase_filter` to classify files as allowed or blocked
+  3. Restores blocked files to their committed state via `git checkout -- <file>`
+  4. Stages only allowed files via `git add -- <file1> <file2> ...` (not `git add -A`)
+  5. Commits with a descriptive WIP message and `egg <egg@localhost>` author
+  6. If a session token and gateway URL are available, pushes via the gateway API (`/api/v1/git/push`) so push policy is enforced
 - Commit message format: `WIP: auto-commit uncommitted work (<role>) [<pipeline_id>]`
-- Author: `egg <egg@localhost>` (same as agent commits)
+- Errors during auto-commit do not block session cleanup (fail-safe)
+
+**Phase filtering defense-in-depth:** The auto-commit reuses `check_phase_file_restrictions()` from `phase_filter.py` (the same function used by push-time validation) rather than reimplementing restriction logic. This ensures consistent enforcement across all code paths.
 
 **Files:** `gateway/post_agent_commit.py`, `gateway/session_manager.py`
 

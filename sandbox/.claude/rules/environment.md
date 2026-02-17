@@ -61,8 +61,13 @@ If push fails:
 | Path | Purpose |
 |------|---------|
 | `~/repos/` | Code workspace (RW) - mounted repositories |
+| `~/repos/<repo>/.egg-state/` | SDLC pipeline state (may be readonly in implement phase) |
 | `~/context-sync/` | Confluence/JIRA (RO) |
 | `~/sharing/` | Persistent data, notifications, context |
+
+**Pipeline readonly directories:** During the implement phase, `.egg-state/drafts/`, `.egg-state/contracts/`, `.egg-state/pipelines/`, and `.egg-state/reviews/` are mounted readonly. Check for `.egg-readonly` marker files to understand restrictions. Attempting to write to these directories will produce an EROFS (read-only filesystem) error.
+
+**Post-agent auto-commit:** When your container exits, any uncommitted changes are automatically committed and pushed by the gateway. Phase-restricted files are restored (not committed). You do not need to worry about losing work if you time out.
 
 ## Services
 

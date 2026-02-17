@@ -91,9 +91,10 @@ During the `implement` phase, certain `.egg-state/` subdirectories are mounted r
 |-----------|----------------|-------------------|
 | `.egg-state/contracts/` | Readonly | Writable |
 | `.egg-state/drafts/` | Readonly | Writable |
+| `.egg-state/pipelines/` | Readonly | Writable |
 | `.egg-state/reviews/` | Readonly | Writable |
 
-The orchestrator calls `ensure_egg_state_dirs()` before spawning containers to create the required directories (bind mounts require existing source paths), then `phase_readonly_mounts()` generates the readonly `MountSpec` entries. These are added alongside the existing `.git` shadow mounts. See `shared/egg_container/__init__.py` and `orchestrator/container_spawner.py`.
+The orchestrator calls `ensure_egg_state_dirs()` before spawning containers to create the required directories (bind mounts require existing source paths) and place `.egg-readonly` marker files explaining the restriction and current phase. Then `phase_readonly_mounts()` generates the readonly `MountSpec` entries, which are added alongside the existing `.git` shadow mounts. Only directories that exist on the host are mounted (missing directories are skipped). See `shared/egg_container/__init__.py` and `orchestrator/container_spawner.py`.
 
 This architecture ensures the orchestrator reads artifacts from the correct isolated workspace rather than the main repository, preventing cross-contamination between pipelines.
 

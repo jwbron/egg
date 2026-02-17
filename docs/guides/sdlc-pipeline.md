@@ -14,12 +14,13 @@ For the architectural decision record with threat model and security properties,
 
 Agents cannot be trusted to self-police via prompts alone. The pipeline enforces constraints at multiple infrastructure layers:
 
-- **Filesystem-level readonly mounts**: Phase-protected directories (e.g., `.egg-state/contracts/` during implement) are mounted readonly, preventing modification at the OS level
+- **Filesystem-level readonly mounts**: Phase-protected directories (e.g., `.egg-state/contracts/`, `.egg-state/drafts/`, `.egg-state/pipelines/`, `.egg-state/reviews/` during implement) are mounted readonly, preventing modification at the OS level. `.egg-readonly` marker files explain the restriction to agents.
 - **Branch lock**: Pipeline agents are locked to their assigned worktree branch—branch switching is blocked by the gateway
 - **Commit-time validation**: The gateway validates staged files against phase restrictions before allowing `git commit`
 - **Push-time operation filtering**: The gateway blocks operations not permitted in the current phase
+- **Agent-role file restrictions**: Each agent role (coder, tester, documenter, integrator, etc.) has allowed and blocked file patterns enforced at push time. Controlled by the `EGG_AGENT_RESTRICTIONS_ENFORCE` environment variable (default: warn-only mode with audit logging; set to `true` to block violating pushes)
 - **Role-based field ownership**: Contract mutations are validated against caller role
-- **Post-agent auto-commit**: Uncommitted work is automatically preserved when agent containers exit
+- **Post-agent auto-commit**: Uncommitted work is automatically preserved when agent containers exit, with phase-restricted files restored (not committed) using `check_phase_file_restrictions()` and allowed files pushed via the gateway API
 - **Separate context windows**: Each agent invocation runs in a separate GitHub Actions job with fresh context
 
 ### 2. Contract-as-Code

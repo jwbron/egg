@@ -70,8 +70,8 @@ Shared container-launch config builder that unifies container configuration for 
 - `build_sandbox_docker_cmd()` — Converts config to `docker run` command args (used by CLI)
 - `to_dockerpy_kwargs()` — Converts config to docker-py SDK kwargs (used by orchestrator)
 - `git_shadow_mounts()` — Generates .git shadow mounts to prevent local git operations
-- `phase_readonly_mounts()` — Generates readonly bind mounts for phase-protected `.egg-state/` directories (e.g., `contracts/`, `drafts/`, `reviews/` during implement phase)
-- `ensure_egg_state_dirs()` — Creates `.egg-state/` subdirectories in worktrees before container spawn so readonly bind mounts have valid source paths
+- `phase_readonly_mounts()` — Generates readonly bind mounts for phase-protected `.egg-state/` directories (`contracts/`, `drafts/`, `pipelines/`, `reviews/` during implement phase)
+- `ensure_egg_state_dirs()` — Creates `.egg-state/` subdirectories in worktrees before container spawn so readonly bind mounts have valid source paths; places `.egg-readonly` marker files during implement phase
 
 **Data classes:**
 - `SandboxContainerConfig` — Framework-agnostic container configuration

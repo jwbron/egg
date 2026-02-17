@@ -162,6 +162,10 @@ def auto_commit_worktree(
         changed_files = _parse_changed_files(status.stdout)
 
         # Determine which files are allowed vs blocked by phase restrictions.
+        # Defense-in-depth: reuses check_phase_file_restrictions() from phase_filter
+        # (same function used by push-time validation in gateway.py) to ensure
+        # consistent enforcement.  If the import fails, all files are allowed
+        # (fail-open) since push-time validation remains the authoritative gate.
         allowed_files = list(changed_files)
         blocked_files: list[str] = []
 
