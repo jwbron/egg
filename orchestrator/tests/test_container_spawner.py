@@ -258,6 +258,35 @@ class TestSpawnAgentContainer:
         assert labels.get("egg.issue.number") == "456"
 
 
+class TestSpawnBranchPropagation:
+    """Tests for branch parameter propagation to gateway registration."""
+
+    def test_branch_passed_to_register_session(self, spawner, mock_gateway_client):
+        """Branch param is threaded to gateway register_session."""
+        spawner.spawn_agent_container(
+            pipeline_id="issue-123",
+            agent_role=AgentRole.CODER,
+            issue_number=123,
+            branch="egg/fix-auth-bug",
+        )
+
+        mock_gateway_client.register_session.assert_called()
+        call_kwargs = mock_gateway_client.register_session.call_args.kwargs
+        assert call_kwargs.get("branch") == "egg/fix-auth-bug"
+
+    def test_branch_none_by_default(self, spawner, mock_gateway_client):
+        """Branch is None when not provided."""
+        spawner.spawn_agent_container(
+            pipeline_id="issue-123",
+            agent_role=AgentRole.CODER,
+            issue_number=123,
+        )
+
+        mock_gateway_client.register_session.assert_called()
+        call_kwargs = mock_gateway_client.register_session.call_args.kwargs
+        assert call_kwargs.get("branch") is None
+
+
 class TestStopAgentContainer:
     """Tests for stopping agent containers."""
 

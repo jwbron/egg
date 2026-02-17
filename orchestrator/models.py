@@ -77,7 +77,6 @@ class AgentRole(StrEnum):
     # Refine-phase roles
     REFINER = "refiner"
     # Reviewer roles (specific subtypes)
-    REVIEWER_UNIFIED = "reviewer_unified"
     REVIEWER_CODE = "reviewer_code"
     REVIEWER_CONTRACT = "reviewer_contract"
     REVIEWER_AGENT_DESIGN = "reviewer_agent_design"
@@ -88,7 +87,6 @@ class AgentRole(StrEnum):
 class ReviewerType(StrEnum):
     """Reviewer specialization types matching GHA reviewer matrix."""
 
-    UNIFIED = "unified"
     AGENT_DESIGN = "agent-design"
     CODE = "code"
     CONTRACT = "contract"
@@ -161,6 +159,10 @@ class CycleTiming(BaseModel):
     cycle: int = Field(..., description="Cycle number (0-indexed)")
     started_at: datetime = Field(..., description="When this cycle's work began")
     completed_at: datetime | None = Field(default=None, description="When this cycle ended")
+    commit_sha: str | None = Field(
+        default=None,
+        description="HEAD commit SHA at cycle start, used for delta reviews",
+    )
 
 
 class PhaseExecution(BaseModel):

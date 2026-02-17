@@ -183,6 +183,7 @@ class ContainerSpawner:
         phase: str | None = None,
         command: list[str] | None = None,
         certs_volume: str | None = None,
+        branch: str | None = None,
     ) -> SpawnedContainer:
         """Spawn a container for an agent.
 
@@ -313,6 +314,7 @@ class ContainerSpawner:
                     agent_role=agent_role.value,
                     issue_number=issue_number,
                     claude_code_version=os.environ.get("CLAUDE_CODE_VERSION"),
+                    branch=branch,
                 )
                 session_token = session_info.session_token
 
@@ -339,6 +341,7 @@ class ContainerSpawner:
                 "CONTAINER_ID": pipeline_id,
                 "EGG_REPO_PATH": "/home/egg/repos",
                 "EGG_AGENT_ROLE": agent_role.value,
+                "EGG_PIPELINE_ID": pipeline_id,
             }
             if issue_number is not None:
                 spawner_env["EGG_ISSUE_NUMBER"] = str(issue_number)

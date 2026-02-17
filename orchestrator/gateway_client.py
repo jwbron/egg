@@ -118,6 +118,7 @@ class GatewayClient:
         method: str = "GET",
         data: dict[str, Any] | None = None,
         use_launcher_auth: bool = False,
+        bearer_token: str | None = None,
     ) -> dict[str, Any]:
         """Make an HTTP request to the gateway.
 
@@ -126,6 +127,7 @@ class GatewayClient:
             method: HTTP method
             data: Request body data
             use_launcher_auth: Use launcher secret for auth
+            bearer_token: Explicit bearer token (takes precedence over launcher auth)
 
         Returns:
             Response JSON data
@@ -136,7 +138,9 @@ class GatewayClient:
         url = f"{self.base_url}{endpoint}"
         headers: dict[str, str] = {"Content-Type": "application/json"}
 
-        if use_launcher_auth and self.launcher_secret:
+        if bearer_token:
+            headers["Authorization"] = f"Bearer {bearer_token}"
+        elif use_launcher_auth and self.launcher_secret:
             headers["Authorization"] = f"Bearer {self.launcher_secret}"
 
         body = json.dumps(data).encode() if data else None
@@ -237,6 +241,7 @@ class GatewayClient:
         issue_number: int | None = None,
         pr_number: int | None = None,
         claude_code_version: str | None = None,
+        branch: str | None = None,
     ) -> SessionInfo:
         """Register a session for a container.
 
@@ -255,6 +260,7 @@ class GatewayClient:
             issue_number: Optional GitHub issue number for checkpoint linkage
             pr_number: Optional GitHub PR number for checkpoint linkage
             claude_code_version: Optional Claude Code version string
+            branch: Optional git branch for non-pushing session metadata
 
         Returns:
             SessionInfo with the created session
@@ -285,6 +291,8 @@ class GatewayClient:
             request_data["pr_number"] = pr_number
         if claude_code_version is not None:
             request_data["claude_code_version"] = claude_code_version
+        if branch is not None:
+            request_data["branch"] = branch
 
         result = self._make_request(
             "/api/v1/sessions/create",
@@ -298,6 +306,10 @@ class GatewayClient:
 
         response_data = result.get("data", {})
 
+        session_token = response_data.get("session_token")
+        if not session_token:
+            raise GatewayError("Gateway response missing session_token")
+
         logger.info(
             "Session registered with gateway",
             container_id=container_id[:12] if len(container_id) >= 12 else container_id,
@@ -306,7 +318,7 @@ class GatewayClient:
         )
 
         return SessionInfo(
-            session_token=response_data["session_token"],
+            session_token=session_token,
             container_id=container_id,
             container_ip=container_ip,
             mode=mode,
@@ -532,6 +544,73 @@ class GatewayClient:
             raise
         except Exception as e:
             raise GatewayError(f"Failed to delete worktrees: {e}") from e
+
+
+    def push_worktree_branch(
+        self,
+        pipeline_id: str,
+        repo_path: str,
+        branch: str,
+    ) -> bool:
+        """Push a worktree branch to remote using a temporary session.
+
+        Best-effort operation for backing up work on pipeline failure.
+        Registers a temp session, pushes, then cleans up the session.
+
+        Args:
+            pipeline_id: Pipeline ID (used as container_id for the temp session)
+            repo_path: Path to the worktree repo directory
+            branch: Branch name to push
+
+        Returns:
+            True if push succeeded, False otherwise
+        """
+        temp_container_id = f"{pipeline_id}-failsafe-push"
+        session_token: str | None = None
+        try:
+            # Register a temporary session for the push
+            session = self.register_session(
+                container_id=temp_container_id,
+                container_ip="127.0.0.1",
+                mode="local",
+                pipeline_id=pipeline_id,
+            )
+            session_token = session.session_token
+
+            # Push the branch
+            self._make_request(
+                "/api/v1/git/push",
+                method="POST",
+                data={
+                    "repo_path": repo_path,
+                    "remote": "origin",
+                    "refspec": branch,
+                    "container_id": temp_container_id,
+                },
+                bearer_token=session_token,
+            )
+
+            logger.info(
+                "Pushed worktree branch on failure",
+                pipeline_id=pipeline_id,
+                branch=branch,
+            )
+            return True
+        except Exception as e:
+            logger.warning(
+                "Best-effort push failed (work preserved locally in worktree)",
+                pipeline_id=pipeline_id,
+                branch=branch,
+                error=str(e),
+            )
+            return False
+        finally:
+            # Clean up temp session
+            if session_token:
+                try:
+                    self.delete_session(session_token)
+                except Exception:
+                    pass
 
 
 class GatewayError(Exception):

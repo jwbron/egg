@@ -487,6 +487,37 @@ class TestCheckpointV2:
         )
         assert checkpoint.pipeline_id == "issue-42"
 
+    def test_repo_optional(self):
+        """Test that repo is optional and defaults to None."""
+        now = datetime.now(UTC)
+        session = self._make_session_metadata(now)
+        checkpoint = CheckpointV2(
+            id="ckpt-abc123def456",
+            trigger_type=TriggerType.COMMIT,
+            commit_sha="abc1234567890",
+            session_id="container-123",
+            session=session,
+            created_at=now,
+            session_started_at=now,
+        )
+        assert checkpoint.repo is None
+
+    def test_repo_set(self):
+        """Test that repo can be set."""
+        now = datetime.now(UTC)
+        session = self._make_session_metadata(now)
+        checkpoint = CheckpointV2(
+            id="ckpt-abc123def456",
+            trigger_type=TriggerType.COMMIT,
+            commit_sha="abc1234567890",
+            session_id="container-123",
+            session=session,
+            created_at=now,
+            session_started_at=now,
+            repo="jwbron/egg",
+        )
+        assert checkpoint.repo == "jwbron/egg"
+
     def test_empty_commit_sha_becomes_none(self):
         """Test that empty string commit_sha is converted to None."""
         now = datetime.now(UTC)
@@ -571,6 +602,23 @@ class TestCheckpointSummaryV2:
         )
         summary = CheckpointSummaryV2.from_checkpoint(checkpoint)
         assert summary.pipeline_id == "issue-42"
+
+    def test_from_checkpoint_with_repo(self):
+        """Test that repo is carried into summary."""
+        now = datetime.now(UTC)
+        session = SessionMetadata(session_id="test-session", started_at=now)
+        checkpoint = CheckpointV2(
+            id="ckpt-abc123def456",
+            trigger_type=TriggerType.COMMIT,
+            commit_sha="abc1234567890",
+            session_id="container-123",
+            session=session,
+            created_at=now,
+            session_started_at=now,
+            repo="jwbron/egg",
+        )
+        summary = CheckpointSummaryV2.from_checkpoint(checkpoint)
+        assert summary.repo == "jwbron/egg"
 
     def test_from_checkpoint_files_touched_count(self):
         """Test that files_touched_count is computed from checkpoint."""
@@ -759,3 +807,17 @@ class TestCheckpointIndexV2:
         assert index.get_by_pipeline("issue-42") == ["ckpt-aa00000001", "ckpt-bb00000002"]
         assert index.get_by_pipeline("issue-99") == ["ckpt-cc00000003"]
         assert index.get_by_pipeline("nonexistent") == []
+
+    def test_get_by_repo(self):
+        """Test get_by_repo lookup."""
+        now = datetime.now(UTC)
+        index = CheckpointIndexV2(
+            last_updated=now,
+            by_repo={
+                "jwbron/egg": ["ckpt-aa00000001", "ckpt-bb00000002"],
+                "entireio/cli": ["ckpt-cc00000003"],
+            },
+        )
+        assert index.get_by_repo("jwbron/egg") == ["ckpt-aa00000001", "ckpt-bb00000002"]
+        assert index.get_by_repo("entireio/cli") == ["ckpt-cc00000003"]
+        assert index.get_by_repo("nonexistent/repo") == []
