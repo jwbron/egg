@@ -23,6 +23,7 @@ from egg_lib.contract_cli import (
     get_issue_number,
     get_repo_path,
     main,
+    make_gateway_request,
     parse_criterion_id,
     parse_task_id,
     validate_commit_sha,
@@ -752,3 +753,72 @@ class TestAddDecisionWithMockGateway:
         captured = capsys.readouterr()
         assert "<!-- egg-hitl-decision id=decision-1 -->" in captured.out
         assert "Other" not in captured.out
+
+
+class TestMakeGatewayRequestAuthHeader:
+    """Tests for auth header format in make_gateway_request."""
+
+    @pytest.fixture
+    def mock_gateway_with_header_capture(self):
+        """Create a mock gateway that captures request headers."""
+        captured_headers = {}
+
+        class HeaderCapturingHandler(BaseHTTPRequestHandler):
+            def log_message(self, format, *args):
+                pass
+
+            def do_GET(self):
+                captured_headers.update(dict(self.headers))
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps({"success": True}).encode())
+
+        server = HTTPServer(("127.0.0.1", 0), HeaderCapturingHandler)
+        port = server.server_address[1]
+        thread = Thread(target=server.handle_request)
+        thread.daemon = True
+        thread.start()
+
+        yield f"http://127.0.0.1:{port}", captured_headers
+
+        server.server_close()
+
+    def test_sends_bearer_token_in_authorization_header(self, mock_gateway_with_header_capture):
+        """Test that session token is sent as 'Authorization: Bearer <token>'."""
+        gateway_url, captured_headers = mock_gateway_with_header_capture
+        test_token = "test-session-token-abc123"
+
+        with (
+            patch.dict("os.environ", {"GATEWAY_URL": gateway_url}),
+            patch("egg_lib.contract_cli.get_session_token", return_value=test_token),
+        ):
+            make_gateway_request("/api/v1/test")
+
+        assert "Authorization" in captured_headers
+        assert captured_headers["Authorization"] == f"Bearer {test_token}"
+
+    def test_no_legacy_session_token_header(self, mock_gateway_with_header_capture):
+        """Test that the legacy X-Egg-Session-Token header is not sent."""
+        gateway_url, captured_headers = mock_gateway_with_header_capture
+        test_token = "test-session-token-abc123"
+
+        with (
+            patch.dict("os.environ", {"GATEWAY_URL": gateway_url}),
+            patch("egg_lib.contract_cli.get_session_token", return_value=test_token),
+        ):
+            make_gateway_request("/api/v1/test")
+
+        assert "X-Egg-Session-Token" not in captured_headers
+
+    def test_no_auth_header_without_token(self, mock_gateway_with_header_capture):
+        """Test that no Authorization header is sent when no token is available."""
+        gateway_url, captured_headers = mock_gateway_with_header_capture
+
+        with (
+            patch.dict("os.environ", {"GATEWAY_URL": gateway_url}),
+            patch("egg_lib.contract_cli.get_session_token", return_value=None),
+        ):
+            make_gateway_request("/api/v1/test")
+
+        assert "Authorization" not in captured_headers
