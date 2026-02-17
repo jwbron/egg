@@ -82,7 +82,6 @@ orchestrator/
 ├── container_monitor.py    # Container health monitoring
 ├── dag_visualizer.py       # ASCII DAG visualization for pipeline status
 ├── decision_queue.py       # HITL decision queue
-├── decision_timeout.py     # Decision timeout handling
 ├── devserver.py            # Devserver lifecycle manager for deployment validation (DinD)
 ├── dispatch.py             # Agent dispatch logic
 ├── docker_client.py        # Docker API client

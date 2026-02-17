@@ -88,15 +88,6 @@ class TestHITLDecision:
         assert len(decision.options) == 2
         assert decision.resolution is None
 
-    def test_decision_timeout(self):
-        """Test decision timeout configuration."""
-        decision = HITLDecision(
-            id="decision-1",
-            question="Proceed?",
-            timeout_seconds=7200,
-        )
-        assert decision.timeout_seconds == 7200
-
 
 class TestPhaseExecution:
     """Tests for PhaseExecution model."""
@@ -148,7 +139,6 @@ class TestPipelineConfig:
         assert config.multi_agent is True
         assert config.parallel_agents is True
         assert config.max_review_cycles == 3
-        assert config.decision_timeout == 3600
         assert config.hitl_gates is True
 
     def test_custom_config(self):

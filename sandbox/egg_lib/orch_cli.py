@@ -260,7 +260,6 @@ def require_pipeline_id(args: argparse.Namespace) -> str:
     return validate_id(pid, "pipeline_id")
 
 
-
 # ---------------------------------------------------------------------------
 # Health
 # ---------------------------------------------------------------------------
@@ -685,8 +684,6 @@ def cmd_decision_create(args: argparse.Namespace) -> int:
         data["context"] = args.context
     if args.options:
         data["options"] = args.options
-    if args.timeout:
-        data["timeout_seconds"] = args.timeout
 
     result = orch_request(f"/api/v1/pipelines/{pid}/decisions", method="POST", data=data)
 
@@ -1143,7 +1140,6 @@ def create_parser() -> argparse.ArgumentParser:
     dec_create.add_argument("--question", required=True, help="Decision question")
     dec_create.add_argument("--context", help="Additional context")
     dec_create.add_argument("--options", nargs="*", help="Decision options")
-    dec_create.add_argument("--timeout", type=int, help="Timeout in seconds (default: 3600)")
     _add_json_flag(dec_create)
     dec_create.set_defaults(func=cmd_decision_create)
 

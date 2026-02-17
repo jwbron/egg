@@ -114,7 +114,6 @@ def list_decisions(pipeline_id: str) -> tuple[Response, int]:
                 "options": d.options,
                 "status": d.status.value,
                 "created_at": d.created_at.isoformat(),
-                "timeout_seconds": d.timeout_seconds,
                 "resolved_at": d.resolved_at.isoformat() if d.resolved_at else None,
                 "resolution": d.resolution,
             }
@@ -148,8 +147,7 @@ def queue_decision(pipeline_id: str) -> tuple[Response, int]:
         {
             "question": "Which approach should we use?",
             "context": "Additional context...",  // optional
-            "options": ["Option A", "Option B"],  // optional
-            "timeout_seconds": 3600  // optional
+            "options": ["Option A", "Option B"]  // optional
         }
 
     Response:
@@ -173,7 +171,6 @@ def queue_decision(pipeline_id: str) -> tuple[Response, int]:
             question=question,
             context=data.get("context", ""),
             options=data.get("options"),
-            timeout_seconds=data.get("timeout_seconds"),
         )
 
         logger.info(
@@ -237,7 +234,6 @@ def get_decision(pipeline_id: str, decision_id: str) -> tuple[Response, int]:
                     "options": decision.options,
                     "status": decision.status.value,
                     "created_at": decision.created_at.isoformat(),
-                    "timeout_seconds": decision.timeout_seconds,
                     "resolved_at": decision.resolved_at.isoformat()
                     if decision.resolved_at
                     else None,
@@ -409,50 +405,3 @@ def get_queue_status(pipeline_id: str) -> tuple[Response, int]:
     except Exception as e:
         logger.error("Failed to get queue status", pipeline_id=pipeline_id, error=str(e))
         return make_error_response(f"Failed to get status: {e}", status_code=500)
-
-
-@decisions_bp.route("/<pipeline_id>/decisions/check-timeouts", methods=["POST"])
-def check_timeouts(pipeline_id: str) -> tuple[Response, int]:
-    """
-    Check and handle timed-out decisions.
-
-    URL params:
-        pipeline_id: Pipeline ID
-
-    Response:
-        {
-            "success": true,
-            "data": {
-                "timed_out": 1,
-                "decisions": [...]
-            }
-        }
-    """
-    repo_path = get_repo_path()
-
-    try:
-        queue = get_decision_queue(pipeline_id, repo_path)
-        timed_out = queue.check_timeouts()
-
-        return make_success_response(
-            f"{len(timed_out)} decision(s) timed out",
-            data={
-                "timed_out": len(timed_out),
-                "decisions": [
-                    {
-                        "id": d.id,
-                        "question": d.question,
-                    }
-                    for d in timed_out
-                ],
-            },
-        )
-
-    except InvalidPipelineIdError:
-        return make_error_response(
-            f"Invalid pipeline ID format: {pipeline_id}",
-            status_code=400,
-        )
-    except Exception as e:
-        logger.error("Failed to check timeouts", pipeline_id=pipeline_id, error=str(e))
-        return make_error_response(f"Failed to check timeouts: {e}", status_code=500)

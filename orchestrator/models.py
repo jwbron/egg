@@ -57,7 +57,7 @@ class DecisionStatus(StrEnum):
 
     PENDING = "pending"
     RESOLVED = "resolved"
-    TIMEOUT = "timeout"
+    TIMEOUT = "timeout"  # Vestigial: kept for backwards compatibility with persisted pipeline state
     CANCELLED = "cancelled"
 
 
@@ -150,7 +150,6 @@ class HITLDecision(BaseModel):
     created_at: datetime = Field(default_factory=datetime.utcnow, description="When created")
     resolved_at: datetime | None = Field(default=None, description="When resolved")
     resolution: str | None = Field(default=None, description="Human's response")
-    timeout_seconds: int = Field(default=3600, ge=60, description="Timeout in seconds")
 
 
 class CycleTiming(BaseModel):
@@ -206,9 +205,6 @@ class PipelineConfig(BaseModel):
     max_review_cycles: int = Field(default=3, ge=1, description="Max review cycles per phase")
     max_hitl_review_cycles: int = Field(
         default=3, ge=1, description="Max HITL revision cycles per phase (independent of agentic review budget)"
-    )
-    decision_timeout: int = Field(
-        default=3600, ge=60, description="HITL decision timeout in seconds"
     )
     hitl_gates: bool = Field(
         default=True, description="Pause for human approval after refine and plan phases"
@@ -276,7 +272,6 @@ class Pipeline(BaseModel):
             id=decision_id,
             question=question,
             options=options or [],
-            timeout_seconds=self.config.decision_timeout,
         )
         self.decisions.append(decision)
         self.updated_at = datetime.utcnow()
