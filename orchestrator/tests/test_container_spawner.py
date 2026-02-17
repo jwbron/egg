@@ -623,11 +623,8 @@ class TestHostToLocalVolumes:
     def test_passthrough_when_host_home_empty(self):
         """No translation when HOST_HOME is not set."""
         repo_volumes = {"repo": "/some/path/repo"}
-        with patch.dict("os.environ", {}, clear=False):
-            env = dict(**__import__("os").environ)
-            env.pop("HOST_HOME", None)
-            with patch.dict("os.environ", env, clear=True):
-                result = _host_to_local_volumes(repo_volumes)
+        with patch.dict("os.environ", {"HOST_HOME": ""}):
+            result = _host_to_local_volumes(repo_volumes)
         assert result is repo_volumes
 
     def test_only_replaces_prefix(self):
@@ -662,6 +659,13 @@ class TestHostToLocalVolumes:
             "a": "/home/egg/.egg-worktrees/a",
             "b": "/other/path/b",
         }
+
+    def test_trailing_slash_on_host_home(self):
+        """HOST_HOME with trailing slash does not produce double slashes."""
+        repo_volumes = {"repo": "/home/jwies/.egg-worktrees/repo"}
+        with patch.dict("os.environ", {"HOST_HOME": "/home/jwies/"}):
+            result = _host_to_local_volumes(repo_volumes)
+        assert result == {"repo": "/home/egg/.egg-worktrees/repo"}
 
 
 class TestSingletonSpawner:

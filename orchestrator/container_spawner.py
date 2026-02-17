@@ -101,7 +101,7 @@ def _host_to_local_volumes(repo_volumes: dict[str, str]) -> dict[str, str]:
     container only sees these via a volume mount at ``/home/egg/...``.
     Uses the ``HOST_HOME`` env var to perform the translation.
     """
-    host_home = os.environ.get("HOST_HOME", "")
+    host_home = os.environ.get("HOST_HOME", "").rstrip("/")
     container_home = "/home/egg"
     if not host_home or host_home == container_home:
         return repo_volumes
