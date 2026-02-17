@@ -49,7 +49,9 @@ This index helps both humans and LLMs navigate the documentation efficiently.
 | Document | Description |
 |----------|-------------|
 | [Deployment](guides/deployment.md) | Production deployment options: Docker Compose, CLI, GitHub Action |
+| [Deploy Migration](guides/deploy-migration.md) | Migrating from legacy deployments |
 | [Agent-Mode Design](guides/agent-mode-design.md) | When to let egg operate freely vs. when constraints are appropriate |
+| [Agent Development](guides/agent-development.md) | Developing agent strategies |
 | [GitHub Automation](guides/github-automation.md) | Built-in review bots, autofixer, conflict resolver, and doc updater workflows |
 | [Reusable Workflows](guides/reusable-workflows.md) | Using egg's reusable workflows in external repositories |
 | [SDLC Pipeline](guides/sdlc-pipeline.md) | Operational guide for the structurally enforced SDLC pipeline |
