@@ -3978,6 +3978,7 @@ class TestBranchIsolation:
             patch.object(
                 current_session_manager, "validate_session_for_request", return_value=mock_result
             ),
+            # Patched for consistency with auth_headers fixture; not required by git_execute.
             patch.object(gateway, "check_private_repo_access", return_value=mock_policy_result),
         ):
             private_headers = {"Authorization": "Bearer test-session-token"}
