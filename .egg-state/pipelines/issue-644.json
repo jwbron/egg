@@ -786,13 +786,20 @@
       "phase": "pr",
       "status": "running",
       "started_at": "2026-02-17T02:29:21.228158",
-      "work_started_at": null,
+      "work_started_at": "2026-02-17T02:29:21.248402",
       "completed_at": null,
       "containers": [],
       "agents": [],
       "review_cycles": 0,
       "hitl_review_cycles": 0,
-      "cycle_timings": [],
+      "cycle_timings": [
+        {
+          "cycle": 0,
+          "started_at": "2026-02-17T02:29:21.248402",
+          "completed_at": null,
+          "commit_sha": "e60da4dc4151fbba3c2dc3b289fce732765e3ed6"
+        }
+      ],
       "artifacts": {},
       "error": null
     }
@@ -828,10 +835,10 @@
     }
   ],
   "created_at": "2026-02-16T23:25:21.059858",
-  "updated_at": "2026-02-17T02:29:21.228350",
+  "updated_at": "2026-02-17T02:29:21.251282",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
   "error": null,
-  "version": 94
+  "version": 95
 }
