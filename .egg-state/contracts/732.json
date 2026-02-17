@@ -608,10 +608,10 @@
   "phase_configs": null,
   "agent_executions": [
     {
-      "role": "architect",
+      "role": "coder",
       "status": "complete",
-      "started_at": "2026-02-17T06:37:29.783009Z",
-      "completed_at": "2026-02-17T06:49:32.529417Z",
+      "started_at": "2026-02-17T07:04:50.534681Z",
+      "completed_at": "2026-02-17T07:36:27.925063Z",
       "commit": null,
       "checkpoint_id": null,
       "outputs": {},
@@ -620,10 +620,10 @@
       "conflicts": []
     },
     {
-      "role": "task_planner",
+      "role": "tester",
       "status": "complete",
-      "started_at": "2026-02-17T06:49:32.533258Z",
-      "completed_at": "2026-02-17T06:55:42.374157Z",
+      "started_at": "2026-02-17T07:36:27.930571Z",
+      "completed_at": "2026-02-17T07:47:13.191010Z",
       "commit": null,
       "checkpoint_id": null,
       "outputs": {},
@@ -632,10 +632,46 @@
       "conflicts": []
     },
     {
-      "role": "risk_analyst",
+      "role": "documenter",
       "status": "complete",
-      "started_at": "2026-02-17T06:49:32.534265Z",
-      "completed_at": "2026-02-17T06:58:23.902516Z",
+      "started_at": "2026-02-17T07:36:27.934431Z",
+      "completed_at": "2026-02-17T07:43:20.953438Z",
+      "commit": null,
+      "checkpoint_id": null,
+      "outputs": {},
+      "error": null,
+      "retry_count": 0,
+      "conflicts": []
+    },
+    {
+      "role": "integrator",
+      "status": "complete",
+      "started_at": "2026-02-17T07:47:13.205101Z",
+      "completed_at": "2026-02-17T07:58:29.639659Z",
+      "commit": null,
+      "checkpoint_id": null,
+      "outputs": {},
+      "error": null,
+      "retry_count": 0,
+      "conflicts": []
+    },
+    {
+      "role": "reviewer_code",
+      "status": "complete",
+      "started_at": null,
+      "completed_at": "2026-02-17T08:15:21.670041Z",
+      "commit": null,
+      "checkpoint_id": null,
+      "outputs": {},
+      "error": null,
+      "retry_count": 0,
+      "conflicts": []
+    },
+    {
+      "role": "reviewer_contract",
+      "status": "complete",
+      "started_at": null,
+      "completed_at": "2026-02-17T08:16:37.286398Z",
       "commit": null,
       "checkpoint_id": null,
       "outputs": {},
