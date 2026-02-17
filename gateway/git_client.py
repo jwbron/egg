@@ -90,6 +90,48 @@ def is_ssh_url(url: str) -> bool:
     return url.startswith(("git@", "ssh://"))
 
 
+def is_url_remote(remote: str) -> bool:
+    """Check if remote is a URL (not a named remote like 'origin').
+
+    Only accepts HTTPS, git@, and ssh:// URLs. Plain http:// is rejected
+    because the gateway uses HTTPS with token auth — accepting HTTP would
+    risk exposing credentials over an unencrypted connection.
+    """
+    return remote.startswith(("https://", "git@", "ssh://"))
+
+
+def resolve_remote_url(remote: str, exec_path: str) -> tuple[str, str | None]:
+    """Resolve a git remote to its URL.
+
+    If ``remote`` is already a URL (https://, git@, ssh://), returns it
+    directly without calling ``git remote get-url``.  Otherwise runs
+    ``git remote get-url <remote>`` in ``exec_path``.
+
+    Returns:
+        (remote_url, error) — on success error is None; on failure
+        remote_url is empty and error contains the message.
+    """
+    import subprocess
+
+    if is_url_remote(remote):
+        return remote, None
+
+    try:
+        result = subprocess.run(
+            git_cmd("remote", "get-url", remote),
+            cwd=exec_path,
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+        if result.returncode != 0:
+            return "", f"Failed to get remote URL: {result.stderr}"
+        return result.stdout.strip(), None
+    except Exception as e:
+        return "", f"Failed to get remote URL: {e}"
+
+
 def get_authenticated_remote_target(remote: str, remote_url: str) -> str:
     """
     Get the target to use for an authenticated git remote operation.

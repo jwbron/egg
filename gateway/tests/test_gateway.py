@@ -1121,6 +1121,61 @@ class TestGitPush:
             assert "file restrictions" in data["data"]["hint"]
             assert "Check allowed patterns" in data["data"]["hint"]
 
+    def test_push_with_url_remote(self, client, auth_headers):
+        """Push succeeds when remote is a URL instead of a named remote."""
+        with (
+            patch("subprocess.run") as mock_run,
+            patch.object(gateway, "get_policy_engine") as mock_policy,
+            patch.object(gateway, "get_token_for_repo") as mock_get_token,
+        ):
+
+            def run_side_effect(*args, **kwargs):
+                cmd = args[0] if args else kwargs.get("args", [])
+                result = MagicMock()
+                result.returncode = 0
+                result.stderr = ""
+                # Should NOT see "remote get-url" since remote is already a URL
+                if "remote" in cmd and "get-url" in cmd:
+                    raise AssertionError("Should not call git remote get-url for URL remotes")
+                elif "branch" in cmd and "--show-current" in cmd:
+                    result.stdout = "egg-feature\n"
+                elif "push" in cmd:
+                    result.stdout = "Everything up-to-date\n"
+                else:
+                    result.stdout = ""
+                return result
+
+            mock_run.side_effect = run_side_effect
+
+            # Mock policy approval
+            mock_engine = MagicMock()
+            mock_engine.check_branch_ownership.return_value = PolicyResult(
+                allowed=True,
+                reason="Branch is owned by james-in-a-box",
+                details={"branch": "egg-feature"},
+            )
+            mock_policy.return_value = mock_engine
+
+            # Mock get_token_for_repo to return valid token
+            mock_get_token.return_value = ("test-token", "bot", "")
+
+            response = client.post(
+                "/api/v1/git/push",
+                headers=auth_headers,
+                data=json.dumps(
+                    {
+                        "repo_path": "/home/egg/repos/test-repo",
+                        "remote": "https://github.com/owner/repo.git",
+                        "refspec": "egg-feature",
+                    }
+                ),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 200
+            data = json.loads(response.data)
+            assert data["success"] is True
+
 
 class TestGhPrCreate:
     """Tests for /api/v1/gh/pr/create endpoint."""
@@ -2176,6 +2231,167 @@ class TestGitFetch:
             data = json.loads(response.data)
             assert data["success"] is True
             assert "refs/heads/main" in data["data"]["stdout"]
+
+    def test_fetch_with_url_remote(self, client, auth_headers):
+        """Fetch succeeds when remote is a URL instead of a named remote."""
+        with (
+            patch("subprocess.run") as mock_run,
+            patch.object(gateway, "get_token_for_repo") as mock_get_token,
+        ):
+
+            def run_side_effect(*args, **kwargs):
+                cmd = args[0] if args else kwargs.get("args", [])
+                result = MagicMock()
+                result.returncode = 0
+                result.stderr = ""
+                # Should NOT see "remote get-url" since remote is already a URL
+                if "remote" in cmd and "get-url" in cmd:
+                    raise AssertionError("Should not call git remote get-url for URL remotes")
+                elif "fetch" in cmd:
+                    result.stdout = ""
+                else:
+                    result.stdout = ""
+                return result
+
+            mock_run.side_effect = run_side_effect
+            mock_get_token.return_value = ("test-token", "bot", "")
+
+            response = client.post(
+                "/api/v1/git/fetch",
+                headers=auth_headers,
+                data=json.dumps(
+                    {
+                        "repo_path": "/home/egg/repos/test",
+                        "remote": "https://github.com/owner/repo.git",
+                    }
+                ),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 200
+            data = json.loads(response.data)
+            assert data["success"] is True
+
+    def test_ls_remote_with_url_remote(self, client, auth_headers):
+        """ls-remote succeeds when remote is a URL instead of a named remote."""
+        with (
+            patch("subprocess.run") as mock_run,
+            patch.object(gateway, "get_token_for_repo") as mock_get_token,
+        ):
+
+            def run_side_effect(*args, **kwargs):
+                cmd = args[0] if args else kwargs.get("args", [])
+                result = MagicMock()
+                result.returncode = 0
+                result.stderr = ""
+                # Should NOT see "remote get-url" since remote is already a URL
+                if "remote" in cmd and "get-url" in cmd:
+                    raise AssertionError("Should not call git remote get-url for URL remotes")
+                elif "ls-remote" in cmd:
+                    result.stdout = "abc123\trefs/heads/main\n"
+                else:
+                    result.stdout = ""
+                return result
+
+            mock_run.side_effect = run_side_effect
+            mock_get_token.return_value = ("test-token", "bot", "")
+
+            response = client.post(
+                "/api/v1/git/fetch",
+                headers=auth_headers,
+                data=json.dumps(
+                    {
+                        "repo_path": "/home/egg/repos/test",
+                        "operation": "ls-remote",
+                        "remote": "https://github.com/owner/repo.git",
+                    }
+                ),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 200
+            data = json.loads(response.data)
+            assert data["success"] is True
+            assert "refs/heads/main" in data["data"]["stdout"]
+
+    def test_fetch_with_ssh_url_remote(self, client, auth_headers):
+        """Fetch succeeds when remote is an SSH URL (git@github.com:...)."""
+        with (
+            patch("subprocess.run") as mock_run,
+            patch.object(gateway, "get_token_for_repo") as mock_get_token,
+        ):
+
+            def run_side_effect(*args, **kwargs):
+                cmd = args[0] if args else kwargs.get("args", [])
+                result = MagicMock()
+                result.returncode = 0
+                result.stderr = ""
+                # Should NOT see "remote get-url" since remote is already a URL
+                if "remote" in cmd and "get-url" in cmd:
+                    raise AssertionError("Should not call git remote get-url for URL remotes")
+                elif "fetch" in cmd:
+                    result.stdout = ""
+                else:
+                    result.stdout = ""
+                return result
+
+            mock_run.side_effect = run_side_effect
+            mock_get_token.return_value = ("test-token", "bot", "")
+
+            response = client.post(
+                "/api/v1/git/fetch",
+                headers=auth_headers,
+                data=json.dumps(
+                    {
+                        "repo_path": "/home/egg/repos/test",
+                        "remote": "git@github.com:owner/repo.git",
+                    }
+                ),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 200
+            data = json.loads(response.data)
+            assert data["success"] is True
+
+    def test_fetch_with_ssh_protocol_url_remote(self, client, auth_headers):
+        """Fetch succeeds when remote is an ssh:// URL."""
+        with (
+            patch("subprocess.run") as mock_run,
+            patch.object(gateway, "get_token_for_repo") as mock_get_token,
+        ):
+
+            def run_side_effect(*args, **kwargs):
+                cmd = args[0] if args else kwargs.get("args", [])
+                result = MagicMock()
+                result.returncode = 0
+                result.stderr = ""
+                if "remote" in cmd and "get-url" in cmd:
+                    raise AssertionError("Should not call git remote get-url for URL remotes")
+                elif "fetch" in cmd:
+                    result.stdout = ""
+                else:
+                    result.stdout = ""
+                return result
+
+            mock_run.side_effect = run_side_effect
+            mock_get_token.return_value = ("test-token", "bot", "")
+
+            response = client.post(
+                "/api/v1/git/fetch",
+                headers=auth_headers,
+                data=json.dumps(
+                    {
+                        "repo_path": "/home/egg/repos/test",
+                        "remote": "ssh://git@github.com/owner/repo.git",
+                    }
+                ),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 200
+            data = json.loads(response.data)
+            assert data["success"] is True
 
     def test_fetch_unsupported_operation_rejected(self, client, auth_headers):
         """Unsupported operations are rejected."""
@@ -3576,9 +3792,7 @@ class TestLocalModeBlocking:
 class TestSessionDeleteByContainerWorktreeCleanup:
     """Tests for DELETE /api/v1/sessions/by-container/<container_id> worktree cleanup."""
 
-    def test_session_delete_by_container_cleans_up_worktrees(
-        self, client, launcher_auth_headers
-    ):
+    def test_session_delete_by_container_cleans_up_worktrees(self, client, launcher_auth_headers):
         """session_delete_by_container cleans up worktrees for the container."""
         mock_session_mgr = MagicMock()
         mock_session_mgr.delete_session_by_container.return_value = True
@@ -3595,9 +3809,7 @@ class TestSessionDeleteByContainerWorktreeCleanup:
         repo2.name = "repo-b"
         mock_worktree_dir.iterdir.return_value = [repo1, repo2]
 
-        mock_worktree_mgr.worktree_base.__truediv__ = MagicMock(
-            return_value=mock_worktree_dir
-        )
+        mock_worktree_mgr.worktree_base.__truediv__ = MagicMock(return_value=mock_worktree_dir)
 
         remove_result = MagicMock()
         remove_result.success = True
@@ -3605,9 +3817,7 @@ class TestSessionDeleteByContainerWorktreeCleanup:
 
         with (
             patch.object(gateway, "get_session_manager", return_value=mock_session_mgr),
-            patch.object(
-                gateway, "get_worktree_manager", return_value=mock_worktree_mgr
-            ),
+            patch.object(gateway, "get_worktree_manager", return_value=mock_worktree_mgr),
             patch.object(gateway, "audit_log"),
         ):
             response = client.delete(
@@ -3632,9 +3842,7 @@ class TestSessionDeleteByContainerWorktreeCleanup:
                 force=True,
             )
 
-    def test_session_delete_by_container_no_worktrees(
-        self, client, launcher_auth_headers
-    ):
+    def test_session_delete_by_container_no_worktrees(self, client, launcher_auth_headers):
         """session_delete_by_container succeeds when no worktree dir exists."""
         mock_session_mgr = MagicMock()
         mock_session_mgr.delete_session_by_container.return_value = True
@@ -3642,15 +3850,11 @@ class TestSessionDeleteByContainerWorktreeCleanup:
         mock_worktree_mgr = MagicMock()
         mock_worktree_dir = MagicMock()
         mock_worktree_dir.exists.return_value = False
-        mock_worktree_mgr.worktree_base.__truediv__ = MagicMock(
-            return_value=mock_worktree_dir
-        )
+        mock_worktree_mgr.worktree_base.__truediv__ = MagicMock(return_value=mock_worktree_dir)
 
         with (
             patch.object(gateway, "get_session_manager", return_value=mock_session_mgr),
-            patch.object(
-                gateway, "get_worktree_manager", return_value=mock_worktree_mgr
-            ),
+            patch.object(gateway, "get_worktree_manager", return_value=mock_worktree_mgr),
             patch.object(gateway, "audit_log"),
         ):
             response = client.delete(
@@ -3683,9 +3887,7 @@ class TestSessionDeleteByContainerWorktreeCleanup:
         repo_exc.name = "repo-exc"
         mock_worktree_dir.iterdir.return_value = [repo_ok, repo_fail, repo_exc]
 
-        mock_worktree_mgr.worktree_base.__truediv__ = MagicMock(
-            return_value=mock_worktree_dir
-        )
+        mock_worktree_mgr.worktree_base.__truediv__ = MagicMock(return_value=mock_worktree_dir)
 
         success_result = MagicMock()
         success_result.success = True
@@ -3708,9 +3910,7 @@ class TestSessionDeleteByContainerWorktreeCleanup:
 
         with (
             patch.object(gateway, "get_session_manager", return_value=mock_session_mgr),
-            patch.object(
-                gateway, "get_worktree_manager", return_value=mock_worktree_mgr
-            ),
+            patch.object(gateway, "get_worktree_manager", return_value=mock_worktree_mgr),
             patch.object(gateway, "audit_log", mock_audit),
         ):
             response = client.delete(
@@ -3733,9 +3933,7 @@ class TestSessionDeleteByContainerWorktreeCleanup:
             assert "repo-fail: lock file exists" in details["errors"]
             assert "repo-exc: unexpected error - disk full" in details["errors"]
 
-    def test_session_delete_by_container_not_found(
-        self, client, launcher_auth_headers
-    ):
+    def test_session_delete_by_container_not_found(self, client, launcher_auth_headers):
         """session_delete_by_container returns 404 when session not found."""
         mock_session_mgr = MagicMock()
         mock_session_mgr.delete_session_by_container.return_value = False

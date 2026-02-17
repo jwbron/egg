@@ -280,6 +280,25 @@ class TestSetupEnvironment:
         assert "/home/egg/.local/bin" in os.environ["PATH"]
 
 
+    def test_sets_egg_repo_path_when_not_set(self, monkeypatch):
+        """Test that EGG_REPO_PATH is set to ~/repos when not already set."""
+        monkeypatch.delenv("EGG_REPO_PATH", raising=False)
+        config = entrypoint.Config()
+
+        entrypoint.setup_environment(config)
+
+        assert os.environ["EGG_REPO_PATH"] == "/home/egg/repos"
+
+    def test_preserves_existing_egg_repo_path(self, monkeypatch):
+        """Test that EGG_REPO_PATH is not overridden if already set."""
+        monkeypatch.setenv("EGG_REPO_PATH", "/custom/path")
+        config = entrypoint.Config()
+
+        entrypoint.setup_environment(config)
+
+        assert os.environ["EGG_REPO_PATH"] == "/custom/path"
+
+
 class TestSetupClaude:
     """Tests for setup_claude function."""
 
