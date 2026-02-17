@@ -403,14 +403,22 @@ def _get_checkpoint_repo_from_args(args: argparse.Namespace) -> str | None:
     checkpoint_repo: str | None = getattr(args, "checkpoint_repo", None)
     if checkpoint_repo:
         return checkpoint_repo
-    # Try to auto-detect from repo config
+    # Try to auto-detect from repo config by reading the git remote URL
+    # and looking up checkpoint_repo in repositories.yaml.
     repo_path = args.repo_path or get_repo_path()
     try:
-        from checkpoint_handler import _get_checkpoint_repo_for_path  # type: ignore[import-not-found]  # noqa: I001
+        result = run_git(["remote", "get-url", "origin"], cwd=repo_path, check=False)
+        if result.returncode != 0 or not result.stdout.strip():
+            return None
+        remote_url = result.stdout.strip()
+        match = re.search(r"github\.com[:/]([^/]+)/([^/]+?)(?:\.git)?$", remote_url)
+        if not match:
+            return None
+        repo = f"{match.group(1)}/{match.group(2)}"
+        from config.repo_config import get_checkpoint_repo  # type: ignore[import-not-found]
 
-        result: str | None = _get_checkpoint_repo_for_path(repo_path)
-        return result
-    except ImportError:
+        return get_checkpoint_repo(repo)
+    except Exception:
         pass
     return None
 
@@ -714,14 +722,16 @@ def cmd_cost(args: argparse.Namespace) -> int:
         phase = checkpoint.pipeline_phase or "(none)"
         agent = checkpoint.agent_type.value if checkpoint.agent_type else "unknown"
 
-        rows.append({
-            "phase": phase,
-            "agent": agent,
-            "input_tokens": tu.input_tokens,
-            "output_tokens": tu.output_tokens,
-            "cost": cost,
-            "model": model,
-        })
+        rows.append(
+            {
+                "phase": phase,
+                "agent": agent,
+                "input_tokens": tu.input_tokens,
+                "output_tokens": tu.output_tokens,
+                "cost": cost,
+                "model": model,
+            }
+        )
 
     if not rows:
         print("No checkpoints with token usage data found")
@@ -777,9 +787,7 @@ def cmd_cost(args: argparse.Namespace) -> int:
     print()
 
     # Table header
-    print(
-        f"  {'Phase':<12s}  {'Agent':<14s}  {'Input':>8s}  {'Output':>8s}  {'Cost':>8s}"
-    )
+    print(f"  {'Phase':<12s}  {'Agent':<14s}  {'Input':>8s}  {'Output':>8s}  {'Cost':>8s}")
     print(f"  {'─' * 12}  {'─' * 14}  {'─' * 8}  {'─' * 8}  {'─' * 8}")
 
     for (phase, agent), vals in sorted(agg.items()):
@@ -880,7 +888,9 @@ def create_parser() -> argparse.ArgumentParser:
         "--files", action="store_true", help="Show file paths touched by each checkpoint"
     )
     context_parser.add_argument("--repo", help="Filter by source repository (owner/repo format)")
-    context_parser.add_argument("--limit", type=int, default=100, help="Maximum checkpoints to show")
+    context_parser.add_argument(
+        "--limit", type=int, default=100, help="Maximum checkpoints to show"
+    )
     context_parser.add_argument("--json", action="store_true", help="Output as JSON")
     context_parser.set_defaults(func=cmd_context)
 

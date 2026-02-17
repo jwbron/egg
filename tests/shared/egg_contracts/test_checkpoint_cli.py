@@ -1,10 +1,17 @@
 """Tests for checkpoint CLI cost subcommand."""
 
+import argparse
 import json
+import subprocess
 from datetime import UTC, datetime
 from unittest.mock import patch
 
-from egg_contracts.checkpoint_cli import cmd_cost, create_parser, main
+from egg_contracts.checkpoint_cli import (
+    _get_checkpoint_repo_from_args,
+    cmd_cost,
+    create_parser,
+    main,
+)
 from egg_contracts.checkpoints import (
     AgentType,
     CheckpointIndexV2,
@@ -93,13 +100,12 @@ class TestCostCommand:
     @patch("egg_contracts.checkpoint_cli.filter_checkpoints_v2")
     @patch("egg_contracts.checkpoint_cli.load_index_from_ref")
     @patch("egg_contracts.checkpoint_cli.ensure_checkpoint_ref")
-    def test_cost_aggregation(
-        self, mock_ref, mock_index, mock_filter, mock_load, capsys
-    ):
+    def test_cost_aggregation(self, mock_ref, mock_index, mock_filter, mock_load, capsys):
         """cost subcommand aggregates token usage by phase and agent."""
         mock_ref.return_value = "origin/egg/checkpoints/v2"
         mock_index.return_value = CheckpointIndexV2(
-            schemaVersion="2.0", checkpoints=[],
+            schemaVersion="2.0",
+            checkpoints=[],
             last_updated=datetime(2026, 1, 15, 12, 0, 0, tzinfo=UTC),
         )
 
@@ -112,16 +118,25 @@ class TestCostCommand:
 
         checkpoints = [
             _make_checkpoint(
-                "ckpt-aaa11111", phase="plan", agent_type=AgentType.ARCHITECT,
-                input_tokens=10000, output_tokens=5000,
+                "ckpt-aaa11111",
+                phase="plan",
+                agent_type=AgentType.ARCHITECT,
+                input_tokens=10000,
+                output_tokens=5000,
             ),
             _make_checkpoint(
-                "ckpt-bbb22222", phase="implement", agent_type=AgentType.CODER,
-                input_tokens=50000, output_tokens=20000,
+                "ckpt-bbb22222",
+                phase="implement",
+                agent_type=AgentType.CODER,
+                input_tokens=50000,
+                output_tokens=20000,
             ),
             _make_checkpoint(
-                "ckpt-ccc33333", phase="implement", agent_type=AgentType.TESTER,
-                input_tokens=20000, output_tokens=8000,
+                "ckpt-ccc33333",
+                phase="implement",
+                agent_type=AgentType.TESTER,
+                input_tokens=20000,
+                output_tokens=8000,
             ),
         ]
         mock_load.side_effect = checkpoints
@@ -143,13 +158,12 @@ class TestCostCommand:
     @patch("egg_contracts.checkpoint_cli.filter_checkpoints_v2")
     @patch("egg_contracts.checkpoint_cli.load_index_from_ref")
     @patch("egg_contracts.checkpoint_cli.ensure_checkpoint_ref")
-    def test_cost_json_output(
-        self, mock_ref, mock_index, mock_filter, mock_load, capsys
-    ):
+    def test_cost_json_output(self, mock_ref, mock_index, mock_filter, mock_load, capsys):
         """cost --json outputs structured JSON with breakdown."""
         mock_ref.return_value = "origin/egg/checkpoints/v2"
         mock_index.return_value = CheckpointIndexV2(
-            schemaVersion="2.0", checkpoints=[],
+            schemaVersion="2.0",
+            checkpoints=[],
             last_updated=datetime(2026, 1, 15, 12, 0, 0, tzinfo=UTC),
         )
 
@@ -159,7 +173,9 @@ class TestCostCommand:
         mock_filter.return_value = summaries
 
         checkpoint = _make_checkpoint(
-            "ckpt-ddd44444", input_tokens=100000, output_tokens=40000,
+            "ckpt-ddd44444",
+            input_tokens=100000,
+            output_tokens=40000,
         )
         mock_load.return_value = checkpoint
 
@@ -202,7 +218,8 @@ class TestCostCommand:
         """Checkpoints without token_usage are skipped in cost calculation."""
         mock_ref.return_value = "origin/egg/checkpoints/v2"
         mock_index.return_value = CheckpointIndexV2(
-            schemaVersion="2.0", checkpoints=[],
+            schemaVersion="2.0",
+            checkpoints=[],
             last_updated=datetime(2026, 1, 15, 12, 0, 0, tzinfo=UTC),
         )
 
@@ -230,3 +247,105 @@ class TestCostCommand:
             mock_ref.return_value = None
             result = main(["cost", "--pipeline", "issue-745"])
             assert result == 0
+
+
+class TestGetCheckpointRepoFromArgs:
+    """Tests for auto-detection of checkpoint_repo from repo config."""
+
+    def _make_args(self, **kwargs) -> argparse.Namespace:
+        defaults = {"checkpoint_repo": None, "repo_path": "/tmp/test-repo"}
+        defaults.update(kwargs)
+        return argparse.Namespace(**defaults)
+
+    def test_explicit_flag_takes_priority(self):
+        """--checkpoint-repo flag is returned without auto-detection."""
+        args = self._make_args(checkpoint_repo="owner/explicit-repo")
+        assert _get_checkpoint_repo_from_args(args) == "owner/explicit-repo"
+
+    @patch("config.repo_config.get_checkpoint_repo", return_value="jwbron/egg-checkpoints")
+    @patch("egg_contracts.checkpoint_cli.run_git")
+    def test_auto_detects_from_https_remote(self, mock_git, mock_config):
+        """Auto-detects checkpoint_repo from HTTPS remote URL."""
+        mock_git.return_value = subprocess.CompletedProcess(
+            args=[],
+            returncode=0,
+            stdout="https://github.com/jwbron/egg.git\n",
+            stderr="",
+        )
+        args = self._make_args()
+        result = _get_checkpoint_repo_from_args(args)
+        assert result == "jwbron/egg-checkpoints"
+        mock_config.assert_called_once_with("jwbron/egg")
+
+    @patch("config.repo_config.get_checkpoint_repo", return_value="jwbron/egg-checkpoints")
+    @patch("egg_contracts.checkpoint_cli.run_git")
+    def test_auto_detects_from_ssh_remote(self, mock_git, mock_config):
+        """Auto-detects checkpoint_repo from SSH remote URL."""
+        mock_git.return_value = subprocess.CompletedProcess(
+            args=[],
+            returncode=0,
+            stdout="git@github.com:jwbron/egg.git\n",
+            stderr="",
+        )
+        args = self._make_args()
+        result = _get_checkpoint_repo_from_args(args)
+        assert result == "jwbron/egg-checkpoints"
+        mock_config.assert_called_once_with("jwbron/egg")
+
+    @patch("config.repo_config.get_checkpoint_repo", return_value=None)
+    @patch("egg_contracts.checkpoint_cli.run_git")
+    def test_returns_none_when_no_config(self, mock_git, mock_config):
+        """Returns None when repo has no checkpoint_repo configured."""
+        mock_git.return_value = subprocess.CompletedProcess(
+            args=[],
+            returncode=0,
+            stdout="https://github.com/owner/repo.git\n",
+            stderr="",
+        )
+        args = self._make_args()
+        assert _get_checkpoint_repo_from_args(args) is None
+
+    @patch("egg_contracts.checkpoint_cli.run_git")
+    def test_returns_none_when_git_remote_fails(self, mock_git):
+        """Returns None when git remote get-url fails."""
+        mock_git.return_value = subprocess.CompletedProcess(
+            args=[],
+            returncode=1,
+            stdout="",
+            stderr="fatal: not a git repo",
+        )
+        args = self._make_args()
+        assert _get_checkpoint_repo_from_args(args) is None
+
+    @patch("egg_contracts.checkpoint_cli.run_git")
+    def test_returns_none_when_remote_url_not_github(self, mock_git):
+        """Returns None when remote URL is not a GitHub URL."""
+        mock_git.return_value = subprocess.CompletedProcess(
+            args=[],
+            returncode=0,
+            stdout="https://gitlab.com/owner/repo.git\n",
+            stderr="",
+        )
+        args = self._make_args()
+        assert _get_checkpoint_repo_from_args(args) is None
+
+    @patch("config.repo_config.get_checkpoint_repo", return_value="org/dotted.repo-checkpoints")
+    @patch("egg_contracts.checkpoint_cli.run_git")
+    def test_auto_detects_repo_with_dots_in_name(self, mock_git, mock_config):
+        """Auto-detects checkpoint_repo when repo name contains dots."""
+        mock_git.return_value = subprocess.CompletedProcess(
+            args=[],
+            returncode=0,
+            stdout="https://github.com/my-org/some.project.git\n",
+            stderr="",
+        )
+        args = self._make_args()
+        result = _get_checkpoint_repo_from_args(args)
+        assert result == "org/dotted.repo-checkpoints"
+        mock_config.assert_called_once_with("my-org/some.project")
+
+    @patch("egg_contracts.checkpoint_cli.run_git", side_effect=Exception("timeout"))
+    def test_returns_none_on_unexpected_error(self, mock_git):
+        """Returns None gracefully on unexpected exceptions."""
+        args = self._make_args()
+        assert _get_checkpoint_repo_from_args(args) is None
