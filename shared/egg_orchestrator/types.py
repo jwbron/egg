@@ -67,7 +67,6 @@ class AgentRole(StrEnum):
     # Refine-phase roles
     REFINER = "refiner"
     # Reviewer roles
-    REVIEWER_UNIFIED = "reviewer_unified"
     REVIEWER_CODE = "reviewer_code"
     REVIEWER_CONTRACT = "reviewer_contract"
     REVIEWER_AGENT_DESIGN = "reviewer_agent_design"

@@ -245,6 +245,7 @@ def print_checkpoint_summary(
     trigger = data.get("trigger_type", "")
     status = data.get("session_status", "")
     agent = data.get("agent_type", "")
+    repo = data.get("repo", "")
 
     # Extract metrics depending on model type
     if isinstance(checkpoint, CheckpointV2):
@@ -281,6 +282,8 @@ def print_checkpoint_summary(
         parts.append(f"phase:{phase}")
     if agent and agent != "unknown":
         parts.append(f"agent:{agent}")
+    if repo:
+        parts.append(f"repo:{repo}")
     parts.append(f"msgs:{msg_count}")
     parts.append(f"tools:{tool_count}")
     parts.append(f"tokens:{format_tokens(tokens)}")
@@ -313,6 +316,8 @@ def print_checkpoint_details(checkpoint: CheckpointV2 | dict[str, Any]) -> None:
         print(f"  PR: #{data.get('pr_number')}")
     if data.get("pipeline_phase"):
         print(f"  Phase: {data.get('pipeline_phase')}")
+    if data.get("repo"):
+        print(f"  Repo: {data.get('repo')}")
 
     agent = data.get("agent_type", "")
     if agent and agent != "unknown":
@@ -436,6 +441,7 @@ def cmd_list(args: argparse.Namespace) -> int:
         agent_type=getattr(args, "agent_type", None),
         pipeline_phase=getattr(args, "phase", None),
         pipeline_id=getattr(args, "pipeline", None),
+        repo=getattr(args, "repo", None),
         limit=args.limit,
     )
 
@@ -508,6 +514,7 @@ def cmd_browse(args: argparse.Namespace) -> int:
     summaries = filter_checkpoints_v2(
         index,
         issue_number=args.issue,
+        repo=getattr(args, "repo", None),
         limit=args.limit,
     )
 
@@ -565,6 +572,7 @@ def cmd_context(args: argparse.Namespace) -> int:
         issue_number=getattr(args, "issue", None),
         agent_type=getattr(args, "agent_type", None),
         pipeline_phase=getattr(args, "phase", None),
+        repo=getattr(args, "repo", None),
         limit=args.limit,
     )
 
@@ -657,6 +665,138 @@ def _print_context_summary(
         print()
 
 
+def cmd_cost(args: argparse.Namespace) -> int:
+    """Show cost breakdown for a pipeline, issue, or PR."""
+    from .usage import TokenCounts
+
+    repo_path = args.repo_path or get_repo_path()
+    checkpoint_repo = _get_checkpoint_repo_from_args(args)
+
+    ref = ensure_checkpoint_ref(repo_path, checkpoint_repo=checkpoint_repo)
+    if not ref:
+        print("No checkpoints found (checkpoint branch does not exist)")
+        return 0
+
+    index = load_index_from_ref(ref, repo_path)
+    if not index:
+        print("No checkpoints found")
+        return 0
+
+    summaries = filter_checkpoints_v2(
+        index,
+        pipeline_id=args.pipeline,
+        issue_number=args.issue,
+        pr_number=args.pr,
+        limit=args.limit,
+    )
+
+    if not summaries:
+        print("No checkpoints found matching filters")
+        return 0
+
+    # Load full checkpoints to get token_usage and model info
+    rows: list[dict[str, Any]] = []
+    for s in summaries:
+        checkpoint = load_checkpoint_from_ref(s.id, ref, repo_path)
+        if not checkpoint or not checkpoint.token_usage:
+            continue
+
+        tu = checkpoint.token_usage
+        model = checkpoint.session.model if checkpoint.session else None
+        tokens = TokenCounts(
+            input_tokens=tu.input_tokens,
+            output_tokens=tu.output_tokens,
+            cache_read_tokens=tu.cache_read_tokens,
+            cache_creation_tokens=tu.cache_creation_tokens,
+        )
+        cost = float(tokens.calculate_cost(model=model))
+
+        phase = checkpoint.pipeline_phase or "(none)"
+        agent = checkpoint.agent_type.value if checkpoint.agent_type else "unknown"
+
+        rows.append({
+            "phase": phase,
+            "agent": agent,
+            "input_tokens": tu.input_tokens,
+            "output_tokens": tu.output_tokens,
+            "cost": cost,
+            "model": model,
+        })
+
+    if not rows:
+        print("No checkpoints with token usage data found")
+        return 0
+
+    # Aggregate by (phase, agent)
+    agg: dict[tuple[str, str], dict[str, Any]] = {}
+    for row in rows:
+        key = (row["phase"], row["agent"])
+        if key not in agg:
+            agg[key] = {"input": 0, "output": 0, "cost": 0.0, "count": 0}
+        agg[key]["input"] += row["input_tokens"]
+        agg[key]["output"] += row["output_tokens"]
+        agg[key]["cost"] += row["cost"]
+        agg[key]["count"] += 1
+
+    total_input = sum(v["input"] for v in agg.values())
+    total_output = sum(v["output"] for v in agg.values())
+    total_cost = sum(v["cost"] for v in agg.values())
+
+    pipeline_id = args.pipeline
+    issue = args.issue
+    pr = args.pr
+
+    if args.json:
+        output = {
+            "pipeline_id": pipeline_id,
+            "issue_number": issue,
+            "pr_number": pr,
+            "checkpoint_count": len(rows),
+            "total_input_tokens": total_input,
+            "total_output_tokens": total_output,
+            "total_cost_usd": round(total_cost, 4),
+            "breakdown": [
+                {
+                    "phase": k[0],
+                    "agent": k[1],
+                    "input_tokens": v["input"],
+                    "output_tokens": v["output"],
+                    "cost_usd": round(v["cost"], 4),
+                    "checkpoint_count": v["count"],
+                }
+                for k, v in sorted(agg.items())
+            ],
+        }
+        print(json.dumps(output, indent=2))
+        return 0
+
+    # Pretty print
+    label = pipeline_id or (f"issue #{issue}" if issue else f"PR #{pr}" if pr else "all")
+    print(f"Pipeline: {label}")
+    print(f"Checkpoints: {len(rows)}")
+    print()
+
+    # Table header
+    print(
+        f"  {'Phase':<12s}  {'Agent':<14s}  {'Input':>8s}  {'Output':>8s}  {'Cost':>8s}"
+    )
+    print(f"  {'─' * 12}  {'─' * 14}  {'─' * 8}  {'─' * 8}  {'─' * 8}")
+
+    for (phase, agent), vals in sorted(agg.items()):
+        print(
+            f"  {phase:<12s}  {agent:<14s}  {format_tokens(vals['input']):>8s}"
+            f"  {format_tokens(vals['output']):>8s}  ${vals['cost']:>6.2f}"
+        )
+
+    print(f"  {'─' * 12}  {'─' * 14}  {'─' * 8}  {'─' * 8}  {'─' * 8}")
+    print(
+        f"  {'TOTAL':<12s}  {'':<14s}  {format_tokens(total_input):>8s}"
+        f"  {format_tokens(total_output):>8s}  ${total_cost:>6.2f}"
+    )
+
+    return 0
+
+
 def create_parser() -> argparse.ArgumentParser:
     """Create the argument parser."""
     parser = argparse.ArgumentParser(
@@ -701,6 +841,7 @@ def create_parser() -> argparse.ArgumentParser:
         help="Filter by pipeline phase",
     )
     list_parser.add_argument("--pipeline", help="Filter by pipeline run ID")
+    list_parser.add_argument("--repo", help="Filter by source repository (owner/repo format)")
     list_parser.add_argument("--limit", type=int, default=50, help="Maximum checkpoints to show")
     list_parser.add_argument("--json", action="store_true", help="Output as JSON")
     list_parser.set_defaults(func=cmd_list)
@@ -714,6 +855,7 @@ def create_parser() -> argparse.ArgumentParser:
     # browse command
     browse_parser = subparsers.add_parser("browse", help="Filter checkpoints by issue")
     browse_parser.add_argument("--issue", type=int, required=True, help="Issue number to browse")
+    browse_parser.add_argument("--repo", help="Filter by source repository (owner/repo format)")
     browse_parser.add_argument("--limit", type=int, default=100, help="Maximum checkpoints to show")
     browse_parser.add_argument("--json", action="store_true", help="Output as JSON")
     browse_parser.set_defaults(func=cmd_browse)
@@ -737,11 +879,21 @@ def create_parser() -> argparse.ArgumentParser:
     context_parser.add_argument(
         "--files", action="store_true", help="Show file paths touched by each checkpoint"
     )
-    context_parser.add_argument(
-        "--limit", type=int, default=100, help="Maximum checkpoints to show"
-    )
+    context_parser.add_argument("--repo", help="Filter by source repository (owner/repo format)")
+    context_parser.add_argument("--limit", type=int, default=100, help="Maximum checkpoints to show")
     context_parser.add_argument("--json", action="store_true", help="Output as JSON")
     context_parser.set_defaults(func=cmd_context)
+
+    # cost command
+    cost_parser = subparsers.add_parser(
+        "cost", help="Show cost breakdown for a pipeline, issue, or PR"
+    )
+    cost_parser.add_argument("--pipeline", help="Filter by pipeline run ID")
+    cost_parser.add_argument("--issue", type=int, help="Filter by issue number")
+    cost_parser.add_argument("--pr", type=int, help="Filter by PR number")
+    cost_parser.add_argument("--limit", type=int, default=500, help="Maximum checkpoints to load")
+    cost_parser.add_argument("--json", action="store_true", help="Output as JSON")
+    cost_parser.set_defaults(func=cmd_cost)
 
     return parser
 

@@ -83,7 +83,6 @@ orchestrator/
 ├── container_monitor.py    # Container health monitoring
 ├── dag_visualizer.py       # ASCII DAG visualization for pipeline status
 ├── decision_queue.py       # HITL decision queue
-├── decision_timeout.py     # Decision timeout handling
 ├── devserver.py            # Devserver lifecycle manager for deployment validation (DinD)
 ├── dispatch.py             # Agent dispatch logic
 ├── docker_client.py        # Docker API client
@@ -175,7 +174,8 @@ shared/
 │   ├── agent-design-criteria.md  # Agent-mode design review criteria
 │   ├── autofixer-rules.md        # Autofixer auto-fix vs report-only rules
 │   ├── code-review-criteria.md   # Code review security/correctness criteria
-│   └── contract-review-criteria.md # Contract verification rules
+│   ├── contract-review-criteria.md # Contract verification rules
+│   └── onboarding-docs-prompt.md # Documentation onboarding standard (egg-onboarding-docs)
 ├── egg_git/                # Git utilities
 ├── egg_logging/            # Structured logging
 └── egg_orchestrator/       # Orchestrator integration layer

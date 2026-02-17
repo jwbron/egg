@@ -455,8 +455,13 @@ def run_issue_mode(client: OrchClient, issue_number: int, repo: str | None = Non
             try:
                 status_data = client.get_pipeline_status(pipeline_id)
                 status = status_data.get("status", "unknown")
-                if status in ("complete", "failed", "cancelled"):
-                    # Terminal state — safe to delete and re-create
+                if status == "failed":
+                    # Failed — restart from failed phase (preserves worktrees + work)
+                    print(f"  Pipeline was {status}. Restarting from failed phase...")
+                    client.start_pipeline(pipeline_id)
+                    print(f"  {GREEN}Pipeline restarted.{RESET}")
+                elif status in ("complete", "cancelled"):
+                    # Terminal — delete and re-create
                     print(f"  Pipeline was {status}. Restarting...")
                     _restart_pipeline(
                         client, pipeline_id, issue_number, repo, branch, network_mode=network_mode

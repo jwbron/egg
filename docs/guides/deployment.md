@@ -271,6 +271,17 @@ The Docker Compose configuration includes automatic health checks with:
 
 ## Troubleshooting
 
+### Claude binary not found
+
+If the sandbox exits with `Claude Code CLI not found in PATH`, the Claude binary is missing from the container (failed build or changed install path).
+
+Fix:
+```bash
+egg --reset
+```
+
+This clears cached images and rebuilds the sandbox with Claude Code installed.
+
 ### Gateway fails to start
 
 1. Check Docker is running: `docker info`

@@ -280,14 +280,34 @@ class TestSetupEnvironment:
         assert "/home/egg/.local/bin" in os.environ["PATH"]
 
 
+    def test_sets_egg_repo_path_when_not_set(self, monkeypatch):
+        """Test that EGG_REPO_PATH is set to ~/repos when not already set."""
+        monkeypatch.delenv("EGG_REPO_PATH", raising=False)
+        config = entrypoint.Config()
+
+        entrypoint.setup_environment(config)
+
+        assert os.environ["EGG_REPO_PATH"] == "/home/egg/repos"
+
+    def test_preserves_existing_egg_repo_path(self, monkeypatch):
+        """Test that EGG_REPO_PATH is not overridden if already set."""
+        monkeypatch.setenv("EGG_REPO_PATH", "/custom/path")
+        config = entrypoint.Config()
+
+        entrypoint.setup_environment(config)
+
+        assert os.environ["EGG_REPO_PATH"] == "/custom/path"
+
+
 class TestSetupClaude:
     """Tests for setup_claude function."""
 
     @patch.object(entrypoint, "chown_recursive")
     @patch("os.chown")
     @patch("os.chmod")
+    @patch("shutil.which", return_value="/usr/local/bin/claude")
     def test_handles_ebusy_with_fallback(
-        self, mock_chmod, mock_chown, mock_chown_recursive, temp_dir, capsys
+        self, mock_which, mock_chmod, mock_chown, mock_chown_recursive, temp_dir, capsys
     ):
         """Test that EBUSY error falls back to direct file write."""
         import errno
@@ -330,7 +350,10 @@ class TestSetupClaude:
     @patch.object(entrypoint, "chown_recursive")
     @patch("os.chown")
     @patch("os.chmod")
-    def test_normal_atomic_write(self, mock_chmod, mock_chown, mock_chown_recursive, temp_dir):
+    @patch("shutil.which", return_value="/usr/local/bin/claude")
+    def test_normal_atomic_write(
+        self, mock_which, mock_chmod, mock_chown, mock_chown_recursive, temp_dir
+    ):
         """Test normal atomic write path works."""
         # Set up directories
         claude_dir = temp_dir / ".claude"
@@ -354,6 +377,21 @@ class TestSetupClaude:
         result = json.loads(user_state_file.read_text())
         assert result["hasCompletedOnboarding"] is True
         assert result["autoUpdates"] is False
+
+    @patch("shutil.which", return_value=None)
+    def test_exits_when_claude_binary_not_found(self, mock_which, temp_dir, capsys):
+        """Test that setup_claude calls sys.exit(1) when claude binary is missing."""
+        config = MagicMock()
+        config.user_home = temp_dir
+
+        logger = entrypoint.Logger(quiet=False)
+
+        with pytest.raises(SystemExit) as exc_info:
+            entrypoint.setup_claude(config, logger)
+
+        assert exc_info.value.code == 1
+        captured = capsys.readouterr()
+        assert "Claude Code CLI not found in PATH" in captured.err
 
 
 class TestStartupTimer:

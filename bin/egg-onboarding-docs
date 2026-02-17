@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+# egg-onboarding-docs — Generate onboarding documentation for a repository
+#
+# Host-side wrapper that launches egg-onboarding-docs inside a container via egg --exec.
+#
+# Usage:
+#   egg-onboarding-docs <repo_dir>
+#
+# If already running inside a container, delegates directly to the sandbox script.
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Detect if we're already inside a container
+if [ -n "${EGG_CONTAINER:-}" ] || [ -f "/.dockerenv" ]; then
+    # Inside container: strip --private/--public (already applied at container level)
+    args=()
+    for arg in "$@"; do
+        case "$arg" in
+            --private|--public) ;;  # Already applied at container level
+            *) args+=("$arg") ;;
+        esac
+    done
+    exec "$SCRIPT_DIR/../sandbox/bin/egg-onboarding-docs" "${args[@]}"
+fi
+
+# Host: extract --private/--public before passing to egg --exec
+# (egg --exec uses REMAINDER parsing, so these must come before --exec)
+egg_flags=("--timeout" "360")
+onboarding_args=()
+
+for arg in "$@"; do
+    case "$arg" in
+        --private|--public) egg_flags+=("$arg") ;;
+        *) onboarding_args+=("$arg") ;;
+    esac
+done
+
+exec "$SCRIPT_DIR/egg" "${egg_flags[@]}" --exec egg-onboarding-docs "${onboarding_args[@]}"

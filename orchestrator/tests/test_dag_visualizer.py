@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 from dag_visualizer import (
     PHASE_ORDER,
     _compute_wave_order,
+    _deduplicate_agents,
     _format_duration,
     _get_agent_status_symbol,
     _get_status_symbol,
@@ -659,10 +660,10 @@ class TestWaveGrouping:
                     AgentExecution(role=AgentRole.DOCUMENTER, status=AgentExecutionStatus.COMPLETE),
                     AgentExecution(role=AgentRole.INTEGRATOR, status=AgentExecutionStatus.COMPLETE),
                     AgentExecution(
-                        role=AgentRole.REVIEWER_UNIFIED, status=AgentExecutionStatus.RUNNING
+                        role=AgentRole.REVIEWER_CODE, status=AgentExecutionStatus.RUNNING
                     ),
                     AgentExecution(
-                        role=AgentRole.REVIEWER_CODE, status=AgentExecutionStatus.PENDING
+                        role=AgentRole.REVIEWER_CONTRACT, status=AgentExecutionStatus.PENDING
                     ),
                 ],
             )
@@ -690,7 +691,7 @@ class TestWaveGrouping:
             for line in agent_lines
         )
         # Reviewers should be after integrator (wave 4)
-        assert any("reviewer_unified" in line for line in agent_lines)
+        assert any("reviewer_code" in line for line in agent_lines)
 
     def test_plan_phase_wave_order(self):
         """Agents are grouped by execution wave in plan phase."""
@@ -705,9 +706,6 @@ class TestWaveGrouping:
                     ),
                     AgentExecution(
                         role=AgentRole.RISK_ANALYST, status=AgentExecutionStatus.RUNNING
-                    ),
-                    AgentExecution(
-                        role=AgentRole.REVIEWER_UNIFIED, status=AgentExecutionStatus.PENDING
                     ),
                     AgentExecution(
                         role=AgentRole.REVIEWER_PLAN, status=AgentExecutionStatus.PENDING
@@ -729,8 +727,8 @@ class TestWaveGrouping:
         assert any("architect" in line and "planner" not in line for line in agent_lines)
         # Task planner and risk analyst together (wave 2)
         assert any("task_planner" in line and "risk_analyst" in line for line in agent_lines)
-        # Reviewers together (wave 3) — after planner agents
-        assert any("reviewer_unified" in line and "reviewer_plan" in line for line in agent_lines)
+        # Reviewer plan after planner agents (wave 3)
+        assert any("reviewer_plan" in line for line in agent_lines)
 
     def test_compute_wave_order_implement(self):
         """_compute_wave_order returns correct wave groups for implement phase."""
@@ -834,7 +832,7 @@ class TestWaveGrouping:
                         role=AgentRole.RISK_ANALYST, status=AgentExecutionStatus.COMPLETE
                     ),
                     AgentExecution(
-                        role=AgentRole.REVIEWER_UNIFIED, status=AgentExecutionStatus.RUNNING
+                        role=AgentRole.REVIEWER_PLAN, status=AgentExecutionStatus.RUNNING
                     ),
                 ],
             )
@@ -846,7 +844,7 @@ class TestWaveGrouping:
         # Find the line indices containing each agent type
         architect_line = next(i for i, line in enumerate(lines) if "architect" in line)
         planner_line = next(i for i, line in enumerate(lines) if "task_planner" in line)
-        reviewer_line = next(i for i, line in enumerate(lines) if "reviewer_unified" in line)
+        reviewer_line = next(i for i, line in enumerate(lines) if "reviewer_plan" in line)
 
         # Reviewer must come AFTER architect and planner
         assert reviewer_line > architect_line
@@ -990,3 +988,359 @@ class TestCycleTimingDisplay:
         assert "(done)" in result
         assert "Cycle 1:" in result
         assert "(running)" in result
+
+
+class TestDeduplicateAgents:
+    """Tests for _deduplicate_agents helper."""
+
+    def test_no_duplicates(self):
+        """Single-run agents are returned unchanged."""
+        agents = [
+            AgentExecution(role=AgentRole.CODER, status=AgentExecutionStatus.COMPLETE),
+            AgentExecution(role=AgentRole.TESTER, status=AgentExecutionStatus.RUNNING),
+        ]
+        deduped, counts = _deduplicate_agents(agents)
+
+        assert len(deduped) == 2
+        assert counts == {"coder": 1, "tester": 1}
+
+    def test_duplicate_roles_collapsed(self):
+        """Multiple runs of the same role are collapsed to one entry."""
+        agents = [
+            AgentExecution(role=AgentRole.CHECKER, status=AgentExecutionStatus.COMPLETE),
+            AgentExecution(role=AgentRole.CHECKER, status=AgentExecutionStatus.COMPLETE),
+        ]
+        deduped, counts = _deduplicate_agents(agents)
+
+        assert len(deduped) == 1
+        assert deduped[0].role == AgentRole.CHECKER
+        assert counts == {"checker": 2}
+
+    def test_latest_status_kept(self):
+        """The latest (last) execution status is used."""
+        agents = [
+            AgentExecution(role=AgentRole.CHECKER, status=AgentExecutionStatus.FAILED),
+            AgentExecution(role=AgentRole.CHECKER, status=AgentExecutionStatus.COMPLETE),
+        ]
+        deduped, counts = _deduplicate_agents(agents)
+
+        assert deduped[0].status == AgentExecutionStatus.COMPLETE
+        assert counts["checker"] == 2
+
+    def test_first_seen_order_preserved(self):
+        """Deduplicated list preserves first-seen ordering."""
+        agents = [
+            AgentExecution(role=AgentRole.CODER, status=AgentExecutionStatus.COMPLETE),
+            AgentExecution(role=AgentRole.CHECKER, status=AgentExecutionStatus.COMPLETE),
+            AgentExecution(role=AgentRole.CODER, status=AgentExecutionStatus.COMPLETE),
+            AgentExecution(role=AgentRole.CHECKER, status=AgentExecutionStatus.COMPLETE),
+        ]
+        deduped, counts = _deduplicate_agents(agents)
+
+        assert len(deduped) == 2
+        assert deduped[0].role == AgentRole.CODER
+        assert deduped[1].role == AgentRole.CHECKER
+        assert counts == {"coder": 2, "checker": 2}
+
+    def test_empty_list(self):
+        """Empty input returns empty output."""
+        deduped, counts = _deduplicate_agents([])
+        assert deduped == []
+        assert counts == {}
+
+
+class TestCheckerOrdering:
+    """Tests for checker placement relative to reviewers in the DAG."""
+
+    def test_checker_before_reviewers_in_implement(self):
+        """Checker agents appear between integrator and reviewers."""
+        agents = [
+            AgentExecution(role=AgentRole.CODER, status=AgentExecutionStatus.COMPLETE),
+            AgentExecution(role=AgentRole.TESTER, status=AgentExecutionStatus.COMPLETE),
+            AgentExecution(role=AgentRole.DOCUMENTER, status=AgentExecutionStatus.COMPLETE),
+            AgentExecution(role=AgentRole.INTEGRATOR, status=AgentExecutionStatus.COMPLETE),
+            AgentExecution(role=AgentRole.CHECKER, status=AgentExecutionStatus.COMPLETE),
+            AgentExecution(
+                role=AgentRole.REVIEWER_UNIFIED, status=AgentExecutionStatus.RUNNING
+            ),
+            AgentExecution(
+                role=AgentRole.REVIEWER_CODE, status=AgentExecutionStatus.RUNNING
+            ),
+        ]
+        waves = _compute_wave_order(PipelinePhase.IMPLEMENT, agents)
+
+        # Find checker and reviewer wave indices
+        checker_wave = None
+        reviewer_wave = None
+        for i, wave in enumerate(waves):
+            for agent in wave:
+                if agent.role == AgentRole.CHECKER:
+                    checker_wave = i
+                if agent.role.value.startswith("reviewer"):
+                    reviewer_wave = i
+
+        assert checker_wave is not None
+        assert reviewer_wave is not None
+        assert checker_wave < reviewer_wave, (
+            f"Checker wave ({checker_wave}) should precede reviewer wave ({reviewer_wave})"
+        )
+
+    def test_checker_after_integrator_in_implement(self):
+        """Checker appears after the integrator wave."""
+        agents = [
+            AgentExecution(role=AgentRole.CODER, status=AgentExecutionStatus.COMPLETE),
+            AgentExecution(role=AgentRole.TESTER, status=AgentExecutionStatus.COMPLETE),
+            AgentExecution(role=AgentRole.DOCUMENTER, status=AgentExecutionStatus.COMPLETE),
+            AgentExecution(role=AgentRole.INTEGRATOR, status=AgentExecutionStatus.COMPLETE),
+            AgentExecution(role=AgentRole.CHECKER, status=AgentExecutionStatus.COMPLETE),
+            AgentExecution(
+                role=AgentRole.REVIEWER_UNIFIED, status=AgentExecutionStatus.RUNNING
+            ),
+        ]
+        waves = _compute_wave_order(PipelinePhase.IMPLEMENT, agents)
+
+        integrator_wave = None
+        checker_wave = None
+        for i, wave in enumerate(waves):
+            for agent in wave:
+                if agent.role == AgentRole.INTEGRATOR:
+                    integrator_wave = i
+                if agent.role == AgentRole.CHECKER:
+                    checker_wave = i
+
+        assert integrator_wave is not None
+        assert checker_wave is not None
+        assert checker_wave > integrator_wave
+
+    def test_dag_render_checker_before_reviewers(self):
+        """Full DAG render places checker line before reviewer lines."""
+        phases = {
+            "implement": PhaseExecution(
+                phase=PipelinePhase.IMPLEMENT,
+                status=PipelineStatus.RUNNING,
+                agents=[
+                    AgentExecution(role=AgentRole.CODER, status=AgentExecutionStatus.COMPLETE),
+                    AgentExecution(role=AgentRole.TESTER, status=AgentExecutionStatus.COMPLETE),
+                    AgentExecution(
+                        role=AgentRole.DOCUMENTER, status=AgentExecutionStatus.COMPLETE
+                    ),
+                    AgentExecution(
+                        role=AgentRole.INTEGRATOR, status=AgentExecutionStatus.COMPLETE
+                    ),
+                    AgentExecution(
+                        role=AgentRole.CHECKER, status=AgentExecutionStatus.COMPLETE
+                    ),
+                    AgentExecution(
+                        role=AgentRole.REVIEWER_UNIFIED, status=AgentExecutionStatus.RUNNING
+                    ),
+                    AgentExecution(
+                        role=AgentRole.REVIEWER_CODE, status=AgentExecutionStatus.RUNNING
+                    ),
+                    AgentExecution(
+                        role=AgentRole.REVIEWER_CONTRACT, status=AgentExecutionStatus.RUNNING
+                    ),
+                ],
+            )
+        }
+        pipeline = create_test_pipeline(phases=phases, current_phase=PipelinePhase.IMPLEMENT)
+        result = render_pipeline_dag(pipeline, include_header=False)
+        lines = result.split("\n")
+
+        checker_line = next(i for i, l in enumerate(lines) if "checker" in l)
+        reviewer_line = next(i for i, l in enumerate(lines) if "reviewer_unified" in l)
+
+        assert checker_line < reviewer_line
+
+
+class TestRunCountDisplay:
+    """Tests for run count display in DAG and phase detail views."""
+
+    def test_duplicate_checker_shows_count(self):
+        """Two checker runs render as 'checker ×2' instead of two entries."""
+        phases = {
+            "implement": PhaseExecution(
+                phase=PipelinePhase.IMPLEMENT,
+                status=PipelineStatus.RUNNING,
+                agents=[
+                    AgentExecution(role=AgentRole.CODER, status=AgentExecutionStatus.COMPLETE),
+                    AgentExecution(
+                        role=AgentRole.CHECKER, status=AgentExecutionStatus.COMPLETE
+                    ),
+                    AgentExecution(
+                        role=AgentRole.CHECKER, status=AgentExecutionStatus.COMPLETE
+                    ),
+                ],
+            )
+        }
+        pipeline = create_test_pipeline(phases=phases, current_phase=PipelinePhase.IMPLEMENT)
+        result = render_pipeline_dag(pipeline, include_header=False)
+
+        # Should show single checker entry with count
+        assert "\u00d7" + "2" in result or "×2" in result
+        # Should NOT show checker twice on separate entries
+        assert result.count("checker") == 1
+
+    def test_single_run_no_count(self):
+        """Agents with a single run show no count suffix."""
+        phases = {
+            "implement": PhaseExecution(
+                phase=PipelinePhase.IMPLEMENT,
+                status=PipelineStatus.RUNNING,
+                agents=[
+                    AgentExecution(role=AgentRole.CODER, status=AgentExecutionStatus.COMPLETE),
+                ],
+            )
+        }
+        pipeline = create_test_pipeline(phases=phases, current_phase=PipelinePhase.IMPLEMENT)
+        result = render_pipeline_dag(pipeline, include_header=False)
+
+        assert "coder" in result
+        assert "\u00d7" not in result
+
+    def test_ascii_count_uses_x(self):
+        """ASCII mode uses 'x' instead of '×' for the count."""
+        phases = {
+            "implement": PhaseExecution(
+                phase=PipelinePhase.IMPLEMENT,
+                status=PipelineStatus.RUNNING,
+                agents=[
+                    AgentExecution(role=AgentRole.CODER, status=AgentExecutionStatus.COMPLETE),
+                    AgentExecution(
+                        role=AgentRole.CHECKER, status=AgentExecutionStatus.COMPLETE
+                    ),
+                    AgentExecution(
+                        role=AgentRole.CHECKER, status=AgentExecutionStatus.COMPLETE
+                    ),
+                ],
+            )
+        }
+        pipeline = create_test_pipeline(phases=phases, current_phase=PipelinePhase.IMPLEMENT)
+        result = render_pipeline_dag(pipeline, use_ascii=True, include_header=False)
+
+        assert "x2" in result
+        assert "\u00d7" not in result
+
+    def test_phase_detail_shows_all_runs(self):
+        """Phase detail view shows every run without deduplication."""
+        phases = {
+            "implement": PhaseExecution(
+                phase=PipelinePhase.IMPLEMENT,
+                status=PipelineStatus.RUNNING,
+                agents=[
+                    AgentExecution(role=AgentRole.CODER, status=AgentExecutionStatus.COMPLETE),
+                    AgentExecution(
+                        role=AgentRole.CHECKER,
+                        status=AgentExecutionStatus.FAILED,
+                        error="lint failure",
+                    ),
+                    AgentExecution(
+                        role=AgentRole.CHECKER,
+                        status=AgentExecutionStatus.COMPLETE,
+                        commit="abc12345",
+                    ),
+                ],
+            )
+        }
+        pipeline = create_test_pipeline(phases=phases)
+        result = render_phase_detail(pipeline, PipelinePhase.IMPLEMENT)
+
+        # Should show total agent count (all runs), not unique roles
+        assert "Agents (3):" in result
+        # Both checker runs should appear
+        assert result.count("checker") == 2
+        # Commit and error from different runs are preserved
+        assert "abc12345" in result
+        assert "lint failure" in result
+        # No dedup multiplier in the detail view
+        assert "×" not in result
+
+    def test_phase_detail_shows_all_runs_for_in_graph_agents(self):
+        """Phase detail shows every run for roles in the dependency graph.
+
+        Regression test: _compute_wave_order uses a dict keyed by role value,
+        which overwrites earlier entries for the same role.  The detail view
+        must not route through _compute_wave_order so that duplicate in-graph
+        roles (coder, tester, etc.) are preserved.
+        """
+        phases = {
+            "implement": PhaseExecution(
+                phase=PipelinePhase.IMPLEMENT,
+                status=PipelineStatus.RUNNING,
+                agents=[
+                    AgentExecution(
+                        role=AgentRole.CODER,
+                        status=AgentExecutionStatus.FAILED,
+                        error="build error",
+                    ),
+                    AgentExecution(
+                        role=AgentRole.CODER,
+                        status=AgentExecutionStatus.COMPLETE,
+                        commit="abc12345",
+                    ),
+                    AgentExecution(
+                        role=AgentRole.TESTER,
+                        status=AgentExecutionStatus.COMPLETE,
+                    ),
+                ],
+            )
+        }
+        pipeline = create_test_pipeline(phases=phases)
+        result = render_phase_detail(pipeline, PipelinePhase.IMPLEMENT)
+
+        # Header should report all 3 agent entries
+        assert "Agents (3):" in result
+        # Both coder runs must appear
+        assert result.count("coder") == 2
+        # Commit from second run and error from first run are preserved
+        assert "abc12345" in result
+        assert "build error" in result
+
+    def test_full_scenario_from_issue(self):
+        """Reproduce the exact scenario from issue #769."""
+        phases = {
+            "implement": PhaseExecution(
+                phase=PipelinePhase.IMPLEMENT,
+                status=PipelineStatus.RUNNING,
+                agents=[
+                    AgentExecution(role=AgentRole.CODER, status=AgentExecutionStatus.COMPLETE),
+                    AgentExecution(role=AgentRole.TESTER, status=AgentExecutionStatus.COMPLETE),
+                    AgentExecution(
+                        role=AgentRole.DOCUMENTER, status=AgentExecutionStatus.COMPLETE
+                    ),
+                    AgentExecution(
+                        role=AgentRole.INTEGRATOR, status=AgentExecutionStatus.COMPLETE
+                    ),
+                    AgentExecution(
+                        role=AgentRole.CHECKER, status=AgentExecutionStatus.COMPLETE
+                    ),
+                    AgentExecution(
+                        role=AgentRole.CHECKER, status=AgentExecutionStatus.COMPLETE
+                    ),
+                    AgentExecution(
+                        role=AgentRole.REVIEWER_UNIFIED, status=AgentExecutionStatus.RUNNING
+                    ),
+                    AgentExecution(
+                        role=AgentRole.REVIEWER_CODE, status=AgentExecutionStatus.RUNNING
+                    ),
+                    AgentExecution(
+                        role=AgentRole.REVIEWER_CONTRACT, status=AgentExecutionStatus.RUNNING
+                    ),
+                ],
+            )
+        }
+        pipeline = create_test_pipeline(phases=phases, current_phase=PipelinePhase.IMPLEMENT)
+        result = render_pipeline_dag(pipeline, include_header=False)
+        lines = result.split("\n")
+
+        # Checker should appear once with ×2, before reviewers
+        assert result.count("checker") == 1
+        assert "×2" in result
+
+        checker_line = next(i for i, l in enumerate(lines) if "checker" in l)
+        reviewer_line = next(i for i, l in enumerate(lines) if "reviewer" in l)
+        assert checker_line < reviewer_line
+
+        # Ordering should be: coder, tester+documenter, integrator, checker, reviewers
+        coder_line = next(i for i, l in enumerate(lines) if "coder" in l)
+        integrator_line = next(i for i, l in enumerate(lines) if "integrator" in l)
+        assert coder_line < integrator_line < checker_line < reviewer_line

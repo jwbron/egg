@@ -465,6 +465,10 @@ def setup_environment(config: Config) -> None:
     # Claude settings
     os.environ["DISABLE_AUTOUPDATER"] = "1"
 
+    # Set EGG_REPO_PATH if not already provided (orchestrator sets it, CLI doesn't)
+    if "EGG_REPO_PATH" not in os.environ:
+        os.environ["EGG_REPO_PATH"] = str(config.user_home / "repos")
+
     # Git editor - use 'true' (no-op) for non-interactive environment
     # This allows git rebase --continue to work without an interactive editor.
     # Side effects: git commit without -m creates empty messages, git rebase -i
@@ -721,6 +725,15 @@ def setup_agent_rules(config: Config, logger: Logger) -> None:
 
 def setup_claude(config: Config, logger: Logger) -> None:
     """Set up Claude CLI configuration."""
+    # Verify Claude Code CLI is installed
+    claude_bin = shutil.which("claude")
+    if not claude_bin:
+        expected = config.user_home / ".local" / "bin" / "claude"
+        logger.error(f"Claude Code CLI not found in PATH (expected at {expected})")
+        logger.error("  Rebuild the sandbox image: egg --reset")
+        sys.exit(1)
+    logger.success(f"Claude Code CLI found: {claude_bin}")
+
     # Create directories
     config.claude_dir.mkdir(parents=True, exist_ok=True)
     (config.claude_dir / "commands").mkdir(exist_ok=True)

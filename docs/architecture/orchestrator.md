@@ -241,7 +241,7 @@ Fixed IPs:
 **Orchestrator (`/api/v1/`)**
 - `GET /health` - Health check
 - `GET/POST /pipelines` - Pipeline CRUD
-- `POST /pipelines/{id}/start` - Start or restart a pipeline (restarts failed pipelines by resetting the failed phase)
+- `POST /pipelines/{id}/start` - Start or restart a pipeline (restarts failed pipelines by resetting the failed phase; worktrees are preserved across restarts)
 - `GET /pipelines/{id}/visualization` - Pipeline status snapshot (JSON, text, or ASCII)
 - `GET /pipelines/{id}/stream` - Real-time SSE stream for single pipeline events and visualization
 - `GET /pipelines/stream` - Unified SSE stream for all active pipelines (supports `?ascii=true`, `?active_only=false`, `?full_dag=true`)

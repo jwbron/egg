@@ -10,6 +10,7 @@ Use `egg-checkpoint` to browse agent checkpoints — session transcripts, tool c
 | `egg-checkpoint show <id>` | Display full checkpoint details (by ID or commit SHA) |
 | `egg-checkpoint browse --issue <n>` | Group checkpoints by session for an issue |
 | `egg-checkpoint context` | Cross-agent context summary by phase and agent |
+| `egg-checkpoint cost` | Show cost breakdown (token usage and USD) by phase and agent type |
 
 All commands support `--json` for machine-readable output.
 
@@ -22,6 +23,7 @@ All list/context filters use AND logic. Common filters:
 | Issue | `--issue N` | `--issue 530` |
 | PR | `--pr N` | `--pr 42` |
 | Pipeline | `--pipeline ID` | `--pipeline issue-530` |
+| Repo | `--repo OWNER/REPO` | `--repo jwbron/egg` |
 | Agent | `--agent-type TYPE` | `--agent-type coder` |
 | Phase | `--phase PHASE` | `--phase implement` |
 | Status | `--status STATUS` | `--status failed` |
@@ -44,6 +46,12 @@ egg-checkpoint context --pipeline $EGG_PIPELINE_ID --files
 ```bash
 egg-checkpoint list --issue $EGG_ISSUE_NUMBER --status failed
 egg-checkpoint show ckpt-<id>
+```
+
+**See token usage and costs:**
+```bash
+egg-checkpoint cost --pipeline $EGG_PIPELINE_ID
+egg-checkpoint cost --issue $EGG_ISSUE_NUMBER
 ```
 
 ## Related CLIs

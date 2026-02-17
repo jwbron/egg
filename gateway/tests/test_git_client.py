@@ -12,9 +12,13 @@ from git_client import (
     BLOCKED_GIT_FLAGS,
     GIT_ALLOWED_COMMANDS,
     get_changed_files_in_push,
+    is_branch_switching_checkout,
+    is_branch_switching_operation,
     is_repos_parent_directory,
     is_ssh_url,
+    is_url_remote,
     normalize_flag,
+    resolve_remote_url,
     ssh_url_to_https,
     validate_git_args,
     validate_repo_path,
@@ -329,6 +333,66 @@ class TestIsSshUrl:
         assert not is_ssh_url("file:///path/to/repo")
 
 
+class TestIsUrlRemote:
+    """Tests for URL remote detection."""
+
+    def test_https_detected(self):
+        """HTTPS URLs should be detected as URL remotes."""
+        assert is_url_remote("https://github.com/owner/repo.git")
+
+    def test_git_at_detected(self):
+        """git@ URLs should be detected as URL remotes."""
+        assert is_url_remote("git@github.com:owner/repo.git")
+
+    def test_ssh_protocol_detected(self):
+        """ssh:// URLs should be detected as URL remotes."""
+        assert is_url_remote("ssh://git@github.com/owner/repo.git")
+
+    def test_http_rejected(self):
+        """Plain http:// should NOT be accepted — gateway uses HTTPS only."""
+        assert not is_url_remote("http://github.com/owner/repo.git")
+
+    def test_named_remote_not_detected(self):
+        """Named remotes like 'origin' should not be detected as URLs."""
+        assert not is_url_remote("origin")
+
+    def test_empty_string_not_detected(self):
+        """Empty string should not be detected as a URL remote."""
+        assert not is_url_remote("")
+
+
+class TestResolveRemoteUrl:
+    """Tests for resolve_remote_url helper."""
+
+    def test_https_url_returned_directly(self):
+        """HTTPS URL remotes should be returned without subprocess call."""
+        url, error = resolve_remote_url("https://github.com/owner/repo.git", "/tmp")
+        assert url == "https://github.com/owner/repo.git"
+        assert error is None
+
+    def test_ssh_url_returned_directly(self):
+        """SSH URL remotes should be returned without subprocess call."""
+        url, error = resolve_remote_url("git@github.com:owner/repo.git", "/tmp")
+        assert url == "git@github.com:owner/repo.git"
+        assert error is None
+
+    def test_http_url_calls_git_remote(self):
+        """http:// should NOT be treated as URL remote (falls through to git)."""
+        from unittest.mock import MagicMock, patch
+
+        with patch("subprocess.run") as mock_run:
+            mock_result = MagicMock()
+            mock_result.returncode = 0
+            mock_result.stdout = "https://github.com/owner/repo.git\n"
+            mock_run.return_value = mock_result
+
+            # http:// is not accepted as a URL remote, so it should call git
+            url, error = resolve_remote_url("http://github.com/owner/repo.git", "/tmp")
+            assert mock_run.called
+            assert url == "https://github.com/owner/repo.git"
+            assert error is None
+
+
 class TestGitHubClientExecuteEnvironment:
     """Tests for GitHubClient.execute() environment configuration.
 
@@ -457,6 +521,90 @@ class TestGetChangedFilesInPush:
             assert any(".." in arg and "..." not in arg for arg in call_args), (
                 f"Expected two-dot syntax (..) in git diff, got: {call_args}"
             )
+
+
+class TestIsBranchSwitchingCheckout:
+    """Tests for is_branch_switching_checkout()."""
+
+    def test_bare_checkout_is_noop(self):
+        """git checkout with no args is a no-op, not branch switching."""
+        assert not is_branch_switching_checkout([])
+
+    def test_checkout_branch_name_is_switching(self):
+        """git checkout <branch> is branch switching."""
+        assert is_branch_switching_checkout(["main"])
+        assert is_branch_switching_checkout(["origin/main"])
+        assert is_branch_switching_checkout(["egg/feature-branch"])
+
+    def test_checkout_b_is_switching(self):
+        """git checkout -b <branch> is branch creation/switching."""
+        assert is_branch_switching_checkout(["-b", "new-branch"])
+        assert is_branch_switching_checkout(["-b", "egg/fix", "origin/main"])
+
+    def test_checkout_B_is_switching(self):
+        """git checkout -B <branch> is branch creation/switching."""
+        assert is_branch_switching_checkout(["-B", "new-branch"])
+
+    def test_checkout_double_dash_is_file_restore(self):
+        """git checkout -- <file> is a file restore."""
+        assert not is_branch_switching_checkout(["--", "file.txt"])
+        assert not is_branch_switching_checkout(["--", "src/main.py", "README.md"])
+
+    def test_checkout_ours_is_file_restore(self):
+        """git checkout --ours <file> is merge conflict resolution."""
+        assert not is_branch_switching_checkout(["--ours", "file.txt"])
+
+    def test_checkout_theirs_is_file_restore(self):
+        """git checkout --theirs <file> is merge conflict resolution."""
+        assert not is_branch_switching_checkout(["--theirs", "file.txt"])
+
+    def test_checkout_merge_is_file_restore(self):
+        """git checkout --merge <file> is merge conflict resolution."""
+        assert not is_branch_switching_checkout(["--merge", "file.txt"])
+
+    def test_checkout_force_with_branch_is_switching(self):
+        """git checkout --force <branch> is branch switching."""
+        assert is_branch_switching_checkout(["--force", "main"])
+
+    def test_checkout_quiet_no_args_is_noop(self):
+        """git checkout --quiet with no positional args is not switching."""
+        assert not is_branch_switching_checkout(["--quiet"])
+
+    def test_checkout_track_is_switching(self):
+        """git checkout --track <remote-branch> is branch switching."""
+        assert is_branch_switching_checkout(["--track", "origin/feature"])
+        # Note: -t is NOT tested here because FLAG_NORMALIZATION maps -t to
+        # --tags, so validate_git_args() rejects `git checkout -t` before it
+        # ever reaches is_branch_switching_checkout().
+
+
+class TestIsBranchSwitchingOperation:
+    """Tests for is_branch_switching_operation()."""
+
+    def test_switch_is_switching(self):
+        """git switch with args is branch switching."""
+        assert is_branch_switching_operation("switch", ["main"])
+        assert is_branch_switching_operation("switch", ["--create", "new-branch"])
+
+    def test_bare_switch_is_noop(self):
+        """git switch with no args just prints the current branch — not switching."""
+        assert not is_branch_switching_operation("switch", [])
+
+    def test_checkout_delegates_to_checkout_check(self):
+        """checkout delegates to is_branch_switching_checkout."""
+        # Branch switching
+        assert is_branch_switching_operation("checkout", ["main"])
+        assert is_branch_switching_operation("checkout", ["-b", "new-branch"])
+        # File restore
+        assert not is_branch_switching_operation("checkout", ["--", "file.txt"])
+        assert not is_branch_switching_operation("checkout", ["--ours", "file.txt"])
+
+    def test_other_operations_not_switching(self):
+        """Other git operations are not branch switching."""
+        assert not is_branch_switching_operation("status", [])
+        assert not is_branch_switching_operation("commit", ["-m", "msg"])
+        assert not is_branch_switching_operation("restore", ["--staged", "file.txt"])
+        assert not is_branch_switching_operation("log", ["--oneline"])
 
 
 if __name__ == "__main__":

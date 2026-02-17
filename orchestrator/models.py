@@ -57,7 +57,7 @@ class DecisionStatus(StrEnum):
 
     PENDING = "pending"
     RESOLVED = "resolved"
-    TIMEOUT = "timeout"
+    TIMEOUT = "timeout"  # Vestigial: kept for backwards compatibility with persisted pipeline state
     CANCELLED = "cancelled"
 
 
@@ -77,7 +77,6 @@ class AgentRole(StrEnum):
     # Refine-phase roles
     REFINER = "refiner"
     # Reviewer roles (specific subtypes)
-    REVIEWER_UNIFIED = "reviewer_unified"
     REVIEWER_CODE = "reviewer_code"
     REVIEWER_CONTRACT = "reviewer_contract"
     REVIEWER_AGENT_DESIGN = "reviewer_agent_design"
@@ -88,7 +87,6 @@ class AgentRole(StrEnum):
 class ReviewerType(StrEnum):
     """Reviewer specialization types matching GHA reviewer matrix."""
 
-    UNIFIED = "unified"
     AGENT_DESIGN = "agent-design"
     CODE = "code"
     CONTRACT = "contract"
@@ -152,7 +150,6 @@ class HITLDecision(BaseModel):
     created_at: datetime = Field(default_factory=datetime.utcnow, description="When created")
     resolved_at: datetime | None = Field(default=None, description="When resolved")
     resolution: str | None = Field(default=None, description="Human's response")
-    timeout_seconds: int = Field(default=3600, ge=60, description="Timeout in seconds")
 
 
 class CycleTiming(BaseModel):
@@ -161,6 +158,10 @@ class CycleTiming(BaseModel):
     cycle: int = Field(..., description="Cycle number (0-indexed)")
     started_at: datetime = Field(..., description="When this cycle's work began")
     completed_at: datetime | None = Field(default=None, description="When this cycle ended")
+    commit_sha: str | None = Field(
+        default=None,
+        description="HEAD commit SHA at cycle start, used for delta reviews",
+    )
 
 
 class PhaseExecution(BaseModel):
@@ -206,9 +207,6 @@ class PipelineConfig(BaseModel):
         default=3,
         ge=1,
         description="Max HITL revision cycles per phase (independent of agentic review budget)",
-    )
-    decision_timeout: int = Field(
-        default=3600, ge=60, description="HITL decision timeout in seconds"
     )
     hitl_gates: bool = Field(
         default=True, description="Pause for human approval after refine and plan phases"
@@ -276,7 +274,6 @@ class Pipeline(BaseModel):
             id=decision_id,
             question=question,
             options=options or [],
-            timeout_seconds=self.config.decision_timeout,
         )
         self.decisions.append(decision)
         self.updated_at = datetime.utcnow()

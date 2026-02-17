@@ -466,6 +466,7 @@ class SessionManager:
             pipeline_id: Optional pipeline run ID for multi-agent correlation
             agent_role: Optional agent role (e.g., "coder", "tester") for checkpoint metadata
             claude_code_version: Optional Claude Code version string
+            branch: Optional git branch for non-pushing pipeline sessions
 
         Returns:
             Tuple of (session_token, Session)

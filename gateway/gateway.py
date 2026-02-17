@@ -68,7 +68,9 @@ try:
         get_token_for_repo,
         git_cmd,
         is_branch_switch,
+        is_branch_switching_operation,
         is_repos_parent_directory,
+        resolve_remote_url,
         validate_git_args,
         validate_repo_path,
     )
@@ -124,7 +126,9 @@ except ImportError:
         get_token_for_repo,
         git_cmd,
         is_branch_switch,
+        is_branch_switching_operation,
         is_repos_parent_directory,
+        resolve_remote_url,
         validate_git_args,
         validate_repo_path,
     )
@@ -517,20 +521,9 @@ def git_push() -> tuple[Response, int] | Response:
     exec_path = map_container_path_to_worktree(repo_path, container_id, "push")
 
     # Get remote URL to determine repo
-    try:
-        result = subprocess.run(
-            git_cmd("remote", "get-url", remote),
-            cwd=exec_path,
-            capture_output=True,
-            text=True,
-            timeout=10,
-            check=False,
-        )
-        if result.returncode != 0:
-            return make_error(f"Failed to get remote URL: {result.stderr}")
-        remote_url = result.stdout.strip()
-    except Exception as e:
-        return make_error(f"Failed to get remote URL: {e}")
+    remote_url, url_error = resolve_remote_url(remote, exec_path)
+    if url_error:
+        return make_error(url_error)
 
     # Extract repo from URL
     repo = extract_repo_from_remote(remote_url)
@@ -1136,6 +1129,38 @@ def git_execute() -> tuple[Response, int] | Response:
 
     # Map container path to worktree path if container_id is provided
     exec_path = map_container_path_to_worktree(repo_path, container_id, operation)
+    is_worktree = exec_path != repo_path
+
+    # SECURITY: Enforce branch isolation in pipeline worktree sessions.
+    # Pipeline agents in worktrees must stay on their assigned branch.
+    # Interactive sessions are unrestricted even if they use worktrees.
+    # We detect pipeline sessions by the presence of pipeline_id on the
+    # session (set for both "issue" and "local" pipeline modes), rather
+    # than checking session_mode, because issue-mode pipelines use
+    # session_mode="public" while local-mode pipelines use "local".
+    # See issue #773.
+    session = getattr(g, "session", None)
+    is_pipeline = session is not None and getattr(session, "pipeline_id", None) is not None
+    if is_pipeline and is_worktree and is_branch_switching_operation(operation, validated_args):
+        audit_log(
+            "git_execute_blocked",
+            operation,
+            success=False,
+            details={
+                "repo_path": repo_path,
+                "git_args": args,
+                "container_id": container_id,
+                "pipeline_id": session.pipeline_id,
+                "session_mode": getattr(g, "session_mode", None),
+                "reason": "Branch switching blocked in pipeline worktree session",
+            },
+        )
+        return make_error(
+            "Branch switching is not allowed in pipeline worktree sessions. "
+            "You are locked to your assigned branch. "
+            "Use 'git restore' for file operations instead of 'git checkout'.",
+            status_code=403,
+        )
 
     # SECURITY: Validate staged files at commit time for pipeline sessions.
     # This is an early-catch complement to push-time validation — prevents the
@@ -1361,20 +1386,9 @@ def git_fetch() -> tuple[Response, int] | Response:
     exec_path = map_container_path_to_worktree(repo_path, container_id, operation)
 
     # Get remote URL to determine repo
-    try:
-        result = subprocess.run(
-            git_cmd("remote", "get-url", remote),
-            cwd=exec_path,
-            capture_output=True,
-            text=True,
-            timeout=10,
-            check=False,
-        )
-        if result.returncode != 0:
-            return make_error(f"Failed to get remote URL: {result.stderr}")
-        remote_url = result.stdout.strip()
-    except Exception as e:
-        return make_error(f"Failed to get remote URL: {e}")
+    remote_url, url_error = resolve_remote_url(remote, exec_path)
+    if url_error:
+        return make_error(url_error)
 
     # Extract repo from URL
     repo = extract_repo_from_remote(remote_url)
@@ -2681,6 +2695,7 @@ def session_create() -> tuple[Response, int] | Response:
     pr_number = data.get("pr_number")  # Optional GitHub PR number
     agent_role = data.get("agent_role")  # Optional agent role
     claude_code_version = data.get("claude_code_version")  # Optional Claude Code version
+    branch = data.get("branch")  # Optional git branch for non-pushing sessions
 
     # Validate required fields
     if not container_id:
@@ -2708,6 +2723,8 @@ def session_create() -> tuple[Response, int] | Response:
     if pipeline_id is not None:
         if not isinstance(pipeline_id, str):
             return make_error("Invalid pipeline_id: must be a string")
+        if not pipeline_id:
+            return make_error("Invalid pipeline_id: must be a non-empty string")
         if len(pipeline_id) > 256:
             return make_error("Invalid pipeline_id: must be 256 characters or fewer")
 
@@ -2732,6 +2749,13 @@ def session_create() -> tuple[Response, int] | Response:
             return make_error("Invalid claude_code_version: must be a string")
         if len(claude_code_version) > 64:
             return make_error("Invalid claude_code_version: must be 64 characters or fewer")
+
+    # Validate branch if provided
+    if branch is not None:
+        if not isinstance(branch, str):
+            return make_error("Invalid branch: must be a string")
+        if len(branch) > 256:
+            return make_error("Invalid branch: must be 256 characters or fewer")
 
     # Step 1: Query visibility for all repos
     repo_visibilities = {}
@@ -2842,6 +2866,7 @@ def session_create() -> tuple[Response, int] | Response:
         pr_number=pr_number,
         agent_role=agent_role,
         claude_code_version=claude_code_version,
+        branch=branch,
     )
 
     # Pre-populate checkpoint context so non-pushing sessions (reviewers,
@@ -2887,6 +2912,40 @@ def session_create() -> tuple[Response, int] | Response:
     )
 
 
+def _cleanup_container_worktrees(
+    container_id: str,
+) -> tuple[list[str], list[str]]:
+    """Clean up all worktrees for a container.
+
+    Returns:
+        Tuple of (deleted_repo_names, errors).
+    """
+    manager = get_worktree_manager()
+    worktree_dir = manager.worktree_base / container_id
+    deleted_worktrees: list[str] = []
+    errors: list[str] = []
+    if worktree_dir.exists():
+        for repo_dir in list(worktree_dir.iterdir()):
+            if not repo_dir.is_dir():
+                continue
+            repo_name = repo_dir.name
+            try:
+                result = manager.remove_worktree(
+                    container_id=container_id,
+                    repo_name=repo_name,
+                    force=True,
+                )
+                if result.success:
+                    deleted_worktrees.append(repo_name)
+                elif result.error:
+                    errors.append(f"{repo_name}: {result.error}")
+                else:
+                    errors.append(f"{repo_name}: removal failed")
+            except Exception as e:
+                errors.append(f"{repo_name}: unexpected error - {e}")
+    return deleted_worktrees, errors
+
+
 @app.route("/api/v1/sessions/<session_token>", methods=["DELETE"])
 @require_launcher_auth
 def session_delete(session_token: str) -> tuple[Response, int] | Response:
@@ -2916,37 +2975,20 @@ def session_delete(session_token: str) -> tuple[Response, int] | Response:
         return make_error("Session not found", status_code=404)
 
     # Clean up worktrees for this container
-    if container_id:
-        manager = get_worktree_manager()
-        worktree_dir = manager.worktree_base / container_id
-        if worktree_dir.exists():
-            deleted_worktrees = []
-            for repo_dir in list(worktree_dir.iterdir()):
-                if repo_dir.is_dir():
-                    result = manager.remove_worktree(
-                        container_id=container_id,
-                        repo_name=repo_dir.name,
-                        force=True,
-                    )
-                    if result.success:
-                        deleted_worktrees.append(repo_dir.name)
+    deleted_worktrees, worktree_errors = (
+        _cleanup_container_worktrees(container_id) if container_id else ([], [])
+    )
 
-            audit_log(
-                "session_deleted",
-                "session_delete",
-                success=True,
-                details={
-                    "container_id": container_id,
-                    "worktrees_deleted": deleted_worktrees,
-                },
-            )
-        else:
-            audit_log(
-                "session_deleted",
-                "session_delete",
-                success=True,
-                details={"container_id": container_id},
-            )
+    audit_log(
+        "session_deleted",
+        "session_delete",
+        success=True,
+        details={
+            "container_id": container_id,
+            "worktrees_deleted": deleted_worktrees,
+            "errors": worktree_errors if worktree_errors else None,
+        },
+    )
 
     return make_success("Session deleted")
 
@@ -2970,11 +3012,18 @@ def session_delete_by_container(container_id: str) -> tuple[Response, int] | Res
     if not deleted:
         return make_error("Session not found for container", status_code=404)
 
+    # Clean up worktrees for this container
+    deleted_worktrees, worktree_errors = _cleanup_container_worktrees(container_id)
+
     audit_log(
         "session_deleted",
         "session_delete_by_container",
         success=True,
-        details={"container_id": container_id},
+        details={
+            "container_id": container_id,
+            "worktrees_deleted": deleted_worktrees,
+            "errors": worktree_errors if worktree_errors else None,
+        },
     )
 
     return make_success("Session deleted")

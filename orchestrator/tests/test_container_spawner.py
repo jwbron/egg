@@ -221,25 +221,24 @@ class TestSpawnAgentContainer:
 
         assert result is not None
 
-    def test_spawn_continues_without_session(
+    def test_spawn_raises_on_session_failure(
         self, spawner, mock_gateway_client, mock_docker_client
     ):
-        """Test that spawn continues even if session registration fails."""
+        """Test that spawn raises ContainerSpawnError if session registration fails."""
         mock_gateway_client.check_health.return_value = GatewayHealth(
             healthy=True,
             status="healthy",
         )
         mock_gateway_client.register_session.side_effect = GatewayError("Registration failed")
 
-        # Should not raise - just spawn without session
-        result = spawner.spawn_agent_container(
-            pipeline_id="issue-123",
-            agent_role=AgentRole.CODER,
-            issue_number=123,
-        )
+        with pytest.raises(ContainerSpawnError) as exc_info:
+            spawner.spawn_agent_container(
+                pipeline_id="issue-123",
+                agent_role=AgentRole.CODER,
+                issue_number=123,
+            )
 
-        assert result.session_info is None
-        assert result.container_info is not None
+        assert "session" in str(exc_info.value).lower()
 
     def test_spawn_sets_labels(self, spawner, mock_docker_client):
         """Test that proper labels are set on container."""
@@ -256,6 +255,35 @@ class TestSpawnAgentContainer:
         assert labels.get("egg.pipeline.id") == "issue-456"
         assert labels.get("egg.agent.role") == "documenter"
         assert labels.get("egg.issue.number") == "456"
+
+
+class TestSpawnBranchPropagation:
+    """Tests for branch parameter propagation to gateway registration."""
+
+    def test_branch_passed_to_register_session(self, spawner, mock_gateway_client):
+        """Branch param is threaded to gateway register_session."""
+        spawner.spawn_agent_container(
+            pipeline_id="issue-123",
+            agent_role=AgentRole.CODER,
+            issue_number=123,
+            branch="egg/fix-auth-bug",
+        )
+
+        mock_gateway_client.register_session.assert_called()
+        call_kwargs = mock_gateway_client.register_session.call_args.kwargs
+        assert call_kwargs.get("branch") == "egg/fix-auth-bug"
+
+    def test_branch_none_by_default(self, spawner, mock_gateway_client):
+        """Branch is None when not provided."""
+        spawner.spawn_agent_container(
+            pipeline_id="issue-123",
+            agent_role=AgentRole.CODER,
+            issue_number=123,
+        )
+
+        mock_gateway_client.register_session.assert_called()
+        call_kwargs = mock_gateway_client.register_session.call_args.kwargs
+        assert call_kwargs.get("branch") is None
 
 
 class TestStopAgentContainer:

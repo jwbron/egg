@@ -12,6 +12,7 @@ import asyncio
 import contextlib
 import json
 import logging
+import shutil
 import subprocess
 from collections.abc import AsyncIterator, Callable
 from pathlib import Path
@@ -37,15 +38,31 @@ _READ_CHUNK_SIZE = 1024 * 1024
 _BUFFER_WARNING_THRESHOLD = 50 * 1024 * 1024
 
 
+def _resolve_claude_bin() -> str | None:
+    """Find the claude binary in PATH.
+
+    Returns:
+        Absolute path to claude binary, or None if not found.
+    """
+    return shutil.which("claude")
+
+
 def _check_claude_version() -> str | None:
     """Check Claude Code CLI version and log warning if too old.
 
     Returns:
         Version string if available, None otherwise.
     """
+    claude_bin = _resolve_claude_bin()
+    if not claude_bin:
+        logger.warning(
+            "Claude Code CLI not found in PATH. Rebuild the sandbox image with: egg --reset"
+        )
+        return None
+
     try:
         result = subprocess.run(  # noqa: EGG100 - version check for Claude CLI
-            ["claude", "--version"],
+            [claude_bin, "--version"],
             capture_output=True,
             text=True,
             timeout=10,
@@ -251,10 +268,21 @@ async def run_agent_async(
     cwd_path = Path(cwd) if cwd else config.cwd
     model = model or DEFAULT_MODEL
 
+    # Resolve claude binary path
+    claude_bin = _resolve_claude_bin()
+    if not claude_bin:
+        return AgentResult(
+            success=False,
+            stdout="",
+            stderr="Claude Code CLI not found in PATH",
+            returncode=-1,
+            error="Claude Code CLI not found in PATH. Rebuild the sandbox image with: egg --reset",
+        )
+
     # Build command
     # Note: --verbose is required when using --output-format stream-json
     cmd = [
-        "claude",
+        claude_bin,
         "--print",
         "--dangerously-skip-permissions",
         "--verbose",

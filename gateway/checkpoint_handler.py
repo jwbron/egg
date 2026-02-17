@@ -149,7 +149,6 @@ _ROLE_TO_AGENT_TYPE = {
     "documenter": AgentType.DOCUMENTER,
     "integrator": AgentType.INTEGRATOR,
     "reviewer": AgentType.REVIEWER,
-    "reviewer_unified": AgentType.REVIEWER,
     "reviewer_code": AgentType.REVIEWER,
     "reviewer_contract": AgentType.REVIEWER,
     "reviewer_agent_design": AgentType.REVIEWER,
@@ -161,6 +160,38 @@ _ROLE_TO_AGENT_TYPE = {
     "refiner": AgentType.REFINER,
     "checker": AgentType.CHECKER,
 }
+
+
+def _extract_repo_from_remote(repo_path: str) -> str | None:
+    """Extract owner/repo from the git remote URL of a repository.
+
+    Args:
+        repo_path: Path to the git repository
+
+    Returns:
+        Repository in "owner/repo" format, or None if extraction fails.
+    """
+    try:
+        result = subprocess.run(
+            ["git", "remote", "get-url", "origin"],
+            cwd=repo_path,
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+        if result.returncode != 0 or not result.stdout.strip():
+            return None
+
+        remote_url = result.stdout.strip()
+        match = re.search(
+            r"github\.com[:/]([^/]+)/([^/\.]+?)(?:\.git)?$", remote_url
+        )
+        if match:
+            return f"{match.group(1)}/{match.group(2)}"
+    except Exception:
+        pass
+    return None
 
 
 def _resolve_agent_type(agent_role: str | None) -> AgentType:
@@ -355,6 +386,7 @@ class CheckpointHandler:
 
         try:
             container_id = session.container_id if session else None
+            repo = self._resolve_repo(repo_path, session)
 
             if not container_id:
                 logger.debug(
@@ -370,6 +402,7 @@ class CheckpointHandler:
                     issue_number=issue_number,
                     pipeline_phase=pipeline_phase,
                     push_sha=push_sha,
+                    repo=repo,
                 )
 
             buffer_path = get_proxy_buffer_path(container_id)
@@ -389,6 +422,7 @@ class CheckpointHandler:
                     issue_number=issue_number,
                     pipeline_phase=pipeline_phase,
                     push_sha=push_sha,
+                    repo=repo,
                 )
 
             try:
@@ -413,6 +447,7 @@ class CheckpointHandler:
                     issue_number=issue_number,
                     pipeline_phase=pipeline_phase,
                     push_sha=push_sha,
+                    repo=repo,
                 )
 
             # Apply redaction
@@ -449,6 +484,7 @@ class CheckpointHandler:
                 agent_type=agent_type,
                 pipeline_phase=pipeline_phase,
                 pipeline_id=pipeline_id,
+                repo=repo,
                 session=session_metadata,
                 transcript=transcript,
                 files_touched=file_operations,
@@ -562,6 +598,7 @@ class CheckpointHandler:
             checkpoint_id = generate_checkpoint_id_v2(session_id, now)
 
             pipeline_id = self._resolve_pipeline_id(session)
+            repo = self._resolve_repo(repo_path, session)
 
             checkpoint = CheckpointV2(
                 id=checkpoint_id,
@@ -574,6 +611,7 @@ class CheckpointHandler:
                 agent_type=agent_type,
                 pipeline_phase=session.phase,
                 pipeline_id=pipeline_id,
+                repo=repo,
                 session=session_metadata,
                 transcript=transcript,
                 files_touched=file_operations,
@@ -614,6 +652,7 @@ class CheckpointHandler:
         pipeline_phase: str | None = None,
         push_sha: str | None = None,
         session_status: SessionStatus | None = None,
+        repo: str | None = None,
     ) -> CheckpointV2:
         """Create a minimal v2 checkpoint without transcript data."""
         session_id = session.container_id if session else "unknown"
@@ -648,10 +687,33 @@ class CheckpointHandler:
             agent_type=agent_type,
             pipeline_phase=pipeline_phase,
             pipeline_id=pipeline_id,
+            repo=repo,
             session=session_metadata,
             created_at=now,
             session_started_at=session.created_at if session else now,
         )
+
+    def _resolve_repo(
+        self, repo_path: str | None, session: Session | None
+    ) -> str | None:
+        """Resolve source repository in owner/repo format.
+
+        Resolution order:
+        1. Extract from git remote URL of repo_path
+        2. Fall back to session.last_repo_path (if available)
+        """
+        paths_to_try = []
+        if repo_path:
+            paths_to_try.append(repo_path)
+        if session and session.last_repo_path and session.last_repo_path != repo_path:
+            paths_to_try.append(session.last_repo_path)
+
+        for path in paths_to_try:
+            repo = _extract_repo_from_remote(path)
+            if repo:
+                return repo
+
+        return None
 
     def _resolve_issue_number(
         self, issue_number: int | None, session: Session | None

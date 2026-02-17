@@ -185,6 +185,7 @@ class ContainerSpawner:
         phase: str | None = None,
         command: list[str] | None = None,
         certs_volume: str | None = None,
+        branch: str | None = None,
     ) -> SpawnedContainer:
         """Spawn a container for an agent.
 
@@ -323,6 +324,7 @@ class ContainerSpawner:
                     agent_role=agent_role.value,
                     issue_number=issue_number,
                     claude_code_version=os.environ.get("CLAUDE_CODE_VERSION"),
+                    branch=branch,
                 )
                 session_token = session_info.session_token
 
@@ -333,13 +335,9 @@ class ContainerSpawner:
                 )
 
             except GatewayError as e:
-                logger.warning(
-                    "Failed to pre-register gateway session",
-                    container_name=container_name,
-                    error=str(e),
-                )
-                # Continue without session - container can still run
-                # but won't have gateway access
+                raise ContainerSpawnError(
+                    f"Failed to register gateway session for {container_name}: {e}"
+                ) from e
 
             # Build spawner-specific env vars that override the shared defaults.
             # CONTAINER_ID must match the worktree container_id so the gateway
@@ -349,6 +347,7 @@ class ContainerSpawner:
                 "CONTAINER_ID": pipeline_id,
                 "EGG_REPO_PATH": "/home/egg/repos",
                 "EGG_AGENT_ROLE": agent_role.value,
+                "EGG_PIPELINE_ID": pipeline_id,
             }
             if issue_number is not None:
                 spawner_env["EGG_ISSUE_NUMBER"] = str(issue_number)

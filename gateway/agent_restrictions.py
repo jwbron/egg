@@ -45,7 +45,6 @@ class AgentRole:
     # Refine-phase roles
     REFINER = "refiner"
     # Reviewer roles
-    REVIEWER_UNIFIED = "reviewer_unified"
     REVIEWER_CODE = "reviewer_code"
     REVIEWER_CONTRACT = "reviewer_contract"
     REVIEWER_AGENT_DESIGN = "reviewer_agent_design"
@@ -391,13 +390,6 @@ _REVIEWER_BLOCKED = [
     ".github/",
 ]
 
-REVIEWER_UNIFIED_PATTERNS = AgentFilePattern(
-    role=AgentRole.REVIEWER_UNIFIED,
-    description="Unified reviewer agent: reviews and agent-outputs only",
-    allowed_patterns=_REVIEWER_ALLOWED,
-    blocked_patterns=_REVIEWER_BLOCKED,
-)
-
 REVIEWER_CODE_PATTERNS = AgentFilePattern(
     role=AgentRole.REVIEWER_CODE,
     description="Code reviewer agent: reviews and agent-outputs only",
@@ -465,7 +457,6 @@ AGENT_PATTERNS: dict[str, AgentFilePattern] = {
     AgentRole.ARCHITECT: ARCHITECT_PATTERNS,
     AgentRole.TASK_PLANNER: TASK_PLANNER_PATTERNS,
     AgentRole.RISK_ANALYST: RISK_ANALYST_PATTERNS,
-    AgentRole.REVIEWER_UNIFIED: REVIEWER_UNIFIED_PATTERNS,
     AgentRole.REVIEWER_CODE: REVIEWER_CODE_PATTERNS,
     AgentRole.REVIEWER_CONTRACT: REVIEWER_CONTRACT_PATTERNS,
     AgentRole.REVIEWER_AGENT_DESIGN: REVIEWER_AGENT_DESIGN_PATTERNS,

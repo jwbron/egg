@@ -154,7 +154,7 @@ Returns a Server-Sent Events (SSE) stream for real-time pipeline updates.
 - `pipeline.*`: Pipeline lifecycle events (created, started, completed, failed, cancelled)
 - `phase.*`: Phase transition events (started, completed, failed)
 - `agent.*`: Agent lifecycle events (started, completed, failed, timeout)
-- `decision.*`: HITL decision events (created, resolved, timeout)
+- `decision.*`: HITL decision events (created, resolved)
 - `container.*`: Container lifecycle events (spawned, stopped, removed) — *planned; not yet emitted via SSE*
 - `done`: Stream ending (pipeline terminal state or timeout)
 - `error`: Error occurred
@@ -245,19 +245,18 @@ The orchestrator runs multiple specialized reviewers in parallel, with phase-spe
 | Phase | Reviewers | Focus |
 |-------|-----------|-------|
 | **Refine** | Refine, Agent-Design | Analysis quality, agent-mode alignment |
-| **Plan** | Unified, Plan | Plan quality, plan-specific criteria |
-| **Implement** | Unified, Contract, Code | Quality, contract, security |
+| **Plan** | Plan | Plan quality, task breakdown, alignment with analysis |
+| **Implement** | Contract, Code | Contract fulfillment, security, correctness |
 
 **Specialized Reviewers:**
 
 | Reviewer | Focus |
 |----------|-------|
-| **Unified** | Phase-specific quality criteria (general) |
 | **Refine** | Analysis quality, research depth, options evaluation |
-| **Plan** | Task breakdown, dependencies, test strategy |
+| **Plan** | Task breakdown, dependencies, test strategy, alignment with analysis |
 | **Agent-Design** | Agent-mode design alignment (anti-patterns) |
 | **Contract** | Task completion, acceptance criteria |
-| **Code** | Security, correctness, robustness |
+| **Code** | Security, correctness, robustness, testing, documentation |
 
 **Verdict Aggregation:**
 - All reviewers run in parallel
@@ -271,7 +270,6 @@ The contract tracks per-reviewer verdicts for debugging:
 ```json
 {
   "implement_reviewer_verdicts": {
-    "unified": "approved",
     "contract": "needs_revision",
     "code": "approved"
   }
@@ -325,19 +323,17 @@ The refine and plan phases include an automated internal review step before huma
 │   ├── {identifier}-analysis.md     # Refine phase draft
 │   └── {identifier}-plan.md         # Plan phase draft
 └── reviews/
-    ├── {identifier}-refine-review.json       # Unified review verdict
-    ├── {identifier}-refine-agent-design.json # Agent-design review verdict
-    ├── {identifier}-plan-review.json         # Unified review verdict
-    ├── {identifier}-plan-plan.json           # Plan review verdict
-    ├── {identifier}-implement-review.json    # Unified review verdict
-    ├── {identifier}-implement-contract.json
-    └── {identifier}-implement-code.json
+    ├── {identifier}-refine-refine-review.json        # Refine review verdict
+    ├── {identifier}-refine-agent-design-review.json   # Agent-design review verdict
+    ├── {identifier}-plan-plan-review.json             # Plan review verdict
+    ├── {identifier}-implement-code-review.json        # Code review verdict
+    └── {identifier}-implement-contract-review.json    # Contract review verdict
 ```
 
 **Review Verdict JSON Schema:**
 ```json
 {
-  "reviewer": "unified" | "agent-design" | "contract" | "code",
+  "reviewer": "refine" | "plan" | "agent-design" | "contract" | "code",
   "verdict": "approved" | "needs_revision",
   "summary": "Brief summary of findings",
   "feedback": "Detailed feedback (empty if approved)",
@@ -661,7 +657,25 @@ The local orchestrator's decision queue (`orchestrator/decision_queue.py`):
 4. Updates contract with resolution
 5. Resumes pipeline from paused state
 
-## External Failure Handling
+## Failure Handling
+
+### Pipeline Failure Recovery
+
+When a pipeline phase fails (container exit code non-zero), the orchestrator:
+
+1. **Sets pipeline status to FAILED**: Marks the phase and pipeline as failed during phase execution
+2. **Emits failure event**: Sends `pipeline.failed` event to terminate SSE streams
+3. **Best-effort push**: Attempts to push the worktree branch to remote as a backup (using a temporary session token)
+4. **Preserves worktree**: Skips cleanup in the `finally` block so in-progress work is not lost
+
+**Restart behavior**:
+- `egg-sdlc` CLI detects failed pipelines and automatically restarts from the failed phase (preserving worktrees)
+- Orchestrator API `POST /api/v1/pipelines/{id}/start` resets the failed phase to pending and resumes execution
+- Worktrees remain intact across restarts, so agents can continue from their last commit
+
+**Implementation**: See `orchestrator/routes/pipelines.py:_run_pipeline()` and `orchestrator/gateway_client.py:push_worktree_branch()` for the failure path logic.
+
+### External Failure Handling
 
 The pipeline handles external failures gracefully:
 

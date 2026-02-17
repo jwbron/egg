@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 
 # Import from conftest-loaded modules
 from checkpoint_handler import (
+    _extract_repo_from_remote,
     _resolve_agent_type,
     _resolve_github_token,
     capture_session_end_checkpoint,
@@ -977,7 +978,6 @@ class TestResolveAgentType:
         """Reviewer subtypes all map to REVIEWER."""
         from egg_contracts.checkpoints import AgentType
 
-        assert _resolve_agent_type("reviewer_unified") == AgentType.REVIEWER
         assert _resolve_agent_type("reviewer_code") == AgentType.REVIEWER
         assert _resolve_agent_type("reviewer_contract") == AgentType.REVIEWER
         assert _resolve_agent_type("reviewer_agent_design") == AgentType.REVIEWER
@@ -1008,6 +1008,174 @@ class TestResolveAgentType:
         from egg_contracts.checkpoints import AgentType
 
         assert _resolve_agent_type("") == AgentType.UNKNOWN
+
+
+class TestExtractRepoFromRemote:
+    """Tests for _extract_repo_from_remote helper."""
+
+    @patch("checkpoint_handler.subprocess.run")
+    def test_https_url(self, mock_run):
+        """Extracts owner/repo from HTTPS remote URL."""
+        mock_run.return_value = MagicMock(
+            returncode=0,
+            stdout="https://github.com/jwbron/egg.git\n",
+        )
+        assert _extract_repo_from_remote("/some/repo") == "jwbron/egg"
+
+    @patch("checkpoint_handler.subprocess.run")
+    def test_https_url_without_git_suffix(self, mock_run):
+        """Extracts owner/repo from HTTPS URL without .git suffix."""
+        mock_run.return_value = MagicMock(
+            returncode=0,
+            stdout="https://github.com/jwbron/egg\n",
+        )
+        assert _extract_repo_from_remote("/some/repo") == "jwbron/egg"
+
+    @patch("checkpoint_handler.subprocess.run")
+    def test_ssh_url(self, mock_run):
+        """Extracts owner/repo from SSH remote URL."""
+        mock_run.return_value = MagicMock(
+            returncode=0,
+            stdout="git@github.com:jwbron/egg.git\n",
+        )
+        assert _extract_repo_from_remote("/some/repo") == "jwbron/egg"
+
+    @patch("checkpoint_handler.subprocess.run")
+    def test_ssh_url_without_git_suffix(self, mock_run):
+        """Extracts owner/repo from SSH URL without .git suffix."""
+        mock_run.return_value = MagicMock(
+            returncode=0,
+            stdout="git@github.com:entireio/cli\n",
+        )
+        assert _extract_repo_from_remote("/some/repo") == "entireio/cli"
+
+    @patch("checkpoint_handler.subprocess.run")
+    def test_non_github_url(self, mock_run):
+        """Returns None for non-GitHub remote URLs."""
+        mock_run.return_value = MagicMock(
+            returncode=0,
+            stdout="https://gitlab.com/owner/repo.git\n",
+        )
+        assert _extract_repo_from_remote("/some/repo") is None
+
+    @patch("checkpoint_handler.subprocess.run")
+    def test_git_command_failure(self, mock_run):
+        """Returns None when git command fails."""
+        mock_run.return_value = MagicMock(
+            returncode=128,
+            stdout="",
+        )
+        assert _extract_repo_from_remote("/some/repo") is None
+
+    @patch("checkpoint_handler.subprocess.run")
+    def test_empty_output(self, mock_run):
+        """Returns None when git returns empty output."""
+        mock_run.return_value = MagicMock(
+            returncode=0,
+            stdout="  \n",
+        )
+        assert _extract_repo_from_remote("/some/repo") is None
+
+    @patch("checkpoint_handler.subprocess.run")
+    def test_subprocess_exception(self, mock_run):
+        """Returns None when subprocess raises an exception."""
+        mock_run.side_effect = OSError("No such file or directory")
+        assert _extract_repo_from_remote("/some/repo") is None
+
+    @patch("checkpoint_handler.subprocess.run")
+    def test_timeout_exception(self, mock_run):
+        """Returns None on subprocess timeout."""
+        mock_run.side_effect = subprocess.TimeoutExpired(cmd="git", timeout=10)
+        assert _extract_repo_from_remote("/some/repo") is None
+
+    @patch("checkpoint_handler.subprocess.run")
+    def test_passes_repo_path_as_cwd(self, mock_run):
+        """Passes repo_path as cwd to subprocess."""
+        mock_run.return_value = MagicMock(
+            returncode=0,
+            stdout="https://github.com/owner/repo.git\n",
+        )
+        _extract_repo_from_remote("/home/egg/repos/myrepo")
+        mock_run.assert_called_once()
+        assert mock_run.call_args[1]["cwd"] == "/home/egg/repos/myrepo"
+
+
+class TestResolveRepo:
+    """Tests for CheckpointHandler._resolve_repo."""
+
+    @patch("checkpoint_handler._extract_repo_from_remote")
+    def test_from_repo_path(self, mock_extract):
+        """Resolves repo from repo_path."""
+        from checkpoint_handler import CheckpointHandler
+
+        mock_extract.return_value = "jwbron/egg"
+        handler = CheckpointHandler()
+        result = handler._resolve_repo("/home/egg/repos/egg", None)
+        assert result == "jwbron/egg"
+        mock_extract.assert_called_once_with("/home/egg/repos/egg")
+
+    @patch("checkpoint_handler._extract_repo_from_remote")
+    def test_fallback_to_session_last_repo_path(self, mock_extract):
+        """Falls back to session.last_repo_path when repo_path extraction fails."""
+        from checkpoint_handler import CheckpointHandler
+
+        mock_extract.side_effect = lambda path: (
+            "entireio/cli" if path == "/home/egg/repos/cli" else None
+        )
+        handler = CheckpointHandler()
+        session = _make_test_session()
+        session.last_repo_path = "/home/egg/repos/cli"
+        result = handler._resolve_repo("/home/egg/repos/egg", session)
+        assert result == "entireio/cli"
+
+    @patch("checkpoint_handler._extract_repo_from_remote")
+    def test_no_duplicate_extraction_when_paths_match(self, mock_extract):
+        """Does not try the same path twice when repo_path == session.last_repo_path."""
+        from checkpoint_handler import CheckpointHandler
+
+        mock_extract.return_value = None
+        handler = CheckpointHandler()
+        session = _make_test_session()
+        session.last_repo_path = "/home/egg/repos/egg"
+        result = handler._resolve_repo("/home/egg/repos/egg", session)
+        assert result is None
+        mock_extract.assert_called_once_with("/home/egg/repos/egg")
+
+    @patch("checkpoint_handler._extract_repo_from_remote")
+    def test_none_repo_path_with_session(self, mock_extract):
+        """Uses session.last_repo_path when repo_path is None."""
+        from checkpoint_handler import CheckpointHandler
+
+        mock_extract.return_value = "jwbron/egg"
+        handler = CheckpointHandler()
+        session = _make_test_session()
+        session.last_repo_path = "/home/egg/repos/egg"
+        result = handler._resolve_repo(None, session)
+        assert result == "jwbron/egg"
+        mock_extract.assert_called_once_with("/home/egg/repos/egg")
+
+    @patch("checkpoint_handler._extract_repo_from_remote")
+    def test_none_repo_path_none_session(self, mock_extract):
+        """Returns None when both repo_path and session are None."""
+        from checkpoint_handler import CheckpointHandler
+
+        handler = CheckpointHandler()
+        result = handler._resolve_repo(None, None)
+        assert result is None
+        mock_extract.assert_not_called()
+
+    @patch("checkpoint_handler._extract_repo_from_remote")
+    def test_session_without_last_repo_path(self, mock_extract):
+        """Returns None when repo_path fails and session has no last_repo_path."""
+        from checkpoint_handler import CheckpointHandler
+
+        mock_extract.return_value = None
+        handler = CheckpointHandler()
+        session = _make_test_session()
+        session.last_repo_path = None
+        result = handler._resolve_repo(None, session)
+        assert result is None
+        mock_extract.assert_not_called()
 
 
 class TestResolveGithubToken:

@@ -1,13 +1,12 @@
 """Integration tests for HITL (Human-In-The-Loop) decision edge cases.
 
 Tests thoroughly cover human-in-the-loop decision handling including
-timeouts, rejections, custom inputs, and concurrent decision scenarios.
+rejections, custom inputs, and concurrent decision scenarios.
 
 All tests require Docker and are marked with @pytest.mark.integration.
 """
 
 import concurrent.futures
-import time
 
 import pytest
 import requests
@@ -125,63 +124,6 @@ class TestCustomInputDecision:
                         break
             except requests.RequestException:
                 pass
-            delete_pipeline(orchestrator_url, pipeline_id)
-
-
-class TestDecisionTimeout:
-    """Test decision timeout with short configurable timeout."""
-
-    def test_decision_timeout_transitions_pipeline(self, orchestrator_url: str) -> None:
-        """Pipeline transitions to timeout/failed/cancelled when decision not resolved.
-
-        This test verifies timeout handling if the orchestrator supports
-        decision_timeout_seconds configuration. If the feature is not supported,
-        the test will be skipped rather than passing silently.
-        """
-        data, status = create_pipeline(
-            orchestrator_url,
-            prompt="Test decision timeout",
-            config={
-                "hitl_gates": True,
-                # Short timeout for testing (if supported)
-                "decision_timeout_seconds": 10,
-            },
-        )
-        assert status == 200
-        pipeline_id = data["data"]["pipeline"]["id"]
-
-        try:
-            start_pipeline(orchestrator_url, pipeline_id)
-
-            # Wait for HITL gate
-            status_data = wait_for_awaiting_human(orchestrator_url, pipeline_id, timeout=180)
-            assert status_data["data"]["status"] == "awaiting_human"
-
-            # Don't resolve - wait for timeout to trigger
-            # Give extra time beyond the configured 10s timeout
-            time.sleep(15)
-
-            # Check status
-            resp = requests.get(
-                f"{orchestrator_url}/api/v1/pipelines/{pipeline_id}/status",
-                timeout=10,
-            )
-            assert resp.status_code == 200
-            current_status = resp.json().get("data", {}).get("status", "")
-
-            # If still awaiting_human, the timeout feature is not supported
-            if current_status == "awaiting_human":
-                pytest.skip(
-                    "Decision timeout feature not supported by orchestrator "
-                    "(decision_timeout_seconds config has no effect)"
-                )
-
-            # Timeout should transition to failed, cancelled, or timeout status
-            assert current_status in ("failed", "cancelled", "timeout"), (
-                f"Expected timeout transition to failed/cancelled/timeout, got: {current_status}"
-            )
-
-        finally:
             delete_pipeline(orchestrator_url, pipeline_id)
 
 

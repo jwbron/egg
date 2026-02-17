@@ -61,6 +61,7 @@ def auth_headers():
     mock_session.mode = "public"
     mock_session.container_id = "test-container"
     mock_session.expires_at = None
+    mock_session.pipeline_id = None  # Interactive session, not a pipeline
 
     mock_result = SessionValidationResult(valid=True, session=mock_session)
 
@@ -1121,6 +1122,61 @@ class TestGitPush:
             assert "file restrictions" in data["data"]["hint"]
             assert "Check allowed patterns" in data["data"]["hint"]
 
+    def test_push_with_url_remote(self, client, auth_headers):
+        """Push succeeds when remote is a URL instead of a named remote."""
+        with (
+            patch("subprocess.run") as mock_run,
+            patch.object(gateway, "get_policy_engine") as mock_policy,
+            patch.object(gateway, "get_token_for_repo") as mock_get_token,
+        ):
+
+            def run_side_effect(*args, **kwargs):
+                cmd = args[0] if args else kwargs.get("args", [])
+                result = MagicMock()
+                result.returncode = 0
+                result.stderr = ""
+                # Should NOT see "remote get-url" since remote is already a URL
+                if "remote" in cmd and "get-url" in cmd:
+                    raise AssertionError("Should not call git remote get-url for URL remotes")
+                elif "branch" in cmd and "--show-current" in cmd:
+                    result.stdout = "egg-feature\n"
+                elif "push" in cmd:
+                    result.stdout = "Everything up-to-date\n"
+                else:
+                    result.stdout = ""
+                return result
+
+            mock_run.side_effect = run_side_effect
+
+            # Mock policy approval
+            mock_engine = MagicMock()
+            mock_engine.check_branch_ownership.return_value = PolicyResult(
+                allowed=True,
+                reason="Branch is owned by james-in-a-box",
+                details={"branch": "egg-feature"},
+            )
+            mock_policy.return_value = mock_engine
+
+            # Mock get_token_for_repo to return valid token
+            mock_get_token.return_value = ("test-token", "bot", "")
+
+            response = client.post(
+                "/api/v1/git/push",
+                headers=auth_headers,
+                data=json.dumps(
+                    {
+                        "repo_path": "/home/egg/repos/test-repo",
+                        "remote": "https://github.com/owner/repo.git",
+                        "refspec": "egg-feature",
+                    }
+                ),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 200
+            data = json.loads(response.data)
+            assert data["success"] is True
+
 
 class TestGhPrCreate:
     """Tests for /api/v1/gh/pr/create endpoint."""
@@ -2177,6 +2233,167 @@ class TestGitFetch:
             assert data["success"] is True
             assert "refs/heads/main" in data["data"]["stdout"]
 
+    def test_fetch_with_url_remote(self, client, auth_headers):
+        """Fetch succeeds when remote is a URL instead of a named remote."""
+        with (
+            patch("subprocess.run") as mock_run,
+            patch.object(gateway, "get_token_for_repo") as mock_get_token,
+        ):
+
+            def run_side_effect(*args, **kwargs):
+                cmd = args[0] if args else kwargs.get("args", [])
+                result = MagicMock()
+                result.returncode = 0
+                result.stderr = ""
+                # Should NOT see "remote get-url" since remote is already a URL
+                if "remote" in cmd and "get-url" in cmd:
+                    raise AssertionError("Should not call git remote get-url for URL remotes")
+                elif "fetch" in cmd:
+                    result.stdout = ""
+                else:
+                    result.stdout = ""
+                return result
+
+            mock_run.side_effect = run_side_effect
+            mock_get_token.return_value = ("test-token", "bot", "")
+
+            response = client.post(
+                "/api/v1/git/fetch",
+                headers=auth_headers,
+                data=json.dumps(
+                    {
+                        "repo_path": "/home/egg/repos/test",
+                        "remote": "https://github.com/owner/repo.git",
+                    }
+                ),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 200
+            data = json.loads(response.data)
+            assert data["success"] is True
+
+    def test_ls_remote_with_url_remote(self, client, auth_headers):
+        """ls-remote succeeds when remote is a URL instead of a named remote."""
+        with (
+            patch("subprocess.run") as mock_run,
+            patch.object(gateway, "get_token_for_repo") as mock_get_token,
+        ):
+
+            def run_side_effect(*args, **kwargs):
+                cmd = args[0] if args else kwargs.get("args", [])
+                result = MagicMock()
+                result.returncode = 0
+                result.stderr = ""
+                # Should NOT see "remote get-url" since remote is already a URL
+                if "remote" in cmd and "get-url" in cmd:
+                    raise AssertionError("Should not call git remote get-url for URL remotes")
+                elif "ls-remote" in cmd:
+                    result.stdout = "abc123\trefs/heads/main\n"
+                else:
+                    result.stdout = ""
+                return result
+
+            mock_run.side_effect = run_side_effect
+            mock_get_token.return_value = ("test-token", "bot", "")
+
+            response = client.post(
+                "/api/v1/git/fetch",
+                headers=auth_headers,
+                data=json.dumps(
+                    {
+                        "repo_path": "/home/egg/repos/test",
+                        "operation": "ls-remote",
+                        "remote": "https://github.com/owner/repo.git",
+                    }
+                ),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 200
+            data = json.loads(response.data)
+            assert data["success"] is True
+            assert "refs/heads/main" in data["data"]["stdout"]
+
+    def test_fetch_with_ssh_url_remote(self, client, auth_headers):
+        """Fetch succeeds when remote is an SSH URL (git@github.com:...)."""
+        with (
+            patch("subprocess.run") as mock_run,
+            patch.object(gateway, "get_token_for_repo") as mock_get_token,
+        ):
+
+            def run_side_effect(*args, **kwargs):
+                cmd = args[0] if args else kwargs.get("args", [])
+                result = MagicMock()
+                result.returncode = 0
+                result.stderr = ""
+                # Should NOT see "remote get-url" since remote is already a URL
+                if "remote" in cmd and "get-url" in cmd:
+                    raise AssertionError("Should not call git remote get-url for URL remotes")
+                elif "fetch" in cmd:
+                    result.stdout = ""
+                else:
+                    result.stdout = ""
+                return result
+
+            mock_run.side_effect = run_side_effect
+            mock_get_token.return_value = ("test-token", "bot", "")
+
+            response = client.post(
+                "/api/v1/git/fetch",
+                headers=auth_headers,
+                data=json.dumps(
+                    {
+                        "repo_path": "/home/egg/repos/test",
+                        "remote": "git@github.com:owner/repo.git",
+                    }
+                ),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 200
+            data = json.loads(response.data)
+            assert data["success"] is True
+
+    def test_fetch_with_ssh_protocol_url_remote(self, client, auth_headers):
+        """Fetch succeeds when remote is an ssh:// URL."""
+        with (
+            patch("subprocess.run") as mock_run,
+            patch.object(gateway, "get_token_for_repo") as mock_get_token,
+        ):
+
+            def run_side_effect(*args, **kwargs):
+                cmd = args[0] if args else kwargs.get("args", [])
+                result = MagicMock()
+                result.returncode = 0
+                result.stderr = ""
+                if "remote" in cmd and "get-url" in cmd:
+                    raise AssertionError("Should not call git remote get-url for URL remotes")
+                elif "fetch" in cmd:
+                    result.stdout = ""
+                else:
+                    result.stdout = ""
+                return result
+
+            mock_run.side_effect = run_side_effect
+            mock_get_token.return_value = ("test-token", "bot", "")
+
+            response = client.post(
+                "/api/v1/git/fetch",
+                headers=auth_headers,
+                data=json.dumps(
+                    {
+                        "repo_path": "/home/egg/repos/test",
+                        "remote": "ssh://git@github.com/owner/repo.git",
+                    }
+                ),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 200
+            data = json.loads(response.data)
+            assert data["success"] is True
+
     def test_fetch_unsupported_operation_rejected(self, client, auth_headers):
         """Unsupported operations are rejected."""
         response = client.post(
@@ -3106,6 +3323,33 @@ class TestSessionCreateWithPhase:
         data = json.loads(response.data)
         assert "invalid" in data["message"].lower()
 
+    def test_session_create_rejects_empty_pipeline_id(self, client, launcher_auth_headers):
+        """Session create rejects empty string pipeline_id.
+
+        An empty pipeline_id would satisfy `is not None` checks and incorrectly
+        trigger branch isolation enforcement. Reject at registration to maintain
+        semantic correctness.
+        """
+        response = client.post(
+            "/api/v1/sessions/create",
+            headers=launcher_auth_headers,
+            data=json.dumps(
+                {
+                    "container_id": "test-container",
+                    "container_ip": "172.18.0.5",
+                    "mode": "private",
+                    "repos": ["owner/repo"],
+                    "pipeline_id": "",
+                }
+            ),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 400
+        data = json.loads(response.data)
+        assert "pipeline_id" in data["message"].lower()
+        assert "non-empty" in data["message"].lower()
+
 
 class TestLocalModeBlocking:
     """Tests for local SDLC mode blocking across PR endpoints and gh_execute.
@@ -3571,3 +3815,536 @@ class TestLocalModeBlocking:
             )
 
             assert response.status_code == 403
+
+
+class TestSessionDeleteByContainerWorktreeCleanup:
+    """Tests for DELETE /api/v1/sessions/by-container/<container_id> worktree cleanup."""
+
+    def test_session_delete_by_container_cleans_up_worktrees(self, client, launcher_auth_headers):
+        """session_delete_by_container cleans up worktrees for the container."""
+        mock_session_mgr = MagicMock()
+        mock_session_mgr.delete_session_by_container.return_value = True
+
+        mock_worktree_mgr = MagicMock()
+        mock_worktree_dir = MagicMock()
+        mock_worktree_dir.exists.return_value = True
+
+        repo1 = MagicMock()
+        repo1.is_dir.return_value = True
+        repo1.name = "repo-a"
+        repo2 = MagicMock()
+        repo2.is_dir.return_value = True
+        repo2.name = "repo-b"
+        mock_worktree_dir.iterdir.return_value = [repo1, repo2]
+
+        mock_worktree_mgr.worktree_base.__truediv__ = MagicMock(return_value=mock_worktree_dir)
+
+        remove_result = MagicMock()
+        remove_result.success = True
+        mock_worktree_mgr.remove_worktree.return_value = remove_result
+
+        with (
+            patch.object(gateway, "get_session_manager", return_value=mock_session_mgr),
+            patch.object(gateway, "get_worktree_manager", return_value=mock_worktree_mgr),
+            patch.object(gateway, "audit_log"),
+        ):
+            response = client.delete(
+                "/api/v1/sessions/by-container/test-container-123",
+                headers=launcher_auth_headers,
+            )
+
+            assert response.status_code == 200
+            data = json.loads(response.data)
+            assert data["success"] is True
+
+            # Verify worktree cleanup was called for both repos
+            assert mock_worktree_mgr.remove_worktree.call_count == 2
+            mock_worktree_mgr.remove_worktree.assert_any_call(
+                container_id="test-container-123",
+                repo_name="repo-a",
+                force=True,
+            )
+            mock_worktree_mgr.remove_worktree.assert_any_call(
+                container_id="test-container-123",
+                repo_name="repo-b",
+                force=True,
+            )
+
+    def test_session_delete_by_container_no_worktrees(self, client, launcher_auth_headers):
+        """session_delete_by_container succeeds when no worktree dir exists."""
+        mock_session_mgr = MagicMock()
+        mock_session_mgr.delete_session_by_container.return_value = True
+
+        mock_worktree_mgr = MagicMock()
+        mock_worktree_dir = MagicMock()
+        mock_worktree_dir.exists.return_value = False
+        mock_worktree_mgr.worktree_base.__truediv__ = MagicMock(return_value=mock_worktree_dir)
+
+        with (
+            patch.object(gateway, "get_session_manager", return_value=mock_session_mgr),
+            patch.object(gateway, "get_worktree_manager", return_value=mock_worktree_mgr),
+            patch.object(gateway, "audit_log"),
+        ):
+            response = client.delete(
+                "/api/v1/sessions/by-container/test-container-456",
+                headers=launcher_auth_headers,
+            )
+
+            assert response.status_code == 200
+            mock_worktree_mgr.remove_worktree.assert_not_called()
+
+    def test_session_delete_by_container_worktree_removal_failure(
+        self, client, launcher_auth_headers
+    ):
+        """session_delete_by_container handles worktree removal failures gracefully."""
+        mock_session_mgr = MagicMock()
+        mock_session_mgr.delete_session_by_container.return_value = True
+
+        mock_worktree_mgr = MagicMock()
+        mock_worktree_dir = MagicMock()
+        mock_worktree_dir.exists.return_value = True
+
+        repo_ok = MagicMock()
+        repo_ok.is_dir.return_value = True
+        repo_ok.name = "repo-ok"
+        repo_fail = MagicMock()
+        repo_fail.is_dir.return_value = True
+        repo_fail.name = "repo-fail"
+        repo_exc = MagicMock()
+        repo_exc.is_dir.return_value = True
+        repo_exc.name = "repo-exc"
+        mock_worktree_dir.iterdir.return_value = [repo_ok, repo_fail, repo_exc]
+
+        mock_worktree_mgr.worktree_base.__truediv__ = MagicMock(return_value=mock_worktree_dir)
+
+        success_result = MagicMock()
+        success_result.success = True
+        fail_result = MagicMock()
+        fail_result.success = False
+        fail_result.error = "lock file exists"
+        exc_error = RuntimeError("disk full")
+
+        def side_effect(container_id, repo_name, force):
+            if repo_name == "repo-ok":
+                return success_result
+            elif repo_name == "repo-fail":
+                return fail_result
+            else:
+                raise exc_error
+
+        mock_worktree_mgr.remove_worktree.side_effect = side_effect
+
+        mock_audit = MagicMock()
+
+        with (
+            patch.object(gateway, "get_session_manager", return_value=mock_session_mgr),
+            patch.object(gateway, "get_worktree_manager", return_value=mock_worktree_mgr),
+            patch.object(gateway, "audit_log", mock_audit),
+        ):
+            response = client.delete(
+                "/api/v1/sessions/by-container/test-container-fail",
+                headers=launcher_auth_headers,
+            )
+
+            # Session deletion still succeeds despite worktree cleanup failures
+            assert response.status_code == 200
+
+            # Verify all three repos were attempted
+            assert mock_worktree_mgr.remove_worktree.call_count == 3
+
+            # Verify audit log records both successes and errors
+            mock_audit.assert_called_once()
+            call_kwargs = mock_audit.call_args
+            details = call_kwargs.kwargs.get("details") or call_kwargs[1].get("details")
+            assert details["worktrees_deleted"] == ["repo-ok"]
+            assert len(details["errors"]) == 2
+            assert "repo-fail: lock file exists" in details["errors"]
+            assert "repo-exc: unexpected error - disk full" in details["errors"]
+
+    def test_session_delete_by_container_not_found(self, client, launcher_auth_headers):
+        """session_delete_by_container returns 404 when session not found."""
+        mock_session_mgr = MagicMock()
+        mock_session_mgr.delete_session_by_container.return_value = False
+
+        with patch.object(gateway, "get_session_manager", return_value=mock_session_mgr):
+            response = client.delete(
+                "/api/v1/sessions/by-container/nonexistent",
+                headers=launcher_auth_headers,
+            )
+
+            assert response.status_code == 404
+
+
+class TestBranchIsolation:
+    """Tests for branch isolation enforcement in pipeline worktree sessions.
+
+    Branch isolation applies to all pipeline sessions (identified by pipeline_id),
+    regardless of session_mode. Both "local" and "issue" pipeline modes are covered.
+    Interactive sessions (no pipeline_id) are unrestricted even with worktrees.
+    File operations (checkout -- <file>, restore) are always allowed.
+    See issue #773.
+    """
+
+    @pytest.fixture
+    def local_mode_headers(self):
+        """Return session headers with local (pipeline) mode for branch isolation tests."""
+        import sys
+
+        import auth
+
+        mock_session = MagicMock()
+        mock_session.mode = "local"
+        mock_session.container_id = "test-container"
+        mock_session.expires_at = None
+        mock_session.phase = "implement"
+        mock_session.pipeline_id = "test-pipeline"
+
+        mock_result = SessionValidationResult(valid=True, session=mock_session)
+
+        from private_repo_policy import PrivateRepoPolicyResult
+
+        mock_policy_result = PrivateRepoPolicyResult(
+            allowed=True,
+            reason="Test mode - access allowed",
+            visibility="public",
+        )
+
+        auth._session_manager = None
+        auth._rate_limiter = None
+
+        if "gateway.auth" in sys.modules:
+            sys.modules["gateway.auth"]._session_manager = None
+            sys.modules["gateway.auth"]._rate_limiter = None
+
+        current_session_manager = sys.modules.get("session_manager", session_manager)
+
+        with (
+            patch.object(
+                current_session_manager, "validate_session_for_request", return_value=mock_result
+            ),
+            patch.object(gateway, "check_private_repo_access", return_value=mock_policy_result),
+        ):
+            yield {"Authorization": "Bearer test-session-token"}
+
+    def _git_execute(self, client, headers, operation, args=None, container_id="test-container"):
+        """Helper to call git_execute endpoint."""
+        return client.post(
+            "/api/v1/git/execute",
+            headers=headers,
+            data=json.dumps(
+                {
+                    "repo_path": "/home/egg/repos/test",
+                    "operation": operation,
+                    "args": args or [],
+                    "container_id": container_id,
+                }
+            ),
+            content_type="application/json",
+        )
+
+    def test_checkout_branch_blocked_in_pipeline_worktree(self, client, local_mode_headers):
+        """git checkout <branch> should be blocked in pipeline (local mode) worktree."""
+        with patch.object(
+            gateway,
+            "map_container_path_to_worktree",
+            return_value="/home/egg/.egg-worktrees/test-container/test",
+        ):
+            response = self._git_execute(client, local_mode_headers, "checkout", ["main"])
+
+            assert response.status_code == 403
+            data = json.loads(response.data)
+            assert "branch switching" in data["message"].lower()
+            assert "pipeline" in data["message"].lower()
+
+    def test_checkout_b_blocked_in_pipeline_worktree(self, client, local_mode_headers):
+        """git checkout -b <branch> should be blocked in pipeline worktree."""
+        with patch.object(
+            gateway,
+            "map_container_path_to_worktree",
+            return_value="/home/egg/.egg-worktrees/test-container/test",
+        ):
+            response = self._git_execute(
+                client, local_mode_headers, "checkout", ["-b", "new-branch", "origin/main"]
+            )
+
+            assert response.status_code == 403
+
+    def test_checkout_file_allowed_in_worktree(self, client, local_mode_headers):
+        """git checkout -- <file> should be allowed even in pipeline worktree."""
+        with (
+            patch.object(
+                gateway,
+                "map_container_path_to_worktree",
+                return_value="/home/egg/.egg-worktrees/test-container/test",
+            ),
+            patch("subprocess.run") as mock_run,
+        ):
+            mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+
+            response = self._git_execute(client, local_mode_headers, "checkout", ["--", "file.txt"])
+
+            assert response.status_code == 200
+            assert mock_run.called, "Expected subprocess.run to be called for allowed checkout"
+            cmd = mock_run.call_args[0][0]
+            assert "checkout" in cmd
+            assert "--" in cmd
+            assert "file.txt" in cmd
+
+    def test_checkout_ours_allowed_in_worktree(self, client, local_mode_headers):
+        """git checkout --ours <file> should be allowed even in pipeline worktree."""
+        with (
+            patch.object(
+                gateway,
+                "map_container_path_to_worktree",
+                return_value="/home/egg/.egg-worktrees/test-container/test",
+            ),
+            patch("subprocess.run") as mock_run,
+        ):
+            mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+
+            response = self._git_execute(
+                client, local_mode_headers, "checkout", ["--ours", "file.txt"]
+            )
+
+            assert response.status_code == 200
+            assert mock_run.called, "Expected subprocess.run to be called for allowed checkout"
+            cmd = mock_run.call_args[0][0]
+            assert "checkout" in cmd
+            assert "--ours" in cmd
+
+    def test_switch_blocked_in_pipeline_worktree(self, client, local_mode_headers):
+        """git switch should be blocked in pipeline worktree."""
+        with patch.object(
+            gateway,
+            "map_container_path_to_worktree",
+            return_value="/home/egg/.egg-worktrees/test-container/test",
+        ):
+            response = self._git_execute(client, local_mode_headers, "switch", ["main"])
+
+            assert response.status_code == 403
+            data = json.loads(response.data)
+            assert "branch switching" in data["message"].lower()
+
+    def test_switch_create_blocked_in_pipeline_worktree(self, client, local_mode_headers):
+        """git switch --create should be blocked in pipeline worktree."""
+        with patch.object(
+            gateway,
+            "map_container_path_to_worktree",
+            return_value="/home/egg/.egg-worktrees/test-container/test",
+        ):
+            response = self._git_execute(
+                client, local_mode_headers, "switch", ["--create", "new-branch"]
+            )
+
+            assert response.status_code == 403
+
+    def test_checkout_allowed_without_worktree(self, client, local_mode_headers):
+        """git checkout <branch> should be allowed without a worktree even in pipeline mode."""
+        with (
+            patch.object(
+                gateway,
+                "map_container_path_to_worktree",
+                return_value="/home/egg/repos/test",
+            ),
+            patch("subprocess.run") as mock_run,
+        ):
+            mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+
+            response = self._git_execute(
+                client, local_mode_headers, "checkout", ["-b", "new-branch"]
+            )
+
+            assert response.status_code == 200
+            assert mock_run.called, "Expected subprocess.run to be called for non-worktree checkout"
+            cmd = mock_run.call_args[0][0]
+            assert "checkout" in cmd
+            assert "-b" in cmd
+
+    def test_checkout_branch_allowed_in_interactive_worktree(self, client, auth_headers):
+        """git checkout <branch> should be allowed in interactive (no pipeline_id) worktree.
+
+        Interactive sessions are unrestricted even when using worktrees.
+        Only pipeline sessions (with pipeline_id) enforce branch isolation.
+        """
+        with (
+            patch.object(
+                gateway,
+                "map_container_path_to_worktree",
+                return_value="/home/egg/.egg-worktrees/test-container/test",
+            ),
+            patch("subprocess.run") as mock_run,
+        ):
+            mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+
+            response = self._git_execute(client, auth_headers, "checkout", ["main"])
+
+            assert response.status_code == 200
+            assert mock_run.called, (
+                "Expected subprocess.run to be called for interactive worktree checkout"
+            )
+            cmd = mock_run.call_args[0][0]
+            assert "checkout" in cmd
+            assert "main" in cmd
+
+    def test_checkout_branch_allowed_in_private_mode_worktree(self, client):
+        """git checkout <branch> should be allowed in private mode worktree.
+
+        Both public and private interactive sessions are unrestricted.
+        Only pipeline sessions (with pipeline_id) enforce branch isolation.
+        """
+        import sys
+
+        import auth
+
+        mock_session = MagicMock()
+        mock_session.mode = "private"
+        mock_session.container_id = "test-container"
+        mock_session.expires_at = None
+        mock_session.pipeline_id = None  # Interactive session, not a pipeline
+
+        mock_result = SessionValidationResult(valid=True, session=mock_session)
+
+        from private_repo_policy import PrivateRepoPolicyResult
+
+        mock_policy_result = PrivateRepoPolicyResult(
+            allowed=True,
+            reason="Test mode - access allowed",
+            visibility="private",
+        )
+
+        auth._session_manager = None
+        auth._rate_limiter = None
+
+        if "gateway.auth" in sys.modules:
+            sys.modules["gateway.auth"]._session_manager = None
+            sys.modules["gateway.auth"]._rate_limiter = None
+
+        current_session_manager = sys.modules.get("session_manager", session_manager)
+
+        with (
+            patch.object(
+                current_session_manager, "validate_session_for_request", return_value=mock_result
+            ),
+            # Patched for consistency with auth_headers fixture; not required by git_execute.
+            patch.object(gateway, "check_private_repo_access", return_value=mock_policy_result),
+        ):
+            private_headers = {"Authorization": "Bearer test-session-token"}
+
+            with (
+                patch.object(
+                    gateway,
+                    "map_container_path_to_worktree",
+                    return_value="/home/egg/.egg-worktrees/test-container/test",
+                ),
+                patch("subprocess.run") as mock_run,
+            ):
+                mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+
+                response = self._git_execute(client, private_headers, "checkout", ["main"])
+
+                assert response.status_code == 200
+                assert mock_run.called, (
+                    "Expected subprocess.run to be called for private mode worktree checkout"
+                )
+                cmd = mock_run.call_args[0][0]
+                assert "checkout" in cmd
+                assert "main" in cmd
+
+    def test_checkout_blocked_in_issue_mode_pipeline_worktree(self, client):
+        """git checkout <branch> should be blocked in issue-mode pipeline worktree.
+
+        Issue-mode pipelines use session_mode="public" but still have a pipeline_id.
+        Branch isolation is keyed on pipeline_id, not session_mode, so issue-mode
+        pipeline agents in worktrees are also restricted.
+        """
+        import sys
+
+        import auth
+
+        mock_session = MagicMock()
+        mock_session.mode = "public"  # Issue-mode pipelines get "public" session mode
+        mock_session.container_id = "test-container"
+        mock_session.expires_at = None
+        mock_session.phase = "implement"
+        mock_session.pipeline_id = "issue-42"  # Pipeline session
+
+        mock_result = SessionValidationResult(valid=True, session=mock_session)
+
+        from private_repo_policy import PrivateRepoPolicyResult
+
+        mock_policy_result = PrivateRepoPolicyResult(
+            allowed=True,
+            reason="Test mode - access allowed",
+            visibility="public",
+        )
+
+        auth._session_manager = None
+        auth._rate_limiter = None
+
+        if "gateway.auth" in sys.modules:
+            sys.modules["gateway.auth"]._session_manager = None
+            sys.modules["gateway.auth"]._rate_limiter = None
+
+        current_session_manager = sys.modules.get("session_manager", session_manager)
+
+        with (
+            patch.object(
+                current_session_manager, "validate_session_for_request", return_value=mock_result
+            ),
+            patch.object(gateway, "check_private_repo_access", return_value=mock_policy_result),
+        ):
+            issue_headers = {"Authorization": "Bearer test-session-token"}
+
+            with patch.object(
+                gateway,
+                "map_container_path_to_worktree",
+                return_value="/home/egg/.egg-worktrees/test-container/test",
+            ):
+                response = self._git_execute(client, issue_headers, "checkout", ["main"])
+
+                assert response.status_code == 403
+                data = json.loads(response.data)
+                assert "branch switching" in data["message"].lower()
+                assert "pipeline" in data["message"].lower()
+
+    def test_restore_allowed_in_worktree(self, client, local_mode_headers):
+        """git restore should be allowed in pipeline worktree (file-restore alternative)."""
+        with (
+            patch.object(
+                gateway,
+                "map_container_path_to_worktree",
+                return_value="/home/egg/.egg-worktrees/test-container/test",
+            ),
+            patch("subprocess.run") as mock_run,
+        ):
+            mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+
+            response = self._git_execute(
+                client, local_mode_headers, "restore", ["--staged", "file.txt"]
+            )
+
+            assert response.status_code == 200
+            assert mock_run.called, "Expected subprocess.run to be called for allowed restore"
+            cmd = mock_run.call_args[0][0]
+            assert "restore" in cmd
+            assert "--staged" in cmd
+
+    def test_status_allowed_in_worktree(self, client, local_mode_headers):
+        """Non-branch-switching operations should be allowed in pipeline worktree."""
+        with (
+            patch.object(
+                gateway,
+                "map_container_path_to_worktree",
+                return_value="/home/egg/.egg-worktrees/test-container/test",
+            ),
+            patch("subprocess.run") as mock_run,
+        ):
+            mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+
+            response = self._git_execute(client, local_mode_headers, "status", ["--porcelain"])
+
+            assert response.status_code == 200
+            assert mock_run.called, "Expected subprocess.run to be called for allowed status"
+            cmd = mock_run.call_args[0][0]
+            assert "status" in cmd
+            assert "--porcelain" in cmd

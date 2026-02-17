@@ -42,6 +42,7 @@ def _make_v2_checkpoint(
     agent_type=AgentType.UNKNOWN,
     pipeline_phase=None,
     pipeline_id=None,
+    repo=None,
     branch=None,
     now=None,
 ):
@@ -60,6 +61,7 @@ def _make_v2_checkpoint(
         agent_type=agent_type,
         pipeline_phase=pipeline_phase,
         pipeline_id=pipeline_id,
+        repo=repo,
         branch=branch,
         session=session,
         created_at=now,
@@ -424,6 +426,59 @@ class TestAddCheckpointToIndexV2:
             assert len(index.get_by_pipeline("issue-99")) == 1
             assert index.get_by_pipeline("nonexistent") == []
 
+    def test_by_repo_populated(self):
+        """Test that by_repo index is populated when repo is set."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            index_path = Path(tmpdir) / "index.json"
+            now = datetime.now(UTC)
+
+            cp1 = _make_v2_checkpoint(
+                checkpoint_id="ckpt-aa00000001",
+                session_id="session-1",
+                commit_sha="aaa1234567890",
+                repo="jwbron/egg",
+                now=now,
+            )
+            cp2 = _make_v2_checkpoint(
+                checkpoint_id="ckpt-bb00000002",
+                session_id="session-2",
+                commit_sha="bbb1234567890",
+                repo="jwbron/egg",
+                now=now + timedelta(seconds=1),
+            )
+            cp3 = _make_v2_checkpoint(
+                checkpoint_id="ckpt-cc00000003",
+                session_id="session-3",
+                commit_sha="ccc1234567890",
+                repo="entireio/cli",
+                now=now + timedelta(seconds=2),
+            )
+
+            add_checkpoint_to_index_v2(cp1, index_path)
+            add_checkpoint_to_index_v2(cp2, index_path)
+            index = add_checkpoint_to_index_v2(cp3, index_path)
+
+            assert len(index.get_by_repo("jwbron/egg")) == 2
+            assert len(index.get_by_repo("entireio/cli")) == 1
+            assert index.get_by_repo("nonexistent/repo") == []
+
+    def test_by_repo_not_populated_when_none(self):
+        """Test that by_repo index is empty when repo is None."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            index_path = Path(tmpdir) / "index.json"
+            now = datetime.now(UTC)
+
+            cp = _make_v2_checkpoint(
+                checkpoint_id="ckpt-aa00000001",
+                session_id="session-1",
+                commit_sha="aaa1234567890",
+                now=now,
+            )
+
+            index = add_checkpoint_to_index_v2(cp, index_path)
+
+            assert index.by_repo == {}
+
     def test_multi_dimensional_queries(self):
         """Test querying the index from multiple dimensions."""
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -723,6 +778,39 @@ class TestListCheckpointsV2:
             add_checkpoint_to_index_v2(cp2, index_path)
 
             results = list_checkpoints_v2(checkpoints_dir, index_path, pipeline_id="issue-42")
+            assert len(results) == 1
+            assert results[0].id == "ckpt-aa00000001"
+
+    def test_filter_by_repo(self):
+        """Test filtering by source repository."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            checkpoints_dir = Path(tmpdir) / "checkpoints"
+            index_path = Path(tmpdir) / "index.json"
+            now = datetime.now(UTC)
+
+            cp1 = _make_v2_checkpoint(
+                checkpoint_id="ckpt-aa00000001",
+                session_id="session-1",
+                commit_sha="aaa1234567890",
+                repo="jwbron/egg",
+                now=now,
+            )
+            cp2 = _make_v2_checkpoint(
+                checkpoint_id="ckpt-bb00000002",
+                session_id="session-2",
+                commit_sha="bbb1234567890",
+                repo="entireio/cli",
+                now=now + timedelta(seconds=1),
+            )
+
+            _save_checkpoint_at_path(cp1, checkpoints_dir)
+            _save_checkpoint_at_path(cp2, checkpoints_dir)
+            add_checkpoint_to_index_v2(cp1, index_path)
+            add_checkpoint_to_index_v2(cp2, index_path)
+
+            results = list_checkpoints_v2(
+                checkpoints_dir, index_path, repo="jwbron/egg"
+            )
             assert len(results) == 1
             assert results[0].id == "ckpt-aa00000001"
 

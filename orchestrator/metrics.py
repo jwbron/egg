@@ -284,7 +284,6 @@ class OrchestratorMetrics:
         # Decision counters
         self.decisions_created = self.registry.counter("orchestrator_decisions_created_total")
         self.decisions_resolved = self.registry.counter("orchestrator_decisions_resolved_total")
-        self.decisions_timeout = self.registry.counter("orchestrator_decisions_timeout_total")
 
         # Duration histograms
         self.pipeline_duration = self.registry.histogram(
@@ -351,10 +350,6 @@ class OrchestratorMetrics:
     def record_decision_resolved(self) -> None:
         """Record decision resolution."""
         self.decisions_resolved.inc()
-
-    def record_decision_timeout(self) -> None:
-        """Record decision timeout."""
-        self.decisions_timeout.inc()
 
 
 # Singleton metrics
