@@ -189,6 +189,14 @@ class PhaseExecution(BaseModel):
     error: str | None = Field(default=None, description="Error if failed")
 
 
+class ComplexityTier(StrEnum):
+    """Complexity tier for pipeline tasks."""
+
+    LOW = "low"
+    MID = "mid"
+    HIGH = "high"
+
+
 class PipelineConfig(BaseModel):
     """Configuration for pipeline execution."""
 
@@ -213,6 +221,10 @@ class PipelineConfig(BaseModel):
     )
     allow_short_circuit: bool = Field(
         default=True, description="Allow refine agent to skip plan phase for low-complexity tasks"
+    )
+    enable_parallel_phases: bool = Field(
+        default=False,
+        description="Enable parallel phase execution for independent plan phases (Tier 3 only)",
     )
 
 
@@ -251,6 +263,10 @@ class Pipeline(BaseModel):
     )
     short_circuit: bool = Field(
         default=False, description="Skip plan phase (refine → implement) for low-complexity tasks"
+    )
+    complexity_tier: ComplexityTier = Field(
+        default=ComplexityTier.MID,
+        description="Complexity tier: low (short-circuit), mid (standard), high (phase-level dispatch)",
     )
     error: str | None = Field(default=None, description="Error if failed")
     version: int = Field(

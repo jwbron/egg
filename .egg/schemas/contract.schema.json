@@ -254,6 +254,15 @@
           },
           "default": []
         },
+        "dependencies": {
+          "type": "array",
+          "description": "Phase IDs this phase depends on (e.g., ['phase-1', 'phase-2'])",
+          "items": {
+            "type": "string",
+            "pattern": "^phase-[0-9]+$"
+          },
+          "default": []
+        },
         "review_feedback": {
           "type": "array",
           "description": "Feedback from reviewer",
@@ -685,7 +694,13 @@
         "role": {
           "type": "string",
           "description": "The agent role",
-          "enum": ["coder", "tester", "documenter", "integrator"]
+          "enum": ["coder", "tester", "documenter", "integrator", "architect", "task_planner", "risk_analyst", "refiner", "reviewer_code", "reviewer_contract", "reviewer_agent_design", "reviewer_refine", "reviewer_plan"]
+        },
+        "phase_id": {
+          "type": ["string", "null"],
+          "description": "Plan phase ID this execution belongs to (e.g., 'phase-1'). Null for Tier 2 (role-only) keying.",
+          "pattern": "^phase-[0-9]+$",
+          "default": null
         },
         "status": {
           "type": "string",
@@ -761,7 +776,7 @@
           "description": "Which agent roles are enabled",
           "items": {
             "type": "string",
-            "enum": ["coder", "tester", "documenter", "integrator"]
+            "enum": ["coder", "tester", "documenter", "integrator", "architect", "task_planner", "risk_analyst", "refiner", "reviewer_code", "reviewer_contract", "reviewer_agent_design", "reviewer_refine", "reviewer_plan"]
           },
           "default": ["coder", "tester", "documenter", "integrator"]
         }

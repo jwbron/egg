@@ -97,11 +97,32 @@ class ParsedPhase:
 
     def to_contract_phase(self) -> Phase:
         """Convert to a contract Phase model."""
+        # Normalize dependencies to phase-N format
+        normalized_deps: list[str] = []
+        if self.dependencies:
+            raw_deps = self.dependencies
+            # Handle both list and string formats
+            if isinstance(raw_deps, str):
+                raw_deps = [d.strip() for d in raw_deps.split(",") if d.strip()]
+            if isinstance(raw_deps, list):
+                for dep in raw_deps:
+                    dep_str = str(dep).strip()
+                    if dep_str.startswith("phase-"):
+                        normalized_deps.append(dep_str)
+                    else:
+                        # Try to extract number from formats like "1", "phase 1", etc.
+                        import re
+
+                        m = re.search(r"(\d+)", dep_str)
+                        if m:
+                            normalized_deps.append(f"phase-{m.group(1)}")
+
         return Phase(
             id=f"phase-{self.number}",
             name=self.name,
             status=PhaseStatus.PENDING,
             tasks=[task.to_contract_task() for task in self.tasks],
+            dependencies=normalized_deps,
         )
 
 
