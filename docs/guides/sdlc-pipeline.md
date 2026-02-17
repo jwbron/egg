@@ -779,7 +779,7 @@ When configured, the implement phase checker+autofixer agent runs these commands
 - You want to run checks in a specific order
 - You need to run custom validation scripts
 
-If not configured, the checker falls back to auto-discovery (scanning for Makefile, package.json, pyproject.toml, etc.). See [Configuration](../../config/README.md#per-repo-check-commands) for setup details.
+If not configured, the checker+autofixer agent falls back to auto-discovery (scanning for Makefile, package.json, pyproject.toml, etc.). See [Configuration](../../config/README.md#per-repo-check-commands) for setup details.
 
 ### Built-in Checks
 
