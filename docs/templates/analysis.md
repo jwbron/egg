@@ -67,21 +67,33 @@ Example open-ended questions:
 
 ## Complexity Assessment
 
-After completing your analysis, assess the task complexity to determine if the plan phase can be skipped:
+After completing your analysis, assess the task complexity and add a metadata block at the very end of your analysis:
 
 - **low**: Single-file change, straightforward bug fix, small config update, typo fix
 - **medium**: Multi-file change with clear scope, feature addition with known patterns
-- **high**: Architectural change, new subsystem, cross-cutting concern, ambiguous requirements
+- **high**: Architectural change, new subsystem, cross-cutting concern, many independent phases that could be parallelized
 
-If complexity is **low**, add the following metadata block at the very end of your analysis:
-
+**For low complexity** (skip plan phase, go directly to implementation):
 ```yaml
 # metadata
 short_circuit: true
-complexity: low
+complexity_tier: low
 ```
 
-This signals the pipeline to skip the plan phase and go directly to implementation. For **medium** or **high** complexity tasks, omit this block — the plan phase will run as normal.
+**For medium complexity** (standard plan + implement flow):
+```yaml
+# metadata
+complexity_tier: mid
+```
+
+**For high complexity** (phase-level dispatch with per-phase implement cycles and optional parallel execution):
+```yaml
+# metadata
+complexity_tier: high
+parallel_phases: true
+```
+
+Set `parallel_phases: true` only when the plan phases are truly independent and can be implemented in parallel without conflicts.
 
 ---
 

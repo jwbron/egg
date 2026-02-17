@@ -32,7 +32,10 @@ The `egg-sdlc` CLI supports two modes:
 
 Both modes create a pipeline in the orchestrator, which spawns sandbox containers to execute each phase as a DAG. Pipeline state lives in a JSON contract (`.egg-state/contracts/{identifier}.json`) committed to the feature branch, giving full auditability of every phase transition.
 
-**Short-circuit mode**: For simple tasks (typos, small bug fixes, config changes), the refine phase can signal `short_circuit: true` to skip the plan phase entirely and jump straight to implementation. This avoids unnecessary overhead for work that doesn't need task breakdown or risk analysis.
+**Complexity tiers**: The refine phase signals a `complexity_tier` in its analysis metadata block to control the dispatch strategy:
+- **Tier 1 (low)**: Signals `short_circuit: true` + `complexity_tier: low` — skips plan phase and implements directly. For typos, small bug fixes, config changes.
+- **Tier 2 (mid)**: Default. Full plan + single wave-based implement pass (Coder → Tester/Documenter → Integrator).
+- **Tier 3 (high)**: Signals `complexity_tier: high` — each plan phase gets its own implement cycle. Independent phases can run in parallel with `parallel_phases: true`.
 
 For convenience, the `/sdlc` skill inside the `egg` interactive session redirects to `egg-sdlc`, so you can invoke it either way.
 
@@ -138,7 +141,9 @@ During the **implement** phase, work is divided across these specialized agents:
 | **Documenter** | Update docs, READMEs, and changelogs |
 | **Integrator** | Run full test suite, validate integration |
 
-**Execution model**: Wave-based with dependencies. The coder runs first, then tester and documenter run in parallel (both depend on coder's output). The integrator runs after the coder and tester complete (it does not wait for the documenter).
+**Execution model (Tier 2)**: Wave-based with dependencies. The coder runs first, then tester and documenter run in parallel (both depend on coder's output). The integrator runs after the coder and tester complete (it does not wait for the documenter).
+
+**Execution model (Tier 3)**: For high-complexity tasks, each plan phase runs its own implement cycle (Coder → Tester → Agentic Review). Independent phases can execute in parallel. After all phase cycles complete, the integrator runs with write access to fix cross-phase integration issues.
 
 ### Reviewer Roles
 
