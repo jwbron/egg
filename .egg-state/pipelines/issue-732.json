@@ -247,17 +247,17 @@
         "approve",
         "request changes"
       ],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-02-17T07:01:25.167907",
-      "resolved_at": null,
-      "resolution": null
+      "resolved_at": "2026-02-17T07:04:50.055994",
+      "resolution": "Approved"
     }
   ],
   "created_at": "2026-02-17T06:19:43.318540",
-  "updated_at": "2026-02-17T07:01:25.189609",
+  "updated_at": "2026-02-17T07:04:50.059022",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
   "error": null,
-  "version": 37
+  "version": 38
 }
