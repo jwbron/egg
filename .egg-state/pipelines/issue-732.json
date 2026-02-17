@@ -5,7 +5,7 @@
   "branch": "egg/issue-732",
   "mode": "issue",
   "prompt": null,
-  "status": "running",
+  "status": "complete",
   "current_phase": "pr",
   "config": {
     "auto_create_pr": true,
@@ -476,10 +476,10 @@
     }
   ],
   "created_at": "2026-02-17T06:19:43.318540",
-  "updated_at": "2026-02-17T08:19:11.357101",
+  "updated_at": "2026-02-17T08:19:11.390051",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
   "error": null,
-  "version": 64
+  "version": 65
 }
