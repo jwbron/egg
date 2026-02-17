@@ -812,7 +812,7 @@ class WorktreeManager:
                 try:
                     session = session_manager.get_session_by_container(container_id)
                     if session:
-                        from session_manager import _capture_and_cleanup_session
+                        from session_manager import _capture_and_cleanup_session  # type: ignore[import-not-found]  # noqa: I001
 
                         _capture_and_cleanup_session(session, "failed")
                 except Exception as e:

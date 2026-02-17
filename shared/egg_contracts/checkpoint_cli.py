@@ -58,8 +58,7 @@ def _validate_checkpoint_repo(checkpoint_repo: str) -> str:
     """Validate that checkpoint_repo matches 'owner/repo' format."""
     if not _REPO_PATTERN.match(checkpoint_repo):
         raise ValueError(
-            f"Invalid checkpoint_repo format: {checkpoint_repo!r} "
-            f"(expected 'owner/repo')"
+            f"Invalid checkpoint_repo format: {checkpoint_repo!r} (expected 'owner/repo')"
         )
     return checkpoint_repo
 
@@ -106,9 +105,7 @@ def _resolve_checkpoint_target(repo_path: str, checkpoint_repo: str | None = Non
     return "origin"
 
 
-def ensure_checkpoint_ref(
-    repo_path: str, checkpoint_repo: str | None = None
-) -> str | None:
+def ensure_checkpoint_ref(repo_path: str, checkpoint_repo: str | None = None) -> str | None:
     """
     Ensure the checkpoint branch is fetched and return the git ref to read from.
 
@@ -180,9 +177,7 @@ def load_index_from_ref(ref: str, repo_path: str) -> CheckpointIndexV2 | None:
         return None
 
 
-def load_checkpoint_from_ref(
-    checkpoint_id: str, ref: str, repo_path: str
-) -> CheckpointV2 | None:
+def load_checkpoint_from_ref(checkpoint_id: str, ref: str, repo_path: str) -> CheckpointV2 | None:
     """Load a full checkpoint from a git ref by ID."""
     # Reuse get_checkpoint_path logic for the subdirectory structure
     rel_path = get_checkpoint_path(Path("checkpoints"), checkpoint_id)
@@ -202,9 +197,10 @@ def format_timestamp(ts: datetime | str | None) -> str:
         return "N/A"
     if isinstance(ts, str):
         try:
-            ts = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+            parsed = datetime.fromisoformat(ts.replace("Z", "+00:00"))
         except ValueError:
             return ts
+        return parsed.strftime("%Y-%m-%d %H:%M:%S")
     return ts.strftime("%Y-%m-%d %H:%M:%S")
 
 
@@ -404,15 +400,16 @@ def print_checkpoint_details(checkpoint: CheckpointV2 | dict[str, Any]) -> None:
 
 def _get_checkpoint_repo_from_args(args: argparse.Namespace) -> str | None:
     """Get checkpoint_repo from CLI args or repo config."""
-    checkpoint_repo = getattr(args, "checkpoint_repo", None)
+    checkpoint_repo: str | None = getattr(args, "checkpoint_repo", None)
     if checkpoint_repo:
         return checkpoint_repo
     # Try to auto-detect from repo config
     repo_path = args.repo_path or get_repo_path()
     try:
-        from checkpoint_handler import _get_checkpoint_repo_for_path
+        from checkpoint_handler import _get_checkpoint_repo_for_path  # type: ignore[import-not-found]  # noqa: I001
 
-        return _get_checkpoint_repo_for_path(repo_path)
+        result: str | None = _get_checkpoint_repo_for_path(repo_path)
+        return result
     except ImportError:
         pass
     return None
@@ -542,9 +539,7 @@ def cmd_browse(args: argparse.Namespace) -> int:
 
         for sid, session_summaries in sessions.items():
             first = session_summaries[0]
-            agent = (
-                first.agent_type.value if first.agent_type != AgentType.UNKNOWN else "unknown"
-            )
+            agent = first.agent_type.value if first.agent_type != AgentType.UNKNOWN else "unknown"
             triggers = {_format_trigger(s.trigger_type) for s in session_summaries}
             print(
                 f"Session: {sid[:12]}... (agent: {agent}, triggers: {', '.join(sorted(triggers))})"

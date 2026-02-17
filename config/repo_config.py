@@ -33,7 +33,7 @@ Usage:
 
 import os
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import yaml
 
@@ -72,11 +72,11 @@ def _get_config_path() -> Path:
     )
 
 
-def _load_config() -> dict:
+def _load_config() -> dict[str, Any]:
     """Load and return the repository configuration."""
     config_path = _get_config_path()
     with config_path.open() as f:
-        return yaml.safe_load(f)
+        return cast(dict[str, Any], yaml.safe_load(f))
 
 
 def get_github_username() -> str:
@@ -99,7 +99,7 @@ def get_github_username() -> str:
             "github_username not configured in repositories.yaml. "
             "Run ./setup.py to configure, or add 'github_username: your-username' to ~/.config/egg/repositories.yaml."
         )
-    return username
+    return cast(str, username)
 
 
 def get_writable_repos() -> list[str]:
@@ -116,7 +116,7 @@ def get_writable_repos() -> list[str]:
         List of repo strings in "owner/repo" format
     """
     config = _load_config()
-    return config.get("writable_repos", [])
+    return cast(list[str], config.get("writable_repos", []))
 
 
 def get_readable_repos() -> list[str]:
@@ -137,7 +137,7 @@ def get_readable_repos() -> list[str]:
         List of repo strings in "owner/repo" format
     """
     config = _load_config()
-    return config.get("readable_repos", [])
+    return cast(list[str], config.get("readable_repos", []))
 
 
 def is_writable_repo(repo: str) -> bool:
@@ -201,12 +201,12 @@ def get_default_reviewer() -> str:
     config = _load_config()
     reviewer = config.get("default_reviewer")
     if reviewer:
-        return reviewer
+        return cast(str, reviewer)
     # Fall back to github_username
     return get_github_username()
 
 
-def get_sync_config() -> dict:
+def get_sync_config() -> dict[str, Any]:
     """
     Get GitHub sync configuration.
 
@@ -216,7 +216,10 @@ def get_sync_config() -> dict:
         - sync_interval_minutes: int - sync interval in minutes
     """
     config = _load_config()
-    return config.get("github_sync", {"sync_all_prs": True, "sync_interval_minutes": 5})
+    return cast(
+        dict[str, Any],
+        config.get("github_sync", {"sync_all_prs": True, "sync_interval_minutes": 5}),
+    )
 
 
 def get_repos_for_sync() -> list[str]:
@@ -275,7 +278,7 @@ def should_restrict_to_configured_users(repo: str) -> bool:
     Returns:
         True if auto-responses should be restricted to configured users only
     """
-    return get_repo_setting(repo, "restrict_to_configured_users", False)
+    return cast(bool, get_repo_setting(repo, "restrict_to_configured_users", False))
 
 
 def should_disable_auto_fix(repo: str) -> bool:
@@ -296,14 +299,14 @@ def should_disable_auto_fix(repo: str) -> bool:
     Returns:
         True if auto-fix should be disabled for this repo
     """
-    return get_repo_setting(repo, "disable_auto_fix", False)
+    return cast(bool, get_repo_setting(repo, "disable_auto_fix", False))
 
 
 try:
     from egg_config.validators import validate_checks
 except ImportError:
 
-    def validate_checks(checks: list) -> list[dict[str, str]]:  # type: ignore[misc]
+    def validate_checks(checks: list[Any]) -> list[dict[str, str]]:
         """Validate and normalize a list of check command entries.
 
         Filters out malformed entries and coerces values to strings.
@@ -337,7 +340,7 @@ def get_checkpoint_repo(repo: str) -> str | None:
     Returns:
         Checkpoint repo in "owner/repo" format, or None to use the same repo.
     """
-    return get_repo_setting(repo, "checkpoint_repo", None)
+    return cast(str | None, get_repo_setting(repo, "checkpoint_repo", None))
 
 
 def get_repo_checks(repo: str) -> list[dict[str, str]]:
@@ -355,7 +358,8 @@ def get_repo_checks(repo: str) -> list[dict[str, str]]:
         or empty list if no checks configured.
     """
     checks = get_repo_setting(repo, "checks", [])
-    return validate_checks(checks)
+    result: list[dict[str, str]] = validate_checks(checks)
+    return result
 
 
 def get_auth_mode(repo: str) -> str:
@@ -379,7 +383,7 @@ def get_auth_mode(repo: str) -> str:
     auth_mode = get_repo_setting(repo, "auth_mode", "bot")
     if auth_mode not in ("bot", "user"):
         return "bot"
-    return auth_mode
+    return cast(str, auth_mode)
 
 
 def is_user_mode_repo(repo: str) -> bool:
@@ -437,10 +441,10 @@ def get_bot_username() -> str:
             "bot_username not configured in repositories.yaml. "
             "Run ./setup.py to configure, or add 'bot_username: your-bot-name' to ~/.config/egg/repositories.yaml."
         )
-    return username
+    return cast(str, username)
 
 
-def get_github_token_for_repo(repo: str) -> str | None:
+def get_github_token_for_repo(repo: str) -> tuple[str | None, str, str]:
     """
     Get the appropriate GitHub token for accessing a repository.
 
@@ -479,7 +483,7 @@ def get_github_token_for_repo(repo: str) -> str | None:
 
 
 # Convenience function for shell scripts
-def main():
+def main() -> None:
     """CLI interface for shell scripts to query config."""
     import argparse
 

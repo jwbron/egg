@@ -15,6 +15,7 @@ Key concepts:
 from __future__ import annotations
 
 from collections import defaultdict
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
@@ -61,7 +62,7 @@ class ExecutionWave:
     def __len__(self) -> int:
         return len(self.agents)
 
-    def __iter__(self):
+    def __iter__(self) -> Iterator[AgentRole]:
         return iter(self.agents)
 
     def is_parallel(self) -> bool:
@@ -106,7 +107,7 @@ class ExecutionPlan:
     def __len__(self) -> int:
         return len(self.waves)
 
-    def __iter__(self):
+    def __iter__(self) -> Iterator[ExecutionWave]:
         return iter(self.waves)
 
 
@@ -117,7 +118,7 @@ class DependencyGraph:
     execution order.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.nodes: dict[AgentRole, DependencyNode] = {}
         self._built = False
 

@@ -672,14 +672,24 @@ class TestWaveGrouping:
         result = render_pipeline_dag(pipeline, include_header=False)
 
         lines = result.split("\n")
-        agent_lines = [line.strip() for line in lines if "coder" in line or "tester" in line or "integrator" in line or "reviewer" in line]
+        agent_lines = [
+            line.strip()
+            for line in lines
+            if "coder" in line or "tester" in line or "integrator" in line or "reviewer" in line
+        ]
 
         # Coder should be on its own line (wave 1)
-        assert any("coder" in line and "tester" not in line and "integrator" not in line for line in agent_lines)
+        assert any(
+            "coder" in line and "tester" not in line and "integrator" not in line
+            for line in agent_lines
+        )
         # Tester and documenter should be on the same line (wave 2)
         assert any("tester" in line and "documenter" in line for line in agent_lines)
         # Integrator should be on its own line (wave 3)
-        assert any("integrator" in line and "coder" not in line and "reviewer" not in line for line in agent_lines)
+        assert any(
+            "integrator" in line and "coder" not in line and "reviewer" not in line
+            for line in agent_lines
+        )
         # Reviewers should be after integrator (wave 4)
         assert any("reviewer_code" in line for line in agent_lines)
 
@@ -707,7 +717,11 @@ class TestWaveGrouping:
         result = render_pipeline_dag(pipeline, include_header=False)
 
         lines = result.split("\n")
-        agent_lines = [line.strip() for line in lines if "architect" in line or "planner" in line or "analyst" in line or "reviewer" in line]
+        agent_lines = [
+            line.strip()
+            for line in lines
+            if "architect" in line or "planner" in line or "analyst" in line or "reviewer" in line
+        ]
 
         # Architect alone (wave 1)
         assert any("architect" in line and "planner" not in line for line in agent_lines)
@@ -781,7 +795,9 @@ class TestWaveGrouping:
         # Refiner alone (wave 1)
         assert any("refiner" in line and "reviewer" not in line for line in agent_lines)
         # Both reviewers together (wave 2)
-        assert any("reviewer_agent_design" in line and "reviewer_refine" in line for line in agent_lines)
+        assert any(
+            "reviewer_agent_design" in line and "reviewer_refine" in line for line in agent_lines
+        )
 
     def test_compute_wave_order_refine(self):
         """_compute_wave_order returns correct wave groups for refine phase."""
@@ -790,9 +806,7 @@ class TestWaveGrouping:
             AgentExecution(
                 role=AgentRole.REVIEWER_AGENT_DESIGN, status=AgentExecutionStatus.RUNNING
             ),
-            AgentExecution(
-                role=AgentRole.REVIEWER_REFINE, status=AgentExecutionStatus.RUNNING
-            ),
+            AgentExecution(role=AgentRole.REVIEWER_REFINE, status=AgentExecutionStatus.RUNNING),
         ]
         waves = _compute_wave_order(PipelinePhase.REFINE, agents)
 

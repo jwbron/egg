@@ -53,8 +53,7 @@ def _validate_checkpoint_repo(checkpoint_repo: str) -> str:
     """Validate that checkpoint_repo matches 'owner/repo' format."""
     if not _REPO_PATTERN.match(checkpoint_repo):
         raise ValueError(
-            f"Invalid checkpoint_repo format: {checkpoint_repo!r} "
-            f"(expected 'owner/repo')"
+            f"Invalid checkpoint_repo format: {checkpoint_repo!r} (expected 'owner/repo')"
         )
     return checkpoint_repo
 
@@ -101,9 +100,7 @@ def _resolve_checkpoint_target(repo_path: str, checkpoint_repo: str | None = Non
     return "origin"
 
 
-def checkout_checkpoint_branch(
-    repo_path: str, checkpoint_repo: str | None = None
-) -> Path | None:
+def checkout_checkpoint_branch(repo_path: str, checkpoint_repo: str | None = None) -> Path | None:
     """
     Checkout the checkpoint branch to a temporary directory.
 
@@ -175,9 +172,10 @@ def format_timestamp(ts: datetime | str | None) -> str:
         return "N/A"
     if isinstance(ts, str):
         try:
-            ts = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+            parsed = datetime.fromisoformat(ts.replace("Z", "+00:00"))
         except ValueError:
             return ts
+        return parsed.strftime("%Y-%m-%d %H:%M:%S")
     return ts.strftime("%Y-%m-%d %H:%M:%S")
 
 
@@ -352,15 +350,16 @@ def print_workflow_usage(usage: WorkflowUsage) -> None:
 
 def _get_checkpoint_repo_from_args(args: argparse.Namespace) -> str | None:
     """Get checkpoint_repo from CLI args or repo config."""
-    checkpoint_repo = getattr(args, "checkpoint_repo", None)
+    checkpoint_repo: str | None = getattr(args, "checkpoint_repo", None)
     if checkpoint_repo:
         return checkpoint_repo
     # Try to auto-detect from repo config
     repo_path = args.repo_path or get_repo_path()
     try:
-        from checkpoint_handler import _get_checkpoint_repo_for_path
+        from checkpoint_handler import _get_checkpoint_repo_for_path  # type: ignore[import-not-found]  # noqa: I001
 
-        return _get_checkpoint_repo_for_path(repo_path)
+        result: str | None = _get_checkpoint_repo_for_path(repo_path)
+        return result
     except ImportError:
         pass
     return None

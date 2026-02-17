@@ -7,6 +7,7 @@ checking host setup, and adding standard mounts.
 import secrets
 import shutil
 from pathlib import Path
+from typing import Any
 
 import yaml
 
@@ -277,7 +278,7 @@ def _create_launcher_secret() -> None:
         info("Generated launcher secret for gateway authentication")
 
 
-def _configure_repo_checks(writable_repos: list[str]) -> dict:
+def _configure_repo_checks(writable_repos: list[str]) -> dict[str, Any]:
     """Prompt for per-repo check commands (test/lint) for the SDLC pipeline.
 
     For each writable repo, asks whether the user wants to configure explicit
@@ -305,7 +306,7 @@ def _configure_repo_checks(writable_repos: list[str]) -> dict:
     print("  You can configure explicit commands per repo instead.")
     print()
 
-    repo_settings: dict = {}
+    repo_settings: dict[str, Any] = {}
 
     for repo in writable_repos:
         response = input(f"Configure check commands for {repo}? (yes/no) [no]: ").strip().lower()

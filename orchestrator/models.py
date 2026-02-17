@@ -204,7 +204,9 @@ class PipelineConfig(BaseModel):
     )
     max_review_cycles: int = Field(default=3, ge=1, description="Max review cycles per phase")
     max_hitl_review_cycles: int = Field(
-        default=3, ge=1, description="Max HITL revision cycles per phase (independent of agentic review budget)"
+        default=3,
+        ge=1,
+        description="Max HITL revision cycles per phase (independent of agentic review budget)",
     )
     hitl_gates: bool = Field(
         default=True, description="Pause for human approval after refine and plan phases"

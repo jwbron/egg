@@ -773,9 +773,7 @@ class TestUpdatePipelineDecisionRace:
         def thread_a_update():
             """Simulate PATCH /pipelines — update_pipeline with delayed save."""
             try:
-                with mock_patch.object(
-                    state_store, "save_pipeline", side_effect=delayed_save
-                ):
+                with mock_patch.object(state_store, "save_pipeline", side_effect=delayed_save):
                     state_store.update_pipeline(pipeline_id, {"status": "awaiting_human"})
             except Exception as exc:
                 errors.append(exc)
@@ -801,9 +799,7 @@ class TestUpdatePipelineDecisionRace:
 
         # Both effects must be present: status update AND decision resolution
         final = state_store.load_pipeline(pipeline_id)
-        assert final.status.value == "awaiting_human", (
-            "Thread A's status update was lost"
-        )
+        assert final.status.value == "awaiting_human", "Thread A's status update was lost"
         assert len(final.decisions) == 1
         assert final.decisions[0].status == DecisionStatus.RESOLVED, (
             "update_pipeline overwrote resolved decision — "
@@ -826,7 +822,7 @@ class TestUpdatePipelineDecisionRace:
 
     def test_release_pipeline_state_lock_on_delete(self, state_store):
         """Deleting a pipeline should clean up its state lock."""
-        from state_store import _pipeline_state_locks, release_pipeline_state_lock
+        from state_store import _pipeline_state_locks
 
         pipeline_id = "issue-888"
         state_store.create_pipeline(

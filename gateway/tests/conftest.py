@@ -229,6 +229,18 @@ contract_api = _load_module_with_replaced_imports(
     },
 )
 
+# agent_restrictions has no relative imports to other gateway modules
+agent_restrictions = _load_module_with_replaced_imports(
+    "agent_restrictions",
+    GATEWAY_DIR / "agent_restrictions.py",
+)
+
+# post_agent_commit has no relative imports to other gateway modules
+post_agent_commit = _load_module_with_replaced_imports(
+    "post_agent_commit",
+    GATEWAY_DIR / "post_agent_commit.py",
+)
+
 # phase_filter has no relative imports to other gateway modules
 phase_filter = _load_module_with_replaced_imports(
     "phase_filter",

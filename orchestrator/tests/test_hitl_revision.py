@@ -296,7 +296,10 @@ class TestHITLRevisionFlowIntegration:
             if resolution.lower() in _BARE_OPTION_LABELS:
                 pass  # Would go to follow-up path
             # Re-check after potential follow-up
-            if resolution.lower() not in _APPROVE_KEYWORDS and resolution.lower() not in _BARE_OPTION_LABELS:
+            if (
+                resolution.lower() not in _APPROVE_KEYWORDS
+                and resolution.lower() not in _BARE_OPTION_LABELS
+            ):
                 phase.hitl_review_cycles += 1
                 config = PipelineConfig(max_hitl_review_cycles=3)
                 if phase.hitl_review_cycles >= config.max_hitl_review_cycles:
@@ -345,11 +348,17 @@ class TestHITLRevisionFlowIntegration:
                 # Follow-up path — update resolution with follow-up result
                 resolution = followup_resolution
 
-                if resolution.lower() in _APPROVE_KEYWORDS or resolution.lower() in _BARE_OPTION_LABELS:
+                if (
+                    resolution.lower() in _APPROVE_KEYWORDS
+                    or resolution.lower() in _BARE_OPTION_LABELS
+                ):
                     pass  # Treat as approval
                 # else: fall through to revision check
 
-            if resolution.lower() not in _APPROVE_KEYWORDS and resolution.lower() not in _BARE_OPTION_LABELS:
+            if (
+                resolution.lower() not in _APPROVE_KEYWORDS
+                and resolution.lower() not in _BARE_OPTION_LABELS
+            ):
                 phase.hitl_review_cycles += 1
                 config = PipelineConfig(max_hitl_review_cycles=3)
                 if phase.hitl_review_cycles >= config.max_hitl_review_cycles:
@@ -374,10 +383,16 @@ class TestHITLRevisionFlowIntegration:
         if resolution.lower() not in _APPROVE_KEYWORDS:
             if resolution.lower() in _BARE_OPTION_LABELS:
                 resolution = followup_resolution
-                if resolution.lower() in _APPROVE_KEYWORDS or resolution.lower() in _BARE_OPTION_LABELS:
+                if (
+                    resolution.lower() in _APPROVE_KEYWORDS
+                    or resolution.lower() in _BARE_OPTION_LABELS
+                ):
                     resolution = resolution  # Will be caught by approval check below
 
-            if resolution.lower() not in _APPROVE_KEYWORDS and resolution.lower() not in _BARE_OPTION_LABELS:
+            if (
+                resolution.lower() not in _APPROVE_KEYWORDS
+                and resolution.lower() not in _BARE_OPTION_LABELS
+            ):
                 hitl_revision_feedback = resolution
 
         assert hitl_revision_feedback is None
@@ -396,10 +411,16 @@ class TestHITLRevisionFlowIntegration:
         if resolution.lower() not in _APPROVE_KEYWORDS:
             if resolution.lower() in _BARE_OPTION_LABELS:
                 resolution = followup_resolution
-                if resolution.lower() in _APPROVE_KEYWORDS or resolution.lower() in _BARE_OPTION_LABELS:
+                if (
+                    resolution.lower() in _APPROVE_KEYWORDS
+                    or resolution.lower() in _BARE_OPTION_LABELS
+                ):
                     pass  # Treat as approval
 
-            if resolution.lower() not in _APPROVE_KEYWORDS and resolution.lower() not in _BARE_OPTION_LABELS:
+            if (
+                resolution.lower() not in _APPROVE_KEYWORDS
+                and resolution.lower() not in _BARE_OPTION_LABELS
+            ):
                 hitl_revision_feedback = resolution
 
         assert hitl_revision_feedback is None
@@ -469,7 +490,10 @@ class TestHITLRevisionFlowIntegration:
 
         for feedback in feedbacks:
             resolution = feedback
-            if resolution.lower() not in _APPROVE_KEYWORDS and resolution.lower() not in _BARE_OPTION_LABELS:
+            if (
+                resolution.lower() not in _APPROVE_KEYWORDS
+                and resolution.lower() not in _BARE_OPTION_LABELS
+            ):
                 phase.hitl_review_cycles += 1
                 if phase.hitl_review_cycles >= config.max_hitl_review_cycles:
                     break

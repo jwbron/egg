@@ -9,6 +9,7 @@ This module provides validators for common configuration patterns:
 """
 
 import re
+from typing import Any
 from urllib.parse import urlparse
 
 
@@ -160,7 +161,7 @@ def validate_non_empty(value: str | None, field_name: str) -> tuple[bool, str | 
     return True, None
 
 
-def validate_checks(checks: list) -> list[dict[str, str]]:
+def validate_checks(checks: list[Any]) -> list[dict[str, str]]:
     """Validate and normalize a list of check command entries.
 
     Filters out malformed entries and coerces values to strings.

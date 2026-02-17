@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from egg_config import GATEWAY_PROXY_PORT
 
@@ -122,6 +123,100 @@ def git_shadow_mounts(
             else:
                 # Regular repo or missing .git: shadow with tmpfs
                 mounts.append(MountSpec(mount_type="tmpfs", source=None, destination=git_dest))
+    return mounts
+
+
+# Directories under .egg-state/ that are readonly during the implement phase.
+# These contain plan/contract artifacts that must not be modified by code agents.
+# Must stay in sync with .egg/phase-permissions.json blocked_patterns for "implement".
+_IMPLEMENT_READONLY_DIRS = ("drafts", "contracts", "pipelines", "reviews")
+
+
+def ensure_egg_state_dirs(
+    repo_volumes: dict[str, str],
+    uid: int | None = None,
+    gid: int | None = None,
+    phase: str | None = None,
+) -> None:
+    """Ensure ``.egg-state/`` subdirectories exist in each repo worktree.
+
+    Called before spawning a container so that readonly bind mounts have
+    valid source directories.  Creates ``drafts/``, ``contracts/``,
+    ``pipelines/``, and ``reviews/`` under each repo's ``.egg-state/``.
+
+    When ``phase`` is ``"implement"``, ``.egg-readonly`` marker files are
+    placed in each readonly directory to explain the restriction to agents.
+
+    Args:
+        repo_volumes: Mapping of repo_name -> host_path.
+        uid: Owner UID for created directories (default: current user).
+        gid: Owner GID for created directories (default: current group).
+        phase: Current SDLC phase.  When ``"implement"``, marker files
+            are written into readonly directories.
+    """
+    import os
+
+    for _repo_name, host_path in repo_volumes.items():
+        egg_state = Path(host_path) / ".egg-state"
+        for dirname in _IMPLEMENT_READONLY_DIRS:
+            target = egg_state / dirname
+            target.mkdir(parents=True, exist_ok=True)
+            if uid is not None and gid is not None:
+                os.chown(str(target), uid, gid)
+
+            # Place marker files in readonly directories during implement phase.
+            if phase == "implement":
+                marker = target / ".egg-readonly"
+                marker.write_text(
+                    f"This directory is readonly during the '{phase}' phase.\n"
+                    f"Directory: .egg-state/{dirname}/\n"
+                    f"Reason: Plan and contract artifacts must not be modified "
+                    f"by code agents during implementation.\n"
+                    f"To modify these files, use the appropriate SDLC phase "
+                    f"(refine or plan).\n"
+                )
+                if uid is not None and gid is not None:
+                    os.chown(str(marker), uid, gid)
+
+
+def phase_readonly_mounts(
+    repo_volumes: dict[str, str],
+    phase: str | None,
+    container_base: str = "/home/egg/repos",
+) -> list[MountSpec]:
+    """Create readonly overlay mounts for phase-protected directories.
+
+    During the *implement* phase, ``.egg-state/drafts/``,
+    ``.egg-state/contracts/``, ``.egg-state/pipelines/``, and
+    ``.egg-state/reviews/`` are mounted readonly to prevent agents from
+    modifying plan/contract artifacts via direct filesystem writes.
+
+    Args:
+        repo_volumes: Mapping of repo_name -> host_path.
+        phase: Current SDLC phase (e.g., "implement").  If ``None`` or a
+            phase without restrictions, returns an empty list.
+        container_base: Base path in container for repos.
+
+    Returns:
+        List of MountSpec for readonly overlay mounts.
+    """
+    if phase != "implement":
+        return []
+
+    mounts: list[MountSpec] = []
+    for repo_name, host_path in repo_volumes.items():
+        for dirname in _IMPLEMENT_READONLY_DIRS:
+            host_dir = Path(host_path) / ".egg-state" / dirname
+            container_dir = f"{container_base}/{repo_name}/.egg-state/{dirname}"
+            if host_dir.is_dir():
+                mounts.append(
+                    MountSpec(
+                        mount_type="bind",
+                        source=str(host_dir),
+                        destination=container_dir,
+                        readonly=True,
+                    )
+                )
     return mounts
 
 
@@ -243,7 +338,7 @@ def build_sandbox_config(
     )
 
 
-def to_dockerpy_kwargs(config: SandboxContainerConfig) -> dict:
+def to_dockerpy_kwargs(config: SandboxContainerConfig) -> dict[str, Any]:
     """Convert SandboxContainerConfig to docker-py ``containers.create()`` kwargs.
 
     Returns a dict suitable for passing to ``DockerClient.create_container()``.
@@ -251,7 +346,7 @@ def to_dockerpy_kwargs(config: SandboxContainerConfig) -> dict:
     collisions when multiple mounts share the same source (e.g. multiple
     /dev/null .git shadow mounts).
     """
-    mount_list: list[dict] = []
+    mount_list: list[dict[str, Any]] = []
 
     for mount in config.mounts:
         if mount.mount_type in ("bind", "volume") and mount.source is not None:
@@ -271,7 +366,7 @@ def to_dockerpy_kwargs(config: SandboxContainerConfig) -> dict:
                 }
             )
 
-    kwargs: dict = {
+    kwargs: dict[str, Any] = {
         "name": config.container_name,
         "image": config.image,
         "environment": dict(config.environment),

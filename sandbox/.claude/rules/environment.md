@@ -42,6 +42,8 @@ All git/gh operations are routed through the gateway sidecar. You do NOT have di
 Key restrictions enforced by the gateway:
 - `git push`: Only to branches you own (`egg/` or `egg-` prefixed, or has your open PR)
 - `git worktree add/remove`: **Unsupported** — use `git checkout -b` instead
+- `git checkout/switch` (branch): **Blocked in pipeline mode** — you are locked to your worktree branch
+- `git commit`: **Phase-validated** — staged files must comply with phase restrictions
 - `gh pr merge`: **Blocked** — human must merge via GitHub UI
 
 ## Git Push
@@ -59,8 +61,13 @@ If push fails:
 | Path | Purpose |
 |------|---------|
 | `~/repos/` | Code workspace (RW) - mounted repositories |
+| `~/repos/<repo>/.egg-state/` | SDLC pipeline state (may be readonly in implement phase) |
 | `~/context-sync/` | Confluence/JIRA (RO) |
 | `~/sharing/` | Persistent data, notifications, context |
+
+**Pipeline readonly directories:** During the implement phase, `.egg-state/drafts/`, `.egg-state/contracts/`, `.egg-state/pipelines/`, and `.egg-state/reviews/` are mounted readonly. Check for `.egg-readonly` marker files to understand restrictions. Attempting to write to these directories will produce an EROFS (read-only filesystem) error.
+
+**Post-agent auto-commit:** When your container exits, any uncommitted changes are automatically committed and pushed by the gateway. Phase-restricted files are restored (not committed). You do not need to worry about losing work if you time out.
 
 ## Services
 

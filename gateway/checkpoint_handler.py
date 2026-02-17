@@ -69,6 +69,7 @@ from egg_contracts.checkpoint_loader import (
 from egg_contracts.checkpoints import (
     AgentType,
     CheckpointV2,
+    FileOperation,
     SessionMetadata,
     SessionStatus,
     ToolCall,
@@ -136,10 +137,10 @@ def _validate_checkpoint_repo(checkpoint_repo: str) -> str:
     """
     if not _REPO_PATTERN.match(checkpoint_repo):
         raise ValueError(
-            f"Invalid checkpoint_repo format: {checkpoint_repo!r} "
-            f"(expected 'owner/repo')"
+            f"Invalid checkpoint_repo format: {checkpoint_repo!r} (expected 'owner/repo')"
         )
     return checkpoint_repo
+
 
 # Mapping from agent_role strings to AgentType enum values
 _ROLE_TO_AGENT_TYPE = {
@@ -183,9 +184,7 @@ def _extract_repo_from_remote(repo_path: str) -> str | None:
             return None
 
         remote_url = result.stdout.strip()
-        match = re.search(
-            r"github\.com[:/]([^/]+)/([^/\.]+?)(?:\.git)?$", remote_url
-        )
+        match = re.search(r"github\.com[:/]([^/]+)/([^/\.]+?)(?:\.git)?$", remote_url)
         if match:
             return f"{match.group(1)}/{match.group(2)}"
     except Exception:
@@ -230,9 +229,7 @@ def _resolve_github_token(repo_path: str) -> str | None:
             return None
 
         remote_url = result.stdout.strip()
-        match = re.search(
-            r"github\.com[:/]([^/]+)/([^/\.]+?)(?:\.git)?$", remote_url
-        )
+        match = re.search(r"github\.com[:/]([^/]+)/([^/\.]+?)(?:\.git)?$", remote_url)
         if not match:
             logger.debug(
                 "Could not extract owner/repo from remote URL",
@@ -549,7 +546,7 @@ class CheckpointHandler:
             # Try to extract transcript from proxy buffer
             transcript = None
             tool_calls: list[ToolCall] = []
-            file_operations = []
+            file_operations: list[FileOperation] = []
             token_usage = None
             session_metadata = SessionMetadata(
                 session_id=session_id,
@@ -605,6 +602,7 @@ class CheckpointHandler:
                 id=checkpoint_id,
                 trigger_type=TriggerType.SESSION_END,
                 session_status=session_status,
+                commit_sha=session.auto_commit_sha,
                 branch=session.last_branch,
                 session_id=session_id,
                 issue_number=session.issue_number,
@@ -694,9 +692,7 @@ class CheckpointHandler:
             session_started_at=session.created_at if session else now,
         )
 
-    def _resolve_repo(
-        self, repo_path: str | None, session: Session | None
-    ) -> str | None:
+    def _resolve_repo(self, repo_path: str | None, session: Session | None) -> str | None:
         """Resolve source repository in owner/repo format.
 
         Resolution order:
@@ -1018,9 +1014,7 @@ class CheckpointHandler:
 
         try:
             if token:
-                credential_helper_path, env = create_credential_helper(
-                    token, env
-                )
+                credential_helper_path, env = create_credential_helper(token, env)
 
             # SECURITY: Disable all git hooks. The checkpoint handler runs git commands
             # internally for bookkeeping (storing checkpoints to the checkpoint branch).
@@ -1275,9 +1269,7 @@ def _get_checkpoint_repo_for_path(repo_path: str) -> str | None:
             from config.repo_config import get_checkpoint_repo
 
             # Extract owner/repo from URL
-            match = re.search(
-                r"github\.com[:/]([^/]+)/([^/\.]+?)(?:\.git)?$", remote_url
-            )
+            match = re.search(r"github\.com[:/]([^/]+)/([^/\.]+?)(?:\.git)?$", remote_url)
             if match:
                 repo = f"{match.group(1)}/{match.group(2)}"
                 return get_checkpoint_repo(repo)

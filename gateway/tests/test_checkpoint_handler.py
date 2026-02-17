@@ -788,6 +788,50 @@ class TestCaptureSessionEndCheckpoint:
         assert call_kwargs[1].get("checkpoint_repo") == "jwbron/egg-checkpoints"
 
 
+class TestAutoCommitShaInCheckpoint:
+    """Tests for auto_commit_sha propagation to session-end checkpoint metadata."""
+
+    @patch("checkpoint_handler.get_proxy_buffer_path")
+    def test_auto_commit_sha_propagated_to_checkpoint(self, mock_buffer_path):
+        """Session.auto_commit_sha is set as commit_sha on CheckpointV2."""
+        from checkpoint_handler import CheckpointHandler
+        from egg_contracts.checkpoints import SessionStatus
+
+        mock_buffer_path.return_value = MagicMock(exists=MagicMock(return_value=False))
+
+        handler = CheckpointHandler()
+        session = _make_test_session()
+        session.auto_commit_sha = "abc1234"
+
+        checkpoint = handler.capture_session_end_checkpoint(
+            session=session,
+            session_status=SessionStatus.COMPLETED,
+        )
+
+        assert checkpoint is not None
+        assert checkpoint.commit_sha == "abc1234"
+
+    @patch("checkpoint_handler.get_proxy_buffer_path")
+    def test_none_auto_commit_sha_leaves_checkpoint_commit_sha_none(self, mock_buffer_path):
+        """When auto_commit_sha is None, checkpoint.commit_sha is None."""
+        from checkpoint_handler import CheckpointHandler
+        from egg_contracts.checkpoints import SessionStatus
+
+        mock_buffer_path.return_value = MagicMock(exists=MagicMock(return_value=False))
+
+        handler = CheckpointHandler()
+        session = _make_test_session()
+        # auto_commit_sha defaults to None
+
+        checkpoint = handler.capture_session_end_checkpoint(
+            session=session,
+            session_status=SessionStatus.COMPLETED,
+        )
+
+        assert checkpoint is not None
+        assert checkpoint.commit_sha is None
+
+
 class TestStoreCheckpointV2GitOps:
     """Tests for store_checkpoint_v2 git operations (force-fetch, branch cleanup)."""
 
@@ -882,12 +926,8 @@ class TestStoreCheckpointV2GitOps:
             pass
 
         # Find branch -D call (should come before orphan checkout)
-        branch_delete_calls = [
-            c for c in git_calls if "branch" in c[1] and "-D" in c[1]
-        ]
-        orphan_calls = [
-            c for c in git_calls if "checkout" in c[1] and "--orphan" in c[1]
-        ]
+        branch_delete_calls = [c for c in git_calls if "branch" in c[1] and "-D" in c[1]]
+        orphan_calls = [c for c in git_calls if "checkout" in c[1] and "--orphan" in c[1]]
 
         assert len(branch_delete_calls) >= 1, "Expected branch -D call for stale cleanup"
         assert len(orphan_calls) >= 1, "Expected orphan checkout call"
@@ -1281,9 +1321,7 @@ class TestStoreCheckpointWithToken:
         )
 
         try:
-            handler.store_checkpoint_v2(
-                checkpoint, "/fake/repo", github_token="fresh-token-456"
-            )
+            handler.store_checkpoint_v2(checkpoint, "/fake/repo", github_token="fresh-token-456")
         except Exception:
             pass
 

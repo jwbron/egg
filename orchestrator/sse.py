@@ -404,9 +404,7 @@ def create_sse_stream(
                 # Send heartbeat comment periodically to keep connection alive
                 now = time.monotonic()
                 if now - last_heartbeat >= HEARTBEAT_INTERVAL:
-                    yield format_sse_comment(
-                        f"heartbeat {datetime.utcnow().isoformat()}Z"
-                    )
+                    yield format_sse_comment(f"heartbeat {datetime.utcnow().isoformat()}Z")
                     last_heartbeat = now
 
                 # Send a visualization refresh so the client stays
@@ -423,9 +421,7 @@ def create_sse_stream(
                     if pipeline.status.value in TERMINAL_STATUSES:
                         continue
 
-                    refresh = generate_status_report(
-                        pipeline, use_ascii=use_ascii
-                    )
+                    refresh = generate_status_report(pipeline, use_ascii=use_ascii)
 
                     # Skip if the DAG visualization is identical to the
                     # last refresh we sent.  This mainly helps when the
@@ -436,9 +432,7 @@ def create_sse_stream(
                     last_refresh_dag = current_dag
 
                     refresh["event_type"] = "refresh"
-                    refresh["timestamp"] = (
-                        datetime.utcnow().isoformat() + "Z"
-                    )
+                    refresh["timestamp"] = datetime.utcnow().isoformat() + "Z"
                     yield format_sse_event(refresh, event="refresh")
                 except Exception:
                     # If refresh fails, keep the stream alive

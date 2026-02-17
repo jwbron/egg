@@ -70,6 +70,8 @@ Shared container-launch config builder that unifies container configuration for 
 - `build_sandbox_docker_cmd()` — Converts config to `docker run` command args (used by CLI)
 - `to_dockerpy_kwargs()` — Converts config to docker-py SDK kwargs (used by orchestrator)
 - `git_shadow_mounts()` — Generates .git shadow mounts to prevent local git operations
+- `phase_readonly_mounts()` — Generates readonly bind mounts for phase-protected `.egg-state/` directories (`contracts/`, `drafts/`, `pipelines/`, `reviews/` during implement phase)
+- `ensure_egg_state_dirs()` — Creates `.egg-state/` subdirectories in worktrees before container spawn so readonly bind mounts have valid source paths; places `.egg-readonly` marker files during implement phase
 
 **Data classes:**
 - `SandboxContainerConfig` — Framework-agnostic container configuration
@@ -82,6 +84,8 @@ from egg_container import (
     build_sandbox_docker_cmd,
     to_dockerpy_kwargs,
     git_shadow_mounts,
+    phase_readonly_mounts,
+    ensure_egg_state_dirs,
     ContainerNetworkConfig,
 )
 
@@ -112,6 +116,11 @@ client.containers.run(**kwargs)
 
 # Generate .git shadow mounts
 mounts = git_shadow_mounts({"egg": "/home/user/repos/egg"})
+
+# Phase-based readonly mounts (e.g., during implement phase)
+repo_volumes = {"egg": "/home/user/.egg-worktrees/pipeline-1/egg"}
+ensure_egg_state_dirs(repo_volumes, uid=1000, gid=1000)
+readonly_mounts = phase_readonly_mounts(repo_volumes, phase="implement")
 ```
 
 ### egg_orchestrator

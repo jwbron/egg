@@ -24,7 +24,7 @@ import tempfile
 import time
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TypeVar
+from typing import Any, TypeVar
 
 from .checkpoints import CheckpointV2, TokenUsage
 from .usage import (
@@ -92,7 +92,7 @@ def get_usage_index_path(base_dir: Path) -> Path:
     return get_usage_base_path(base_dir) / "index.json"
 
 
-def _atomic_write(path: Path, data: dict) -> None:
+def _atomic_write(path: Path, data: dict[str, Any]) -> None:
     """
     Write data to a file atomically using temp file + rename pattern.
 

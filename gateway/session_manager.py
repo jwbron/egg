@@ -39,7 +39,7 @@ logger = get_logger("gateway.session-manager")
 def _cleanup_transcript_buffer(container_id: str) -> None:
     """Clean up transcript buffer for a container when session ends."""
     try:
-        from transcript_buffer import cleanup_transcript_buffer
+        from transcript_buffer import cleanup_transcript_buffer  # type: ignore[import-not-found]
 
         cleanup_transcript_buffer(container_id)
         logger.debug("Transcript buffer cleaned up", container_id=container_id)
@@ -81,8 +81,49 @@ def _capture_and_cleanup_session(
             return
         _captured_containers.add(session.container_id)
 
+    # Auto-commit any uncommitted work before capturing the checkpoint.
+    # This preserves the agent's WIP so it can be recovered if the agent
+    # exits without committing (e.g., timeout, crash, or oversight).
+    # Phase filtering ensures blocked files are restored, not committed.
+    if session.last_repo_path and session.pipeline_id:
+        try:
+            from post_agent_commit import auto_commit_worktree  # type: ignore[import-not-found]
+
+            # Build gateway URL for push-via-gateway support.
+            gateway_url = None
+            if session.session_token:
+                try:
+                    from egg_config import GATEWAY_PORT
+
+                    gateway_url = f"http://localhost:{GATEWAY_PORT}"
+                except ImportError:
+                    pass
+
+            auto_commit_sha = auto_commit_worktree(
+                worktree_path=session.last_repo_path,
+                container_id=session.container_id,
+                agent_role=session.agent_role,
+                pipeline_id=session.pipeline_id,
+                phase=session.phase,
+                session_token=session.session_token,
+                gateway_url=gateway_url,
+            )
+            if auto_commit_sha:
+                session.auto_commit_sha = auto_commit_sha
+        except ImportError:
+            logger.debug(
+                "post_agent_commit not available, skipping auto-commit",
+                container_id=session.container_id,
+            )
+        except Exception as e:
+            logger.warning(
+                "Auto-commit failed during session cleanup",
+                container_id=session.container_id,
+                error=str(e),
+            )
+
     try:
-        from checkpoint_handler import (
+        from checkpoint_handler import (  # type: ignore[import-not-found]
             SESSION_END_CAPTURE_TIMEOUT,
             capture_session_end_checkpoint,
         )
@@ -199,6 +240,8 @@ class Session:
     last_repo_path: str | None = None  # Last known repo path from git operations
     last_branch: str | None = None  # Last known branch from git push
     claude_code_version: str | None = None  # Claude Code version from container
+    assigned_branch: str | None = None  # Worktree branch locked to this session
+    auto_commit_sha: str | None = None  # SHA from post-agent auto-commit
 
     def is_expired(self) -> bool:
         """Check if session has expired."""
@@ -211,7 +254,7 @@ class Session:
 
     def to_dict_for_persistence(self) -> dict[str, Any]:
         """Convert to dictionary for persistence (excludes raw token)."""
-        result = {
+        result: dict[str, Any] = {
             "session_token_hash": self.session_token_hash,
             "container_id": self.container_id,
             "container_ip": self.container_ip,
@@ -238,6 +281,10 @@ class Session:
             result["last_branch"] = self.last_branch
         if self.claude_code_version is not None:
             result["claude_code_version"] = self.claude_code_version
+        if self.assigned_branch is not None:
+            result["assigned_branch"] = self.assigned_branch
+        if self.auto_commit_sha is not None:
+            result["auto_commit_sha"] = self.auto_commit_sha
         return result
 
     @classmethod
@@ -261,6 +308,8 @@ class Session:
             last_repo_path=data.get("last_repo_path"),
             last_branch=data.get("last_branch"),
             claude_code_version=data.get("claude_code_version"),
+            assigned_branch=data.get("assigned_branch"),
+            auto_commit_sha=data.get("auto_commit_sha"),
         )
 
 
@@ -452,6 +501,9 @@ class SessionManager:
 
         if branch:
             session.last_branch = branch
+            # Lock pipeline sessions to their assigned branch
+            if pipeline_id:
+                session.assigned_branch = branch
 
         with self._lock:
             self._sessions[token_hash] = session
@@ -776,13 +828,13 @@ class SessionManager:
                     session = s
                     break
 
-            if token_hash:
+            if token_hash and session:
                 self._sessions.pop(token_hash)
                 if session.session_token:
                     self._token_to_hash.pop(session.session_token, None)
                 self._save_to_disk()
 
-        if session:
+        if session and token_hash:
             # Capture session-end checkpoint outside the lock to avoid
             # blocking other session operations during the up-to-30s wait
             _capture_and_cleanup_session(session, "completed")

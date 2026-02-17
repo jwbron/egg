@@ -57,7 +57,8 @@ gateway/
 ├── checkpoint_handler.py   # Checkpoint capture (commit and session-end triggers)
 ├── transcript_buffer.py    # API proxy transcript capture buffer
 ├── worktree_manager.py     # Git worktree lifecycle
-├── session_manager.py      # Agent session management
+├── session_manager.py      # Agent session management (branch lock, auto-commit trigger)
+├── post_agent_commit.py    # Post-agent auto-commit for uncommitted worktree changes
 ├── repo_parser.py          # Repository config parsing
 ├── repo_visibility.py      # Repository visibility logic
 ├── proxy_monitor.py        # Squid proxy monitoring
@@ -154,7 +155,7 @@ shared/
 │   ├── constants.py        # Centralized constants (ports, networks, container names, devserver resource limits)
 │   └── validators.py       # Validation functions (URLs, emails, tokens, check commands)
 ├── egg_container/          # Shared container-launch config builder
-│   └── __init__.py         # build_sandbox_config(), build_sandbox_docker_cmd(), git_shadow_mounts(), to_dockerpy_kwargs()
+│   └── __init__.py         # build_sandbox_config(), build_sandbox_docker_cmd(), git_shadow_mounts(), phase_readonly_mounts(), ensure_egg_state_dirs(), to_dockerpy_kwargs()
 ├── egg_contracts/          # SDLC contract models, plan parser, role-based validation, HITL, feedback, phase checks, multi-agent orchestration, checkpoints
 │   ├── models.py           # Pydantic models including CheckDefinition, CheckResult, PhaseConfig, AgentExecutionModel
 │   ├── phase_defaults.py   # Default check configurations per SDLC phase

@@ -88,6 +88,54 @@ The gateway enforces file-level access restrictions to prevent certain roles fro
 - `Push denied: Role 'X' cannot modify: <files>. <reason>` (HTTP 403) - File blocked by restriction
 - `Push denied: Could not verify file changes for security check: <error>` (HTTP 500) - Detection failure
 
+### Branch Lock (Pipeline Sessions)
+
+Pipeline sessions are locked to their assigned worktree branch. The gateway blocks `git checkout` (branch-switching) and `git switch` operations to prevent agents from moving off their assigned branch, which would break deterministic post-agent commit/push.
+
+**How it works:**
+- When a session is created with a `pipeline_id`, the worktree branch is recorded as `assigned_branch` on the `Session` object
+- On every `git checkout`/`git switch` invocation, `is_branch_switch()` in `git_client.py` determines whether the command targets a branch (blocked) or files (allowed)
+- File-level checkout (`git checkout -- file.txt`, `git checkout HEAD -- path/`) is always allowed
+- Branch-creating flags (`-b`, `-B`, `--orphan`) and `git switch` (any form) are blocked
+
+**Error message:**
+- `Branch switching is not allowed in pipeline sessions. You are locked to branch '<branch>'.` (HTTP 403)
+
+### Commit-Time Validation (Pipeline Sessions)
+
+In addition to push-time file restriction enforcement, the gateway validates staged files at `git commit` time for pipeline sessions. This catches violations early—before the agent spends tokens on building up commits that would be rejected at push.
+
+**How it works:**
+- When a pipeline session runs `git commit`, the gateway inspects `git diff --cached --name-only` for staged files
+- Staged files are checked against `PhaseFileRestriction.blocked_patterns` for the session's current phase
+- If any staged files violate phase restrictions, the commit is rejected with a list of blocked files and guidance on how to unstage them
+
+**Error message:**
+- `Commit blocked: <phase restriction message>. Unstage the blocked files with 'git reset HEAD <file>'.` (HTTP 403)
+
+**Defense-in-depth:** Commit-time validation is a complement to push-time validation, not a replacement. If the commit-time check encounters an error, it fails open—the push-time check remains the authoritative gate.
+
+### Post-Agent Auto-Commit
+
+When a pipeline agent container exits (normally or via timeout), the gateway automatically commits any uncommitted changes in the agent's worktree so that work-in-progress is never lost.
+
+**How it works:**
+- Triggered during session cleanup in `session_manager.py`, before checkpoint capture
+- Only runs for pipeline sessions (`pipeline_id` is set)
+- Uses `post_agent_commit.auto_commit_worktree()` which:
+  1. Detects uncommitted changes via `git status --porcelain`
+  2. When a phase is set, imports `check_phase_file_restrictions` from `phase_filter` to classify files as allowed or blocked
+  3. Restores blocked files to their committed state via `git checkout -- <file>`
+  4. Stages only allowed files via `git add -- <file1> <file2> ...` (not `git add -A`)
+  5. Commits with a descriptive WIP message and `egg <egg@localhost>` author
+  6. If a session token and gateway URL are available, pushes via the gateway API (`/api/v1/git/push`) so push policy is enforced
+- Commit message format: `WIP: auto-commit uncommitted work (<role>) [<pipeline_id>]`
+- Errors during auto-commit do not block session cleanup (fail-safe)
+
+**Phase filtering defense-in-depth:** The auto-commit reuses `check_phase_file_restrictions()` from `phase_filter.py` (the same function used by push-time validation) rather than reimplementing restriction logic. This ensures consistent enforcement across all code paths.
+
+**Files:** `gateway/post_agent_commit.py`, `gateway/session_manager.py`
+
 **Phase permissions** (also in `.egg/phase-permissions.json`):
 
 | Phase | Allowed Operations | Blocked Operations | Exit Requires |
@@ -311,7 +359,8 @@ gateway/
 ├── token_refresher.py      # GitHub App token management
 ├── anthropic_credentials.py # Anthropic API key injection
 ├── worktree_manager.py     # Git worktree lifecycle
-├── session_manager.py      # Agent session management
+├── session_manager.py      # Agent session management (includes post-agent auto-commit trigger)
+├── post_agent_commit.py    # Post-agent auto-commit for uncommitted worktree changes
 ├── repo_parser.py          # Repository config parsing
 ├── repo_visibility.py      # Repository visibility logic
 ├── proxy_monitor.py        # Squid proxy monitoring
@@ -370,6 +419,10 @@ gateway/
 5. **Dual network modes**: Squid proxy controls outbound access. Private mode restricts to Anthropic API only; public mode allows all traffic.
 
 6. **Role-based contract mutations**: Contract field ownership is tied to roles (implementer, reviewer, human). Role is determined from workflow context via session metadata, not request body, preventing privilege escalation. The `egg_contracts` shared library provides Pydantic models and validation.
+
+7. **Defense-in-depth enforcement**: Phase file restrictions are enforced at multiple layers—readonly filesystem mounts (OS level), commit-time validation (gateway), and push-time validation (gateway). Each layer catches violations earlier, reducing wasted agent tokens and preventing bypass vectors.
+
+8. **Branch lock for pipeline sessions**: Pipeline agents are locked to their worktree branch to ensure deterministic post-agent commit/push. The `Session.assigned_branch` field is set during session creation when a pipeline ID is present.
 
 ## Testing
 

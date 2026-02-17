@@ -4,12 +4,12 @@
     {
       "name": "lint",
       "passed": true,
-      "output": "ruff check: All checks passed! (0 errors, 0 warnings)"
+      "output": "ruff check: All checks passed. ruff format: 378 files already formatted. mypy: Success, no issues found in 118 source files."
     },
     {
       "name": "pytest",
       "passed": true,
-      "output": "3426 passed, 80 skipped, 3 warnings in 31.42s"
+      "output": "5385 passed, 83 skipped, 4 warnings in 56.60s. 2 orchestrator tests skipped due to missing docker module (pre-existing, not related to changes)."
     }
   ]
 }

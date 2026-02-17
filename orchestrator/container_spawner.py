@@ -66,7 +66,9 @@ from egg_container import (
     ContainerNetworkConfig,
     MountSpec,
     build_sandbox_config,
+    ensure_egg_state_dirs,
     git_shadow_mounts,
+    phase_readonly_mounts,
     to_dockerpy_kwargs,
 )
 from gateway_client import (
@@ -263,6 +265,10 @@ class ContainerSpawner:
         if issue_number is not None:
             labels["egg.issue.number"] = str(issue_number)
 
+        # Host UID/GID for file ownership in worktrees and mounts
+        host_uid = int(os.environ.get("HOST_UID", 1000))
+        host_gid = int(os.environ.get("HOST_GID", 1000))
+
         # Build mounts: repo volumes + .git shadows + certs
         mounts: list[MountSpec] = []
         if repo_volumes:
@@ -277,6 +283,12 @@ class ContainerSpawner:
             # Shadow .git in each mounted repo to force gateway git operations.
             # Orchestrator can't stat host paths, so assume_worktree=True (/dev/null bind).
             mounts.extend(git_shadow_mounts(repo_volumes, assume_worktree=True))
+
+            # Phase-based readonly mounts: make .egg-state/ subdirectories
+            # readonly during implement phase to prevent direct modifications.
+            if phase:
+                ensure_egg_state_dirs(repo_volumes, uid=host_uid, gid=host_gid, phase=phase)
+                mounts.extend(phase_readonly_mounts(repo_volumes, phase))
         if certs_volume:
             mounts.append(
                 MountSpec(
@@ -292,8 +304,6 @@ class ContainerSpawner:
 
         session_info = None
         container = None
-        host_uid = int(os.environ.get("HOST_UID", 1000))
-        host_gid = int(os.environ.get("HOST_GID", 1000))
 
         try:
             # Register gateway session so the container gets a session token.
@@ -341,6 +351,8 @@ class ContainerSpawner:
             }
             if issue_number is not None:
                 spawner_env["EGG_ISSUE_NUMBER"] = str(issue_number)
+            if phase:
+                spawner_env["EGG_PHASE"] = phase
             # Caller's extra_env overrides spawner defaults
             if extra_env:
                 spawner_env.update(extra_env)
