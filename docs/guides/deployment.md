@@ -12,6 +12,13 @@ egg supports multiple deployment methods depending on your use case:
 | **Docker Compose** | Production, advanced deployments | Docker, Docker Compose |
 | **GitHub Action** | CI/CD automation | GitHub repository |
 
+### Prerequisites by Platform
+
+| Platform | Docker | Notes |
+|----------|--------|-------|
+| **Linux** | Docker Engine + Compose v2 | Native performance |
+| **macOS** | [Docker Desktop](https://www.docker.com/products/docker-desktop/) | Ensure Docker Desktop is running; enable "Use Rosetta for x86_64/amd64 emulation" on Apple Silicon for best compatibility |
+
 ## egg CLI (Recommended)
 
 The simplest way to run egg. The CLI manages the gateway and sandbox lifecycle automatically:

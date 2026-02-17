@@ -68,10 +68,9 @@ def get_local_repos(config_file: Path | None = None) -> list[Path]:
 
 
 def main() -> None:
-    """CLI entrypoint for setup scripts to get repo paths.
+    """CLI entrypoint to get configured repo paths.
 
     When called from shell, prints one repo path per line.
-    This allows setup.sh to use the same parsing logic as egg.
 
     Usage:
         python -m egg_config.config  # Print all configured repo paths

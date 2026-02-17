@@ -335,7 +335,7 @@ config/
 |------|------------|---------|
 | Python scripts | kebab-case | `discover-tests.py` |
 | Python packages | snake_case | `egg_config/`, `egg_lib/` |
-| Shell scripts | kebab-case | `setup.sh`, `start-gateway.sh` |
+| Shell scripts | kebab-case | `entrypoint.sh`, `create-networks.sh` |
 | Config files | `.yaml` (not `.yml`) | `repositories.yaml` |
 | Documentation | UPPERCASE.md for guides, lowercase.md for READMEs | `STRUCTURE.md`, `README.md` |
 
