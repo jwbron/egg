@@ -57,6 +57,7 @@ except ImportError:
     from docker_client import DockerClientError  # type: ignore
     from models import (  # type: ignore
         AgentRole,
+        ComplexityTier,
         CycleTiming,
         Pipeline,
         PipelinePhase,
@@ -1160,6 +1161,70 @@ def _check_short_circuit_signal(
     return False
 
 
+def _check_high_complexity_signal(
+    repo_path: Path,
+    pipeline_mode: str,
+    issue_number: int | None = None,
+    pipeline_id: str | None = None,
+) -> tuple[str, bool]:
+    """Check the refine analysis draft for a complexity tier signal.
+
+    Looks for the *last* fenced YAML block containing ``complexity_tier``
+    in the analysis. Returns a tuple of (tier, parallel_phases).
+
+    Returns:
+        Tuple of (complexity_tier, parallel_phases).
+        complexity_tier is one of "low", "mid", "high".
+        Defaults to ("mid", False) if no signal is found.
+    """
+    draft_rel = _get_draft_path("refine", pipeline_mode, issue_number, pipeline_id)
+    if not draft_rel:
+        return "mid", False
+    draft_path = repo_path / draft_rel
+    if not draft_path.exists():
+        return "mid", False
+    content = draft_path.read_text(encoding="utf-8")
+    if not content.strip():
+        return "mid", False
+
+    # Look for a fenced YAML block containing complexity_tier.
+    # Only the *last* YAML block is checked to avoid false positives.
+    yaml_block_pattern = re.compile(r"```ya?ml\s*\n(.*?)```", re.DOTALL)
+    matches = list(yaml_block_pattern.finditer(content))
+    if not matches:
+        return "mid", False
+
+    block = matches[-1].group(1)
+
+    # Parse the YAML block to extract complexity_tier and parallel_phases
+    try:
+        import yaml
+
+        data = yaml.safe_load(block)
+        if not isinstance(data, dict):
+            return "mid", False
+
+        tier = str(data.get("complexity_tier", "mid")).lower()
+        if tier not in ("low", "mid", "high"):
+            tier = "mid"
+
+        parallel_phases = bool(data.get("parallel_phases", False))
+        return tier, parallel_phases
+    except Exception:
+        # Fall back to regex parsing if YAML parsing fails
+        tier_match = re.search(
+            r"^\s*complexity_tier\s*:\s*(low|mid|high)\s*$", block, re.MULTILINE
+        )
+        tier = tier_match.group(1) if tier_match else "mid"
+
+        parallel_match = re.search(
+            r"^\s*parallel_phases\s*:\s*true\s*$", block, re.MULTILINE
+        )
+        parallel_phases = bool(parallel_match)
+
+        return tier, parallel_phases
+
+
 def _build_review_prompt(
     phase: str,
     pipeline_id: str,
@@ -1552,16 +1617,31 @@ def _build_phase_prompt(
                 "After completing your analysis, assess the task complexity:",
                 "- **low**: Single-file change, straightforward bug fix, small config update, typo fix",
                 "- **medium**: Multi-file change with clear scope, feature addition with known patterns",
-                "- **high**: Architectural change, new subsystem, cross-cutting concern, ambiguous requirements",
+                "- **high**: Architectural change, new subsystem, cross-cutting concern, "
+                "many independent phases that could be parallelized",
                 "",
-                "If complexity is **low**, add the following metadata block at the very end of your analysis:\n",
+                "Add a metadata block at the very end of your analysis "
+                "with the appropriate complexity tier:\n",
+                "For **low** complexity (skip plan phase, go directly to implementation):",
                 "```yaml",
                 "# metadata",
                 "short_circuit: true",
-                "complexity: low",
+                "complexity_tier: low",
                 "```\n",
-                "This tells the pipeline to skip the plan phase and go directly to implementation.",
-                "For **medium** or **high** complexity, omit this block — the plan phase will run.",
+                "For **medium** complexity (standard plan + implement flow):",
+                "```yaml",
+                "# metadata",
+                "complexity_tier: mid",
+                "```\n",
+                "For **high** complexity (phase-level dispatch with per-phase "
+                "implement cycles and optional parallel execution):",
+                "```yaml",
+                "# metadata",
+                "complexity_tier: high",
+                "parallel_phases: true",
+                "```\n",
+                "Set `parallel_phases: true` only when the plan phases are truly "
+                "independent and can be implemented in parallel without conflicts.",
                 "",
             ]
         )
@@ -3839,16 +3919,36 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                 # Check for short-circuit signal after refine phase.
                 # Reset first so a HITL revision that removes the signal
                 # correctly clears a previously-detected short-circuit.
-                if current_phase.value == "refine" and pipeline.config.allow_short_circuit:
-                    pipeline.short_circuit = False
-                    if _check_short_circuit_signal(
+                if current_phase.value == "refine":
+                    # Detect complexity tier from refine analysis
+                    tier, parallel_phases = _check_high_complexity_signal(
                         worktree_repo_path,
                         pipeline_mode,
                         pipeline.issue_number,
                         pipeline_id,
-                    ):
-                        pipeline.short_circuit = True
-                        logger.info("Short-circuit detected", pipeline_id=pipeline_id)
+                    )
+                    pipeline.complexity_tier = ComplexityTier(tier)
+                    if parallel_phases:
+                        pipeline.config.enable_parallel_phases = True
+                    logger.info(
+                        "Complexity tier detected",
+                        pipeline_id=pipeline_id,
+                        tier=tier,
+                        parallel_phases=parallel_phases,
+                    )
+
+                    # Check for short-circuit signal (Tier 1 / low complexity)
+                    if pipeline.config.allow_short_circuit:
+                        pipeline.short_circuit = False
+                        if _check_short_circuit_signal(
+                            worktree_repo_path,
+                            pipeline_mode,
+                            pipeline.issue_number,
+                            pipeline_id,
+                        ):
+                            pipeline.short_circuit = True
+                            pipeline.complexity_tier = ComplexityTier.LOW
+                            logger.info("Short-circuit detected", pipeline_id=pipeline_id)
 
                 store.save_pipeline(pipeline)  # Persist phase completion before HITL gate
 

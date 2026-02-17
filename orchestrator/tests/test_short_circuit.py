@@ -241,7 +241,9 @@ class TestShortCircuitPrompt:
         )
         assert "Complexity Assessment" in result
         assert "short_circuit: true" in result
-        assert "complexity: low" in result
+        assert "complexity_tier: low" in result
+        assert "complexity_tier: mid" in result
+        assert "complexity_tier: high" in result
 
 
 class TestShortCircuitHITLRevision:
