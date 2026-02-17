@@ -37,15 +37,14 @@ class TestReadPhaseDraft:
         assert "... (truncated, 200 chars total)" in result
 
     def test_no_draft_for_implement_phase(self, tmp_path: Path):
-        """Implement phase has no draft file; returns informative message."""
+        """Implement phase has no draft file; returns None."""
         result = _read_phase_draft(tmp_path, "implement", "issue", issue_number=42)
-        assert result == "(No draft file for implement phase)"
+        assert result is None
 
     def test_missing_draft_file(self, tmp_path: Path):
-        """Returns informative message when draft file does not exist on disk."""
+        """Returns None when draft file does not exist on disk."""
         result = _read_phase_draft(tmp_path, "refine", "issue", issue_number=42)
-        assert "(Draft file not found:" in result
-        assert "42-analysis.md" in result
+        assert result is None
 
     def test_local_mode_uses_pipeline_id(self, tmp_path: Path):
         """Local mode constructs path with pipeline_id prefix."""

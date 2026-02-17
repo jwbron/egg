@@ -1061,18 +1061,68 @@ def _read_phase_draft(
     issue_number: int | None = None,
     pipeline_id: str | None = None,
     max_chars: int = 32000,
-) -> str:
-    """Read draft file contents. Truncates at max_chars."""
+) -> str | None:
+    """Read draft file contents. Truncates at max_chars.
+
+    Returns None when the draft cannot be found (no path configured or
+    file missing on disk).
+    """
     draft_rel = _get_draft_path(phase, pipeline_mode, issue_number, pipeline_id)
     if not draft_rel:
-        return f"(No draft file for {phase} phase)"
+        return None
     draft_path = repo_path / draft_rel
     if not draft_path.exists():
-        return f"(Draft file not found: {draft_rel})"
+        return None
     content = draft_path.read_text(encoding="utf-8")
     if len(content) > max_chars:
         return content[:max_chars] + f"\n\n... (truncated, {len(content)} chars total)"
     return content
+
+
+def _render_contract_tasks(
+    repo_path: str,
+    pipeline_id: str,
+    pipeline_mode: str,
+    issue_number: int | None = None,
+) -> str | None:
+    """Load contract and render tasks as a markdown checklist.
+
+    Returns None if the contract cannot be loaded.
+    """
+    try:
+        from egg_contracts.loader import load_contract
+        from egg_contracts.models import TaskStatus
+    except ImportError:
+        return None
+
+    # Mirror _populate_contract_from_plan logic for contract identifier
+    contract_id: int | str = pipeline_id
+    if pipeline_mode != "local" and issue_number:
+        contract_id = issue_number
+
+    try:
+        contract = load_contract(contract_id, Path(repo_path))
+    except Exception:
+        return None
+
+    if not contract.phases:
+        return None
+
+    lines = ["## Contract Tasks\n"]
+    for phase in contract.phases:
+        if not phase.tasks:
+            continue
+        lines.append(f"### {phase.name}\n")
+        for task in phase.tasks:
+            check = "x" if task.status == TaskStatus.COMPLETE else " "
+            lines.append(f"- [{check}] **{task.id}**: {task.description}")
+            if task.acceptance_criteria:
+                lines.append(f"  - Acceptance: {task.acceptance_criteria}")
+            if task.files_affected:
+                lines.append(f"  - Files: {', '.join(task.files_affected)}")
+        lines.append("")
+
+    return "\n".join(lines) if len(lines) > 1 else None
 
 
 def _check_short_circuit_signal(
@@ -1371,6 +1421,7 @@ def _build_phase_prompt(
     review_feedback: str | None = None,
     review_cycle: int = 0,
     short_circuit: bool = False,
+    repo_path: str | None = None,
 ) -> str:
     """Build a phase-specific prompt for the sandbox Claude invocation.
 
@@ -1406,7 +1457,9 @@ def _build_phase_prompt(
         lines.append("")
 
     # --- Task description ---
-    if prompt:
+    # Skip re-embedding the full task description on revision cycles for
+    # implement phase — the coder already knows the task from cycle 0.
+    if prompt and not (phase == "implement" and review_cycle > 0):
         lines.append("## Task Description\n")
         lines.append(prompt)
         lines.append("")
@@ -1577,30 +1630,95 @@ def _build_phase_prompt(
         )
 
     elif phase == "implement":
-        if short_circuit:
-            lines.extend(
+        # Embed plan or analysis text directly on first cycle
+        # (avoids file-I/O turns inside the sandbox).
+        draft_embedded = False
+        if repo_path and review_cycle == 0:
+            draft_phase = "refine" if short_circuit else "plan"
+            draft_text = _read_phase_draft(
+                Path(repo_path),
+                draft_phase,
+                pipeline_mode,
+                issue_number=issue_number,
+                pipeline_id=pipeline_id,
+            )
+            if draft_text:
+                label = "Analysis" if short_circuit else "Plan"
+                lines.append(f"## {label}\n")
+                lines.append(f"```markdown\n{draft_text}\n```\n")
+                draft_embedded = True
+
+            # Embed contract task checklist on first cycle
+            contract_tasks = _render_contract_tasks(
+                repo_path, pipeline_id, pipeline_mode, issue_number
+            )
+            if contract_tasks:
+                lines.append(contract_tasks)
+                lines.append("")
+
+        if review_cycle == 0:
+            # Build numbered step list; only include the "review" step
+            # when the draft wasn't already embedded above.
+            if short_circuit:
+                lines.append(
+                    "Implement the changes described in the analysis (plan phase was skipped):"
+                )
+            else:
+                lines.append("Implement the changes described in the task and plan:")
+            lines.append("")
+
+            steps: list[str] = []
+            if not draft_embedded:
+                review_target = "analysis" if short_circuit else "plan"
+                steps.append(f"Review the {review_target} (check `.egg-state/drafts/`)")
+            steps.extend(
                 [
-                    "Implement the changes described in the analysis (plan phase was skipped):",
-                    "",
-                    "1. Review the analysis (check `.egg-state/drafts/` for the analysis document)",
-                    "2. Implement the required changes",
-                    "3. Run tests to verify correctness",
-                    "4. Commit with descriptive messages",
-                    "",
+                    "Implement the required changes",
+                    "Run tests to verify correctness",
+                    "Commit with descriptive messages",
                 ]
             )
+            for i, step in enumerate(steps, 1):
+                lines.append(f"{i}. {step}")
+            lines.append("")
         else:
-            lines.extend(
-                [
-                    "Implement the changes described in the task and plan:",
-                    "",
-                    "1. Review the plan (check `.egg-state/drafts/`)",
-                    "2. Implement the required changes",
-                    "3. Run tests to verify correctness",
-                    "4. Commit with descriptive messages",
-                    "",
-                ]
-            )
+            # Revision cycle: slim delta-focused prompt.
+            # Guard: if review_feedback is unexpectedly missing, fall
+            # back to including the task description so the coder isn't
+            # left with a nearly empty prompt.
+            if not review_feedback:
+                if prompt:
+                    lines.append("## Task Description\n")
+                    lines.append(prompt)
+                    lines.append("")
+
+            lines.append("## Revision Instructions\n")
+            if review_feedback:
+                lines.extend(
+                    [
+                        "The reviewer found issues with your implementation. "
+                        "Focus on addressing the specific feedback above.\n",
+                        "1. Review the feedback in the **Prior Review Feedback** section above",
+                        "2. Check `git diff` to understand the current state of changes",
+                        "3. Fix the specific issues raised by the reviewer",
+                        "4. Run tests to verify your fixes",
+                        "5. Commit with descriptive messages",
+                        "",
+                    ]
+                )
+            else:
+                lines.extend(
+                    [
+                        "A revision was requested but no specific feedback was provided. "
+                        "Review the task description above and check `git diff` for the current state.\n",
+                        "1. Review the task description above and check `git diff`",
+                        "2. Verify the implementation meets the requirements",
+                        "3. Run tests to verify correctness",
+                        "4. Commit with descriptive messages",
+                        "",
+                    ]
+                )
+
         # Contract CLI instructions for both local and issue mode
         lines.extend(
             [
@@ -1782,6 +1900,7 @@ def _build_agent_prompt(
             review_feedback=review_feedback,
             review_cycle=review_cycle,
             short_circuit=short_circuit,
+            repo_path=repo_path,
         )
 
     # Build context header (shared across all roles)
@@ -2418,6 +2537,10 @@ def _build_checker_prompt(
 ) -> str:
     """Build a prompt for the checker agent that runs tests/lint.
 
+    .. deprecated::
+        Prefer :func:`_build_check_and_fix_prompt` which merges checker and
+        autofixer into a single agent session to avoid context loss.
+
     The checker discovers and runs project test/lint commands, then
     writes structured results to .egg-state/checks/implement-results.json.
 
@@ -2472,11 +2595,14 @@ def _build_checker_prompt(
             "{",
             '  "all_passed": true/false,',
             '  "checks": [',
-            '    {"name": "pytest", "passed": true/false, "output": "summary of output"},',
-            '    {"name": "lint", "passed": true/false, "output": "summary of output"}',
+            '    {"name": "pytest", "passed": true/false, "output": "first 2000 chars of output"},',
+            '    {"name": "lint", "passed": true/false, "output": "first 2000 chars of output"}',
             "  ]",
             "}",
             "```\n",
+            "**IMPORTANT**: Include the full command output in the `output` field (first 2000 "
+            "characters if longer). This output is passed to the autofixer — summaries force "
+            "it to re-run the checks.\n",
             "Then commit the results file.\n",
             "## Important\n",
             "- Always exit 0 regardless of check results (results are informational)",
@@ -2496,17 +2622,21 @@ def _build_autofix_prompt(
 ) -> str:
     """Build a prompt for the autofixer agent.
 
+    .. deprecated::
+        Prefer :func:`_build_check_and_fix_prompt` which merges checker and
+        autofixer into a single agent session to avoid context loss.
+
     Modeled on action/build-autofixer-prompt.sh. Tells the agent to read
     check failures, fix auto-fixable issues, and commit fixes.
     """
     failures = []
     for check in check_results.get("checks", []):
         if not check.get("passed", True):
-            failures.append(
-                f"- **{check.get('name', 'unknown')}**: {check.get('output', 'failed')}"
-            )
+            name = check.get("name", "unknown")
+            output = check.get("output", "failed")
+            failures.append(f"### {name}\n\n```\n{output}\n```\n")
 
-    failure_summary = "\n".join(failures) if failures else "No specific failures recorded."
+    failure_summary = "\n".join(failures) if failures else "No specific failures recorded.\n"
 
     lines = [
         "You are the **autofixer** for the SDLC pipeline implement phase.\n",
@@ -2532,12 +2662,12 @@ def _build_autofix_prompt(
         lines.append(f"Work in the `~/repos/{repo_name}` directory.\n")
     lines.extend(
         [
-            "1. **Read the check results** at `.egg-state/checks/implement-results.json`",
-            "2. **Investigate all failures**: Examine test output, lint errors, etc.",
-            "3. **Fix without committing yet**: For each auto-fixable issue "
+            "1. **Investigate the failures above**: The full check output is included — "
+            "do NOT re-read `.egg-state/checks/implement-results.json`",
+            "2. **Fix without committing yet**: For each auto-fixable issue "
             "(lint errors, formatting, simple type errors, obvious test fixes), make the fix",
-            "4. **Verify locally**: Run the same checks again to confirm fixes work",
-            "5. **Commit all fixes together** with a descriptive message\n",
+            "3. **Verify locally**: Run the same checks again to confirm fixes work",
+            "4. **Commit all fixes together** with a descriptive message\n",
         ]
     )
 
@@ -2568,21 +2698,125 @@ def _build_autofix_prompt(
     return "\n".join(lines)
 
 
-def _read_check_results(repo_path: Path) -> dict | None:
-    """Read checker output from .egg-state/checks/implement-results.json.
+def _build_check_and_fix_prompt(
+    pipeline_id: str,
+    pipeline_mode: str,
+    repo: str | None = None,
+    repo_checks: list[dict] | None = None,
+    repo_path: str | None = None,
+) -> str:
+    """Build a combined check-and-fix prompt for a single agent session.
 
-    Returns None if the file is missing or malformed.
+    Replaces the separate checker → autofixer loop with a single agent
+    that runs checks, fixes auto-fixable issues, and repeats up to 3 times.
+    This avoids context loss between separate container sessions.
+
+    Args:
+        pipeline_id: Pipeline identifier.
+        pipeline_mode: Pipeline mode (e.g. "local", "issue").
+        repo: Target repository in "owner/repo" format.
+        repo_checks: Pre-configured check commands from repositories.yaml.
+        repo_path: Filesystem path to repository (for loading autofixer rules).
     """
-    check_file = repo_path / ".egg-state/checks/implement-results.json"
-    if not check_file.exists():
-        logger.warning("Check results file not found", path=str(check_file))
-        return None
-    try:
-        raw = check_file.read_text()
-        return json.loads(raw)
-    except (json.JSONDecodeError, Exception) as e:
-        logger.warning("Failed to parse check results", path=str(check_file), error=str(e))
-        return None
+    lines = [
+        "You are the **checker and autofixer** for the SDLC pipeline implement phase.\n",
+        f"Pipeline ID: {pipeline_id}",
+        f"Mode: {pipeline_mode}",
+    ]
+    if repo:
+        repo_name = repo.split("/")[-1]
+        lines.append(f"Repository: {repo}")
+        lines.append(f"Working directory: ~/repos/{repo_name}")
+    lines.append("")
+
+    lines.append("## Your Task\n")
+    lines.append(
+        "Run all project checks, fix auto-fixable issues, and repeat until checks "
+        "pass or you have made 3 fix attempts.\n"
+    )
+
+    # Check commands section
+    if repo_checks:
+        lines.append("### Check Commands\n")
+        lines.append("Run the following check commands in order:\n")
+        if repo:
+            repo_name = repo.split("/")[-1]
+            lines.append(f"First, `cd ~/repos/{repo_name}`.\n")
+        for i, check in enumerate(repo_checks, 1):
+            lines.append(f"{i}. **{check['name']}**: `{check['command']}`")
+        lines.append("")
+    else:
+        lines.append("### Discover Check Commands\n")
+        if repo:
+            repo_name = repo.split("/")[-1]
+            lines.append(f"Work in the `~/repos/{repo_name}` directory.\n")
+        lines.extend(
+            [
+                "1. **Discover commands**: Look for Makefile, pyproject.toml, package.json, "
+                "setup.cfg, tox.ini, or similar build/test configuration files",
+                "2. **Run tests**: Execute the project's test suite (pytest, jest, go test, etc.)",
+                "3. **Run linting**: Execute linters (ruff, eslint, golangci-lint, etc.)",
+                "",
+            ]
+        )
+
+    # Fix rules
+    lines.append("### Fix Rules\n")
+    autofixer_rules = _read_shared_criteria(
+        "autofixer-rules.md",
+        user_override="autofixer-rules.md",
+        repo_path=repo_path,
+    )
+    if autofixer_rules is not None:
+        lines.append(autofixer_rules)
+    else:
+        lines.extend(
+            [
+                "**Auto-fixable (commit fixes directly):**",
+                "- Lint errors (formatting, import order, code style)",
+                "- Type errors with clear fixes",
+                "- Simple test failures with obvious fixes\n",
+                "**Report only (note in commit message):**",
+                "- Complex logic errors requiring design decisions",
+                "- Security issues requiring architectural changes",
+                "- Test failures from unclear requirements",
+            ]
+        )
+    lines.append("")
+
+    # Workflow
+    lines.extend(
+        [
+            "### Workflow\n",
+            "Repeat the following up to **3 times**:\n",
+            "1. Run all checks",
+            "2. If all pass, write the results file and stop",
+            "3. If any fail, fix auto-fixable issues (do NOT commit yet)",
+            "4. Re-run checks to verify fixes",
+            "5. Commit all fixes together with a descriptive message",
+            "",
+            "### Results File\n",
+            "After the final check run, write results to "
+            "`.egg-state/checks/implement-results.json`:\n",
+            "```json",
+            "{",
+            '  "all_passed": true/false,',
+            '  "checks": [',
+            '    {"name": "pytest", "passed": true/false, "output": "first 2000 chars of output"},',
+            '    {"name": "lint", "passed": true/false, "output": "first 2000 chars of output"}',
+            "  ]",
+            "}",
+            "```\n",
+            "Include the full command output in the `output` field (first 2000 characters "
+            "if longer).\n",
+            "Then commit the results file.\n",
+            "## Important\n",
+            "- Always exit 0 regardless of check results (results are informational)",
+            "- Write the results file even if all checks pass",
+            "- If you cannot find any test/lint commands, write all_passed: true",
+        ]
+    )
+    return "\n".join(lines)
 
 
 # Minimum characters of non-heading content required for a synthesized plan
@@ -3213,6 +3447,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                         review_feedback=review_feedback,
                         review_cycle=review_cycle,
                         short_circuit=pipeline.short_circuit,
+                        repo_path=str(worktree_repo_path),
                     )
 
                     sandbox_command = [
@@ -3297,7 +3532,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                     phase_failed = True
                     break
 
-                # 2. Checker + autofix loop (implement phase only)
+                # 2. Combined check-and-fix (implement phase only)
                 if current_phase.value == "implement":
                     # Look up configured check commands for this repo
                     repo_checks: list[dict] | None = None
@@ -3314,129 +3549,64 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                                     repo_checks = validate_checks(cfg_checks) or None
                                 break
 
-                    max_autofix = 3
-                    for autofix_attempt in range(max_autofix):
-                        logger.info(
-                            "Spawning checker",
+                    logger.info(
+                        "Spawning combined checker+autofixer",
+                        pipeline_id=pipeline_id,
+                    )
+
+                    check_fix_prompt = _build_check_and_fix_prompt(
+                        pipeline_id,
+                        pipeline_mode,
+                        repo=pipeline.repo,
+                        repo_checks=repo_checks,
+                        repo_path=str(worktree_repo_path),
+                    )
+                    check_fix_command = [
+                        "claude",
+                        "--dangerously-skip-permissions",
+                        "--print",
+                        "--verbose",
+                        "--output-format",
+                        "stream-json",
+                        "--model",
+                        "opus",
+                        "--max-turns",
+                        "100",
+                        check_fix_prompt,
+                    ]
+                    checker_env = {**sandbox_env, "EGG_AGENT_ROLE": "checker"}
+
+                    try:
+                        # 45 min: combined check+fix budget, up from
+                        # 30 min for the old check-only container.
+                        exit_code, _ = _spawn_and_wait(
+                            spawner=spawner,
                             pipeline_id=pipeline_id,
-                            autofix_attempt=autofix_attempt + 1,
+                            agent_role=AgentRole.CHECKER,
+                            issue_number=pipeline.issue_number,
+                            repo_volumes=repo_volumes,
+                            gateway_mode=gateway_mode,
+                            repos=repos,
+                            phase=current_phase.value,
+                            sandbox_env=checker_env,
+                            sandbox_command=check_fix_command,
+                            timeout=2700,
+                            store=store,
+                            certs_volume=certs_volume,
+                            branch=pipeline.branch,
                         )
-
-                        checker_prompt = _build_checker_prompt(
-                            pipeline_id,
-                            pipeline_mode,
-                            repo=pipeline.repo,
-                            repo_checks=repo_checks,
-                        )
-                        checker_command = [
-                            "claude",
-                            "--dangerously-skip-permissions",
-                            "--print",
-                            "--verbose",
-                            "--output-format",
-                            "stream-json",
-                            "--model",
-                            "opus",
-                            "--max-turns",
-                            "50",
-                            checker_prompt,
-                        ]
-                        checker_env = {**sandbox_env, "EGG_AGENT_ROLE": "checker"}
-
-                        try:
-                            checker_exit, _ = _spawn_and_wait(
-                                spawner=spawner,
-                                pipeline_id=pipeline_id,
-                                agent_role=AgentRole.CHECKER,
-                                issue_number=pipeline.issue_number,
-                                repo_volumes=repo_volumes,
-                                gateway_mode=gateway_mode,
-                                repos=repos,
-                                phase=current_phase.value,
-                                sandbox_env=checker_env,
-                                sandbox_command=checker_command,
-                                timeout=1800,
-                                store=store,
-                                certs_volume=certs_volume,
-                                branch=pipeline.branch,
-                            )
-                        except ContainerSpawnError as e:
+                        if exit_code != 0:
                             logger.warning(
-                                "Checker failed to spawn, skipping checks",
+                                "Checker+autofixer exited non-zero",
                                 pipeline_id=pipeline_id,
-                                error=str(e),
+                                exit_code=exit_code,
                             )
-                            break
-
-                        check_results = _read_check_results(worktree_repo_path)
-                        if check_results is None or check_results.get("all_passed"):
-                            logger.info(
-                                "All checks passed",
-                                pipeline_id=pipeline_id,
-                                attempt=autofix_attempt + 1,
-                            )
-                            break  # Checks pass — proceed to review
-
-                        # Last attempt — don't autofix, just proceed
-                        if autofix_attempt >= max_autofix - 1:
-                            logger.warning(
-                                "Max autofix attempts reached, proceeding to review",
-                                pipeline_id=pipeline_id,
-                                attempts=max_autofix,
-                            )
-                            break
-
-                        # Spawn autofix worker
-                        logger.info(
-                            "Spawning autofixer",
+                    except ContainerSpawnError as e:
+                        logger.warning(
+                            "Checker+autofixer failed to spawn, skipping checks",
                             pipeline_id=pipeline_id,
-                            autofix_attempt=autofix_attempt + 1,
+                            error=str(e),
                         )
-
-                        autofix_prompt = _build_autofix_prompt(
-                            pipeline_id,
-                            pipeline_mode,
-                            check_results,
-                            repo=pipeline.repo,
-                            repo_path=str(worktree_repo_path),
-                        )
-                        autofix_command = [
-                            "claude",
-                            "--dangerously-skip-permissions",
-                            "--print",
-                            "--verbose",
-                            "--output-format",
-                            "stream-json",
-                            "--model",
-                            "opus",
-                            "--max-turns",
-                            "100",
-                            autofix_prompt,
-                        ]
-
-                        try:
-                            _spawn_and_wait(
-                                spawner=spawner,
-                                pipeline_id=pipeline_id,
-                                agent_role=AgentRole.CODER,
-                                issue_number=pipeline.issue_number,
-                                repo_volumes=repo_volumes,
-                                gateway_mode=gateway_mode,
-                                repos=repos,
-                                phase=current_phase.value,
-                                sandbox_env=sandbox_env,
-                                sandbox_command=autofix_command,
-                                store=store,
-                                certs_volume=certs_volume,
-                                branch=pipeline.branch,
-                            )
-                        except ContainerSpawnError as e:
-                            logger.warning(
-                                "Autofixer failed to spawn, proceeding to review",
-                                pipeline_id=pipeline_id,
-                                error=str(e),
-                            )
-                            break
 
                 # 3. Spawn reviewers and read verdicts (reviewed phases)
                 # Reviewers always run as a separate step after workers +
@@ -3743,7 +3913,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                 dq = get_decision_queue(pipeline_id, repo_path)
                 decision = dq.queue_decision(
                     question=question,
-                    context=draft_content,
+                    context=draft_content or "",
                     options=["approve", "request changes"],
                 )
 
@@ -3788,7 +3958,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                                 f"Please describe what changes you'd like to see in the {phase_label}, "
                                 f"or approve to continue."
                             ),
-                            context=draft_content,
+                            context=draft_content or "",
                             options=["approve"],
                         )
                         dq.wait_for_decision(followup.id)
