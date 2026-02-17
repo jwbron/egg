@@ -661,7 +661,6 @@ def get_role_definition(
                     # Allow writing to common source directories
                     "shared/",
                     "orchestrator/",
-                    "gateway/",
                     "action/",
                     "bin/",
                     "config/",
@@ -670,6 +669,8 @@ def get_role_definition(
                 ],
                 blocked_write=[
                     ".egg-state/contracts/",
+                    "gateway/",
+                    "sandbox/",
                 ],
             ),
             can_run_in_parallel=role_def.can_run_in_parallel,

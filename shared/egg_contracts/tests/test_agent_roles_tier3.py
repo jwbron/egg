@@ -74,8 +74,13 @@ class TestGetRoleDefinitionTier3Integrator:
         assert "src/" in allowed_write
         assert "lib/" in allowed_write
         assert "shared/" in allowed_write
-        assert "gateway/" in allowed_write
         assert "orchestrator/" in allowed_write
+        # gateway/ and sandbox/ are blocked (security infrastructure)
+        assert "gateway/" not in allowed_write
+        assert "sandbox/" not in allowed_write
+        blocked_write = role_def.file_access.blocked_write
+        assert "gateway/" in blocked_write
+        assert "sandbox/" in blocked_write
 
     def test_expanded_write_access_tests(self):
         """Tier 3 integrator can write to test directories."""

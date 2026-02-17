@@ -14,7 +14,8 @@ Key concepts:
 
 from __future__ import annotations
 
-from collections import defaultdict
+import bisect
+from collections import defaultdict, deque
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
@@ -206,11 +207,11 @@ class DependencyGraph:
                 in_degree[node.role] += 1
 
         # Start with nodes that have no dependencies
-        queue = [role for role in self.nodes if in_degree[role] == 0]
+        queue = deque(role for role in self.nodes if in_degree[role] == 0)
         result = []
 
         while queue:
-            role = queue.pop(0)
+            role = queue.popleft()
             result.append(role)
 
             node = self.nodes[role]
@@ -478,8 +479,6 @@ class PhaseDependencyGraph:
                     in_degree[other_pid] -= 1
                     if in_degree[other_pid] == 0:
                         # Insert sorted to get deterministic ordering
-                        import bisect
-
                         bisect.insort(queue, other_pid)
 
         if len(result) != len(self.nodes):

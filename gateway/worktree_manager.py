@@ -610,12 +610,14 @@ class WorktreeManager:
                 )
                 results.append(result)
         else:
-            # Clean all phase worktrees for this container by scanning
+            # Clean all phase worktrees for this container by scanning.
+            # Use container_id + "-" as prefix to match any phase_id format
+            # (phase IDs may not start with "phase-").
             worktree_dir = self.worktree_base / repo_name
             if worktree_dir.exists():
-                prefix = f"{container_id}-phase-"
+                prefix = f"{container_id}-"
                 for entry in worktree_dir.iterdir():
-                    if entry.name.startswith(prefix) and entry.is_dir():
+                    if entry.name.startswith(prefix) and entry.name != container_id and entry.is_dir():
                         # Extract the phase container ID from dir name
                         phase_container_id = entry.name
                         result = self.remove_worktree(

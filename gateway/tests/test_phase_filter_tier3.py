@@ -45,10 +45,19 @@ class TestCheckAgentRestrictionsTier3:
         """Integrator with high tier can modify mix of source, tests, docs."""
         result = check_agent_restrictions(
             "integrator",
-            ["src/app.py", "tests/test_app.py", "docs/README.md", "gateway/api.py"],
+            ["src/app.py", "tests/test_app.py", "docs/README.md", "shared/utils.py"],
             complexity_tier="high",
         )
         assert result.allowed is True
+
+    def test_integrator_high_blocks_gateway(self):
+        """Integrator with high tier is blocked from gateway/ (security infrastructure)."""
+        result = check_agent_restrictions(
+            "integrator",
+            ["gateway/api.py"],
+            complexity_tier="high",
+        )
+        assert result.allowed is False
 
     def test_integrator_high_blocks_contracts(self):
         """Integrator with high tier is still blocked from contracts."""

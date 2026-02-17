@@ -330,8 +330,6 @@ INTEGRATOR_TIER3_PATTERNS = AgentFilePattern(
         "src/",
         "lib/",
         "shared/",
-        "gateway/",
-        "sandbox/",
         "action/",
         "docs/",
         "tests/",
@@ -345,6 +343,8 @@ INTEGRATOR_TIER3_PATTERNS = AgentFilePattern(
     blocked_patterns=[
         ".egg-state/contracts/",
         ".github/",
+        "gateway/",
+        "sandbox/",
     ],
 )
 

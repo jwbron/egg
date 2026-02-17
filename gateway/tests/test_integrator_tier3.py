@@ -70,9 +70,9 @@ class TestIntegratorTier3WriteAccess:
         """Tier 3 integrator can write to shared/ directory."""
         assert INTEGRATOR_TIER3_PATTERNS.can_write("shared/models.py") is True
 
-    def test_can_write_gateway(self):
-        """Tier 3 integrator can write to gateway/ directory."""
-        assert INTEGRATOR_TIER3_PATTERNS.can_write("gateway/api.py") is True
+    def test_cannot_write_gateway(self):
+        """Tier 3 integrator cannot write to gateway/ (security infrastructure)."""
+        assert INTEGRATOR_TIER3_PATTERNS.can_write("gateway/api.py") is False
 
     def test_can_write_tests(self):
         """Tier 3 integrator can write to tests/ directory."""

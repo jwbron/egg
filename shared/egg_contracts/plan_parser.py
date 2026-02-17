@@ -110,10 +110,14 @@ class ParsedPhase:
                     if dep_str.startswith("phase-"):
                         normalized_deps.append(dep_str)
                     else:
-                        # Try to extract number from formats like "1", "phase 1", etc.
-                        import re
-
-                        m = re.search(r"(\d+)", dep_str)
+                        # Try to extract phase number — prefer "phase N" pattern
+                        # to avoid extracting unrelated numbers from prose text.
+                        m = re.search(r"phase\s*(\d+)", dep_str, re.IGNORECASE)
+                        if not m:
+                            # Fall back to bare number only if the string is
+                            # short (likely just "1" or "2", not prose).
+                            if len(dep_str) <= 10:
+                                m = re.search(r"(\d+)", dep_str)
                         if m:
                             normalized_deps.append(f"phase-{m.group(1)}")
 

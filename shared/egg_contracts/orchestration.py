@@ -318,12 +318,11 @@ class OrchestrationState:
     def all_complete(self) -> bool:
         """Check if all enabled agents have completed (successfully or skipped).
 
-        Only checks roles that exist in self.executions, not all possible roles.
-        This allows disabling roles via multi_agent_config.roles_enabled without
-        blocking completion.
+        Checks both role-level executions and phase-scoped executions to
+        ensure Tier 3 phase-level dispatch is visible.
         """
-        # If no executions configured, consider complete
-        if not self.executions:
+        # If no executions configured in either dict, consider complete
+        if not self.executions and not self.phase_executions:
             return True
 
         for execution in self.executions.values():
@@ -332,11 +331,22 @@ class OrchestrationState:
                 AgentExecutionStatus.SKIPPED,
             ):
                 return False
+
+        for execution in self.phase_executions.values():
+            if execution.status not in (
+                AgentExecutionStatus.COMPLETE,
+                AgentExecutionStatus.SKIPPED,
+            ):
+                return False
+
         return True
 
     def any_failed(self) -> bool:
-        """Check if any agents have failed."""
+        """Check if any agents have failed (role-level or phase-scoped)."""
         for execution in self.executions.values():
+            if execution.status == AgentExecutionStatus.FAILED:
+                return True
+        for execution in self.phase_executions.values():
             if execution.status == AgentExecutionStatus.FAILED:
                 return True
         return False

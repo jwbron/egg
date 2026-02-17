@@ -242,6 +242,7 @@ class Session:
     claude_code_version: str | None = None  # Claude Code version from container
     assigned_branch: str | None = None  # Worktree branch locked to this session
     auto_commit_sha: str | None = None  # SHA from post-agent auto-commit
+    complexity_tier: str | None = None  # Complexity tier ('low', 'mid', 'high') for Tier 3 dispatch
 
     def is_expired(self) -> bool:
         """Check if session has expired."""
@@ -285,6 +286,8 @@ class Session:
             result["assigned_branch"] = self.assigned_branch
         if self.auto_commit_sha is not None:
             result["auto_commit_sha"] = self.auto_commit_sha
+        if self.complexity_tier is not None:
+            result["complexity_tier"] = self.complexity_tier
         return result
 
     @classmethod
@@ -310,6 +313,7 @@ class Session:
             claude_code_version=data.get("claude_code_version"),
             assigned_branch=data.get("assigned_branch"),
             auto_commit_sha=data.get("auto_commit_sha"),
+            complexity_tier=data.get("complexity_tier"),
         )
 
 
@@ -458,6 +462,7 @@ class SessionManager:
         agent_role: str | None = None,
         claude_code_version: str | None = None,
         branch: str | None = None,
+        complexity_tier: str | None = None,
     ) -> tuple[str, Session]:
         """
         Register a new session for a container.
@@ -473,6 +478,7 @@ class SessionManager:
             agent_role: Optional agent role (e.g., "coder", "tester") for checkpoint metadata
             claude_code_version: Optional Claude Code version string
             branch: Optional git branch for non-pushing pipeline sessions
+            complexity_tier: Optional complexity tier ('low', 'mid', 'high') for Tier 3 dispatch
 
         Returns:
             Tuple of (session_token, Session)
@@ -497,6 +503,7 @@ class SessionManager:
             pipeline_id=pipeline_id,
             agent_role=agent_role,
             claude_code_version=claude_code_version,
+            complexity_tier=complexity_tier,
         )
 
         if branch:
