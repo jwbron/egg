@@ -184,9 +184,7 @@ def _extract_repo_from_remote(repo_path: str) -> str | None:
             return None
 
         remote_url = result.stdout.strip()
-        match = re.search(
-            r"github\.com[:/]([^/]+)/([^/\.]+?)(?:\.git)?$", remote_url
-        )
+        match = re.search(r"github\.com[:/]([^/]+)/([^/\.]+?)(?:\.git)?$", remote_url)
         if match:
             return f"{match.group(1)}/{match.group(2)}"
     except Exception:
@@ -604,6 +602,7 @@ class CheckpointHandler:
                 id=checkpoint_id,
                 trigger_type=TriggerType.SESSION_END,
                 session_status=session_status,
+                commit_sha=session.auto_commit_sha,
                 branch=session.last_branch,
                 session_id=session_id,
                 issue_number=session.issue_number,
@@ -693,9 +692,7 @@ class CheckpointHandler:
             session_started_at=session.created_at if session else now,
         )
 
-    def _resolve_repo(
-        self, repo_path: str | None, session: Session | None
-    ) -> str | None:
+    def _resolve_repo(self, repo_path: str | None, session: Session | None) -> str | None:
         """Resolve source repository in owner/repo format.
 
         Resolution order:
