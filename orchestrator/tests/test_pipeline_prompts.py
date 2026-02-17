@@ -549,6 +549,11 @@ class TestBuildPhasePromptRevisionMode:
         assert "Build a widget with many features" in result
         # Revision instructions should still be present
         assert "Revision Instructions" in result
+        # Should NOT reference the "Prior Review Feedback" section
+        # since that section is only emitted when feedback is provided.
+        assert "Prior Review Feedback" not in result
+        # Should use the no-feedback alternative instructions
+        assert "no specific feedback was provided" in result
 
 
 class TestBuildCheckAndFixPrompt:

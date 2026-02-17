@@ -1642,7 +1642,7 @@ def _build_phase_prompt(
                 issue_number=issue_number,
                 pipeline_id=pipeline_id,
             )
-            if draft_text is not None:
+            if draft_text:
                 label = "Analysis" if short_circuit else "Plan"
                 lines.append(f"## {label}\n")
                 lines.append(f"```markdown\n{draft_text}\n```\n")
@@ -1692,19 +1692,32 @@ def _build_phase_prompt(
                     lines.append(prompt)
                     lines.append("")
 
-            lines.extend(
-                [
-                    "## Revision Instructions\n",
-                    "The reviewer found issues with your implementation. "
-                    "Focus on addressing the specific feedback above.\n",
-                    "1. Review the feedback in the **Prior Review Feedback** section above",
-                    "2. Check `git diff` to understand the current state of changes",
-                    "3. Fix the specific issues raised by the reviewer",
-                    "4. Run tests to verify your fixes",
-                    "5. Commit with descriptive messages",
-                    "",
-                ]
-            )
+            lines.append("## Revision Instructions\n")
+            if review_feedback:
+                lines.extend(
+                    [
+                        "The reviewer found issues with your implementation. "
+                        "Focus on addressing the specific feedback above.\n",
+                        "1. Review the feedback in the **Prior Review Feedback** section above",
+                        "2. Check `git diff` to understand the current state of changes",
+                        "3. Fix the specific issues raised by the reviewer",
+                        "4. Run tests to verify your fixes",
+                        "5. Commit with descriptive messages",
+                        "",
+                    ]
+                )
+            else:
+                lines.extend(
+                    [
+                        "A revision was requested but no specific feedback was provided. "
+                        "Review the task description above and check `git diff` for the current state.\n",
+                        "1. Review the task description above and check `git diff`",
+                        "2. Verify the implementation meets the requirements",
+                        "3. Run tests to verify correctness",
+                        "4. Commit with descriptive messages",
+                        "",
+                    ]
+                )
 
         # Contract CLI instructions for both local and issue mode
         lines.extend(
@@ -3945,7 +3958,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                                 f"Please describe what changes you'd like to see in the {phase_label}, "
                                 f"or approve to continue."
                             ),
-                            context=draft_content,
+                            context=draft_content or "",
                             options=["approve"],
                         )
                         dq.wait_for_decision(followup.id)
