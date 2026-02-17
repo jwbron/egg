@@ -329,6 +329,21 @@ class TestGetCheckpointRepoFromArgs:
         args = self._make_args()
         assert _get_checkpoint_repo_from_args(args) is None
 
+    @patch("config.repo_config.get_checkpoint_repo", return_value="org/dotted.repo-checkpoints")
+    @patch("egg_contracts.checkpoint_cli.run_git")
+    def test_auto_detects_repo_with_dots_in_name(self, mock_git, mock_config):
+        """Auto-detects checkpoint_repo when repo name contains dots."""
+        mock_git.return_value = subprocess.CompletedProcess(
+            args=[],
+            returncode=0,
+            stdout="https://github.com/my-org/some.project.git\n",
+            stderr="",
+        )
+        args = self._make_args()
+        result = _get_checkpoint_repo_from_args(args)
+        assert result == "org/dotted.repo-checkpoints"
+        mock_config.assert_called_once_with("my-org/some.project")
+
     @patch("egg_contracts.checkpoint_cli.run_git", side_effect=Exception("timeout"))
     def test_returns_none_on_unexpected_error(self, mock_git):
         """Returns None gracefully on unexpected exceptions."""

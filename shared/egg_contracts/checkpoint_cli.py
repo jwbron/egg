@@ -411,7 +411,7 @@ def _get_checkpoint_repo_from_args(args: argparse.Namespace) -> str | None:
         if result.returncode != 0 or not result.stdout.strip():
             return None
         remote_url = result.stdout.strip()
-        match = re.search(r"github\.com[:/]([^/]+)/([^/\.]+?)(?:\.git)?$", remote_url)
+        match = re.search(r"github\.com[:/]([^/]+)/([^/]+?)(?:\.git)?$", remote_url)
         if not match:
             return None
         repo = f"{match.group(1)}/{match.group(2)}"
