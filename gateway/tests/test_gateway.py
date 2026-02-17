@@ -3107,6 +3107,33 @@ class TestSessionCreateWithPhase:
         data = json.loads(response.data)
         assert "invalid" in data["message"].lower()
 
+    def test_session_create_rejects_empty_pipeline_id(self, client, launcher_auth_headers):
+        """Session create rejects empty string pipeline_id.
+
+        An empty pipeline_id would satisfy `is not None` checks and incorrectly
+        trigger branch isolation enforcement. Reject at registration to maintain
+        semantic correctness.
+        """
+        response = client.post(
+            "/api/v1/sessions/create",
+            headers=launcher_auth_headers,
+            data=json.dumps(
+                {
+                    "container_id": "test-container",
+                    "container_ip": "172.18.0.5",
+                    "mode": "private",
+                    "repos": ["owner/repo"],
+                    "pipeline_id": "",
+                }
+            ),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 400
+        data = json.loads(response.data)
+        assert "pipeline_id" in data["message"].lower()
+        assert "non-empty" in data["message"].lower()
+
 
 class TestLocalModeBlocking:
     """Tests for local SDLC mode blocking across PR endpoints and gh_execute.

@@ -1088,9 +1088,9 @@ def git_execute() -> tuple[Response, int] | Response:
             },
         )
         return make_error(
-            f"Branch switching is not allowed in pipeline worktree sessions. "
-            f"You are locked to your assigned branch. "
-            f"Use 'git restore' for file operations instead of 'git checkout'.",
+            "Branch switching is not allowed in pipeline worktree sessions. "
+            "You are locked to your assigned branch. "
+            "Use 'git restore' for file operations instead of 'git checkout'.",
             status_code=403,
         )
 
@@ -2614,6 +2614,8 @@ def session_create() -> tuple[Response, int] | Response:
     if pipeline_id is not None:
         if not isinstance(pipeline_id, str):
             return make_error("Invalid pipeline_id: must be a string")
+        if not pipeline_id:
+            return make_error("Invalid pipeline_id: must be a non-empty string")
         if len(pipeline_id) > 256:
             return make_error("Invalid pipeline_id: must be 256 characters or fewer")
 
