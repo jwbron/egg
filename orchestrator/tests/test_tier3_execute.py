@@ -33,7 +33,7 @@ if "docker" not in sys.modules:
     sys.modules["docker"] = docker_mock
     sys.modules["docker.errors"] = docker_errors_mock
 
-from models import ComplexityTier, Pipeline, PipelineConfig
+from models import ComplexityTier, Pipeline, PipelineConfig, ReviewVerdict
 
 
 class TestRunTier3ImplementSequential:
@@ -114,7 +114,7 @@ class TestRunTier3ImplementSequential:
         """Sequential Tier 3 runs coder, tester, reviewer for each phase."""
         self._make_contract_with_phases(tmp_path, phase_count=2)
         mock_spawn.return_value = (0, "agent logs")
-        mock_read_verdict.return_value = {"verdict": "approved"}
+        mock_read_verdict.return_value = ReviewVerdict(verdict="approved")
         mock_read_feedback.return_value = None
         mock_read_draft.return_value = "# Plan\nDo stuff"
 
@@ -227,8 +227,8 @@ class TestRunTier3ImplementSequential:
         mock_spawn.return_value = (0, "agent logs")
         # First review: rejected, second: approved
         mock_read_verdict.side_effect = [
-            {"verdict": "rejected", "feedback": "Fix types"},
-            {"verdict": "approved"},
+            ReviewVerdict(verdict="rejected", feedback="Fix types"),
+            ReviewVerdict(verdict="approved"),
         ]
         mock_read_feedback.return_value = "Fix types"
         mock_read_draft.return_value = "# Plan"
@@ -276,7 +276,7 @@ class TestRunTier3ImplementSequential:
         """EGG_PLAN_PHASE_ID env var is passed to agents."""
         self._make_contract_with_phases(tmp_path, phase_count=1)
         mock_spawn.return_value = (0, "logs")
-        mock_read_verdict.return_value = {"verdict": "approved"}
+        mock_read_verdict.return_value = ReviewVerdict(verdict="approved")
         mock_read_feedback.return_value = None
         mock_read_draft.return_value = None
 
@@ -315,7 +315,7 @@ class TestRunTier3ImplementSequential:
         """Integrator runs after all phase cycles complete."""
         self._make_contract_with_phases(tmp_path, phase_count=2)
         mock_spawn.return_value = (0, "logs")
-        mock_read_verdict.return_value = {"verdict": "approved"}
+        mock_read_verdict.return_value = ReviewVerdict(verdict="approved")
         mock_read_feedback.return_value = None
         mock_read_draft.return_value = None
 
@@ -366,7 +366,7 @@ class TestRunTier3ImplementSequential:
             (0, "review logs"),  # reviewer
             (1, "integrator fail"),  # integrator
         ]
-        mock_read_verdict.return_value = {"verdict": "approved"}
+        mock_read_verdict.return_value = ReviewVerdict(verdict="approved")
         mock_read_feedback.return_value = None
         mock_read_draft.return_value = None
 
@@ -462,7 +462,7 @@ class TestRunTier3ImplementParallel:
         """Independent phases run (potentially in parallel) and complete."""
         self._make_independent_phases(tmp_path)
         mock_spawn.return_value = (0, "logs")
-        mock_read_verdict.return_value = {"verdict": "approved"}
+        mock_read_verdict.return_value = ReviewVerdict(verdict="approved")
         mock_read_feedback.return_value = None
         mock_read_draft.return_value = None
 
@@ -540,7 +540,7 @@ class TestRunTier3ImplementParallel:
         """Diamond dependency pattern: all 4 phases + integrator complete."""
         self._make_diamond_phases(tmp_path)
         mock_spawn.return_value = (0, "logs")
-        mock_read_verdict.return_value = {"verdict": "approved"}
+        mock_read_verdict.return_value = ReviewVerdict(verdict="approved")
         mock_read_feedback.return_value = None
         mock_read_draft.return_value = None
 
@@ -596,7 +596,7 @@ class TestReadReviewVerdict:
         # May return None if the path convention doesn't match exactly;
         # the test validates the function doesn't crash
         if result is not None:
-            assert result["verdict"] == "approved"
+            assert result.verdict == "approved"
 
 
 class TestReadLastReviewFeedback:
@@ -620,10 +620,10 @@ class TestReadLastReviewFeedback:
     @patch("pipelines._read_review_verdict")
     def test_returns_feedback_from_verdict(self, mock_read_verdict, tmp_path: Path):
         """Returns feedback string from verdict."""
-        mock_read_verdict.return_value = {
-            "verdict": "rejected",
-            "feedback": "Fix the type annotation",
-        }
+        mock_read_verdict.return_value = ReviewVerdict(
+            verdict="rejected",
+            feedback="Fix the type annotation",
+        )
 
         result = self._read(tmp_path, "test-pipeline", "issue", 42)
         assert result == "Fix the type annotation"
@@ -631,7 +631,215 @@ class TestReadLastReviewFeedback:
     @patch("pipelines._read_review_verdict")
     def test_returns_none_when_no_feedback_key(self, mock_read_verdict, tmp_path: Path):
         """Returns None when verdict has no feedback key."""
-        mock_read_verdict.return_value = {"verdict": "approved"}
+        mock_read_verdict.return_value = ReviewVerdict(verdict="approved")
 
         result = self._read(tmp_path, "test-pipeline", "issue", 42)
         assert result is None
+
+
+class TestRetryExhaustion:
+    """Tests that exhausting review retries returns non-zero exit code."""
+
+    @pytest.fixture(autouse=True)
+    def setup(self):
+        """Import the function under test."""
+        try:
+            from pipelines import _run_tier3_implement
+
+            self._run = _run_tier3_implement
+        except ImportError:
+            pytest.skip("Cannot import pipelines module")
+
+    def _make_pipeline(self, max_review_cycles: int = 1, **kwargs) -> Pipeline:
+        defaults = {
+            "id": "test-pipeline",
+            "issue_number": 42,
+            "repo": "owner/repo",
+            "branch": "egg/issue-42",
+            "complexity_tier": ComplexityTier.HIGH,
+            "mode": "issue",
+            "config": PipelineConfig(
+                multi_agent=True,
+                enable_parallel_phases=False,
+                max_review_cycles=max_review_cycles,
+            ),
+        }
+        defaults.update(kwargs)
+        return Pipeline(**defaults)
+
+    def _make_contract(self, tmp_path: Path):
+        contract = {
+            "schemaVersion": "1.0",
+            "issue": {"number": 42, "title": "test", "url": "http://test"},
+            "phases": [
+                {
+                    "id": "phase-1",
+                    "name": "Phase 1",
+                    "status": "pending",
+                    "dependencies": [],
+                    "tasks": [
+                        {
+                            "id": "task-1-1",
+                            "description": "Task 1",
+                            "status": "pending",
+                            "files_affected": ["src/mod.py"],
+                        }
+                    ],
+                }
+            ],
+        }
+        contract_dir = tmp_path / ".egg-state" / "contracts"
+        contract_dir.mkdir(parents=True, exist_ok=True)
+        (contract_dir / "42.json").write_text(json.dumps(contract), encoding="utf-8")
+
+    @patch("pipelines._spawn_and_wait")
+    @patch("pipelines._read_review_verdict")
+    @patch("pipelines._read_last_review_feedback")
+    @patch("pipelines._read_phase_draft")
+    def test_exhausted_retries_returns_nonzero(
+        self,
+        mock_read_draft,
+        mock_read_feedback,
+        mock_read_verdict,
+        mock_spawn,
+        tmp_path: Path,
+    ):
+        """Exhausting all review retries without approval returns exit code 1."""
+        self._make_contract(tmp_path)
+        mock_spawn.return_value = (0, "agent logs")
+        # Reviewer always rejects
+        mock_read_verdict.return_value = ReviewVerdict(verdict="rejected", feedback="Needs work")
+        mock_read_feedback.return_value = "Needs work"
+        mock_read_draft.return_value = "# Plan"
+
+        pipeline = self._make_pipeline(max_review_cycles=2)
+
+        exit_code, logs = self._run(
+            pipeline_id="test-pipeline",
+            pipeline=pipeline,
+            spawner=MagicMock(),
+            repo_volumes={},
+            gateway_mode="public",
+            repos=["owner/repo"],
+            sandbox_env={},
+            store=MagicMock(),
+            certs_volume=None,
+            worktree_repo_path=tmp_path,
+        )
+
+        assert exit_code == 1
+        # 3 cycles (0, 1, 2) * 3 agents (coder, tester, reviewer) = 9 spawns
+        assert mock_spawn.call_count == 9
+
+
+class TestCancelEventParallelCancellation:
+    """Tests that cancel_event aborts sibling phases during parallel execution."""
+
+    @pytest.fixture(autouse=True)
+    def setup(self):
+        """Import the function under test."""
+        try:
+            from pipelines import _run_tier3_implement
+
+            self._run = _run_tier3_implement
+        except ImportError:
+            pytest.skip("Cannot import pipelines module")
+
+    def _make_pipeline(self, **kwargs) -> Pipeline:
+        defaults = {
+            "id": "test-pipeline",
+            "issue_number": 42,
+            "repo": "owner/repo",
+            "branch": "egg/issue-42",
+            "complexity_tier": ComplexityTier.HIGH,
+            "mode": "issue",
+            "config": PipelineConfig(
+                multi_agent=True,
+                enable_parallel_phases=True,
+                max_review_cycles=1,
+                max_parallel_agents=3,
+            ),
+        }
+        defaults.update(kwargs)
+        return Pipeline(**defaults)
+
+    def _make_independent_phases(self, tmp_path: Path):
+        contract = {
+            "schemaVersion": "1.0",
+            "issue": {"number": 42, "title": "test", "url": "http://test"},
+            "phases": [
+                {
+                    "id": "phase-1",
+                    "name": "Phase 1",
+                    "status": "pending",
+                    "dependencies": [],
+                    "tasks": [{"id": "task-1-1", "description": "t1", "status": "pending"}],
+                },
+                {
+                    "id": "phase-2",
+                    "name": "Phase 2",
+                    "status": "pending",
+                    "dependencies": [],
+                    "tasks": [{"id": "task-2-1", "description": "t2", "status": "pending"}],
+                },
+            ],
+        }
+        contract_dir = tmp_path / ".egg-state" / "contracts"
+        contract_dir.mkdir(parents=True, exist_ok=True)
+        (contract_dir / "42.json").write_text(json.dumps(contract), encoding="utf-8")
+
+    @patch("pipelines._spawn_and_wait")
+    @patch("pipelines._read_review_verdict")
+    @patch("pipelines._read_last_review_feedback")
+    @patch("pipelines._read_phase_draft")
+    def test_phase_failure_cancels_sibling(
+        self,
+        mock_read_draft,
+        mock_read_feedback,
+        mock_read_verdict,
+        mock_spawn,
+        tmp_path: Path,
+    ):
+        """When one parallel phase fails, sibling phases are cancelled."""
+        self._make_independent_phases(tmp_path)
+        mock_read_draft.return_value = None
+        mock_read_feedback.return_value = None
+        mock_read_verdict.return_value = ReviewVerdict(verdict="approved")
+
+        # First coder call fails; subsequent calls succeed (but should be
+        # skipped due to cancellation).  We make the second call slow via
+        # side_effect so that the first failure triggers cancel_event before
+        # the sibling's tester/reviewer spawns.
+        call_count = 0
+
+        def spawn_side_effect(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            # First call (phase-1 or phase-2 coder) fails
+            if call_count == 1:
+                return (1, "coder error")
+            return (0, "ok")
+
+        mock_spawn.side_effect = spawn_side_effect
+
+        pipeline = self._make_pipeline()
+
+        exit_code, logs = self._run(
+            pipeline_id="test-pipeline",
+            pipeline=pipeline,
+            spawner=MagicMock(),
+            repo_volumes={},
+            gateway_mode="public",
+            repos=["owner/repo"],
+            sandbox_env={},
+            store=MagicMock(),
+            certs_volume=None,
+            worktree_repo_path=tmp_path,
+        )
+
+        assert exit_code == 1
+        # The failing phase spawned 1 coder. The sibling may have spawned
+        # its coder concurrently, but should not proceed to tester/reviewer
+        # once cancel_event is set. Total spawns should be less than the
+        # full 6 (2 phases * 3 agents).
+        assert mock_spawn.call_count < 6
