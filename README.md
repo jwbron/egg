@@ -89,7 +89,7 @@ Tier 3 decomposes large features into independent plan phases that run as parall
 
 ### Two Modes
 
-- **Issue mode** (`egg-sdlc -r <repo> -i <issue>`): GitHub-issue-driven with full remote integration, HITL via GitHub comments
+- **Issue mode** (`egg-sdlc -r <repo> -i <issue>`): Pulls context from github issues, HITL via terminal prompts
 - **Local mode** (`egg-sdlc` or `egg-sdlc -r <repo> -p "prompt"`): Prompt-driven, HITL via terminal prompts
 
 ## Architecture
@@ -104,14 +104,14 @@ egg is a two-container system: a **gateway** (trusted) that holds credentials an
 │   │    Gateway Sidecar      │      │    Sandbox Container            │  │
 │   │    (Trusted)            │      │    (Untrusted Agent)            │  │
 │   │                         │      │                                 │  │
-│   │  • Phase enforcement    │◀────▶│  • git/gh wrappers             │  │
-│   │  • Role validation      │      │  • Claude Code                 │  │
-│   │  • Credential injection │      │  • egg-contract CLI            │  │
-│   │  • Network policy       │      │  • Workspace files only        │  │
-│   │  • Branch policies      │      │  • No credentials, no .git/    │  │
+│   │  • Phase enforcement    │◀────▶│  • git/gh wrappers              │  │
+│   │  • Role validation      │      │  • Claude Code                  │  │
+│   │  • Credential injection │      │  • egg-contract CLI             │  │
+│   │  • Network policy       │      │  • Workspace files only         │  │
+│   │  • Branch policies      │      │  • No credentials, no .git/     │  │
 │   │                         │      │                                 │  │
-│   │  HAS: tokens, keys,    │      │  HAS: code, tools              │  │
-│   │       network access    │      │  NO:  secrets, direct network  │  │
+│   │  HAS: tokens, keys,     │      │  HAS: code, tools               │  │
+│   │       network access    │      │  NO:  secrets, direct network   │  │
 │   └─────────────────────────┘      └─────────────────────────────────┘  │
 │                                                                         │
 └─────────────────────────────────────────────────────────────────────────┘
