@@ -3576,9 +3576,7 @@ class TestLocalModeBlocking:
 class TestSessionDeleteByContainerWorktreeCleanup:
     """Tests for DELETE /api/v1/sessions/by-container/<container_id> worktree cleanup."""
 
-    def test_session_delete_by_container_cleans_up_worktrees(
-        self, client, launcher_auth_headers
-    ):
+    def test_session_delete_by_container_cleans_up_worktrees(self, client, launcher_auth_headers):
         """session_delete_by_container cleans up worktrees for the container."""
         mock_session_mgr = MagicMock()
         mock_session_mgr.delete_session_by_container.return_value = True
@@ -3595,9 +3593,7 @@ class TestSessionDeleteByContainerWorktreeCleanup:
         repo2.name = "repo-b"
         mock_worktree_dir.iterdir.return_value = [repo1, repo2]
 
-        mock_worktree_mgr.worktree_base.__truediv__ = MagicMock(
-            return_value=mock_worktree_dir
-        )
+        mock_worktree_mgr.worktree_base.__truediv__ = MagicMock(return_value=mock_worktree_dir)
 
         remove_result = MagicMock()
         remove_result.success = True
@@ -3605,9 +3601,7 @@ class TestSessionDeleteByContainerWorktreeCleanup:
 
         with (
             patch.object(gateway, "get_session_manager", return_value=mock_session_mgr),
-            patch.object(
-                gateway, "get_worktree_manager", return_value=mock_worktree_mgr
-            ),
+            patch.object(gateway, "get_worktree_manager", return_value=mock_worktree_mgr),
             patch.object(gateway, "audit_log"),
         ):
             response = client.delete(
@@ -3632,9 +3626,7 @@ class TestSessionDeleteByContainerWorktreeCleanup:
                 force=True,
             )
 
-    def test_session_delete_by_container_no_worktrees(
-        self, client, launcher_auth_headers
-    ):
+    def test_session_delete_by_container_no_worktrees(self, client, launcher_auth_headers):
         """session_delete_by_container succeeds when no worktree dir exists."""
         mock_session_mgr = MagicMock()
         mock_session_mgr.delete_session_by_container.return_value = True
@@ -3642,15 +3634,11 @@ class TestSessionDeleteByContainerWorktreeCleanup:
         mock_worktree_mgr = MagicMock()
         mock_worktree_dir = MagicMock()
         mock_worktree_dir.exists.return_value = False
-        mock_worktree_mgr.worktree_base.__truediv__ = MagicMock(
-            return_value=mock_worktree_dir
-        )
+        mock_worktree_mgr.worktree_base.__truediv__ = MagicMock(return_value=mock_worktree_dir)
 
         with (
             patch.object(gateway, "get_session_manager", return_value=mock_session_mgr),
-            patch.object(
-                gateway, "get_worktree_manager", return_value=mock_worktree_mgr
-            ),
+            patch.object(gateway, "get_worktree_manager", return_value=mock_worktree_mgr),
             patch.object(gateway, "audit_log"),
         ):
             response = client.delete(
@@ -3683,9 +3671,7 @@ class TestSessionDeleteByContainerWorktreeCleanup:
         repo_exc.name = "repo-exc"
         mock_worktree_dir.iterdir.return_value = [repo_ok, repo_fail, repo_exc]
 
-        mock_worktree_mgr.worktree_base.__truediv__ = MagicMock(
-            return_value=mock_worktree_dir
-        )
+        mock_worktree_mgr.worktree_base.__truediv__ = MagicMock(return_value=mock_worktree_dir)
 
         success_result = MagicMock()
         success_result.success = True
@@ -3708,9 +3694,7 @@ class TestSessionDeleteByContainerWorktreeCleanup:
 
         with (
             patch.object(gateway, "get_session_manager", return_value=mock_session_mgr),
-            patch.object(
-                gateway, "get_worktree_manager", return_value=mock_worktree_mgr
-            ),
+            patch.object(gateway, "get_worktree_manager", return_value=mock_worktree_mgr),
             patch.object(gateway, "audit_log", mock_audit),
         ):
             response = client.delete(
@@ -3733,9 +3717,7 @@ class TestSessionDeleteByContainerWorktreeCleanup:
             assert "repo-fail: lock file exists" in details["errors"]
             assert "repo-exc: unexpected error - disk full" in details["errors"]
 
-    def test_session_delete_by_container_not_found(
-        self, client, launcher_auth_headers
-    ):
+    def test_session_delete_by_container_not_found(self, client, launcher_auth_headers):
         """session_delete_by_container returns 404 when session not found."""
         mock_session_mgr = MagicMock()
         mock_session_mgr.delete_session_by_container.return_value = False
@@ -3817,7 +3799,8 @@ class TestBranchIsolation:
     def test_checkout_branch_blocked_in_pipeline_worktree(self, client, local_mode_headers):
         """git checkout <branch> should be blocked in pipeline (local mode) worktree."""
         with patch.object(
-            gateway, "map_container_path_to_worktree",
+            gateway,
+            "map_container_path_to_worktree",
             return_value="/home/egg/.egg-worktrees/test-container/test",
         ):
             response = self._git_execute(client, local_mode_headers, "checkout", ["main"])
@@ -3830,7 +3813,8 @@ class TestBranchIsolation:
     def test_checkout_b_blocked_in_pipeline_worktree(self, client, local_mode_headers):
         """git checkout -b <branch> should be blocked in pipeline worktree."""
         with patch.object(
-            gateway, "map_container_path_to_worktree",
+            gateway,
+            "map_container_path_to_worktree",
             return_value="/home/egg/.egg-worktrees/test-container/test",
         ):
             response = self._git_execute(
@@ -3843,16 +3827,15 @@ class TestBranchIsolation:
         """git checkout -- <file> should be allowed even in pipeline worktree."""
         with (
             patch.object(
-                gateway, "map_container_path_to_worktree",
+                gateway,
+                "map_container_path_to_worktree",
                 return_value="/home/egg/.egg-worktrees/test-container/test",
             ),
             patch("subprocess.run") as mock_run,
         ):
             mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
 
-            response = self._git_execute(
-                client, local_mode_headers, "checkout", ["--", "file.txt"]
-            )
+            response = self._git_execute(client, local_mode_headers, "checkout", ["--", "file.txt"])
 
             assert response.status_code == 200
             assert mock_run.called, "Expected subprocess.run to be called for allowed checkout"
@@ -3865,7 +3848,8 @@ class TestBranchIsolation:
         """git checkout --ours <file> should be allowed even in pipeline worktree."""
         with (
             patch.object(
-                gateway, "map_container_path_to_worktree",
+                gateway,
+                "map_container_path_to_worktree",
                 return_value="/home/egg/.egg-worktrees/test-container/test",
             ),
             patch("subprocess.run") as mock_run,
@@ -3885,7 +3869,8 @@ class TestBranchIsolation:
     def test_switch_blocked_in_pipeline_worktree(self, client, local_mode_headers):
         """git switch should be blocked in pipeline worktree."""
         with patch.object(
-            gateway, "map_container_path_to_worktree",
+            gateway,
+            "map_container_path_to_worktree",
             return_value="/home/egg/.egg-worktrees/test-container/test",
         ):
             response = self._git_execute(client, local_mode_headers, "switch", ["main"])
@@ -3897,7 +3882,8 @@ class TestBranchIsolation:
     def test_switch_create_blocked_in_pipeline_worktree(self, client, local_mode_headers):
         """git switch --create should be blocked in pipeline worktree."""
         with patch.object(
-            gateway, "map_container_path_to_worktree",
+            gateway,
+            "map_container_path_to_worktree",
             return_value="/home/egg/.egg-worktrees/test-container/test",
         ):
             response = self._git_execute(
@@ -3910,14 +3896,17 @@ class TestBranchIsolation:
         """git checkout <branch> should be allowed without a worktree even in pipeline mode."""
         with (
             patch.object(
-                gateway, "map_container_path_to_worktree",
+                gateway,
+                "map_container_path_to_worktree",
                 return_value="/home/egg/repos/test",
             ),
             patch("subprocess.run") as mock_run,
         ):
             mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
 
-            response = self._git_execute(client, local_mode_headers, "checkout", ["-b", "new-branch"])
+            response = self._git_execute(
+                client, local_mode_headers, "checkout", ["-b", "new-branch"]
+            )
 
             assert response.status_code == 200
             assert mock_run.called, "Expected subprocess.run to be called for non-worktree checkout"
@@ -3933,7 +3922,8 @@ class TestBranchIsolation:
         """
         with (
             patch.object(
-                gateway, "map_container_path_to_worktree",
+                gateway,
+                "map_container_path_to_worktree",
                 return_value="/home/egg/.egg-worktrees/test-container/test",
             ),
             patch("subprocess.run") as mock_run,
@@ -3943,12 +3933,81 @@ class TestBranchIsolation:
             response = self._git_execute(client, auth_headers, "checkout", ["main"])
 
             assert response.status_code == 200
+            assert mock_run.called, (
+                "Expected subprocess.run to be called for interactive worktree checkout"
+            )
+            cmd = mock_run.call_args[0][0]
+            assert "checkout" in cmd
+            assert "main" in cmd
+
+    def test_checkout_branch_allowed_in_private_mode_worktree(self, client):
+        """git checkout <branch> should be allowed in private mode worktree.
+
+        Both public and private interactive sessions are unrestricted.
+        Only pipeline sessions (session_mode == "local") enforce branch isolation.
+        """
+        import sys
+
+        import auth
+
+        mock_session = MagicMock()
+        mock_session.mode = "private"
+        mock_session.container_id = "test-container"
+        mock_session.expires_at = None
+
+        mock_result = SessionValidationResult(valid=True, session=mock_session)
+
+        from private_repo_policy import PrivateRepoPolicyResult
+
+        mock_policy_result = PrivateRepoPolicyResult(
+            allowed=True,
+            reason="Test mode - access allowed",
+            visibility="private",
+        )
+
+        auth._session_manager = None
+        auth._rate_limiter = None
+
+        if "gateway.auth" in sys.modules:
+            sys.modules["gateway.auth"]._session_manager = None
+            sys.modules["gateway.auth"]._rate_limiter = None
+
+        current_session_manager = sys.modules.get("session_manager", session_manager)
+
+        with (
+            patch.object(
+                current_session_manager, "validate_session_for_request", return_value=mock_result
+            ),
+            patch.object(gateway, "check_private_repo_access", return_value=mock_policy_result),
+        ):
+            private_headers = {"Authorization": "Bearer test-session-token"}
+
+            with (
+                patch.object(
+                    gateway,
+                    "map_container_path_to_worktree",
+                    return_value="/home/egg/.egg-worktrees/test-container/test",
+                ),
+                patch("subprocess.run") as mock_run,
+            ):
+                mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+
+                response = self._git_execute(client, private_headers, "checkout", ["main"])
+
+                assert response.status_code == 200
+                assert mock_run.called, (
+                    "Expected subprocess.run to be called for private mode worktree checkout"
+                )
+                cmd = mock_run.call_args[0][0]
+                assert "checkout" in cmd
+                assert "main" in cmd
 
     def test_restore_allowed_in_worktree(self, client, local_mode_headers):
         """git restore should be allowed in pipeline worktree (file-restore alternative)."""
         with (
             patch.object(
-                gateway, "map_container_path_to_worktree",
+                gateway,
+                "map_container_path_to_worktree",
                 return_value="/home/egg/.egg-worktrees/test-container/test",
             ),
             patch("subprocess.run") as mock_run,
@@ -3969,16 +4028,15 @@ class TestBranchIsolation:
         """Non-branch-switching operations should be allowed in pipeline worktree."""
         with (
             patch.object(
-                gateway, "map_container_path_to_worktree",
+                gateway,
+                "map_container_path_to_worktree",
                 return_value="/home/egg/.egg-worktrees/test-container/test",
             ),
             patch("subprocess.run") as mock_run,
         ):
             mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
 
-            response = self._git_execute(
-                client, local_mode_headers, "status", ["--porcelain"]
-            )
+            response = self._git_execute(client, local_mode_headers, "status", ["--porcelain"])
 
             assert response.status_code == 200
             assert mock_run.called, "Expected subprocess.run to be called for allowed status"
