@@ -1,0 +1,4 @@
+This directory is readonly during the 'implement' phase.
+Directory: .egg-state/reviews/
+Reason: Plan and contract artifacts must not be modified by code agents during implementation.
+To modify these files, use the appropriate SDLC phase (refine or plan).

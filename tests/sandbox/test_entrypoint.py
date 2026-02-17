@@ -279,7 +279,6 @@ class TestSetupEnvironment:
         assert "/opt/egg-runtime/sandbox/bin" in os.environ["PATH"]
         assert "/home/egg/.local/bin" in os.environ["PATH"]
 
-
     def test_sets_egg_repo_path_when_not_set(self, monkeypatch):
         """Test that EGG_REPO_PATH is set to ~/repos when not already set."""
         monkeypatch.delenv("EGG_REPO_PATH", raising=False)

@@ -868,5 +868,3 @@ class TestSharedHelperFunctions:
             assert "EXISTING" in updated_env
         finally:
             git_client.cleanup_credential_helper(path)
-
-

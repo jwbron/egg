@@ -320,6 +320,34 @@ INTEGRATOR_PATTERNS = AgentFilePattern(
     ],
 )
 
+# Tier 3 (high complexity) integrator pattern — has write access to source,
+# tests, and docs to fix integration issues across phase boundaries.
+INTEGRATOR_TIER3_PATTERNS = AgentFilePattern(
+    role=AgentRole.INTEGRATOR,
+    description="Integrator agent (Tier 3): can modify source/tests/docs for integration fixes",
+    allowed_patterns=[
+        ".egg-state/agent-outputs/",
+        "src/",
+        "lib/",
+        "shared/",
+        "action/",
+        "docs/",
+        "tests/",
+        "test/",
+        "bin/",
+        "config/",
+        "scripts/",
+        "orchestrator/",
+        "integration_tests/",
+    ],
+    blocked_patterns=[
+        ".egg-state/contracts/",
+        ".github/",
+        "gateway/",
+        "sandbox/",
+    ],
+)
+
 # Plan-phase agent patterns
 # These agents can only write to drafts and agent-outputs directories.
 
@@ -466,32 +494,43 @@ AGENT_PATTERNS: dict[str, AgentFilePattern] = {
 }
 
 
-def get_agent_pattern(role: str) -> AgentFilePattern | None:
+def get_agent_pattern(
+    role: str,
+    complexity_tier: str | None = None,
+) -> AgentFilePattern | None:
     """Get the file pattern for an agent role.
 
     Args:
         role: The agent role identifier
+        complexity_tier: Optional complexity tier ('low', 'mid', 'high').
+            When 'high', the INTEGRATOR role uses expanded write permissions.
 
     Returns:
         AgentFilePattern for the role, or None if not found
     """
-    return AGENT_PATTERNS.get(role.lower())
+    role_lower = role.lower()
+    # In Tier 3, integrator gets expanded write access
+    if role_lower == AgentRole.INTEGRATOR and complexity_tier == "high":
+        return INTEGRATOR_TIER3_PATTERNS
+    return AGENT_PATTERNS.get(role_lower)
 
 
 def check_agent_file_access(
     role: str,
     files: list[str],
+    complexity_tier: str | None = None,
 ) -> tuple[bool, list[str], str]:
     """Check if an agent can modify the given files.
 
     Args:
         role: The agent role identifier
         files: List of file paths being modified
+        complexity_tier: Optional complexity tier for tier-aware access
 
     Returns:
         Tuple of (allowed, blocked_files, reason)
     """
-    pattern = get_agent_pattern(role)
+    pattern = get_agent_pattern(role, complexity_tier=complexity_tier)
     if pattern is None:
         # Unknown role - allow for backwards compatibility
         return True, [], f"Unknown agent role: {role}"
@@ -545,6 +584,7 @@ class AgentRestrictionResult:
 def validate_agent_push(
     role: str,
     files: list[str],
+    complexity_tier: str | None = None,
 ) -> AgentRestrictionResult:
     """Validate that an agent can push changes to the given files.
 
@@ -553,6 +593,7 @@ def validate_agent_push(
     Args:
         role: The agent role identifier (e.g., "coder", "tester")
         files: List of file paths being modified in the push
+        complexity_tier: Optional complexity tier for tier-aware access
 
     Returns:
         AgentRestrictionResult indicating whether the push is allowed
@@ -563,7 +604,9 @@ def validate_agent_push(
     if not files:
         return AgentRestrictionResult.allow(role, "No files to validate")
 
-    allowed, blocked_files, reason = check_agent_file_access(role, files)
+    allowed, blocked_files, reason = check_agent_file_access(
+        role, files, complexity_tier=complexity_tier
+    )
 
     if allowed:
         return AgentRestrictionResult.allow(role, reason)

@@ -151,6 +151,10 @@ class Phase(BaseModel):
     escalated: bool = Field(default=False, description="Whether escalated")
     escalation_reason: str | None = Field(default=None, description="Reason for escalation")
     tasks: list[Task] = Field(default_factory=list, description="Tasks in this phase")
+    dependencies: list[str] = Field(
+        default_factory=list,
+        description="Phase IDs this phase depends on (e.g., ['phase-1', 'phase-2'])",
+    )
     review_feedback: list[ReviewFeedback] = Field(
         default_factory=list, description="Feedback from reviewer"
     )
@@ -339,6 +343,11 @@ class AgentExecutionModel(BaseModel):
     """
 
     role: AgentRoleType = Field(..., description="The agent role")
+    phase_id: str | None = Field(
+        default=None,
+        description="Plan phase ID this execution belongs to (e.g., 'phase-1'). "
+        "None for Tier 2 (role-only) keying.",
+    )
     status: AgentExecutionStatus = Field(
         default=AgentExecutionStatus.PENDING, description="Current execution status"
     )

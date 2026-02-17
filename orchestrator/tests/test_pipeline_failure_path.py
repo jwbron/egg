@@ -138,18 +138,27 @@ class TestFailurePathEmitsPipelineEvent:
 
         pipeline = _make_running_pipeline()
         _setup_mocks(
-            mock_report, mock_read_draft, mock_build_prompt, mock_state_lock,
-            mock_spawn_wait, mock_get_store, mock_get_spawner, mock_emit,
+            mock_report,
+            mock_read_draft,
+            mock_build_prompt,
+            mock_state_lock,
+            mock_spawn_wait,
+            mock_get_store,
+            mock_get_spawner,
+            mock_emit,
             pipeline,
         )
 
-        with patch.dict(os.environ, {"EGG_HOST_REPO_MAP": '{"repo": "/host/repo"}'}, clear=False), \
-             patch("pathlib.Path.exists", return_value=True):
+        with (
+            patch.dict(os.environ, {"EGG_HOST_REPO_MAP": '{"repo": "/host/repo"}'}, clear=False),
+            patch("pathlib.Path.exists", return_value=True),
+        ):
             _run_pipeline("issue-42", Path("/repo"))
 
         # Verify _emit_pipeline_event was called with "pipeline.failed"
         failed_calls = [
-            c for c in mock_emit.call_args_list
+            c
+            for c in mock_emit.call_args_list
             if len(c.args) >= 2 and c.args[1] == "pipeline.failed"
         ]
         assert len(failed_calls) >= 1, (
@@ -186,8 +195,14 @@ class TestFailurePathPushesWorktreeBranch:
 
         pipeline = _make_running_pipeline(branch="egg/issue-42")
         mock_store, mock_gateway = _setup_mocks(
-            mock_report, mock_read_draft, mock_build_prompt, mock_state_lock,
-            mock_spawn_wait, mock_get_store, mock_get_spawner, mock_emit,
+            mock_report,
+            mock_read_draft,
+            mock_build_prompt,
+            mock_state_lock,
+            mock_spawn_wait,
+            mock_get_store,
+            mock_get_spawner,
+            mock_emit,
             pipeline,
         )
 
@@ -200,8 +215,10 @@ class TestFailurePathPushesWorktreeBranch:
             errors=[],
         )
 
-        with patch.dict(os.environ, {"EGG_HOST_REPO_MAP": '{"repo": "/host/repo"}'}, clear=False), \
-             patch("pathlib.Path.exists", return_value=True):
+        with (
+            patch.dict(os.environ, {"EGG_HOST_REPO_MAP": '{"repo": "/host/repo"}'}, clear=False),
+            patch("pathlib.Path.exists", return_value=True),
+        ):
             _run_pipeline("issue-42", Path("/repo"))
 
         mock_gateway.push_worktree_branch.assert_called_once_with(
@@ -234,13 +251,21 @@ class TestFailurePathPushesWorktreeBranch:
 
         pipeline = _make_running_pipeline(branch=None)
         mock_store, mock_gateway = _setup_mocks(
-            mock_report, mock_read_draft, mock_build_prompt, mock_state_lock,
-            mock_spawn_wait, mock_get_store, mock_get_spawner, mock_emit,
+            mock_report,
+            mock_read_draft,
+            mock_build_prompt,
+            mock_state_lock,
+            mock_spawn_wait,
+            mock_get_store,
+            mock_get_spawner,
+            mock_emit,
             pipeline,
         )
 
-        with patch.dict(os.environ, {"EGG_HOST_REPO_MAP": '{"repo": "/host/repo"}'}, clear=False), \
-             patch("pathlib.Path.exists", return_value=True):
+        with (
+            patch.dict(os.environ, {"EGG_HOST_REPO_MAP": '{"repo": "/host/repo"}'}, clear=False),
+            patch("pathlib.Path.exists", return_value=True),
+        ):
             _run_pipeline("issue-42", Path("/repo"))
 
         mock_gateway.push_worktree_branch.assert_not_called()
@@ -273,13 +298,21 @@ class TestFailurePathPreservesWorktrees:
 
         pipeline = _make_running_pipeline()
         mock_store, mock_gateway = _setup_mocks(
-            mock_report, mock_read_draft, mock_build_prompt, mock_state_lock,
-            mock_spawn_wait, mock_get_store, mock_get_spawner, mock_emit,
+            mock_report,
+            mock_read_draft,
+            mock_build_prompt,
+            mock_state_lock,
+            mock_spawn_wait,
+            mock_get_store,
+            mock_get_spawner,
+            mock_emit,
             pipeline,
         )
 
-        with patch.dict(os.environ, {"EGG_HOST_REPO_MAP": '{"repo": "/host/repo"}'}, clear=False), \
-             patch("pathlib.Path.exists", return_value=True):
+        with (
+            patch.dict(os.environ, {"EGG_HOST_REPO_MAP": '{"repo": "/host/repo"}'}, clear=False),
+            patch("pathlib.Path.exists", return_value=True),
+        ):
             _run_pipeline("issue-42", Path("/repo"))
 
         # Pipeline should now be in FAILED state (set by the exit_code != 0 handler)

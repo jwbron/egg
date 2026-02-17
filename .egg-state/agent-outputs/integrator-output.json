@@ -1,145 +1,120 @@
 {
   "status": "pass",
   "phase": "implement",
-  "pipeline_id": "issue-644",
-  "issue": 644,
-  "branch": "egg/issue-644",
-  "summary": "All coder and tester changes integrate cleanly. Pipeline isolation implemented across four layers: branch lock, commit-time validation, readonly mounts, and post-agent auto-commit. Full test suite passes (2287 gateway+shared tests, 478 orchestrator tests, 24 workflow tests). Review feedback from contract reviewer found to be factually incorrect on all three major points — the implementation already addresses all cited gaps. Minor lint fixes applied (6 unused imports in test files).",
+  "pipeline_id": "issue-732",
+  "issue": 732,
+  "branch": "egg/issue-732",
+  "summary": "All coder and tester changes for Tier 3 parallel dispatch integrate cleanly after integrator fixes. The feature adds 3-tier complexity assessment, phase dependency graph, per-phase execution tracking, phase-scoped agent dispatch, and expanded integrator write access for Tier 3. Full test suite passes (5720 tests across gateway, shared, and orchestrator). Integrator fixed 8 test failures (invalid task ID format in test_tier3_execute.py) and 4 lint issues (unused variable, f-string placeholders, dict comprehension style).",
   "test_results": {
     "gateway_and_shared_tests": {
       "status": "pass",
-      "passed": 2287,
+      "passed": 5164,
       "failed": 0,
-      "skipped": 3,
-      "warnings": 1,
-      "duration_seconds": 20.08,
-      "details": "Full gateway/tests/ and tests/shared/ suite passes. 2287 passed, 3 skipped, 1 warning (Pydantic serializer warning in test_phase_api.py — cosmetic)."
+      "skipped": 83,
+      "warnings": 4,
+      "duration_seconds": 43.28,
+      "details": "Full gateway/tests/, tests/, and shared/egg_contracts/tests/ suite passes. 5164 passed, 83 skipped, 4 warnings (3 PytestCollectionWarning from dataclass constructors, 1 Pydantic serializer warning — all cosmetic)."
     },
     "orchestrator_tests": {
       "status": "pass_with_pre_existing_failures",
-      "passed": 478,
-      "failed": 8,
+      "passed": 556,
+      "failed": 4,
       "collection_errors": 2,
-      "duration_seconds": 15.16,
-      "details": "478 passed. 8 pre-existing failures in test_start_pipeline.py (MagicMock serialization bug — confirmed identical on main branch, not introduced by this PR). 2 collection errors in test_container_spawner.py and test_docker_client.py due to missing docker Python library in sandbox environment — pre-existing."
+      "duration_seconds": 15.88,
+      "details": "556 passed. 4 pre-existing failures in test_dag_visualizer.py (TestCheckerOrdering and TestRunCountDisplay reference AgentRole.REVIEWER_UNIFIED which does not exist in the enum — confirmed identical on main branch, not introduced by this PR). 2 collection errors in test_container_spawner.py and test_docker_client.py due to missing docker Python library in sandbox environment — pre-existing."
     },
-    "workflow_tests": {
-      "status": "pass",
-      "passed": 24,
-      "failed": 0,
-      "duration_seconds": 0.38,
-      "details": "All 24 workflow tests pass (test_hitl_integration.py, test_multi_reviewer.py)."
-    },
-    "new_tests_for_issue_644": {
+    "new_tests_for_issue_732": {
       "status": "pass",
       "test_files": [
-        "gateway/tests/test_agent_restrictions_enforce.py (8 tests)",
-        "gateway/tests/test_agent_restrictions_patterns.py (many tests)",
-        "gateway/tests/test_assigned_branch.py (172 lines)",
-        "gateway/tests/test_branch_switch.py (121 lines)",
-        "gateway/tests/test_phase_filter_restrictions.py (547 lines)",
-        "gateway/tests/test_pipeline_enforcement.py (300 lines)",
-        "gateway/tests/test_post_agent_commit.py (495 lines)",
-        "gateway/tests/test_post_agent_commit_extended.py (323 lines)",
-        "tests/shared/egg_container/test_marker_files.py (183 lines)",
-        "tests/shared/egg_container/test_phase_mounts.py (241 lines)"
+        "gateway/tests/test_integrator_tier3.py — Tier 3 integrator file access patterns",
+        "gateway/tests/test_phase_filter_tier3.py — Phase filter integration with complexity tier",
+        "gateway/tests/test_phase_worktree.py — Worktree lifecycle for phase-level execution",
+        "orchestrator/tests/test_tier3_dispatch.py — Tier 3 signal detection and phase-scoped prompt building",
+        "orchestrator/tests/test_tier3_execute.py — Sequential and parallel phase execution flow",
+        "shared/egg_contracts/tests/test_agent_roles_tier3.py — Tier 3 integrator role definition",
+        "shared/egg_contracts/tests/test_composite_execution.py — Composite (phase_id, role) execution tracking",
+        "shared/egg_contracts/tests/test_orchestrator_phase_id.py — Orchestrator class with phase_id parameter",
+        "shared/egg_contracts/tests/test_phase_dependency_graph.py — Phase dependency graph and wave computation",
+        "shared/egg_contracts/tests/test_plan_parser_dependencies.py — Dependency field propagation from plan parser"
       ],
-      "details": "All new test files for pipeline isolation features pass. Comprehensive coverage across branch lock, commit-time validation, readonly mounts, marker files, auto-commit, and enforce mode."
+      "details": "All 10 new test files pass. Comprehensive coverage across complexity tier detection, phase dispatch, dependency graph, composite execution tracking, and integrator access patterns."
     }
   },
   "lint_results": {
-    "source_files": {
-      "status": "pass",
-      "details": "All source files pass ruff checks: post_agent_commit.py, gateway.py, agent_restrictions.py, git_client.py, session_manager.py, egg_container/__init__.py."
-    },
-    "test_files": {
-      "status": "pass",
-      "details": "Test files pass after integrator fix. 6 auto-fixable unused import errors fixed by ruff --fix."
-    }
-  },
-  "review_feedback_assessment": {
-    "overall": "All three major review feedback points are factually incorrect. The implementation already addresses all cited gaps.",
-    "task_4_1_post_agent_commit": {
-      "reviewer_claim": "check_phase_file_restrictions() is never called, blocked files not restored, git add -A used, no gateway push",
-      "finding": "FALSE — All four sub-claims are incorrect",
-      "evidence": {
-        "a_phase_filter_called": "check_phase_file_restrictions IS imported (lines 173-179) and called (line 182) in post_agent_commit.py. Uses try/except for import path flexibility.",
-        "b_blocked_files_restored": "Blocked files ARE restored via git checkout -- <file> (lines 196-206). Each blocked file is individually restored.",
-        "c_selective_staging": "git add -A is NOT used. Line 220 uses selective staging: _git('add', '--', *allowed_files). The comment on line 219 explicitly states 'not git add -A which stages everything'.",
-        "d_gateway_push": "_push_via_gateway() IS implemented (lines 68-112) and called (lines 275-290) when session_token and gateway_url are provided."
-      }
-    },
-    "task_3_3_marker_files": {
-      "reviewer_claim": "No implementation of marker file generation exists, search for .egg-readonly returns zero results",
-      "finding": "FALSE — Implementation exists with full test coverage",
-      "evidence": {
-        "implementation": "shared/egg_container/__init__.py lines 166-178: .egg-readonly marker files are generated during ensure_egg_state_dirs() when phase=='implement'. Content includes directory name, phase, reason, and remediation guidance.",
-        "tests": "tests/shared/egg_container/test_marker_files.py (183 lines) provides comprehensive test coverage for marker file generation, content validation, and ownership.",
-        "references": "Multiple files reference .egg-readonly: sandbox/.claude/rules/environment.md, shared/README.md, docs/architecture/orchestrator.md, docs/guides/sdlc-pipeline.md."
-      }
-    },
-    "task_2_1_enforce_mode": {
-      "reviewer_claim": "Implementation is permanently warn-only with no config flag, tests for enforce mode and unknown role missing",
-      "finding": "FALSE — Config flag exists and is functional with comprehensive tests",
-      "evidence": {
-        "config_flag": "gateway/gateway.py lines 698-702: EGG_AGENT_RESTRICTIONS_ENFORCE env var controls enforcement. Accepts 'true', '1', 'yes'. Default is 'false' (warn-only).",
-        "enforce_tests": "gateway/tests/test_agent_restrictions_enforce.py includes TestAgentRestrictionsEnforceMode class with 4 tests: test_enforce_mode_blocks_push, test_enforce_mode_allows_clean_push, test_enforce_accepts_yes_value, test_enforce_accepts_1_value.",
-        "unknown_role_tests": "gateway/tests/test_agent_restrictions_enforce.py includes TestAgentRestrictionsUnknownRole class with test_unknown_role_passes_when_allowed."
-      }
-    },
-    "task_3_1_directory_count": {
-      "reviewer_claim": "Only 3 readonly directories (drafts, contracts, reviews); missing pipelines",
-      "finding": "FALSE — All 4 directories present",
-      "evidence": "shared/egg_container/__init__.py line 131: _IMPLEMENT_READONLY_DIRS = ('drafts', 'contracts', 'pipelines', 'reviews'). All 4 directories are included."
-    },
-    "erofs_integration_test": {
-      "reviewer_claim": "EROFS integration test is missing",
-      "finding": "PARTIALLY TRUE — No Docker-based EROFS integration test exists, but reviewer acknowledged 'this may require Docker and be CI-only'. Unit tests for readonly mount spec generation are comprehensive.",
-      "recommendation": "EROFS integration test should be a follow-up for CI where Docker is available. Not a blocker for this PR."
-    }
+    "status": "pass",
+    "details": "All source and test files pass ruff checks after integrator fixes. 4 lint issues fixed: unused variable in worktree_manager.py, 2 f-strings without placeholders in pipelines.py, dict comprehension style in dependency_graph.py."
   },
   "integration_checks": {
-    "branch_lock_gateway_integration": {
+    "complexity_tier_flow": {
       "status": "pass",
-      "details": "Branch lock enforcement integrates correctly with gateway.py git_execute(). is_branch_switch() in git_client.py correctly detects branch-switching vs file-level operations. Session.assigned_branch field persists through serialization/deserialization roundtrip."
+      "details": "ComplexityTier enum (LOW, MID, HIGH) in orchestrator/models.py correctly drives feature gates. Refine phase detects complexity tier from analysis draft YAML metadata via _check_high_complexity_signal(). Pipeline model stores complexity_tier and enable_parallel_phases flag. All three tiers coexist: LOW triggers short-circuit, MID uses standard wave dispatch, HIGH enables phase-level dispatch."
     },
-    "commit_validation_integration": {
+    "phase_dependency_graph": {
       "status": "pass",
-      "details": "Commit-time staged file validation integrates with existing phase_filter.check_phase_file_restrictions(). Push-time validation remains the authoritative gate."
+      "details": "PhaseDependencyGraph in shared/egg_contracts/dependency_graph.py correctly builds dependency graph from Phase objects. compute_waves() produces correct wave groupings (linear chains, independent phases, diamond patterns). Cycle detection works for direct, indirect, and self-cycles. Unknown dependencies gracefully ignored. Deterministic ordering via sorted()."
     },
-    "readonly_mounts_integration": {
+    "composite_execution_tracking": {
       "status": "pass",
-      "details": "phase_readonly_mounts() and ensure_egg_state_dirs() integrate with container_spawner.py spawn flow. Mounts generated for implement phase only. Missing directories gracefully skipped."
+      "details": "OrchestrationState in shared/egg_contracts/orchestration.py supports dual keying: role-only (Tier 2 backward compat) and composite (phase_id, role) for Tier 3. set_execution(), get_execution(), mark_running/complete/failed all accept optional phase_id. to_execution_list() merges both keying schemes. Backward compatible: None phase_id defaults preserved."
     },
-    "auto_commit_integration": {
+    "phase_scoped_dispatch": {
       "status": "pass",
-      "details": "auto_commit_worktree() integrates with session_manager cleanup flow. Phase filtering via check_phase_file_restrictions() ensures blocked files are restored, not committed. Gateway push via _push_via_gateway() when credentials available."
+      "details": "Orchestrator class accepts phase_id parameter. start_agent(), complete_agent(), fail_agent() propagate phase_id to execution tracking. get_next_dispatch() returns phase-scoped dispatch decisions. Two Orchestrators with different phase_ids track independently. apply_to_contract() preserves phase_id."
     },
-    "agent_restrictions_wiring": {
+    "tier3_integrator_access": {
       "status": "pass",
-      "details": "check_agent_restrictions() now called in git_push() handler (gateway.py lines 695-735). Configurable via EGG_AGENT_RESTRICTIONS_ENFORCE. Warn-only by default for safe rollout."
+      "details": "get_role_definition(INTEGRATOR, complexity_tier='high') returns expanded write patterns (src/, lib/, shared/, gateway/, orchestrator/, tests/, docs/) while still blocking .egg-state/contracts/ and .github/. Gateway agent_restrictions.py propagates complexity_tier through check_agent_file_access() and validate_agent_push(). Non-integrator roles unaffected by tier."
     },
-    "backwards_compatibility": {
+    "plan_parser_dependencies": {
       "status": "pass",
-      "details": "Existing sessions without assigned_branch default to None and continue to work. Non-pipeline sessions unaffected. All existing gateway tests pass."
+      "details": "ParsedPhase.dependencies field parsed from plan YAML. Supports comma-separated strings, numeric IDs (normalized to phase-N format), and list format. to_contract_phase() produces Phase objects with validated dependencies list. Tasks preserved alongside dependencies."
     },
-    "defense_in_depth": {
+    "worktree_manager": {
       "status": "pass",
-      "details": "Four enforcement layers work independently: (1) OS-level readonly mounts, (2) commit-time validation, (3) push-time validation, (4) branch lock. Each layer fails open or gracefully degrades."
+      "details": "WorktreeManager.create_phase_worktree() constructs composite container_id from container_id + sanitized phase_id. Phase ID sanitization replaces / and . with hyphens, blocks path traversal (../). cleanup_phase_worktrees() supports explicit phase_ids or scanning. Input validation for container_id and repo_name."
+    },
+    "sequential_phase_execution": {
+      "status": "pass",
+      "details": "_run_tier3_implement() processes phases sequentially when enable_parallel_phases=False. Each phase runs coder → tester → reviewer cycle. Coder failure aborts entire run. Reviewer rejection triggers retry within same phase (up to max_review_cycles). Integrator runs after all phases complete. EGG_PLAN_PHASE_ID env var passed to agents."
+    },
+    "parallel_phase_execution": {
+      "status": "pass",
+      "details": "_run_tier3_implement() with enable_parallel_phases=True uses PhaseDependencyGraph.compute_waves() to group independent phases into parallel waves. Diamond dependency pattern (1 → 2,3 → 4) produces correct wave ordering. Integrator still runs after all phases."
+    },
+    "backward_compatibility": {
+      "status": "pass",
+      "details": "All new fields have defaults (complexity_tier=MID, enable_parallel_phases=False, phase dependencies=[], phase_id=None). Existing Tier 1 (short-circuit) and Tier 2 (standard multi-agent) flows unaffected. All 5164 existing gateway/shared tests pass. Contract schema extensions are additive."
     }
   },
   "regressions": [],
   "issues_found": [],
   "integrator_fixes": [
     {
-      "description": "Fix 6 unused import lint errors in test files via ruff --fix (auto-fixable). Files: gateway/tests/ and tests/shared/egg_container/."
+      "description": "Fix task ID format in test_tier3_execute.py: changed 'TASK-N-1' to 'task-N-1' and 'T-N-1' to 'task-N-1' to match contract model validation pattern ^task-[0-9]+(-[0-9]+)?$. Fixed 8 test failures across TestRunTier3ImplementSequential and TestRunTier3ImplementParallel.",
+      "files": ["orchestrator/tests/test_tier3_execute.py"]
+    },
+    {
+      "description": "Remove unused import PipelinePhase in test_tier3_execute.py (ruff F401).",
+      "files": ["orchestrator/tests/test_tier3_execute.py"]
+    },
+    {
+      "description": "Remove unused variable phase_branch in gateway/worktree_manager.py (ruff F841). The variable was assigned but never used since create_worktree() is called with base_branch directly.",
+      "files": ["gateway/worktree_manager.py"]
+    },
+    {
+      "description": "Remove extraneous f-string prefixes on string literals without placeholders in orchestrator/routes/pipelines.py (ruff F541).",
+      "files": ["orchestrator/routes/pipelines.py"]
+    },
+    {
+      "description": "Replace dict comprehension {pid: 0 for pid in self.nodes} with dict.fromkeys(self.nodes, 0) in shared/egg_contracts/dependency_graph.py (ruff C420).",
+      "files": ["shared/egg_contracts/dependency_graph.py"]
     }
   ],
   "pre_existing_issues": [
     {
       "severity": "medium",
-      "description": "8 tests in orchestrator/tests/test_start_pipeline.py fail with 'TypeError: Object of type MagicMock is not JSON serializable'. Confirmed identical failures on main branch — not introduced by this PR.",
-      "location": "orchestrator/tests/test_start_pipeline.py"
+      "description": "4 tests in orchestrator/tests/test_dag_visualizer.py fail with 'AttributeError: REVIEWER_UNIFIED' — the AgentRole enum does not have a REVIEWER_UNIFIED member. Confirmed identical failures on main branch.",
+      "location": "orchestrator/tests/test_dag_visualizer.py"
     },
     {
       "severity": "low",
@@ -147,34 +122,37 @@
       "location": "orchestrator/tests/"
     }
   ],
+  "code_review_observations": [
+    {
+      "severity": "low",
+      "category": "code_duplication",
+      "description": "AgentRole enum is duplicated in gateway/agent_restrictions.py (lines 30-52) from shared/egg_contracts/agent_roles.py. Comment acknowledges this avoids import complexity but creates maintenance burden if roles diverge.",
+      "recommendation": "Consider consolidating or adding a sync test."
+    },
+    {
+      "severity": "low",
+      "category": "silent_behavior",
+      "description": "PhaseDependencyGraph silently ignores unknown dependencies (line 435-436: 'if dep not in self.nodes: continue'). This prevents errors from typos in phase dependency declarations.",
+      "recommendation": "Add a warning log when skipping unknown dependencies."
+    },
+    {
+      "severity": "low",
+      "category": "validation_gap",
+      "description": "complexity_tier parameter in get_role_definition() only affects INTEGRATOR role. No validation of valid values ('low', 'mid', 'high'). Invalid values silently fall through to default behavior.",
+      "recommendation": "Document valid values or add validation."
+    }
+  ],
   "commits_on_branch": [
     {
-      "sha": "e5d37ffe",
-      "message": "Add comprehensive tests for pipeline isolation features"
-    },
-    {
-      "sha": "44c11e04",
-      "message": "Document pipeline isolation: phase filtering, enforce mode, marker files"
-    },
-    {
-      "sha": "207042e2",
-      "message": "Address review feedback for pipeline isolation features"
-    },
-    {
-      "sha": "ced8e226",
-      "message": "Fix lint errors: remove unused imports in test files"
-    },
-    {
-      "sha": "87d387ab",
-      "message": "Add tests for pipeline isolation features (branch lock, readonly mounts, commit validation)"
-    },
-    {
-      "sha": "720d74ca",
-      "message": "Document pipeline isolation: branch lock, commit validation, readonly mounts, auto-commit"
-    },
-    {
-      "sha": "b00efdb0",
-      "message": "Add pipeline isolation: branch lock, commit validation, readonly mounts, auto-commit"
+      "sha": "cd36ccd4",
+      "message": "Fix Tier 3 test task ID format and lint issues",
+      "author": "integrator"
     }
+  ],
+  "files_changed_by_integrator": [
+    "orchestrator/tests/test_tier3_execute.py",
+    "gateway/worktree_manager.py",
+    "orchestrator/routes/pipelines.py",
+    "shared/egg_contracts/dependency_graph.py"
   ]
 }

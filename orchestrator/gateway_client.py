@@ -242,6 +242,7 @@ class GatewayClient:
         pr_number: int | None = None,
         claude_code_version: str | None = None,
         branch: str | None = None,
+        complexity_tier: str | None = None,
     ) -> SessionInfo:
         """Register a session for a container.
 
@@ -293,6 +294,8 @@ class GatewayClient:
             request_data["claude_code_version"] = claude_code_version
         if branch is not None:
             request_data["branch"] = branch
+        if complexity_tier is not None:
+            request_data["complexity_tier"] = complexity_tier
 
         result = self._make_request(
             "/api/v1/sessions/create",
@@ -544,7 +547,6 @@ class GatewayClient:
             raise
         except Exception as e:
             raise GatewayError(f"Failed to delete worktrees: {e}") from e
-
 
     def push_worktree_branch(
         self,

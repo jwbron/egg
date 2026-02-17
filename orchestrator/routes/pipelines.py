@@ -12,6 +12,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+import yaml
+
 from docker.errors import DockerException
 from flask import Blueprint, Response, jsonify, request, stream_with_context
 
@@ -57,6 +59,7 @@ except ImportError:
     from docker_client import DockerClientError  # type: ignore
     from models import (  # type: ignore
         AgentRole,
+        ComplexityTier,
         CycleTiming,
         Pipeline,
         PipelinePhase,
@@ -1012,17 +1015,23 @@ def _verdict_path_for_type(
     pipeline_mode: str,
     issue_number: int | None = None,
     pipeline_id: str | None = None,
+    plan_phase_id: str | None = None,
 ) -> str:
     """Return the relative verdict file path for a given reviewer type.
 
     For issue mode, uses issue number as prefix (e.g., 123-implement-code-review.json).
     For local mode, uses pipeline_id as prefix (e.g., local-abc12345-refine-refine-review.json).
+
+    When plan_phase_id is provided (Tier 3 phase-level dispatch), it is included
+    in the path to avoid race conditions between parallel phase reviewers:
+    e.g., 123-implement-phase-1-code-review.json.
     """
+    phase_segment = f"{phase}-{plan_phase_id}" if plan_phase_id else phase
     if pipeline_mode == "local":
         prefix = pipeline_id if pipeline_id else "local"
-        return f".egg-state/reviews/{prefix}-{phase}-{reviewer_type}-review.json"
+        return f".egg-state/reviews/{prefix}-{phase_segment}-{reviewer_type}-review.json"
     else:
-        return f".egg-state/reviews/{issue_number}-{phase}-{reviewer_type}-review.json"
+        return f".egg-state/reviews/{issue_number}-{phase_segment}-{reviewer_type}-review.json"
 
 
 def _get_draft_path(
@@ -1160,6 +1169,64 @@ def _check_short_circuit_signal(
     return False
 
 
+def _check_high_complexity_signal(
+    repo_path: Path,
+    pipeline_mode: str,
+    issue_number: int | None = None,
+    pipeline_id: str | None = None,
+) -> tuple[str, bool]:
+    """Check the refine analysis draft for a complexity tier signal.
+
+    Looks for the *last* fenced YAML block containing ``complexity_tier``
+    in the analysis. Returns a tuple of (tier, parallel_phases).
+
+    Returns:
+        Tuple of (complexity_tier, parallel_phases).
+        complexity_tier is one of "low", "mid", "high".
+        Defaults to ("mid", False) if no signal is found.
+    """
+    draft_rel = _get_draft_path("refine", pipeline_mode, issue_number, pipeline_id)
+    if not draft_rel:
+        return "mid", False
+    draft_path = repo_path / draft_rel
+    if not draft_path.exists():
+        return "mid", False
+    content = draft_path.read_text(encoding="utf-8")
+    if not content.strip():
+        return "mid", False
+
+    # Look for a fenced YAML block containing complexity_tier.
+    # Only the *last* YAML block is checked to avoid false positives.
+    yaml_block_pattern = re.compile(r"```ya?ml\s*\n(.*?)```", re.DOTALL)
+    matches = list(yaml_block_pattern.finditer(content))
+    if not matches:
+        return "mid", False
+
+    block = matches[-1].group(1)
+
+    # Parse the YAML block to extract complexity_tier and parallel_phases
+    try:
+        data = yaml.safe_load(block)
+        if not isinstance(data, dict):
+            return "mid", False
+
+        tier = str(data.get("complexity_tier", "mid")).lower()
+        if tier not in ("low", "mid", "high"):
+            tier = "mid"
+
+        parallel_phases = bool(data.get("parallel_phases", False))
+        return tier, parallel_phases
+    except Exception:
+        # Fall back to regex parsing if YAML parsing fails
+        tier_match = re.search(r"^\s*complexity_tier\s*:\s*(low|mid|high)\s*$", block, re.MULTILINE)
+        tier = tier_match.group(1) if tier_match else "mid"
+
+        parallel_match = re.search(r"^\s*parallel_phases\s*:\s*true\s*$", block, re.MULTILINE)
+        parallel_phases = bool(parallel_match)
+
+        return tier, parallel_phases
+
+
 def _build_review_prompt(
     phase: str,
     pipeline_id: str,
@@ -1170,6 +1237,7 @@ def _build_review_prompt(
     prior_feedback: str | None = None,
     repo_path: str | None = None,
     last_reviewed_commit: str | None = None,
+    plan_phase_id: str | None = None,
 ) -> str:
     """Build a review prompt for the reviewer agent.
 
@@ -1179,7 +1247,8 @@ def _build_review_prompt(
     draft_path = _get_draft_path(phase, pipeline_mode, issue_number, pipeline_id)
 
     verdict_path = _verdict_path_for_type(
-        phase, reviewer_type, pipeline_mode, issue_number, pipeline_id
+        phase, reviewer_type, pipeline_mode, issue_number, pipeline_id,
+        plan_phase_id=plan_phase_id,
     )
 
     lines = [
@@ -1298,6 +1367,7 @@ def _read_review_verdict(
     pipeline_mode: str = "local",
     issue_number: int | None = None,
     pipeline_id: str | None = None,
+    plan_phase_id: str | None = None,
 ) -> ReviewVerdict | None:
     """Read a typed review verdict JSON from the repo.
 
@@ -1305,7 +1375,8 @@ def _read_review_verdict(
     for graceful degradation).
     """
     verdict_rel = _verdict_path_for_type(
-        phase, reviewer_type, pipeline_mode, issue_number, pipeline_id
+        phase, reviewer_type, pipeline_mode, issue_number, pipeline_id,
+        plan_phase_id=plan_phase_id,
     )
     verdict_file = repo_path / verdict_rel
 
@@ -1552,16 +1623,31 @@ def _build_phase_prompt(
                 "After completing your analysis, assess the task complexity:",
                 "- **low**: Single-file change, straightforward bug fix, small config update, typo fix",
                 "- **medium**: Multi-file change with clear scope, feature addition with known patterns",
-                "- **high**: Architectural change, new subsystem, cross-cutting concern, ambiguous requirements",
+                "- **high**: Architectural change, new subsystem, cross-cutting concern, "
+                "many independent phases that could be parallelized",
                 "",
-                "If complexity is **low**, add the following metadata block at the very end of your analysis:\n",
+                "Add a metadata block at the very end of your analysis "
+                "with the appropriate complexity tier:\n",
+                "For **low** complexity (skip plan phase, go directly to implementation):",
                 "```yaml",
                 "# metadata",
                 "short_circuit: true",
-                "complexity: low",
+                "complexity_tier: low",
                 "```\n",
-                "This tells the pipeline to skip the plan phase and go directly to implementation.",
-                "For **medium** or **high** complexity, omit this block — the plan phase will run.",
+                "For **medium** complexity (standard plan + implement flow):",
+                "```yaml",
+                "# metadata",
+                "complexity_tier: mid",
+                "```\n",
+                "For **high** complexity (phase-level dispatch with per-phase "
+                "implement cycles and optional parallel execution):",
+                "```yaml",
+                "# metadata",
+                "complexity_tier: high",
+                "parallel_phases: true",
+                "```\n",
+                "Set `parallel_phases: true` only when the plan phases are truly "
+                "independent and can be implemented in parallel without conflicts.",
                 "",
             ]
         )
@@ -2147,6 +2233,625 @@ def _build_agent_prompt(
     return "\n".join(lines)
 
 
+def _build_phase_scoped_prompt(
+    phase_obj,
+    pipeline_id: str,
+    pipeline_mode: str,
+    pipeline: Pipeline,
+    worktree_repo_path: Path,
+    review_feedback: str | None = None,
+    review_cycle: int = 0,
+) -> str:
+    """Build a coder prompt scoped to a single plan phase's tasks.
+
+    Filters tasks and files_affected to the current plan phase, preventing
+    cross-phase context leakage.
+
+    Args:
+        phase_obj: Contract Phase model with id, name, tasks
+        pipeline_id: Pipeline ID
+        pipeline_mode: 'issue' or 'local'
+        pipeline: Pipeline model
+        worktree_repo_path: Path to worktree repo
+        review_feedback: Optional review feedback for revision cycles
+        review_cycle: Current review cycle number
+
+    Returns:
+        Phase-scoped prompt string
+    """
+    lines = ["You are in the **implement** phase of the SDLC pipeline.\n"]
+    lines.append("## Context\n")
+    lines.append(f"Pipeline ID: {pipeline_id}")
+    lines.append("Phase: implement")
+    lines.append(f"Mode: {pipeline_mode}")
+    lines.append(f"Plan Phase: {phase_obj.id} — {phase_obj.name}")
+    if pipeline.repo:
+        lines.append(f"Repository: {pipeline.repo}")
+    if pipeline.branch:
+        lines.append(f"Branch: {pipeline.branch}")
+    if pipeline.issue_number is not None:
+        lines.append(f"Issue: #{pipeline.issue_number}")
+    lines.append("")
+
+    # Review feedback for revision cycles
+    if review_cycle > 0 and review_feedback:
+        lines.append(f"## Prior Review Feedback (Cycle {review_cycle})\n")
+        lines.append(
+            "The reviewer found issues with your previous work for this phase. "
+            "Address the feedback below.\n"
+        )
+        lines.append(review_feedback)
+        lines.append("")
+
+    # Embed plan draft
+    if review_cycle == 0:
+        draft_text = _read_phase_draft(
+            worktree_repo_path,
+            "plan",
+            pipeline_mode,
+            issue_number=pipeline.issue_number,
+            pipeline_id=pipeline_id,
+        )
+        if draft_text:
+            lines.append("## Plan\n")
+            lines.append(f"```markdown\n{draft_text}\n```\n")
+
+    # Phase-specific task checklist
+    lines.append(f"## Your Scope: {phase_obj.name}\n")
+    lines.append(
+        f"You are implementing **only** the tasks in plan phase `{phase_obj.id}`. "
+        "Do NOT implement tasks from other phases.\n"
+    )
+    lines.append("### Tasks\n")
+    for task in phase_obj.tasks:
+        status_marker = "x" if task.status == "complete" else " "
+        lines.append(f"- [{status_marker}] **{task.id}**: {task.description}")
+        if task.acceptance_criteria:
+            lines.append(f"  - Acceptance: {task.acceptance_criteria}")
+        if task.files_affected:
+            lines.append(f"  - Files: {', '.join(task.files_affected)}")
+    lines.append("")
+
+    # Instructions
+    lines.append("## Instructions\n")
+    lines.append("1. Implement the required changes for this phase only")
+    lines.append("2. Run tests to verify correctness")
+    lines.append("3. Commit with descriptive messages")
+    lines.append("")
+
+    # Contract CLI
+    lines.append("Use the contract CLI to track progress:")
+    lines.append("- `egg-contract show` — View current contract state")
+    lines.append("- `egg-contract add-commit --task <id> --commit <sha>` — Link commit to task")
+    lines.append("")
+
+    # Phase restrictions
+    lines.append("## Phase Restrictions\n")
+    lines.append("- You CAN push code (git push)")
+    lines.append("- You CAN link commits to tasks (egg-contract add-commit)")
+    lines.append("- You CANNOT create PRs (the pipeline manages the PR)")
+    lines.append("")
+
+    lines.append("## Phase Completion\n")
+    lines.append(
+        "When you have completed your work for this phase, "
+        "ensure everything is committed and exit successfully."
+    )
+
+    return "\n".join(lines)
+
+
+def _run_tier3_implement(
+    pipeline_id: str,
+    pipeline: Pipeline,
+    spawner,
+    repo_volumes: dict[str, str],
+    gateway_mode: str,
+    repos: list[str],
+    sandbox_env: dict[str, str],
+    store,
+    certs_volume: str | None,
+    worktree_repo_path: Path,
+) -> tuple[int, str]:
+    """Run Tier 3 phase-level dispatch for the implement phase.
+
+    Loops through plan phases in dependency order, running a full
+    coder -> tester -> agentic review cycle for each phase's tasks.
+    If a reviewer rejects, the coder retries within that phase.
+
+    Args:
+        pipeline_id: Pipeline ID
+        pipeline: Pipeline model
+        spawner: Container spawner
+        repo_volumes: Volume mounts
+        gateway_mode: Gateway mode
+        repos: List of repos
+        sandbox_env: Sandbox environment vars
+        store: State store
+        certs_volume: Certs volume name
+        worktree_repo_path: Path to worktree repo
+
+    Returns:
+        (exit_code, combined_logs) — 0 on success
+    """
+    from egg_contracts import load_contract
+    from egg_contracts.dependency_graph import PhaseDependencyGraph
+
+    pipeline_mode = pipeline.mode or "issue"
+    contract_key: int | str = (
+        pipeline.issue_number if pipeline.issue_number is not None else pipeline_id
+    )
+
+    # Load contract to get plan phases
+    contract = load_contract(contract_key, worktree_repo_path)
+
+    if not contract.phases:
+        logger.warning(
+            "No plan phases found in contract for Tier 3 dispatch, "
+            "falling back to standard multi-agent implement",
+            pipeline_id=pipeline_id,
+        )
+        return _run_multi_agent_phase(
+            pipeline_id=pipeline_id,
+            pipeline=pipeline,
+            phase="implement",
+            spawner=spawner,
+            repo_volumes=repo_volumes,
+            gateway_mode=gateway_mode,
+            repos=repos,
+            sandbox_env=sandbox_env,
+            store=store,
+            certs_volume=certs_volume,
+            worktree_repo_path=worktree_repo_path,
+        )
+
+    # Build phase dependency graph
+    phase_graph = PhaseDependencyGraph(contract.phases)
+    if phase_graph.has_cycle():
+        logger.error(
+            "Phase dependency graph has cycles, falling back to sequential phase order",
+            pipeline_id=pipeline_id,
+        )
+        phase_waves = None
+        phase_order = [p.id for p in contract.phases]
+    else:
+        phase_waves = phase_graph.compute_waves()
+        phase_order = phase_graph.get_sequential_order()
+
+    # Map phase IDs to Phase objects
+    phase_map = {p.id: p for p in contract.phases}
+
+    all_logs: list[str] = []
+    logs_lock = threading.Lock()
+    cancel_event = threading.Event()  # Signals parallel phases to abort early
+    max_retries = pipeline.config.max_review_cycles
+    enable_parallel = pipeline.config.enable_parallel_phases and phase_waves is not None
+
+    logger.info(
+        "Starting Tier 3 phase-level dispatch",
+        pipeline_id=pipeline_id,
+        phase_count=len(phase_order),
+        phase_order=phase_order,
+        parallel=enable_parallel,
+    )
+
+    def _run_single_phase_cycle(phase_id: str) -> tuple[int, list[str]]:
+        """Run a single phase implementation cycle (coder -> tester -> review).
+
+        Checks ``cancel_event`` before each container spawn so that parallel
+        phases can abort early when a sibling phase fails.
+        """
+        phase_logs: list[str] = []
+        phase_obj = phase_map.get(phase_id)
+        if phase_obj is None:
+            logger.warning(
+                "Phase not found in contract, skipping",
+                pipeline_id=pipeline_id,
+                phase_id=phase_id,
+            )
+            return 0, phase_logs
+
+        logger.info(
+            "Starting implement cycle for plan phase",
+            pipeline_id=pipeline_id,
+            phase_id=phase_id,
+            phase_name=phase_obj.name,
+        )
+
+        # Run coder for this phase
+        for retry in range(max_retries + 1):
+            review_feedback_text = None
+            if retry > 0:
+                review_feedback_text = _read_last_review_feedback(
+                    worktree_repo_path,
+                    pipeline_id,
+                    pipeline_mode,
+                    pipeline.issue_number,
+                    plan_phase_id=phase_id,
+                )
+
+            coder_prompt = _build_phase_scoped_prompt(
+                phase_obj=phase_obj,
+                pipeline_id=pipeline_id,
+                pipeline_mode=pipeline_mode,
+                pipeline=pipeline,
+                worktree_repo_path=worktree_repo_path,
+                review_feedback=review_feedback_text,
+                review_cycle=retry,
+            )
+
+            sandbox_command = [
+                "claude",
+                "--dangerously-skip-permissions",
+                "--print",
+                "--verbose",
+                "--output-format",
+                "stream-json",
+                "--model",
+                "opus",
+                "--max-turns",
+                "200",
+                coder_prompt,
+            ]
+
+            # Check if a sibling phase signalled cancellation
+            if cancel_event.is_set():
+                phase_logs.append(f"--- coder ({phase_id}, retry={retry}) cancelled ---")
+                return 1, phase_logs
+
+            coder_exit, coder_logs = _spawn_and_wait(
+                spawner=spawner,
+                pipeline_id=pipeline_id,
+                agent_role=AgentRole.CODER,
+                issue_number=pipeline.issue_number,
+                repo_volumes=repo_volumes,
+                gateway_mode=gateway_mode,
+                repos=repos,
+                phase="implement",
+                sandbox_env={**sandbox_env, "EGG_PLAN_PHASE_ID": phase_id},
+                sandbox_command=sandbox_command,
+                store=store,
+                certs_volume=certs_volume,
+                branch=pipeline.branch,
+            )
+
+            phase_logs.append(
+                f"--- coder ({phase_id}, retry={retry}, exit={coder_exit}) ---\n{coder_logs}"
+            )
+
+            if coder_exit != 0:
+                logger.error(
+                    "Coder failed for plan phase",
+                    pipeline_id=pipeline_id,
+                    phase_id=phase_id,
+                    exit_code=coder_exit,
+                )
+                return 1, phase_logs
+
+            # Run tester — add phase scope so it focuses on the current phase's tests
+            tester_prompt = _build_agent_prompt(
+                role_value="tester",
+                phase="implement",
+                pipeline_id=pipeline_id,
+                pipeline_mode=pipeline_mode,
+                prompt=pipeline.prompt,
+                issue_number=pipeline.issue_number,
+                repo=pipeline.repo,
+                branch=pipeline.branch,
+                repo_path=str(worktree_repo_path),
+                short_circuit=pipeline.short_circuit,
+            )
+            # Append phase-scoping instructions for Tier 3
+            phase_scope_lines = [
+                "",
+                f"## Phase Scope: {phase_obj.name} ({phase_id})\n",
+                f"Focus your testing on code changed in plan phase `{phase_id}`. ",
+                "The following tasks were implemented in this phase:\n",
+            ]
+            for task in phase_obj.tasks:
+                phase_scope_lines.append(f"- **{task.id}**: {task.description}")
+                if task.files_affected:
+                    phase_scope_lines.append(f"  Files: {', '.join(task.files_affected)}")
+            phase_scope_lines.append("")
+            tester_prompt += "\n".join(phase_scope_lines)
+
+            tester_command = [
+                "claude",
+                "--dangerously-skip-permissions",
+                "--print",
+                "--verbose",
+                "--output-format",
+                "stream-json",
+                "--model",
+                "opus",
+                "--max-turns",
+                "200",
+                tester_prompt,
+            ]
+
+            if cancel_event.is_set():
+                phase_logs.append(f"--- tester ({phase_id}, retry={retry}) cancelled ---")
+                return 1, phase_logs
+
+            tester_exit, tester_logs = _spawn_and_wait(
+                spawner=spawner,
+                pipeline_id=pipeline_id,
+                agent_role=AgentRole.TESTER,
+                issue_number=pipeline.issue_number,
+                repo_volumes=repo_volumes,
+                gateway_mode=gateway_mode,
+                repos=repos,
+                phase="implement",
+                sandbox_env={**sandbox_env, "EGG_PLAN_PHASE_ID": phase_id},
+                sandbox_command=tester_command,
+                store=store,
+                certs_volume=certs_volume,
+                branch=pipeline.branch,
+            )
+
+            phase_logs.append(
+                f"--- tester ({phase_id}, retry={retry}, exit={tester_exit}) ---\n{tester_logs}"
+            )
+
+            if tester_exit != 0:
+                logger.warning(
+                    "Tester failed for plan phase",
+                    pipeline_id=pipeline_id,
+                    phase_id=phase_id,
+                    exit_code=tester_exit,
+                )
+
+            # Run agentic code review
+            review_prompt = _build_review_prompt(
+                phase="implement",
+                pipeline_id=pipeline_id,
+                pipeline_mode=pipeline_mode,
+                reviewer_type="code",
+                issue_number=pipeline.issue_number,
+                review_cycle=retry + 1,
+                repo_path=str(worktree_repo_path),
+                plan_phase_id=phase_id,
+            )
+
+            review_command = [
+                "claude",
+                "--dangerously-skip-permissions",
+                "--print",
+                "--verbose",
+                "--output-format",
+                "stream-json",
+                "--model",
+                "opus",
+                "--max-turns",
+                "200",
+                review_prompt,
+            ]
+
+            if cancel_event.is_set():
+                phase_logs.append(f"--- reviewer ({phase_id}, retry={retry}) cancelled ---")
+                return 1, phase_logs
+
+            review_exit, review_logs = _spawn_and_wait(
+                spawner=spawner,
+                pipeline_id=pipeline_id,
+                agent_role=AgentRole.REVIEWER_CODE,
+                issue_number=pipeline.issue_number,
+                repo_volumes=repo_volumes,
+                gateway_mode=gateway_mode,
+                repos=repos,
+                phase="implement",
+                sandbox_env={**sandbox_env, "EGG_PLAN_PHASE_ID": phase_id},
+                sandbox_command=review_command,
+                store=store,
+                certs_volume=certs_volume,
+                branch=pipeline.branch,
+            )
+
+            phase_logs.append(
+                f"--- reviewer_code ({phase_id}, retry={retry}, exit={review_exit}) ---\n{review_logs}"
+            )
+
+            verdict = _read_review_verdict(
+                worktree_repo_path,
+                "implement",
+                "code",
+                pipeline_mode,
+                pipeline.issue_number,
+                pipeline_id,
+                plan_phase_id=phase_id,
+            )
+
+            if verdict and verdict.verdict == "approved":
+                logger.info(
+                    "Phase approved by reviewer",
+                    pipeline_id=pipeline_id,
+                    phase_id=phase_id,
+                    retry=retry,
+                )
+                break
+            elif retry < max_retries:
+                logger.info(
+                    "Phase needs revision, retrying",
+                    pipeline_id=pipeline_id,
+                    phase_id=phase_id,
+                    retry=retry,
+                )
+                continue
+            else:
+                logger.warning(
+                    "Phase exhausted review retries without approval",
+                    pipeline_id=pipeline_id,
+                    phase_id=phase_id,
+                    max_retries=max_retries,
+                )
+                return 1, phase_logs
+
+        logger.info(
+            "Completed implement cycle for plan phase",
+            pipeline_id=pipeline_id,
+            phase_id=phase_id,
+        )
+        return 0, phase_logs
+
+    # Execute phases — either sequentially or in parallel waves
+    if enable_parallel and phase_waves:
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+
+        for wave in phase_waves:
+            logger.info(
+                "Executing phase wave",
+                pipeline_id=pipeline_id,
+                wave_number=wave.wave_number,
+                phase_ids=wave.phase_ids,
+                parallel=wave.is_parallel(),
+            )
+
+            if wave.is_parallel():
+                # TODO: Per-phase worktree isolation is not yet wired in.
+                # create_phase_worktree()/cleanup_phase_worktrees() exist in
+                # gateway/worktree_manager.py but require gateway API calls
+                # from the orchestrator. Until wired, parallel phases share
+                # the same worktree — which can cause conflicts.
+                logger.warning(
+                    "Parallel phase execution does not yet use per-phase worktrees; "
+                    "concurrent phases share the same filesystem",
+                    pipeline_id=pipeline_id,
+                    wave_number=wave.wave_number,
+                )
+                # Run independent phases concurrently
+                failed = False
+                with ThreadPoolExecutor(max_workers=pipeline.config.max_parallel_agents) as pool:
+                    futures = {
+                        pool.submit(_run_single_phase_cycle, pid): pid for pid in wave.phase_ids
+                    }
+                    for future in as_completed(futures):
+                        pid = futures[future]
+                        exit_code, phase_logs = future.result()
+                        with logs_lock:
+                            all_logs.extend(phase_logs)
+                        if exit_code != 0:
+                            failed = True
+                            # Signal sibling phases to abort before their
+                            # next container spawn.  f.cancel() alone is
+                            # ineffective for already-running futures.
+                            cancel_event.set()
+                            for f in futures:
+                                f.cancel()
+                            break
+                if failed:
+                    return 1, "\n".join(all_logs)
+            else:
+                # Single phase in wave — run sequentially
+                for pid in wave.phase_ids:
+                    exit_code, phase_logs = _run_single_phase_cycle(pid)
+                    all_logs.extend(phase_logs)
+                    if exit_code != 0:
+                        return 1, "\n".join(all_logs)
+    else:
+        # Sequential execution (default)
+        for phase_id in phase_order:
+            exit_code, phase_logs = _run_single_phase_cycle(phase_id)
+            all_logs.extend(phase_logs)
+            if exit_code != 0:
+                return 1, "\n".join(all_logs)
+
+    # After all phases: run integrator with Tier 3-specific instructions
+    integrator_prompt = _build_agent_prompt(
+        role_value="integrator",
+        phase="implement",
+        pipeline_id=pipeline_id,
+        pipeline_mode=pipeline_mode,
+        prompt=pipeline.prompt,
+        issue_number=pipeline.issue_number,
+        repo=pipeline.repo,
+        branch=pipeline.branch,
+        repo_path=str(worktree_repo_path),
+        short_circuit=pipeline.short_circuit,
+    )
+    # Append Tier 3-specific integrator instructions
+    tier3_integrator_lines = [
+        "",
+        "## Tier 3 Integration Responsibilities\n",
+        "This is a **high-complexity** (Tier 3) pipeline with multiple implementation phases.",
+        "You have **write access** to source, test, and documentation files.\n",
+        "Your responsibilities:",
+        "1. Run the full test suite and fix any integration failures across phase boundaries",
+        "2. Resolve merge conflicts between phase implementations if present",
+        "3. Ensure all cross-phase dependencies work correctly end-to-end",
+        "4. Fix broken imports, missing interfaces, or type mismatches between phases",
+        "5. Run linters and fix any formatting issues introduced by phase coders",
+        "6. Commit your integration fixes with descriptive messages",
+        "",
+        f"Phases implemented (in order): {', '.join(phase_order)}",
+        "",
+    ]
+    integrator_prompt += "\n".join(tier3_integrator_lines)
+
+    integrator_command = [
+        "claude",
+        "--dangerously-skip-permissions",
+        "--print",
+        "--verbose",
+        "--output-format",
+        "stream-json",
+        "--model",
+        "opus",
+        "--max-turns",
+        "200",
+        integrator_prompt,
+    ]
+
+    integrator_exit, integrator_logs = _spawn_and_wait(
+        spawner=spawner,
+        pipeline_id=pipeline_id,
+        agent_role=AgentRole.INTEGRATOR,
+        issue_number=pipeline.issue_number,
+        repo_volumes=repo_volumes,
+        gateway_mode=gateway_mode,
+        repos=repos,
+        phase="implement",
+        sandbox_env=sandbox_env,
+        sandbox_command=integrator_command,
+        store=store,
+        certs_volume=certs_volume,
+        branch=pipeline.branch,
+        complexity_tier=pipeline.complexity_tier.value if pipeline.complexity_tier else None,
+    )
+
+    all_logs.append(f"--- integrator (exit={integrator_exit}) ---\n{integrator_logs}")
+
+    if integrator_exit != 0:
+        logger.error(
+            "Integrator failed",
+            pipeline_id=pipeline_id,
+            exit_code=integrator_exit,
+        )
+        return 1, "\n".join(all_logs)
+
+    return 0, "\n".join(all_logs)
+
+
+def _read_last_review_feedback(
+    repo_path: Path,
+    pipeline_id: str,
+    pipeline_mode: str,
+    issue_number: int | None,
+    plan_phase_id: str | None = None,
+) -> str | None:
+    """Read the most recent review feedback from the reviews directory.
+
+    Returns:
+        Review feedback string, or None if not found
+    """
+    verdict = _read_review_verdict(
+        repo_path, "implement", "code", pipeline_mode, issue_number, pipeline_id,
+        plan_phase_id=plan_phase_id,
+    )
+    if verdict and verdict.feedback:
+        return verdict.feedback
+    return None
+
+
 def _run_multi_agent_phase(
     pipeline_id: str,
     pipeline: Pipeline,
@@ -2377,6 +3082,7 @@ def _spawn_and_wait(
     store=None,
     certs_volume: str | None = None,
     branch: str | None = None,
+    complexity_tier: str | None = None,
 ) -> tuple[int, str]:
     """Spawn a container, wait for it to exit, clean up, return (exit_code, logs).
 
@@ -2393,6 +3099,7 @@ def _spawn_and_wait(
             with .git shadowed by /dev/null bind mounts to force gateway git operations.
         certs_volume: Docker named volume for gateway CA certs (mounted at
             /shared/certs read-only). If None, certs are not mounted.
+        complexity_tier: Optional complexity tier for Tier 3 gateway restrictions.
 
     Returns:
         (exit_code, container_logs) — logs are captured before cleanup on failure.
@@ -2412,6 +3119,7 @@ def _spawn_and_wait(
         repo_volumes=repo_volumes,
         certs_volume=certs_volume,
         branch=branch,
+        complexity_tier=complexity_tier,
     )
 
     # Record container and agent in phase execution state
@@ -3381,12 +4089,59 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                 # 1. Spawn worker(s)
                 # Use multi-agent wave-based execution when enabled for
                 # implement and plan phases; single-CODER path otherwise.
+                # Tier 3 (high complexity) uses phase-level dispatch for implement.
                 use_multi_agent = pipeline.config.multi_agent and current_phase.value in {
                     "implement",
                     "plan",
                 }
+                use_tier3 = (
+                    current_phase.value == "implement"
+                    and pipeline.complexity_tier == ComplexityTier.HIGH
+                    and pipeline.config.multi_agent
+                )
 
-                if use_multi_agent:
+                if use_tier3:
+                    logger.info(
+                        "Spawning Tier 3 phase-level dispatch for implement",
+                        pipeline_id=pipeline_id,
+                        review_cycle=review_cycle,
+                        mode=gateway_mode,
+                    )
+
+                    try:
+                        exit_code, container_logs = _run_tier3_implement(
+                            pipeline_id=pipeline_id,
+                            pipeline=pipeline,
+                            spawner=spawner,
+                            repo_volumes=repo_volumes,
+                            gateway_mode=gateway_mode,
+                            repos=repos,
+                            sandbox_env=sandbox_env,
+                            store=store,
+                            certs_volume=certs_volume,
+                            worktree_repo_path=worktree_repo_path,
+                        )
+                    except ContainerSpawnError as e:
+                        with get_pipeline_state_lock(pipeline_id):
+                            pipeline = store.load_pipeline(pipeline_id)
+                            phase_execution = pipeline.get_phase_execution(current_phase)
+                            if phase_execution.cycle_timings:
+                                phase_execution.cycle_timings[-1].completed_at = datetime.utcnow()
+                            phase_execution.status = PipelineStatus.FAILED
+                            phase_execution.error = str(e)
+                            phase_execution.completed_at = datetime.utcnow()
+                            pipeline.status = PipelineStatus.FAILED
+                            pipeline.error = str(e)
+                            store.save_pipeline(pipeline)
+                        logger.error(
+                            "Failed to spawn Tier 3 containers",
+                            pipeline_id=pipeline_id,
+                            error=str(e),
+                        )
+                        phase_failed = True
+                        break
+
+                elif use_multi_agent:
                     logger.info(
                         "Spawning multi-agent wave execution for phase",
                         pipeline_id=pipeline_id,
@@ -3615,6 +4370,11 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                 # 3. Spawn reviewers and read verdicts (reviewed phases)
                 # Reviewers always run as a separate step after workers +
                 # checker, for both multi-agent and single-agent paths.
+                # Exception: Tier 3 already runs per-phase reviewers inside
+                # _run_tier3_implement(), so skip the outer reviewer loop to
+                # avoid redundant review and potential full-pipeline retry.
+                if use_tier3:
+                    break  # Per-phase reviews already handled; advance phase
                 from egg_contracts.agent_roles import (
                     _PHASE_REVIEWERS as _phase_reviewer_roles,
                 )
@@ -3843,16 +4603,40 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                 # Check for short-circuit signal after refine phase.
                 # Reset first so a HITL revision that removes the signal
                 # correctly clears a previously-detected short-circuit.
-                if current_phase.value == "refine" and pipeline.config.allow_short_circuit:
-                    pipeline.short_circuit = False
-                    if _check_short_circuit_signal(
+                if current_phase.value == "refine":
+                    # Detect complexity tier from refine analysis.
+                    # Reset parallel flag first so a HITL revision that
+                    # downgrades complexity correctly clears a previously-
+                    # detected parallel_phases signal.
+                    pipeline.config.enable_parallel_phases = False
+                    tier, parallel_phases = _check_high_complexity_signal(
                         worktree_repo_path,
                         pipeline_mode,
                         pipeline.issue_number,
                         pipeline_id,
-                    ):
-                        pipeline.short_circuit = True
-                        logger.info("Short-circuit detected", pipeline_id=pipeline_id)
+                    )
+                    pipeline.complexity_tier = ComplexityTier(tier)
+                    if parallel_phases:
+                        pipeline.config.enable_parallel_phases = True
+                    logger.info(
+                        "Complexity tier detected",
+                        pipeline_id=pipeline_id,
+                        tier=tier,
+                        parallel_phases=parallel_phases,
+                    )
+
+                    # Check for short-circuit signal (Tier 1 / low complexity)
+                    if pipeline.config.allow_short_circuit:
+                        pipeline.short_circuit = False
+                        if _check_short_circuit_signal(
+                            worktree_repo_path,
+                            pipeline_mode,
+                            pipeline.issue_number,
+                            pipeline_id,
+                        ):
+                            pipeline.short_circuit = True
+                            pipeline.complexity_tier = ComplexityTier.LOW
+                            logger.info("Short-circuit detected", pipeline_id=pipeline_id)
 
                 store.save_pipeline(pipeline)  # Persist phase completion before HITL gate
 

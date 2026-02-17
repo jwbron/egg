@@ -686,7 +686,10 @@ def git_push() -> tuple[Response, int] | Response:
     # Set EGG_AGENT_RESTRICTIONS_ENFORCE=true to block pushes that violate
     # agent-role boundaries.
     if session_role and changed_files and not is_checkpoint_push:
-        agent_result = check_agent_restrictions(session_role, changed_files)
+        session_complexity_tier = getattr(g.session, "complexity_tier", None)
+        agent_result = check_agent_restrictions(
+            session_role, changed_files, complexity_tier=session_complexity_tier
+        )
         if not agent_result.allowed:
             enforce = os.environ.get("EGG_AGENT_RESTRICTIONS_ENFORCE", "false").lower() in (
                 "true",
@@ -2696,6 +2699,7 @@ def session_create() -> tuple[Response, int] | Response:
     agent_role = data.get("agent_role")  # Optional agent role
     claude_code_version = data.get("claude_code_version")  # Optional Claude Code version
     branch = data.get("branch")  # Optional git branch for non-pushing sessions
+    complexity_tier = data.get("complexity_tier")  # Optional complexity tier for Tier 3 dispatch
 
     # Validate required fields
     if not container_id:
@@ -2867,6 +2871,7 @@ def session_create() -> tuple[Response, int] | Response:
         agent_role=agent_role,
         claude_code_version=claude_code_version,
         branch=branch,
+        complexity_tier=complexity_tier,
     )
 
     # Pre-populate checkpoint context so non-pushing sessions (reviewers,

@@ -83,6 +83,7 @@ The gateway enforces file-level access restrictions to prevent certain roles fro
 - Path normalization prevents bypass via `./`, `../`, or `//` manipulation
 - Fail-closed security: if file detection fails, push is blocked with HTTP 500
 - Backwards compatibility: when session role is unavailable, file restrictions are skipped to support legacy sessions
+- **Tier-aware access**: Agent file restrictions accept an optional `complexity_tier` parameter. In Tier 3 (`high`), the Integrator role uses `INTEGRATOR_TIER3_PATTERNS` which grants write access to source, test, and documentation directories for fixing integration issues across phase boundaries (while still blocking `.egg-state/contracts/` and `.github/`)
 
 **Error messages:**
 - `Push denied: Role 'X' cannot modify: <files>. <reason>` (HTTP 403) - File blocked by restriction
@@ -401,6 +402,8 @@ gateway/
 │   ├── test_error_paths.py
 │   ├── test_fork_policy.py
 │   ├── test_transcript_buffer.py
+│   ├── test_integrator_tier3.py
+│   ├── test_phase_worktree.py
 │   ├── integration_test.sh
 │   └── README-integration.md
 └── README.md               # This file

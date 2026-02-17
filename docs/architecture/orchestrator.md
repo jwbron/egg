@@ -100,6 +100,10 @@ The orchestrator calls `ensure_egg_state_dirs()` before spawning containers to c
 
 This architecture ensures the orchestrator reads artifacts from the correct isolated workspace rather than the main repository, preventing cross-contamination between pipelines.
 
+**Per-phase worktrees (Tier 3):**
+
+For Tier 3 parallel dispatch, the gateway's `WorktreeManager` can create sub-worktrees for individual plan phases via `create_phase_worktree()`. These are branched from the pipeline worktree for isolated phase-level implementation, with branch naming `egg/<feature>/phase-N`. After integration, `cleanup_phase_worktrees()` removes them.
+
 See `orchestrator/routes/pipelines.py:WORKTREE_BASE_DIR` and `gateway/worktree_manager.py` for implementation details.
 
 ## Deployment Modes
@@ -206,8 +210,11 @@ EGG_AGENT_ROLE=coder
 - Dependency-based scheduling (coder → tester → documenter)
 - Handoff data passed between agents
 - Parallel execution of independent agents
+- Tier 3 (high complexity): Phase-level dispatch with per-phase implement cycles
 
 **Use case:** Multi-agent workflows, complex implementations
+
+**Tier 3 enhancement:** For high-complexity tasks, the distributed mode runs each plan phase through its own implement cycle (Coder → Tester → Agentic Review), with independent phases optionally executing in parallel. After all phase cycles complete, an Integrator with expanded write access merges results and fixes integration issues. See [SDLC Pipeline Guide: Tier 3](../../docs/guides/sdlc-pipeline.md#tier-3-phase-level-dispatch) for details.
 
 **Environment:**
 ```bash

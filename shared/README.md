@@ -219,22 +219,22 @@ loaded = load_checkpoint(checkpoint_path)
 ```
 
 **Key modules:**
-- `models.py` - Pydantic models (Contract, Task, Phase, Feedback, CheckDefinition, CheckResult, PhaseConfig, etc.)
+- `models.py` - Pydantic models (Contract, Task, Phase, Feedback, CheckDefinition, CheckResult, PhaseConfig, AgentExecutionModel, etc.). Phase model includes `dependencies` field for Tier 3 phase ordering; AgentExecutionModel includes `phase_id` for composite execution tracking.
 - `hitl.py` - Human-in-the-loop checkbox UI generation and parsing
 - `feedback.py` - Feedback comment generation and parsing for open-ended questions
 - `resilience.py` - Rate limit handling, retry logic, timeout checkpoints
-- `plan_parser.py` - Markdown plan parsing and task extraction
+- `plan_parser.py` - Markdown plan parsing, task extraction, and phase dependency normalization
 - `roles.py` - Role-based field ownership validation
 - `audit.py` - Audit log utilities
 - `agent_recovery.py` - Multi-agent recovery (retry manager, circuit breaker, conflict detector)
-- `agent_roles.py` - Agent role definitions and file access patterns
+- `agent_roles.py` - Agent role definitions and file access patterns (tier-aware integrator access for Tier 3)
 - `checkpoints.py` - Checkpoint models (Checkpoint, SessionMetadata, Transcript, ToolCall, TokenUsage)
 - `checkpoint_loader.py` - Checkpoint I/O (atomic save, load, indexing)
 - `checkpoint_cli.py` - CLI for browsing and querying checkpoints
-- `dependency_graph.py` - Task dependency graph for multi-agent orchestration
+- `dependency_graph.py` - Task and phase dependency graphs for multi-agent orchestration (includes `PhaseDependencyGraph` for Tier 3 phase-level dispatch)
 - `loader.py` - Contract loading from filesystem
-- `orchestration.py` - Orchestration state management
-- `orchestrator.py` - Multi-agent orchestrator logic
+- `orchestration.py` - Orchestration state management (supports composite `(phase_id, role)` keying for Tier 3)
+- `orchestrator.py` - Multi-agent orchestrator logic (phase-scoped dispatch)
 - `phase_defaults.py` - Default check definitions per SDLC phase
 - `redactor.py` - Sensitive data redaction (env vars, tokens, credentials)
 - `transcript_extractor.py` - Claude Code session transcript extraction from JSONL files
