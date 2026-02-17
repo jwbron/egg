@@ -162,8 +162,9 @@ shared/
 │   ├── deployment.py       # Deployment validation configuration models (.egg/deployment.yml)
 │   ├── agent_roles.py      # Multi-agent role definitions (all agent and reviewer roles)
 │   ├── orchestrator.py     # Multi-agent orchestration dispatch logic
-│   ├── orchestration.py    # Agent execution state management
-│   ├── dependency_graph.py # Agent dependency resolution for parallel execution
+│   ├── orchestration.py    # Agent execution state management (Tier 2 role-key + Tier 3 composite key)
+│   ├── dependency_graph.py # Agent and phase dependency resolution for parallel execution (Tier 2 DependencyGraph + Tier 3 PhaseDependencyGraph)
+│   ├── plan_parser.py      # Plan document parsing with task extraction and phase dependency normalization
 │   ├── agent_recovery.py   # Failed agent recovery logic
 │   ├── checkpoints.py      # Checkpoint data models
 │   ├── checkpoint_loader.py # Checkpoint storage and retrieval

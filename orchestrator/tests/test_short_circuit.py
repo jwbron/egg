@@ -27,7 +27,7 @@ class TestShortCircuitSignalParsing:
         drafts = tmp_path / ".egg-state" / "drafts"
         drafts.mkdir(parents=True)
         (drafts / "42-analysis.md").write_text(
-            "# Analysis\n\nSome content\n\n```yaml\n# metadata\nshort_circuit: true\ncomplexity: low\n```\n",
+            "# Analysis\n\nSome content\n\n```yaml\n# metadata\nshort_circuit: true\ncomplexity_tier: low\n```\n",
             encoding="utf-8",
         )
 
@@ -49,7 +49,7 @@ class TestShortCircuitSignalParsing:
         drafts = tmp_path / ".egg-state" / "drafts"
         drafts.mkdir(parents=True)
         (drafts / "42-analysis.md").write_text(
-            "# Analysis\n\n```yaml\n# metadata\nshort_circuit: false\ncomplexity: high\n```\n",
+            "# Analysis\n\n```yaml\n# metadata\nshort_circuit: false\ncomplexity_tier: high\n```\n",
             encoding="utf-8",
         )
 
@@ -64,7 +64,7 @@ class TestShortCircuitSignalParsing:
         drafts = tmp_path / ".egg-state" / "drafts"
         drafts.mkdir(parents=True)
         (drafts / "pid-123-analysis.md").write_text(
-            "# Analysis\n\n```yaml\n# metadata\nshort_circuit: true\ncomplexity: low\n```\n",
+            "# Analysis\n\n```yaml\n# metadata\nshort_circuit: true\ncomplexity_tier: low\n```\n",
             encoding="utf-8",
         )
 
@@ -100,9 +100,9 @@ class TestShortCircuitSignalParsing:
         (drafts / "42-analysis.md").write_text(
             "# Analysis\n\n"
             "Here is an example metadata block:\n"
-            "```yaml\nshort_circuit: true\ncomplexity: low\n```\n\n"
+            "```yaml\nshort_circuit: true\ncomplexity_tier: low\n```\n\n"
             "## Conclusion\n\n"
-            "```yaml\n# metadata\ncomplexity: high\n```\n",
+            "```yaml\n# metadata\ncomplexity_tier: high\n```\n",
             encoding="utf-8",
         )
 
@@ -116,7 +116,7 @@ class TestShortCircuitSignalParsing:
             "# Analysis\n\n"
             "```yaml\nphases:\n  - id: 1\n```\n\n"
             "## Metadata\n\n"
-            "```yaml\n# metadata\nshort_circuit: true\ncomplexity: low\n```\n",
+            "```yaml\n# metadata\nshort_circuit: true\ncomplexity_tier: low\n```\n",
             encoding="utf-8",
         )
 
@@ -256,7 +256,7 @@ class TestShortCircuitHITLRevision:
 
         # First pass: analysis has short-circuit signal
         (drafts / "42-analysis.md").write_text(
-            "# Analysis\n\n```yaml\n# metadata\nshort_circuit: true\ncomplexity: low\n```\n",
+            "# Analysis\n\n```yaml\n# metadata\nshort_circuit: true\ncomplexity_tier: low\n```\n",
             encoding="utf-8",
         )
         assert _check_short_circuit_signal(tmp_path, "issue", issue_number=42) is True
@@ -264,7 +264,7 @@ class TestShortCircuitHITLRevision:
         # Simulate HITL revision: human elevates complexity, agent rewrites analysis
         (drafts / "42-analysis.md").write_text(
             "# Analysis (revised)\n\nThis is actually complex.\n\n"
-            "```yaml\n# metadata\ncomplexity: high\n```\n",
+            "```yaml\n# metadata\ncomplexity_tier: high\n```\n",
             encoding="utf-8",
         )
         # The pipeline runner resets pipeline.short_circuit = False before re-check.
@@ -278,7 +278,7 @@ class TestShortCircuitHITLRevision:
 
         (drafts / "42-analysis.md").write_text(
             "# Analysis (revised)\n\nStill simple.\n\n"
-            "```yaml\n# metadata\nshort_circuit: true\ncomplexity: low\n```\n",
+            "```yaml\n# metadata\nshort_circuit: true\ncomplexity_tier: low\n```\n",
             encoding="utf-8",
         )
         assert _check_short_circuit_signal(tmp_path, "issue", issue_number=42) is True
@@ -312,7 +312,7 @@ class TestShortCircuitConfigSuppression:
         drafts = tmp_path / ".egg-state" / "drafts"
         drafts.mkdir(parents=True)
         (drafts / "42-analysis.md").write_text(
-            "# Analysis\n\n```yaml\n# metadata\nshort_circuit: true\ncomplexity: low\n```\n",
+            "# Analysis\n\n```yaml\n# metadata\nshort_circuit: true\ncomplexity_tier: low\n```\n",
             encoding="utf-8",
         )
 
@@ -334,7 +334,7 @@ class TestShortCircuitConfigSuppression:
         drafts = tmp_path / ".egg-state" / "drafts"
         drafts.mkdir(parents=True)
         (drafts / "42-analysis.md").write_text(
-            "# Analysis\n\n```yaml\n# metadata\nshort_circuit: true\ncomplexity: low\n```\n",
+            "# Analysis\n\n```yaml\n# metadata\nshort_circuit: true\ncomplexity_tier: low\n```\n",
             encoding="utf-8",
         )
 
