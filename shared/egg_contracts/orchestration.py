@@ -435,8 +435,10 @@ def can_agent_run(
     """
     execution = state.get_execution(role, phase_id=phase_id)
 
-    # Can't run if not pending
-    if execution is not None and execution.status != AgentExecutionStatus.PENDING:
+    # Can't run if not registered or not pending
+    if execution is None:
+        return False
+    if execution.status != AgentExecutionStatus.PENDING:
         return False
 
     # Check dependencies
