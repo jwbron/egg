@@ -1195,7 +1195,14 @@ class TestResolveGidConflict:
         mock_grp_egg = MagicMock(gr_gid=1000, gr_name="egg")
         mock_grp_dialout = MagicMock(gr_gid=20, gr_name="dialout")
 
-        with patch("grp.getgrnam", return_value=mock_grp_egg):
+        def getgrnam_side_effect(name):
+            if name == "egg":
+                return mock_grp_egg
+            if name == "_orig_dialout":
+                raise KeyError("not found")
+            raise KeyError(f"no group: {name}")
+
+        with patch("grp.getgrnam", side_effect=getgrnam_side_effect):
             with patch("grp.getgrgid", return_value=mock_grp_dialout):
                 entrypoint._resolve_gid_conflict(20, "egg", logger)
 
@@ -1256,8 +1263,13 @@ class TestResolveUidConflict:
         mock_pwd_egg = MagicMock(pw_uid=1000, pw_name="egg")
         mock_pwd_other = MagicMock(pw_uid=501, pw_name="ubuntu")
 
+        def getpwuid_side_effect(uid):
+            if uid == 501:
+                return mock_pwd_other
+            raise KeyError(f"no user with uid {uid}")
+
         with patch("pwd.getpwnam", return_value=mock_pwd_egg):
-            with patch("pwd.getpwuid", return_value=mock_pwd_other):
+            with patch("pwd.getpwuid", side_effect=getpwuid_side_effect):
                 entrypoint._resolve_uid_conflict(501, "egg", logger)
 
         mock_run.assert_called_once()
@@ -1301,4 +1313,241 @@ class TestResolveUidConflict:
             with patch("pwd.getpwuid", return_value=mock_pwd_egg_by_uid):
                 entrypoint._resolve_uid_conflict(501, "egg", logger)
 
+        mock_run.assert_not_called()
+
+    @patch("subprocess.run")
+    def test_container_user_not_found(self, mock_run):
+        """Proceeds when container_user doesn't exist yet (KeyError path)."""
+        mock_run.return_value = MagicMock(returncode=0)
+        logger = entrypoint.Logger(quiet=True)
+
+        mock_pwd_other = MagicMock(pw_uid=501, pw_name="ubuntu")
+
+        def getpwuid_side_effect(uid):
+            if uid == 501:
+                return mock_pwd_other
+            raise KeyError(f"no user with uid {uid}")
+
+        with patch("pwd.getpwnam", side_effect=KeyError("not found")):
+            with patch("pwd.getpwuid", side_effect=getpwuid_side_effect):
+                entrypoint._resolve_uid_conflict(501, "egg", logger)
+
+        # Should still reassign the conflicting user
+        mock_run.assert_called_once()
+        call_args = mock_run.call_args[0][0]
+        assert call_args[0] == "usermod"
+
+    @patch("subprocess.run")
+    def test_usermod_failure_raises_runtime_error(self, mock_run):
+        """Raises RuntimeError with actionable message when usermod fails."""
+        mock_run.side_effect = subprocess.CalledProcessError(1, "usermod")
+        logger = entrypoint.Logger(quiet=True)
+
+        mock_pwd_egg = MagicMock(pw_uid=1000, pw_name="egg")
+        mock_pwd_other = MagicMock(pw_uid=501, pw_name="ubuntu")
+
+        def getpwuid_side_effect(uid):
+            if uid == 501:
+                return mock_pwd_other
+            raise KeyError(f"no user with uid {uid}")
+
+        with patch("pwd.getpwnam", return_value=mock_pwd_egg):
+            with patch("pwd.getpwuid", side_effect=getpwuid_side_effect):
+                with pytest.raises(RuntimeError, match="Failed to resolve UID conflict"):
+                    entrypoint._resolve_uid_conflict(501, "egg", logger)
+
+    @patch("subprocess.run")
+    def test_uid_collision_uses_next_free(self, mock_run):
+        """Uses _find_free_uid to skip already-taken UIDs."""
+        mock_run.return_value = MagicMock(returncode=0)
+        logger = entrypoint.Logger(quiet=True)
+
+        mock_pwd_egg = MagicMock(pw_uid=1000, pw_name="egg")
+        mock_pwd_other = MagicMock(pw_uid=501, pw_name="ubuntu")
+
+        def getpwuid_side_effect(uid):
+            if uid == 501:
+                return mock_pwd_other
+            # 60501 is taken (e.g. by nobody or another user)
+            if uid == 60501:
+                return MagicMock(pw_uid=60501, pw_name="someuser")
+            raise KeyError(f"no user with uid {uid}")
+
+        with patch("pwd.getpwnam", return_value=mock_pwd_egg):
+            with patch("pwd.getpwuid", side_effect=getpwuid_side_effect):
+                entrypoint._resolve_uid_conflict(501, "egg", logger)
+
+        # Should use 60502 (skipped 60501 which was taken)
+        call_args = mock_run.call_args[0][0]
+        assert call_args == ["usermod", "-u", "60502", "ubuntu"]
+
+
+class TestFindFreeUid:
+    """Tests for _find_free_uid helper."""
+
+    def test_returns_start_when_free(self):
+        """Returns start UID when it's not taken."""
+        with patch("pwd.getpwuid", side_effect=KeyError("not found")):
+            assert entrypoint._find_free_uid(60501) == 60501
+
+    def test_skips_taken_uids(self):
+        """Skips UIDs that are already in use."""
+        def getpwuid_side_effect(uid):
+            if uid in (60501, 60502):
+                return MagicMock(pw_uid=uid)
+            raise KeyError(f"no user with uid {uid}")
+
+        with patch("pwd.getpwuid", side_effect=getpwuid_side_effect):
+            assert entrypoint._find_free_uid(60501) == 60503
+
+    def test_raises_after_100_attempts(self):
+        """Raises RuntimeError if all 100 UIDs are taken."""
+        with patch("pwd.getpwuid", return_value=MagicMock()):
+            with pytest.raises(RuntimeError, match="No free UID found"):
+                entrypoint._find_free_uid(60000)
+
+
+class TestResolveGidConflictEdgeCases:
+    """Additional edge case tests for _resolve_gid_conflict."""
+
+    @patch("subprocess.run")
+    def test_container_user_not_found(self, mock_run):
+        """Proceeds when container_user group doesn't exist yet (KeyError path)."""
+        mock_run.return_value = MagicMock(returncode=0)
+        logger = entrypoint.Logger(quiet=True)
+
+        mock_grp_dialout = MagicMock(gr_gid=20, gr_name="dialout")
+
+        with patch("grp.getgrnam", side_effect=KeyError("not found")):
+            with patch("grp.getgrgid", return_value=mock_grp_dialout):
+                entrypoint._resolve_gid_conflict(20, "egg", logger)
+
+        # Should still rename the conflicting group
+        mock_run.assert_called_once()
+        call_args = mock_run.call_args[0][0]
+        assert call_args == ["groupmod", "-n", "_orig_dialout", "dialout"]
+
+    @patch("subprocess.run")
+    def test_groupmod_failure_raises_runtime_error(self, mock_run):
+        """Raises RuntimeError with actionable message when groupmod fails."""
+        mock_run.side_effect = subprocess.CalledProcessError(1, "groupmod")
+        logger = entrypoint.Logger(quiet=True)
+
+        mock_grp_egg = MagicMock(gr_gid=1000, gr_name="egg")
+        mock_grp_dialout = MagicMock(gr_gid=20, gr_name="dialout")
+
+        with patch("grp.getgrnam", return_value=mock_grp_egg):
+            with patch("grp.getgrgid", return_value=mock_grp_dialout):
+                with pytest.raises(RuntimeError, match="Failed to resolve GID conflict"):
+                    entrypoint._resolve_gid_conflict(20, "egg", logger)
+
+    @patch("subprocess.run")
+    def test_rename_collision_appends_gid(self, mock_run):
+        """Falls back to _orig_{name}_{gid} when _orig_{name} already exists."""
+        mock_run.return_value = MagicMock(returncode=0)
+        logger = entrypoint.Logger(quiet=True)
+
+        mock_grp_egg = MagicMock(gr_gid=1000, gr_name="egg")
+        mock_grp_dialout = MagicMock(gr_gid=20, gr_name="dialout")
+        mock_grp_orig = MagicMock(gr_gid=999, gr_name="_orig_dialout")
+
+        def getgrnam_side_effect(name):
+            if name == "egg":
+                return mock_grp_egg
+            if name == "_orig_dialout":
+                return mock_grp_orig
+            raise KeyError(f"no group named {name}")
+
+        with patch("grp.getgrnam", side_effect=getgrnam_side_effect):
+            with patch("grp.getgrgid", return_value=mock_grp_dialout):
+                entrypoint._resolve_gid_conflict(20, "egg", logger)
+
+        call_args = mock_run.call_args[0][0]
+        assert call_args == ["groupmod", "-n", "_orig_dialout_20", "dialout"]
+
+
+class TestSetupUserConflictResolution:
+    """Integration tests for setup_user conflict resolution orchestration."""
+
+    @patch("subprocess.run")
+    def test_calls_conflict_resolution_before_adjustment(self, mock_run):
+        """Verifies conflict resolution runs before groupmod/usermod adjustment."""
+        mock_run.return_value = MagicMock(returncode=0)
+        logger = entrypoint.Logger(quiet=True)
+
+        config = MagicMock()
+        config.container_user = "egg"
+        config.runtime_uid = 501
+        config.runtime_gid = 20
+        config.user_home = Path("/home/egg")
+
+        # GID 20 held by "dialout", UID 501 held by "ubuntu"
+        mock_grp_dialout = MagicMock(gr_gid=20, gr_name="dialout")
+        mock_pwd_ubuntu = MagicMock(pw_uid=501, pw_name="ubuntu")
+        mock_grp_egg = MagicMock(gr_gid=1000, gr_name="egg")
+        mock_pwd_egg = MagicMock(pw_uid=1000, pw_name="egg")
+
+        def getgrnam_side_effect(name):
+            if name == "egg":
+                return mock_grp_egg
+            if name == "_orig_dialout":
+                raise KeyError("not found")
+            raise KeyError(f"no group: {name}")
+
+        def getpwnam_side_effect(name):
+            if name == "egg":
+                return mock_pwd_egg
+            raise KeyError(f"no user: {name}")
+
+        def getgrgid_side_effect(gid):
+            if gid == 20:
+                return mock_grp_dialout
+            raise KeyError(f"no group with gid {gid}")
+
+        def getpwuid_side_effect(uid):
+            if uid == 501:
+                return mock_pwd_ubuntu
+            # _find_free_uid checks 60501 — it's free
+            raise KeyError(f"no user with uid {uid}")
+
+        with patch("pwd.getpwnam", side_effect=getpwnam_side_effect), \
+             patch("grp.getgrnam", side_effect=getgrnam_side_effect), \
+             patch("grp.getgrgid", side_effect=getgrgid_side_effect), \
+             patch("pwd.getpwuid", side_effect=getpwuid_side_effect), \
+             patch.object(entrypoint, "chown_recursive"):
+            entrypoint.setup_user(config, logger)
+
+        # Should have 4 calls:
+        # 1. gid conflict rename, 2. uid conflict reassign,
+        # 3. gid adjust, 4. uid adjust
+        assert mock_run.call_count == 4
+        calls = [c[0][0] for c in mock_run.call_args_list]
+        # First: rename dialout group (conflict resolution)
+        assert calls[0] == ["groupmod", "-n", "_orig_dialout", "dialout"]
+        # Second: reassign ubuntu user UID (conflict resolution)
+        assert calls[1] == ["usermod", "-u", "60501", "ubuntu"]
+        # Third: adjust egg group GID
+        assert calls[2] == ["groupmod", "-g", "20", "egg"]
+        # Fourth: adjust egg user UID
+        assert calls[3] == ["usermod", "-u", "501", "egg"]
+
+    @patch("subprocess.run")
+    def test_skips_conflict_resolution_when_ids_match(self, mock_run):
+        """Skips conflict resolution when UID/GID already match."""
+        logger = entrypoint.Logger(quiet=True)
+
+        config = MagicMock()
+        config.container_user = "egg"
+        config.runtime_uid = 1000
+        config.runtime_gid = 1000
+        config.user_home = Path("/home/egg")
+
+        mock_pwd_egg = MagicMock(pw_uid=1000, pw_name="egg")
+        mock_grp_egg = MagicMock(gr_gid=1000, gr_name="egg")
+
+        with patch("pwd.getpwnam", return_value=mock_pwd_egg), \
+             patch("grp.getgrnam", return_value=mock_grp_egg):
+            entrypoint.setup_user(config, logger)
+
+        # No commands should have been run — IDs already match
         mock_run.assert_not_called()

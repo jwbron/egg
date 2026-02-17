@@ -395,12 +395,45 @@ def _resolve_gid_conflict(target_gid: int, container_user: str, logger: Logger) 
     if conflicting.gr_name == container_user:
         return  # Already ours
 
+    # Pick a rename target that doesn't already exist
     new_name = f"_orig_{conflicting.gr_name}"
+    try:
+        grp.getgrnam(new_name)
+        # Name taken — append GID to disambiguate
+        new_name = f"_orig_{conflicting.gr_name}_{conflicting.gr_gid}"
+    except KeyError:
+        pass  # Name is free
+
     logger.info(
         f"GID {target_gid} is held by '{conflicting.gr_name}', "
         f"renaming to '{new_name}' to avoid conflict"
     )
-    run_cmd(["groupmod", "-n", new_name, conflicting.gr_name])
+    try:
+        run_cmd(["groupmod", "-n", new_name, conflicting.gr_name])
+    except subprocess.CalledProcessError as e:
+        raise RuntimeError(
+            f"Failed to resolve GID conflict: could not rename group "
+            f"'{conflicting.gr_name}' (GID {target_gid}) to '{new_name}'. "
+            f"groupmod exited with code {e.returncode}. "
+            f"Manually reassign GID {target_gid} inside the container to fix this."
+        ) from e
+
+
+def _find_free_uid(start: int) -> int:
+    """Find a free UID starting from ``start``, bounded to 100 attempts.
+
+    Raises RuntimeError if no free UID is found within range.
+    """
+    import pwd
+
+    uid = start
+    for _ in range(100):
+        try:
+            pwd.getpwuid(uid)
+            uid += 1
+        except KeyError:
+            return uid
+    raise RuntimeError(f"No free UID found starting from {start}")
 
 
 def _resolve_uid_conflict(target_uid: int, container_user: str, logger: Logger) -> None:
@@ -426,12 +459,20 @@ def _resolve_uid_conflict(target_uid: int, container_user: str, logger: Logger) 
     if conflicting.pw_name == container_user:
         return  # Already ours
 
-    high_uid = 60000 + target_uid
+    high_uid = _find_free_uid(60000 + target_uid)
     logger.info(
         f"UID {target_uid} is held by '{conflicting.pw_name}', "
         f"reassigning to UID {high_uid} to avoid conflict"
     )
-    run_cmd(["usermod", "-u", str(high_uid), conflicting.pw_name])
+    try:
+        run_cmd(["usermod", "-u", str(high_uid), conflicting.pw_name])
+    except subprocess.CalledProcessError as e:
+        raise RuntimeError(
+            f"Failed to resolve UID conflict: could not reassign user "
+            f"'{conflicting.pw_name}' (UID {target_uid}) to UID {high_uid}. "
+            f"usermod exited with code {e.returncode}. "
+            f"Manually reassign UID {target_uid} inside the container to fix this."
+        ) from e
 
 
 def setup_user(config: Config, logger: Logger) -> None:
