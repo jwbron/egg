@@ -2,14 +2,24 @@
   "all_passed": false,
   "checks": [
     {
-      "name": "lint",
+      "name": "ruff-check",
+      "passed": true,
+      "output": "All checks passed!"
+    },
+    {
+      "name": "ruff-format",
       "passed": false,
-      "output": "ruff check: 1 error found. F401 unused import `state_store.release_pipeline_state_lock` in orchestrator/tests/test_state_store.py:829:56. Fixable with --fix."
+      "output": "24 files would be reformatted, 354 files already formatted. Files needing reformatting include gateway/checkpoint_handler.py, orchestrator/models.py, orchestrator/routes/pipelines.py, orchestrator/sse.py, sandbox/egg_lib/orch_cli.py, sandbox/egg_lib/sdlc_cli.py, and others."
+    },
+    {
+      "name": "mypy",
+      "passed": false,
+      "output": "Found 82 errors in 23 files (checked 118 source files). Errors include import-not-found for agent_restrictions/transcript_buffer/post_agent_commit/session_manager/checkpoint_handler modules, missing type annotations, incompatible types in assignments, and missing type parameters for generic types."
     },
     {
       "name": "pytest",
-      "passed": true,
-      "output": "3507 passed, 80 skipped, 3 warnings in 24.77s"
+      "passed": false,
+      "output": "5377 passed, 8 failed, 83 skipped, 2 collection errors in 69.27s. 8 failures in orchestrator/tests/test_start_pipeline.py (TestStartFailedPipeline and TestStartFailedPipelineWithRunningPhase) due to TypeError: Object of type MagicMock is not JSON serializable. 2 collection errors in orchestrator/tests/test_container_spawner.py and test_docker_client.py due to missing 'docker' module. Coverage: 76.71% (below 80% threshold)."
     }
   ]
 }
