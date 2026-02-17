@@ -2399,31 +2399,38 @@ def _run_tier3_implement(
             worktree_repo_path=worktree_repo_path,
         )
 
-    # Build phase dependency graph and get sequential execution order
+    # Build phase dependency graph
     phase_graph = PhaseDependencyGraph(contract.phases)
     if phase_graph.has_cycle():
         logger.error(
             "Phase dependency graph has cycles, falling back to sequential phase order",
             pipeline_id=pipeline_id,
         )
+        phase_waves = None
         phase_order = [p.id for p in contract.phases]
     else:
+        phase_waves = phase_graph.compute_waves()
         phase_order = phase_graph.get_sequential_order()
 
     # Map phase IDs to Phase objects
     phase_map = {p.id: p for p in contract.phases}
 
     all_logs: list[str] = []
+    logs_lock = threading.Lock()
     max_retries = pipeline.config.max_review_cycles
+    enable_parallel = pipeline.config.enable_parallel_phases and phase_waves is not None
 
     logger.info(
         "Starting Tier 3 phase-level dispatch",
         pipeline_id=pipeline_id,
         phase_count=len(phase_order),
         phase_order=phase_order,
+        parallel=enable_parallel,
     )
 
-    for phase_id in phase_order:
+    def _run_single_phase_cycle(phase_id: str) -> tuple[int, list[str]]:
+        """Run a single phase implementation cycle (coder -> tester -> review)."""
+        phase_logs: list[str] = []
         phase_obj = phase_map.get(phase_id)
         if phase_obj is None:
             logger.warning(
@@ -2431,7 +2438,7 @@ def _run_tier3_implement(
                 pipeline_id=pipeline_id,
                 phase_id=phase_id,
             )
-            continue
+            return 0, phase_logs
 
         logger.info(
             "Starting implement cycle for plan phase",
@@ -2442,204 +2449,190 @@ def _run_tier3_implement(
 
         # Run coder for this phase
         for retry in range(max_retries + 1):
-            review_feedback = None
+            review_feedback_text = None
             if retry > 0:
-                # Get review feedback from previous cycle
-                review_feedback = _read_last_review_feedback(
+                review_feedback_text = _read_last_review_feedback(
                     worktree_repo_path, pipeline_id, pipeline_mode,
                     pipeline.issue_number,
                 )
 
-            # Build phase-scoped coder prompt
             coder_prompt = _build_phase_scoped_prompt(
                 phase_obj=phase_obj,
                 pipeline_id=pipeline_id,
                 pipeline_mode=pipeline_mode,
                 pipeline=pipeline,
                 worktree_repo_path=worktree_repo_path,
-                review_feedback=review_feedback,
+                review_feedback=review_feedback_text,
                 review_cycle=retry,
             )
 
-            # Run coder
             sandbox_command = [
-                "claude",
-                "--dangerously-skip-permissions",
-                "--print",
-                "--verbose",
-                "--output-format",
-                "stream-json",
-                "--model",
-                "opus",
-                "--max-turns",
-                "200",
-                coder_prompt,
+                "claude", "--dangerously-skip-permissions", "--print",
+                "--verbose", "--output-format", "stream-json",
+                "--model", "opus", "--max-turns", "200", coder_prompt,
             ]
 
             coder_exit, coder_logs = _spawn_and_wait(
-                spawner=spawner,
-                pipeline_id=pipeline_id,
-                agent_role=AgentRole.CODER,
-                issue_number=pipeline.issue_number,
-                repo_volumes=repo_volumes,
-                gateway_mode=gateway_mode,
-                repos=repos,
-                phase="implement",
+                spawner=spawner, pipeline_id=pipeline_id,
+                agent_role=AgentRole.CODER, issue_number=pipeline.issue_number,
+                repo_volumes=repo_volumes, gateway_mode=gateway_mode,
+                repos=repos, phase="implement",
                 sandbox_env={**sandbox_env, "EGG_PLAN_PHASE_ID": phase_id},
-                sandbox_command=sandbox_command,
-                store=store,
-                certs_volume=certs_volume,
-                branch=pipeline.branch,
+                sandbox_command=sandbox_command, store=store,
+                certs_volume=certs_volume, branch=pipeline.branch,
             )
 
-            all_logs.append(
+            phase_logs.append(
                 f"--- coder ({phase_id}, retry={retry}, exit={coder_exit}) ---\n{coder_logs}"
             )
 
             if coder_exit != 0:
                 logger.error(
                     "Coder failed for plan phase",
-                    pipeline_id=pipeline_id,
-                    phase_id=phase_id,
+                    pipeline_id=pipeline_id, phase_id=phase_id,
                     exit_code=coder_exit,
                 )
-                return 1, "\n".join(all_logs)
+                return 1, phase_logs
 
-            # Run tester for this phase
+            # Run tester
             tester_prompt = _build_agent_prompt(
-                role_value="tester",
-                phase="implement",
-                pipeline_id=pipeline_id,
-                pipeline_mode=pipeline_mode,
-                prompt=pipeline.prompt,
-                issue_number=pipeline.issue_number,
-                repo=pipeline.repo,
-                branch=pipeline.branch,
+                role_value="tester", phase="implement",
+                pipeline_id=pipeline_id, pipeline_mode=pipeline_mode,
+                prompt=pipeline.prompt, issue_number=pipeline.issue_number,
+                repo=pipeline.repo, branch=pipeline.branch,
                 repo_path=str(worktree_repo_path),
                 short_circuit=pipeline.short_circuit,
             )
 
             tester_command = [
-                "claude",
-                "--dangerously-skip-permissions",
-                "--print",
-                "--verbose",
-                "--output-format",
-                "stream-json",
-                "--model",
-                "opus",
-                "--max-turns",
-                "200",
-                tester_prompt,
+                "claude", "--dangerously-skip-permissions", "--print",
+                "--verbose", "--output-format", "stream-json",
+                "--model", "opus", "--max-turns", "200", tester_prompt,
             ]
 
             tester_exit, tester_logs = _spawn_and_wait(
-                spawner=spawner,
-                pipeline_id=pipeline_id,
-                agent_role=AgentRole.TESTER,
-                issue_number=pipeline.issue_number,
-                repo_volumes=repo_volumes,
-                gateway_mode=gateway_mode,
-                repos=repos,
-                phase="implement",
+                spawner=spawner, pipeline_id=pipeline_id,
+                agent_role=AgentRole.TESTER, issue_number=pipeline.issue_number,
+                repo_volumes=repo_volumes, gateway_mode=gateway_mode,
+                repos=repos, phase="implement",
                 sandbox_env={**sandbox_env, "EGG_PLAN_PHASE_ID": phase_id},
-                sandbox_command=tester_command,
-                store=store,
-                certs_volume=certs_volume,
-                branch=pipeline.branch,
+                sandbox_command=tester_command, store=store,
+                certs_volume=certs_volume, branch=pipeline.branch,
             )
 
-            all_logs.append(
+            phase_logs.append(
                 f"--- tester ({phase_id}, retry={retry}, exit={tester_exit}) ---\n{tester_logs}"
             )
 
             if tester_exit != 0:
                 logger.warning(
                     "Tester failed for plan phase",
-                    pipeline_id=pipeline_id,
-                    phase_id=phase_id,
+                    pipeline_id=pipeline_id, phase_id=phase_id,
                     exit_code=tester_exit,
                 )
 
-            # Run agentic code review for this phase
+            # Run agentic code review
             review_prompt = _build_review_prompt(
-                phase="implement",
-                pipeline_id=pipeline_id,
-                pipeline_mode=pipeline_mode,
-                reviewer_type="code",
+                phase="implement", pipeline_id=pipeline_id,
+                pipeline_mode=pipeline_mode, reviewer_type="code",
                 issue_number=pipeline.issue_number,
                 review_cycle=retry + 1,
                 repo_path=str(worktree_repo_path),
             )
 
             review_command = [
-                "claude",
-                "--dangerously-skip-permissions",
-                "--print",
-                "--verbose",
-                "--output-format",
-                "stream-json",
-                "--model",
-                "opus",
-                "--max-turns",
-                "200",
-                review_prompt,
+                "claude", "--dangerously-skip-permissions", "--print",
+                "--verbose", "--output-format", "stream-json",
+                "--model", "opus", "--max-turns", "200", review_prompt,
             ]
 
             review_exit, review_logs = _spawn_and_wait(
-                spawner=spawner,
-                pipeline_id=pipeline_id,
-                agent_role=AgentRole.REVIEWER_CODE,
-                issue_number=pipeline.issue_number,
-                repo_volumes=repo_volumes,
-                gateway_mode=gateway_mode,
-                repos=repos,
-                phase="implement",
+                spawner=spawner, pipeline_id=pipeline_id,
+                agent_role=AgentRole.REVIEWER_CODE, issue_number=pipeline.issue_number,
+                repo_volumes=repo_volumes, gateway_mode=gateway_mode,
+                repos=repos, phase="implement",
                 sandbox_env={**sandbox_env, "EGG_PLAN_PHASE_ID": phase_id},
-                sandbox_command=review_command,
-                store=store,
-                certs_volume=certs_volume,
-                branch=pipeline.branch,
+                sandbox_command=review_command, store=store,
+                certs_volume=certs_volume, branch=pipeline.branch,
             )
 
-            all_logs.append(
+            phase_logs.append(
                 f"--- reviewer_code ({phase_id}, retry={retry}, exit={review_exit}) ---\n{review_logs}"
             )
 
-            # Check review verdict
-            verdict = _read_review_verdict(worktree_repo_path, "implement", "code",
-                                           pipeline_mode, pipeline.issue_number, pipeline_id)
+            verdict = _read_review_verdict(
+                worktree_repo_path, "implement", "code",
+                pipeline_mode, pipeline.issue_number, pipeline_id,
+            )
 
             if verdict and verdict.get("verdict") == "approved":
                 logger.info(
                     "Phase approved by reviewer",
-                    pipeline_id=pipeline_id,
-                    phase_id=phase_id,
-                    retry=retry,
+                    pipeline_id=pipeline_id, phase_id=phase_id, retry=retry,
                 )
                 break
             elif retry < max_retries:
                 logger.info(
                     "Phase needs revision, retrying",
-                    pipeline_id=pipeline_id,
-                    phase_id=phase_id,
-                    retry=retry,
+                    pipeline_id=pipeline_id, phase_id=phase_id, retry=retry,
                 )
                 continue
             else:
                 logger.warning(
                     "Phase exhausted review retries",
-                    pipeline_id=pipeline_id,
-                    phase_id=phase_id,
+                    pipeline_id=pipeline_id, phase_id=phase_id,
                     max_retries=max_retries,
                 )
-                # Continue to next phase anyway — integrator will handle issues
 
         logger.info(
             "Completed implement cycle for plan phase",
-            pipeline_id=pipeline_id,
-            phase_id=phase_id,
+            pipeline_id=pipeline_id, phase_id=phase_id,
         )
+        return 0, phase_logs
+
+    # Execute phases — either sequentially or in parallel waves
+    if enable_parallel and phase_waves:
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+
+        for wave in phase_waves:
+            logger.info(
+                "Executing phase wave",
+                pipeline_id=pipeline_id,
+                wave_number=wave.wave_number,
+                phase_ids=wave.phase_ids,
+                parallel=wave.is_parallel(),
+            )
+
+            if wave.is_parallel():
+                # Run independent phases concurrently
+                with ThreadPoolExecutor(
+                    max_workers=pipeline.config.max_parallel_agents
+                ) as pool:
+                    futures = {
+                        pool.submit(_run_single_phase_cycle, pid): pid
+                        for pid in wave.phase_ids
+                    }
+                    for future in as_completed(futures):
+                        pid = futures[future]
+                        exit_code, phase_logs = future.result()
+                        with logs_lock:
+                            all_logs.extend(phase_logs)
+                        if exit_code != 0:
+                            return 1, "\n".join(all_logs)
+            else:
+                # Single phase in wave — run sequentially
+                for pid in wave.phase_ids:
+                    exit_code, phase_logs = _run_single_phase_cycle(pid)
+                    all_logs.extend(phase_logs)
+                    if exit_code != 0:
+                        return 1, "\n".join(all_logs)
+    else:
+        # Sequential execution (default)
+        for phase_id in phase_order:
+            exit_code, phase_logs = _run_single_phase_cycle(phase_id)
+            all_logs.extend(phase_logs)
+            if exit_code != 0:
+                return 1, "\n".join(all_logs)
 
     # After all phases: run integrator
     integrator_prompt = _build_agent_prompt(

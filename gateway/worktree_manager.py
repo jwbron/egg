@@ -534,6 +534,107 @@ class WorktreeManager:
 
         return default_git_dir  # Return expected path even if not found
 
+    def create_phase_worktree(
+        self,
+        repo_name: str,
+        container_id: str,
+        phase_id: str,
+        base_branch: str = "HEAD",
+        uid: int | None = None,
+        gid: int | None = None,
+    ) -> WorktreeInfo:
+        """Create a sub-worktree for a specific plan phase (Tier 3 parallel dispatch).
+
+        Creates a worktree branched from the pipeline worktree for isolated
+        phase-level implementation. Branch naming: egg/<feature>/phase-N.
+
+        Args:
+            repo_name: Name of the repository
+            container_id: Container identifier
+            phase_id: Plan phase ID (e.g., 'phase-1')
+            base_branch: Branch or ref to base the worktree on
+            uid: User ID for ownership
+            gid: Group ID for ownership
+
+        Returns:
+            WorktreeInfo for the phase worktree
+        """
+        # Sanitize phase_id for use in paths
+        safe_phase_id = re.sub(r"[^a-zA-Z0-9-]", "-", phase_id)
+        phase_container_id = f"{container_id}-{safe_phase_id}"
+
+        # Validate
+        validate_identifier(container_id, "container_id")
+        validate_identifier(repo_name, "repo_name")
+
+        # Derive branch name: append phase to existing branch
+        # e.g., egg/issue-732 -> egg/issue-732/phase-1
+        if base_branch.startswith("egg/"):
+            phase_branch = f"{base_branch}/{safe_phase_id}"
+        else:
+            phase_branch = f"egg/{container_id}/{safe_phase_id}"
+
+        # Create worktree using existing infrastructure
+        return self.create_worktree(
+            repo_name=repo_name,
+            container_id=phase_container_id,
+            base_branch=base_branch,
+            uid=uid,
+            gid=gid,
+        )
+
+    def cleanup_phase_worktrees(
+        self,
+        container_id: str,
+        repo_name: str,
+        phase_ids: list[str] | None = None,
+    ) -> list[WorktreeRemovalResult]:
+        """Remove phase worktrees after integration.
+
+        Cleans up sub-worktrees created by create_phase_worktree() after
+        the integrator has merged sub-branches.
+
+        Args:
+            container_id: Container identifier
+            repo_name: Repository name
+            phase_ids: Specific phase IDs to clean up. If None, cleans all
+                phase worktrees for this container.
+
+        Returns:
+            List of WorktreeRemovalResult for each cleaned worktree
+        """
+        results: list[WorktreeRemovalResult] = []
+
+        if phase_ids:
+            for phase_id in phase_ids:
+                safe_phase_id = re.sub(r"[^a-zA-Z0-9-]", "-", phase_id)
+                phase_container_id = f"{container_id}-{safe_phase_id}"
+                result = self.remove_worktree(
+                    container_id=phase_container_id,
+                    repo_name=repo_name,
+                    force=True,
+                    delete_branch=True,
+                )
+                results.append(result)
+        else:
+            # Clean all phase worktrees for this container by scanning
+            worktree_dir = self.worktree_base / repo_name
+            if worktree_dir.exists():
+                prefix = f"{container_id}-phase-"
+                for entry in worktree_dir.iterdir():
+                    if entry.name.startswith(prefix) and entry.is_dir():
+                        # Extract the phase container ID from dir name
+                        phase_container_id = entry.name
+                        result = self.remove_worktree(
+                            container_id=phase_container_id,
+                            repo_name=repo_name,
+                            force=True,
+                            delete_branch=True,
+                        )
+                        results.append(result)
+
+        return results
+
     def remove_worktree(
         self,
         container_id: str,
