@@ -1143,6 +1143,24 @@ class TestExtractRepoFromRemote:
         mock_run.assert_called_once()
         assert mock_run.call_args[1]["cwd"] == "/home/egg/repos/myrepo"
 
+    @patch("checkpoint_handler.subprocess.run")
+    def test_dotted_repo_name_https(self, mock_run):
+        """Extracts owner/repo when repo name contains dots."""
+        mock_run.return_value = MagicMock(
+            returncode=0,
+            stdout="https://github.com/my-org/some.project.git\n",
+        )
+        assert _extract_repo_from_remote("/some/repo") == "my-org/some.project"
+
+    @patch("checkpoint_handler.subprocess.run")
+    def test_dotted_repo_name_without_git_suffix(self, mock_run):
+        """Extracts owner/repo when repo name contains dots and no .git suffix."""
+        mock_run.return_value = MagicMock(
+            returncode=0,
+            stdout="https://github.com/my-org/some.project\n",
+        )
+        assert _extract_repo_from_remote("/some/repo") == "my-org/some.project"
+
 
 class TestResolveRepo:
     """Tests for CheckpointHandler._resolve_repo."""
