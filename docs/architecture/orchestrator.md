@@ -83,6 +83,18 @@ The orchestrator reads pipeline artifacts (verdict files, draft documents, check
 - Orchestrator: Bind mount from `${HOST_HOME}/.egg-worktrees` to `/home/egg/.egg-worktrees` (read container-written artifacts)
 - Integration tests: Named volume `worktrees` (no host filesystem in CI)
 
+**Phase-based readonly mounts:**
+
+During the `implement` phase, certain `.egg-state/` subdirectories are mounted readonly into agent containers to prevent direct filesystem modifications to plan/contract artifacts:
+
+| Directory | Implement phase | Refine/Plan phases |
+|-----------|----------------|-------------------|
+| `.egg-state/contracts/` | Readonly | Writable |
+| `.egg-state/drafts/` | Readonly | Writable |
+| `.egg-state/reviews/` | Readonly | Writable |
+
+The orchestrator calls `ensure_egg_state_dirs()` before spawning containers to create the required directories (bind mounts require existing source paths), then `phase_readonly_mounts()` generates the readonly `MountSpec` entries. These are added alongside the existing `.git` shadow mounts. See `shared/egg_container/__init__.py` and `orchestrator/container_spawner.py`.
+
 This architecture ensures the orchestrator reads artifacts from the correct isolated workspace rather than the main repository, preventing cross-contamination between pipelines.
 
 See `orchestrator/routes/pipelines.py:WORKTREE_BASE_DIR` and `gateway/worktree_manager.py` for implementation details.

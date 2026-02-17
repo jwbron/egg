@@ -14,8 +14,12 @@ For the architectural decision record with threat model and security properties,
 
 Agents cannot be trusted to self-police via prompts alone. The pipeline enforces constraints at multiple infrastructure layers:
 
-- **Gateway-level operation filtering**: The gateway blocks operations not permitted in the current phase
+- **Filesystem-level readonly mounts**: Phase-protected directories (e.g., `.egg-state/contracts/` during implement) are mounted readonly, preventing modification at the OS level
+- **Branch lock**: Pipeline agents are locked to their assigned worktree branch—branch switching is blocked by the gateway
+- **Commit-time validation**: The gateway validates staged files against phase restrictions before allowing `git commit`
+- **Push-time operation filtering**: The gateway blocks operations not permitted in the current phase
 - **Role-based field ownership**: Contract mutations are validated against caller role
+- **Post-agent auto-commit**: Uncommitted work is automatically preserved when agent containers exit
 - **Separate context windows**: Each agent invocation runs in a separate GitHub Actions job with fresh context
 
 ### 2. Contract-as-Code

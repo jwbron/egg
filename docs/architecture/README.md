@@ -28,12 +28,16 @@ See the [main README](../../README.md) for the architecture diagram.
 
 **Access Control:**
 - Branch ownership (agent can only push to `egg/*` branches)
+- Branch lock (pipeline agents locked to assigned worktree branch, no branch switching)
 - Phase-based operation restrictions (git/gh operations filtered by SDLC phase)
 - File-level access restrictions (role-based blocking of sensitive files like contract files)
+- Filesystem-level readonly mounts (phase-protected `.egg-state/` directories mounted readonly)
+- Commit-time validation (staged files checked against phase restrictions before commit)
 - Agent role-based file access (Coder, Tester, Documenter, Integrator have distinct write permissions)
 - Role-based contract mutations (implementer, reviewer, human roles with field-level permissions)
 - No merge capability (gateway has no merge endpoint)
 - Force push and destructive operations blocked
+- Post-agent auto-commit (uncommitted work preserved when agent containers exit)
 
 ## Components
 
