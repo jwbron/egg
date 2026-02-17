@@ -14,7 +14,9 @@ from git_client import (
     get_changed_files_in_push,
     is_repos_parent_directory,
     is_ssh_url,
+    is_url_remote,
     normalize_flag,
+    resolve_remote_url,
     ssh_url_to_https,
     validate_git_args,
     validate_repo_path,
@@ -327,6 +329,64 @@ class TestIsSshUrl:
     def test_file_not_ssh(self):
         """file:// URLs should not be detected as SSH."""
         assert not is_ssh_url("file:///path/to/repo")
+
+
+class TestIsUrlRemote:
+    """Tests for URL remote detection."""
+
+    def test_https_detected(self):
+        """HTTPS URLs should be detected as URL remotes."""
+        assert is_url_remote("https://github.com/owner/repo.git")
+
+    def test_git_at_detected(self):
+        """git@ URLs should be detected as URL remotes."""
+        assert is_url_remote("git@github.com:owner/repo.git")
+
+    def test_ssh_protocol_detected(self):
+        """ssh:// URLs should be detected as URL remotes."""
+        assert is_url_remote("ssh://git@github.com/owner/repo.git")
+
+    def test_http_rejected(self):
+        """Plain http:// should NOT be accepted — gateway uses HTTPS only."""
+        assert not is_url_remote("http://github.com/owner/repo.git")
+
+    def test_named_remote_not_detected(self):
+        """Named remotes like 'origin' should not be detected as URLs."""
+        assert not is_url_remote("origin")
+
+    def test_empty_string_not_detected(self):
+        """Empty string should not be detected as a URL remote."""
+        assert not is_url_remote("")
+
+
+class TestResolveRemoteUrl:
+    """Tests for resolve_remote_url helper."""
+
+    def test_https_url_returned_directly(self):
+        """HTTPS URL remotes should be returned without subprocess call."""
+        url, error = resolve_remote_url("https://github.com/owner/repo.git", "/tmp")
+        assert url == "https://github.com/owner/repo.git"
+        assert error is None
+
+    def test_ssh_url_returned_directly(self):
+        """SSH URL remotes should be returned without subprocess call."""
+        url, error = resolve_remote_url("git@github.com:owner/repo.git", "/tmp")
+        assert url == "git@github.com:owner/repo.git"
+        assert error is None
+
+    def test_http_url_calls_git_remote(self):
+        """http:// should NOT be treated as URL remote (falls through to git)."""
+        from unittest.mock import MagicMock, patch
+
+        with patch("subprocess.run") as mock_run:
+            mock_result = MagicMock()
+            mock_result.returncode = 0
+            mock_result.stdout = "https://github.com/owner/repo.git\n"
+            mock_run.return_value = mock_result
+
+            # http:// is not accepted as a URL remote, so it should call git
+            url, error = resolve_remote_url("http://github.com/owner/repo.git", "/tmp")
+            assert mock_run.called
 
 
 class TestGitHubClientExecuteEnvironment:
