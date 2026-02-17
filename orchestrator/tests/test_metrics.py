@@ -243,11 +243,6 @@ class TestOrchestratorMetrics:
         metrics.record_decision_resolved()
         assert metrics.decisions_resolved.get() == 1
 
-    def test_record_decision_timeout(self, metrics):
-        """Test recording decision timeout."""
-        metrics.record_decision_timeout()
-        assert metrics.decisions_timeout.get() == 1
-
 
 class TestSingletonMetrics:
     """Tests for singleton accessors."""

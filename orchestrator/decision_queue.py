@@ -2,14 +2,14 @@
 Decision queue and polling mechanism for HITL integration.
 
 Manages human-in-the-loop decisions with queueing, polling,
-timeout handling, and resolution.
+and resolution.
 """
 
 import sys
 import threading
 import time
 from collections.abc import Callable
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -31,12 +31,6 @@ from models import DecisionStatus, HITLDecision, Pipeline
 from state_store import get_pipeline_state_lock, get_state_store
 
 logger = get_logger("orchestrator.decision_queue")
-
-
-class DecisionTimeoutError(Exception):
-    """Raised when a decision times out."""
-
-    pass
 
 
 class DecisionNotFoundError(Exception):
@@ -65,18 +59,15 @@ class DecisionQueue:
         self,
         pipeline_id: str,
         repo_path: Path,
-        default_timeout: int = 3600,
     ):
         """Initialize decision queue.
 
         Args:
             pipeline_id: Pipeline ID
             repo_path: Path to repository
-            default_timeout: Default timeout in seconds
         """
         self.pipeline_id = pipeline_id
         self.repo_path = repo_path
-        self.default_timeout = default_timeout
 
         self._handlers: list[DecisionHandler] = []
         # Use the shared per-pipeline lock so that decision state changes
@@ -137,7 +128,6 @@ class DecisionQueue:
         question: str,
         context: str = "",
         options: list[str] | None = None,
-        timeout_seconds: int | None = None,
     ) -> HITLDecision:
         """Queue a new decision for human review.
 
@@ -145,7 +135,6 @@ class DecisionQueue:
             question: Decision question
             context: Additional context
             options: Available options (empty for free-form)
-            timeout_seconds: Timeout in seconds
 
         Returns:
             Created HITLDecision
@@ -161,10 +150,6 @@ class DecisionQueue:
 
             # Update with additional fields
             decision.context = context
-            if timeout_seconds:
-                decision.timeout_seconds = timeout_seconds
-            else:
-                decision.timeout_seconds = self.default_timeout
 
             self._save_pipeline(pipeline)
 
@@ -291,84 +276,34 @@ class DecisionQueue:
 
             raise DecisionNotFoundError(f"Decision {decision_id} not found")
 
-    def check_timeouts(self) -> list[HITLDecision]:
-        """Check for and handle timed-out decisions.
-
-        Returns:
-            List of timed-out decisions
-        """
-        with self._lock:
-            pipeline = self._load_pipeline()
-            timed_out = []
-            now = datetime.utcnow()
-
-            for decision in pipeline.decisions:
-                if decision.status != DecisionStatus.PENDING:
-                    continue
-
-                timeout_at = decision.created_at + timedelta(seconds=decision.timeout_seconds)
-                if now > timeout_at:
-                    decision.status = DecisionStatus.TIMEOUT
-                    decision.resolved_at = now
-                    timed_out.append(decision)
-
-                    logger.warning(
-                        "Decision timed out",
-                        pipeline_id=self.pipeline_id,
-                        decision_id=decision.id,
-                    )
-
-            if timed_out:
-                pipeline.updated_at = now
-                self._save_pipeline(pipeline)
-
-            return timed_out
-
     def wait_for_decision(
         self,
         decision_id: str,
-        timeout: int | None = None,
         poll_interval: int = 5,
     ) -> HITLDecision:
         """Wait for a decision to be resolved.
 
+        Polls indefinitely until the decision is no longer PENDING.
+        The caller should inspect the returned decision's status
+        (RESOLVED, CANCELLED, etc.) to determine the outcome.
+
         Args:
             decision_id: Decision ID
-            timeout: Max wait time in seconds (None = use decision timeout)
             poll_interval: Seconds between polls
 
         Returns:
-            Resolved HITLDecision
+            HITLDecision once it is no longer PENDING
 
         Raises:
             DecisionNotFoundError: If decision not found
-            DecisionTimeoutError: If timeout exceeded
         """
-        decision = self.get_decision(decision_id)
-        if timeout is None:
-            timeout = decision.timeout_seconds
-
-        start_time = datetime.utcnow()
-        deadline = start_time + timedelta(seconds=timeout)
-
-        while datetime.utcnow() < deadline:
+        while True:
             decision = self.get_decision(decision_id)
 
-            if decision.status == DecisionStatus.RESOLVED:
+            if decision.status != DecisionStatus.PENDING:
                 return decision
-            elif decision.status in (DecisionStatus.TIMEOUT, DecisionStatus.CANCELLED):
-                raise DecisionTimeoutError(f"Decision {decision_id} was {decision.status.value}")
 
             time.sleep(poll_interval)
-
-        # Handle timeout
-        self.check_timeouts()
-        decision = self.get_decision(decision_id)
-
-        if decision.status == DecisionStatus.RESOLVED:
-            return decision
-
-        raise DecisionTimeoutError(f"Decision {decision_id} timed out")
 
     def get_queue_status(self) -> dict[str, Any]:
         """Get queue status summary.
@@ -381,20 +316,17 @@ class DecisionQueue:
 
         pending = [d for d in decisions if d.status == DecisionStatus.PENDING]
         resolved = [d for d in decisions if d.status == DecisionStatus.RESOLVED]
-        timed_out = [d for d in decisions if d.status == DecisionStatus.TIMEOUT]
 
         return {
             "pipeline_id": self.pipeline_id,
             "total_decisions": len(decisions),
             "pending": len(pending),
             "resolved": len(resolved),
-            "timed_out": len(timed_out),
             "pending_decisions": [
                 {
                     "id": d.id,
                     "question": d.question,
                     "created_at": d.created_at.isoformat(),
-                    "timeout_seconds": d.timeout_seconds,
                 }
                 for d in pending
             ],

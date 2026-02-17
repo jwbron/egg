@@ -61,7 +61,6 @@ class EventType(StrEnum):
     # HITL events
     DECISION_CREATED = "decision.created"
     DECISION_RESOLVED = "decision.resolved"
-    DECISION_TIMEOUT = "decision.timeout"
 
     # System events
     HEALTH_CHECK = "system.health_check"

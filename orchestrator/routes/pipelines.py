@@ -32,7 +32,7 @@ except ImportError:
 # Import orchestrator modules - try relative import first
 try:
     from ..container_spawner import ContainerSpawnError, get_container_spawner
-    from ..decision_queue import DecisionTimeoutError, get_decision_queue
+    from ..decision_queue import get_decision_queue
     from ..docker_client import DockerClientError
     from ..models import (
         AgentRole,
@@ -53,7 +53,7 @@ try:
     )
 except ImportError:
     from container_spawner import ContainerSpawnError, get_container_spawner  # type: ignore
-    from decision_queue import DecisionTimeoutError, get_decision_queue  # type: ignore
+    from decision_queue import get_decision_queue  # type: ignore
     from docker_client import DockerClientError  # type: ignore
     from models import (  # type: ignore
         AgentRole,
@@ -3720,7 +3720,6 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                     question=question,
                     context=draft_content,
                     options=["approve", "request changes"],
-                    timeout_seconds=pipeline.config.decision_timeout,
                 )
 
                 # Reload pipeline to pick up the decision persisted by queue_decision(),
@@ -3742,14 +3741,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                 )
                 _emit_pipeline_event(pipeline, "decision.created")
 
-                try:
-                    dq.wait_for_decision(decision.id)
-                except DecisionTimeoutError:
-                    logger.warning(
-                        "HITL gate timed out, advancing",
-                        pipeline_id=pipeline_id,
-                        decision_id=decision.id,
-                    )
+                dq.wait_for_decision(decision.id)
 
                 # Check resolution — did the human approve or request changes?
                 resolved_decision = dq.get_decision(decision.id)
@@ -3773,20 +3765,8 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                             ),
                             context=draft_content,
                             options=["approve"],
-                            timeout_seconds=pipeline.config.decision_timeout,
                         )
-                        try:
-                            dq.wait_for_decision(followup.id)
-                        except DecisionTimeoutError:
-                            # Timeout: resolution will be None, so
-                            # (resolution or "").strip() → "", which is in
-                            # _APPROVE_KEYWORDS — intentionally treating
-                            # timeout as approval (same as no-text approve).
-                            logger.warning(
-                                "HITL follow-up timed out, advancing",
-                                pipeline_id=pipeline_id,
-                                decision_id=followup.id,
-                            )
+                        dq.wait_for_decision(followup.id)
                         resolved_followup = dq.get_decision(followup.id)
                         resolution = (resolved_followup.resolution or "").strip()
                         # If the follow-up is also bare or an approval, just approve
