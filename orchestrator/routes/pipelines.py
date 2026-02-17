@@ -587,7 +587,26 @@ def update_pipeline(pipeline_id: str) -> tuple[Response, int]:
         pipeline = store.update_pipeline(pipeline_id, data)
 
         # If pipeline is being cancelled or failed, clean up containers
+        # and cancel any pending decisions so wait_for_decision() unblocks.
         if pipeline.status in (PipelineStatus.CANCELLED, PipelineStatus.FAILED):
+            try:
+                dq = get_decision_queue(pipeline_id, repo_path)
+                pending = dq.get_pending_decisions()
+                for decision in pending:
+                    dq.cancel_decision(decision.id)
+                if pending:
+                    logger.info(
+                        "Cancelled pending decisions after pipeline status change",
+                        pipeline_id=pipeline_id,
+                        decisions_cancelled=len(pending),
+                    )
+            except Exception as e:
+                logger.warning(
+                    "Failed to cancel pending decisions",
+                    pipeline_id=pipeline_id,
+                    error=str(e),
+                )
+
             spawner = get_container_spawner()
             try:
                 removed = spawner.cleanup_pipeline(pipeline_id, force=True)
@@ -1081,9 +1100,7 @@ def _check_short_circuit_signal(
     # Only the *last* YAML block is checked to avoid false positives from
     # example/quoted YAML earlier in the document.  The refine prompt
     # instructs the LLM to place the metadata block at the very end.
-    yaml_block_pattern = re.compile(
-        r"```ya?ml\s*\n(.*?)```", re.DOTALL
-    )
+    yaml_block_pattern = re.compile(r"```ya?ml\s*\n(.*?)```", re.DOTALL)
     matches = list(yaml_block_pattern.finditer(content))
     if matches:
         block = matches[-1].group(1)
@@ -1134,24 +1151,25 @@ def _build_review_prompt(
     # instruct the reviewer to focus on the delta.
     is_delta_review = review_cycle > 1 and last_reviewed_commit and not draft_path
     diff_command = (
-        f"git diff {last_reviewed_commit}..HEAD"
-        if is_delta_review
-        else "git diff HEAD~10..HEAD"
+        f"git diff {last_reviewed_commit}..HEAD" if is_delta_review else "git diff HEAD~10..HEAD"
     )
 
     if draft_path:
         lines.append(f"1. Read the draft at `{draft_path}`")
     else:
         lines.append(
-            f"1. Review the implementation using `git log --oneline -10` "
-            f"and `{diff_command}`"
+            f"1. Review the implementation using `git log --oneline -10` and `{diff_command}`"
         )
 
     # Add procedural steps for code reviewer (matching GHA reviewer thoroughness)
     if reviewer_type == "code" and not draft_path:
         lines.append("2. Get the full diff and **review every changed file systematically**")
-        lines.append("3. Read surrounding context — check how changed code integrates with the rest of the codebase")
-        lines.append("4. Trace data flow from input to output, especially for security-sensitive paths")
+        lines.append(
+            "3. Read surrounding context — check how changed code integrates with the rest of the codebase"
+        )
+        lines.append(
+            "4. Trace data flow from input to output, especially for security-sensitive paths"
+        )
         lines.append("5. Research when uncertain — look up library behavior, check documentation")
         lines.append("6. Consider edge cases the author may not have tested")
         lines.append("7. Evaluate against the criteria below")
@@ -3649,8 +3667,10 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                 if current_phase.value == "refine" and pipeline.config.allow_short_circuit:
                     pipeline.short_circuit = False
                     if _check_short_circuit_signal(
-                        worktree_repo_path, pipeline_mode,
-                        pipeline.issue_number, pipeline_id,
+                        worktree_repo_path,
+                        pipeline_mode,
+                        pipeline.issue_number,
+                        pipeline_id,
                     ):
                         pipeline.short_circuit = True
                         logger.info("Short-circuit detected", pipeline_id=pipeline_id)
