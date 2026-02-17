@@ -239,3 +239,42 @@ class TestPhaseReadonlyMounts:
         """None phase returns empty list."""
         mounts = phase_readonly_mounts({"r": "/tmp/r"}, None)
         assert mounts == []
+
+    def test_local_volumes_used_for_existence_check(self, tmp_path):
+        """local_volumes paths are used for is_dir() but mount sources come from repo_volumes."""
+        # Create dirs under tmp_path (the "local" path)
+        for dirname in _IMPLEMENT_READONLY_DIRS:
+            (tmp_path / ".egg-state" / dirname).mkdir(parents=True)
+
+        host_path = "/home/jwies/.egg-worktrees/some-repo"
+        repo_volumes = {"myrepo": host_path}
+        local_volumes = {"myrepo": str(tmp_path)}
+
+        mounts = phase_readonly_mounts(repo_volumes, "implement", local_volumes=local_volumes)
+
+        # Should find all dirs via local_volumes
+        assert len(mounts) == len(_IMPLEMENT_READONLY_DIRS)
+        # Mount sources must use host paths (repo_volumes), not local paths
+        for mount in mounts:
+            assert mount.source.startswith(host_path)
+            assert str(tmp_path) not in mount.source
+
+    def test_local_volumes_none_falls_back_to_repo_volumes(self, tmp_path):
+        """When local_volumes is None, repo_volumes paths are used for checks."""
+        for dirname in _IMPLEMENT_READONLY_DIRS:
+            (tmp_path / ".egg-state" / dirname).mkdir(parents=True)
+
+        repo_volumes = {"myrepo": str(tmp_path)}
+        mounts = phase_readonly_mounts(repo_volumes, "implement", local_volumes=None)
+
+        assert len(mounts) == len(_IMPLEMENT_READONLY_DIRS)
+
+    def test_local_volumes_missing_dir_skipped(self, tmp_path):
+        """Dirs missing from local_volumes path are skipped even if host path exists."""
+        # Don't create any dirs under tmp_path
+        host_path = "/some/host/path"
+        repo_volumes = {"myrepo": host_path}
+        local_volumes = {"myrepo": str(tmp_path)}
+
+        mounts = phase_readonly_mounts(repo_volumes, "implement", local_volumes=local_volumes)
+        assert mounts == []
