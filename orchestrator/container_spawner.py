@@ -93,6 +93,26 @@ class SpawnedContainer:
     environment: dict[str, str]
 
 
+def _host_to_local_volumes(repo_volumes: dict[str, str]) -> dict[str, str]:
+    """Translate host paths to orchestrator-local paths for filesystem ops.
+
+    The gateway returns worktree paths relative to the Docker host
+    (e.g. ``/home/jwies/.egg-worktrees/...``), but the orchestrator
+    container only sees these via a volume mount at ``/home/egg/...``.
+    Uses the ``HOST_HOME`` env var to perform the translation.
+    """
+    host_home = os.environ.get("HOST_HOME", "")
+    container_home = "/home/egg"
+    if not host_home or host_home == container_home:
+        return repo_volumes
+    return {
+        name: path.replace(host_home, container_home, 1)
+        if path.startswith(host_home)
+        else path
+        for name, path in repo_volumes.items()
+    }
+
+
 class ContainerSpawner:
     """Spawns containers with integrated gateway session management.
 
@@ -286,9 +306,12 @@ class ContainerSpawner:
 
             # Phase-based readonly mounts: make .egg-state/ subdirectories
             # readonly during implement phase to prevent direct modifications.
+            # Translate host paths to orchestrator-local paths for filesystem ops
+            # (the orchestrator can't access host paths like /home/jwies/...).
             if phase:
-                ensure_egg_state_dirs(repo_volumes, uid=host_uid, gid=host_gid, phase=phase)
-                mounts.extend(phase_readonly_mounts(repo_volumes, phase))
+                local_volumes = _host_to_local_volumes(repo_volumes)
+                ensure_egg_state_dirs(local_volumes, uid=host_uid, gid=host_gid, phase=phase)
+                mounts.extend(phase_readonly_mounts(repo_volumes, phase, local_volumes=local_volumes))
         if certs_volume:
             mounts.append(
                 MountSpec(

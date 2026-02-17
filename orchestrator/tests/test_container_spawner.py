@@ -3,13 +3,14 @@ Tests for container spawner with gateway integration.
 """
 
 from datetime import datetime, timedelta
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 from container_spawner import (
     ContainerSpawner,
     ContainerSpawnError,
     SpawnedContainer,
+    _host_to_local_volumes,
     get_container_spawner,
 )
 from docker_client import ContainerOperationError
@@ -600,6 +601,67 @@ class TestContainerEnvironmentAtCreation:
         assert len(git_shadow) == 1, ".git shadow mount must be added for each repo volume"
         assert git_shadow[0]["Source"] == "/dev/null"
         assert git_shadow[0]["ReadOnly"] is True
+
+
+class TestHostToLocalVolumes:
+    """Tests for _host_to_local_volumes()."""
+
+    def test_translates_host_home_to_container_home(self):
+        """HOST_HOME prefix is replaced with /home/egg."""
+        repo_volumes = {"repo": "/home/jwies/.egg-worktrees/repo"}
+        with patch.dict("os.environ", {"HOST_HOME": "/home/jwies"}):
+            result = _host_to_local_volumes(repo_volumes)
+        assert result == {"repo": "/home/egg/.egg-worktrees/repo"}
+
+    def test_passthrough_when_host_home_matches_container(self):
+        """No translation when HOST_HOME equals container home."""
+        repo_volumes = {"repo": "/home/egg/.egg-worktrees/repo"}
+        with patch.dict("os.environ", {"HOST_HOME": "/home/egg"}):
+            result = _host_to_local_volumes(repo_volumes)
+        assert result is repo_volumes
+
+    def test_passthrough_when_host_home_empty(self):
+        """No translation when HOST_HOME is not set."""
+        repo_volumes = {"repo": "/some/path/repo"}
+        with patch.dict("os.environ", {}, clear=False):
+            env = dict(**__import__("os").environ)
+            env.pop("HOST_HOME", None)
+            with patch.dict("os.environ", env, clear=True):
+                result = _host_to_local_volumes(repo_volumes)
+        assert result is repo_volumes
+
+    def test_only_replaces_prefix(self):
+        """Only the first occurrence of HOST_HOME at the start is replaced."""
+        repo_volumes = {"repo": "/home/jwies/repos/home/jwies/nested"}
+        with patch.dict("os.environ", {"HOST_HOME": "/home/jwies"}):
+            result = _host_to_local_volumes(repo_volumes)
+        assert result == {"repo": "/home/egg/repos/home/jwies/nested"}
+
+    def test_multiple_repos(self):
+        """All repos in the mapping are translated."""
+        repo_volumes = {
+            "a": "/home/jwies/.egg-worktrees/a",
+            "b": "/home/jwies/.egg-worktrees/b",
+        }
+        with patch.dict("os.environ", {"HOST_HOME": "/home/jwies"}):
+            result = _host_to_local_volumes(repo_volumes)
+        assert result == {
+            "a": "/home/egg/.egg-worktrees/a",
+            "b": "/home/egg/.egg-worktrees/b",
+        }
+
+    def test_non_matching_paths_unchanged(self):
+        """Paths not starting with HOST_HOME are left unchanged."""
+        repo_volumes = {
+            "a": "/home/jwies/.egg-worktrees/a",
+            "b": "/other/path/b",
+        }
+        with patch.dict("os.environ", {"HOST_HOME": "/home/jwies"}):
+            result = _host_to_local_volumes(repo_volumes)
+        assert result == {
+            "a": "/home/egg/.egg-worktrees/a",
+            "b": "/other/path/b",
+        }
 
 
 class TestSingletonSpawner:
