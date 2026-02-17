@@ -1121,6 +1121,61 @@ class TestGitPush:
             assert "file restrictions" in data["data"]["hint"]
             assert "Check allowed patterns" in data["data"]["hint"]
 
+    def test_push_with_url_remote(self, client, auth_headers):
+        """Push succeeds when remote is a URL instead of a named remote."""
+        with (
+            patch("subprocess.run") as mock_run,
+            patch.object(gateway, "get_policy_engine") as mock_policy,
+            patch.object(gateway, "get_token_for_repo") as mock_get_token,
+        ):
+
+            def run_side_effect(*args, **kwargs):
+                cmd = args[0] if args else kwargs.get("args", [])
+                result = MagicMock()
+                result.returncode = 0
+                result.stderr = ""
+                # Should NOT see "remote get-url" since remote is already a URL
+                if "remote" in cmd and "get-url" in cmd:
+                    raise AssertionError("Should not call git remote get-url for URL remotes")
+                elif "branch" in cmd and "--show-current" in cmd:
+                    result.stdout = "egg-feature\n"
+                elif "push" in cmd:
+                    result.stdout = "Everything up-to-date\n"
+                else:
+                    result.stdout = ""
+                return result
+
+            mock_run.side_effect = run_side_effect
+
+            # Mock policy approval
+            mock_engine = MagicMock()
+            mock_engine.check_branch_ownership.return_value = PolicyResult(
+                allowed=True,
+                reason="Branch is owned by james-in-a-box",
+                details={"branch": "egg-feature"},
+            )
+            mock_policy.return_value = mock_engine
+
+            # Mock get_token_for_repo to return valid token
+            mock_get_token.return_value = ("test-token", "bot", "")
+
+            response = client.post(
+                "/api/v1/git/push",
+                headers=auth_headers,
+                data=json.dumps(
+                    {
+                        "repo_path": "/home/egg/repos/test-repo",
+                        "remote": "https://github.com/owner/repo.git",
+                        "refspec": "egg-feature",
+                    }
+                ),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 200
+            data = json.loads(response.data)
+            assert data["success"] is True
+
 
 class TestGhPrCreate:
     """Tests for /api/v1/gh/pr/create endpoint."""

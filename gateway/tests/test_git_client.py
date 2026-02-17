@@ -387,6 +387,8 @@ class TestResolveRemoteUrl:
             # http:// is not accepted as a URL remote, so it should call git
             url, error = resolve_remote_url("http://github.com/owner/repo.git", "/tmp")
             assert mock_run.called
+            assert url == "https://github.com/owner/repo.git"
+            assert error is None
 
 
 class TestGitHubClientExecuteEnvironment:
