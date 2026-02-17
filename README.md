@@ -6,227 +6,120 @@ A structurally enforced SDLC pipeline for autonomous LLM agents — turning task
 
 **Note**: this project is currently under heavy development. The core workflow is functional, but continually being refined and refactored. Expect breakages and changing behavior for the foreseeable future.
 
+## What It Does
+
+egg takes a GitHub issue (or a plain-text prompt) and produces a reviewed pull request — autonomously. Multiple specialized agents analyze the task, plan an approach, implement code, write tests, update docs, and review each other's work. Humans stay in the loop at critical checkpoints but don't need to drive the process.
+
+The key idea: **constraints are enforced by infrastructure, not by prompts.** The agent can't skip steps, self-approve, or steal credentials because the gateway physically blocks those operations. There's no system prompt saying "please don't merge" — the merge endpoint doesn't exist in the agent's environment.
+
+## A Pipeline In Action
+
+Point egg at a GitHub issue and it runs the full lifecycle. Here's what a completed pipeline looks like via `egg-pipeline-watch`:
+
+```
+    ╔═════════════════════════════════════════════╗
+    │ ✓ Refine                                    │
+    │   complete                                  │
+    │   ✓ refiner                                 │
+    │   ✓ reviewer_refine  ✓ reviewer_agent_design│
+    │   [11m25s]                                  │
+    ╚═════════════════════════════════════════════╝
+        │
+        ▼
+    ╔═════════════════════════════════════════╗
+    │ ✓ Plan                                  │
+    │   complete                              │
+    │   ✓ architect                           │
+    │   ✓ task_planner  ✓ risk_analyst        │
+    │   ✓ reviewer_plan                       │
+    │   [23m55s]                              │
+    ╚═════════════════════════════════════════╝
+        │
+        ▼
+    ╔═══════════════════════════════════════════════╗
+    │ ✓ Implement                                   │
+    │   complete                                    │
+    │   ✓ coder                                     │
+    │   ✓ tester  ✓ documenter                      │
+    │   ✓ integrator                                │
+    │   ✓ checker                                   │
+    │   ✓ reviewer_code  ✓ reviewer_contract        │
+    │   [1h11m]                                     │
+    ╚═══════════════════════════════════════════════╝
+        │
+        ▼
+    ╔════════════╗
+    │ ✓ PR       │
+    │   complete │
+    │   ✓ coder  │
+    │   [2m27s]  │
+    ╚════════════╝
+```
+
+Each box is a pipeline phase. Within each phase, specialized agents run in dependency-ordered waves — some sequentially, some in parallel. The orchestrator manages the entire DAG. Humans approve at the refine and plan gates; then agents implement, test, review, and open the PR.
+
 ## How It Works
 
-Use the `egg-sdlc` CLI to launch a multi-agent pipeline. The agent cannot skip steps, self-approve work, or bypass review — these constraints are enforced by the gateway infrastructure, not by prompts.
-
 ```
-         ┌───────────┐     ┌───────────┐     ┌───────────────┐     ┌──────────┐
-         │  REFINE   │────▶│   PLAN    │────▶│  IMPLEMENT    │────▶│  HUMAN   │
-         │  task     │     │           │     │  + review     │     │  MERGE   │
-         └─────┬─────┘     └─────┬─────┘     └───────────────┘     └────┬─────┘
-               │                 │                                      │
-               ▼                 ▼                                      ▼
-          Human gate        Human gate                             GitHub UI
-        (approve plan)  (approve tasks)                          (final merge)
+    ┌──────────┐      ┌──────────┐      ┌──────────────┐      ┌───────────┐
+    │  REFINE  │─────▶│   PLAN   │─────▶│  IMPLEMENT   │─────▶│    PR     │
+    └────┬─────┘      └────┬─────┘      └──────────────┘      └─────┬─────┘
+         │                 │                                        │
+    Human gate        Human gate                              Human merge
 ```
 
-1. **Refine** — Agent analyzes the task and produces a requirements document. Human approves.
-2. **Plan** — Agent breaks work into tasks with acceptance criteria. Human approves before any code is written.
-3. **Implement** — Agent creates a draft PR and implements tasks. CI runs, automated review provides line-level feedback. Re-implementation cycles continue until all checks pass.
-4. **Merge** — Draft PR is marked ready. Only a human can merge via GitHub UI.
+1. **Refine** — Agents analyze the task, research the codebase, and produce a requirements document. Reviewers validate the analysis. Human approves before planning begins.
+2. **Plan** — An architect recommends an approach, a task planner breaks it into discrete tasks with acceptance criteria, and a risk analyst flags concerns. Human approves before any code is written.
+3. **Implement** — A coder writes code, a tester validates it, a documenter updates docs, and an integrator runs the full test suite. Code and contract reviewers provide line-level feedback. Re-implementation cycles continue until all checks pass.
+4. **PR** — The draft PR is marked ready for review. Only a human can merge via GitHub UI.
 
-The `egg-sdlc` CLI supports two modes:
-- **Issue mode** (`egg-sdlc -r <repo_dir> -i <issue_num>`): GitHub-issue-driven pipeline with full remote integration
-- **Local mode** (`egg-sdlc` with no args): Prompt-driven pipeline that runs entirely locally
+**Short-circuit mode**: Simple tasks (typos, config changes) skip the plan phase entirely — the refine phase signals `short_circuit: true` and jumps straight to implementation.
 
-Both modes create a pipeline in the orchestrator, which spawns sandbox containers to execute each phase as a DAG. Pipeline state lives in a JSON contract (`.egg-state/contracts/{identifier}.json`) committed to the feature branch, giving full auditability of every phase transition.
+### Tiered Dispatch
 
-**Short-circuit mode**: For simple tasks (typos, small bug fixes, config changes), the refine phase can signal `short_circuit: true` to skip the plan phase entirely and jump straight to implementation. This avoids unnecessary overhead for work that doesn't need task breakdown or risk analysis.
+The pipeline adapts its execution strategy to task complexity:
 
-For convenience, the `/sdlc` skill inside the `egg` interactive session redirects to `egg-sdlc`, so you can invoke it either way.
+| Tier | Complexity | Strategy |
+|------|-----------|----------|
+| **Tier 1** | Low (typos, config) | Short-circuit: refine → implement (skip plan) |
+| **Tier 2** | Medium (single features) | Full pipeline, single coder in waves |
+| **Tier 3** | High (multi-phase features) | Parallel implement cycles per plan phase |
 
-## The Gateway
+Tier 3 decomposes large features into independent plan phases that run as parallel implement cycles (coder → tester → agentic review), each scoped to its own file boundaries and sub-branch. An integrator merges the results and runs the full test suite.
 
-The gateway is the enforcement engine. It sits between the agent sandbox and the outside world, validating every operation against the current pipeline phase and role permissions.
+### Two Modes
+
+- **Issue mode** (`egg-sdlc -r <repo> -i <issue>`): GitHub-issue-driven with full remote integration, HITL via GitHub comments
+- **Local mode** (`egg-sdlc` or `egg-sdlc -r <repo> -p "prompt"`): Prompt-driven, HITL via terminal prompts
+
+## Architecture
+
+egg is a two-container system: a **gateway** (trusted) that holds credentials and enforces policy, and a **sandbox** (untrusted) where the agent runs. The agent uses standard tools (`git`, `gh`, `curl`) — transparent wrappers intercept operations and route them through the gateway for validation.
 
 ```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                                    egg                                      │
-│                                                                             │
-│   ┌───────────────────────────────┐      ┌───────────────────────────────┐  │
-│   │       Gateway Sidecar         │      │      Sandbox Container        │  │
-│   │      (Enforcement Engine)     │      │     (Untrusted Agent)         │  │
-│   │                               │      │                               │  │
-│   │  ┌─────────────────────────┐  │ HTTP │  ┌─────────────────────────┐  │  │
-│   │  │ Phase Filter            │◀─┼──────┼──│ git/gh wrappers         │  │  │
-│   │  │ (block ops by phase)    │  │      │  │ (intercept all ops)     │  │  │
-│   │  └─────────────────────────┘  │      │  └─────────────────────────┘  │  │
-│   │                               │      │                               │  │
-│   │  ┌─────────────────────────┐  │      │  ┌─────────────────────────┐  │  │
-│   │  │ Role Validator          │  │ API  │  │ egg-contract CLI        │  │  │
-│   │  │ (enforce field ownership│◀─┼──────┼──│ (state mutations)       │  │  │
-│   │  │  for contract mutations)│  │      │  │                         │  │  │
-│   │  └─────────────────────────┘  │      │  └─────────────────────────┘  │  │
-│   │                               │      │                               │  │
-│   │  ┌─────────────────────────┐  │      │  ┌─────────────────────────┐  │  │
-│   │  │ Credential Injection    │  │Proxy │  │ Claude Code             │  │  │
-│   │  │ (secrets never in       │◀─┼──────┼──│ (ANTHROPIC_BASE_URL)    │  │  │
-│   │  │  sandbox)               │  │      │  │                         │  │  │
-│   │  └─────────────────────────┘  │      │  └─────────────────────────┘  │  │
-│   │                               │      │                               │  │
-│   │  ┌─────────────────────────┐  │HTTPS │  ┌─────────────────────────┐  │  │
-│   │  │ Network Policy          │◀─┼──────┼──│ All outbound traffic    │  │  │
-│   │  │ (domain allowlist)      │  │Proxy │  │ (private mode)          │  │  │
-│   │  └─────────────────────────┘  │      │  └─────────────────────────┘  │  │
-│   │                               │      │                               │  │
-│   │  HAS: GitHub tokens,          │      │  HAS: Workspace files only    │  │
-│   │  Anthropic keys, network      │      │  NO: Credentials, .git/,      │  │
-│   │                               │      │      direct network (private) │  │
-│   └───────────────────────────────┘      └───────────────────────────────┘  │
-│                                                                             │
-└─────────────────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────┐
+│                                 egg                                     │
+│                                                                         │
+│   ┌─────────────────────────┐      ┌─────────────────────────────────┐  │
+│   │    Gateway Sidecar      │      │    Sandbox Container            │  │
+│   │    (Trusted)            │      │    (Untrusted Agent)            │  │
+│   │                         │      │                                 │  │
+│   │  • Phase enforcement    │◀────▶│  • git/gh wrappers             │  │
+│   │  • Role validation      │      │  • Claude Code                 │  │
+│   │  • Credential injection │      │  • egg-contract CLI            │  │
+│   │  • Network policy       │      │  • Workspace files only        │  │
+│   │  • Branch policies      │      │  • No credentials, no .git/    │  │
+│   │                         │      │                                 │  │
+│   │  HAS: tokens, keys,    │      │  HAS: code, tools              │  │
+│   │       network access    │      │  NO:  secrets, direct network  │  │
+│   └─────────────────────────┘      └─────────────────────────────────┘  │
+│                                                                         │
+└─────────────────────────────────────────────────────────────────────────┘
 ```
 
 **Key principle**: The agent cannot bypass controls because the capabilities don't exist in its environment. The gateway physically blocks operations — this is infrastructure enforcement, not behavioral controls.
 
-## What's Enforced
-
-The gateway enforces both process controls (SDLC phases) and security controls (credential isolation) as aspects of the same system:
-
-| What | How It's Prevented |
-|------|-------------------|
-| Agent skips to implementation | Gateway blocks `git push` during refine and plan phases |
-| Agent self-approves work | Role-based validation: implementer cannot modify task status |
-| Agent merges its own PR | Gateway has no merge endpoint — humans must merge via GitHub UI |
-| Agent steals credentials | Credentials never enter sandbox; gateway injects them at request time |
-| Agent pushes to main | Gateway enforces branch policies; agent can only push to `egg/*` branches |
-| Agent tampers with contracts | Defense-in-depth: `.egg-state/` subdirs mounted readonly (OS level) during implement; commit-time validation rejects staged restricted files; push-time validation blocks the push |
-| Agent exfiltrates code | Private mode restricts network to Anthropic API + private GitHub repos only |
-| Agent switches branches mid-session | Gateway blocks `git checkout`/`git switch` branch ops in pipeline worktree sessions; agents are locked to their assigned branch |
-| Agent accesses other workspaces | Each agent gets isolated git worktree; `.git/` is shadowed |
-
-### Phase Permissions
-
-Each pipeline phase has a defined set of permitted operations:
-
-| Phase | Allowed Operations | Exit Requires |
-|-------|-------------------|---------------|
-| **Refine** | `gh issue comment/edit`, `git push` (state files), `egg-contract add-decision` | Human approval |
-| **Plan** | `gh issue comment/edit`, `git push` (state files), `egg-contract add-decision` | Human approval |
-| **Implement** | `git push` (code), `egg-contract add-commit/update-notes` | All checks pass (CI + PR review) |
-| **PR** | `gh pr create/edit/comment`, `git push` | Human merge |
-
-### How Isolation Works
-
-- **Zero credential exposure**: Anthropic API requests route through gateway; GitHub operations use wrappers that call gateway API. Container environment is sanitized.
-- **Git isolation**: Each agent gets an isolated worktree. The `.git/` directory is shadowed (tmpfs mount) — the agent cannot access git metadata directly.
-- **Network modes**: Public mode allows full internet + credential-injected API calls. Private mode restricts to Anthropic API + private GitHub repos only.
-
-### Why Wrappers, Not MCP
-
-MCP servers front-load tool schemas, parameter descriptions, and usage instructions into the agent's context before it does anything. For a proprietary API or internal tool the agent has never seen, that cost is justified — without it, the agent is blind.
-
-But for `git`, `gh`, `curl`, and standard CLI tools, agents already know how to use them. The training data *is* the documentation. Re-describing `git push` as an MCP tool wastes context and adds indirection to something the agent can already do natively.
-
-In egg, agents use these tools normally. Wrappers intercept operations and route them through the gateway, which enforces per-agent, per-phase restrictions. When an operation is denied, the agent gets a clear error explaining why — not upfront as a preamble, but at the exact moment it matters. The agent doesn't need to be taught what it can do; it finds out what it can't, only when it tries.
-
-This keeps agents working with familiar tools in a predictable way, without burning context on tool definitions they don't need. MCP is the right choice for tools agents need to learn. Wrappers are the right choice for tools they already know.
-
-## Multi-Agent Orchestration
-
-The orchestrator (`orchestrator/`) manages parallel execution of specialized agent roles. Each role runs in its own sandbox container with scoped permissions enforced by the gateway.
-
-### Implementation Phase Roles
-
-During the **implement** phase, work is divided across these specialized agents:
-
-| Role | Responsibility |
-|------|----------------|
-| **Coder** | Write code, create commits, push branches |
-| **Tester** | Write and run tests, validate acceptance criteria |
-| **Documenter** | Update docs, READMEs, and changelogs |
-| **Integrator** | Run full test suite, validate integration |
-
-**Execution model**: Wave-based with dependencies. The coder runs first, then tester and documenter run in parallel (both depend on coder's output). The integrator runs after the coder and tester complete (it does not wait for the documenter).
-
-### Reviewer Roles
-
-Reviewers run as a separate step after workers complete in refine, plan, and implement phases:
-
-**Refine Phase:**
-- **Refine Reviewer**: Analysis quality and completeness
-- **Agent Design Reviewer**: Agent-mode alignment and anti-patterns
-
-**Plan Phase:**
-- **Plan Reviewer**: Plan quality, task breakdown, dependencies, test strategy, alignment with analysis
-
-**Implement Phase:**
-- **Code Reviewer**: Security, correctness, code quality, testing, documentation
-- **Contract Reviewer**: Verify acceptance criteria met, task completion status
-
-**Execution model**: Reviewers always run as a separate step after all workers (and checkers, if applicable) complete. They spawn in parallel with a configurable concurrency limit (`max_parallel_agents`). In implement phase, reviewers run after the integrator completes. In plan phase, reviewers run after the task planner and risk analyst complete. In refine phase, reviewers run after the refiner completes.
-
-### Refine Phase Roles
-
-During the **refine** phase, a specialized agent produces the analysis:
-
-| Role | Responsibility |
-|------|----------------|
-| **Refiner** | Analyze task, research codebase, evaluate options, recommend approach |
-
-**Execution model**: Refiner runs first, then reviewers validate the analysis before human approval.
-
-### Plan Phase Roles
-
-During the **plan** phase, work is divided across these specialized agents:
-
-| Role | Responsibility |
-|------|----------------|
-| **Architect** | Analyze task, research codebase, recommend approach |
-| **Task Planner** | Break work into phases and discrete tasks with acceptance criteria |
-| **Risk Analyst** | Identify technical risks, propose mitigation strategies |
-
-**Execution model**: Architect runs first, then task planner and risk analyst run in parallel (both depend on architect's analysis).
-
-### How It Works
-
-The orchestrator handles wave-based execution, dependency tracking, container lifecycle, and result collection. Each role's file access is restricted by the gateway — agents can only read/write files within their permission scope. Handoff data (e.g., changed files from coder) is passed between waves via the `EGG_HANDOFF_DATA` environment variable.
-
-## Starting a Pipeline
-
-```bash
-# Direct CLI (recommended)
-egg-sdlc -r egg -i 123    # Issue mode — repo dir + issue number
-egg-sdlc -r egg 123       # Short form (positional issue)
-egg-sdlc --private -r myrepo -i 456  # Private mode (network lockdown)
-egg-sdlc                  # Local mode — interactive prompt
-egg-sdlc -r egg -p "Add user auth"  # Local mode — non-interactive with prompt
-
-# Or from inside an egg session
-egg
-/sdlc -r egg -i 123       # Redirects to egg-sdlc
-```
-
-The pipeline creates a draft PR automatically when entering the implement phase. Once all checks pass, the PR is marked ready for human review and merge.
-
-### Restarting Failed Pipelines
-
-When a pipeline fails, the orchestrator automatically preserves work-in-progress by:
-
-1. **Emitting failure event**: Sends `pipeline.failed` event to terminate SSE streams
-2. **Best-effort push**: Attempts to push the worktree branch to remote for backup (continues if push fails)
-3. **Preserving worktrees**: Skips cleanup of the pipeline's isolated git worktree so work is not lost
-
-You can restart a failed pipeline from the failed phase using:
-
-```bash
-# Via egg-sdlc CLI (detects failed state and restarts automatically)
-egg-sdlc -r <repo> -i <issue_number>
-
-# Via orchestrator API
-curl -X POST http://localhost:9849/api/v1/pipelines/{pipeline-id}/start
-```
-
-The restart resets the failed phase to pending, clears error state, and resumes execution from that phase with preserved worktrees intact. Completed and cancelled pipelines cannot be restarted.
-
-### Human-in-the-Loop Checkpoints
-
-At each phase boundary (refine and plan), the pipeline pauses for human approval before proceeding. Interaction happens through checkbox-based UI in GitHub comments (issue mode) or terminal prompts (local mode). In local mode, the orchestrator also supports requesting changes to re-run a phase with feedback (limited by `max_review_cycles`, default 3).
-
-- **Guidance**: Provide additional context, adjust acceptance criteria, break into subtasks
-- **Override**: Mark complete, skip tasks, cancel pipeline
-- **Manual**: Complete manually, reassign
+For details on what's enforced and how, see the [Architecture Overview](docs/architecture/README.md) and [Gateway README](gateway/README.md).
 
 ## Quick Start
 
@@ -242,166 +135,21 @@ egg
 
 Running `egg` starts the gateway and sandbox automatically. On first run it will prompt you to configure repositories and credentials via `egg --setup`. By default it launches in public mode (full internet access); use `egg --private` for network-locked private repo mode.
 
-Use `egg-sdlc` to launch the full SDLC pipeline, or work interactively inside an `egg` session with individual agent modes (`/coder-mode`, `/tester-mode`, etc.).
-
-See the [Local Quickstart Guide](docs/guides/local-quickstart.md) for detailed setup instructions including PAT-based authentication.
-
-### Docker Compose (Advanced)
-
-For managing the gateway stack separately:
-
 ```bash
-# Initialize configuration
-bin/egg-deploy init
+# Launch a full SDLC pipeline
+egg-sdlc -r myrepo -i 123        # From a GitHub issue
+egg-sdlc -r myrepo -p "Add auth" # From a prompt
+egg-sdlc                          # Interactive local mode
 
-# Edit .env with your credentials (GITHUB_USER_TOKEN, etc.)
-vim .env
-
-# Start the gateway
-bin/egg-deploy up
-
-# Start a sandbox session against the running gateway
-egg --compose
+# Or from inside an egg session
+/sdlc -r myrepo -i 123
 ```
 
-See the [Deployment Guide](docs/guides/deployment.md) for deployment options.
-
-## CLI Reference
-
-### egg CLI
-
-| Command | Description |
-|---------|-------------|
-| `egg` | Start interactive sandbox session (public mode, auto-setup on first run) |
-| `egg --public` | Explicit public mode (full internet access, default) |
-| `egg --private` | Private mode (Anthropic API only, network lockdown) |
-| `egg --setup` | Run interactive setup wizard |
-| `egg --reset` | Reset configuration and start over |
-| `egg --exec <cmd>` | Execute command in ephemeral container |
-| `egg --compose` | Start gateway via Docker Compose |
-| `egg --compose --down` | Stop the Docker Compose stack (gateway + orchestrator) |
-| `egg --compose --build` | Rebuild compose images before starting |
-
-### egg-deploy CLI
-
-For production/advanced deployments using Docker Compose:
-
-| Command | Description |
-|---------|-------------|
-| `bin/egg-deploy init` | Initialize configuration files |
-| `bin/egg-deploy up` | Start the gateway stack |
-| `bin/egg-deploy down` | Stop the gateway stack |
-| `bin/egg-deploy status` | Show container status and health |
-| `bin/egg-deploy logs` | Follow gateway logs |
-| `bin/egg-deploy build` | Rebuild Docker images |
-
-### egg-status CLI
-
-For monitoring all active SDLC pipelines in real-time:
-
-| Command | Description |
-|---------|-------------|
-| `bin/egg-status` | Stream real-time status for all active pipelines |
-| `bin/egg-status --once` | Show current snapshot and exit |
-| `bin/egg-status --all` | Include completed/failed pipelines |
-| `bin/egg-status --verbose` | Show full DAG instead of compact status |
-| `bin/egg-status --ascii` | Use ASCII-only characters (no Unicode) |
-| `bin/egg-status --port <port>` | Specify orchestrator port (default: 9849) |
-
-### egg-pipeline-watch CLI
-
-For watching a specific pipeline's progress with DAG visualization:
-
-| Command | Description |
-|---------|-------------|
-| `bin/egg-pipeline-watch <pipeline-id>` | Stream DAG visualization for a specific pipeline |
-| `bin/egg-pipeline-watch <pipeline-id> --compact` | Show compact single-line status instead of full DAG |
-| `bin/egg-pipeline-watch <pipeline-id> --once` | Show current state and exit (no streaming) |
-| `bin/egg-pipeline-watch <pipeline-id> --ascii` | Use ASCII-only characters (no Unicode) |
-
-### egg-orch CLI
-
-For programmatic interaction with the orchestrator API (usable by both agents and humans):
-
-| Command Group | Description |
-|---------------|-------------|
-| `egg-orch health` | Check orchestrator + gateway health |
-| `egg-orch pipeline list/get/create/status/delete` | Pipeline management |
-| `egg-orch signal complete/progress/error/heartbeat` | Send agent signals |
-| `egg-orch phase get/advance/start/complete` | Phase transitions |
-| `egg-orch decision list/create/resolve/status` | HITL decision queue |
-| `egg-orch container list/spawn/get/stop/logs` | Container operations |
-| `egg-orch gateway health/phase/permissions` | Gateway operations |
-| `egg-orch env` | Show orchestrator environment variables |
-
-All commands support `--json` for machine-readable output. Run `egg-orch <command> --help` for detailed usage.
-
-### egg-contract CLI
-
-For tracking SDLC pipeline progress (used by agents and humans):
-
-| Command | Description |
-|---------|-------------|
-| `egg-contract show` | View current contract state |
-| `egg-contract add-commit --task <id> --commit <sha>` | Link a commit to a task |
-| `egg-contract update-notes --task <id> --notes <text>` | Add implementation notes to a task |
-| `egg-contract add-decision --question <text> --options <a> <b>` | Create a HITL decision (multiple choice) |
-| `egg-contract add-feedback --question <text>` | Create a HITL feedback request (open-ended) |
-| `egg-contract verify-criterion --criterion <id>` | Mark acceptance criterion as verified (reviewer role) |
-| `egg-contract agent-status` | Show agent execution status for multi-agent orchestration |
-| `egg-contract agent-start --role <role>` | Mark an agent as started (running) |
-| `egg-contract agent-complete --role <role>` | Mark an agent as complete |
-| `egg-contract agent-fail --role <role> --error <msg>` | Mark an agent as failed |
-| `egg-contract agent-next` | Get the next wave of agents to dispatch |
-
-### egg-onboarding-docs CLI
-
-For generating repository documentation to onboard agents:
-
-| Command | Description |
-|---------|-------------|
-| `egg-onboarding-docs <name>` | Generate onboarding docs (`<name>` is a directory under `~/repos/`) |
-| `egg-onboarding-docs --dry-run <name>` | Survey and report without creating files or a PR |
-| `egg-onboarding-docs --scope <pattern> <name>` | Limit documentation to files matching the pattern |
-
-### egg-checkpoint CLI
-
-For querying agent session checkpoints across multi-agent pipelines:
-
-| Command | Description |
-|---------|-------------|
-| `egg-checkpoint list [filters]` | List checkpoints with multi-dimensional filtering |
-| `egg-checkpoint show <id-or-commit>` | Display full checkpoint details (transcript, tool calls, files touched) |
-| `egg-checkpoint browse --issue <n>` | Filter checkpoints by issue number |
-| `egg-checkpoint context [filters]` | Cross-agent context summary grouped by phase and agent type |
-| `egg-checkpoint cost [filters]` | Show cost breakdown (token usage and USD) by phase and agent type |
-
-**Filters**: `--issue`, `--pr`, `--pipeline`, `--session`, `--branch`, `--trigger`, `--status`, `--agent-type`, `--phase`, `--limit`, `--json`
-
-See the [Checkpoint Access Guide](docs/guides/checkpoint-access.md) for detailed usage examples.
-
-### Flags
-
-| Flag | Description |
-|------|-------------|
-| `--private` | Enable private mode (Anthropic API + private GitHub repos only) |
-| `--public` | Enable public mode (full internet access, default) |
-| `--compose` | Use Docker Compose to manage the gateway stack |
-| `--down` | Stop the Docker Compose stack (use with `--compose`) |
-| `--build` | Rebuild compose images before starting (use with `--compose`) |
-| `--multi-agent` | Enable multi-agent execution (wave-based parallel agents) |
-| `--no-multi-agent` | Disable multi-agent execution (single-agent mode) |
-| `--max-parallel <n>` | Maximum parallel agents per wave (default: 10) |
-| `--exec <cmd>` | Execute command in new ephemeral container |
-| `--timeout <min>` | Timeout for --exec commands (default: 30) |
-| `--auth <method>` | Anthropic auth method for --exec: `oauth-token` (default) or `api-key` |
-| `--rebuild` | Force rebuild Docker image |
-| `--time` | Show startup timing breakdown for debugging |
-| `-v, --verbose` | Show detailed output instead of progress bar |
+See the [Local Quickstart Guide](docs/guides/local-quickstart.md) for detailed setup including PAT-based authentication, and the [Deployment Guide](docs/guides/deployment.md) for Docker Compose and production options.
 
 ## GitHub Action
 
-egg ships as a [composite GitHub Action](action/) for CI/CD integration. It powers automated PR workflows including code review, auto-fixing failing checks, merge conflict resolution, and review feedback addressing.
+egg ships as a [GitHub Action](action/) for CI/CD integration — automated PR review, auto-fixing failing checks, merge conflict resolution, and review feedback addressing.
 
 ```yaml
 - uses: jwbron/egg@main
@@ -410,88 +158,24 @@ egg ships as a [composite GitHub Action](action/) for CI/CD integration. It powe
     anthropic-oauth-token: ${{ secrets.ANTHROPIC_OAUTH_TOKEN }}
 ```
 
-The action supports bot identity via GitHub App credentials, dual-identity review (separate bot and reviewer apps), and both public/private network modes. See [action/README.md](action/README.md) for full input/output documentation.
-
-Built-in workflows (`.github/workflows/`) demonstrate usage for:
-- **PR review** (`on-pull-request.yml`) — AI code review on PR open/sync
-- **Auto-fix** (`on-check-failure.yml`) — Automatically fix failing CI checks
-- **Conflict resolution** (`on-merge-conflict.yml`) — Auto-resolve merge conflicts
-- **Review feedback** (`on-review-feedback.yml`) — Address review comments on bot PRs
-- **Doc updates** (`on-push-doc-updater.yml`) — Auto-update docs after merge
-- **Contract verification** (`on-pull-request-contract-verify.yml`) — Verify SDLC contract compliance
+See [action/README.md](action/README.md) for full documentation and [GitHub Automation Guide](docs/guides/github-automation.md) for built-in workflow examples.
 
 ## Documentation
 
-### SDLC Pipeline
-
-- [SDLC Pipeline Guide](docs/guides/sdlc-pipeline.md) — Operational guide, CLI commands, triggering
-- [ADR: SDLC Pipeline](docs/adr/implemented/ADR-SDLC-Pipeline.md) — Architecture, threat model, security properties
-
-### Architecture
-
-- [Documentation Index](docs/index.md) — Navigation hub for all docs
-- [Architecture Overview](docs/architecture/README.md) — System design and components
-- [Gateway Sidecar](gateway/README.md) — Policy enforcement, API endpoints, credential injection
-- [Sandbox Container](sandbox/README.md) — Agent environment, tools, wrappers
-- [Project Structure](docs/development/STRUCTURE.md) — Directory layout and component map
-
-### Architecture Decision Records
-
-- [SDLC Pipeline](docs/adr/implemented/ADR-SDLC-Pipeline.md) — Structurally enforced agent checkpoints
-- [Git Isolation](docs/adr/implemented/ADR-Git-Isolation-Architecture.md) — Worktree isolation design
-- [Credential Injection](docs/adr/implemented/ADR-Gateway-Credential-Injection.md) — Zero-credential sandbox design
-- [Anthropic API Credential Injection](docs/adr/implemented/ADR-Anthropic-API-Credential-Injection.md) — Route API traffic through gateway
-- [Context Sync Strategy](docs/adr/implemented/ADR-Context-Sync-Strategy-Custom-vs-MCP.md) — Hybrid GitHub MCP + Confluence sync
-- [Declarative Setup](docs/adr/implemented/ADR-Declarative-Setup-Architecture.md) — Setup wizard architecture
-- [Standardized Logging](docs/adr/implemented/ADR-Standardized-Logging-Interface.md) — Structured logging interface
-- [All ADRs](docs/adr/README.md) — Complete index (7 implemented, 3 in-progress)
-
-### Component Documentation
-
-- [Shared Libraries](shared/README.md) — Config, logging, and git utilities
-- [Configuration](config/README.md) — Repository and host configuration
-- [GitHub Action](action/README.md) — CI/CD composite action for PR automation
-
-### Guides
-
-- [Local Quickstart](docs/guides/local-quickstart.md) — Get running locally with PAT authentication
-- [Deployment Guide](docs/guides/deployment.md) — Deployment options
-- [Deploy Migration](docs/guides/deploy-migration.md) — Migrating from legacy deployments
-- [GitHub Automation](docs/guides/github-automation.md) — PR review, auto-fix, and conflict resolution workflows
-- [Reusable Workflows](docs/guides/reusable-workflows.md) — Shared GitHub Actions workflow components
-- [Agent Development](docs/guides/agent-development.md) — Developing agent strategies
-- [Agent Mode Design](docs/guides/agent-mode-design.md) — When to use constraints vs. freedom
-
-### Other
-
-- [Human-in-the-Loop Decisions](docs/hitl-decisions.md) — Decision workflow and checkbox UI
-- [Agentic Feedback Loop](docs/agentic-feedback-loop.md) — The foundational feedback loop
-- [Why egg Works](docs/collaboration-effectiveness.md) — Safety, quality, and collaboration
-- [Contributing](CONTRIBUTING.md) — Development setup and workflow
-
-## Versioning
-
-egg uses [semantic versioning](https://semver.org/) for Docker images.
-
-### Docker Images
-
-```bash
-# Latest stable (updated on every release)
-docker pull ghcr.io/jwbron/egg-sandbox:latest
-
-# Major version (updated on v0.x.y releases)
-docker pull ghcr.io/jwbron/egg-sandbox:v0
-
-# Exact version
-docker pull ghcr.io/jwbron/egg-sandbox:v0.1.0
-```
-
-### Breaking Changes
-
-- **v0.x.y**: Pre-stable releases. Minor versions may contain breaking changes.
-- **v1.x.y and later**: Stable releases. Breaking changes only in major version bumps.
-
-See [RELEASING.md](RELEASING.md) for the release process.
+| Topic | Start Here |
+|-------|-----------|
+| **Full docs index** | [docs/index.md](docs/index.md) |
+| **Architecture & security model** | [Architecture Overview](docs/architecture/README.md) |
+| **SDLC pipeline details** | [SDLC Pipeline Guide](docs/guides/sdlc-pipeline.md) |
+| **Gateway enforcement** | [Gateway README](gateway/README.md) |
+| **Sandbox environment** | [Sandbox README](sandbox/README.md) |
+| **Multi-agent orchestration** | [Orchestrator Architecture](docs/architecture/orchestrator.md) |
+| **Architecture decisions** | [ADR Index](docs/adr/README.md) |
+| **CLI reference** | [CLI Entry Points](bin/README.md) |
+| **GitHub automation** | [GitHub Automation Guide](docs/guides/github-automation.md) |
+| **Agent design patterns** | [Agent Mode Design](docs/guides/agent-mode-design.md) |
+| **Project structure** | [STRUCTURE.md](docs/development/STRUCTURE.md) |
+| **Contributing** | [CONTRIBUTING.md](CONTRIBUTING.md) |
 
 ## Development
 
@@ -500,12 +184,11 @@ make setup           # Set up development environment
 make lint            # Run all linters
 make test            # Run all tests
 make test-integration # Run integration tests
-make test-e2e        # Run end-to-end tests
 make lint-fix        # Auto-fix lint issues
 make build           # Build Docker images
 ```
 
-Requires Python >= 3.11. See [CONTRIBUTING.md](CONTRIBUTING.md) for development guidelines.
+Requires Python >= 3.11. See [CONTRIBUTING.md](CONTRIBUTING.md) for development guidelines and [RELEASING.md](RELEASING.md) for the release process.
 
 ## License
 
