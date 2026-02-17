@@ -1,0 +1,542 @@
+{
+  "issue": 644,
+  "phase": "plan",
+  "agent": "risk_analyst",
+  "revision": 2,
+  "revision_reason": "Addressing plan reviewer feedback: (1) validates atomic branch lock + agent instructions in PR-1, (2) validates warn-only mode for agent-role restrictions, (3) validates multi-PR delivery strategy. Also reassesses risks in light of architect's revised plan (AD-1 through AD-7) and identifies new risks from the revised session lifecycle ordering.",
+
+  "title": "Risk assessment: Enforce phase file restrictions via readonly mounts and commit-time validation",
+
+  "summary": "The revised architect plan (revision 2) successfully addresses all three reviewer issues: atomic deployment of branch lock + instructions (AD-2, PR-1), warn-only mode for agent-role restrictions (AD-3), and a 3-PR delivery strategy (AD-1). The overall risk profile is MEDIUM. The highest risks are: (1) the auto-commit session lifecycle change (keeping sessions alive during auto-commit reverses the current delete-then-checkpoint ordering, creating a window where a deleted-but-alive session could service requests), (2) readonly mount misconfiguration rendering containers non-functional, and (3) the coder-role agent restrictions blocking test file modifications that are currently standard practice. No risks are blocking. The 3-PR delivery strategy significantly reduces blast radius compared to the original single-PR approach.",
+
+  "overall_risk_level": "MEDIUM",
+
+  "overall_assessment": "The defense-in-depth architecture is sound. Each layer independently adds value: L0 (branch lock) closes Gap 2 (determinism), L1 (readonly mounts) closes Gap 1 (local modification bypass) and Gap 3 (late enforcement), L2 (commit-time validation) adds early detection for commit operations, L4 (post-agent auto-commit) prevents silent work loss. The revised 3-PR strategy (AD-1) allows incremental rollout with independent revert per PR. The primary concern shifts from 'will this break everything at once' to 'are the per-PR integration points correct'. The reviewer's three issues are fully addressed in the revised plan.",
+
+  "reviewer_feedback_validation": {
+    "issue_1_atomic_instructions": {
+      "status": "ADDRESSED",
+      "assessment": "AD-2 correctly moves TASK-1-4 (agent instructions update) into PR-1 alongside the branch lock (TASK-1-2). The instruction_changes field in AD-2 correctly identifies all four references to git checkout -b that need removal: mission.md lines 52 and 72, and environment.md line 44. The replacement text is clear and actionable. Risk: the CLAUDE.md compilation step must be verified — if mission.md changes don't propagate to the compiled CLAUDE.md that agents actually read, the atomic deployment is incomplete."
+    },
+    "issue_2_warn_only_mode": {
+      "status": "ADDRESSED",
+      "assessment": "AD-3 correctly specifies warn-only mode as default with EGG_AGENT_RESTRICTIONS_ENFORCE config flag. TASK-1-5 acceptance criteria explicitly require: (1) default mode is warn-only, (2) audit log includes role + blocked files + action taken, (3) unknown roles pass. This is correct. Risk: the warn-only log volume could be high if many agents trigger role violations — need log rotation or sampling if this becomes an issue."
+    },
+    "issue_3_multi_pr": {
+      "status": "ADDRESSED",
+      "assessment": "AD-1 splits into 3 PRs: PR-1 (L0+L2+instructions), PR-2 (L1+EGG_PHASE), PR-3 (L4). This is a reasonable split. PR-1 is the largest (6 files) but all are gateway + sandbox — single component. PR-2 is cross-component (shared + orchestrator + gateway) but small. PR-3 depends on PR-1 (assigned_branch field). The dependency is correctly noted. Risk: PR-3's dependency on PR-1 means they cannot merge in parallel, but this is acceptable since L4 auto-commit is lower priority."
+    }
+  },
+
+  "risks": [
+    {
+      "id": "R1",
+      "title": "Auto-commit session lifecycle reordering creates a session state window",
+      "layer": "L4 (Post-agent auto-commit)",
+      "category": "correctness",
+      "severity": "HIGH",
+      "likelihood": "MEDIUM",
+      "impact": "HIGH",
+      "description": "AD-7 proposes keeping the session alive during auto-commit, changing the ordering from: [delete session → checkpoint → worktree cleanup] to: [auto-commit via gateway → checkpoint → delete session → worktree cleanup]. This means the session remains in _sessions after the agent container has exited. During this window, if another process sends a request with the old session token, the gateway would accept it — the session is still valid. The current code in delete_session() (session_manager.py:735-742) removes the session from _sessions under the lock BEFORE calling _capture_and_cleanup_session(). Moving auto-commit before session deletion requires restructuring this critical section. The deduplication guard at line 73-82 (per container_id) also needs careful consideration — auto-commit and checkpoint capture must share the dedup guard or use separate guards.",
+      "affected_components": [
+        "gateway/session_manager.py (delete_session, _capture_and_cleanup_session)",
+        "gateway/post_agent_commit.py (new)",
+        "gateway/gateway.py (session validation for auto-commit push)"
+      ],
+      "evidence": [
+        "delete_session() at session_manager.py:735-742 removes session from _sessions before checkpoint capture",
+        "The dedup guard at session_manager.py:73-82 prevents double checkpoint capture per container_id",
+        "Session validation via require_session_auth checks session existence in _sessions",
+        "Container exit is detected by the orchestrator, not the gateway — timing is asynchronous"
+      ],
+      "mitigation": {
+        "strategy": "Minimize the session-alive window and add a session state flag",
+        "steps": [
+          "Add a session state field (e.g., 'post_exit=True') to the Session dataclass. Set it when the agent exits but before auto-commit. While post_exit=True, the session validates ONLY for auto-commit pushes (identified by a special header or token scope), not for arbitrary agent requests.",
+          "Alternatively, use a simpler approach: delete the session from _sessions immediately (current behavior), but pass the Session object to auto_commit_allowed_changes() for direct use (without needing gateway API auth). The auto-commit pushes directly using the session's credentials stored in the Session object. This avoids the session-alive window entirely but means auto-commit push bypasses the gateway API — which is what the original (pre-AD-7) design proposed.",
+          "If keeping the session alive per AD-7: add explicit timeout and cleanup. The auto-commit should complete within 30 seconds or abort. Session deletion must happen in a finally block to prevent leaked sessions.",
+          "Unit test: verify that after auto-commit completes, the session is definitively deleted and cannot be used for further requests."
+        ]
+      },
+      "rollback": "Remove auto-commit call. Session lifecycle returns to current ordering.",
+      "human_review_needed": true,
+      "human_review_reason": "This changes the session lifecycle ordering, which is a critical path for all agent operations. The trade-off between AD-7's defense-in-depth (routing auto-commit push through gateway) and the simpler direct-push approach needs human decision. The direct-push approach has lower risk but less defense-in-depth."
+    },
+    {
+      "id": "R2",
+      "title": "Readonly mount misconfiguration renders containers non-functional",
+      "layer": "L1 (Readonly filesystem mounts)",
+      "category": "operational",
+      "severity": "HIGH",
+      "likelihood": "MEDIUM",
+      "impact": "CRITICAL",
+      "description": "Readonly mounts on .egg-state/ subdirectories during the implement phase are relatively safe — they target specific subdirectories and leave source code writable. However, the mount assembly in container_spawner.py (line 278) uses a simple list.extend(). If phase_readonly_mounts() returns a MountSpec with an incorrect destination path (e.g., /home/egg/repos instead of /home/egg/repos/reponame/.egg-state/contracts/), the entire repo becomes readonly. Docker bind mounts with readonly=True at a parent path override writable child mounts. The MountSpec dataclass (egg_container/__init__.py:40-46) has no validation — any path is accepted.",
+      "affected_components": [
+        "shared/egg_container/__init__.py (phase_readonly_mounts, MountSpec)",
+        "orchestrator/container_spawner.py (mount assembly at line 267-288)"
+      ],
+      "evidence": [
+        "MountSpec has readonly=False default (egg_container/__init__.py:46) — no path validation",
+        "to_dockerpy_kwargs() passes ReadOnly directly to Docker API without validation",
+        "Container mount list is assembled as a flat list — ordering affects Docker behavior",
+        "Docker precedence: if two bind mounts target overlapping paths, the more specific (inner) one wins only if listed AFTER the outer one"
+      ],
+      "mitigation": {
+        "strategy": "Path validation + fail-open + integration test",
+        "steps": [
+          "Add path validation in phase_readonly_mounts(): assert all destination paths start with the expected container_base prefix and contain .egg-state/",
+          "Skip mounts for non-existent source directories (with warning log) rather than letting Docker fail",
+          "Integration test (pytest.mark.integration) that creates a container with implement-phase mounts and verifies: (a) source code is writable, (b) .egg-state/contracts/ is EROFS, (c) .egg-state/agent-outputs/ remains writable",
+          "Fail-open for unknown phases: return empty mount list. This is correctly specified in TASK-2-1 acceptance criteria.",
+          "Add sorting/ordering assertion: writable mounts must not be shadowed by readonly mounts at parent paths"
+        ]
+      },
+      "rollback": "Remove phase_readonly_mounts() call from container_spawner.py. One-line change restores original behavior.",
+      "human_review_needed": true,
+      "human_review_reason": "Docker mount behavior varies across versions and storage drivers. Test on production Docker Engine version before rolling out."
+    },
+    {
+      "id": "R3",
+      "title": "Branch lock + agent instructions must compile to CLAUDE.md atomically",
+      "layer": "L0 (Branch lock)",
+      "category": "compatibility",
+      "severity": "HIGH",
+      "likelihood": "HIGH",
+      "impact": "MEDIUM",
+      "description": "AD-2 correctly requires atomic deployment of branch lock + instruction update in PR-1. However, agents read the compiled CLAUDE.md, not the source mission.md and environment.md files directly. The CLAUDE.md compilation process must pick up changes from mission.md and environment.md. If the compilation is a separate step (e.g., a CI job or make target), there could be a gap where the source files are updated but CLAUDE.md still contains old instructions. Additionally, agents that are already running when the PR is merged will have the old CLAUDE.md cached in their context — they will hit the branch lock errors until their session ends and a new container starts with the updated image or rules.",
+      "affected_components": [
+        "sandbox/.claude/rules/mission.md",
+        "sandbox/.claude/rules/environment.md",
+        "sandbox/.claude/CLAUDE.md (compiled output)"
+      ],
+      "evidence": [
+        "mission.md:52 instructs agents to use 'git checkout -b'",
+        "mission.md:72 instructs 'Always use: git checkout -b egg/<name> origin/main'",
+        "environment.md:44 suggests 'git checkout -b' as alternative to worktree add",
+        "TASK-1-4 acceptance criteria includes 'CLAUDE.md compilation picks up the changes (verify compilation process)'"
+      ],
+      "mitigation": {
+        "strategy": "Verify compilation pipeline and accept in-flight agent impact",
+        "steps": [
+          "Verify the CLAUDE.md compilation process: determine if it's automatic (git hook, CI step, or file watch) or manual. If manual, the compilation must be part of the PR-1 commit.",
+          "If CLAUDE.md is a committed file, update it in the same commit as mission.md/environment.md changes.",
+          "Accept that in-flight agents (already running when PR merges) will hit branch lock errors. This is expected and acceptable — the error message should be clear enough that the agent can recover by not retrying the branch switch.",
+          "The gateway error message (per AD-4) should include: the assigned branch name, the fact that branch switching is disabled, and what operations ARE allowed. This helps even agents with old instructions understand what's happening."
+        ]
+      },
+      "rollback": "Revert PR-1. Both gateway enforcement and instruction changes revert together.",
+      "human_review_needed": false
+    },
+    {
+      "id": "R4",
+      "title": "Branch-switching detection heuristic: ambiguous git checkout without --",
+      "layer": "L0 (Branch lock)",
+      "category": "correctness",
+      "severity": "MEDIUM",
+      "likelihood": "MEDIUM",
+      "impact": "LOW",
+      "description": "AD-4 specifies a conservative heuristic that fails open for ambiguous cases: 'git checkout <arg>' (no -b, no --) is allowed with a warning log. This is the correct approach — false positives (blocking file restore) are worse than false negatives (allowing a branch switch that push-time enforcement catches). However, the implementation must handle edge cases: 'git checkout .' (restore all files), 'git checkout HEAD~1 file.txt' (restore from specific ref), and 'git checkout --orphan branch' (create orphan branch). The --orphan flag is not in the current allowed_flags for checkout (git_client.py:460-473), so it would already be blocked by flag validation. But 'git checkout .' passes as an ambiguous case (single non-flag arg).",
+      "affected_components": [
+        "gateway/git_client.py (is_branch_switching helper)",
+        "gateway/gateway.py (git_execute checkout/switch handling)"
+      ],
+      "evidence": [
+        "checkout allowed_flags at git_client.py:460-473 include -b, -B but not --orphan",
+        "validate_git_args() checks flags but not positional argument semantics",
+        "AD-4 specifies: 'ambiguous cases (git checkout <arg> without --) are allowed with audit log warning'",
+        "No subprocess calls for branch resolution — pure string parsing"
+      ],
+      "mitigation": {
+        "strategy": "Conservative heuristic with well-defined edge case handling",
+        "steps": [
+          "Block definite cases: -b, -B, --create, --force-create, --orphan, git switch <target>",
+          "Allow definite cases: -- separator present (everything after is files), no args (status-like)",
+          "Allow-with-warning: all other cases. This means 'git checkout main' is allowed-with-warning but will fail at push time if the agent tries to push to a non-owned branch.",
+          "Comprehensive test matrix: at least 15-20 test cases covering all combinations of flags, separators, and argument types",
+          "No subprocess calls (git rev-parse) — per AD-4, pure string parsing avoids latency and TOCTOU issues"
+        ]
+      },
+      "rollback": "Remove is_branch_switching check from git_execute(). Push-time enforcement remains.",
+      "human_review_needed": false
+    },
+    {
+      "id": "R5",
+      "title": "Coder agent restrictions block test file modifications (warn-only mitigates)",
+      "layer": "L2 (Agent-role restrictions)",
+      "category": "compatibility",
+      "severity": "MEDIUM",
+      "likelihood": "HIGH",
+      "impact": "MEDIUM",
+      "description": "CODER_PATTERNS (agent_restrictions.py:171-218) blocks tests/, test/, **/*_test.py, **/test_*.py, and similar patterns. In practice, coders frequently need to update test files alongside code changes — adding tests for new features, fixing tests broken by code changes, or updating test fixtures. The tester role exists to write new tests, but the boundary between 'coder updates existing test' and 'tester writes new test' is blurry. AD-3 correctly specifies warn-only mode (EGG_AGENT_RESTRICTIONS_ENFORCE=false default), which avoids breaking current workflows. The risk is that someone enables enforcement mode without first reviewing the warn-only log data.",
+      "affected_components": [
+        "gateway/gateway.py (git_push handler, TASK-1-5)",
+        "gateway/agent_restrictions.py (CODER_PATTERNS, TESTER_PATTERNS)"
+      ],
+      "evidence": [
+        "CODER_PATTERNS blocked_patterns at agent_restrictions.py:194-217 include tests/, test/, **/test_*.py",
+        "check_agent_restrictions() at phase_filter.py:891-923 is currently dead code — never called from production",
+        "No production data on how many coder pushes would be blocked by these patterns",
+        "Warn-only mode per AD-3 allows data collection before enforcement"
+      ],
+      "mitigation": {
+        "strategy": "Warn-only deployment with structured logging for analysis",
+        "steps": [
+          "Deploy in warn-only mode (TASK-1-5). This is already in the plan.",
+          "Structured audit log entries with fields: agent_role, total_files, blocked_files, blocked_patterns_matched. This enables automated analysis.",
+          "Set a minimum observation period (1-2 weeks, per REC3) before considering enforcement mode.",
+          "Review the CODER vs TESTER boundary patterns against actual checkpoint data to refine the patterns before enforcement.",
+          "Consider allowing coders to modify existing test files (not create new ones) as a compromise pattern."
+        ]
+      },
+      "rollback": "Remove check_agent_restrictions() call from git_push(). One-line removal.",
+      "human_review_needed": true,
+      "human_review_reason": "The coder/tester boundary is a policy decision that affects agent workflows. Warn-only mode collects data, but the enforcement decision needs human review of the data."
+    },
+    {
+      "id": "R6",
+      "title": "Commit-time validation subprocess adds latency to every git commit",
+      "layer": "L2 (Commit-time validation)",
+      "category": "performance",
+      "severity": "LOW",
+      "likelihood": "LOW",
+      "impact": "LOW",
+      "description": "TASK-1-3 adds a get_staged_files() subprocess call (git diff --cached --name-only) before every git commit when session.phase is set. This is a new subprocess in the request path. The existing git_execute() handler has no subprocess calls for commit operations — it only adds --no-verify and runs the commit (gateway.py:1077-1078). The new check adds latency proportional to the size of the git index. For typical agent workloads (small commits), this is <50ms. For large commits (hundreds of files), it could be 1-2 seconds. The 10-second timeout (per architect's spec) and fail-open behavior on timeout make this acceptable.",
+      "affected_components": [
+        "gateway/gateway.py (git_execute commit path)",
+        "gateway/git_client.py (get_staged_files helper)"
+      ],
+      "evidence": [
+        "git_execute at gateway.py:1077-1097 currently has no subprocess for commits",
+        "get_changed_files_in_push at git_client.py has a 30-second timeout — commit check should be shorter",
+        "Gateway handles concurrent requests via Flask — a slow commit check blocks one thread"
+      ],
+      "mitigation": {
+        "strategy": "10-second timeout, fail-open, skip for non-pipeline commits",
+        "steps": [
+          "10-second timeout on get_staged_files() subprocess (per architect spec in TASK-1-3)",
+          "Fail-open on timeout: allow the commit, log warning. Push-time enforcement is the backstop.",
+          "Only check when session.phase is set (SDLC pipeline commits). Non-pipeline commits skip entirely.",
+          "Use subprocess.run with timeout parameter (already used throughout git_client.py)"
+        ]
+      },
+      "rollback": "Remove the get_staged_files() check from git_execute(). Push-time enforcement remains.",
+      "human_review_needed": false
+    },
+    {
+      "id": "R7",
+      "title": "Post-agent auto-commit pushes blocked files if phase_filter has a bug",
+      "layer": "L4 (Post-agent auto-commit)",
+      "category": "security",
+      "severity": "MEDIUM",
+      "likelihood": "LOW",
+      "impact": "HIGH",
+      "description": "The auto-commit script (gateway/post_agent_commit.py) must correctly filter files against phase restrictions before committing. TASK-3-1 correctly specifies importing and calling check_phase_file_restrictions() from phase_filter.py (not reimplementing). However, if the auto-commit routes its push through the gateway API (per AD-7), the push-time phase filter also runs, providing defense-in-depth. If the auto-commit uses direct git push (bypassing gateway), the only restriction check is the manual call to check_phase_file_restrictions() in the auto-commit code itself — a bug there pushes restricted files to remote with no backstop. The choice between gateway-routed push (AD-7) vs. direct push significantly affects this risk.",
+      "affected_components": [
+        "gateway/post_agent_commit.py (new file)",
+        "gateway/phase_filter.py (check_phase_file_restrictions)"
+      ],
+      "evidence": [
+        "TASK-3-1 specifies: 'Imports and calls check_phase_file_restrictions() from phase_filter.py (not reimplemented)'",
+        "AD-7 specifies: push via gateway API, session stays alive. This provides defense-in-depth.",
+        "Safety assertion in TASK-3-1: 'committed files are subset of originally-detected modified files'",
+        "Auto-commit is the ONLY code path that runs after agent exit but before worktree cleanup"
+      ],
+      "mitigation": {
+        "strategy": "Gateway-routed push (AD-7) + safety assertion + comprehensive audit logging",
+        "steps": [
+          "Route auto-commit push through the gateway API per AD-7. This adds push-time phase filter as defense-in-depth.",
+          "Add the safety assertion from TASK-3-1: committed files must be a subset of the original modified file set.",
+          "Comprehensive audit logging: log every auto-commit operation with full file lists (committed, rejected, restored).",
+          "Unit test: provide a file list containing both allowed and blocked files. Verify only allowed files are committed. Verify blocked files are restored via git checkout --.",
+          "Unit test: verify that check_phase_file_restrictions() is called with the correct phase (not a default/None phase)."
+        ]
+      },
+      "rollback": "Remove auto-commit call. Uncommitted changes are lost on worktree removal (current behavior).",
+      "human_review_needed": true,
+      "human_review_reason": "The auto-commit creates a new code path that commits and pushes on behalf of the agent. The implementation must be reviewed for correctness of the restriction filtering."
+    },
+    {
+      "id": "R8",
+      "title": ".egg-state/ subdirectories may not exist, causing Docker mount failure",
+      "layer": "L1 (Readonly filesystem mounts)",
+      "category": "operational",
+      "severity": "MEDIUM",
+      "likelihood": "HIGH",
+      "impact": "MEDIUM",
+      "description": "Docker bind mounts require the source path to exist on the host. If .egg-state/contracts/, .egg-state/drafts/, .egg-state/pipelines/, or .egg-state/reviews/ don't exist in the worktree when container_spawner calls phase_readonly_mounts(), the mount will fail and the container won't start. The architect proposes ensure_egg_state_dirs() in TASK-2-2, but this function must be called at the right time: after worktree creation but before mount assembly. If the worktree is created from a branch that has no .egg-state/ directory (e.g., a fresh fork or a branch from before .egg-state was introduced), ensure_egg_state_dirs() must create the directories.",
+      "affected_components": [
+        "gateway/worktree_manager.py (ensure_egg_state_dirs)",
+        "orchestrator/container_spawner.py (mount assembly)",
+        "shared/egg_container/__init__.py (phase_readonly_mounts)"
+      ],
+      "evidence": [
+        "The issue notes: '.egg-state/ subdirectories must exist in the worktree before the container starts'",
+        "Docker behavior varies: some versions create the source dir, some fail with 'no such file'",
+        "TASK-2-2 acceptance criteria: 'Idempotent (safe to call multiple times)'"
+      ],
+      "mitigation": {
+        "strategy": "Defense in depth: ensure dirs + skip missing mounts",
+        "steps": [
+          "Call ensure_egg_state_dirs() before mount assembly (TASK-2-2 specifies this).",
+          "In phase_readonly_mounts(): check if source path exists. If not, skip the mount and log a warning. This is the backstop if ensure_egg_state_dirs() fails or misses a directory.",
+          "Use a shared constant for the directory list (TASK-2-2 acceptance criteria). Both ensure_egg_state_dirs() and phase_readonly_mounts() must use the same list.",
+          "Add unit test: verify that phase_readonly_mounts() with non-existent source dirs returns empty list (not an error)."
+        ]
+      },
+      "rollback": "Remove phase_readonly_mounts() call. No mount directories needed.",
+      "human_review_needed": false
+    },
+    {
+      "id": "R9",
+      "title": "Refine/plan whole-repo readonly is correctly deferred (validate implementation)",
+      "layer": "L1 (Readonly filesystem mounts)",
+      "category": "correctness",
+      "severity": "LOW",
+      "likelihood": "LOW",
+      "impact": "HIGH",
+      "description": "AD-5 correctly defers whole-repo readonly for refine/plan phases. The risk is low because the deferral is explicit. However, the implementation must ensure that phase_readonly_mounts() for refine/plan phases returns an empty list (not throw an error). If a future developer adds refine/plan support without proper integration testing, the high-impact risk (R9 from revision 1: blocking git operations, Claude Code file writes, agent analysis) would manifest. The TASK-2-1 acceptance criteria correctly specifies: 'Refine/plan phases return empty list (deferred per AD-5) with TODO comment'.",
+      "affected_components": [
+        "shared/egg_container/__init__.py (phase_readonly_mounts)"
+      ],
+      "evidence": [
+        "AD-5 explicitly defers refine/plan readonly: 'Defer the refine/plan whole-repo-readonly approach to a future iteration'",
+        "TASK-2-1 acceptance criteria: 'Refine/plan phases return empty list (deferred per AD-5) with TODO comment'"
+      ],
+      "mitigation": {
+        "strategy": "Explicit empty-list return + TODO comment + future issue",
+        "steps": [
+          "phase_readonly_mounts() must have explicit cases for refine and plan phases that return empty list with TODO comment.",
+          "The TODO comment should reference this risk assessment and the requirement for integration testing before enabling.",
+          "Create a follow-up issue for refine/plan readonly mounts with a checklist: (1) integration test with actual agent session, (2) test Claude Code file operations, (3) test git operations through gateway, (4) test with EGG_PHASE env var available."
+        ]
+      },
+      "rollback": "N/A — risk is about the deferral being implemented correctly, not about reverting.",
+      "human_review_needed": false
+    },
+    {
+      "id": "R10",
+      "title": "Cross-PR file overlap creates merge conflicts between PR-1 and PR-3",
+      "layer": "All layers",
+      "category": "operational",
+      "severity": "LOW",
+      "likelihood": "MEDIUM",
+      "impact": "LOW",
+      "description": "The 3-PR delivery strategy has file overlaps: PR-1 and PR-3 both modify session_manager.py and worktree_manager.py. If PR-1 merges first (as intended), PR-3 must be rebased on the updated main branch to pick up the assigned_branch field changes. This is standard git workflow but worth noting because the session_manager.py cleanup flow is being modified in both PRs (PR-1 adds assigned_branch persistence; PR-3 changes the cleanup ordering for auto-commit). A poor rebase resolution could break the cleanup flow.",
+      "affected_components": [
+        "gateway/session_manager.py (modified in PR-1 and PR-3)",
+        "gateway/worktree_manager.py (modified in PR-1, PR-2, and PR-3)"
+      ],
+      "evidence": [
+        "PR-1 files: gateway.py, git_client.py, session_manager.py, worktree_manager.py, mission.md, environment.md",
+        "PR-2 files: egg_container/__init__.py, container_spawner.py, worktree_manager.py",
+        "PR-3 files: post_agent_commit.py (new), session_manager.py, worktree_manager.py",
+        "PR-3 depends_on PR-1 (assigned_branch field)"
+      ],
+      "mitigation": {
+        "strategy": "Merge in order, rebase before each PR",
+        "steps": [
+          "Merge PR-1 first (no dependencies). This establishes the assigned_branch field.",
+          "PR-2 and PR-3 can be developed in parallel but should be rebased on main after PR-1 merges.",
+          "PR-2 and PR-3 are independent of each other (no shared modifications) so can merge in either order after PR-1.",
+          "Run full test suite after each merge to catch any integration issues from rebase resolution."
+        ]
+      },
+      "rollback": "Each PR is independently revertable. If PR-3 creates a conflict, revert PR-3 only.",
+      "human_review_needed": false
+    },
+    {
+      "id": "R11",
+      "title": "EGG_PHASE env var naming collision or configuration drift",
+      "layer": "L1 (EGG_PHASE env var)",
+      "category": "compatibility",
+      "severity": "LOW",
+      "likelihood": "LOW",
+      "impact": "LOW",
+      "description": "AD-6 adds EGG_PHASE as a container environment variable. The spawner_env dict in container_spawner.py (line 340-347) already sets CONTAINER_ID, EGG_REPO_PATH, EGG_AGENT_ROLE, EGG_PIPELINE_ID, and conditionally EGG_ISSUE_NUMBER. Adding EGG_PHASE follows the same pattern. The risk is minimal: EGG_PHASE is not used by any existing code in the sandbox, and adding it is purely additive. The only concern is that the Session.phase value could be None (for non-pipeline sessions), which would set EGG_PHASE to 'None' (string) if not checked. This would be confusing for agents.",
+      "affected_components": [
+        "orchestrator/container_spawner.py (spawner_env dict)"
+      ],
+      "evidence": [
+        "spawner_env at container_spawner.py:340-347 uses conditional setting for EGG_ISSUE_NUMBER",
+        "phase parameter is optional (str | None) in spawn_agent_container()",
+        "Session.phase is str | None (session_manager.py:194)"
+      ],
+      "mitigation": {
+        "strategy": "Conditional setting (same pattern as EGG_ISSUE_NUMBER)",
+        "steps": [
+          "Only set EGG_PHASE if phase is not None: 'if phase: spawner_env[\"EGG_PHASE\"] = phase'",
+          "Follow the existing pattern at container_spawner.py:346-347 for conditional env vars.",
+          "This is already implicit in TASK-2-2 but should be explicit in the acceptance criteria."
+        ]
+      },
+      "rollback": "Remove the one line that sets EGG_PHASE. No impact.",
+      "human_review_needed": false
+    }
+  ],
+
+  "security_assessment": {
+    "trust_boundary_changes": [
+      {
+        "boundary": "Container filesystem -> gateway enforcement",
+        "change": "Adds readonly bind mounts as a new enforcement point at the OS level. This is the strongest enforcement layer because it's enforced by the kernel, not by application code.",
+        "risk": "LOW — Docker bind mount readonly is a well-understood and reliable mechanism. The risk is misconfiguration (wrong paths), not bypass."
+      },
+      {
+        "boundary": "Gateway git_execute -> commit-time enforcement",
+        "change": "Adds staged-file validation to git commit operations. Previously only git push was checked.",
+        "risk": "LOW — Uses the same check_phase_file_restrictions() logic as push-time. Fail-open on timeout. Defense-in-depth only (push-time remains)."
+      },
+      {
+        "boundary": "Gateway git_execute -> branch-switch detection",
+        "change": "Adds branch-switch detection to checkout/switch operations. Conservative heuristic blocks definite cases, allows ambiguous cases.",
+        "risk": "LOW — False negatives are caught by push-time enforcement. False positives are minimized by the conservative approach."
+      },
+      {
+        "boundary": "Host-side auto-commit -> gateway or direct push",
+        "change": "Creates a new code path that commits and pushes after agent exit. Per AD-7, routes through gateway API (session stays alive). This is the highest-risk trust boundary change.",
+        "risk": "MEDIUM — If implemented per AD-7 (gateway-routed), push-time enforcement provides defense-in-depth. If direct push is used instead, this is the only code path that bypasses all enforcement."
+      }
+    ],
+    "attack_surface_changes": [
+      "REDUCED: Branch lock prevents agents from switching to arbitrary branches, reducing the attack surface for branch-confusion attacks",
+      "REDUCED: Readonly mounts prevent local file modification bypass (Gap 1), closing the trust boundary between container filesystem and orchestrator",
+      "REDUCED: Commit-time validation catches restricted files earlier, reducing the window for local-only modifications to be read by orchestrator processes",
+      "ADDED: Auto-commit introduces a new code path with direct worktree access after agent exit. If an agent crafts files in the worktree to manipulate auto-commit behavior, this could be exploited. Mitigation: auto-commit only commits files that pass phase restrictions."
+    ],
+    "no_new_secrets_or_credentials": true,
+    "no_privilege_escalation": true,
+    "defense_in_depth_assessment": "Sound. Four layers (filesystem, commit-time, push-time, post-session) each address different enforcement points. Any single layer failure leaves other layers active. The branch lock adds a fifth enforcement point for branch operations specifically. The layered approach is correct and well-designed."
+  },
+
+  "performance_assessment": {
+    "impact": "NEGLIGIBLE",
+    "details": [
+      "Branch-switch detection: pure string parsing in git_execute(), no subprocess. <1ms overhead per checkout/switch operation.",
+      "Commit-time validation: one subprocess call (git diff --cached --name-only) per pipeline commit. Expected <50ms for typical commits, <2s for very large commits. 10-second timeout with fail-open.",
+      "Readonly mounts: Docker mount configuration at container creation time only. Zero runtime overhead — enforcement is kernel-level.",
+      "Auto-commit: one-time operation per agent session at cleanup time. Not in the request path. Expected <5 seconds total.",
+      "EGG_PHASE env var: one string added to environment dict. Zero measurable overhead."
+    ]
+  },
+
+  "compatibility_assessment": {
+    "backwards_compatibility": "BREAKING for agents that use git checkout -b for branch switching. Mitigated by atomic instruction update in PR-1 (AD-2).",
+    "migration_required": true,
+    "migration_steps": [
+      "PR-1 includes the instruction update (TASK-1-4) in the same PR as enforcement. No separate migration step needed.",
+      "In-flight agents (already running when PR-1 merges) will have old instructions cached. They will encounter branch lock errors but the error messages will guide them to the correct behavior. Acceptable impact — agents recover by not retrying the branch switch.",
+      "Agent-role restrictions deploy in warn-only mode (TASK-1-5). No compatibility impact until enforcement is enabled (separate future decision).",
+      "Readonly mounts (PR-2) are transparent to agents that don't modify .egg-state/ subdirectories during implement phase. Agents that do will get EROFS errors — which is the desired behavior."
+    ]
+  },
+
+  "areas_requiring_human_review": [
+    {
+      "area": "Auto-commit session lifecycle (R1)",
+      "reason": "AD-7 changes session deletion ordering. The trade-off between gateway-routed push (more defense-in-depth but session-alive window) vs. direct push (simpler but no push-time backstop) needs human decision.",
+      "priority": "HIGH"
+    },
+    {
+      "area": "Docker mount behavior on production engine (R2)",
+      "reason": "Readonly bind mount behavior varies across Docker versions. Integration test needed on production Docker Engine before rollout.",
+      "priority": "HIGH"
+    },
+    {
+      "area": "Coder/tester role boundary patterns (R5)",
+      "reason": "CODER_PATTERNS blocks test files. Warn-only mode collects data, but the enforcement decision needs human review of actual agent push patterns.",
+      "priority": "MEDIUM"
+    },
+    {
+      "area": "Auto-commit restriction filtering correctness (R7)",
+      "reason": "New code path that commits on agent's behalf. Implementation must be reviewed for restriction bypass.",
+      "priority": "MEDIUM"
+    },
+    {
+      "area": "CLAUDE.md compilation atomicity (R3)",
+      "reason": "Verify that mission.md/environment.md changes propagate to compiled CLAUDE.md in the same commit/PR.",
+      "priority": "MEDIUM"
+    }
+  ],
+
+  "recommendations": [
+    {
+      "id": "REC1",
+      "priority": "HIGH",
+      "recommendation": "Ship PR-1 (L0 branch lock + L2 commit-time validation + agent instructions) first. This is the highest-value, lowest-risk change.",
+      "rationale": "PR-1 is purely gateway + sandbox code. It closes Gap 2 (determinism) and adds commit-time enforcement (Gap 3). No mount changes, no orchestrator changes, no new files. All changes are in the gateway request handler, which has 1080+ existing tests. The agent instruction update is co-located per AD-2. This is the correct first PR."
+    },
+    {
+      "id": "REC2",
+      "priority": "HIGH",
+      "recommendation": "For the auto-commit (PR-3), strongly consider keeping the session alive per AD-7 but add a session state guard to prevent the alive session from servicing new agent requests. The simplest approach: add a 'shutting_down' flag to the Session dataclass that blocks new git_execute/git_push calls but allows the auto-commit's push.",
+      "rationale": "AD-7's gateway-routed push provides defense-in-depth that the direct-push approach lacks. The session-alive window risk (R1) is real but manageable with a state guard. The alternative (direct push without gateway validation) creates the only unvalidated push path in the system."
+    },
+    {
+      "id": "REC3",
+      "priority": "HIGH",
+      "recommendation": "Deploy agent-role restriction wiring (TASK-1-5) in warn-only mode and keep it warn-only until at least 50 pipeline executions have been logged. Review the warn log data before enabling enforcement.",
+      "rationale": "CODER_PATTERNS blocks test files (R5). Coders commonly modify test files alongside code. Enforcement without data could break working agent workflows. The warn-only approach (AD-3) is correct — just ensure the observation period is sufficient."
+    },
+    {
+      "id": "REC4",
+      "priority": "MEDIUM",
+      "recommendation": "Verify CLAUDE.md compilation process before merging PR-1. If CLAUDE.md is a committed file, include it in the PR-1 commit.",
+      "rationale": "R3 identifies that agents read compiled CLAUDE.md, not source rule files. If compilation is a separate step, there's a gap between enforcement and instruction update."
+    },
+    {
+      "id": "REC5",
+      "priority": "MEDIUM",
+      "recommendation": "Add EGG_PHASE conditionally (only when phase is not None), following the pattern used for EGG_ISSUE_NUMBER at container_spawner.py:346-347.",
+      "rationale": "R11: prevents 'None' string from appearing as the EGG_PHASE value for non-pipeline containers."
+    },
+    {
+      "id": "REC6",
+      "priority": "LOW",
+      "recommendation": "Consider adding a per-layer feature flag for each enforcement layer (e.g., EGG_BRANCH_LOCK_ENABLED, EGG_COMMIT_VALIDATION_ENABLED, EGG_READONLY_MOUNTS_ENABLED). Each defaults to true. This allows rapid rollback of a specific layer via configuration change without code deployment.",
+      "rationale": "The 3-PR strategy provides PR-level revert capability, which is nearly equivalent. Per-layer flags add faster rollback at the cost of code complexity. This is low priority given the PR-based revert is available."
+    }
+  ],
+
+  "rollback_plan": {
+    "overall": "Each PR is independently revertable per AD-1. The 3-PR delivery strategy ensures that a bug in any one layer can be reverted without affecting the others. PR-3 depends on PR-1's assigned_branch field, but reverting PR-3 doesn't break PR-1.",
+    "per_pr": {
+      "PR-1_branch_lock_commit_validation_instructions": {
+        "revert_method": "git revert the PR-1 merge commit",
+        "impact": "Removes branch lock, commit-time validation, and instruction update. Agents return to unrestricted branch switching and old instructions.",
+        "data_migration": "None. No persistent state changes.",
+        "dependencies": "If PR-3 is already merged, its auto-commit push via gateway will still work (assigned_branch field is optional). But PR-3 should be reverted first to avoid orphan dependency."
+      },
+      "PR-2_readonly_mounts_egg_phase": {
+        "revert_method": "git revert the PR-2 merge commit",
+        "impact": "Removes readonly mounts and EGG_PHASE env var. Containers return to fully writable repo mounts.",
+        "data_migration": "None. ensure_egg_state_dirs() creates directories but reverting the call just means they aren't created pre-container-start (they may already exist from previous runs).",
+        "dependencies": "Independent. No other PR depends on PR-2."
+      },
+      "PR-3_auto_commit": {
+        "revert_method": "git revert the PR-3 merge commit",
+        "impact": "Removes auto-commit. Uncommitted changes are lost on worktree removal (current behavior).",
+        "data_migration": "None.",
+        "dependencies": "PR-3 depends on PR-1 for assigned_branch, but reverting PR-3 doesn't affect PR-1."
+      }
+    },
+    "verification": "After any revert: run full test suite (pytest tests/ gateway/tests/ orchestrator/tests/). Verify a test pipeline (create -> execute -> complete) works end-to-end."
+  },
+
+  "deferred_work": [
+    {
+      "item": "Refine/plan whole-repo readonly mounts",
+      "reason": "AD-5 correctly defers this. Risk R9 from revision 1 identified that whole-repo readonly may block agent tool operations and git internals.",
+      "prerequisite": "Implement-phase readonly mounts (PR-2) proven in production for 2+ weeks."
+    },
+    {
+      "item": "Agent-role restriction enforcement mode",
+      "reason": "AD-3 deploys in warn-only mode. Enforcement requires data from warn-only observations.",
+      "prerequisite": "50+ pipeline executions with warn-only data reviewed. Patterns adjusted if needed."
+    },
+    {
+      "item": "Per-layer feature flags",
+      "reason": "REC6. Low priority given PR-level revert is available.",
+      "prerequisite": "None. Value increases after all layers are deployed."
+    }
+  ]
+}
