@@ -826,7 +826,7 @@ class TestUpdatePipelineDecisionRace:
 
     def test_release_pipeline_state_lock_on_delete(self, state_store):
         """Deleting a pipeline should clean up its state lock."""
-        from state_store import _pipeline_state_locks, release_pipeline_state_lock
+        from state_store import _pipeline_state_locks
 
         pipeline_id = "issue-888"
         state_store.create_pipeline(
