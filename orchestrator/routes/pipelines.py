@@ -3330,7 +3330,11 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
             if pipeline.prompt:
                 sandbox_env["EGG_PIPELINE_PROMPT"] = pipeline.prompt
 
-            repos = [pipeline.repo] if pipeline.repo else []
+            if pipeline.repo:
+                repos = [pipeline.repo]
+                sandbox_env["EGG_REPO"] = pipeline.repo
+            else:
+                repos = []
 
             phase_failed = False
             review_feedback: str | None = hitl_revision_feedback

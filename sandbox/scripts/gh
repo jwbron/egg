@@ -150,6 +150,11 @@ get_repo() {
         fi
     fi
 
+    # If no --repo and no git remote, fall back to EGG_REPO env var
+    if [ -z "$repo" ] && [ -n "$EGG_REPO" ]; then
+        repo="$EGG_REPO"
+    fi
+
     echo "$repo"
 }
 
