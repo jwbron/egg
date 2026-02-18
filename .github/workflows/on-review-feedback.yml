@@ -369,11 +369,11 @@ jobs:
           # this for most cases, but a brief window remains. This is acceptable since
           # the worst case is one extra round, and the human notification still fires.
           #
-          # Uses --paginate to handle PRs with >30 comments. The --slurp combines
-          # paginated results into a nested array, hence the .[][] in jq.
+          # Uses --paginate --slurp to handle PRs with >30 comments, piped to
+          # external jq (gh api does not support --slurp combined with --jq).
           feedback_count=$(gh api "repos/${{ github.repository }}/issues/${{ env.PR_NUMBER }}/comments" \
             --paginate --slurp \
-            --jq '[.[][] | select(.body | test("egg-feedback-addressing"))] | length' 2>/dev/null || echo "0")
+            | jq '[.[][] | select(.body | test("egg-feedback-addressing"))] | length' 2>/dev/null || echo "0")
 
           echo "Found $feedback_count previous feedback-addressing run(s)"
 

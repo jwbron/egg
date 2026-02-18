@@ -106,9 +106,7 @@ def _host_to_local_volumes(repo_volumes: dict[str, str]) -> dict[str, str]:
     if not host_home or host_home == container_home:
         return repo_volumes
     return {
-        name: path.replace(host_home, container_home, 1)
-        if path.startswith(host_home)
-        else path
+        name: path.replace(host_home, container_home, 1) if path.startswith(host_home) else path
         for name, path in repo_volumes.items()
     }
 
@@ -311,8 +309,21 @@ class ContainerSpawner:
             # (the orchestrator can't access host paths like /home/jwies/...).
             if phase:
                 local_volumes = _host_to_local_volumes(repo_volumes)
-                ensure_egg_state_dirs(local_volumes, uid=host_uid, gid=host_gid, phase=phase)
-                mounts.extend(phase_readonly_mounts(repo_volumes, phase, local_volumes=local_volumes))
+                ensure_egg_state_dirs(
+                    local_volumes,
+                    uid=host_uid,
+                    gid=host_gid,
+                    phase=phase,
+                    agent_role=agent_role.value,
+                )
+                mounts.extend(
+                    phase_readonly_mounts(
+                        repo_volumes,
+                        phase,
+                        local_volumes=local_volumes,
+                        agent_role=agent_role.value,
+                    )
+                )
         if certs_volume:
             mounts.append(
                 MountSpec(

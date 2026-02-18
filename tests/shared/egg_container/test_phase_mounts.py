@@ -137,8 +137,54 @@ class TestEnsureEggStateDirs:
         repo_volumes = {"repo": str(tmp_path)}
         with patch("os.chown") as mock_chown:
             ensure_egg_state_dirs(repo_volumes, uid=1000, gid=1000, phase="implement")
-            # 3 directory chowns + 3 marker file chowns
+            # 4 directory chowns + 4 marker file chowns
             assert mock_chown.call_count == 2 * len(_IMPLEMENT_READONLY_DIRS)
+
+    @pytest.mark.parametrize(
+        "role",
+        [
+            "reviewer_code",
+            "reviewer_contract",
+            "reviewer_agent_design",
+            "reviewer_refine",
+            "reviewer_plan",
+            "reviewer",
+        ],
+    )
+    def test_reviewer_skips_reviews_marker(self, role, tmp_path):
+        """Reviewer agents don't get .egg-readonly marker in reviews/."""
+        repo_volumes = {"repo": str(tmp_path)}
+        ensure_egg_state_dirs(repo_volumes, phase="implement", agent_role=role)
+
+        # reviews/ should NOT have the marker
+        reviews_marker = tmp_path / ".egg-state" / "reviews" / ".egg-readonly"
+        assert not reviews_marker.exists()
+
+        # Other dirs still get markers
+        for dirname in _IMPLEMENT_READONLY_DIRS:
+            if dirname == "reviews":
+                continue
+            marker = tmp_path / ".egg-state" / dirname / ".egg-readonly"
+            assert marker.exists(), f"Missing marker in {dirname}"
+
+    @pytest.mark.parametrize("role", ["coder", "tester", "integrator", "documenter"])
+    def test_non_reviewer_keeps_reviews_marker(self, role, tmp_path):
+        """Non-reviewer agents still get .egg-readonly marker in reviews/."""
+        repo_volumes = {"repo": str(tmp_path)}
+        ensure_egg_state_dirs(repo_volumes, phase="implement", agent_role=role)
+
+        for dirname in _IMPLEMENT_READONLY_DIRS:
+            marker = tmp_path / ".egg-state" / dirname / ".egg-readonly"
+            assert marker.exists(), f"Missing marker in {dirname}"
+
+    def test_no_role_keeps_reviews_marker(self, tmp_path):
+        """No agent_role (default) keeps .egg-readonly marker in reviews/."""
+        repo_volumes = {"repo": str(tmp_path)}
+        ensure_egg_state_dirs(repo_volumes, phase="implement", agent_role=None)
+
+        for dirname in _IMPLEMENT_READONLY_DIRS:
+            marker = tmp_path / ".egg-state" / dirname / ".egg-readonly"
+            assert marker.exists(), f"Missing marker in {dirname}"
 
 
 class TestPhaseReadonlyMounts:
@@ -278,3 +324,54 @@ class TestPhaseReadonlyMounts:
 
         mounts = phase_readonly_mounts(repo_volumes, "implement", local_volumes=local_volumes)
         assert mounts == []
+
+    @pytest.mark.parametrize(
+        "role",
+        [
+            "reviewer_code",
+            "reviewer_contract",
+            "reviewer_agent_design",
+            "reviewer_refine",
+            "reviewer_plan",
+            "reviewer",
+        ],
+    )
+    def test_reviewer_roles_skip_reviews_readonly(self, role, tmp_path):
+        """Reviewer agents are exempted from the reviews/ readonly mount."""
+        for dirname in _IMPLEMENT_READONLY_DIRS:
+            (tmp_path / ".egg-state" / dirname).mkdir(parents=True)
+
+        repo_volumes = {"myrepo": str(tmp_path)}
+        mounts = phase_readonly_mounts(repo_volumes, "implement", agent_role=role)
+
+        destinations = {m.destination for m in mounts}
+        assert "/home/egg/repos/myrepo/.egg-state/reviews" not in destinations
+        # Other dirs still readonly
+        assert "/home/egg/repos/myrepo/.egg-state/drafts" in destinations
+        assert "/home/egg/repos/myrepo/.egg-state/contracts" in destinations
+        assert "/home/egg/repos/myrepo/.egg-state/pipelines" in destinations
+        assert len(mounts) == len(_IMPLEMENT_READONLY_DIRS) - 1
+
+    @pytest.mark.parametrize("role", ["coder", "tester", "integrator", "documenter"])
+    def test_non_reviewer_roles_keep_reviews_readonly(self, role, tmp_path):
+        """Non-reviewer agents still get reviews/ mounted readonly."""
+        for dirname in _IMPLEMENT_READONLY_DIRS:
+            (tmp_path / ".egg-state" / dirname).mkdir(parents=True)
+
+        repo_volumes = {"myrepo": str(tmp_path)}
+        mounts = phase_readonly_mounts(repo_volumes, "implement", agent_role=role)
+
+        destinations = {m.destination for m in mounts}
+        assert "/home/egg/repos/myrepo/.egg-state/reviews" in destinations
+        assert len(mounts) == len(_IMPLEMENT_READONLY_DIRS)
+
+    def test_no_role_keeps_reviews_readonly(self, tmp_path):
+        """No agent_role (default) keeps reviews/ readonly."""
+        for dirname in _IMPLEMENT_READONLY_DIRS:
+            (tmp_path / ".egg-state" / dirname).mkdir(parents=True)
+
+        repo_volumes = {"myrepo": str(tmp_path)}
+        mounts = phase_readonly_mounts(repo_volumes, "implement", agent_role=None)
+
+        destinations = {m.destination for m in mounts}
+        assert "/home/egg/repos/myrepo/.egg-state/reviews" in destinations

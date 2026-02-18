@@ -137,6 +137,7 @@ def ensure_egg_state_dirs(
     uid: int | None = None,
     gid: int | None = None,
     phase: str | None = None,
+    agent_role: str | None = None,
 ) -> None:
     """Ensure ``.egg-state/`` subdirectories exist in each repo worktree.
 
@@ -146,6 +147,8 @@ def ensure_egg_state_dirs(
 
     When ``phase`` is ``"implement"``, ``.egg-readonly`` marker files are
     placed in each readonly directory to explain the restriction to agents.
+    Reviewer agents are exempted from the ``reviews/`` marker since that
+    directory is not mounted readonly for them.
 
     Args:
         repo_volumes: Mapping of repo_name -> host_path.
@@ -153,8 +156,13 @@ def ensure_egg_state_dirs(
         gid: Owner GID for created directories (default: current group).
         phase: Current SDLC phase.  When ``"implement"``, marker files
             are written into readonly directories.
+        agent_role: Agent role string (e.g., "reviewer_code").  Reviewer
+            roles (starting with "reviewer") are exempted from the
+            ``reviews/`` marker file.
     """
     import os
+
+    is_reviewer = agent_role is not None and agent_role.startswith("reviewer")
 
     for _repo_name, host_path in repo_volumes.items():
         egg_state = Path(host_path) / ".egg-state"
@@ -165,7 +173,9 @@ def ensure_egg_state_dirs(
                 os.chown(str(target), uid, gid)
 
             # Place marker files in readonly directories during implement phase.
-            if phase == "implement":
+            # Skip the reviews/ marker for reviewer agents since reviews/ is
+            # not mounted readonly for them.
+            if phase == "implement" and not (dirname == "reviews" and is_reviewer):
                 marker = target / ".egg-readonly"
                 marker.write_text(
                     f"This directory is readonly during the '{phase}' phase.\n"
@@ -184,6 +194,7 @@ def phase_readonly_mounts(
     phase: str | None,
     container_base: str = "/home/egg/repos",
     local_volumes: dict[str, str] | None = None,
+    agent_role: str | None = None,
 ) -> list[MountSpec]:
     """Create readonly overlay mounts for phase-protected directories.
 
@@ -191,6 +202,9 @@ def phase_readonly_mounts(
     ``.egg-state/contracts/``, ``.egg-state/pipelines/``, and
     ``.egg-state/reviews/`` are mounted readonly to prevent agents from
     modifying plan/contract artifacts via direct filesystem writes.
+
+    Reviewer agents are exempted from the ``reviews/`` readonly mount
+    because they need to write verdict files there.
 
     Args:
         repo_volumes: Mapping of repo_name -> host_path.  These paths are
@@ -203,6 +217,9 @@ def phase_readonly_mounts(
             for ``is_dir()`` filesystem checks when ``repo_volumes``
             contains host paths inaccessible to the current process.
             Mount sources still come from ``repo_volumes``.
+        agent_role: Agent role string (e.g., "reviewer_code").  Reviewer
+            roles (starting with "reviewer") are exempted from the
+            ``reviews/`` readonly mount so they can write verdict files.
 
     Returns:
         List of MountSpec for readonly overlay mounts.
@@ -210,12 +227,16 @@ def phase_readonly_mounts(
     if phase != "implement":
         return []
 
+    is_reviewer = agent_role is not None and agent_role.startswith("reviewer")
+
     check_volumes = local_volumes if local_volumes is not None else repo_volumes
 
     mounts: list[MountSpec] = []
     for repo_name, host_path in repo_volumes.items():
         check_path = check_volumes.get(repo_name, host_path)
         for dirname in _IMPLEMENT_READONLY_DIRS:
+            if dirname == "reviews" and is_reviewer:
+                continue
             host_dir = Path(host_path) / ".egg-state" / dirname
             check_dir = Path(check_path) / ".egg-state" / dirname
             container_dir = f"{container_base}/{repo_name}/.egg-state/{dirname}"
