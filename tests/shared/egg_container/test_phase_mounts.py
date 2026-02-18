@@ -278,3 +278,47 @@ class TestPhaseReadonlyMounts:
 
         mounts = phase_readonly_mounts(repo_volumes, "implement", local_volumes=local_volumes)
         assert mounts == []
+
+    @pytest.mark.parametrize("role", [
+        "reviewer_code", "reviewer_contract", "reviewer_agent_design",
+        "reviewer_refine", "reviewer_plan", "reviewer",
+    ])
+    def test_reviewer_roles_skip_reviews_readonly(self, role, tmp_path):
+        """Reviewer agents are exempted from the reviews/ readonly mount."""
+        for dirname in _IMPLEMENT_READONLY_DIRS:
+            (tmp_path / ".egg-state" / dirname).mkdir(parents=True)
+
+        repo_volumes = {"myrepo": str(tmp_path)}
+        mounts = phase_readonly_mounts(repo_volumes, "implement", agent_role=role)
+
+        destinations = {m.destination for m in mounts}
+        assert "/home/egg/repos/myrepo/.egg-state/reviews" not in destinations
+        # Other dirs still readonly
+        assert "/home/egg/repos/myrepo/.egg-state/drafts" in destinations
+        assert "/home/egg/repos/myrepo/.egg-state/contracts" in destinations
+        assert "/home/egg/repos/myrepo/.egg-state/pipelines" in destinations
+        assert len(mounts) == len(_IMPLEMENT_READONLY_DIRS) - 1
+
+    @pytest.mark.parametrize("role", ["coder", "tester", "integrator", "documenter"])
+    def test_non_reviewer_roles_keep_reviews_readonly(self, role, tmp_path):
+        """Non-reviewer agents still get reviews/ mounted readonly."""
+        for dirname in _IMPLEMENT_READONLY_DIRS:
+            (tmp_path / ".egg-state" / dirname).mkdir(parents=True)
+
+        repo_volumes = {"myrepo": str(tmp_path)}
+        mounts = phase_readonly_mounts(repo_volumes, "implement", agent_role=role)
+
+        destinations = {m.destination for m in mounts}
+        assert "/home/egg/repos/myrepo/.egg-state/reviews" in destinations
+        assert len(mounts) == len(_IMPLEMENT_READONLY_DIRS)
+
+    def test_no_role_keeps_reviews_readonly(self, tmp_path):
+        """No agent_role (default) keeps reviews/ readonly."""
+        for dirname in _IMPLEMENT_READONLY_DIRS:
+            (tmp_path / ".egg-state" / dirname).mkdir(parents=True)
+
+        repo_volumes = {"myrepo": str(tmp_path)}
+        mounts = phase_readonly_mounts(repo_volumes, "implement", agent_role=None)
+
+        destinations = {m.destination for m in mounts}
+        assert "/home/egg/repos/myrepo/.egg-state/reviews" in destinations

@@ -312,7 +312,11 @@ class ContainerSpawner:
             if phase:
                 local_volumes = _host_to_local_volumes(repo_volumes)
                 ensure_egg_state_dirs(local_volumes, uid=host_uid, gid=host_gid, phase=phase)
-                mounts.extend(phase_readonly_mounts(repo_volumes, phase, local_volumes=local_volumes))
+                mounts.extend(phase_readonly_mounts(
+                    repo_volumes, phase,
+                    local_volumes=local_volumes,
+                    agent_role=agent_role.value,
+                ))
         if certs_volume:
             mounts.append(
                 MountSpec(

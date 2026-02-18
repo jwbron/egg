@@ -184,6 +184,7 @@ def phase_readonly_mounts(
     phase: str | None,
     container_base: str = "/home/egg/repos",
     local_volumes: dict[str, str] | None = None,
+    agent_role: str | None = None,
 ) -> list[MountSpec]:
     """Create readonly overlay mounts for phase-protected directories.
 
@@ -191,6 +192,9 @@ def phase_readonly_mounts(
     ``.egg-state/contracts/``, ``.egg-state/pipelines/``, and
     ``.egg-state/reviews/`` are mounted readonly to prevent agents from
     modifying plan/contract artifacts via direct filesystem writes.
+
+    Reviewer agents are exempted from the ``reviews/`` readonly mount
+    because they need to write verdict files there.
 
     Args:
         repo_volumes: Mapping of repo_name -> host_path.  These paths are
@@ -203,6 +207,9 @@ def phase_readonly_mounts(
             for ``is_dir()`` filesystem checks when ``repo_volumes``
             contains host paths inaccessible to the current process.
             Mount sources still come from ``repo_volumes``.
+        agent_role: Agent role string (e.g., "reviewer_code").  Reviewer
+            roles (starting with "reviewer") are exempted from the
+            ``reviews/`` readonly mount so they can write verdict files.
 
     Returns:
         List of MountSpec for readonly overlay mounts.
@@ -210,12 +217,16 @@ def phase_readonly_mounts(
     if phase != "implement":
         return []
 
+    is_reviewer = agent_role is not None and agent_role.startswith("reviewer")
+
     check_volumes = local_volumes if local_volumes is not None else repo_volumes
 
     mounts: list[MountSpec] = []
     for repo_name, host_path in repo_volumes.items():
         check_path = check_volumes.get(repo_name, host_path)
         for dirname in _IMPLEMENT_READONLY_DIRS:
+            if dirname == "reviews" and is_reviewer:
+                continue
             host_dir = Path(host_path) / ".egg-state" / dirname
             check_dir = Path(check_path) / ".egg-state" / dirname
             container_dir = f"{container_base}/{repo_name}/.egg-state/{dirname}"
