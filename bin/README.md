@@ -146,7 +146,3 @@ Query agent session checkpoints across multi-agent pipelines.
 **Filters**: `--issue`, `--pr`, `--pipeline`, `--session`, `--branch`, `--trigger`, `--status`, `--agent-type`, `--phase`, `--limit`, `--json`
 
 See the [Checkpoint Access Guide](../docs/guides/checkpoint-access.md) for detailed usage examples.
-
-## setup-gateway
-
-Install the gateway sidecar service.

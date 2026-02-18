@@ -24,7 +24,7 @@ egg/
 
 | Directory | Purpose | Runs In |
 |-----------|---------|---------|
-| `bin/` | CLI entry points (`egg`, `egg-sdlc`, `setup-gateway`) | Host |
+| `bin/` | CLI entry points (`egg`, `egg-sdlc`) | Host |
 | `config/` | Repository config, secrets template | Host |
 | `gateway/` | Gateway sidecar: policy enforcement, credential injection, proxying | Gateway container |
 | `integration_tests/` | Integration tests requiring Docker and real containers | CI / local |
