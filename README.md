@@ -1,16 +1,16 @@
 # egg
 
-A structurally enforced SDLC pipeline for autonomous LLM agents — turning tasks into reviewed pull requests with mandatory human gates.
+A structurally enforced SDLC pipeline for autonomous LLM agents, turning tasks into reviewed pull requests with mandatory human gates.
 
-> *Inspired by Andy Weir's short story "The Egg" — a contained environment where development happens before emerging into the world. The agent works inside the egg; when ready, it "hatches" via human review and merge.*
+> *Inspired by Andy Weir's short story "The Egg": a contained environment where development happens before emerging into the world. The agent works inside the egg; when ready, it "hatches" via human review and merge.*
 
 **Note**: this project is currently under heavy development. The core workflow is functional, but continually being refined and refactored. Expect breakages and changing behavior for the foreseeable future.
 
 ## What It Does
 
-egg takes a GitHub issue (or a plain-text prompt) and produces a reviewed pull request — autonomously. Multiple specialized agents analyze the task, plan an approach, implement code, write tests, update docs, and review each other's work. Humans stay in the loop at critical checkpoints but don't need to drive the process.
+egg takes a GitHub issue (or a plain-text prompt) and produces a reviewed pull request autonomously. Multiple specialized agents analyze the task, plan an approach, implement code, write tests, update docs, and review each other's work. Humans stay in the loop at critical checkpoints but don't need to drive the process.
 
-The key idea: **constraints are enforced by infrastructure, not by prompts.** The agent can't skip steps, self-approve, or steal credentials because the gateway physically blocks those operations. There's no system prompt saying "please don't merge" — the merge endpoint doesn't exist in the agent's environment.
+The key idea: **constraints are enforced by infrastructure, not by prompts.** The agent can't skip steps, self-approve, or steal credentials because the gateway physically blocks those operations. There's no system prompt saying "please don't merge", the merge endpoint doesn't exist in the agent's environment.
 
 ## A Pipeline In Action
 
@@ -56,7 +56,7 @@ Point egg at a GitHub issue and it runs the full lifecycle. Here's what a comple
     ╚════════════╝
 ```
 
-Each box is a pipeline phase. Within each phase, specialized agents run in dependency-ordered waves — some sequentially, some in parallel. The orchestrator manages the entire DAG. Humans approve at the refine and plan gates; then agents implement, test, review, and open the PR.
+Each box is a pipeline phase. Within each phase, specialized agents run in dependency-ordered waves. Some sequentially, some in parallel. The orchestrator manages the entire DAG. Humans approve at the refine and plan gates; then agents implement, test, review, and open the PR.
 
 ## How It Works
 
@@ -89,7 +89,7 @@ Tier 3 decomposes large features into independent plan phases that run as parall
 
 ### Two Modes
 
-- **Issue mode** (`egg-sdlc -r <repo> -i <issue>`): GitHub-issue-driven with full remote integration, HITL via GitHub comments
+- **Issue mode** (`egg-sdlc -r <repo> -i <issue>`): Pulls context from github issues, HITL via terminal prompts
 - **Local mode** (`egg-sdlc` or `egg-sdlc -r <repo> -p "prompt"`): Prompt-driven, HITL via terminal prompts
 
 ## Architecture
@@ -104,14 +104,14 @@ egg is a two-container system: a **gateway** (trusted) that holds credentials an
 │   │    Gateway Sidecar      │      │    Sandbox Container            │  │
 │   │    (Trusted)            │      │    (Untrusted Agent)            │  │
 │   │                         │      │                                 │  │
-│   │  • Phase enforcement    │◀────▶│  • git/gh wrappers             │  │
-│   │  • Role validation      │      │  • Claude Code                 │  │
-│   │  • Credential injection │      │  • egg-contract CLI            │  │
-│   │  • Network policy       │      │  • Workspace files only        │  │
-│   │  • Branch policies      │      │  • No credentials, no .git/    │  │
+│   │  • Phase enforcement    │◀────▶│  • git/gh wrappers              │  │
+│   │  • Role validation      │      │  • Claude Code                  │  │
+│   │  • Credential injection │      │  • egg-contract CLI             │  │
+│   │  • Network policy       │      │  • Workspace files only         │  │
+│   │  • Branch policies      │      │  • No credentials, no .git/     │  │
 │   │                         │      │                                 │  │
-│   │  HAS: tokens, keys,    │      │  HAS: code, tools              │  │
-│   │       network access    │      │  NO:  secrets, direct network  │  │
+│   │  HAS: tokens, keys,     │      │  HAS: code, tools               │  │
+│   │       network access    │      │  NO:  secrets, direct network   │  │
 │   └─────────────────────────┘      └─────────────────────────────────┘  │
 │                                                                         │
 └─────────────────────────────────────────────────────────────────────────┘
