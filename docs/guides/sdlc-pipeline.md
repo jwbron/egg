@@ -14,7 +14,7 @@ For the architectural decision record with threat model and security properties,
 
 Agents cannot be trusted to self-police via prompts alone. The pipeline enforces constraints at multiple infrastructure layers:
 
-- **Filesystem-level readonly mounts**: Phase-protected directories (e.g., `.egg-state/contracts/`, `.egg-state/drafts/`, `.egg-state/pipelines/`, `.egg-state/reviews/` during implement) are mounted readonly, preventing modification at the OS level. `.egg-readonly` marker files explain the restriction to agents.
+- **Filesystem-level readonly mounts**: Phase-protected directories (e.g., `.egg-state/contracts/`, `.egg-state/drafts/`, `.egg-state/pipelines/` during implement) are mounted readonly, preventing modification at the OS level. The `.egg-state/reviews/` directory is readonly for most agents but writable for reviewer agents who need to write verdict files. `.egg-readonly` marker files explain the restriction to agents.
 - **Branch lock**: Pipeline agents are locked to their assigned worktree branch—branch switching is blocked by the gateway
 - **Commit-time validation**: The gateway validates staged files against phase restrictions before allowing `git commit`
 - **Push-time operation filtering**: The gateway blocks operations not permitted in the current phase
