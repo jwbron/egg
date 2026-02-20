@@ -107,6 +107,20 @@
       ],
       "artifacts": {},
       "error": null
+    },
+    "plan": {
+      "phase": "plan",
+      "status": "running",
+      "started_at": "2026-02-20T19:32:37.410787",
+      "work_started_at": null,
+      "completed_at": null,
+      "containers": [],
+      "agents": [],
+      "review_cycles": 0,
+      "hitl_review_cycles": 0,
+      "cycle_timings": [],
+      "artifacts": {},
+      "error": null
     }
   },
   "decisions": [
@@ -125,11 +139,11 @@
     }
   ],
   "created_at": "2026-02-20T18:30:52.811215",
-  "updated_at": "2026-02-20T19:32:37.391574",
+  "updated_at": "2026-02-20T19:32:37.410940",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
   "complexity_tier": "high",
   "error": null,
-  "version": 19
+  "version": 20
 }
