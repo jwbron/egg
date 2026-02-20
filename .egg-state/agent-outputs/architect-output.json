@@ -1,465 +1,377 @@
 {
-  "issue": 732,
+  "issue": 738,
   "phase": "plan",
   "agent": "architect",
-  "title": "Support parallel phase-level dispatch for implement phase",
-  "summary": "Architecture analysis for adding Tier 3 (high-complexity) dispatch to the SDLC pipeline. This tier runs independent plan phases as parallel implement cycles (coder -> tester -> agentic review), with dependent phases running sequentially. An integrator with write access merges sub-branches and fixes integration issues before human review. The recommended approach is a hybrid strategy: deliver sequential phase cycling first (foundation), then add parallel dispatch as an opt-in feature.",
+  "title": "Add an interactive pre-refine step to the SDLC pipeline",
+  "summary": "Architecture analysis for adding a conversational pre-refine phase where a human and Claude collaborate to produce a clear requirements document before the refine phase begins. The pre-refine step is fundamentally different from existing phases: it is human-driven and conversational rather than agent-driven with HITL gates. The recommended approach uses the existing egg-sdlc CLI to host the interactive session, adds a new PRE_REFINE pipeline phase, and stores the approved requirements document at .egg-state/drafts/{identifier}-requirements.md. The approved document replaces the original issue body/prompt as input to the refine phase.",
 
   "problem_statement": {
-    "description": "The SDLC pipeline supports two dispatch tiers: Tier 1 (short-circuit for low complexity) and Tier 2 (single coder with wave-based multi-agent for mid complexity). Large features with multiple independent phases are forced through a single coder processing all tasks sequentially, creating serial bottlenecks, late integration failures, unbounded reviewer scope, and no early-abort capability.",
+    "description": "The SDLC pipeline currently starts at the refine phase, where an agent autonomously analyzes an issue and produces an analysis document. If the original issue/prompt is poorly defined, the refine agent may produce a low-quality analysis, leading to wasted cycles through multiple HITL revision loops or cascading misunderstandings through plan and implement. There is no structured mechanism for a human to collaboratively clarify requirements before autonomous work begins.",
     "goals": [
-      "Extend complexity assessment from 2 tiers (low/not-low) to 3 tiers (low/mid/high)",
-      "Run independent plan phases as parallel implement cycles with per-phase agentic review",
-      "Enable early abort when a phase's agentic review finds a design flaw",
-      "Bound reviewer scope to one phase's changes at a time",
-      "Give the integrator write access to merge sub-branches and fix integration issues",
-      "Track per-phase-per-role execution status in the contract",
-      "Isolate parallel phases via sub-branches to prevent merge conflicts"
+      "Add a conversational pre-refine step where human and Claude collaborate to produce a clear requirements document",
+      "The step must be interactive and free-form (back-and-forth conversation, not structured HITL checkboxes)",
+      "Support both issue mode (GitHub issue) and local mode (no GitHub)",
+      "Produce a single requirements document with: problem statement, functional requirements, constraints, acceptance criteria, and any other context",
+      "Human must explicitly approve the requirements document before advancing to refine",
+      "The approved document replaces the original issue body/prompt as the direct input to the refine phase",
+      "Store the requirements document at .egg-state/drafts/{identifier}-requirements.md",
+      "In issue mode, update the GitHub issue description with the approved requirements document",
+      "No codebase interaction during pre-refine — purely requirements-focused"
     ]
   },
 
   "current_architecture": {
-    "complexity_assessment": {
-      "location": "orchestrator/routes/pipelines.py:1549-1567",
-      "mechanism": "Refine agent assesses complexity as low/medium/high. Low signals short_circuit: true in YAML metadata. Medium and high both flow to the plan phase — no Tier 3 differentiation exists.",
-      "signal_detection": "_check_short_circuit_signal() reads the last YAML block in the analysis draft for short_circuit: true",
-      "config_gate": "PipelineConfig.allow_short_circuit (default: True)"
-    },
-    "multi_agent_orchestration": {
-      "location": "orchestrator/multi_agent.py, shared/egg_contracts/orchestrator.py",
-      "mechanism": "MultiAgentExecutor runs agents in wave-based parallel execution. Waves are computed from role-level dependencies via DependencyGraph. Default implement wave order: CODER -> TESTER+DOCUMENTER -> INTEGRATOR.",
-      "key_limitation": "DependencyGraph nodes are AgentRole enum values, not (phase_id, role) composites. Only one execution slot exists per role."
-    },
-    "execution_state": {
-      "location": "shared/egg_contracts/orchestration.py, shared/egg_contracts/models.py",
-      "mechanism": "OrchestrationState.executions is dict[AgentRole, AgentExecutionModel]. The contract's agent_executions is a flat list of AgentExecutionModel keyed by role.",
-      "key_limitation": "Running the same role twice (e.g., CODER for Phase 1 and CODER for Phase 2) would overwrite state. No phase_id dimension exists."
-    },
-    "dependency_graph": {
-      "location": "shared/egg_contracts/dependency_graph.py",
-      "mechanism": "DependencyNode contains role, dependencies[], dependents[]. compute_waves() returns list[list[AgentRole]] for parallel execution. Topological sort ensures correct ordering.",
-      "key_limitation": "Graph operates on AgentRole, not (phase_id, role). Cannot represent 'CODER for phase-1 depends on nothing' vs 'CODER for phase-4 depends on phase-1 completion'."
-    },
-    "plan_phase_dependencies": {
-      "location": "shared/egg_contracts/plan_parser.py:88-96, 427-428",
-      "mechanism": "ParsedPhase has a dependencies field that is populated from the YAML plan. However, to_contract_phase() at line 98-105 discards this field — the contract Phase model has no dependencies field.",
-      "gap": "Phase dependencies are parsed but not persisted in the contract schema."
-    },
-    "branch_management": {
-      "location": "gateway/policy.py:129-147, gateway/worktree_manager.py",
-      "mechanism": "Branch ownership validated via egg- or egg/ prefix using startswith(). Worktrees created per pipeline with branch pattern egg/{container_id}/work.",
-      "sub_branch_support": "The prefix check (startswith('egg/')) already supports nested paths like egg/feature/phase-1. No gateway policy changes are needed for sub-branch naming — only worktree lifecycle management needs extension."
-    },
-    "integrator_role": {
-      "location": "shared/egg_contracts/agent_roles.py:289-318",
-      "mechanism": "INTEGRATOR_ROLE has blocked_write for src/, lib/, docs/, tests/, test/. Can only write to .egg-state/agent-outputs/.",
-      "key_limitation": "Read-only for production code. Tier 3 requires write access for merging sub-branches and fixing integration issues."
+    "pipeline_phases": {
+      "location": "orchestrator/models.py:15-22",
+      "mechanism": "PipelinePhase enum defines exactly 4 phases: REFINE, PLAN, IMPLEMENT, PR. Each pipeline tracks current_phase and per-phase execution state.",
+      "constraint": "Adding a new phase requires updating the enum, phase transitions, phase permissions, prompt building, HITL handling, and CLI phase detection."
     },
     "phase_transitions": {
-      "location": "orchestrator/routes/phases.py:50-63",
-      "mechanism": "REFINE -> [PLAN, IMPLEMENT], PLAN -> [IMPLEMENT], IMPLEMENT -> [PR]. No INTEGRATE phase exists.",
-      "consideration": "Issue suggests either a new INTEGRATE phase or internal cycling within IMPLEMENT."
+      "location": "orchestrator/routes/phases.py:49-63",
+      "mechanism": "PHASE_TRANSITIONS dict maps each phase to valid successor phases. REFINE -> [PLAN, IMPLEMENT] (short-circuit), PLAN -> [IMPLEMENT], IMPLEMENT -> [PR], PR -> [] (terminal). Separate LOCAL_PHASE_TRANSITIONS map exists but is currently identical.",
+      "constraint": "Adding PRE_REFINE requires a new transition: PRE_REFINE -> [REFINE]."
+    },
+    "pipeline_orchestration": {
+      "location": "orchestrator/routes/pipelines.py:3738-4920",
+      "mechanism": "_run_pipeline() is the main background thread. It loops through phases, spawning agent containers, running review cycles, and pausing for HITL approval. Each phase runs one or more agent containers via _spawn_and_wait().",
+      "key_detail": "All existing phases follow the pattern: spawn non-interactive agent container in --print mode -> wait for exit -> read artifacts -> optionally review -> HITL gate. Pre-refine breaks this pattern because it requires an interactive, conversational session rather than a headless agent run."
+    },
+    "hitl_handling": {
+      "location": "sandbox/egg_lib/sdlc_hitl.py:219-341",
+      "mechanism": "handle_hitl_checkpoint() presents a 5-option menu when pipeline pauses: edit with $EDITOR, launch Claude, approve, provide feedback, cancel. This is the closest existing infrastructure to an interactive step but is post-phase (runs after agent completes), not in-place-of a phase.",
+      "key_detail": "Option 2 ('Launch Claude for AI-assisted editing') already spawns an interactive Claude Code session with context about the current draft. This pattern could be adapted for pre-refine."
+    },
+    "cli_pipeline_watch": {
+      "location": "sandbox/egg_lib/sdlc_cli.py:211-321",
+      "mechanism": "watch_pipeline() connects to SSE stream and monitors events. When pipeline status is 'awaiting_human', it calls handle_hitl_checkpoint(). The watch loop handles reconnection and terminal states.",
+      "key_detail": "The watch loop is where the egg-sdlc CLI interacts with the human. Pre-refine must integrate here."
+    },
+    "prompt_building": {
+      "location": "orchestrator/routes/pipelines.py:1484-1850",
+      "mechanism": "_build_phase_prompt() constructs phase-specific prompts for agent containers. Refine prompt includes the issue body/prompt and asks for analysis. Plan prompt includes the prior analysis.",
+      "key_detail": "The refine prompt currently receives the raw issue body/prompt. Pre-refine would replace this with the approved requirements document."
+    },
+    "phase_permissions": {
+      "location": ".egg/phase-permissions.json",
+      "mechanism": "Each phase defines allowed/blocked operations and file patterns. Refine allows gh issue comment/edit, git push for state files, and egg-contract operations.",
+      "key_detail": "Pre-refine would need minimal permissions — no code changes, no PRs. Potentially only needs to write the requirements document to .egg-state/drafts/."
+    },
+    "local_mode_input": {
+      "location": "sandbox/egg_lib/sdlc_cli.py:326-392",
+      "mechanism": "run_local_mode() already has a basic interactive prompt: 'What would you like to build or change?' and 'Any specific files?'. This input becomes pipeline.prompt which is passed directly to the refine agent.",
+      "key_detail": "Pre-refine for local mode would replace this simple prompt with a richer conversational requirements gathering session."
+    },
+    "draft_management": {
+      "location": "orchestrator/routes/pipelines.py:1037-1063",
+      "mechanism": "_get_draft_path() returns phase-specific paths. Refine: {prefix}-analysis.md, Plan: {prefix}-plan.md. The prefix is pipeline_id (local) or issue_number (issue mode).",
+      "key_detail": "Pre-refine would add a new draft type: {prefix}-requirements.md."
     }
   },
 
   "key_files": [
     {
-      "path": "shared/egg_contracts/dependency_graph.py",
-      "role": "DAG computation for agent execution waves",
-      "changes_needed": "Add PhaseDependencyGraph class that operates on phase IDs instead of AgentRole. Compute phase waves from Phase.dependencies for determining implement cycle ordering.",
-      "risk": "High — foundation of parallel execution ordering"
+      "path": "orchestrator/models.py",
+      "role": "Pipeline model, PipelinePhase enum, PipelineStatus, AgentRole definitions",
+      "changes_needed": "Add PRE_REFINE to PipelinePhase enum. Pipeline.current_phase starts at PRE_REFINE instead of REFINE.",
+      "risk": "Medium — enum change touches many switch/match statements"
     },
     {
-      "path": "shared/egg_contracts/agent_roles.py",
-      "role": "Role definitions including dependencies and file access patterns",
-      "changes_needed": "Modify INTEGRATOR_ROLE to support configurable write access for Tier 3. Add phase_id tracking to AgentExecution.",
-      "risk": "Medium — must maintain backward compatibility for Tier 2"
-    },
-    {
-      "path": "shared/egg_contracts/orchestration.py",
-      "role": "Orchestration state management, dependency checking",
-      "changes_needed": "Extend OrchestrationState.executions to support (phase_id, role) composite keys. Update can_agent_run() and get_runnable_agents() for phase-scoped dependency checking.",
-      "risk": "High — central state management module"
-    },
-    {
-      "path": "shared/egg_contracts/orchestrator.py",
-      "role": "Dispatch logic and agent lifecycle management",
-      "changes_needed": "Add phase-aware dispatch decisions. Support per-phase implement cycling (coder -> tester -> agentic review -> next phase or retry).",
-      "risk": "High — dispatch is the core orchestration logic"
-    },
-    {
-      "path": "shared/egg_contracts/models.py",
-      "role": "Pydantic contract models including Phase, AgentExecutionModel, Contract",
-      "changes_needed": "Add dependencies field to Phase model. Add phase_id field to AgentExecutionModel. Both optional for backward compat.",
-      "risk": "High — schema change requires backward compatibility"
-    },
-    {
-      "path": "shared/egg_contracts/plan_parser.py",
-      "role": "Plan document parsing, extracts phases/tasks from YAML",
-      "changes_needed": "Preserve ParsedPhase.dependencies when converting to contract Phase via to_contract_phase().",
-      "risk": "Low — straightforward field propagation"
-    },
-    {
-      "path": "orchestrator/multi_agent.py",
-      "role": "MultiAgentExecutor — wave spawning and parallel execution",
-      "changes_needed": "Support phase-level orchestration: run N implement cycles. Each cycle spawns coder -> tester -> agentic reviewers for a single phase's tasks.",
-      "risk": "High — significant behavioral change to execution flow"
-    },
-    {
-      "path": "orchestrator/dispatch.py",
-      "role": "PipelineDispatcher — wraps contract orchestrator for pipeline integration",
-      "changes_needed": "Add per-phase dispatching, phase-scoped handoff data, and phase cycling logic.",
-      "risk": "Medium — wrapper layer, follows orchestrator.py changes"
+      "path": "orchestrator/routes/phases.py",
+      "role": "Phase transition maps and validation",
+      "changes_needed": "Add PRE_REFINE -> [REFINE] to both PHASE_TRANSITIONS and LOCAL_PHASE_TRANSITIONS.",
+      "risk": "Low — additive change to transition maps"
     },
     {
       "path": "orchestrator/routes/pipelines.py",
-      "role": "Pipeline routes: phase transitions, agent prompts, complexity detection",
-      "changes_needed": "Extend complexity assessment to 3 tiers. Add _run_tier3_implement() for phase cycling. Update implement phase prompt for phase-scoped context.",
-      "risk": "High — largest file, most complex changes"
+      "role": "Pipeline orchestration loop, prompt building, phase dispatch",
+      "changes_needed": "Handle PRE_REFINE phase in _run_pipeline() — different from other phases since it's interactive. Add _build_pre_refine_prompt(). Update _get_draft_path() for requirements document. Update refine prompt to use requirements document when available.",
+      "risk": "High — largest and most complex file in the orchestrator"
     },
     {
-      "path": "orchestrator/models.py",
-      "role": "Pipeline and PipelineConfig models (orchestrator-side)",
-      "changes_needed": "Add complexity_tier field to Pipeline. Extend PipelineConfig for Tier 3 settings.",
-      "risk": "Low — additive model changes"
+      "path": "sandbox/egg_lib/sdlc_cli.py",
+      "role": "egg-sdlc CLI, pipeline creation, SSE watch loop",
+      "changes_needed": "Handle pre-refine phase in watch loop. Launch interactive Claude session for requirements gathering. Handle requirements document approval flow.",
+      "risk": "Medium — UX-critical changes"
     },
     {
-      "path": "gateway/worktree_manager.py",
-      "role": "Worktree lifecycle management",
-      "changes_needed": "Support per-phase worktrees for parallel execution (Stage 2 only).",
-      "risk": "Medium — filesystem lifecycle complexity"
+      "path": "sandbox/egg_lib/sdlc_hitl.py",
+      "role": "HITL checkpoint handler with interactive menu",
+      "changes_needed": "Add pre-refine-specific handling. May need a new function for the conversational requirements-gathering flow (vs. the existing post-phase approval flow).",
+      "risk": "Medium — new interaction pattern"
     },
     {
-      "path": ".egg/schemas/contract.schema.json",
-      "role": "JSON schema for contract validation",
-      "changes_needed": "Add dependencies to Phase, phase_id to AgentExecutionModel.",
-      "risk": "Medium — schema migration affects all contracts"
+      "path": ".egg/phase-permissions.json",
+      "role": "Phase operation restrictions and file patterns",
+      "changes_needed": "Add pre_refine phase permissions. Minimal operations: write requirements document only.",
+      "risk": "Low — additive JSON change"
+    },
+    {
+      "path": "sandbox/egg_lib/orch_client.py",
+      "role": "Orchestrator HTTP client used by egg-sdlc",
+      "changes_needed": "May need new endpoint or parameter to signal pre-refine completion with requirements document content.",
+      "risk": "Low"
+    },
+    {
+      "path": "orchestrator/decision_queue.py",
+      "role": "HITL decision queue, queuing and waiting for decisions",
+      "changes_needed": "Pre-refine uses the decision queue to pause the pipeline and wait for the human to complete the conversational requirements session. Possibly no changes if the existing queue_decision/resolve_decision flow suffices.",
+      "risk": "Low"
     }
   ],
 
   "approaches": [
     {
       "id": "A",
-      "name": "Full Tier 3 in one pass (parallel + sub-branches)",
-      "description": "Implement complete Tier 3 dispatch: phase-level dependency graph, parallel implement cycles on sub-branches, integrator with write access merging sub-branches, per-phase agentic review with retry.",
+      "name": "New PRE_REFINE pipeline phase with interactive Claude session (recommended)",
+      "description": "Add PRE_REFINE as a first-class pipeline phase. When the pipeline enters pre-refine, the orchestrator pauses (AWAITING_HUMAN) and the egg-sdlc CLI launches an interactive Claude Code session configured with a requirements-gathering system prompt. Claude asks probing questions, the human responds conversationally, and together they produce a requirements document. When the human approves, the CLI writes the document to .egg-state/drafts/{identifier}-requirements.md, resolves the HITL decision, and the pipeline advances to REFINE with the requirements document as input.",
       "pros": [
-        "True parallelism with branch-level isolation prevents merge conflicts",
-        "Bounded agentic review scope per phase",
-        "Early abort saves tokens when a phase review finds flaws",
-        "Delivers the full vision from the issue in one delivery"
+        "Clean separation of concerns: pre-refine is its own phase with its own state tracking",
+        "Fits naturally into the existing phase lifecycle: status tracking, SSE events, visualization all work",
+        "The interactive Claude session is already a proven pattern (HITL option 2 uses the same mechanism)",
+        "Pipeline can be restarted/resumed from pre-refine if interrupted",
+        "Phase permissions can restrict pre-refine to only requirements document writes",
+        "Pipeline visualization correctly shows PRE_REFINE as a distinct step",
+        "DAG visualization and SSE stream events work without special casing"
       ],
       "cons": [
-        "Largest implementation scope — 12+ files across 4 packages",
-        "Per-phase worktree management adds lifecycle complexity",
-        "Composite key change is pervasive across orchestration stack",
-        "Testing parallel phase execution requires complex integration tests",
-        "High risk of regressions to Tier 1 and Tier 2"
+        "New enum value touches many code paths (phase transition, prompt building, phase detection, etc.)",
+        "Existing pipelines created before the change won't have PRE_REFINE state",
+        "The interactive session breaks the existing pattern of non-interactive agent containers",
+        "Requires careful handling of the phase in issue mode (no container to spawn for pre-refine)"
       ],
-      "estimated_complexity": "High",
-      "files_affected": 12
+      "estimated_complexity": "Medium",
+      "files_affected": 8
     },
     {
       "id": "B",
-      "name": "Sequential phase cycling only (no parallelism)",
-      "description": "Run implement cycles sequentially — one per plan phase — on the same branch. Each cycle spawns coder -> tester -> agentic review. No sub-branches, no gateway changes.",
+      "name": "Pre-pipeline CLI step (no new phase)",
+      "description": "Instead of adding a new pipeline phase, run the requirements gathering session entirely within the egg-sdlc CLI before creating the pipeline. The CLI launches an interactive Claude session, produces a requirements document, and then creates the pipeline with the requirements as the prompt/issue body. No orchestrator changes needed.",
       "pros": [
-        "No gateway or worktree changes needed",
-        "No merge conflicts (sequential execution on single branch)",
-        "Per-phase agentic review, early abort, and prompt isolation all work",
-        "Simpler integrator: validates rather than merges branches"
+        "No changes to the orchestrator, phase enum, or pipeline state",
+        "Simpler implementation — entirely in the CLI layer",
+        "Backward compatible — existing pipelines unaffected",
+        "No new phase to handle in visualization, SSE events, etc."
       ],
       "cons": [
-        "No parallelism — no wall-clock time savings for independent phases",
-        "Still requires composite execution tracking (phase_id, role)",
-        "Does not meet the issue's full vision for Tier 3"
+        "Requirements gathering is invisible to the pipeline — no state tracking, no restart capability",
+        "Cannot skip pre-refine for well-defined issues (always runs or needs an explicit flag to skip)",
+        "In issue mode, the requirements doc exists only as the modified issue body — no separate artifact",
+        "Cannot be monitored via SSE stream or visualized in the DAG",
+        "If the CLI crashes during requirements gathering, all work is lost (no checkpoint)",
+        "Not composable with headless/CI pipeline triggers — only works with interactive CLI"
       ],
-      "estimated_complexity": "Medium",
-      "files_affected": 9
+      "estimated_complexity": "Low",
+      "files_affected": 3
     },
     {
       "id": "C",
-      "name": "Hybrid — sequential foundation with optional parallelism (recommended)",
-      "description": "Stage 1: sequential phase cycling with composite execution tracking, per-phase agentic review, 3-tier complexity assessment, integrator write access. Stage 2: sub-branch isolation, per-phase worktrees, parallel dispatch behind a feature flag.",
+      "name": "Reuse HITL gate at refine phase start",
+      "description": "Instead of a new phase, add an optional HITL gate at the start of the refine phase. When the pipeline reaches REFINE, it immediately pauses (AWAITING_HUMAN) and presents the original issue/prompt for collaborative refinement. The human uses the existing HITL menu (edit, Claude, approve, feedback) to produce a requirements document. On approval, the refine agent runs with the refined input.",
       "pros": [
-        "Incremental delivery — each stage is independently valuable and testable",
-        "Stage 1 provides 80% of value (per-phase review, early abort, bounded scope)",
-        "Stage 2 adds parallelism without rearchitecting the foundation",
-        "Feature flag allows gradual rollout and rollback",
-        "Composite execution tracking built once, used by both modes"
+        "No new phase — reuses existing HITL infrastructure",
+        "Minimal orchestrator changes — just add a pre-agent HITL gate to refine",
+        "Backward compatible — gate can be optional (controlled by config)",
+        "Works with existing SSE events and visualization (shows as AWAITING_HUMAN in refine phase)"
       ],
       "cons": [
-        "Two delivery stages means more review cycles",
-        "Sequential-first may seem incomplete vs the issue's parallel vision",
-        "Both stages still require the composite key change"
+        "Conflates two distinct concepts (requirements gathering vs. analysis review) in one phase",
+        "The HITL menu is designed for post-phase artifact review, not conversational requirements gathering",
+        "No separate requirements artifact — the refined input replaces the original prompt in-place",
+        "The refine phase HITL gate (post-agent) becomes confusable with the pre-agent gate",
+        "Pipeline status shows 'refine/awaiting_human' for both pre-refine requirements AND post-refine review, making it hard to tell them apart in monitoring"
       ],
-      "estimated_complexity": "Medium-High (Stage 1: Medium, Stage 2: Medium)",
-      "files_affected": 12
+      "estimated_complexity": "Low-Medium",
+      "files_affected": 4
     }
   ],
 
   "recommended_approach": {
-    "id": "C",
-    "name": "Hybrid — sequential foundation with optional parallelism",
+    "id": "A",
+    "name": "New PRE_REFINE pipeline phase with interactive Claude session",
     "justification": [
-      "The refine analysis recommended Option C and both refine reviewers approved. Sequential phase cycling provides most of the value: per-phase agentic review, early abort, bounded reviewer scope, and prompt isolation. Parallelism primarily saves wall-clock time.",
-      "The composite execution tracking change (phase_id, role) is the riskiest part. Delivering it with sequential cycling first ensures stability before adding parallel dispatch and sub-branch management.",
-      "Gateway branch prefix checks already support nested paths (egg/feature/phase-1 passes startswith('egg/') check), so Stage 2 gateway changes are smaller than initially expected — the main work is worktree lifecycle management.",
-      "All 9 acceptance criteria from the issue are satisfiable: 3-tier complexity, per-phase implement cycles, coder -> tester -> agentic review with retry, integrator with write access, (phase_id, role) tracking, and sub-branch isolation (Stage 2)."
+      "A new phase provides clean separation of concerns. Pre-refine is conceptually distinct from analysis (refine): it's human-driven requirements gathering, not agent-driven codebase analysis. Modeling it as its own phase makes this distinction explicit in the system's state machine.",
+      "The existing HITL infrastructure (decision queue, _launch_claude() in sdlc_hitl.py) already supports the interactive Claude session pattern needed for pre-refine. The main new work is: (1) the requirements-gathering system prompt, (2) writing the requirements document, and (3) plumbing the new phase through the orchestrator.",
+      "Approach B (pre-pipeline CLI step) loses state tracking and restart capability. If the user's terminal disconnects during a long requirements session, all work is lost. With a phase, the pipeline knows it's in pre-refine and can resume.",
+      "Approach C (HITL gate at refine start) conflates two different HITL pauses in the same phase. Pipeline monitoring cannot distinguish 'waiting for requirements' from 'waiting for analysis review'. A separate phase makes pipeline state unambiguous.",
+      "The issue explicitly states pre-refine should work in both local and issue modes. A first-class phase naturally supports both through the same orchestration loop, while Approach B would require separate handling for each mode.",
+      "The enum change (adding PRE_REFINE) is the largest risk, but the codebase already handled adding the PR phase and the short-circuit REFINE -> IMPLEMENT transition. The pattern for adding phases is well-established."
     ]
   },
 
   "implementation_plan": {
-    "stage_1": {
-      "name": "Sequential phase cycling with composite execution tracking",
-      "description": "Build the orchestration foundation for Tier 3: 3-tier complexity assessment, sequential per-phase implement cycles, composite (phase_id, role) execution tracking, per-phase agentic review with retry, and integrator write access.",
-      "phases": [
-        {
-          "id": 1,
-          "name": "Contract schema and model extensions",
-          "description": "Extend the data model with phase dependencies, composite execution keys, and complexity tier fields. This is the foundation all other changes build on.",
-          "key_changes": [
-            "Add dependencies: list[str] field to Phase model (default: [] for backward compat)",
-            "Add phase_id: str | None field to AgentExecutionModel (None for Tier 2 compat)",
-            "Add complexity_tier: str field to Pipeline model with values low/mid/high",
-            "Update contract.schema.json with new fields",
-            "Update ParsedPhase.to_contract_phase() in plan_parser.py to propagate dependencies",
-            "Add dependencies field to YAML plan template"
-          ],
-          "files": [
-            "shared/egg_contracts/models.py",
-            "shared/egg_contracts/plan_parser.py",
-            ".egg/schemas/contract.schema.json",
-            "orchestrator/models.py",
-            "docs/templates/plan.md"
-          ],
-          "dependencies": []
-        },
-        {
-          "id": 2,
-          "name": "3-tier complexity assessment",
-          "description": "Extend refine phase complexity detection from binary to 3 tiers. Add Tier 3 signal detection.",
-          "key_changes": [
-            "Update refine prompt to signal complexity_tier: high alongside parallel_phases: true",
-            "Add _check_high_complexity_signal() in pipelines.py",
-            "Set pipeline.complexity_tier from detected signal (default: mid)",
-            "Tier 1 (low): short-circuit as before. Tier 2 (mid): standard waves. Tier 3 (high): phase cycling."
-          ],
-          "files": [
-            "orchestrator/routes/pipelines.py",
-            "orchestrator/models.py"
-          ],
-          "dependencies": ["phase-1"]
-        },
-        {
-          "id": 3,
-          "name": "Composite execution tracking",
-          "description": "Extend orchestration state to support (phase_id, role) composite keys.",
-          "key_changes": [
-            "Introduce PhaseExecutionKey type or extend OrchestrationState for (phase_id, role) keying",
-            "Update OrchestrationState.from_contract() to deserialize phase_id from AgentExecutionModel",
-            "Update can_agent_run() for phase-scoped dependency checking",
-            "Update get_runnable_agents() for phase-aware filtering",
-            "Backward compat: when phase_id is None, behavior matches current Tier 2"
-          ],
-          "files": [
-            "shared/egg_contracts/orchestration.py",
-            "shared/egg_contracts/orchestrator.py"
-          ],
-          "dependencies": ["phase-1"]
-        },
-        {
-          "id": 4,
-          "name": "Phase-level dependency graph",
-          "description": "Build a phase-level DAG that determines execution order for plan phases.",
-          "key_changes": [
-            "Add PhaseDependencyGraph class operating on phase IDs from Phase.dependencies",
-            "Compute phase waves: independent phases in same wave, dependent phases in later waves",
-            "Integrate with orchestrator to determine phase ordering for sequential cycling",
-            "For Stage 2, same graph determines parallel grouping"
-          ],
-          "files": [
-            "shared/egg_contracts/dependency_graph.py",
-            "shared/egg_contracts/orchestration.py"
-          ],
-          "dependencies": ["phase-1", "phase-3"]
-        },
-        {
-          "id": 5,
-          "name": "Sequential phase cycling in implement phase",
-          "description": "Modify implement phase to run N cycles (one per plan phase) sequentially. Each cycle: coder -> tester -> agentic review, with retry on rejection.",
-          "key_changes": [
-            "Add _run_tier3_implement() in pipelines.py that loops through phases in dependency order",
-            "Each iteration calls _run_multi_agent_phase() with phase-scoped task context",
-            "Per-phase agentic review dispatches REVIEWER_CODE + REVIEWER_CONTRACT after each cycle",
-            "Retry logic: reviewer rejection triggers coder retry within that phase (no human gate)",
-            "Phase-scoped prompts: each coder sees only its phase's tasks and files",
-            "Update _build_agent_prompt() to accept phase_id for task filtering"
-          ],
-          "files": [
-            "orchestrator/routes/pipelines.py",
-            "orchestrator/multi_agent.py",
-            "orchestrator/dispatch.py"
-          ],
-          "dependencies": ["phase-2", "phase-3", "phase-4"]
-        },
-        {
-          "id": 6,
-          "name": "Integrator write access for Tier 3",
-          "description": "Give the integrator conditional write access to source, tests, and docs in Tier 3 mode.",
-          "key_changes": [
-            "Create dynamic integrator file access based on complexity_tier",
-            "In Tier 3: integrator can write src/, tests/, docs/ to fix integration issues",
-            "In Tier 2: integrator remains read-only (backward compat)",
-            "Gateway phase_filter updated to allow integrator writes in Tier 3",
-            "Integrator prompt updated: run full test suite, fix integration issues, report"
-          ],
-          "files": [
-            "shared/egg_contracts/agent_roles.py",
-            "gateway/phase_filter.py",
-            "gateway/agent_restrictions.py"
-          ],
-          "dependencies": ["phase-1"]
-        },
-        {
-          "id": 7,
-          "name": "Tests for Stage 1",
-          "description": "Comprehensive test coverage for all Stage 1 changes.",
-          "key_changes": [
-            "Unit tests for 3-tier complexity detection and signal parsing",
-            "Unit tests for composite execution tracking (phase_id, role)",
-            "Unit tests for phase dependency graph computation",
-            "Integration tests for sequential phase cycling flow",
-            "Backward compat tests: Tier 1 and Tier 2 unchanged",
-            "Plan parser tests: dependencies field preserved"
-          ],
-          "files": [
-            "shared/egg_contracts/tests/",
-            "orchestrator/tests/"
-          ],
-          "dependencies": ["phase-5", "phase-6"]
-        }
-      ]
-    },
-    "stage_2": {
-      "name": "Parallel dispatch with sub-branch isolation",
-      "description": "Add parallel execution of independent phases on sub-branches, gated behind a feature flag. Integrator merges sub-branches before human review.",
-      "phases": [
-        {
-          "id": 8,
-          "name": "Per-phase worktree management",
-          "description": "Extend gateway WorktreeManager for per-phase worktrees.",
-          "key_changes": [
-            "Add create_phase_worktree() for sub-worktrees from pipeline worktree",
-            "Branch naming: egg/<feature>/phase-N (passes existing prefix check)",
-            "Worktree path: .egg-worktrees/{pipeline_id}/phase-{N}/{repo_name}",
-            "Lifecycle: cleanup phase worktrees after integrator merges"
-          ],
-          "files": ["gateway/worktree_manager.py"],
-          "dependencies": ["phase-7"]
-        },
-        {
-          "id": 9,
-          "name": "Parallel phase dispatch",
-          "description": "Concurrent execution of independent plan phases on sub-branches.",
-          "key_changes": [
-            "Use PhaseDependencyGraph to identify independent phase groups",
-            "Spawn parallel implement cycles for phases in same wave",
-            "Each coder pushes to egg/<feature>/phase-N",
-            "Gated behind PipelineConfig.enable_parallel_phases (default: False)"
-          ],
-          "files": ["orchestrator/routes/pipelines.py", "orchestrator/multi_agent.py"],
-          "dependencies": ["phase-8"]
-        },
-        {
-          "id": 10,
-          "name": "Integrator sub-branch merging",
-          "description": "Integrator merges phase sub-branches and resolves conflicts.",
-          "key_changes": [
-            "Integrator receives list of sub-branches to merge",
-            "Sequential merge of phase branches into main feature branch",
-            "Conflict resolution as part of integrator's fixup diff",
-            "Full test suite after merge, report integration issues"
-          ],
-          "files": ["orchestrator/routes/pipelines.py", "shared/egg_contracts/agent_roles.py"],
-          "dependencies": ["phase-9"]
-        },
-        {
-          "id": 11,
-          "name": "Tests for Stage 2",
-          "description": "Test coverage for parallel dispatch and sub-branch merging.",
-          "key_changes": [
-            "Integration tests for parallel phase execution",
-            "Tests for sub-branch creation, merge, cleanup",
-            "Merge conflict scenario tests",
-            "End-to-end: 3 independent + 1 dependent phase pipeline"
-          ],
-          "files": ["orchestrator/tests/", "gateway/tests/"],
-          "dependencies": ["phase-10"]
-        }
-      ]
-    }
+    "phases": [
+      {
+        "id": 1,
+        "name": "Pipeline model and phase transitions",
+        "description": "Add PRE_REFINE to the phase enum and transition maps. This is the foundation all other changes build on.",
+        "key_changes": [
+          "Add PRE_REFINE = 'pre_refine' to PipelinePhase enum in orchestrator/models.py",
+          "Add PRE_REFINE -> [REFINE] to PHASE_TRANSITIONS and LOCAL_PHASE_TRANSITIONS in phases.py",
+          "Set Pipeline initial current_phase to PRE_REFINE (configurable — can be skipped to start at REFINE)",
+          "Add pre_refine entry to phase-permissions.json with minimal permissions (write .egg-state/drafts/*requirements*)",
+          "Update visualization symbols and compact format to include pre_refine"
+        ],
+        "files": [
+          "orchestrator/models.py",
+          "orchestrator/routes/phases.py",
+          ".egg/phase-permissions.json"
+        ],
+        "dependencies": []
+      },
+      {
+        "id": 2,
+        "name": "Orchestrator pre-refine phase handling",
+        "description": "Implement the pre-refine phase in the orchestration loop. Unlike other phases, pre-refine does not spawn an agent container — it pauses immediately for human interaction.",
+        "key_changes": [
+          "In _run_pipeline(), handle PRE_REFINE phase: immediately set status to AWAITING_HUMAN and queue a decision",
+          "Decision context includes the original issue body/prompt for reference",
+          "On resolution: if approved, read the requirements document from .egg-state/drafts/{identifier}-requirements.md, advance to REFINE",
+          "On 'request changes' or feedback: re-enter AWAITING_HUMAN loop (human continues editing)",
+          "Add skip_pre_refine config option on PipelineConfig for well-defined issues that don't need requirements gathering",
+          "Update _get_draft_path() to handle pre_refine -> {prefix}-requirements.md",
+          "Update _build_phase_prompt() for refine to use requirements document as primary input when available"
+        ],
+        "files": [
+          "orchestrator/routes/pipelines.py",
+          "orchestrator/models.py"
+        ],
+        "dependencies": ["phase-1"]
+      },
+      {
+        "id": 3,
+        "name": "Interactive requirements-gathering session in egg-sdlc CLI",
+        "description": "Implement the conversational requirements session in the CLI. When the pipeline enters pre-refine, the CLI launches an interactive Claude session with a requirements-gathering system prompt.",
+        "key_changes": [
+          "Add handle_pre_refine() function in sdlc_hitl.py (or new module)",
+          "Launch interactive Claude with system prompt that guides requirements gathering: ask probing questions, surface constraints, identify acceptance criteria",
+          "Claude writes to .egg-state/drafts/{identifier}-requirements.md as the conversation progresses",
+          "When human types /done or exits Claude, present the requirements document for final review",
+          "Approval options: approve (advance), edit (re-enter Claude or $EDITOR), cancel",
+          "Update _detect_phase() to recognize pre_refine",
+          "Update watch_pipeline() to call handle_pre_refine() when phase is pre_refine and status is awaiting_human"
+        ],
+        "files": [
+          "sandbox/egg_lib/sdlc_hitl.py",
+          "sandbox/egg_lib/sdlc_cli.py"
+        ],
+        "dependencies": ["phase-2"]
+      },
+      {
+        "id": 4,
+        "name": "Issue mode integration",
+        "description": "In issue mode, update the GitHub issue description with the approved requirements document.",
+        "key_changes": [
+          "After pre-refine approval in issue mode, update the issue body via gh issue edit",
+          "Preserve original issue body as a collapsed section or as context in the requirements document",
+          "The updated issue body becomes the source of truth for the refine phase",
+          "Handle the case where the issue already has a well-structured requirements document (skip pre-refine)"
+        ],
+        "files": [
+          "orchestrator/routes/pipelines.py"
+        ],
+        "dependencies": ["phase-2", "phase-3"]
+      },
+      {
+        "id": 5,
+        "name": "Pipeline creation and configuration",
+        "description": "Update pipeline creation to support the pre-refine phase and skip configuration.",
+        "key_changes": [
+          "Pipeline creation defaults to starting at PRE_REFINE instead of REFINE",
+          "Add --skip-pre-refine flag to egg-sdlc CLI (creates pipeline starting at REFINE)",
+          "Add skip_pre_refine to PipelineConfig (default: false)",
+          "Update egg-orch pipeline create to support skip_pre_refine parameter",
+          "In headless/CI mode (--print), skip pre-refine by default (interactive session not possible)"
+        ],
+        "files": [
+          "sandbox/egg_lib/sdlc_cli.py",
+          "sandbox/egg_lib/orch_client.py",
+          "orchestrator/routes/pipelines.py",
+          "orchestrator/models.py"
+        ],
+        "dependencies": ["phase-1"]
+      },
+      {
+        "id": 6,
+        "name": "Tests",
+        "description": "Test coverage for all pre-refine functionality.",
+        "key_changes": [
+          "Unit tests for PRE_REFINE phase transition validation",
+          "Unit tests for requirements document path resolution",
+          "Unit tests for refine prompt using requirements document as input",
+          "Integration test for pre-refine -> refine flow",
+          "Test skip_pre_refine configuration",
+          "Test backward compatibility: existing pipelines without PRE_REFINE continue to work",
+          "Test issue mode: requirements document updates issue body"
+        ],
+        "files": [
+          "orchestrator/tests/",
+          "shared/egg_contracts/tests/"
+        ],
+        "dependencies": ["phase-4", "phase-5"]
+      }
+    ]
   },
 
   "technical_decisions": [
     {
       "id": "TD-1",
-      "decision": "Use composite key (phase_id, AgentRole) for execution tracking",
-      "rationale": "The contract's agent_executions list must support multiple CODER instances (one per phase). A composite key is the minimal change. phase_id is optional (None for Tier 2) for backward compatibility.",
+      "decision": "Model pre-refine as a first-class pipeline phase (PRE_REFINE)",
+      "rationale": "Clean state machine semantics. Pipeline status unambiguously shows whether the system is gathering requirements (pre_refine) vs. running analysis (refine). Enables state tracking, restart from pre-refine, SSE events, and visualization. The alternative (pre-pipeline CLI step) loses all observability.",
       "alternatives_considered": [
-        "Nested structure (phases -> executions) — rejected: too disruptive to contract consumers",
-        "Separate execution store per phase — rejected: fragments state management"
+        "Pre-pipeline CLI step — rejected: no state tracking, no restart, invisible to monitoring",
+        "HITL gate at refine start — rejected: conflates two HITL pauses in one phase, ambiguous pipeline status"
       ]
     },
     {
       "id": "TD-2",
-      "decision": "Store phase dependencies in the Phase model as dependencies: list[str]",
-      "rationale": "The Phase model is the natural home. PhaseDependencyGraph is computed at runtime from this data. The plan parser already parses dependencies — just need to propagate them.",
+      "decision": "Use interactive Claude Code session (not headless agent container) for requirements gathering",
+      "rationale": "The issue explicitly states pre-refine should be 'interactive and conversational (free-form back-and-forth, not structured HITL checkboxes)'. The existing _launch_claude() pattern in sdlc_hitl.py provides exactly this. A headless agent container cannot support real-time human conversation.",
       "alternatives_considered": [
-        "Separate phase_graph field — rejected: duplicates information in phases",
-        "Dynamic computation from files_affected — rejected: imprecise and unreliable"
+        "Multi-turn HITL decision loop — rejected: too rigid, not conversational",
+        "Headless agent with periodic HITL pauses — rejected: breaks conversational flow"
       ]
     },
     {
       "id": "TD-3",
-      "decision": "Tier 3 signaled by refine agent with same HITL override model as Tier 1",
-      "rationale": "The refine agent already assesses complexity. Adding a third tier follows the same pattern. Human can override during HITL review. Requiring explicit approval for every Tier 3 task adds friction without proportional benefit.",
+      "decision": "Store requirements document at .egg-state/drafts/{identifier}-requirements.md",
+      "rationale": "Follows the existing draft management pattern (analysis.md for refine, plan.md for plan). The identifier is the issue number (issue mode) or pipeline ID (local mode). The file is committed to the feature branch for auditability.",
       "alternatives_considered": [
-        "Always require human approval for Tier 3 — rejected: unnecessary friction",
-        "Auto-select from plan phase count — rejected: phase count alone doesn't indicate complexity"
+        "Store in issue body only — rejected: no artifact for local mode, no separate file for the refine agent to read",
+        "Store in contract JSON — rejected: requirements are prose, not structured data"
       ]
     },
     {
       "id": "TD-4",
-      "decision": "Integrator gets conditional write access in Tier 3 only",
-      "rationale": "Privilege escalation scoped to Tier 3 limits blast radius. In Tier 2, integrator remains read-only. Integrator runs after all phase-level agentic reviews and before human review, providing defense in depth.",
+      "decision": "Pre-refine is skippable via configuration (skip_pre_refine: true)",
+      "rationale": "Well-defined issues don't need requirements gathering. The skip flag lets the pipeline start directly at REFINE for: (1) issues that already have clear requirements, (2) headless/CI triggers where interactive sessions are impossible, (3) re-runs where requirements were already gathered. Default is false (pre-refine enabled).",
       "alternatives_considered": [
-        "Unconditional write access — rejected: breaks least privilege for Tier 2",
-        "New INTEGRATOR_TIER3 role — rejected: role proliferation"
+        "Always require pre-refine — rejected: adds friction for well-defined issues",
+        "Auto-detect from issue quality — rejected: unreliable heuristic"
       ]
     },
     {
       "id": "TD-5",
-      "decision": "Sequential first, parallel second (hybrid delivery)",
-      "rationale": "Sequential cycling validates the orchestration foundation (composite keys, phase DAG, per-phase review) without concurrent execution complexity. Foundation is the risky part; parallelism is optimization.",
+      "decision": "In issue mode, update the GitHub issue description with approved requirements",
+      "rationale": "The issue states: 'In issue mode, the issue description on GitHub is updated with the approved requirements document.' This ensures the issue body is the canonical source of requirements. The original issue body is preserved (e.g., in a collapsed section) for context.",
       "alternatives_considered": [
-        "Full parallel from start — rejected: too much risk in one delivery",
-        "Only sequential — rejected: doesn't meet the issue's Tier 3 vision"
+        "Post as a comment — rejected: refine agent reads the issue body, not comments",
+        "Only store in .egg-state file — rejected: issue description would be stale"
       ]
     },
     {
       "id": "TD-6",
-      "decision": "No new PipelinePhase.INTEGRATE — implement phase manages cycling internally",
-      "rationale": "A new pipeline phase would require updating transitions, prompts, HITL gates, and phase_filter restrictions across the system. The implement phase can manage cycle-then-integrate internally. The integrator already runs as the final wave.",
+      "decision": "No codebase interaction during pre-refine — Claude has no access to repository files",
+      "rationale": "The issue explicitly states: 'No codebase interaction — purely requirements-focused.' The Claude session should be configured without repository access to prevent scope creep into analysis. The refine agent handles codebase research.",
       "alternatives_considered": [
-        "New INTEGRATE phase — rejected: too many cross-cutting changes for modest benefit"
+        "Allow read-only codebase access — rejected: violates issue requirement, blurs line between pre-refine and refine"
       ]
     },
     {
       "id": "TD-7",
-      "decision": "Gateway prefix check already supports sub-branches — no policy change needed",
-      "rationale": "gateway/policy.py _is_bot_branch() uses startswith(('egg-', 'egg/')) which matches egg/feature/phase-1. Confirmed by code analysis. Only worktree lifecycle management needs extension in Stage 2.",
+      "decision": "The pre-refine orchestrator phase immediately pauses (AWAITING_HUMAN) rather than spawning a container",
+      "rationale": "Pre-refine is human-driven. The orchestrator's role is to track state and wait, not to run an agent. The interactive Claude session is launched by the CLI (client-side), not the orchestrator (server-side). This matches the existing HITL pattern where the CLI handles human interaction.",
       "alternatives_considered": [
-        "Add explicit sub-branch pattern — rejected: unnecessary given existing prefix logic"
+        "Spawn a container that runs an interactive session — rejected: containers are non-interactive in the current architecture (--print mode)"
       ]
     }
   ],
@@ -467,78 +379,84 @@
   "risks": [
     {
       "id": "R-1",
-      "description": "Composite key migration breaks existing pipeline state",
-      "likelihood": "Medium",
-      "impact": "High",
-      "mitigation": "phase_id defaults to None on AgentExecutionModel. OrchestrationState falls back to role-only keying when phase_id is None. Explicit backward-compat tests required."
+      "description": "PRE_REFINE enum value requires updating all phase-handling code paths",
+      "likelihood": "High",
+      "impact": "Medium",
+      "mitigation": "Enumerate all switch/match/if-else chains on PipelinePhase across the codebase. Use grep for PipelinePhase, 'refine', and phase string comparisons. Most code paths can default pre-refine to the same behavior as refine (same permissions, same visualization style)."
     },
     {
       "id": "R-2",
-      "description": "Per-phase prompts leak cross-phase context to coders",
-      "likelihood": "Low",
-      "impact": "Medium",
-      "mitigation": "Build phase-filtered prompt function that only includes current phase's tasks and files_affected. Test that coder prompts don't reference other phases."
+      "description": "Interactive Claude session may not work in all deployment modes (e.g., headless CI)",
+      "likelihood": "High",
+      "impact": "Low",
+      "mitigation": "skip_pre_refine defaults to true in headless/CI mode (--print flag). The pre-refine phase is only interactive when a TTY is available via the egg-sdlc CLI."
     },
     {
       "id": "R-3",
-      "description": "Integrator write access introduces security risk",
-      "likelihood": "Low",
-      "impact": "Medium",
-      "mitigation": "Conditional on Tier 3 mode. Integrator runs after all agentic reviews and before human review. Defense in depth."
+      "description": "Requirements document quality depends on human engagement",
+      "likelihood": "Medium",
+      "impact": "Low",
+      "mitigation": "Claude's system prompt should guide the conversation with probing questions. The refine agent still performs its own analysis, so pre-refine is additive quality improvement, not a replacement for analysis."
     },
     {
       "id": "R-4",
-      "description": "Sub-branch merge conflicts despite files_affected boundaries (Stage 2)",
+      "description": "Backward compatibility with existing pipelines that don't have PRE_REFINE state",
       "likelihood": "Medium",
       "impact": "Medium",
-      "mitigation": "Sub-branch isolation is primary mechanism. files_affected is safety net. Integrator explicitly tasked with conflict resolution. Conflict detection in integrator prompt."
+      "mitigation": "Existing pipelines in REFINE state continue to work. Phase transition validation accepts REFINE as a starting phase. Only new pipelines start at PRE_REFINE (when not skipped). Pipeline state deserialization handles missing pre_refine phase execution gracefully."
     },
     {
       "id": "R-5",
-      "description": "Change scope across 12+ files increases merge conflict risk with other PRs",
+      "description": "Claude session crash or disconnect during requirements gathering loses work",
       "likelihood": "Medium",
       "impact": "Medium",
-      "mitigation": "Staged delivery (Stage 1 then Stage 2). Each stage independently mergeable. Coordinate with in-flight orchestration work."
+      "mitigation": "Claude writes to the requirements file incrementally during the conversation. Even if the session crashes, partial work is saved. The pipeline remains in PRE_REFINE/AWAITING_HUMAN state, so the human can resume by reattaching to the pipeline."
     },
     {
       "id": "R-6",
-      "description": "Token cost underestimated due to agentic review retries per phase",
+      "description": "Issue body update in issue mode may conflict with concurrent edits",
       "likelihood": "Low",
       "impact": "Low",
-      "mitigation": "Each phase has max_review_cycles (default: 3). If exhausted, escalates to human review. Total budget bounded: phases * (agents_per_cycle + retry_budget)."
+      "mitigation": "The issue body update happens atomically via gh issue edit after approval. Concurrent editing of issue bodies during SDLC pipeline execution is unlikely. If it occurs, the last write wins (standard GitHub behavior)."
     }
   ],
 
   "constraints": [
-    "Contract schema changes must be backward-compatible with existing contracts",
-    "Tier 1 (short-circuit) and Tier 2 (standard multi-agent) must continue working unchanged",
-    "Gateway branch prefix check already supports sub-branches (no policy change needed)",
-    "Per-phase worktrees (Stage 2) must not break single-worktree-per-pipeline model",
-    "Integrator write access conditional on Tier 3 only",
-    "Plan template and parser must support dependencies field in YAML plan",
-    "Per-phase review cycles must not require human approval — only agentic review gates"
+    "Pre-refine must be purely conversational — no structured HITL checkboxes for requirements gathering",
+    "No codebase interaction during pre-refine — Claude should not access repository files",
+    "Must work in both issue mode and local mode",
+    "Must be skippable for well-defined issues and headless CI execution",
+    "Requirements document stored at .egg-state/drafts/{identifier}-requirements.md",
+    "In issue mode, GitHub issue description is updated with approved requirements",
+    "Human must explicitly approve before advancing to refine",
+    "Backward compatible: existing pipelines without pre-refine continue to function",
+    "The approved requirements document becomes the direct input to the refine phase, replacing the original issue body/prompt"
   ],
 
-  "open_questions_resolved": {
-    "Q1_integrator_write_scope": {
-      "question": "Should the integrator's write access be unrestricted, scoped to modified files, or unrestricted with separate review?",
-      "recommendation": "Unrestricted within src/, tests/, docs/. The integrator needs to fix integration issues that span beyond individual coders' changed files. Scoping to changed_files is too restrictive for merge conflict resolution. Agentic review of integrator changes is already planned.",
-      "decision": "TD-4"
+  "open_questions": [
+    {
+      "id": "Q1",
+      "question": "Should the requirements-gathering Claude session have read-only access to the repo structure (file listing) to help the human identify relevant areas?",
+      "recommendation": "No — the issue explicitly says 'no codebase interaction'. Keep pre-refine purely requirements-focused. The human can mention files/areas in conversation if needed.",
+      "impact": "Low — can be added later if needed"
     },
-    "Q2_phase_dependency_storage": {
-      "question": "Should phase dependencies be in Phase model, separate field, or computed dynamically?",
-      "recommendation": "Phase model with dependencies: list[str]. Simplest, most natural location.",
-      "decision": "TD-2"
+    {
+      "id": "Q2",
+      "question": "Should the requirements document follow a strict template or be free-form?",
+      "recommendation": "Guide with a suggested structure (problem statement, functional requirements, constraints, acceptance criteria) but allow deviation. Claude's system prompt suggests the structure; the human can override.",
+      "impact": "Low — template can be refined based on usage"
     },
-    "Q3_tier_selection_authority": {
-      "question": "Should Tier 3 require explicit human approval?",
-      "recommendation": "Same model as Tier 1 — refine agent signals, human overrides during HITL.",
-      "decision": "TD-3"
+    {
+      "id": "Q3",
+      "question": "Should pre-refine be the default for all new pipelines, or opt-in?",
+      "recommendation": "Default ON for interactive CLI usage, default OFF for headless/CI. The --skip-pre-refine flag provides an explicit opt-out for users who know their requirements are clear.",
+      "impact": "Medium — affects default user experience"
     },
-    "Q4_delivery_sequencing": {
-      "question": "Sequential-first or full parallel in one pass?",
-      "recommendation": "Sequential-first (hybrid). Foundation validated before adding parallelism.",
-      "decision": "TD-5"
+    {
+      "id": "Q4",
+      "question": "How should the original issue body be preserved when updated with requirements in issue mode?",
+      "recommendation": "Include the original issue body in a collapsed <details> section at the bottom of the requirements document. This preserves context while making the requirements the primary content.",
+      "impact": "Low — formatting detail"
     }
-  }
+  ]
 }
