@@ -206,13 +206,13 @@
           "conflicts": []
         }
       ],
-      "review_cycles": 0,
+      "review_cycles": 1,
       "hitl_review_cycles": 0,
       "cycle_timings": [
         {
           "cycle": 0,
           "started_at": "2026-02-20T19:32:37.432900",
-          "completed_at": null,
+          "completed_at": "2026-02-20T19:54:51.272183",
           "commit_sha": "ce2f20078a5ccce54a9b69c1a85fddba6b32f7f1"
         }
       ],
@@ -236,11 +236,11 @@
     }
   ],
   "created_at": "2026-02-20T18:30:52.811215",
-  "updated_at": "2026-02-20T19:54:45.096374",
+  "updated_at": "2026-02-20T19:54:51.272397",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
   "complexity_tier": "high",
   "error": null,
-  "version": 29
+  "version": 30
 }
