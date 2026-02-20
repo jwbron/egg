@@ -84,6 +84,19 @@
       "error": null,
       "retry_count": 0,
       "conflicts": []
+    },
+    {
+      "role": "architect",
+      "phase_id": null,
+      "status": "complete",
+      "started_at": null,
+      "completed_at": "2026-02-20T19:40:32.113405Z",
+      "commit": "d69ba712",
+      "checkpoint_id": null,
+      "outputs": {},
+      "error": null,
+      "retry_count": 0,
+      "conflicts": []
     }
   ],
   "multi_agent_config": null
