@@ -1,471 +1,306 @@
 {
-  "issue": 732,
+  "issue": 738,
   "phase": "plan",
   "agent": "risk_analyst",
-  "title": "Risk Assessment: Parallel Phase-Level Dispatch for Implement Phase",
-  "summary": "Assessment of the hybrid approach (Approach C) for adding Tier 3 dispatch to the SDLC pipeline. The recommended approach carries manageable risk when delivered in two stages. The highest risks center on the composite execution key migration (silent data loss during deserialization), integrator privilege escalation interacting with readonly mount enforcement (#800), and the sheer scope of changes touching 12+ files across 4 packages. Six risks are rated High, five Medium, and two Low. All are mitigable with the staged approach but require careful implementation ordering and comprehensive backward compatibility testing.",
+  "title": "Risk Assessment: Add interactive pre-refine step to the SDLC pipeline",
+  "summary": "Assessment of Approach A (new PRE_REFINE pipeline phase with interactive Claude session) for adding conversational requirements gathering before the refine phase. The recommended approach is sound but carries meaningful implementation risk due to the breadth of code paths that must be updated when introducing a new pipeline phase. The highest risks are: (1) three independently maintained PipelinePhase enum copies that must stay in sync, (2) the 5,283-line pipelines.py with 7+ hardcoded phase-conditional branches in _run_pipeline(), (3) a fail-open security gap if phase-permissions.json is not updated correctly, and (4) three separate VALID_TRANSITIONS maps that must all agree. Eight risks are identified: three High, three Medium, two Low. All are mitigable with disciplined implementation ordering and comprehensive testing. The overall approach is approved with conditions.",
 
   "risk_assessment": {
-    "overall_risk_level": "Medium-High",
-    "overall_verdict": "Proceed with Approach C (hybrid staged delivery). Risks are manageable but require strict implementation ordering, comprehensive backward compatibility testing, and human review of integrator privilege escalation and schema migration.",
-    "confidence": "High — based on source code analysis of all 12 affected files, contract schema, gateway enforcement layers, test infrastructure, and recent commit history"
+    "overall_risk_level": "Medium",
+    "overall_verdict": "Proceed with Approach A (new PRE_REFINE pipeline phase). The approach is architecturally sound — modeling pre-refine as a first-class phase provides clean state semantics, SSE observability, and restart capability. Risks are manageable but require: (1) a complete audit of all PipelinePhase references before implementation begins, (2) strict phase-1-first ordering to catch breakage early, (3) human review of the phase-permissions.json entry and gateway VALID_PIPELINE_PHASES update, and (4) backward compatibility tests as a blocking gate before merge.",
+    "confidence": "High — based on source code analysis of all affected files, three PipelinePhase enum definitions, transition maps, phase-conditional branches in _run_pipeline(), gateway enforcement code, phase-permissions.json structure, test infrastructure, and the existing plan document"
   },
 
   "risks": [
     {
       "id": "R-1",
-      "category": "Data Integrity",
-      "title": "Silent data loss during composite key migration",
-      "description": "OrchestrationState.from_contract() at orchestration.py:76-83 converts agent_executions list to dict[AgentRole, AgentExecutionModel]. If Tier 3 produces multiple CODER executions (one per phase), the dict conversion silently overwrites earlier entries — only the last CODER execution survives. No error is raised. This affects all downstream state queries: can_agent_run(), get_runnable_agents(), get_next_wave().",
+      "category": "Code Consistency",
+      "title": "Three independently maintained PipelinePhase enum copies",
+      "description": "The PipelinePhase enum is defined in three separate locations that must be kept in sync: orchestrator/models.py:15, shared/egg_contracts/models.py:34, and gateway/phase_filter.py:28. The gateway copy has an explicit comment ('values must be kept in sync') acknowledging this design debt. If any one copy is missed during implementation, deserialization failures or silent phase-handling gaps will occur. The gateway copy is particularly dangerous because it controls enforcement — a missing PRE_REFINE there means the gateway cannot validate phase transitions for the new phase.",
       "likelihood": "High",
-      "impact": "Critical",
-      "risk_score": "High",
+      "impact": "High",
       "affected_files": [
-        "shared/egg_contracts/orchestration.py:76-83",
-        "shared/egg_contracts/models.py:493-507"
+        "orchestrator/models.py:15",
+        "shared/egg_contracts/models.py:34",
+        "gateway/phase_filter.py:28"
       ],
-      "mitigation": {
-        "strategy": "Add validation before migration, then migrate atomically",
-        "steps": [
-          "Add a validator in models.py that raises on duplicate (role, phase_id) pairs in agent_executions — catches corruption before it propagates",
-          "Change OrchestrationState.executions to dict[tuple[str | None, AgentRole], AgentExecutionModel] with (phase_id, role) composite key",
-          "When phase_id is None (Tier 2), behavior must match current role-only keying — test this explicitly",
-          "Add deserialization tests with 0, 1, and multiple CODER entries across phases"
-        ],
-        "residual_risk": "Low — once composite key is in place, data loss path is eliminated"
-      },
+      "mitigation": "The plan correctly identifies both orchestrator/models.py and shared/egg_contracts/models.py but does NOT mention gateway/phase_filter.py. This is a gap. The implementer must add PRE_REFINE to all three enum definitions. Recommend adding a test that asserts all three enums have identical member sets (if one doesn't already exist). Implementation order: update all three in Phase 1, before any behavioral changes.",
+      "residual_risk": "Low after mitigation — if the test exists, future enum additions will catch drift.",
       "human_review_required": true,
-      "review_reason": "Schema change affects all contract consumers. Need to verify no external tools read agent_executions assuming role uniqueness."
+      "plan_gap": "The plan's Phase 1 does not list gateway/phase_filter.py as a file to update. TASK-1-1 and TASK-1-2 update the orchestrator and shared copies but miss the gateway copy. This must be added."
     },
     {
       "id": "R-2",
       "category": "Security",
-      "title": "Integrator privilege escalation conflicts with readonly mount enforcement",
-      "description": "PR #800 (merged Feb 16) enforces readonly mounts for .egg-state/contracts/, .egg-state/drafts/, .egg-state/pipelines/, and .egg-state/reviews/ during the implement phase. The architect's proposal (TD-4) gives integrator write access to src/, tests/, docs/ in Tier 3. The integrator runs during the implement phase. If the integrator also needs to update contract state (e.g., mark phases complete, record merge results), the readonly mount blocks direct file writes. Two gateway enforcement layers must agree: phase_filter.py (layer 1 — phase-based file restrictions) and agent_restrictions.py (layer 2 — role-based file restrictions).",
-      "likelihood": "High",
+      "title": "Fail-open phase permissions if phase-permissions.json entry is missing or malformed",
+      "description": "The gateway's PhaseFilter (gateway/phase_filter.py) loads phase permissions from .egg/phase-permissions.json and silently skips unknown phases (except ValueError catch). If the pre_refine entry is absent or its key doesn't match the enum value exactly ('pre_refine'), the phase falls through to a default-allow path. Additionally, VALID_PIPELINE_PHASES (gateway/gateway.py:3176) is a hardcoded frozenset {'refine', 'plan', 'implement', 'pr'} used to validate session phase updates. If 'pre_refine' is not added, the gateway will reject phase updates for PRE_REFINE with 'Invalid phase' errors, blocking the pipeline from functioning. There are also _get_default_permissions() and _get_default_phase_file_restrictions() methods in phase_filter.py that hardcode all four current phases and need PRE_REFINE entries.",
+      "likelihood": "Medium",
       "impact": "High",
-      "risk_score": "High",
       "affected_files": [
-        "gateway/phase_filter.py:480-525",
-        "gateway/agent_restrictions.py:296-321",
-        "shared/egg_contracts/agent_roles.py:289-318"
+        ".egg/phase-permissions.json",
+        "gateway/gateway.py:3176 (VALID_PIPELINE_PHASES)",
+        "gateway/phase_filter.py (_get_default_permissions, _get_default_phase_file_restrictions)"
       ],
-      "mitigation": {
-        "strategy": "Source code write access via role config; contract updates via orchestrator API",
-        "steps": [
-          "Integrator source write access (src/, tests/, docs/) should be controlled via agent_roles.py conditional on complexity_tier — this is a role restriction change, not a phase mount change",
-          "Contract state updates should go through the orchestrator HTTP API (existing pattern: dispatcher.contract_orchestrator.apply_to_contract()), NOT direct file writes — this preserves readonly mount security",
-          "Do NOT change the implement phase readonly mounts — the mount strategy from #800 is a security boundary worth preserving",
-          "Add integration tests that verify integrator can write source but NOT contract files during Tier 3 implement"
-        ],
-        "residual_risk": "Medium — integrator with source write access is a privilege escalation; defense in depth (agentic review + human review) mitigates but does not eliminate"
-      },
+      "mitigation": "The plan includes TASK-1-4 for phase-permissions.json but does not mention gateway/gateway.py:VALID_PIPELINE_PHASES or the default permission/restriction methods in phase_filter.py. The implementer must: (1) add 'pre_refine' to VALID_PIPELINE_PHASES, (2) add PRE_REFINE to _get_default_permissions() and _get_default_phase_file_restrictions(), (3) verify the phase-permissions.json key matches the enum value exactly. Pre-refine permissions should be the most restrictive of any phase: no code changes, no PR creation, only .egg-state/drafts/*requirements* writes allowed.",
+      "residual_risk": "Low after mitigation — permissions are explicit and testable.",
       "human_review_required": true,
-      "review_reason": "Privilege escalation for integrator role. Need security review of what the integrator can do with unrestricted src/ write access. Consider: could an adversarial integrator output exfiltrate data or inject malicious code that survives human review?"
+      "plan_gap": "Plan does not include gateway/gateway.py or gateway/phase_filter.py default methods as files to update in Phase 1. These are critical security-related omissions."
     },
     {
       "id": "R-3",
-      "category": "Backward Compatibility",
-      "title": "Contract schema migration breaks existing pipelines",
-      "description": "The contract schema (.egg/schemas/contract.schema.json) uses additionalProperties: false at multiple levels. Adding dependencies to Phase and phase_id to AgentExecutionModel requires a schema version bump. Existing contracts (732 stored in .egg-state/contracts/) will fail validation against the new schema unless migration is handled. The agentExecution role enum is restricted to ['coder', 'tester', 'documenter', 'integrator'] — adding reviewer roles for per-phase agentic review would require enum expansion.",
-      "likelihood": "Medium",
-      "impact": "High",
-      "risk_score": "High",
+      "category": "Code Complexity",
+      "title": "7+ hardcoded phase-conditional branches in _run_pipeline() (5,283 lines)",
+      "description": "_run_pipeline() in orchestrator/routes/pipelines.py is ~1,360 lines long and contains at least 7 locations where phase behavior is determined by string comparison against hardcoded phase values: (1) _HITL_GATE_PHASES set at line 3231, (2) multi-agent detection at line 4093 checks for 'implement' and 'plan', (3) agent role selection at line 4229 checks 'refine' vs CODER, (4) short-circuit detection at line 4606 checks 'refine', (5) contract population at line 4664 checks 'plan', (6) HITL gate activation at line 4686 checks _HITL_GATE_PHASES, (7) phase label mapping at line 4694 checks 'refine'. A missed branch means silent misbehavior — wrong agent role spawned, wrong HITL gate behavior, or incorrect visualization labels. PRE_REFINE is unlike other phases because it does NOT spawn a container, so most of these branches should be explicitly skipped or short-circuited early.",
+      "likelihood": "High",
+      "impact": "Medium",
       "affected_files": [
-        ".egg/schemas/contract.schema.json",
-        "shared/egg_contracts/models.py:334-365",
-        "shared/egg_contracts/models.py:400-563"
+        "orchestrator/routes/pipelines.py:3231 (_HITL_GATE_PHASES)",
+        "orchestrator/routes/pipelines.py:4093 (multi-agent set)",
+        "orchestrator/routes/pipelines.py:4229 (agent role selection)",
+        "orchestrator/routes/pipelines.py:4606 (short-circuit detection)",
+        "orchestrator/routes/pipelines.py:4664 (contract population)",
+        "orchestrator/routes/pipelines.py:4686 (HITL gate activation)",
+        "orchestrator/routes/pipelines.py:4694 (phase label mapping)"
       ],
-      "mitigation": {
-        "strategy": "Additive schema changes with defaults, schema version migration",
-        "steps": [
-          "New fields (dependencies, phase_id) must have defaults ([] and null respectively) so old contracts deserialize without error",
-          "Bump schemaVersion to 1.1 with a migration function that adds defaults to 1.0 contracts",
-          "Add schema validation test that loads every existing contract in .egg-state/contracts/ against the new schema",
-          "Keep additionalProperties: false — add fields explicitly rather than relaxing the constraint",
-          "Reviewer roles (reviewer_code, reviewer_contract) need to be added to the role enum if per-phase agentic review tracks execution state in the contract"
-        ],
-        "residual_risk": "Low — with proper defaults and migration, backward compatibility is maintainable"
-      },
-      "human_review_required": true,
-      "review_reason": "Schema changes affect all pipeline consumers. Verify no external tools parse contracts with strict schema validation."
+      "mitigation": "The plan's TASK-2-1 handles the core PRE_REFINE dispatch but the approach should be: insert a single early-return block at the top of the phase loop iteration that handles PRE_REFINE entirely (skip→advance or pause→AWAITING_HUMAN) and then `continue` to the next iteration, rather than threading PRE_REFINE logic through all 7 conditional branches. This 'early exit' pattern means downstream branches never see PRE_REFINE, eliminating the risk of missed checks. The implementer should verify this pattern is used.",
+      "residual_risk": "Low if the early-exit pattern is used. Medium if PRE_REFINE logic is scattered across the function.",
+      "human_review_required": false,
+      "plan_gap": "The plan mentions handling PRE_REFINE in _run_pipeline() but does not prescribe the early-exit pattern. Recommend the implementer adopt this approach."
     },
     {
       "id": "R-4",
-      "category": "Correctness",
-      "title": "DependencyGraph cannot model phase-to-phase dependencies",
-      "description": "DependencyGraph (dependency_graph.py) uses AgentRole as the sole node type. Wave computation (lines 227-262) produces dict[AgentRole, int] — inherently single-instance-per-role. Tier 3 needs two dependency models: (1) within a phase cycle (coder -> tester -> reviewer, same as Tier 2), and (2) between plan phases (phase-4 depends on phase-1). The current graph cannot represent the second model. Building PhaseDependencyGraph requires a separate class since the node type is fundamentally different (phase ID string vs AgentRole enum).",
+      "category": "Code Consistency",
+      "title": "Three separate VALID_TRANSITIONS maps must agree",
+      "description": "Phase transitions are defined in three separate locations: gateway/phase_transition.py (enforced by gateway sidecar), orchestrator/routes/phases.py:PHASE_TRANSITIONS (issue mode), and orchestrator/routes/phases.py:LOCAL_PHASE_TRANSITIONS (local mode). If these diverge, the gateway may reject a transition that the orchestrator considers valid (causing stuck pipelines) or the orchestrator may attempt a transition the gateway blocks (causing push failures). The gateway's copy is particularly important because it is the enforcement layer — the orchestrator trusts its own map but the gateway has final say.",
       "likelihood": "Medium",
       "impact": "High",
-      "risk_score": "High",
       "affected_files": [
-        "shared/egg_contracts/dependency_graph.py:29-48",
-        "shared/egg_contracts/dependency_graph.py:227-262",
-        "shared/egg_contracts/orchestration.py:384-396"
+        "gateway/phase_transition.py:41-46",
+        "orchestrator/routes/phases.py:50-63 (PHASE_TRANSITIONS)",
+        "orchestrator/routes/phases.py:50-63 (LOCAL_PHASE_TRANSITIONS)"
       ],
-      "mitigation": {
-        "strategy": "New PhaseDependencyGraph class alongside existing DependencyGraph",
-        "steps": [
-          "Create PhaseDependencyGraph with string phase IDs as nodes — do NOT modify existing DependencyGraph",
-          "Reuse topological sort and wave computation algorithms but with generic node type",
-          "Consider making a generic DependencyGraph[T] base class to share logic, but only if it doesn't complicate the existing code — premature generalization is a risk",
-          "Phase dependencies come from Phase.dependencies field (already parsed by plan_parser.py:88-96, just not persisted)",
-          "Integration test: graph with 3 independent + 1 dependent phase produces correct wave ordering"
-        ],
-        "residual_risk": "Low — new class has no coupling to existing graph"
-      },
-      "human_review_required": false,
-      "review_reason": null
+      "mitigation": "The plan's TASK-1-3 updates the orchestrator transition maps but does not mention gateway/phase_transition.py. The implementer must update all three maps consistently: PRE_REFINE -> [REFINE]. Consider adding a cross-validation test that compares all three maps to ensure they share the same phase set and transition graph (at minimum, every phase in one map must exist in the others).",
+      "residual_risk": "Low after mitigation with cross-validation test.",
+      "human_review_required": true,
+      "plan_gap": "The plan does not list gateway/phase_transition.py as a file to update. This is a critical omission — without updating the gateway's transition map, the gateway will reject PRE_REFINE -> REFINE transitions."
     },
     {
       "id": "R-5",
-      "category": "Correctness",
-      "title": "MultiAgentExecutor state tracking collides on role-keyed dictionaries",
-      "description": "MultiAgentExecutor (multi_agent.py) uses AgentRole as key in multiple dictionaries: AgentWave.containers (dict[AgentRole, ContainerInfo]), AgentWave.results (dict[AgentRole, AgentExecution]), and environment variables (EGG_AGENT_ROLE without phase context). If Tier 3 runs CODER for phase-1 and CODER for phase-2 sequentially, the wave-level state must track which phase each execution belongs to. Missing phase context in environment variables means the spawned agent cannot identify which phase's tasks to work on.",
+      "category": "Backward Compatibility",
+      "title": "Existing pipelines and test assertions may break with new enum value",
+      "description": "Several existing tests contain hardcoded assertions about the number of phases or transition targets. For example, gateway/tests/test_phase_transition.py has assertions like `len(VALID_TRANSITIONS[PipelinePhase.REFINE]) == 1`. Tests in test_dag_visualizer.py (66 PipelinePhase references) and test_start_pipeline.py (20+ REFINE assertions) may also break. Additionally, the Pipeline model default `current_phase=PipelinePhase.REFINE` must not change for backward compatibility with existing serialized pipeline JSON files that start at REFINE. The `_DEFAULT_PHASE_CONFIGS` dict in phase_defaults.py will raise a KeyError for PRE_REFINE if not updated, which would crash any code path that calls get_default_phase_config(PipelinePhase.PRE_REFINE).",
       "likelihood": "High",
-      "impact": "High",
-      "risk_score": "High",
+      "impact": "Medium",
       "affected_files": [
-        "orchestrator/multi_agent.py:46-77",
-        "orchestrator/multi_agent.py:353-356",
-        "orchestrator/multi_agent.py:228-279"
+        "gateway/tests/test_phase_transition.py",
+        "orchestrator/tests/test_dag_visualizer.py",
+        "orchestrator/tests/test_start_pipeline.py",
+        "tests/shared/egg_contracts/test_phase_defaults.py",
+        "shared/egg_contracts/phase_defaults.py:80 (_DEFAULT_PHASE_CONFIGS)"
       ],
-      "mitigation": {
-        "strategy": "Add phase context to wave execution and environment variables",
-        "steps": [
-          "For Stage 1 (sequential): each implement cycle runs a fresh set of waves for one phase. The MultiAgentExecutor is instantiated per phase cycle, so role collision doesn't occur within a single cycle — but result recording must include phase_id",
-          "Add EGG_PHASE_ID and EGG_PHASE_NUMBER to extra_env at line 353-356 so spawned agents know their scope",
-          "Update dispatcher.complete_agent() and dispatcher.fail_agent() to accept phase_id",
-          "For Stage 2 (parallel): separate MultiAgentExecutor instances per phase avoid state collision entirely — but orchestrator must coordinate across executors",
-          "Ensure the threading.Lock at line 129 doesn't become a bottleneck when running multiple sequential phase cycles"
-        ],
-        "residual_risk": "Medium — sequential cycling (Stage 1) avoids most collision but parallel (Stage 2) reintroduces it at the orchestrator level"
-      },
+      "mitigation": "Run the full test suite after Phase 1 (enum and transition map updates) to catch all assertion failures immediately. Fix test assertions to accommodate the new phase. Do NOT change the Pipeline.current_phase default from REFINE — instead, have the pipeline creation code explicitly set current_phase to PRE_REFINE when skip_pre_refine is false. This preserves backward compatibility for deserialization of existing pipelines. The plan correctly includes TASK-1-5 for phase_defaults.py.",
+      "residual_risk": "Low — test failures are caught early and are straightforward to fix.",
       "human_review_required": false,
-      "review_reason": null
+      "plan_gap": "The plan's backward compatibility section claims 'all existing phase switch/match/if-else chains handle the else/default case' — this is optimistic. Several code paths have hardcoded phase sets without defaults (e.g., _HITL_GATE_PHASES, multi-agent detection). The plan should acknowledge that test breakage is expected and planned for in Phase 5."
     },
     {
       "id": "R-6",
-      "category": "Complexity",
-      "title": "orchestrator/routes/pipelines.py is 4500 LOC and bears most of the change burden",
-      "description": "pipelines.py is the largest and most complex file in the orchestrator at 4,495 lines. It handles pipeline creation, state management, agent spawning, decision queues, result collection, complexity detection, and phase prompt building. The Tier 3 changes add: _run_tier3_implement(), _check_high_complexity_signal(), per-phase prompt building with task filtering, and per-phase review cycling with retry. This file is already a maintenance risk and adding ~200-300 LOC of complex orchestration logic increases cognitive load and merge conflict surface.",
+      "category": "User Experience",
+      "title": "Interactive Claude session crash or disconnect loses partial requirements work",
+      "description": "If the Claude Code session crashes, the terminal disconnects, or the user kills the process during requirements gathering, any conversation context not yet written to the draft file is lost. The pipeline remains in PRE_REFINE/AWAITING_HUMAN state (correct), but the human must restart the conversation from scratch. Long requirements sessions (30+ minutes) on complex projects are especially vulnerable.",
       "likelihood": "Medium",
       "impact": "Medium",
-      "risk_score": "Medium",
       "affected_files": [
-        "orchestrator/routes/pipelines.py"
+        "sandbox/egg_lib/sdlc_hitl.py (handle_pre_refine)"
       ],
-      "mitigation": {
-        "strategy": "Encapsulate Tier 3 logic in a separate module",
-        "steps": [
-          "Extract _run_tier3_implement() and related helpers to a new orchestrator/tier3_dispatch.py module",
-          "Keep pipelines.py as the routing/entry point — it dispatches to tier3_dispatch based on complexity_tier",
-          "This reduces merge conflict surface and keeps the PR reviewable",
-          "If extraction is out of scope, at minimum group all Tier 3 functions together at the end of pipelines.py with a clear section comment"
-        ],
-        "residual_risk": "Low — extraction is a clean refactor with no behavioral change"
-      },
+      "mitigation": "The plan correctly specifies incremental draft file writes (TASK-3-2). The system prompt should instruct Claude to write the requirements document to the draft file after each significant exchange, not just at the end. Additionally, when the human resumes (re-attaches to the pipeline), the pre-refine handler should detect the existing partial draft and offer to continue from where it left off rather than starting fresh. This resume capability is not explicitly mentioned in the plan but is important for long sessions.",
+      "residual_risk": "Low-Medium — incremental writes limit data loss to the last exchange, but conversation context (Claude's understanding of the requirements) is still lost on session death.",
       "human_review_required": false,
-      "review_reason": null
+      "plan_gap": "The plan mentions incremental writes but does not mention resume-from-partial-draft behavior. Adding explicit resume logic would significantly improve the UX for interrupted sessions."
     },
     {
       "id": "R-7",
-      "category": "Correctness",
-      "title": "Per-phase prompt isolation may leak cross-phase context",
-      "description": "Each phase's coder should only see its own tasks and files_affected. The current _build_agent_prompt() in pipelines.py constructs prompts from the full contract. If filtering is incorrect, a coder could receive tasks from another phase, leading to out-of-scope changes, file conflicts, or wasted work. This is especially dangerous in Stage 2 (parallel) where two coders editing the same file would cause merge conflicts.",
-      "likelihood": "Medium",
-      "impact": "Medium",
-      "risk_score": "Medium",
+      "category": "Integration",
+      "title": "Issue body update in issue mode may produce unexpected formatting",
+      "description": "TASK-4-1 updates the GitHub issue body with the approved requirements document and preserves the original body in a collapsed <details> section. If the original issue body contains complex markdown (tables, nested HTML, code blocks), the <details> wrapping may produce malformed rendering on GitHub. Additionally, if the issue body is very long (>65,535 chars), the GitHub API may truncate it silently. The refine agent reads the issue body, so formatting artifacts could degrade analysis quality.",
+      "likelihood": "Low",
+      "impact": "Low",
       "affected_files": [
-        "orchestrator/routes/pipelines.py"
+        "orchestrator/routes/pipelines.py (issue body update logic)"
       ],
-      "mitigation": {
-        "strategy": "Explicit phase filtering with validation",
-        "steps": [
-          "Build phase-filtered prompt function that accepts phase_id and only includes tasks where task.phase_id matches",
-          "Include a defensive check: if any task references a file in another phase's files_affected, log a warning",
-          "Add test: generate prompts for phase-1 and phase-2, verify no task/file overlap",
-          "In Stage 2, add pre-flight validation that files_affected across parallel phases are disjoint — abort if overlap detected"
-        ],
-        "residual_risk": "Low — with validation, leakage is caught before execution"
-      },
+      "mitigation": "Keep the <details> section simple. Test with a few representative issue bodies including complex markdown. Consider a character limit check before updating. The refine agent also reads the .egg-state/drafts/{id}-requirements.md file directly, so the issue body update is a convenience for human readers, not the critical data path.",
+      "residual_risk": "Low — edge case with simple workaround.",
       "human_review_required": false,
-      "review_reason": null
+      "plan_gap": "None — this is a minor implementation detail."
     },
     {
       "id": "R-8",
-      "category": "Performance",
-      "title": "Token cost multiplier is underestimated for retry scenarios",
-      "description": "The issue estimates Tier 3 at 2-2.5x the token cost of Tier 2. This assumes each phase cycle succeeds on the first attempt. If agentic review rejects a phase (triggering coder retry), the cost for that phase triples: original coder + tester + reviewer + retry coder + retry tester + retry reviewer. With 3 phases and max_review_cycles=3, worst case is 3 * (3 * (coder + tester + 2 reviewers)) = 36 agent runs, or 6x the Tier 2 cost. The integrator adds another agent on top.",
-      "likelihood": "Low",
-      "impact": "Medium",
-      "risk_score": "Medium",
-      "affected_files": [],
-      "mitigation": {
-        "strategy": "Cost caps and circuit breakers",
-        "steps": [
-          "Implement per-pipeline token budget with enforcement — abort Tier 3 if budget exceeded",
-          "Default max_review_cycles to 2 (not 3) for Tier 3 phases to limit retry cost",
-          "Add cost tracking per phase cycle — report per-phase costs in integrator output",
-          "Consider: if >50% of phases fail agentic review, escalate to human review instead of retrying — the plan may be flawed"
-        ],
-        "residual_risk": "Low — with budget caps, cost is bounded"
-      },
-      "human_review_required": false,
-      "review_reason": null
-    },
-    {
-      "id": "R-9",
-      "category": "Correctness",
-      "title": "Phase dependency graph cycles or missing phases cause deadlock",
-      "description": "If the plan contains circular dependencies (phase-1 depends on phase-2, phase-2 depends on phase-1) or references non-existent phases, the PhaseDependencyGraph could deadlock (infinite loop waiting for unresolvable dependencies) or error at runtime. The plan parser currently doesn't validate dependency consistency.",
-      "likelihood": "Low",
-      "impact": "High",
-      "risk_score": "Medium",
-      "affected_files": [
-        "shared/egg_contracts/dependency_graph.py",
-        "shared/egg_contracts/plan_parser.py:88-96"
-      ],
-      "mitigation": {
-        "strategy": "Validate dependency graph at plan parsing time",
-        "steps": [
-          "Add cycle detection in PhaseDependencyGraph construction (topological sort already handles this — make the error message clear)",
-          "Validate that all dependency references resolve to existing phase IDs",
-          "Reject plans with invalid dependency graphs during the plan phase, before implement begins",
-          "Add test: circular dependency plan is rejected with descriptive error"
-        ],
-        "residual_risk": "Negligible — standard DAG validation"
-      },
-      "human_review_required": false,
-      "review_reason": null
-    },
-    {
-      "id": "R-10",
-      "category": "Reliability",
-      "title": "Sub-branch merge conflicts despite files_affected boundaries (Stage 2)",
-      "description": "In Stage 2 (parallel dispatch), each phase pushes to egg/<feature>/phase-N. The integrator merges sub-branches. Even with files_affected partitioning, shared files (package.json, __init__.py, imports, test fixtures) can cause merge conflicts. files_affected is declared by the plan but not enforced — a coder may modify files outside its declared scope. The gateway's branch prefix check (startswith('egg/')) already supports sub-branches, but worktree lifecycle management is new.",
+      "category": "Architecture",
+      "title": "PRE_REFINE phase breaks the agent-container execution model",
+      "description": "All existing phases (REFINE, PLAN, IMPLEMENT, PR) follow a consistent pattern: spawn agent container in --print mode -> wait for exit -> read artifacts -> review -> HITL gate. PRE_REFINE breaks this pattern: no container is spawned, the phase immediately pauses for human interaction, and the CLI handles the session client-side. This creates a code path in _run_pipeline() that is fundamentally different from all other phases. Future developers may incorrectly assume all phases spawn containers, leading to subtle bugs when adding new features to the phase loop (e.g., timeout handling, resource tracking, agent metrics).",
       "likelihood": "Medium",
       "impact": "Medium",
-      "risk_score": "Medium",
       "affected_files": [
-        "gateway/worktree_manager.py",
-        "gateway/policy.py:301-303"
+        "orchestrator/routes/pipelines.py (_run_pipeline phase loop)"
       ],
-      "mitigation": {
-        "strategy": "Enforce file boundaries at commit time; design integrator for conflict resolution",
-        "steps": [
-          "In Stage 2, add gateway enforcement: coder commit in phase-N can only modify files in that phase's files_affected list (reject commits that modify out-of-scope files)",
-          "Integrator prompt should explicitly include conflict resolution instructions and expect merge conflicts",
-          "Add test: two coders modify same file in different phases — integrator resolves or escalates",
-          "Consider: shared files (package.json, __init__.py) should be assigned to a single phase or to the integrator"
-        ],
-        "residual_risk": "Medium — merge conflicts are inherent in parallel work; integrator handles them but at token cost"
-      },
+      "mitigation": "Use the early-exit pattern recommended in R-3 mitigation: handle PRE_REFINE at the top of the phase loop iteration and `continue`, so the rest of the loop body (container spawning, agent waiting, review cycles) never executes for this phase. Add a clear code comment explaining that PRE_REFINE is human-driven and does not spawn a container. The architect's decision (TD-7) correctly identifies this pattern.",
+      "residual_risk": "Low — well-documented divergence is manageable. The pattern may even be useful for future human-driven phases.",
       "human_review_required": false,
-      "review_reason": null
+      "plan_gap": "None — the architect's design correctly handles this."
+    }
+  ],
+
+  "plan_gaps": [
+    {
+      "id": "GAP-1",
+      "severity": "Critical",
+      "description": "gateway/phase_filter.py:28 has a third PipelinePhase enum copy that must be updated with PRE_REFINE. Not mentioned in the plan.",
+      "affected_tasks": ["TASK-1-1", "TASK-1-2"],
+      "recommendation": "Add a new task (TASK-1-1b) to update the gateway PipelinePhase enum, or expand TASK-1-1 scope to include all three enum locations."
     },
     {
-      "id": "R-11",
-      "category": "Compatibility",
-      "title": "Tier 1 and Tier 2 regression risk from shared code changes",
-      "description": "The composite key migration, schema changes, and orchestration state refactoring touch code paths used by all three tiers. Tier 1 (short-circuit, PR #734) and Tier 2 (standard multi-agent) must continue working unchanged. The risk is that changes intended for Tier 3 introduce subtle regressions: e.g., get_agent_execution() returning wrong results when phase_id is None, or wave computation producing incorrect ordering when only one instance of each role exists.",
-      "likelihood": "Medium",
-      "impact": "High",
-      "risk_score": "High",
-      "affected_files": [
-        "shared/egg_contracts/orchestration.py",
-        "shared/egg_contracts/models.py",
-        "orchestrator/multi_agent.py",
-        "orchestrator/routes/pipelines.py"
-      ],
-      "mitigation": {
-        "strategy": "Backward compatibility test suite run before and after every change",
-        "steps": [
-          "Before starting implementation, capture baseline test results for Tier 1 and Tier 2",
-          "Write explicit regression tests: Tier 1 short-circuit flow end-to-end, Tier 2 standard multi-agent flow end-to-end",
-          "Every PR in the Stage 1 delivery must pass these regression tests",
-          "The composite key change must be tested with phase_id=None to verify Tier 2 behavior is identical",
-          "Use test_short_circuit.py (350 lines) as the quality bar for regression test coverage"
-        ],
-        "residual_risk": "Low — with comprehensive regression tests, regressions are caught at CI"
-      },
-      "human_review_required": false,
-      "review_reason": null
+      "id": "GAP-2",
+      "severity": "Critical",
+      "description": "gateway/phase_transition.py has its own VALID_TRANSITIONS map separate from the orchestrator's. Not mentioned in the plan.",
+      "affected_tasks": ["TASK-1-3"],
+      "recommendation": "Expand TASK-1-3 to include gateway/phase_transition.py, or add a new task."
     },
     {
-      "id": "R-12",
-      "category": "Scope",
-      "title": "12+ file change scope increases merge conflict risk with concurrent development",
-      "description": "The full implementation (Stages 1+2) touches 12+ files across 4 packages (shared/egg_contracts, orchestrator, gateway, .egg). While no active feature branches currently conflict, this repo sees frequent changes (4 commits in 2 days to key files). A multi-day implementation has significant merge conflict exposure, especially on pipelines.py (4500 LOC).",
-      "likelihood": "Medium",
-      "impact": "Low",
-      "risk_score": "Low",
-      "affected_files": [],
-      "mitigation": {
-        "strategy": "Small, frequent, independently mergeable PRs",
-        "steps": [
-          "Stage 1 should be split into multiple PRs matching the architect's phase decomposition",
-          "Phase 1 (schema/model) can merge independently — no behavioral change",
-          "Phase 2 (complexity assessment) can merge independently — adds detection without acting on it",
-          "Phases 3-5 (composite keys, phase DAG, cycling) are coupled and should be one PR",
-          "Phase 6 (integrator write access) should be a separate PR for security review",
-          "Rebase frequently against main to avoid large merge conflicts"
-        ],
-        "residual_risk": "Low — staged delivery naturally reduces conflict surface"
-      },
-      "human_review_required": false,
-      "review_reason": null
+      "id": "GAP-3",
+      "severity": "Critical",
+      "description": "gateway/gateway.py:3176 VALID_PIPELINE_PHASES frozenset must include 'pre_refine'. Without this, the gateway rejects all phase updates for PRE_REFINE sessions.",
+      "affected_tasks": ["TASK-1-4"],
+      "recommendation": "Add gateway/gateway.py to the files list for Phase 1."
     },
     {
-      "id": "R-13",
-      "category": "Reliability",
-      "title": "Partial phase failure leaves pipeline in inconsistent state",
-      "description": "If a Tier 3 pipeline completes phases 1-2 but phase 3's coder fails after exhausting retries, the pipeline must decide: abort the entire feature (wasting completed phases' work), proceed to integrator with partial results, or escalate to human. The current pipeline model assumes all-or-nothing completion. Partial success tracking and recovery is not designed.",
-      "likelihood": "Medium",
-      "impact": "Medium",
-      "risk_score": "Medium",
-      "affected_files": [
-        "orchestrator/routes/pipelines.py",
-        "shared/egg_contracts/orchestration.py"
-      ],
-      "mitigation": {
-        "strategy": "Design partial completion policy before implementation",
-        "steps": [
-          "Define policy: if a phase fails after max retries, mark it failed and continue with remaining phases — integrator handles the gap",
-          "Add phase-level status to contract: each phase has status (pending/running/complete/failed/skipped)",
-          "Integrator receives list of completed vs failed phases — its prompt includes instructions for failed phases (stub, document limitation, or fix)",
-          "If >50% of phases fail, abort pipeline and escalate to human",
-          "Add test: 2/3 phases succeed, 1 fails — integrator produces valid output from partial results"
-        ],
-        "residual_risk": "Medium — partial success is inherently complex; policy decision needed"
-      },
-      "human_review_required": true,
-      "review_reason": "Partial failure policy is a product decision, not purely technical. Need human input on: should we proceed with partial results or abort?"
+      "id": "GAP-4",
+      "severity": "Medium",
+      "description": "gateway/phase_filter.py _get_default_permissions() and _get_default_phase_file_restrictions() hardcode all four current phases. PRE_REFINE needs entries.",
+      "affected_tasks": ["TASK-1-4"],
+      "recommendation": "Include gateway/phase_filter.py in Phase 1 file list."
+    },
+    {
+      "id": "GAP-5",
+      "severity": "Medium",
+      "description": "shared/egg_contracts/agent_roles.py _PHASE_ROLES and _PHASE_REVIEWERS dicts need PRE_REFINE entries. get_agents_for_phase('pre_refine') would raise ValueError without this.",
+      "affected_tasks": ["TASK-1-5"],
+      "recommendation": "Add shared/egg_contracts/agent_roles.py to Phase 1 files. PRE_REFINE should have an empty roles list (no agents) and empty reviewers list (no review cycle)."
+    },
+    {
+      "id": "GAP-6",
+      "severity": "Medium",
+      "description": "orchestrator/dag_visualizer.py PHASE_ORDER and PHASE_NAMES need PRE_REFINE entries. Without these, the pipeline DAG display and progress bar omit the pre-refine phase entirely.",
+      "affected_tasks": ["TASK-1-1"],
+      "recommendation": "Add orchestrator/dag_visualizer.py to Phase 1 files. Prepend PRE_REFINE to PHASE_ORDER and add 'Pre-Refine' to PHASE_NAMES."
+    },
+    {
+      "id": "GAP-7",
+      "severity": "Low",
+      "description": "sandbox/egg_lib/orch_cli.py has two hardcoded choices lists (lines 1107, 1221) that enumerate phases. 'pre_refine' should be added.",
+      "affected_tasks": ["TASK-1-3"],
+      "recommendation": "Add orch_cli.py to Phase 1 or Phase 2 files."
+    },
+    {
+      "id": "GAP-8",
+      "severity": "Low",
+      "description": "Resume-from-partial-draft behavior is not specified. If a session crashes mid-conversation, the human restarts from scratch even though a partial draft may exist.",
+      "affected_tasks": ["TASK-3-1", "TASK-3-2"],
+      "recommendation": "Add logic to handle_pre_refine() that detects an existing partial requirements draft and offers 'Continue from existing draft' as a menu option."
     }
   ],
 
   "areas_requiring_human_review": [
     {
-      "area": "Integrator privilege escalation (R-2)",
-      "reason": "Granting write access to src/, tests/, docs/ for the integrator in Tier 3 is a security boundary change. While defense in depth (agentic review + human review) mitigates risk, the integrator could theoretically introduce malicious code or overwrite reviewed changes. Need explicit human approval for the permission model.",
-      "decision_needed": "Confirm integrator write scope: unrestricted src/tests/docs (as proposed) vs scoped to files modified by phase coders vs unrestricted with mandatory diff review"
+      "area": "Phase permissions for pre_refine",
+      "reason": "Security-sensitive. The pre_refine entry in phase-permissions.json controls what operations are allowed during requirements gathering. It should be the most restrictive phase: no code changes, no PRs, only requirements draft writes. A misconfiguration here means the phase has fewer restrictions than intended.",
+      "files": [".egg/phase-permissions.json", "gateway/phase_filter.py"]
     },
     {
-      "area": "Contract schema migration strategy (R-3)",
-      "reason": "Schema changes affect all contract consumers. Need to verify: (1) no external tools parse contracts with strict validation, (2) migration strategy (version bump + defaults) is acceptable, (3) reviewer roles should be added to the role enum.",
-      "decision_needed": "Approve schema migration approach: additive fields with defaults + version bump to 1.1"
+      "area": "Gateway VALID_PIPELINE_PHASES and transition maps",
+      "reason": "The gateway is the enforcement layer. If its PipelinePhase enum, VALID_PIPELINE_PHASES frozenset, or VALID_TRANSITIONS map are incorrect, pipeline operations will fail or be incorrectly permitted. These files must be reviewed together.",
+      "files": ["gateway/gateway.py", "gateway/phase_filter.py", "gateway/phase_transition.py"]
     },
     {
-      "area": "Partial phase failure policy (R-13)",
-      "reason": "What happens when some phases succeed and others fail? This is a product/UX decision that affects user trust and pipeline reliability.",
-      "decision_needed": "Choose policy: abort on any failure / continue with partial results / escalate to human after N failures"
-    },
-    {
-      "area": "Composite key migration rollout (R-1, R-11)",
-      "reason": "The composite (phase_id, role) key change is the single highest-risk modification. It touches the foundational state model used by all orchestration logic. Incorrect implementation causes silent data loss.",
-      "decision_needed": "Confirm implementation ordering: Phase 1 (schema) must merge and stabilize before Phase 3 (composite keys) begins"
+      "area": "Requirements-gathering system prompt",
+      "reason": "The quality of the pre-refine step depends heavily on Claude's system prompt. It should guide the conversation toward clear requirements without being overly rigid. The prompt should be reviewed by a human who has experience with the kind of requirements gathering this feature is intended to support.",
+      "files": ["sandbox/egg_lib/sdlc_hitl.py (system prompt in handle_pre_refine)"]
     }
   ],
 
   "rollback_plan": {
-    "strategy": "Feature-flag gated rollback with contract compatibility",
-    "details": [
+    "description": "If the pre-refine feature causes issues in production, it can be rolled back incrementally or fully.",
+    "strategies": [
       {
-        "stage": "Stage 1 rollback",
-        "mechanism": "The 3-tier complexity assessment is the entry point. Setting PipelineConfig.enable_tier3 to False (or removing the config) causes all pipelines to use Tier 2 dispatch regardless of complexity signal. Composite key tracking still works (phase_id=None behaves as Tier 2). No contract migration reversal needed since new fields have defaults.",
-        "data_impact": "None — contracts with phase_id=None are indistinguishable from pre-Tier-3 contracts",
-        "recovery_time": "Config change + restart"
+        "level": "Soft disable",
+        "description": "Set skip_pre_refine=true in all pipeline creation paths. This causes pipelines to start at REFINE as before. No code changes needed — just a configuration change. The PRE_REFINE enum value remains in code but is never activated.",
+        "effort": "Minimal",
+        "data_loss": "None"
       },
       {
-        "stage": "Stage 2 rollback",
-        "mechanism": "PipelineConfig.enable_parallel_phases defaults to False. Reverting to False restores sequential cycling (Stage 1 behavior). Sub-branches created during parallel dispatch persist on the remote but are not used. Worktree cleanup runs on pipeline completion regardless.",
-        "data_impact": "Orphaned sub-branches on remote — cleanup with script or manual deletion",
-        "recovery_time": "Config change + restart"
+        "level": "Feature flag removal",
+        "description": "Change the Pipeline.current_phase default back to REFINE and remove the skip_pre_refine conditional in pipeline creation. Pipelines always start at REFINE. PRE_REFINE code paths exist but are dead code.",
+        "effort": "Low",
+        "data_loss": "None — existing pipelines in PRE_REFINE state would need manual phase advancement via egg-orch phase advance."
       },
       {
-        "stage": "Full rollback (remove Tier 3 entirely)",
-        "mechanism": "Revert the complexity assessment change so refine never signals Tier 3. All other code paths are unreachable. Phase_id fields in contracts remain but are ignored (None). Schema remains at 1.1 but is backward compatible.",
-        "data_impact": "None — all changes are additive and dormant when not triggered",
-        "recovery_time": "Code revert + deploy"
+        "level": "Full revert",
+        "description": "Revert all changes. Remove PRE_REFINE from all three enum definitions, transition maps, phase-permissions.json, VALID_PIPELINE_PHASES, and all conditional logic. This is safe because PRE_REFINE is a new phase — no existing data depends on it.",
+        "effort": "Medium — 13+ files to revert across 4 packages",
+        "data_loss": "Any requirements documents created during pre-refine sessions remain as orphaned files in .egg-state/drafts/ but are otherwise harmless."
       }
     ]
   },
 
-  "implementation_ordering_recommendations": [
+  "implementation_recommendations": [
     {
-      "recommendation": "Implement Phase 1 (schema/models) and Phase 3 (composite keys) together, test exhaustively, then merge before touching orchestration logic",
-      "rationale": "The composite key is the foundation. If it's wrong, everything built on top is wrong. Getting the data model right first — with backward compatibility tests against all 50+ existing contracts — eliminates the highest-risk unknown early."
+      "id": "REC-1",
+      "priority": "Critical",
+      "recommendation": "Before writing any code, run a comprehensive grep to build the complete list of files that reference PipelinePhase, phase string comparisons, PHASE_ORDER, PHASE_NAMES, VALID_TRANSITIONS, VALID_PIPELINE_PHASES, _HITL_GATE_PHASES, _PHASE_ROLES, _PHASE_REVIEWERS, and _DEFAULT_PHASE_CONFIGS. Use this list as a checklist during implementation."
     },
     {
-      "recommendation": "Implement Phase 6 (integrator write access) as a separate, independently reviewable PR",
-      "rationale": "Privilege escalation deserves focused security review. Mixing it with orchestration changes dilutes reviewer attention."
+      "id": "REC-2",
+      "priority": "Critical",
+      "recommendation": "Implement Phase 1 (enum and registration updates) first and run the full test suite immediately after. Many tests will fail with assertion errors about phase counts or transition targets. Fix these tests as part of Phase 1, not Phase 5. This ensures the foundation is solid before building on it."
     },
     {
-      "recommendation": "Do NOT implement Stage 2 (parallel dispatch) until Stage 1 has been used in production for at least 2-3 real pipelines",
-      "rationale": "Sequential cycling validates the foundation (composite keys, phase DAG, per-phase review, integrator write access) without concurrent execution complexity. Production validation catches issues that tests miss."
+      "id": "REC-3",
+      "priority": "High",
+      "recommendation": "Use the early-exit pattern in _run_pipeline() for PRE_REFINE: handle it at the top of the phase loop iteration and `continue`. Do not thread PRE_REFINE logic through the container-spawn, review-cycle, and HITL-gate branches. This isolates the novel execution model from the existing code paths."
     },
     {
-      "recommendation": "Extract Tier 3 orchestration logic from pipelines.py into a dedicated module",
-      "rationale": "pipelines.py at 4500 LOC is already at the maintenance risk threshold. Adding 200-300 LOC of Tier 3 logic makes it worse. A tier3_dispatch.py module keeps the change isolated and reviewable."
+      "id": "REC-4",
+      "priority": "High",
+      "recommendation": "Add a cross-validation test that asserts all three PipelinePhase enum definitions have identical member sets, and all three VALID_TRANSITIONS maps have consistent phase sets. This prevents future drift."
+    },
+    {
+      "id": "REC-5",
+      "priority": "Medium",
+      "recommendation": "The pre-refine handler should detect an existing partial requirements draft on resume and offer to continue from it, rather than always starting fresh. This is important for long requirements sessions that get interrupted."
+    },
+    {
+      "id": "REC-6",
+      "priority": "Medium",
+      "recommendation": "Pre-refine phase permissions should be the most restrictive of any phase. Suggested allowlist: write .egg-state/drafts/*requirements* only. Block: all git push, all gh commands except issue comment/edit, all code file writes. No agent containers are spawned during this phase, so most operations are irrelevant, but explicit restriction prevents misuse if the phase logic is ever changed."
     }
   ],
 
-  "test_strategy_recommendations": [
-    {
-      "area": "Backward compatibility",
-      "tests_needed": [
-        "Load all 50+ existing contracts from .egg-state/contracts/ against new schema — all must pass",
-        "Tier 1 short-circuit end-to-end flow unchanged (baseline from test_short_circuit.py)",
-        "Tier 2 standard multi-agent flow unchanged (coder -> tester -> documenter -> integrator)",
-        "OrchestrationState.from_contract() with phase_id=None produces identical behavior to current code"
-      ]
-    },
-    {
-      "area": "Composite key correctness",
-      "tests_needed": [
-        "Create 3 CODER executions with different phase_ids — all 3 survive serialization/deserialization",
-        "get_agent_execution(role='coder', phase_id='phase-2') returns correct execution",
-        "can_agent_run() with phase-scoped dependencies returns correct result",
-        "Duplicate (phase_id, role) pair raises validation error"
-      ]
-    },
-    {
-      "area": "Phase cycling",
-      "tests_needed": [
-        "Sequential cycling: 3 phases execute in dependency order",
-        "Per-phase review: rejection triggers coder retry within same phase",
-        "Phase failure: one phase fails, others complete, integrator receives partial results",
-        "Prompt isolation: phase-1 coder prompt contains only phase-1 tasks"
-      ]
-    },
-    {
-      "area": "Integrator write access",
-      "tests_needed": [
-        "Tier 3 integrator can write to src/ — gateway allows",
-        "Tier 2 integrator cannot write to src/ — gateway blocks",
-        "Tier 3 integrator cannot write to .egg-state/contracts/ — readonly mount enforced"
-      ]
-    }
-  ],
+  "risk_matrix_summary": {
+    "critical_risks": 0,
+    "high_risks": 3,
+    "medium_risks": 3,
+    "low_risks": 2,
+    "total_risks": 8,
+    "plan_gaps_critical": 3,
+    "plan_gaps_medium": 3,
+    "plan_gaps_low": 2,
+    "total_plan_gaps": 8,
+    "verdict": "APPROVE_WITH_CONDITIONS"
+  },
 
-  "architect_assessment_review": {
-    "agreement": [
-      "Approach C (hybrid staged delivery) is the correct choice — reduces risk significantly vs Approach A",
-      "Composite (phase_id, role) key is the right abstraction — alternatives (nested structure, separate store) are more disruptive",
-      "Gateway prefix check already supports sub-branches — no policy change needed (confirmed by code analysis)",
-      "Sequential-first validates the foundation before adding parallelism complexity",
-      "No new PipelinePhase.INTEGRATE needed — internal cycling within IMPLEMENT is simpler"
-    ],
-    "concerns": [
-      "Architect underestimates R-1 severity: silent data loss on deserialization is not 'Medium likelihood, High impact' — it's High likelihood because the dict conversion code has zero safety checks. First Tier 3 pipeline with >1 phase will trigger it if composite keys aren't implemented first.",
-      "Architect's R-3 (integrator write access) is correctly identified but doesn't account for the #800 readonly mount enforcement. The mitigation needs to be more specific about using the orchestrator API for contract updates.",
-      "Missing risk: partial phase failure policy is not addressed. The architect's plan assumes all phases succeed.",
-      "The 7-phase Stage 1 plan has strong dependencies (phase-5 depends on phases 2, 3, and 4). This creates a critical path that is essentially sequential despite the dependency graph suggesting some parallelism."
-    ],
-    "additional_risks_identified": [
-      "R-9 (dependency graph cycles) — not in architect's analysis",
-      "R-13 (partial phase failure) — not in architect's analysis",
-      "R-6 (pipelines.py complexity) — architect notes it as 'largest file, most complex changes' but doesn't propose extraction"
-    ]
-  }
+  "conditions_for_approval": [
+    "Plan Phase 1 must be expanded to include gateway/phase_filter.py, gateway/phase_transition.py, gateway/gateway.py, shared/egg_contracts/agent_roles.py, and orchestrator/dag_visualizer.py",
+    "Human must review the phase-permissions.json entry and gateway enforcement updates before merge",
+    "Full test suite must pass after Phase 1 before proceeding to Phase 2",
+    "The requirements-gathering system prompt must be reviewed by a human before the feature is enabled by default"
+  ]
 }
