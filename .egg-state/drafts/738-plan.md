@@ -1,6 +1,6 @@
 # Plan: Add an interactive "pre-refine" step
 
-> Issue: #738 | Phase: plan | Pipeline: issue-738
+> Issue: #738 | Phase: plan | Pipeline: issue-738 | Revision: 2
 
 ## Approach
 
@@ -31,9 +31,10 @@ adapting it with a requirements-focused system prompt and a new draft type.
 2. **No container spawned** for pre-refine. The orchestrator immediately
    pauses; the CLI handles the interactive session client-side. This avoids
    the complexity of interactive container execution.
-3. **Skippable via `skip_pre_refine` config** (default: `false` for
-   interactive CLI, auto-`true` for headless/CI). Well-defined issues can
-   bypass requirements gathering.
+3. **Skippable via `skip_pre_refine` config** (default: `true` in
+   PipelineConfig for backward compatibility; the interactive CLI explicitly
+   sets `false`). Well-defined issues and headless/CI callers can bypass
+   requirements gathering without any code changes.
 4. **Requirements stored at `.egg-state/drafts/{id}-requirements.md`**.
    Follows the existing draft path convention (`analysis.md` for refine,
    `plan.md` for plan).
@@ -42,42 +43,68 @@ adapting it with a requirements-focused system prompt and a new draft type.
 6. **No codebase access** during pre-refine. Claude's system prompt
    explicitly excludes repository tools. Requirements are purely
    conversational.
+7. **Starting phase set by `_run_pipeline()` logic**, not by changing the
+   Pipeline model default. The Pipeline.current_phase default stays REFINE.
+   At the start of `_run_pipeline()`, the function checks
+   `skip_pre_refine`: if false and no existing requirements document, it
+   sets `current_phase` to `PRE_REFINE`.
 
 ### Backward compatibility
 
-Existing pipelines that start at `REFINE` continue to work. Phase
-transition validation accepts `REFINE` as a valid starting phase. The
-`skip_pre_refine` flag defaults to `false` but existing pipeline creation
-paths that don't pass this flag get the current behavior (start at
-`REFINE`). The `PipelinePhase` enum addition is safe because all existing
-phase switch/match/if-else chains handle the "else/default" case or
-enumerate known phases.
+Existing pipelines that start at `REFINE` continue to work unmodified:
+
+- **Pipeline model default unchanged**: `Pipeline.current_phase` defaults to
+  `PipelinePhase.REFINE` (no change to models.py:247).
+- **Config default is skip**: `PipelineConfig.skip_pre_refine` defaults to
+  `true`. Existing callers that create pipelines without passing this flag
+  get `skip_pre_refine=true` and start at REFINE as before.
+- **CLI opt-in**: Only the interactive `egg-sdlc` CLI explicitly sets
+  `skip_pre_refine=false`. A `--skip-pre-refine` flag is also available.
+- **Phase transitions still valid**: REFINE remains a valid starting phase.
+  Phase transition validation accepts both PRE_REFINE -> REFINE and
+  starting directly at REFINE.
+- **Gateway dicts updated**: All explicit dict lookups in
+  `gateway/phase_filter.py` (PhasePermissions, PhaseFileRestriction) and
+  `gateway/phase_transition.py` (VALID_TRANSITIONS) include PRE_REFINE.
+  These are NOT fallback-safe — they require explicit entries.
 
 ## Phase breakdown
 
-### Phase 1: Pipeline model and phase registration
+### Phase 1: Pipeline model and phase registration (all locations)
 
-**Goal:** Register `PRE_REFINE` as a first-class phase in all the places
-that define or enumerate pipeline phases. This is the foundation that all
+**Goal:** Register `PRE_REFINE` as a first-class phase in ALL locations that
+define or enumerate pipeline phases. This is the foundation that all
 subsequent changes build on.
 
-The `PipelinePhase` enum gains `PRE_REFINE` in both the orchestrator and
-shared contracts models. Phase transitions gain `PRE_REFINE -> [REFINE]`.
-Phase permissions restrict pre-refine to only writing requirements
-documents. Phase defaults give pre-refine a minimal check config. The
-`skip_pre_refine` flag is added to `PipelineConfig`.
+The `PipelinePhase` enum gains `PRE_REFINE` in all three locations:
+orchestrator, contracts, and gateway. Phase transitions gain
+`PRE_REFINE -> [REFINE]` in both orchestrator and gateway. The gateway's
+`PhasePermissions` and `PhaseFileRestriction` dicts gain entries for
+PRE_REFINE. The DAG visualizer gains PRE_REFINE in its phase order and
+names. Phase defaults and config are updated.
 
 **Files:**
 - `orchestrator/models.py` — Add `PRE_REFINE` to `PipelinePhase` enum,
-  add `skip_pre_refine` to `PipelineConfig`
+  add `skip_pre_refine` to `PipelineConfig` (default: `true`)
 - `shared/egg_contracts/models.py` — Add `PRE_REFINE` to contracts
   `PipelinePhase` enum
+- `gateway/phase_filter.py` — Add `PRE_REFINE` to the gateway
+  `PipelinePhase` enum (line 35), add entry to `PhasePermissions` dict in
+  `_get_default_permissions()` (minimal ops: gh issue comment, git push,
+  egg-contract show), add entry to `PhaseFileRestriction` dict in
+  `_get_default_phase_file_restrictions()` (allowed:
+  `.egg-state/drafts/*requirements*`, `.egg-state/checkpoints/*`,
+  `.egg-state/agent-outputs/*`)
+- `gateway/phase_transition.py` — Add `PRE_REFINE -> [REFINE]` to
+  `VALID_TRANSITIONS` dict
 - `orchestrator/routes/phases.py` — Add `PRE_REFINE -> [REFINE]` to both
-  transition maps
+  `PHASE_TRANSITIONS` and `LOCAL_PHASE_TRANSITIONS`
 - `shared/egg_contracts/phase_defaults.py` — Add `PRE_REFINE` default
   config (no checks, `ISSUE_CHECKBOX` HITL mechanism)
 - `.egg/phase-permissions.json` — Add `pre_refine` phase with minimal
   permissions (write `.egg-state/drafts/*requirements*` only)
+- `orchestrator/dag_visualizer.py` — Insert `PRE_REFINE` at index 0 of
+  `PHASE_ORDER`, add `PRE_REFINE: 'Pre-Refine'` to `PHASE_NAMES`
 
 ### Phase 2: Orchestrator pre-refine dispatch and draft wiring
 
@@ -85,22 +112,33 @@ documents. Phase defaults give pre-refine a minimal check config. The
 pipeline execution loop: skip if configured, otherwise pause for human
 interaction, and wire the requirements document into the refine prompt.
 
-The `_run_pipeline()` function handles `PRE_REFINE` by immediately setting
-`AWAITING_HUMAN` status and queuing a decision. `_get_draft_path()` maps
-`pre_refine` to `{prefix}-requirements.md`. When the decision is resolved
-with approval, the pipeline reads the requirements document and advances
-to `REFINE`. The refine prompt builder is updated to use the requirements
-document as primary input when available.
+The starting phase mechanism: in `_run_pipeline()`, at startup before
+the phase loop, check `PipelineConfig.skip_pre_refine`. If `false` AND
+no existing requirements document exists, set `pipeline.current_phase`
+to `PRE_REFINE`. This is how pipelines get routed to pre-refine without
+changing the Pipeline model default.
+
+The `PRE_REFINE` phase handler immediately sets `AWAITING_HUMAN` status
+and queues a decision with the original issue body/prompt as context.
+`_get_draft_path()` maps `pre_refine` to `{prefix}-requirements.md`.
+When the decision is resolved with approval, the pipeline reads the
+requirements document and advances to `REFINE`. The refine prompt builder
+is updated to use the requirements document as primary input when available.
 
 **Files:**
 - `orchestrator/routes/pipelines.py` — PRE_REFINE handling in
-  `_run_pipeline()`, update `_get_draft_path()`, update
-  `_build_phase_prompt()` for refine to use requirements document
+  `_run_pipeline()` (starting phase logic + phase handler), update
+  `_get_draft_path()`, update `_build_phase_prompt()` for refine to use
+  requirements document
 
 ### Phase 3: CLI pre-refine interactive session
 
 **Goal:** The CLI detects the pre-refine HITL checkpoint and launches an
 interactive Claude session configured for requirements gathering.
+
+Update `_get_draft_path()` in `sdlc_hitl.py` (the mirror function) to
+handle `pre_refine` -> `{prefix}-requirements.md` (explicit branch,
+cannot rely on generic fallback which would produce wrong filename).
 
 A new `handle_pre_refine()` function in `sdlc_hitl.py` presents a
 pre-refine-specific menu: (1) launch Claude for requirements gathering,
@@ -112,16 +150,18 @@ so partial work survives crashes. Phase detection (`_detect_phase()`) is
 updated to recognize pre-refine.
 
 **Files:**
-- `sandbox/egg_lib/sdlc_hitl.py` — Add `handle_pre_refine()`, update
-  `_detect_phase()`, add requirements-gathering system prompt
+- `sandbox/egg_lib/sdlc_hitl.py` — Update `_get_draft_path()` for
+  pre_refine, add `handle_pre_refine()`, update `_detect_phase()`, add
+  requirements-gathering system prompt
 - `sandbox/egg_lib/sdlc_cli.py` — Update `watch_pipeline()` to call
   `handle_pre_refine()` when phase is pre_refine
 
-### Phase 4: Issue mode integration
+### Phase 4: Issue mode integration and pipeline creation
 
 **Goal:** In issue mode, the approved requirements document updates the
 GitHub issue description so that the refine agent (which reads the issue
-body) receives the refined requirements.
+body) receives the refined requirements. Update pipeline creation to
+support skip_pre_refine.
 
 After the human approves the requirements document in issue mode, the CLI
 (or orchestrator) updates the GitHub issue body with the approved
@@ -129,39 +169,53 @@ requirements, preserving the original issue body in a collapsed `<details>`
 section. This ensures the refine agent reads the clarified requirements
 rather than the raw issue description.
 
+Add `--skip-pre-refine` flag to egg-sdlc CLI. Interactive mode sets
+`skip_pre_refine=false` by default. Pass parameter through orch_client
+to pipeline creation endpoint.
+
 **Files:**
 - `orchestrator/routes/pipelines.py` — After pre-refine approval in issue
   mode, update issue body via `gh issue edit`
 - `sandbox/egg_lib/sdlc_hitl.py` — Pass issue number context for issue
   body update
+- `sandbox/egg_lib/sdlc_cli.py` — Add `--skip-pre-refine` flag, set
+  `skip_pre_refine=false` for interactive mode
+- `sandbox/egg_lib/orch_client.py` — Pass `skip_pre_refine` parameter
 
 ### Phase 5: Tests
 
 **Goal:** Comprehensive test coverage for all pre-refine functionality.
-Existing phase tests continue passing.
+Existing tests pass unchanged.
 
 **Files:**
 - `orchestrator/tests/` — Phase transition validation for PRE_REFINE,
-  skip logic, draft path resolution, refine prompt with requirements input
+  skip logic, draft path resolution, refine prompt with requirements input,
+  dag_visualizer PHASE_ORDER/PHASE_NAMES
 - `shared/egg_contracts/tests/` — PipelinePhase enum serialization,
   phase defaults for PRE_REFINE
-- `tests/` — Integration tests for pre-refine -> refine flow, backward
-  compatibility with existing pipelines
+- `gateway/tests/` — Gateway phase enum, PhasePermissions, PhaseFileRestriction,
+  VALID_TRANSITIONS for PRE_REFINE
+- `sandbox/tests/` — _detect_phase() recognition, _get_draft_path() for
+  pre_refine
 
 ## Test strategy
 
 1. **Unit tests** for each new component:
-   - `PRE_REFINE` phase transition validation (can only go to `REFINE`)
+   - `PRE_REFINE` phase transition validation (can only go to `REFINE`) —
+     both orchestrator and gateway transition maps
    - `_get_draft_path()` returns `{prefix}-requirements.md` for pre_refine
+     — both orchestrator and sdlc_hitl.py versions
    - `_build_phase_prompt()` uses requirements document as refine input
    - `skip_pre_refine` config causes pipeline to start at `REFINE`
-   - `_detect_phase()` recognizes "pre_refine" and "requirements" keywords
+   - `_detect_phase()` recognizes "pre_refine", "pre-refine", "requirements"
    - Phase defaults for `PRE_REFINE` return correct config
    - Phase permissions for `pre_refine` restrict file access
+   - Gateway `PhasePermissions` and `PhaseFileRestriction` include PRE_REFINE
+   - `dag_visualizer` PHASE_ORDER includes PRE_REFINE at index 0
 
 2. **Integration tests** for end-to-end flows:
-   - Pipeline creation with `skip_pre_refine=false` starts at `PRE_REFINE`
-   - Pipeline creation with `skip_pre_refine=true` starts at `REFINE`
+   - Pipeline with `skip_pre_refine=false` starts at `PRE_REFINE`
+   - Pipeline with `skip_pre_refine=true` (or default) starts at `REFINE`
    - Pre-refine approval advances pipeline to `REFINE`
    - Requirements document is passed as input to refine phase
    - Issue body is updated with requirements in issue mode
@@ -169,17 +223,21 @@ Existing phase tests continue passing.
 3. **Backward compatibility tests**:
    - Existing pipelines without `PRE_REFINE` state deserialize correctly
    - Phase transitions from `REFINE` still work (no mandatory pre-refine)
-   - `PipelineConfig` without `skip_pre_refine` defaults correctly
+   - `PipelineConfig` without `skip_pre_refine` defaults to `true` (skip)
 
 ## Risks and mitigations
 
 | Risk | Likelihood | Impact | Mitigation |
 |------|-----------|--------|------------|
-| PRE_REFINE enum touches many phase-handling code paths | High | Medium | Grep for all PipelinePhase usage; most paths have default/else handlers. Test each. |
-| Interactive Claude session may not work in headless CI | High | Low | `skip_pre_refine` defaults to `true` when no TTY detected. |
+| PRE_REFINE enum touches 3 enums, 2 transition maps, 2 gateway dicts, 1 visualizer | High | Medium | Phase 1 comprehensively lists all locations. Each is a discrete, additive change. |
+| Interactive Claude session may not work in headless CI | High | Low | `skip_pre_refine` defaults to `true`. Only interactive CLI opts in. |
+| Gateway dict lookups KeyError without PRE_REFINE entries | High | High | TASK-1-7 and TASK-1-8 explicitly add PRE_REFINE to all gateway dicts. |
+| sdlc_hitl.py _get_draft_path() produces wrong filename | High | Medium | TASK-3-5 adds explicit pre_refine branch (not relying on generic fallback). |
+| Pipeline never reaches PRE_REFINE if model default stays REFINE | High | High | TASK-2-1 specifies _run_pipeline() startup logic to set current_phase to PRE_REFINE when skip_pre_refine=false. |
 | Requirements doc quality depends on human engagement | Medium | Low | Claude's system prompt guides with probing questions. Refine agent still does its own analysis. |
-| Existing pipelines in REFINE state see unknown PRE_REFINE value | Medium | Medium | Phase transition accepts REFINE as starting phase. Deserialization handles missing pre_refine state. |
+| Existing pipelines in REFINE state see unknown PRE_REFINE value | Medium | Medium | Pipeline model default stays REFINE. skip_pre_refine defaults true. Only interactive CLI opts in. |
 | Claude session crash loses partial requirements work | Medium | Medium | Draft file written incrementally. Pipeline stays in PRE_REFINE/AWAITING_HUMAN for resume. |
+| sdlc_hitl.py _get_draft_path() drifts from orchestrator version | Medium | Medium | Both functions have mirror comments. TASK-3-5 and TASK-2-2 are linked. |
 
 ```yaml
 # yaml-tasks
@@ -192,11 +250,12 @@ pr:
     interactive Claude session that guides the human through producing a
     structured requirements document. The approved document replaces the
     raw issue body as input to the refine phase. The step is skippable
-    for well-defined issues and headless CI.
+    (PipelineConfig.skip_pre_refine defaults to true for backward
+    compatibility; the interactive CLI sets false).
 phases:
   - id: 1
-    name: Pipeline model and phase registration
-    goal: Register PRE_REFINE as a first-class phase in enums, transitions, permissions, and config
+    name: Pipeline model and phase registration (all locations)
+    goal: Register PRE_REFINE in all enums, transition maps, gateway dicts, visualizer, permissions, and config
     tasks:
       - id: TASK-1-1
         description: Add PRE_REFINE = "pre_refine" to PipelinePhase enum in orchestrator/models.py
@@ -205,11 +264,11 @@ phases:
           - orchestrator/models.py
       - id: TASK-1-2
         description: Add PRE_REFINE = "pre_refine" to PipelinePhase enum in shared/egg_contracts/models.py
-        acceptance: Both PipelinePhase enums are in sync with PRE_REFINE as a member
+        acceptance: Both orchestrator and contracts PipelinePhase enums have PRE_REFINE
         files:
           - shared/egg_contracts/models.py
       - id: TASK-1-3
-        description: Add PRE_REFINE -> [REFINE] to PHASE_TRANSITIONS and LOCAL_PHASE_TRANSITIONS in phases.py
+        description: Add PRE_REFINE -> [REFINE] to PHASE_TRANSITIONS and LOCAL_PHASE_TRANSITIONS in orchestrator/routes/phases.py
         acceptance: validate_phase_transition() allows PRE_REFINE -> REFINE and rejects PRE_REFINE -> PLAN/IMPLEMENT/PR
         files:
           - orchestrator/routes/phases.py
@@ -224,23 +283,38 @@ phases:
         files:
           - shared/egg_contracts/phase_defaults.py
       - id: TASK-1-6
-        description: Add skip_pre_refine boolean field to PipelineConfig (default false)
-        acceptance: PipelineConfig.skip_pre_refine exists; defaults to false; serializes/deserializes correctly
+        description: Add skip_pre_refine boolean field to PipelineConfig (default true for backward compatibility)
+        acceptance: PipelineConfig.skip_pre_refine exists; defaults to true; serializes/deserializes correctly; existing callers unaffected
         files:
           - orchestrator/models.py
+      - id: TASK-1-7
+        description: "Add PRE_REFINE to gateway/phase_filter.py: (a) add PRE_REFINE to the gateway PipelinePhase enum (line 35, keep in sync comment), (b) add PRE_REFINE entry to PhasePermissions in _get_default_permissions() with minimal ops (gh issue comment, git push, egg-contract show), (c) add PRE_REFINE entry to PhaseFileRestriction in _get_default_phase_file_restrictions() with allowed_patterns=['.egg-state/drafts/*requirements*', '.egg-state/checkpoints/*', '.egg-state/agent-outputs/*']"
+        acceptance: Gateway PipelinePhase has PRE_REFINE; PhasePermissions[PRE_REFINE] returns valid permissions; PhaseFileRestriction[PRE_REFINE] allows only requirements drafts, checkpoints, and agent outputs; no KeyError on PRE_REFINE lookups
+        files:
+          - gateway/phase_filter.py
+      - id: TASK-1-8
+        description: Add PRE_REFINE -> [PipelinePhase.REFINE] to VALID_TRANSITIONS dict in gateway/phase_transition.py (line 42)
+        acceptance: Gateway phase transition validation allows PRE_REFINE -> REFINE and rejects other transitions from PRE_REFINE
+        files:
+          - gateway/phase_transition.py
+      - id: TASK-1-9
+        description: "Update orchestrator/dag_visualizer.py: insert PRE_REFINE at index 0 of PHASE_ORDER list (before REFINE), add PRE_REFINE: 'Pre-Refine' to PHASE_NAMES dict"
+        acceptance: DAG rendering, compact status, progress bar, and report generation all include Pre-Refine phase
+        files:
+          - orchestrator/dag_visualizer.py
   - id: 2
     name: Orchestrator pre-refine dispatch and draft wiring
-    goal: Handle PRE_REFINE in the orchestration loop with skip logic, HITL pause, and requirements-to-refine handoff
+    goal: Handle PRE_REFINE in the orchestration loop with starting phase logic, skip, HITL pause, and requirements-to-refine handoff
     dependencies:
       - phase-1
     tasks:
       - id: TASK-2-1
-        description: Add PRE_REFINE handling in _run_pipeline() — if skip_pre_refine is true, advance directly to REFINE; otherwise set status to AWAITING_HUMAN and queue a decision with the original issue body/prompt as context
-        acceptance: Pipeline with skip_pre_refine=false pauses at PRE_REFINE with AWAITING_HUMAN status; pipeline with skip_pre_refine=true skips directly to REFINE
+        description: "Add PRE_REFINE handling in _run_pipeline(): (a) at startup before phase loop, check PipelineConfig.skip_pre_refine — if false AND no existing requirements document, set pipeline.current_phase to PRE_REFINE (this is the mechanism that routes pipelines to pre-refine without changing the model default); (b) in the phase handler, if phase is PRE_REFINE, set status to AWAITING_HUMAN and queue a decision with the original issue body/prompt as context; (c) on resolution with approval, advance to REFINE"
+        acceptance: Pipeline with skip_pre_refine=false pauses at PRE_REFINE with AWAITING_HUMAN status; pipeline with skip_pre_refine=true (default) skips directly to REFINE; pipeline with existing requirements document skips pre-refine regardless of flag
         files:
           - orchestrator/routes/pipelines.py
       - id: TASK-2-2
-        description: Update _get_draft_path() to map pre_refine phase to {prefix}-requirements.md
+        description: Update _get_draft_path() in orchestrator/routes/pipelines.py to map pre_refine phase to {prefix}-requirements.md
         acceptance: _get_draft_path("pre_refine", ...) returns correct path for both issue and local modes
         files:
           - orchestrator/routes/pipelines.py
@@ -275,9 +349,14 @@ phases:
         acceptance: When pipeline is in pre_refine phase and awaiting_human, CLI calls handle_pre_refine(); other phases continue using handle_hitl_checkpoint()
         files:
           - sandbox/egg_lib/sdlc_cli.py
+      - id: TASK-3-5
+        description: "Update _get_draft_path() in sandbox/egg_lib/sdlc_hitl.py (line 27-48) to add explicit branch for pre_refine phase: if phase == 'pre_refine', return f'.egg-state/drafts/{prefix}-requirements.md'. This must be an explicit branch BEFORE the generic else fallback (which would incorrectly produce {prefix}-pre_refine.md). Mirrors TASK-2-2 change in orchestrator."
+        acceptance: sdlc_hitl._get_draft_path('pre_refine', ...) returns {prefix}-requirements.md (not {prefix}-pre_refine.md); function stays in sync with orchestrator version
+        files:
+          - sandbox/egg_lib/sdlc_hitl.py
   - id: 4
-    name: Issue mode integration
-    goal: Update GitHub issue description with approved requirements in issue mode
+    name: Issue mode integration and pipeline creation
+    goal: Update GitHub issue description with approved requirements in issue mode; add skip_pre_refine CLI flag
     dependencies:
       - phase-2
       - phase-3
@@ -292,6 +371,12 @@ phases:
         acceptance: Re-running a pipeline that already has a requirements document skips pre-refine or presents the existing doc for re-approval
         files:
           - orchestrator/routes/pipelines.py
+      - id: TASK-4-3
+        description: Add --skip-pre-refine flag to egg-sdlc CLI. Interactive mode sets skip_pre_refine=false by default. Pass skip_pre_refine parameter through orch_client to pipeline creation endpoint.
+        acceptance: egg-sdlc --skip-pre-refine creates pipeline with skip_pre_refine=true; interactive mode without flag creates pipeline with skip_pre_refine=false; parameter passes through to orchestrator
+        files:
+          - sandbox/egg_lib/sdlc_cli.py
+          - sandbox/egg_lib/orch_client.py
   - id: 5
     name: Tests
     goal: Comprehensive test coverage for all pre-refine changes; existing tests pass unchanged
@@ -302,17 +387,19 @@ phases:
       - phase-4
     tasks:
       - id: TASK-5-1
-        description: Write unit tests for PRE_REFINE phase transitions (PRE_REFINE -> REFINE allowed; PRE_REFINE -> PLAN/IMPLEMENT/PR rejected; REFINE as starting phase still valid)
-        acceptance: All transition validation tests pass
+        description: Write unit tests for PRE_REFINE phase transitions — both orchestrator (PHASE_TRANSITIONS, LOCAL_PHASE_TRANSITIONS) and gateway (VALID_TRANSITIONS). PRE_REFINE -> REFINE allowed; PRE_REFINE -> PLAN/IMPLEMENT/PR rejected; REFINE as starting phase still valid.
+        acceptance: All transition validation tests pass for both orchestrator and gateway
         files:
           - orchestrator/tests/test_phases.py
+          - gateway/tests/
       - id: TASK-5-2
-        description: Write unit tests for _get_draft_path() returning requirements.md for pre_refine in both issue and local modes
-        acceptance: Draft path tests cover pre_refine for issue mode ({issue_number}-requirements.md) and local mode ({pipeline_id}-requirements.md)
+        description: Write unit tests for _get_draft_path() returning requirements.md for pre_refine — both orchestrator version and sdlc_hitl.py mirror version
+        acceptance: Draft path tests cover pre_refine for issue mode ({issue_number}-requirements.md) and local mode ({pipeline_id}-requirements.md) in both implementations
         files:
           - orchestrator/tests/test_pipelines.py
+          - sandbox/tests/test_sdlc_hitl.py
       - id: TASK-5-3
-        description: Write unit tests for skip_pre_refine config (pipeline starts at REFINE when true, PRE_REFINE when false)
+        description: Write unit tests for skip_pre_refine config and starting phase logic (pipeline starts at REFINE when skip_pre_refine=true or default, PRE_REFINE when skip_pre_refine=false)
         acceptance: Skip logic tests verify correct starting phase based on config
         files:
           - orchestrator/tests/test_pipelines.py
@@ -327,15 +414,23 @@ phases:
         files:
           - sandbox/tests/test_sdlc_hitl.py
       - id: TASK-5-6
-        description: Write unit tests for PRE_REFINE phase defaults and PipelineConfig.skip_pre_refine serialization
-        acceptance: Phase defaults return valid config; PipelineConfig round-trips with skip_pre_refine field
+        description: Write unit tests for PRE_REFINE phase defaults, PipelineConfig.skip_pre_refine serialization, and gateway PhasePermissions/PhaseFileRestriction containing PRE_REFINE
+        acceptance: Phase defaults return valid config; PipelineConfig round-trips with skip_pre_refine field; gateway dicts don't KeyError on PRE_REFINE
         files:
           - shared/egg_contracts/tests/test_phase_defaults.py
           - orchestrator/tests/test_models.py
+          - gateway/tests/
       - id: TASK-5-7
+        description: Write unit tests for dag_visualizer PHASE_ORDER containing PRE_REFINE at index 0 and PHASE_NAMES containing 'Pre-Refine'
+        acceptance: Visualization tests confirm PRE_REFINE appears in phase order and has correct display name
+        files:
+          - orchestrator/tests/
+      - id: TASK-5-8
         description: Verify existing tests pass unchanged (phase transition tests, pipeline tests, HITL tests)
         acceptance: All pre-existing tests pass without modification; no regressions
         files:
           - orchestrator/tests/
           - shared/egg_contracts/tests/
+          - gateway/tests/
+          - sandbox/tests/
 ```
