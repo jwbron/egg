@@ -2,305 +2,308 @@
   "issue": 738,
   "phase": "plan",
   "agent": "risk_analyst",
-  "title": "Risk Assessment: Add interactive pre-refine step to the SDLC pipeline",
-  "summary": "Assessment of Approach A (new PRE_REFINE pipeline phase with interactive Claude session) for adding conversational requirements gathering before the refine phase. The recommended approach is sound but carries meaningful implementation risk due to the breadth of code paths that must be updated when introducing a new pipeline phase. The highest risks are: (1) three independently maintained PipelinePhase enum copies that must stay in sync, (2) the 5,283-line pipelines.py with 7+ hardcoded phase-conditional branches in _run_pipeline(), (3) a fail-open security gap if phase-permissions.json is not updated correctly, and (4) three separate VALID_TRANSITIONS maps that must all agree. Eight risks are identified: three High, three Medium, two Low. All are mitigable with disciplined implementation ordering and comprehensive testing. The overall approach is approved with conditions.",
+  "revision": 2,
+  "revision_reason": "Re-assessment after architect revision 2 addressed all 5 plan reviewer feedback items. This revision confirms resolution of the original issues and identifies 3 remaining gaps not covered by the revised plan.",
+  "title": "Risk Assessment: Add interactive pre-refine step to SDLC pipeline",
+
+  "summary": "The proposed PRE_REFINE phase implementation (Approach A) is architecturally sound. The architect's revision 2 correctly addresses all 5 original review feedback items (gateway phase infrastructure, dag_visualizer, sdlc_hitl _get_draft_path, pipeline starting phase mechanism, backward compatibility contradiction). However, 3 remaining gaps exist: (1) gateway/gateway.py:3176 VALID_PIPELINE_PHASES frozenset, (2) shared/egg_contracts/agent_roles.py _PHASE_ROLES/_PHASE_REVIEWERS dicts, and (3) no cross-file synchronization tests. All identified risks are mitigable. Overall risk level: MEDIUM. Verdict: APPROVE WITH CONDITIONS.",
 
   "risk_assessment": {
     "overall_risk_level": "Medium",
-    "overall_verdict": "Proceed with Approach A (new PRE_REFINE pipeline phase). The approach is architecturally sound — modeling pre-refine as a first-class phase provides clean state semantics, SSE observability, and restart capability. Risks are manageable but require: (1) a complete audit of all PipelinePhase references before implementation begins, (2) strict phase-1-first ordering to catch breakage early, (3) human review of the phase-permissions.json entry and gateway VALID_PIPELINE_PHASES update, and (4) backward compatibility tests as a blocking gate before merge.",
-    "confidence": "High — based on source code analysis of all affected files, three PipelinePhase enum definitions, transition maps, phase-conditional branches in _run_pipeline(), gateway enforcement code, phase-permissions.json structure, test infrastructure, and the existing plan document"
+    "overall_verdict": "Proceed with Approach A. The approach is architecturally sound — modeling pre-refine as a first-class phase provides clean state semantics, SSE observability, and restart capability. The architect's revision 2 substantially addresses the review feedback. Three remaining gaps (detailed below) are straightforward additions to Phase 1. All risks are mitigable with disciplined execution.",
+    "confidence": "High — based on source code analysis of all affected files across gateway, orchestrator, shared contracts, and sandbox packages"
   },
+
+  "review_feedback_resolution_assessment": {
+    "summary": "All 5 original review feedback items are correctly resolved in the architect's revision 2.",
+    "feedback_1_gateway_phase_infrastructure": {
+      "status": "RESOLVED",
+      "assessment": "New tasks TASK-1-7 (gateway/phase_filter.py enum + PhasePermissions + PhaseFileRestriction) and TASK-1-8 (gateway/phase_transition.py VALID_TRANSITIONS) correctly address the gateway phase infrastructure. The specified PRE_REFINE permissions are appropriately minimal. The incorrect backward compatibility claim has been removed.",
+      "residual_risk": "LOW"
+    },
+    "feedback_2_dag_visualizer": {
+      "status": "RESOLVED",
+      "assessment": "New task TASK-1-9 correctly adds PRE_REFINE to PHASE_ORDER (index 0) and PHASE_NAMES. All usage sites (DAG rendering line 372, compact status line 530, progress bar line 562, report generation line 636) iterate PHASE_ORDER, so the addition is sufficient.",
+      "residual_risk": "LOW — but see NEW-GAP-2 regarding _PHASE_ROLES dependency"
+    },
+    "feedback_3_sdlc_hitl_get_draft_path": {
+      "status": "RESOLVED",
+      "assessment": "New task TASK-3-5 correctly adds explicit pre_refine branch to sdlc_hitl.py:_get_draft_path(). The investigation correctly identified the generic fallback would produce the wrong filename.",
+      "residual_risk": "LOW"
+    },
+    "feedback_4_pipeline_starting_phase": {
+      "status": "RESOLVED",
+      "assessment": "TASK-2-1 updated to specify the mechanism: _run_pipeline() checks PipelineConfig.skip_pre_refine at startup, before the phase loop. If false AND no existing requirements document, sets current_phase to PRE_REFINE. Pipeline model default stays REFINE. This is the cleanest approach — preserves backward compatibility, co-locates logic, handles re-runs.",
+      "residual_risk": "MEDIUM — see RISK-4 regarding placement in the large _run_pipeline() function"
+    },
+    "feedback_5_backward_compatibility": {
+      "status": "RESOLVED",
+      "assessment": "PipelineConfig.skip_pre_refine defaults to true (opt-in model). CLI interactive mode explicitly sets false. This correctly decouples config default (backward-compatible) from CLI default (user-friendly).",
+      "residual_risk": "LOW"
+    }
+  },
+
+  "new_gaps_in_revised_plan": [
+    {
+      "id": "NEW-GAP-1",
+      "severity": "HIGH",
+      "title": "gateway/gateway.py:3176 VALID_PIPELINE_PHASES frozenset not in any task",
+      "description": "gateway/gateway.py:3176 defines VALID_PIPELINE_PHASES = frozenset({'refine', 'plan', 'implement', 'pr'}). This hardcoded set is used at lines 2721 and 3207 to validate phase values in session_register() and session_update_phase(). Without adding 'pre_refine', the gateway rejects ALL operations referencing the pre_refine phase with 'Invalid phase' errors. This is a complete pipeline blockage — no container can register for the pre_refine phase and no phase update to pre_refine can succeed.",
+      "affected_file": "gateway/gateway.py:3176",
+      "recommendation": "Add 'pre_refine' to the VALID_PIPELINE_PHASES frozenset in Phase 1 alongside TASK-1-7 and TASK-1-8. One-line change but its omission blocks the entire feature."
+    },
+    {
+      "id": "NEW-GAP-2",
+      "severity": "HIGH",
+      "title": "shared/egg_contracts/agent_roles.py _PHASE_ROLES and _PHASE_REVIEWERS not in any task",
+      "description": "agent_roles.py:763 defines _PHASE_ROLES dict and line 769 defines _PHASE_REVIEWERS dict. get_roles_for_phase() at line 800 raises ValueError if phase not in _PHASE_ROLES. This function is called by dag_visualizer.py:169 during DAG rendering. If PRE_REFINE is added to PHASE_ORDER (TASK-1-9) but not to _PHASE_ROLES, DAG visualization crashes with ValueError for ALL pipelines (not just PRE_REFINE ones), because the DAG renders all phases. The _run_pipeline() function at ~line 4229 also selects agent roles based on phase and ~line 4382 looks up reviewers.",
+      "affected_file": "shared/egg_contracts/agent_roles.py:763-806",
+      "recommendation": "Add _PHASE_ROLES['pre_refine'] = [] (no agents — human-driven phase) and _PHASE_REVIEWERS['pre_refine'] = [] (no review cycle) in Phase 1. Must be done BEFORE or WITH the PHASE_ORDER change in TASK-1-9, otherwise DAG rendering crashes."
+    },
+    {
+      "id": "NEW-GAP-3",
+      "severity": "MEDIUM",
+      "title": "No cross-file synchronization tests proposed",
+      "description": "PipelinePhase exists in 3 enum copies, transitions in 3 maps, permissions in 2 defaults + 1 JSON, roles in 2 dicts, visualization in 2 structures. No existing test validates these are in sync. The plan's Phase 5 does not include consistency tests. This is a systemic risk: the same gap-finding exercise will be needed for any future phase addition.",
+      "affected_files": ["All phase-definition files (9+ locations)"],
+      "recommendation": "Add to Phase 5: a test asserting all PipelinePhase enum copies have identical members, all phases have entries in _PHASE_ROLES, _PHASE_REVIEWERS, _DEFAULT_PHASE_CONFIGS, PHASE_ORDER, PHASE_NAMES, and both transition maps. This prevents regression."
+    }
+  ],
 
   "risks": [
     {
-      "id": "R-1",
-      "category": "Code Consistency",
-      "title": "Three independently maintained PipelinePhase enum copies",
-      "description": "The PipelinePhase enum is defined in three separate locations that must be kept in sync: orchestrator/models.py:15, shared/egg_contracts/models.py:34, and gateway/phase_filter.py:28. The gateway copy has an explicit comment ('values must be kept in sync') acknowledging this design debt. If any one copy is missed during implementation, deserialization failures or silent phase-handling gaps will occur. The gateway copy is particularly dangerous because it controls enforcement — a missing PRE_REFINE there means the gateway cannot validate phase transitions for the new phase.",
-      "likelihood": "High",
-      "impact": "High",
-      "affected_files": [
-        "orchestrator/models.py:15",
-        "shared/egg_contracts/models.py:34",
-        "gateway/phase_filter.py:28"
-      ],
-      "mitigation": "The plan correctly identifies both orchestrator/models.py and shared/egg_contracts/models.py but does NOT mention gateway/phase_filter.py. This is a gap. The implementer must add PRE_REFINE to all three enum definitions. Recommend adding a test that asserts all three enums have identical member sets (if one doesn't already exist). Implementation order: update all three in Phase 1, before any behavioral changes.",
-      "residual_risk": "Low after mitigation — if the test exists, future enum additions will catch drift.",
-      "human_review_required": true,
-      "plan_gap": "The plan's Phase 1 does not list gateway/phase_filter.py as a file to update. TASK-1-1 and TASK-1-2 update the orchestrator and shared copies but miss the gateway copy. This must be added."
+      "id": "RISK-1",
+      "title": "Triple-enum synchronization failure",
+      "category": "compatibility",
+      "likelihood": "MEDIUM",
+      "impact": "HIGH",
+      "severity": "HIGH",
+      "description": "PipelinePhase is defined in 3 files (orchestrator/models.py:15, shared/egg_contracts/models.py:34, gateway/phase_filter.py:28) with explicit 'must be kept in sync' comments. If any copy is missed, phase deserialization and comparison fail. The gateway copy is most critical since it controls enforcement.",
+      "plan_status": "COVERED — The revised plan's Phase 1 includes all three locations (TASK-1-1/1-2 for orchestrator/shared, TASK-1-7 for gateway).",
+      "mitigation": "Update all three in a SINGLE commit. Add a cross-file sync test (NEW-GAP-3).",
+      "rollback": "Revert the commit. Purely additive change.",
+      "human_review_needed": false
     },
     {
-      "id": "R-2",
-      "category": "Security",
-      "title": "Fail-open phase permissions if phase-permissions.json entry is missing or malformed",
-      "description": "The gateway's PhaseFilter (gateway/phase_filter.py) loads phase permissions from .egg/phase-permissions.json and silently skips unknown phases (except ValueError catch). If the pre_refine entry is absent or its key doesn't match the enum value exactly ('pre_refine'), the phase falls through to a default-allow path. Additionally, VALID_PIPELINE_PHASES (gateway/gateway.py:3176) is a hardcoded frozenset {'refine', 'plan', 'implement', 'pr'} used to validate session phase updates. If 'pre_refine' is not added, the gateway will reject phase updates for PRE_REFINE with 'Invalid phase' errors, blocking the pipeline from functioning. There are also _get_default_permissions() and _get_default_phase_file_restrictions() methods in phase_filter.py that hardcode all four current phases and need PRE_REFINE entries.",
-      "likelihood": "Medium",
-      "impact": "High",
-      "affected_files": [
-        ".egg/phase-permissions.json",
-        "gateway/gateway.py:3176 (VALID_PIPELINE_PHASES)",
-        "gateway/phase_filter.py (_get_default_permissions, _get_default_phase_file_restrictions)"
-      ],
-      "mitigation": "The plan includes TASK-1-4 for phase-permissions.json but does not mention gateway/gateway.py:VALID_PIPELINE_PHASES or the default permission/restriction methods in phase_filter.py. The implementer must: (1) add 'pre_refine' to VALID_PIPELINE_PHASES, (2) add PRE_REFINE to _get_default_permissions() and _get_default_phase_file_restrictions(), (3) verify the phase-permissions.json key matches the enum value exactly. Pre-refine permissions should be the most restrictive of any phase: no code changes, no PR creation, only .egg-state/drafts/*requirements* writes allowed.",
-      "residual_risk": "Low after mitigation — permissions are explicit and testable.",
-      "human_review_required": true,
-      "plan_gap": "Plan does not include gateway/gateway.py or gateway/phase_filter.py default methods as files to update in Phase 1. These are critical security-related omissions."
+      "id": "RISK-2",
+      "title": "Gateway blocks PRE_REFINE via VALID_PIPELINE_PHASES frozenset",
+      "category": "compatibility",
+      "likelihood": "HIGH (if gap not addressed)",
+      "impact": "HIGH",
+      "severity": "CRITICAL (until gap addressed)",
+      "description": "gateway/gateway.py:3176 VALID_PIPELINE_PHASES is a hardcoded frozenset used at lines 2721 and 3207. Not in the revised plan. Without 'pre_refine', gateway rejects all PRE_REFINE operations.",
+      "plan_status": "NOT COVERED — See NEW-GAP-1.",
+      "mitigation": "Add 'pre_refine' to the frozenset. One-line change in Phase 1.",
+      "rollback": "Remove from frozenset.",
+      "human_review_needed": false
     },
     {
-      "id": "R-3",
-      "category": "Code Complexity",
-      "title": "7+ hardcoded phase-conditional branches in _run_pipeline() (5,283 lines)",
-      "description": "_run_pipeline() in orchestrator/routes/pipelines.py is ~1,360 lines long and contains at least 7 locations where phase behavior is determined by string comparison against hardcoded phase values: (1) _HITL_GATE_PHASES set at line 3231, (2) multi-agent detection at line 4093 checks for 'implement' and 'plan', (3) agent role selection at line 4229 checks 'refine' vs CODER, (4) short-circuit detection at line 4606 checks 'refine', (5) contract population at line 4664 checks 'plan', (6) HITL gate activation at line 4686 checks _HITL_GATE_PHASES, (7) phase label mapping at line 4694 checks 'refine'. A missed branch means silent misbehavior — wrong agent role spawned, wrong HITL gate behavior, or incorrect visualization labels. PRE_REFINE is unlike other phases because it does NOT spawn a container, so most of these branches should be explicitly skipped or short-circuited early.",
-      "likelihood": "High",
-      "impact": "Medium",
-      "affected_files": [
-        "orchestrator/routes/pipelines.py:3231 (_HITL_GATE_PHASES)",
-        "orchestrator/routes/pipelines.py:4093 (multi-agent set)",
-        "orchestrator/routes/pipelines.py:4229 (agent role selection)",
-        "orchestrator/routes/pipelines.py:4606 (short-circuit detection)",
-        "orchestrator/routes/pipelines.py:4664 (contract population)",
-        "orchestrator/routes/pipelines.py:4686 (HITL gate activation)",
-        "orchestrator/routes/pipelines.py:4694 (phase label mapping)"
-      ],
-      "mitigation": "The plan's TASK-2-1 handles the core PRE_REFINE dispatch but the approach should be: insert a single early-return block at the top of the phase loop iteration that handles PRE_REFINE entirely (skip→advance or pause→AWAITING_HUMAN) and then `continue` to the next iteration, rather than threading PRE_REFINE logic through all 7 conditional branches. This 'early exit' pattern means downstream branches never see PRE_REFINE, eliminating the risk of missed checks. The implementer should verify this pattern is used.",
-      "residual_risk": "Low if the early-exit pattern is used. Medium if PRE_REFINE logic is scattered across the function.",
-      "human_review_required": false,
-      "plan_gap": "The plan mentions handling PRE_REFINE in _run_pipeline() but does not prescribe the early-exit pattern. Recommend the implementer adopt this approach."
+      "id": "RISK-3",
+      "title": "DAG visualization crash from missing _PHASE_ROLES entry",
+      "category": "compatibility",
+      "likelihood": "HIGH (if gap not addressed)",
+      "impact": "MEDIUM",
+      "severity": "HIGH (until gap addressed)",
+      "description": "get_roles_for_phase('pre_refine') raises ValueError at agent_roles.py:801-802. Called by dag_visualizer.py:169 for ALL phases during DAG rendering. Crashes visualization for every pipeline, not just PRE_REFINE ones.",
+      "plan_status": "NOT COVERED — See NEW-GAP-2.",
+      "mitigation": "Add _PHASE_ROLES['pre_refine'] = [] and _PHASE_REVIEWERS['pre_refine'] = []. Must precede or accompany TASK-1-9.",
+      "rollback": "Remove entries or remove PRE_REFINE from PHASE_ORDER.",
+      "human_review_needed": false
     },
     {
-      "id": "R-4",
-      "category": "Code Consistency",
-      "title": "Three separate VALID_TRANSITIONS maps must agree",
-      "description": "Phase transitions are defined in three separate locations: gateway/phase_transition.py (enforced by gateway sidecar), orchestrator/routes/phases.py:PHASE_TRANSITIONS (issue mode), and orchestrator/routes/phases.py:LOCAL_PHASE_TRANSITIONS (local mode). If these diverge, the gateway may reject a transition that the orchestrator considers valid (causing stuck pipelines) or the orchestrator may attempt a transition the gateway blocks (causing push failures). The gateway's copy is particularly important because it is the enforcement layer — the orchestrator trusts its own map but the gateway has final say.",
-      "likelihood": "Medium",
-      "impact": "High",
-      "affected_files": [
-        "gateway/phase_transition.py:41-46",
-        "orchestrator/routes/phases.py:50-63 (PHASE_TRANSITIONS)",
-        "orchestrator/routes/phases.py:50-63 (LOCAL_PHASE_TRANSITIONS)"
-      ],
-      "mitigation": "The plan's TASK-1-3 updates the orchestrator transition maps but does not mention gateway/phase_transition.py. The implementer must update all three maps consistently: PRE_REFINE -> [REFINE]. Consider adding a cross-validation test that compares all three maps to ensure they share the same phase set and transition graph (at minimum, every phase in one map must exist in the others).",
-      "residual_risk": "Low after mitigation with cross-validation test.",
-      "human_review_required": true,
-      "plan_gap": "The plan does not list gateway/phase_transition.py as a file to update. This is a critical omission — without updating the gateway's transition map, the gateway will reject PRE_REFINE -> REFINE transitions."
+      "id": "RISK-4",
+      "title": "PRE_REFINE breaks standard phase execution model in _run_pipeline()",
+      "category": "architectural",
+      "likelihood": "HIGH",
+      "impact": "HIGH",
+      "severity": "HIGH",
+      "description": "All existing phases follow: spawn container -> wait -> read artifacts -> review -> HITL gate. PRE_REFINE breaks this: immediately pause for human interaction, no container. _run_pipeline() has 7+ phase-conditional branches: _HITL_GATE_PHASES (line 3231), multi-agent detection (~4093), agent role selection (~4229), checker spawning (~4295), reviewer lookup (~4382), contract population (~4664), HITL gate (~4686). Each must either handle PRE_REFINE or be skipped via early-exit.",
+      "plan_status": "PARTIALLY COVERED — TASK-2-1 describes PRE_REFINE handling but does not prescribe the early-exit pattern.",
+      "mitigation": "Use early-exit pattern: at top of phase loop iteration, check if current_phase == PRE_REFINE, handle it entirely (set AWAITING_HUMAN, queue decision), then 'continue'. This prevents PRE_REFINE logic from scattering across all 7 branches.",
+      "rollback": "Remove the early-exit block.",
+      "human_review_needed": true
     },
     {
-      "id": "R-5",
-      "category": "Backward Compatibility",
-      "title": "Existing pipelines and test assertions may break with new enum value",
-      "description": "Several existing tests contain hardcoded assertions about the number of phases or transition targets. For example, gateway/tests/test_phase_transition.py has assertions like `len(VALID_TRANSITIONS[PipelinePhase.REFINE]) == 1`. Tests in test_dag_visualizer.py (66 PipelinePhase references) and test_start_pipeline.py (20+ REFINE assertions) may also break. Additionally, the Pipeline model default `current_phase=PipelinePhase.REFINE` must not change for backward compatibility with existing serialized pipeline JSON files that start at REFINE. The `_DEFAULT_PHASE_CONFIGS` dict in phase_defaults.py will raise a KeyError for PRE_REFINE if not updated, which would crash any code path that calls get_default_phase_config(PipelinePhase.PRE_REFINE).",
-      "likelihood": "High",
-      "impact": "Medium",
-      "affected_files": [
-        "gateway/tests/test_phase_transition.py",
-        "orchestrator/tests/test_dag_visualizer.py",
-        "orchestrator/tests/test_start_pipeline.py",
-        "tests/shared/egg_contracts/test_phase_defaults.py",
-        "shared/egg_contracts/phase_defaults.py:80 (_DEFAULT_PHASE_CONFIGS)"
-      ],
-      "mitigation": "Run the full test suite after Phase 1 (enum and transition map updates) to catch all assertion failures immediately. Fix test assertions to accommodate the new phase. Do NOT change the Pipeline.current_phase default from REFINE — instead, have the pipeline creation code explicitly set current_phase to PRE_REFINE when skip_pre_refine is false. This preserves backward compatibility for deserialization of existing pipelines. The plan correctly includes TASK-1-5 for phase_defaults.py.",
-      "residual_risk": "Low — test failures are caught early and are straightforward to fix.",
-      "human_review_required": false,
-      "plan_gap": "The plan's backward compatibility section claims 'all existing phase switch/match/if-else chains handle the else/default case' — this is optimistic. Several code paths have hardcoded phase sets without defaults (e.g., _HITL_GATE_PHASES, multi-agent detection). The plan should acknowledge that test breakage is expected and planned for in Phase 5."
+      "id": "RISK-5",
+      "title": "Fail-open security if PRE_REFINE permissions not defined in both locations",
+      "category": "security",
+      "likelihood": "LOW",
+      "impact": "HIGH",
+      "severity": "MEDIUM",
+      "description": "Phase permissions are defined in two places: .egg/phase-permissions.json (loaded dynamically, unknown phases silently skipped) and gateway/phase_filter.py hardcoded defaults (fallback if JSON missing). If PRE_REFINE is absent from both, the gateway defaults to permissive behavior. Pre-refine should be the most restrictive phase.",
+      "plan_status": "COVERED — TASK-1-4 covers JSON, TASK-1-7 covers hardcoded defaults.",
+      "mitigation": "Ensure BOTH are updated. PRE_REFINE permissions: only .egg-state/drafts/*requirements* writes, no code files, no PR operations.",
+      "rollback": "Remove entries. Gateway falls back to permissive but VALID_PIPELINE_PHASES prevents PRE_REFINE use entirely.",
+      "human_review_needed": true
     },
     {
-      "id": "R-6",
-      "category": "User Experience",
-      "title": "Interactive Claude session crash or disconnect loses partial requirements work",
-      "description": "If the Claude Code session crashes, the terminal disconnects, or the user kills the process during requirements gathering, any conversation context not yet written to the draft file is lost. The pipeline remains in PRE_REFINE/AWAITING_HUMAN state (correct), but the human must restart the conversation from scratch. Long requirements sessions (30+ minutes) on complex projects are especially vulnerable.",
-      "likelihood": "Medium",
-      "impact": "Medium",
-      "affected_files": [
-        "sandbox/egg_lib/sdlc_hitl.py (handle_pre_refine)"
-      ],
-      "mitigation": "The plan correctly specifies incremental draft file writes (TASK-3-2). The system prompt should instruct Claude to write the requirements document to the draft file after each significant exchange, not just at the end. Additionally, when the human resumes (re-attaches to the pipeline), the pre-refine handler should detect the existing partial draft and offer to continue from where it left off rather than starting fresh. This resume capability is not explicitly mentioned in the plan but is important for long sessions.",
-      "residual_risk": "Low-Medium — incremental writes limit data loss to the last exchange, but conversation context (Claude's understanding of the requirements) is still lost on session death.",
-      "human_review_required": false,
-      "plan_gap": "The plan mentions incremental writes but does not mention resume-from-partial-draft behavior. Adding explicit resume logic would significantly improve the UX for interrupted sessions."
+      "id": "RISK-6",
+      "title": "Dual _get_draft_path() divergence",
+      "category": "compatibility",
+      "likelihood": "MEDIUM",
+      "impact": "MEDIUM",
+      "severity": "MEDIUM",
+      "description": "Two independent _get_draft_path() implementations must produce identical paths: orchestrator/routes/pipelines.py:1037 (server) and sandbox/egg_lib/sdlc_hitl.py:27 (CLI client). The sdlc_hitl.py generic fallback produces '{prefix}-pre_refine.md' instead of '{prefix}-requirements.md'.",
+      "plan_status": "COVERED — TASK-2-2 (orchestrator) and TASK-3-5 (sdlc_hitl.py) both add explicit pre_refine branches.",
+      "mitigation": "Both must map pre_refine to '{prefix}-requirements.md'. Add a test asserting both functions produce the same path for each phase.",
+      "rollback": "Remove branches. Generic fallback produces non-standard path but doesn't crash.",
+      "human_review_needed": false
     },
     {
-      "id": "R-7",
-      "category": "Integration",
-      "title": "Issue body update in issue mode may produce unexpected formatting",
-      "description": "TASK-4-1 updates the GitHub issue body with the approved requirements document and preserves the original body in a collapsed <details> section. If the original issue body contains complex markdown (tables, nested HTML, code blocks), the <details> wrapping may produce malformed rendering on GitHub. Additionally, if the issue body is very long (>65,535 chars), the GitHub API may truncate it silently. The refine agent reads the issue body, so formatting artifacts could degrade analysis quality.",
-      "likelihood": "Low",
-      "impact": "Low",
-      "affected_files": [
-        "orchestrator/routes/pipelines.py (issue body update logic)"
-      ],
-      "mitigation": "Keep the <details> section simple. Test with a few representative issue bodies including complex markdown. Consider a character limit check before updating. The refine agent also reads the .egg-state/drafts/{id}-requirements.md file directly, so the issue body update is a convenience for human readers, not the critical data path.",
-      "residual_risk": "Low — edge case with simple workaround.",
-      "human_review_required": false,
-      "plan_gap": "None — this is a minor implementation detail."
+      "id": "RISK-7",
+      "title": "Interactive Claude session crash loses conversation context",
+      "category": "reliability",
+      "likelihood": "MEDIUM",
+      "impact": "MEDIUM",
+      "severity": "MEDIUM",
+      "description": "If the Claude session crashes mid-conversation, the requirements document may have partial content (if incremental writes are used) but conversation context is lost. The human must restart the conversation. Pipeline stays in AWAITING_HUMAN so it's resumable, but the Claude session state is not persisted.",
+      "plan_status": "PARTIALLY COVERED — Plan specifies incremental writes but does not specify resume-from-partial-draft behavior.",
+      "mitigation": "handle_pre_refine() should detect existing partial requirements draft on resume and offer to continue. The system prompt for the resumed session should include the partial draft as context.",
+      "rollback": "Pipeline stays in AWAITING_HUMAN. User can cancel or restart.",
+      "human_review_needed": false
     },
     {
-      "id": "R-8",
-      "category": "Architecture",
-      "title": "PRE_REFINE phase breaks the agent-container execution model",
-      "description": "All existing phases (REFINE, PLAN, IMPLEMENT, PR) follow a consistent pattern: spawn agent container in --print mode -> wait for exit -> read artifacts -> review -> HITL gate. PRE_REFINE breaks this pattern: no container is spawned, the phase immediately pauses for human interaction, and the CLI handles the session client-side. This creates a code path in _run_pipeline() that is fundamentally different from all other phases. Future developers may incorrectly assume all phases spawn containers, leading to subtle bugs when adding new features to the phase loop (e.g., timeout handling, resource tracking, agent metrics).",
-      "likelihood": "Medium",
-      "impact": "Medium",
-      "affected_files": [
-        "orchestrator/routes/pipelines.py (_run_pipeline phase loop)"
-      ],
-      "mitigation": "Use the early-exit pattern recommended in R-3 mitigation: handle PRE_REFINE at the top of the phase loop iteration and `continue`, so the rest of the loop body (container spawning, agent waiting, review cycles) never executes for this phase. Add a clear code comment explaining that PRE_REFINE is human-driven and does not spawn a container. The architect's decision (TD-7) correctly identifies this pattern.",
-      "residual_risk": "Low — well-documented divergence is manageable. The pattern may even be useful for future human-driven phases.",
-      "human_review_required": false,
-      "plan_gap": "None — the architect's design correctly handles this."
+      "id": "RISK-8",
+      "title": "Transition map divergence between gateway and orchestrator",
+      "category": "compatibility",
+      "likelihood": "MEDIUM",
+      "impact": "HIGH",
+      "severity": "MEDIUM",
+      "description": "Phase transitions validated in gateway/phase_transition.py (enforcement) and orchestrator/routes/phases.py (logic). If PRE_REFINE -> [REFINE] is in one but not the other, pipelines get stuck (gateway rejects) or bypass validation (orchestrator skips check).",
+      "plan_status": "COVERED — TASK-1-3 (orchestrator) and TASK-1-8 (gateway) both add PRE_REFINE -> [REFINE].",
+      "mitigation": "Update both in the same commit. Add cross-validation test (NEW-GAP-3).",
+      "rollback": "Remove from both maps.",
+      "human_review_needed": false
+    },
+    {
+      "id": "RISK-9",
+      "title": "Existing test assertions break on new enum value",
+      "category": "compatibility",
+      "likelihood": "HIGH",
+      "impact": "LOW",
+      "severity": "LOW",
+      "description": "Tests in test_phase_transition.py, test_dag_visualizer.py, and test_phase_defaults.py contain hardcoded phase count assertions. Adding PRE_REFINE will break these. This is expected and healthy — the failures serve as a checklist.",
+      "plan_status": "COVERED in Phase 5 but should be partially done in Phase 1.",
+      "mitigation": "Fix basic assertion updates (phase counts, enum iteration) in Phase 1 alongside enum changes. Phase 5 focuses on NEW PRE_REFINE behavior tests.",
+      "rollback": "Revert with enum changes.",
+      "human_review_needed": false
+    },
+    {
+      "id": "RISK-10",
+      "title": "Issue body replacement may affect downstream automation",
+      "category": "data_integrity",
+      "likelihood": "LOW",
+      "impact": "MEDIUM",
+      "severity": "LOW",
+      "description": "In issue mode, approved requirements replace the GitHub issue body. Original preserved in <details> section. Tools parsing issue body (e.g., JIRA sync) may not handle the format change. The refine agent reads the issue body, which after pre-refine will be the requirements document — this is the intended behavior.",
+      "plan_status": "COVERED — TASK-4-1 specifies the <details> preservation approach.",
+      "mitigation": "Standard GitHub practice. Original recoverable from <details> section and GitHub edit history.",
+      "rollback": "Restore original body via gh issue edit.",
+      "human_review_needed": false
+    },
+    {
+      "id": "RISK-11",
+      "title": "Requirements document quality not validated",
+      "category": "data_integrity",
+      "likelihood": "MEDIUM",
+      "impact": "LOW",
+      "severity": "LOW",
+      "description": "The requirements document is free-form markdown. If poorly structured or excessively long, the refine agent's prompt may exceed context limits or produce degraded analysis. No schema validation exists.",
+      "plan_status": "PARTIALLY COVERED — System prompt guides structure but no validation.",
+      "mitigation": "Claude's system prompt guides toward structured format (problem statement, requirements, constraints, acceptance criteria). Consider truncating very long documents in _build_phase_prompt() with a warning. Refine agent already handles arbitrary issue body text.",
+      "rollback": "N/A — refine falls back to original issue body if no requirements document exists.",
+      "human_review_needed": false
+    },
+    {
+      "id": "RISK-12",
+      "title": "Headless/CI callers silently skip pre-refine with no indication",
+      "category": "observability",
+      "likelihood": "MEDIUM",
+      "impact": "LOW",
+      "severity": "LOW",
+      "description": "With skip_pre_refine defaulting to true, all headless/CI callers skip pre-refine silently. No log, SSE event, or status indicator that it was available but skipped.",
+      "plan_status": "NOT COVERED — minor observability gap.",
+      "mitigation": "Add a log message when skip_pre_refine=true: 'Pre-refine phase skipped (skip_pre_refine=true)'. Nice-to-have, not blocking.",
+      "rollback": "N/A.",
+      "human_review_needed": false
     }
   ],
 
-  "plan_gaps": [
-    {
-      "id": "GAP-1",
-      "severity": "Critical",
-      "description": "gateway/phase_filter.py:28 has a third PipelinePhase enum copy that must be updated with PRE_REFINE. Not mentioned in the plan.",
-      "affected_tasks": ["TASK-1-1", "TASK-1-2"],
-      "recommendation": "Add a new task (TASK-1-1b) to update the gateway PipelinePhase enum, or expand TASK-1-1 scope to include all three enum locations."
+  "risk_summary": {
+    "total_risks": 12,
+    "by_severity": {
+      "CRITICAL": 1,
+      "HIGH": 3,
+      "MEDIUM": 4,
+      "LOW": 4
     },
-    {
-      "id": "GAP-2",
-      "severity": "Critical",
-      "description": "gateway/phase_transition.py has its own VALID_TRANSITIONS map separate from the orchestrator's. Not mentioned in the plan.",
-      "affected_tasks": ["TASK-1-3"],
-      "recommendation": "Expand TASK-1-3 to include gateway/phase_transition.py, or add a new task."
-    },
-    {
-      "id": "GAP-3",
-      "severity": "Critical",
-      "description": "gateway/gateway.py:3176 VALID_PIPELINE_PHASES frozenset must include 'pre_refine'. Without this, the gateway rejects all phase updates for PRE_REFINE sessions.",
-      "affected_tasks": ["TASK-1-4"],
-      "recommendation": "Add gateway/gateway.py to the files list for Phase 1."
-    },
-    {
-      "id": "GAP-4",
-      "severity": "Medium",
-      "description": "gateway/phase_filter.py _get_default_permissions() and _get_default_phase_file_restrictions() hardcode all four current phases. PRE_REFINE needs entries.",
-      "affected_tasks": ["TASK-1-4"],
-      "recommendation": "Include gateway/phase_filter.py in Phase 1 file list."
-    },
-    {
-      "id": "GAP-5",
-      "severity": "Medium",
-      "description": "shared/egg_contracts/agent_roles.py _PHASE_ROLES and _PHASE_REVIEWERS dicts need PRE_REFINE entries. get_agents_for_phase('pre_refine') would raise ValueError without this.",
-      "affected_tasks": ["TASK-1-5"],
-      "recommendation": "Add shared/egg_contracts/agent_roles.py to Phase 1 files. PRE_REFINE should have an empty roles list (no agents) and empty reviewers list (no review cycle)."
-    },
-    {
-      "id": "GAP-6",
-      "severity": "Medium",
-      "description": "orchestrator/dag_visualizer.py PHASE_ORDER and PHASE_NAMES need PRE_REFINE entries. Without these, the pipeline DAG display and progress bar omit the pre-refine phase entirely.",
-      "affected_tasks": ["TASK-1-1"],
-      "recommendation": "Add orchestrator/dag_visualizer.py to Phase 1 files. Prepend PRE_REFINE to PHASE_ORDER and add 'Pre-Refine' to PHASE_NAMES."
-    },
-    {
-      "id": "GAP-7",
-      "severity": "Low",
-      "description": "sandbox/egg_lib/orch_cli.py has two hardcoded choices lists (lines 1107, 1221) that enumerate phases. 'pre_refine' should be added.",
-      "affected_tasks": ["TASK-1-3"],
-      "recommendation": "Add orch_cli.py to Phase 1 or Phase 2 files."
-    },
-    {
-      "id": "GAP-8",
-      "severity": "Low",
-      "description": "Resume-from-partial-draft behavior is not specified. If a session crashes mid-conversation, the human restarts from scratch even though a partial draft may exist.",
-      "affected_tasks": ["TASK-3-1", "TASK-3-2"],
-      "recommendation": "Add logic to handle_pre_refine() that detects an existing partial requirements draft and offers 'Continue from existing draft' as a menu option."
-    }
-  ],
+    "risks_covered_by_plan": 8,
+    "risks_requiring_plan_update": 3,
+    "risks_informational_only": 1
+  },
 
   "areas_requiring_human_review": [
     {
-      "area": "Phase permissions for pre_refine",
-      "reason": "Security-sensitive. The pre_refine entry in phase-permissions.json controls what operations are allowed during requirements gathering. It should be the most restrictive phase: no code changes, no PRs, only requirements draft writes. A misconfiguration here means the phase has fewer restrictions than intended.",
+      "area": "PRE_REFINE early-exit pattern in _run_pipeline()",
+      "reason": "Architectural decision about code placement in the most complex file in the codebase (~5100 lines). The early-exit pattern is recommended to prevent scattered conditionals across 7+ phase-specific branches.",
+      "files": ["orchestrator/routes/pipelines.py"]
+    },
+    {
+      "area": "Phase permissions for PRE_REFINE",
+      "reason": "Security-critical configuration. PRE_REFINE should be the most restrictive phase. Both .egg/phase-permissions.json and gateway/phase_filter.py defaults must define correct restrictions.",
       "files": [".egg/phase-permissions.json", "gateway/phase_filter.py"]
     },
     {
-      "area": "Gateway VALID_PIPELINE_PHASES and transition maps",
-      "reason": "The gateway is the enforcement layer. If its PipelinePhase enum, VALID_PIPELINE_PHASES frozenset, or VALID_TRANSITIONS map are incorrect, pipeline operations will fail or be incorrectly permitted. These files must be reviewed together.",
-      "files": ["gateway/gateway.py", "gateway/phase_filter.py", "gateway/phase_transition.py"]
-    },
-    {
       "area": "Requirements-gathering system prompt",
-      "reason": "The quality of the pre-refine step depends heavily on Claude's system prompt. It should guide the conversation toward clear requirements without being overly rigid. The prompt should be reviewed by a human who has experience with the kind of requirements gathering this feature is intended to support.",
-      "files": ["sandbox/egg_lib/sdlc_hitl.py (system prompt in handle_pre_refine)"]
+      "reason": "UX-critical. The quality of the pre-refine step depends on Claude's system prompt. Should guide conversation toward clear requirements without being rigid.",
+      "files": ["sandbox/egg_lib/sdlc_hitl.py"]
     }
   ],
 
   "rollback_plan": {
-    "description": "If the pre-refine feature causes issues in production, it can be rolled back incrementally or fully.",
-    "strategies": [
+    "strategy": "Additive changes across 5 ordered phases. Rollback at any phase boundary by reverting all commits from that phase.",
+    "soft_disable": "Set skip_pre_refine=true in all pipeline creation paths. No code changes needed. PRE_REFINE code remains but is never activated.",
+    "full_revert": "Remove PRE_REFINE from all enum definitions, transition maps, permissions, and conditional logic. Safe because PRE_REFINE is new — no existing data depends on it.",
+    "data_migration": "None required. Existing pipelines never enter PRE_REFINE. Pipelines in PRE_REFINE during rollback can be manually advanced via egg-orch phase advance."
+  },
+
+  "security_assessment": {
+    "overall": "LOW risk. PRE_REFINE is designed as the most restrictive phase. Main concern is correct permission configuration (RISK-5, covered by plan).",
+    "items": [
       {
-        "level": "Soft disable",
-        "description": "Set skip_pre_refine=true in all pipeline creation paths. This causes pipelines to start at REFINE as before. No code changes needed — just a configuration change. The PRE_REFINE enum value remains in code but is never activated.",
-        "effort": "Minimal",
-        "data_loss": "None"
+        "concern": "Fail-open if permissions not configured",
+        "severity": "MEDIUM",
+        "status": "MITIGATED by plan (TASK-1-4 + TASK-1-7)"
       },
       {
-        "level": "Feature flag removal",
-        "description": "Change the Pipeline.current_phase default back to REFINE and remove the skip_pre_refine conditional in pipeline creation. Pipelines always start at REFINE. PRE_REFINE code paths exist but are dead code.",
-        "effort": "Low",
-        "data_loss": "None — existing pipelines in PRE_REFINE state would need manual phase advancement via egg-orch phase advance."
+        "concern": "Claude session could access repository files",
+        "severity": "LOW",
+        "status": "MITIGATED by design (TD-7, no codebase access)"
       },
       {
-        "level": "Full revert",
-        "description": "Revert all changes. Remove PRE_REFINE from all three enum definitions, transition maps, phase-permissions.json, VALID_PIPELINE_PHASES, and all conditional logic. This is safe because PRE_REFINE is a new phase — no existing data depends on it.",
-        "effort": "Medium — 13+ files to revert across 4 packages",
-        "data_loss": "Any requirements documents created during pre-refine sessions remain as orphaned files in .egg-state/drafts/ but are otherwise harmless."
+        "concern": "Issue body replacement used for injection",
+        "severity": "LOW",
+        "status": "ACCEPTABLE — document consumed as plain text"
       }
     ]
   },
 
-  "implementation_recommendations": [
-    {
-      "id": "REC-1",
-      "priority": "Critical",
-      "recommendation": "Before writing any code, run a comprehensive grep to build the complete list of files that reference PipelinePhase, phase string comparisons, PHASE_ORDER, PHASE_NAMES, VALID_TRANSITIONS, VALID_PIPELINE_PHASES, _HITL_GATE_PHASES, _PHASE_ROLES, _PHASE_REVIEWERS, and _DEFAULT_PHASE_CONFIGS. Use this list as a checklist during implementation."
-    },
-    {
-      "id": "REC-2",
-      "priority": "Critical",
-      "recommendation": "Implement Phase 1 (enum and registration updates) first and run the full test suite immediately after. Many tests will fail with assertion errors about phase counts or transition targets. Fix these tests as part of Phase 1, not Phase 5. This ensures the foundation is solid before building on it."
-    },
-    {
-      "id": "REC-3",
-      "priority": "High",
-      "recommendation": "Use the early-exit pattern in _run_pipeline() for PRE_REFINE: handle it at the top of the phase loop iteration and `continue`. Do not thread PRE_REFINE logic through the container-spawn, review-cycle, and HITL-gate branches. This isolates the novel execution model from the existing code paths."
-    },
-    {
-      "id": "REC-4",
-      "priority": "High",
-      "recommendation": "Add a cross-validation test that asserts all three PipelinePhase enum definitions have identical member sets, and all three VALID_TRANSITIONS maps have consistent phase sets. This prevents future drift."
-    },
-    {
-      "id": "REC-5",
-      "priority": "Medium",
-      "recommendation": "The pre-refine handler should detect an existing partial requirements draft on resume and offer to continue from it, rather than always starting fresh. This is important for long requirements sessions that get interrupted."
-    },
-    {
-      "id": "REC-6",
-      "priority": "Medium",
-      "recommendation": "Pre-refine phase permissions should be the most restrictive of any phase. Suggested allowlist: write .egg-state/drafts/*requirements* only. Block: all git push, all gh commands except issue comment/edit, all code file writes. No agent containers are spawned during this phase, so most operations are irrelevant, but explicit restriction prevents misuse if the phase logic is ever changed."
-    }
-  ],
-
-  "risk_matrix_summary": {
-    "critical_risks": 0,
-    "high_risks": 3,
-    "medium_risks": 3,
-    "low_risks": 2,
-    "total_risks": 8,
-    "plan_gaps_critical": 3,
-    "plan_gaps_medium": 3,
-    "plan_gaps_low": 2,
-    "total_plan_gaps": 8,
-    "verdict": "APPROVE_WITH_CONDITIONS"
+  "performance_assessment": {
+    "overall": "NEGLIGIBLE impact. One additional optional phase, no changes to existing phase execution.",
+    "items": [
+      "DAG rendering: +1 iteration in PHASE_ORDER loops — negligible",
+      "Pipeline startup: +1 conditional check for skip_pre_refine — negligible",
+      "Progress bar: denominator changes from 4 to 5 phases — cosmetic only"
+    ]
   },
 
   "conditions_for_approval": [
-    "Plan Phase 1 must be expanded to include gateway/phase_filter.py, gateway/phase_transition.py, gateway/gateway.py, shared/egg_contracts/agent_roles.py, and orchestrator/dag_visualizer.py",
-    "Human must review the phase-permissions.json entry and gateway enforcement updates before merge",
-    "Full test suite must pass after Phase 1 before proceeding to Phase 2",
-    "The requirements-gathering system prompt must be reviewed by a human before the feature is enabled by default"
-  ]
+    "Phase 1 must include gateway/gateway.py VALID_PIPELINE_PHASES update (NEW-GAP-1)",
+    "Phase 1 must include agent_roles.py _PHASE_ROLES and _PHASE_REVIEWERS entries (NEW-GAP-2)",
+    "Phase 5 should include cross-file synchronization tests (NEW-GAP-3)",
+    "Human must review phase-permissions.json entry and gateway enforcement updates",
+    "Full test suite must pass after Phase 1 before proceeding to Phase 2"
+  ],
+
+  "verdict": "APPROVE_WITH_CONDITIONS"
 }
