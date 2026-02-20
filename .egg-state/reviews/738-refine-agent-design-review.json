@@ -1,0 +1,7 @@
+{
+  "reviewer": "agent-design",
+  "verdict": "approved",
+  "summary": "No agent-mode design anti-patterns found. The analysis proposes an interactive PRE_REFINE phase that enhances agent autonomy by introducing conversational mode, avoids pre-fetching, uses no post-processing pipelines, describes objectives rather than rigid procedures, and correctly defers enforcement to infrastructure rather than prompts.",
+  "feedback": "",
+  "timestamp": "2026-02-20T12:00:00Z"
+}
