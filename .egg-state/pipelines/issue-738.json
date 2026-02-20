@@ -110,10 +110,10 @@
     },
     "plan": {
       "phase": "plan",
-      "status": "running",
+      "status": "complete",
       "started_at": "2026-02-20T19:32:37.410787",
       "work_started_at": "2026-02-20T19:54:51.290832",
-      "completed_at": null,
+      "completed_at": "2026-02-20T20:32:51.473302",
       "containers": [
         {
           "container_id": "f13e9e34298b763124ae50b806a47caa050b9c98cefa72e8f162591dd78eaf34",
@@ -330,11 +330,11 @@
     }
   ],
   "created_at": "2026-02-20T18:30:52.811215",
-  "updated_at": "2026-02-20T20:32:51.456296",
+  "updated_at": "2026-02-20T20:32:51.473502",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
   "complexity_tier": "high",
   "error": null,
-  "version": 40
+  "version": 41
 }
