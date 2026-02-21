@@ -3413,7 +3413,7 @@ def _spawn_and_wait(
                 # Update container status
                 for ci in phase_execution.containers:
                     if ci.container_id == spawned.container_info.container_id:
-                        ci.status = ContainerStatus.EXITED
+                        ci.status = final_info.status
                         ci.exited_at = datetime.utcnow()
                         ci.exit_code = final_info.exit_code
                         break
