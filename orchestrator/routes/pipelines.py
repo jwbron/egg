@@ -3414,7 +3414,7 @@ def _spawn_and_wait(
                 for ci in phase_execution.containers:
                     if ci.container_id == spawned.container_info.container_id:
                         ci.status = final_info.status
-                        ci.exited_at = datetime.utcnow()
+                        ci.exited_at = final_info.exited_at
                         ci.exit_code = final_info.exit_code
                         break
 
