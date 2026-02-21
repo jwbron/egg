@@ -144,11 +144,12 @@ The orchestrator coordinates specialized agent roles across pipeline phases. Eac
 | **Coder** | Write code, create commits, push branches |
 | **Tester** | Write and run tests, validate acceptance criteria |
 | **Documenter** | Update docs, READMEs, and changelogs |
+| **Checker** | Run linters, formatters, and auto-fixers on code |
 | **Integrator** | Run full test suite, validate integration |
 
 **Execution model (Tier 2)**: Wave-based with dependencies. The coder runs first, then tester and documenter run in parallel (both depend on coder's output). The integrator runs after the coder and tester complete (it does not wait for the documenter).
 
-**Execution model (Tier 3)**: For high-complexity tasks, each plan phase runs its own implement cycle (Coder → Tester → Agentic Review). Independent phases can execute in parallel. After all phase cycles complete, the integrator runs with write access to fix cross-phase integration issues.
+**Execution model (Tier 3)**: For high-complexity tasks, each plan phase runs its own implement cycle (Coder → Tester → Documenter → Checker → Code Reviewer). Independent phases can execute in parallel. After all phase cycles complete, the integrator runs with write access to fix cross-phase integration issues.
 
 **Reviewers:**
 - **Code Reviewer**: Security, correctness, code quality, testing, documentation
