@@ -81,6 +81,9 @@ All endpoints are prefixed with `/api/v1`.
 | `GET` | `/pipelines` | List all pipelines |
 | `POST` | `/pipelines` | Create new pipeline |
 | `GET` | `/pipelines/{id}` | Get pipeline details |
+| `PATCH` | `/pipelines/{id}` | Update pipeline |
+| `DELETE` | `/pipelines/{id}` | Delete pipeline |
+| `GET` | `/pipelines/{id}/status` | Get pipeline status summary |
 | `POST` | `/pipelines/{id}/start` | Start or restart pipeline |
 | `GET` | `/pipelines/{id}/visualization` | Get DAG visualization (JSON, text, or ASCII) |
 | `GET` | `/pipelines/{id}/stream` | SSE stream for single pipeline |
@@ -91,6 +94,7 @@ All endpoints are prefixed with `/api/v1`.
 | Method | Path | Description |
 |--------|------|-------------|
 | `POST` | `/pipelines/{id}/signal` | Sandbox completion/progress/error callbacks |
+| `POST` | `/pipelines/{id}/signal/batch` | Batch multiple signals |
 
 ### Containers
 
@@ -139,6 +143,14 @@ All endpoints are prefixed with `/api/v1`.
 |--------|------|-------------|
 | `GET` | `/health` | Service health |
 | `GET` | `/ready` | Readiness check |
+| `GET` | `/live` | Liveness check |
+
+### Metrics
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/metrics` | Orchestrator metrics (JSON) |
+| `GET` | `/metrics/prometheus` | Metrics in Prometheus format |
 
 ## Deployment Modes
 
