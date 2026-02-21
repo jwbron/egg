@@ -113,7 +113,8 @@ class TestReconcileContainerState:
         assert pipeline.status == PipelineStatus.FAILED
         assert pipeline.error is not None
         store.save_pipeline.assert_called_once_with(
-            pipeline, expected_version=pipeline.version,
+            pipeline,
+            expected_version=pipeline.version,
         )
 
     def test_marks_agent_failed_when_container_exits(self):

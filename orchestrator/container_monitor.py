@@ -345,14 +345,19 @@ def _reconcile_container_state(store: Any, container_info: ContainerInfo) -> boo
                     continue
 
                 for ci in phase_execution.containers:
-                    if ci.container_id == container_info.container_id and ci.status == ContainerStatus.RUNNING:
+                    if (
+                        ci.container_id == container_info.container_id
+                        and ci.status == ContainerStatus.RUNNING
+                    ):
                         logger.warning(
                             "Runtime reconciliation: container exited, marking FAILED",
                             pipeline_id=pipeline_id,
                             container_id=container_info.container_id[:12],
                         )
                         ci.status = ContainerStatus.FAILED
-                        ci.exit_code = container_info.exit_code if container_info.exit_code is not None else -1
+                        ci.exit_code = (
+                            container_info.exit_code if container_info.exit_code is not None else -1
+                        )
                         ci.exited_at = container_info.exited_at or datetime.utcnow()
                         changed = True
 

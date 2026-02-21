@@ -1,13 +1,9 @@
 """Tests for gateway checkpoint read endpoints (list, show, cost)."""
 
-import json
 from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 
 import pytest
-
-from checkpoint_handler import CheckpointHandler
-from egg_contracts.checkpoint_loader import filter_checkpoints_v2
 from egg_contracts.checkpoints import (
     AgentType,
     CheckpointIndexV2,
@@ -142,9 +138,7 @@ class TestCheckpointList:
     @patch("gateway.get_checkpoint_handler")
     @patch("gateway._get_checkpoint_repo_for_path")
     @patch("gateway._resolve_repo_path_for_checkpoints")
-    def test_list_empty(
-        self, mock_resolve, mock_ckpt_repo, mock_get_handler, client, auth_headers
-    ):
+    def test_list_empty(self, mock_resolve, mock_ckpt_repo, mock_get_handler, client, auth_headers):
         mock_resolve.return_value = "/repo"
         mock_ckpt_repo.return_value = None
 
@@ -221,9 +215,7 @@ class TestCheckpointRepoOverride:
         assert response.status_code == 200
 
         # Invalid format → falls back to auto-detection (which returns None)
-        mock_handler.fetch_and_read_index.assert_called_once_with(
-            "/repo", checkpoint_repo=None
-        )
+        mock_handler.fetch_and_read_index.assert_called_once_with("/repo", checkpoint_repo=None)
 
     @patch("gateway.get_checkpoint_handler")
     @patch("gateway._get_checkpoint_repo_for_path")
@@ -245,9 +237,7 @@ class TestCheckpointRepoOverride:
         )
         assert response.status_code == 200
 
-        mock_handler.ensure_ref.assert_called_once_with(
-            "/repo", checkpoint_repo="org/checkpoints"
-        )
+        mock_handler.ensure_ref.assert_called_once_with("/repo", checkpoint_repo="org/checkpoints")
 
     @patch("gateway.get_checkpoint_handler")
     @patch("gateway._get_checkpoint_repo_for_path")
@@ -284,9 +274,7 @@ class TestCheckpointShow:
     @patch("gateway.get_checkpoint_handler")
     @patch("gateway._get_checkpoint_repo_for_path")
     @patch("gateway._resolve_repo_path_for_checkpoints")
-    def test_show_by_id(
-        self, mock_resolve, mock_ckpt_repo, mock_get_handler, client, auth_headers
-    ):
+    def test_show_by_id(self, mock_resolve, mock_ckpt_repo, mock_get_handler, client, auth_headers):
         mock_resolve.return_value = "/repo"
         mock_ckpt_repo.return_value = None
 

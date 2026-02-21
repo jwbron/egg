@@ -711,7 +711,9 @@ class TestRetryExhaustion:
         self._make_contract(tmp_path)
         mock_spawn.return_value = (0, "agent logs")
         # Reviewer always requests revision
-        mock_read_verdict.return_value = ReviewVerdict(verdict="needs_revision", feedback="Needs work")
+        mock_read_verdict.return_value = ReviewVerdict(
+            verdict="needs_revision", feedback="Needs work"
+        )
         mock_read_feedback.return_value = "Needs work"
         mock_read_draft.return_value = "# Plan"
 

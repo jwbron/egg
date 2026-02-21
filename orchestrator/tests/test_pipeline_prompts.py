@@ -882,7 +882,9 @@ class TestBuildRoleContext:
 
     def test_documenter_gets_summary_not_full_body(self):
         """Documenter receives a summary, not the full issue body."""
-        result = _build_role_context("documenter", "# Big feature\n\nLots of detail.", issue_number=5)
+        result = _build_role_context(
+            "documenter", "# Big feature\n\nLots of detail.", issue_number=5
+        )
         assert "## Background" in result
         assert "## Task Description" not in result
         assert "## For More Context" in result
@@ -897,9 +899,7 @@ class TestBuildRoleContext:
         """Tester with phase_obj includes phase-scoped task details."""
         task = self._make_task("TASK-1-1", "Add validation", ["models.py"], "Tests pass")
         phase = self._make_phase("phase-1", "Schema", [task])
-        result = _build_role_context(
-            "tester", "# Issue\n\nBody.", issue_number=1, phase_obj=phase
-        )
+        result = _build_role_context("tester", "# Issue\n\nBody.", issue_number=1, phase_obj=phase)
         assert "Phase Scope" in result
         assert "TASK-1-1" in result
         assert "Add validation" in result
@@ -936,8 +936,11 @@ class TestBuildRoleContext:
         phase1 = self._make_phase("phase-1", "Core", [task])
         phase2 = self._make_phase("phase-2", "Tests", [])
         result = _build_role_context(
-            "tester", "# Issue", issue_number=1,
-            phase_obj=phase1, all_phases=[phase1, phase2],
+            "tester",
+            "# Issue",
+            issue_number=1,
+            phase_obj=phase1,
+            all_phases=[phase1, phase2],
         )
         assert "Other Phases" in result
         assert "phase-2" in result
@@ -1348,7 +1351,9 @@ class TestBuildRoleContextEdgeCases:
         """Integrator handles phases with empty task lists."""
         phase = self._make_phase("phase-1", "Empty phase", tasks=[])
         result = _build_role_context(
-            "integrator", "# Issue", issue_number=1,
+            "integrator",
+            "# Issue",
+            issue_number=1,
             all_phases=[phase],
         )
         assert "## Implementation Summary" in result
@@ -1362,7 +1367,9 @@ class TestBuildRoleContextEdgeCases:
         ]
         phase = self._make_phase("phase-1", "Core", tasks=tasks)
         result = _build_role_context(
-            "integrator", "# Issue", issue_number=1,
+            "integrator",
+            "# Issue",
+            issue_number=1,
             all_phases=[phase],
         )
         assert "x.py" in result
@@ -1389,8 +1396,11 @@ class TestBuildRoleContextEdgeCases:
         task = self._make_task()
         phase = self._make_phase("phase-1", "Core", [task])
         result = _build_role_context(
-            "tester", "# Issue", issue_number=1,
-            phase_obj=phase, all_phases=[phase],
+            "tester",
+            "# Issue",
+            issue_number=1,
+            phase_obj=phase,
+            all_phases=[phase],
         )
         assert "Other Phases" not in result
 
@@ -1590,8 +1600,7 @@ class TestBuildPhaseScopedPromptEdgeCases:
         drafts = tmp_path / ".egg-state" / "drafts"
         drafts.mkdir(parents=True)
         (drafts / "42-plan.md").write_text(
-            "# Plan\n\n## Summary\n\nOverview.\n\n"
-            "### Phase 1: Core\n\nDetails.\n"
+            "# Plan\n\n## Summary\n\nOverview.\n\n### Phase 1: Core\n\nDetails.\n"
         )
 
         phase = self._make_phase(tasks=[self._make_task()])

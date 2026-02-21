@@ -2509,9 +2509,7 @@ def _build_phase_scoped_prompt(
             issue_number=pipeline.issue_number,
             pipeline_id=pipeline_id,
         )
-        draft_rel = _get_draft_path(
-            "plan", pipeline_mode, pipeline.issue_number, pipeline_id
-        )
+        draft_rel = _get_draft_path("plan", pipeline_mode, pipeline.issue_number, pipeline_id)
         if draft_text:
             overview = _extract_plan_overview(draft_text)
             if overview:
@@ -2528,9 +2526,7 @@ def _build_phase_scoped_prompt(
             for phase in other_phases:
                 status = getattr(phase, "status", "unknown")
                 task_count = len(phase.tasks) if phase.tasks else 0
-                lines.append(
-                    f"- {phase.id}: {phase.name} — {task_count} tasks [{status}]"
-                )
+                lines.append(f"- {phase.id}: {phase.name} — {task_count} tasks [{status}]")
             lines.append("")
 
     # Phase-specific task checklist

@@ -1,11 +1,9 @@
 """Tests for checkpoint CLI HTTP mode (gateway direct)."""
 
 import argparse
-import json
 from unittest.mock import MagicMock, patch
 
 import pytest
-
 from egg_contracts.checkpoint_cli import (
     _build_list_params,
     _get_gateway_url,
@@ -20,7 +18,9 @@ class TestGetGatewayUrl:
     """Tests for _get_gateway_url() detection logic."""
 
     def test_returns_url_when_both_set(self):
-        with patch.dict("os.environ", {"GATEWAY_URL": "http://gw:9848", "EGG_SESSION_TOKEN": "tok"}):
+        with patch.dict(
+            "os.environ", {"GATEWAY_URL": "http://gw:9848", "EGG_SESSION_TOKEN": "tok"}
+        ):
             assert _get_gateway_url() == "http://gw:9848"
 
     def test_returns_none_without_token(self):
@@ -112,9 +112,18 @@ class TestBuildListParams:
 
     def test_basic_params(self):
         args = argparse.Namespace(
-            limit=50, issue=738, pr=None, branch=None, session=None,
-            trigger=None, status=None, agent_type=None, phase=None,
-            pipeline=None, repo=None, repo_path="/repo",
+            limit=50,
+            issue=738,
+            pr=None,
+            branch=None,
+            session=None,
+            trigger=None,
+            status=None,
+            agent_type=None,
+            phase=None,
+            pipeline=None,
+            repo=None,
+            repo_path="/repo",
         )
         params = _build_list_params(args)
         assert params["limit"] == 50
@@ -124,9 +133,17 @@ class TestBuildListParams:
 
     def test_all_filters(self):
         args = argparse.Namespace(
-            limit=10, issue=1, pr=2, branch="main", session="s1",
-            trigger="COMMIT", status="completed", agent_type="coder",
-            phase="implement", pipeline="p1", repo="org/repo",
+            limit=10,
+            issue=1,
+            pr=2,
+            branch="main",
+            session="s1",
+            trigger="COMMIT",
+            status="completed",
+            agent_type="coder",
+            phase="implement",
+            pipeline="p1",
+            repo="org/repo",
             repo_path="/repo",
         )
         params = _build_list_params(args)
@@ -143,9 +160,18 @@ class TestBuildListParamsCheckpointRepo:
     def test_includes_checkpoint_repo_when_set(self, mock_get_ckpt):
         mock_get_ckpt.return_value = "org/checkpoints"
         args = argparse.Namespace(
-            limit=50, issue=835, pr=None, branch=None, session=None,
-            trigger=None, status=None, agent_type=None, phase=None,
-            pipeline=None, repo=None, repo_path="/repo",
+            limit=50,
+            issue=835,
+            pr=None,
+            branch=None,
+            session=None,
+            trigger=None,
+            status=None,
+            agent_type=None,
+            phase=None,
+            pipeline=None,
+            repo=None,
+            repo_path="/repo",
             checkpoint_repo="org/checkpoints",
         )
         params = _build_list_params(args)
@@ -155,9 +181,18 @@ class TestBuildListParamsCheckpointRepo:
     def test_omits_checkpoint_repo_when_none(self, mock_get_ckpt):
         mock_get_ckpt.return_value = None
         args = argparse.Namespace(
-            limit=50, issue=835, pr=None, branch=None, session=None,
-            trigger=None, status=None, agent_type=None, phase=None,
-            pipeline=None, repo=None, repo_path="/repo",
+            limit=50,
+            issue=835,
+            pr=None,
+            branch=None,
+            session=None,
+            trigger=None,
+            status=None,
+            agent_type=None,
+            phase=None,
+            pipeline=None,
+            repo=None,
+            repo_path="/repo",
             checkpoint_repo=None,
         )
         params = _build_list_params(args)
@@ -174,9 +209,19 @@ class TestCmdListHttpFallback:
         mock_http.return_value = 0
 
         args = argparse.Namespace(
-            limit=50, issue=None, pr=None, branch=None, session=None,
-            trigger=None, status=None, agent_type=None, phase=None,
-            pipeline=None, repo=None, repo_path="/repo", json=False,
+            limit=50,
+            issue=None,
+            pr=None,
+            branch=None,
+            session=None,
+            trigger=None,
+            status=None,
+            agent_type=None,
+            phase=None,
+            pipeline=None,
+            repo=None,
+            repo_path="/repo",
+            json=False,
             checkpoint_repo=None,
         )
         result = cmd_list(args)
@@ -192,9 +237,19 @@ class TestCmdListHttpFallback:
         mock_ref.return_value = None
 
         args = argparse.Namespace(
-            limit=50, issue=None, pr=None, branch=None, session=None,
-            trigger=None, status=None, agent_type=None, phase=None,
-            pipeline=None, repo=None, repo_path="/repo", json=False,
+            limit=50,
+            issue=None,
+            pr=None,
+            branch=None,
+            session=None,
+            trigger=None,
+            status=None,
+            agent_type=None,
+            phase=None,
+            pipeline=None,
+            repo=None,
+            repo_path="/repo",
+            json=False,
             checkpoint_repo=None,
         )
         result = cmd_list(args)
@@ -209,9 +264,19 @@ class TestCmdListHttpFallback:
         mock_ref.return_value = None
 
         args = argparse.Namespace(
-            limit=50, issue=None, pr=None, branch=None, session=None,
-            trigger=None, status=None, agent_type=None, phase=None,
-            pipeline=None, repo=None, repo_path="/repo", json=False,
+            limit=50,
+            issue=None,
+            pr=None,
+            branch=None,
+            session=None,
+            trigger=None,
+            status=None,
+            agent_type=None,
+            phase=None,
+            pipeline=None,
+            repo=None,
+            repo_path="/repo",
+            json=False,
             checkpoint_repo=None,
         )
         result = cmd_list(args)
@@ -250,8 +315,14 @@ class TestCmdCostHttpFallback:
         mock_http.return_value = 0
 
         args = argparse.Namespace(
-            limit=50, issue=None, pr=None, pipeline=None, repo=None,
-            repo_path="/repo", json=False, checkpoint_repo=None,
+            limit=50,
+            issue=None,
+            pr=None,
+            pipeline=None,
+            repo=None,
+            repo_path="/repo",
+            json=False,
+            checkpoint_repo=None,
         )
         result = cmd_cost(args)
         assert result == 0
