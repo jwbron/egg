@@ -223,7 +223,7 @@ class PipelineConfig(BaseModel):
         default=True, description="Allow refine agent to skip plan phase for low-complexity tasks"
     )
     enable_parallel_phases: bool = Field(
-        default=False,
+        default=True,
         description="Enable parallel phase execution for independent plan phases (Tier 3 only)",
     )
 
