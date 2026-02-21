@@ -7,7 +7,8 @@ Checkpoints capture agent session context (transcripts, tool calls, files touche
 All `egg-checkpoint` commands support these top-level options:
 
 - `--repo-path PATH` — Repository path (defaults to `EGG_REPO_PATH` or current directory)
-- `--checkpoint-repo OWNER/REPO` — External checkpoint repository in `owner/repo` format. Overrides auto-detection from repository settings. Use this when querying checkpoints from a different repository than the current one.
+- `--checkpoint-repo OWNER/REPO` — External checkpoint repository in `owner/repo` format. Overrides auto-detection from repository settings.
+  Use this when querying checkpoints from a different repository than the current one.
 
 ## When to Use Checkpoints
 
