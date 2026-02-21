@@ -5,7 +5,7 @@
   "branch": "egg/issue-738",
   "mode": "issue",
   "prompt": null,
-  "status": "running",
+  "status": "failed",
   "current_phase": "implement",
   "config": {
     "auto_create_pr": true,
@@ -387,11 +387,11 @@
     }
   ],
   "created_at": "2026-02-21T19:58:04.738176",
-  "updated_at": "2026-02-21T19:58:04.813219",
+  "updated_at": "2026-02-21T19:58:04.847514",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
   "complexity_tier": "high",
-  "error": null,
-  "version": 81
+  "error": "Contract for 738 not found at /home/egg/.egg-worktrees/issue-738/egg/.egg-state/contracts/738.json",
+  "version": 82
 }
