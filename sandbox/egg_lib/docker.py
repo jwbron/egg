@@ -408,7 +408,7 @@ def hash_directory(path: Path, hasher: Any) -> None:
     if not path.exists():
         return
     for item in sorted(path.rglob("*")):
-        if item.is_file() and not item.name.startswith("."):
+        if item.is_file() and not item.name.startswith(".") and "__pycache__" not in item.parts:
             # Include relative path in hash to detect renames/moves
             hasher.update(str(item.relative_to(path)).encode())
             hash_file(item, hasher)

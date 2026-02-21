@@ -607,18 +607,19 @@ def _store_compose_hash(repo_root: Path, hash_value: str) -> None:
     hash_file_path.write_text(hash_value + "\n")
 
 
-def _compose_source_changed(repo_root: Path) -> bool:
+def _compose_source_changed(repo_root: Path) -> tuple[bool, str]:
     """Check whether compose service source files have changed since last build.
 
     Args:
         repo_root: Root of the egg repository
 
     Returns:
-        True if sources changed (or no hash stored yet), False otherwise
+        Tuple of (changed, current_hash) where changed is True if sources
+        changed (or no hash stored yet), and current_hash is the computed hash.
     """
     current_hash = _compute_compose_hash(repo_root)
     stored_hash = _get_stored_compose_hash(repo_root)
-    return current_hash != stored_hash
+    return current_hash != stored_hash, current_hash
 
 
 def ensure_compose_services(build: bool = True) -> bool:
@@ -689,7 +690,7 @@ def ensure_compose_services(build: bool = True) -> bool:
 
     # Detect whether compose service source files changed (gateway/, orchestrator/, etc.)
     repo_root = compose_file.parent
-    source_changed = _compose_source_changed(repo_root)
+    source_changed, current_source_hash = _compose_source_changed(repo_root)
 
     # Fast path: services healthy, config unchanged, sources unchanged
     if already_healthy and not config_changed and not source_changed:
@@ -713,6 +714,8 @@ def ensure_compose_services(build: bool = True) -> bool:
         # Race recovery: another process may have started services concurrently
         if _services_healthy():
             success("Gateway is healthy (started by another process)")
+            # Store hash since services are running with current source
+            _store_compose_hash(repo_root, current_source_hash)
             ctx = get_context()
             orchestrator_url = f"http://localhost:{ctx.orchestrator_port}/api/v1/health"
             if _wait_for_health(orchestrator_url, "Orchestrator", timeout=30):
@@ -741,7 +744,7 @@ def ensure_compose_services(build: bool = True) -> bool:
         warn("Orchestrator not healthy — continuing without it")
 
     # Store compose source hash so the next invocation can skip rebuild
-    _store_compose_hash(repo_root, _compute_compose_hash(repo_root))
+    _store_compose_hash(repo_root, current_source_hash)
 
     return True
 
