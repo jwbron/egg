@@ -5,7 +5,7 @@
   "branch": "egg/issue-850",
   "mode": "issue",
   "prompt": null,
-  "status": "running",
+  "status": "failed",
   "current_phase": "plan",
   "config": {
     "auto_create_pr": true,
@@ -171,20 +171,20 @@
         {
           "container_id": "82903ca73eef16ed3049e086cf5172fcf907eccf16b99dae76fb666b52e42177",
           "container_name": "egg-sandbox-egg-issue-850-task_planner",
-          "status": "running",
+          "status": "failed",
           "started_at": "2026-02-21T20:49:44.613964",
-          "exited_at": null,
-          "exit_code": null,
+          "exited_at": "2026-02-21T21:06:41.017224",
+          "exit_code": -1,
           "agent_role": "task_planner",
           "session_token": null
         },
         {
           "container_id": "72447855bdd496ce1ec906deb7ea43ff43ec501195b46e11856359302b3e89b8",
           "container_name": "egg-sandbox-egg-issue-850-risk_analyst",
-          "status": "running",
+          "status": "failed",
           "started_at": "2026-02-21T20:49:44.624367",
-          "exited_at": null,
-          "exit_code": null,
+          "exited_at": "2026-02-21T21:06:41.017254",
+          "exit_code": -1,
           "agent_role": "risk_analyst",
           "session_token": null
         }
@@ -257,26 +257,26 @@
         },
         {
           "role": "task_planner",
-          "status": "running",
+          "status": "failed",
           "container_id": "82903ca73eef16ed3049e086cf5172fcf907eccf16b99dae76fb666b52e42177",
           "started_at": "2026-02-21T20:49:44.613968",
-          "completed_at": null,
+          "completed_at": "2026-02-21T21:06:41.017281",
           "commit": null,
           "outputs": {},
-          "error": null,
+          "error": "Container not found at orchestrator startup — likely lost during a previous crash",
           "retry_count": 0,
           "conflicts": [],
           "plan_phase_id": null
         },
         {
           "role": "risk_analyst",
-          "status": "running",
+          "status": "failed",
           "container_id": "72447855bdd496ce1ec906deb7ea43ff43ec501195b46e11856359302b3e89b8",
           "started_at": "2026-02-21T20:49:44.624372",
-          "completed_at": null,
+          "completed_at": "2026-02-21T21:06:41.017307",
           "commit": null,
           "outputs": {},
-          "error": null,
+          "error": "Container not found at orchestrator startup — likely lost during a previous crash",
           "retry_count": 0,
           "conflicts": [],
           "plan_phase_id": null
@@ -318,11 +318,11 @@
     }
   ],
   "created_at": "2026-02-21T19:57:08.463358",
-  "updated_at": "2026-02-21T20:49:44.624434",
+  "updated_at": "2026-02-21T21:06:41.017372",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
   "complexity_tier": "high",
-  "error": null,
-  "version": 35
+  "error": "Pipeline marked FAILED at orchestrator startup: one or more agent containers were not found. Restart via POST /pipelines/{id}/start.",
+  "version": 36
 }
