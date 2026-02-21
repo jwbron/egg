@@ -79,7 +79,7 @@ Each major component has detailed documentation:
 | Component | Location | Description |
 |-----------|----------|-------------|
 | [Gateway Sidecar](../gateway/README.md) | `gateway/` | Policy enforcement, credential injection, API endpoints |
-| [Orchestrator](architecture/orchestrator.md) | `orchestrator/` | Local SDLC pipeline execution, state management, container lifecycle |
+| [Orchestrator](../orchestrator/README.md) | `orchestrator/` | Local SDLC pipeline execution, state management, container lifecycle |
 | [Sandbox Container](../sandbox/README.md) | `sandbox/` | Agent environment, tools, entrypoint |
 | [Shared Libraries](../shared/README.md) | `shared/` | Config, logging, git utilities, and SDLC contracts |
 | [Configuration](../config/README.md) | `config/` | Repository and host configuration |
