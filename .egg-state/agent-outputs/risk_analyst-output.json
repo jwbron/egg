@@ -1,471 +1,427 @@
 {
-  "issue": 732,
+  "issue": 850,
   "phase": "plan",
   "agent": "risk_analyst",
-  "title": "Risk Assessment: Parallel Phase-Level Dispatch for Implement Phase",
-  "summary": "Assessment of the hybrid approach (Approach C) for adding Tier 3 dispatch to the SDLC pipeline. The recommended approach carries manageable risk when delivered in two stages. The highest risks center on the composite execution key migration (silent data loss during deserialization), integrator privilege escalation interacting with readonly mount enforcement (#800), and the sheer scope of changes touching 12+ files across 4 packages. Six risks are rated High, five Medium, and two Low. All are mitigable with the staged approach but require careful implementation ordering and comprehensive backward compatibility testing.",
+  "title": "Risk assessment: two-tier health check framework",
+  "summary": "The proposed two-tier health check framework (Approach A) is architecturally sound and well-aligned with existing codebase patterns. The primary risks center on (1) integration complexity with the 5543-line routes/pipelines.py, (2) concurrency hazards where health check state mutations race with signal handlers and the container monitor thread, (3) introducing an LLM dependency (Anthropic API) into the orchestrator for the first time, and (4) the scope of the change (~13 new files, modifications to 8 existing files across the critical path). No risks are blocking, but three require human review: the pipelines.py integration strategy, the decision on whether Tier 2 should ship in the same change or as a fast-follow, and the FAIL_PIPELINE auto-enforcement behavior.",
 
-  "risk_assessment": {
-    "overall_risk_level": "Medium-High",
-    "overall_verdict": "Proceed with Approach C (hybrid staged delivery). Risks are manageable but require strict implementation ordering, comprehensive backward compatibility testing, and human review of integrator privilege escalation and schema migration.",
-    "confidence": "High — based on source code analysis of all 12 affected files, contract schema, gateway enforcement layers, test infrastructure, and recent commit history"
+  "approach_reviewed": {
+    "id": "A",
+    "name": "Unified HealthCheck interface with HealthCheckRunner",
+    "verdict": "Proceed with caution. The architecture is well-designed. Key risks are manageable with the mitigations outlined below."
   },
 
   "risks": [
     {
-      "id": "R-1",
-      "category": "Data Integrity",
-      "title": "Silent data loss during composite key migration",
-      "description": "OrchestrationState.from_contract() at orchestration.py:76-83 converts agent_executions list to dict[AgentRole, AgentExecutionModel]. If Tier 3 produces multiple CODER executions (one per phase), the dict conversion silently overwrites earlier entries — only the last CODER execution survives. No error is raised. This affects all downstream state queries: can_agent_run(), get_runnable_agents(), get_next_wave().",
-      "likelihood": "High",
-      "impact": "Critical",
-      "risk_score": "High",
-      "affected_files": [
-        "shared/egg_contracts/orchestration.py:76-83",
-        "shared/egg_contracts/models.py:493-507"
+      "id": "RISK-1",
+      "title": "Integration with routes/pipelines.py (_run_pipeline) is high-touch and fragile",
+      "category": "integration_complexity",
+      "severity": "high",
+      "likelihood": "medium",
+      "impact": "high",
+      "description": "routes/pipelines.py is 5543 lines and contains the central orchestration loop (_run_pipeline at line 3965). The architect's plan calls for wiring HealthCheckRunner.run_checks(trigger=PHASE_COMPLETE) into the phase transition logic and passing on_wave_complete callbacks. Currently, execute_all_waves() is called at line 3260 WITHOUT an on_wave_complete callback — adding one changes the calling pattern. The file handles review cycles, phase transitions, error recovery, and multi-agent coordination. A bug in health check wiring here could silently break pipeline execution or cause pipelines to be incorrectly marked FAILED.",
+      "evidence": [
+        "routes/pipelines.py is 5543 lines — largest file in the orchestrator",
+        "execute_all_waves() at line 3260 is called without on_wave_complete today; adding a callback changes the execution pattern",
+        "_run_pipeline() at line 3965 is a complex state machine with multiple branching paths for phase transitions",
+        "Any exception thrown by a health check callback during wave/phase completion would propagate into the pipeline execution thread"
       ],
       "mitigation": {
-        "strategy": "Add validation before migration, then migrate atomically",
+        "strategy": "Defensive integration with exception isolation",
         "steps": [
-          "Add a validator in models.py that raises on duplicate (role, phase_id) pairs in agent_executions — catches corruption before it propagates",
-          "Change OrchestrationState.executions to dict[tuple[str | None, AgentRole], AgentExecutionModel] with (phase_id, role) composite key",
-          "When phase_id is None (Tier 2), behavior must match current role-only keying — test this explicitly",
-          "Add deserialization tests with 0, 1, and multiple CODER entries across phases"
-        ],
-        "residual_risk": "Low — once composite key is in place, data loss path is eliminated"
+          "Wrap all HealthCheckRunner.run_checks() calls in try/except at the integration site — health check failures must NEVER propagate to the pipeline execution thread",
+          "Keep integration to exactly 2 call sites in pipelines.py: (1) pass on_wave_complete callback to execute_all_waves(), (2) call run_checks(PHASE_COMPLETE) after phase completion",
+          "The on_wave_complete callback should be a simple wrapper that catches all exceptions and logs them — it must not re-raise",
+          "Add integration tests that verify: (a) health check exception does not crash _run_pipeline, (b) health check timeout does not block phase transition",
+          "Do NOT restructure _run_pipeline() — changes should be purely additive (2-3 line insertions)"
+        ]
       },
-      "human_review_required": true,
-      "review_reason": "Schema change affects all contract consumers. Need to verify no external tools read agent_executions assuming role uniqueness."
+      "rollback_plan": "Revert the 2-3 lines that wire health checks into pipelines.py. The HealthCheckRunner and all checks can remain deployed but inactive — they are inert without trigger wiring.",
+      "needs_human_review": true,
+      "human_review_reason": "The exact insertion points in _run_pipeline() should be reviewed by someone familiar with the phase transition control flow to ensure no edge cases are missed (e.g., short-circuit paths, error recovery branches)."
     },
     {
-      "id": "R-2",
-      "category": "Security",
-      "title": "Integrator privilege escalation conflicts with readonly mount enforcement",
-      "description": "PR #800 (merged Feb 16) enforces readonly mounts for .egg-state/contracts/, .egg-state/drafts/, .egg-state/pipelines/, and .egg-state/reviews/ during the implement phase. The architect's proposal (TD-4) gives integrator write access to src/, tests/, docs/ in Tier 3. The integrator runs during the implement phase. If the integrator also needs to update contract state (e.g., mark phases complete, record merge results), the readonly mount blocks direct file writes. Two gateway enforcement layers must agree: phase_filter.py (layer 1 — phase-based file restrictions) and agent_restrictions.py (layer 2 — role-based file restrictions).",
-      "likelihood": "High",
-      "impact": "High",
-      "risk_score": "High",
-      "affected_files": [
-        "gateway/phase_filter.py:480-525",
-        "gateway/agent_restrictions.py:296-321",
-        "shared/egg_contracts/agent_roles.py:289-318"
+      "id": "RISK-2",
+      "title": "Concurrent state mutations from health checks and existing writers",
+      "category": "concurrency",
+      "severity": "high",
+      "likelihood": "medium",
+      "impact": "high",
+      "description": "The HealthCheckRunner._apply_result() must mutate pipeline state when appending HealthCheckResult to PhaseExecution.health_checks and when applying FAIL_PIPELINE actions. This competes with concurrent writers: the container monitor reconciliation handler (background thread), signal handlers (HTTP thread), and _run_pipeline (pipeline thread). The existing per-pipeline RLock and optimistic versioning handle this correctly IF used consistently, but the HealthCheckRunner introduces a new writer that must follow the same patterns. A subtle bug (e.g., forgetting expected_version, holding the lock during LLM calls) could cause lost updates or deadlocks.",
+      "evidence": [
+        "state_store.py uses per-pipeline RLock via get_pipeline_state_lock() and optimistic versioning via expected_version",
+        "container_monitor._reconcile_container_state() already uses this pattern but does NOT retry on VersionConflictError — it logs and returns False",
+        "The HealthCheckRunner will be called from multiple threads: pipeline execution thread (WAVE_COMPLETE, PHASE_COMPLETE), container monitor thread (RUNTIME_TICK), HTTP thread (ON_DEMAND)",
+        "Tier 2 checks take up to 30 seconds (LLM call) — if the lock is held during this time, all other writers for that pipeline are blocked"
       ],
       "mitigation": {
-        "strategy": "Source code write access via role config; contract updates via orchestrator API",
+        "strategy": "Strict lock discipline and separation of evaluation from mutation",
         "steps": [
-          "Integrator source write access (src/, tests/, docs/) should be controlled via agent_roles.py conditional on complexity_tier — this is a role restriction change, not a phase mount change",
-          "Contract state updates should go through the orchestrator HTTP API (existing pattern: dispatcher.contract_orchestrator.apply_to_contract()), NOT direct file writes — this preserves readonly mount security",
-          "Do NOT change the implement phase readonly mounts — the mount strategy from #800 is a security boundary worth preserving",
-          "Add integration tests that verify integrator can write source but NOT contract files during Tier 3 implement"
-        ],
-        "residual_risk": "Medium — integrator with source write access is a privilege escalation; defense in depth (agentic review + human review) mitigates but does not eliminate"
+          "HealthCheck.check() must be a PURE function: context in, result out. No locks held during check execution, especially during Tier 2 LLM calls",
+          "HealthCheckRunner.run_checks() should execute checks WITHOUT holding any lock, collect results, then acquire the per-pipeline lock ONLY for the brief _apply_result() step",
+          "_apply_result() must follow the exact same load-modify-save-with-expected_version pattern as _reconcile_container_state()",
+          "On VersionConflictError in _apply_result(), reload pipeline state and check if the pipeline is already FAILED (short-circuit) — do NOT blindly retry the mutation",
+          "Add a test that runs health checks and signal handlers concurrently on the same pipeline and verifies no VersionConflictError goes unhandled"
+        ]
       },
-      "human_review_required": true,
-      "review_reason": "Privilege escalation for integrator role. Need security review of what the integrator can do with unrestricted src/ write access. Consider: could an adversarial integrator output exfiltrate data or inject malicious code that survives human review?"
+      "rollback_plan": "If concurrency bugs emerge in production, disable health check state persistence (skip _apply_result() for result storage) while keeping event emission. Events are fire-and-forget via the async EventBus and have zero concurrency risk."
     },
     {
-      "id": "R-3",
-      "category": "Backward Compatibility",
-      "title": "Contract schema migration breaks existing pipelines",
-      "description": "The contract schema (.egg/schemas/contract.schema.json) uses additionalProperties: false at multiple levels. Adding dependencies to Phase and phase_id to AgentExecutionModel requires a schema version bump. Existing contracts (732 stored in .egg-state/contracts/) will fail validation against the new schema unless migration is handled. The agentExecution role enum is restricted to ['coder', 'tester', 'documenter', 'integrator'] — adding reviewer roles for per-phase agentic review would require enum expansion.",
-      "likelihood": "Medium",
-      "impact": "High",
-      "risk_score": "High",
-      "affected_files": [
-        ".egg/schemas/contract.schema.json",
-        "shared/egg_contracts/models.py:334-365",
-        "shared/egg_contracts/models.py:400-563"
+      "id": "RISK-3",
+      "title": "Introducing Anthropic API dependency into the orchestrator (Tier 2)",
+      "category": "new_dependency",
+      "severity": "medium",
+      "likelihood": "medium",
+      "impact": "medium",
+      "description": "The orchestrator currently makes ZERO LLM API calls. All Claude interactions happen inside agent sandbox containers. The Tier 2 agent inspector introduces a direct Anthropic API dependency into the orchestrator process for the first time. This creates new failure modes: API key configuration, SDK dependency management, API rate limits, response parsing, and cost accumulation. The orchestrator is a long-running server process — an LLM client that leaks connections or handles errors poorly could degrade orchestrator stability over time.",
+      "evidence": [
+        "grep for 'anthropic' in orchestrator/ returns zero matches for SDK imports (only 'claude' appears in prompt strings)",
+        "No anthropic SDK import exists anywhere in the orchestrator codebase",
+        "The architect's plan introduces orchestrator/health/llm_client.py as a new Anthropic SDK wrapper",
+        "The orchestrator runs as a single Flask server process with waitress (16 threads) — an unhandled LLM client error on one thread could affect others if state is shared"
       ],
       "mitigation": {
-        "strategy": "Additive schema changes with defaults, schema version migration",
+        "strategy": "Isolate the LLM client with strict timeouts, connection management, and graceful degradation",
         "steps": [
-          "New fields (dependencies, phase_id) must have defaults ([] and null respectively) so old contracts deserialize without error",
-          "Bump schemaVersion to 1.1 with a migration function that adds defaults to 1.0 contracts",
-          "Add schema validation test that loads every existing contract in .egg-state/contracts/ against the new schema",
-          "Keep additionalProperties: false — add fields explicitly rather than relaxing the constraint",
-          "Reviewer roles (reviewer_code, reviewer_contract) need to be added to the role enum if per-phase agentic review tracks execution state in the contract"
-        ],
-        "residual_risk": "Low — with proper defaults and migration, backward compatibility is maintainable"
+          "The LLM client must use explicit 30-second timeout — no connection reuse across health check invocations to prevent leaked connection state",
+          "API key must be sourced from environment (ANTHROPIC_API_KEY) with a clear startup check — log a warning if missing and disable Tier 2 automatically",
+          "All LLM client errors must be caught at the HealthInspectorClient boundary — never propagate SDK exceptions to the HealthCheckRunner",
+          "Inspector failures MUST return DEGRADED/CONTINUE (as the architect specified in TD-8) — this is critical and must be enforced in code review",
+          "Add a health check for the health checker: if the LLM client fails 3+ consecutive times, disable Tier 2 for that pipeline and log an alert",
+          "Pin the anthropic SDK version in requirements to prevent unexpected breaking changes on orchestrator rebuild"
+        ]
       },
-      "human_review_required": true,
-      "review_reason": "Schema changes affect all pipeline consumers. Verify no external tools parse contracts with strict schema validation."
+      "rollback_plan": "Set an environment variable (e.g., HEALTH_TIER2_ENABLED=false) to disable the agent inspector entirely without code changes. The HealthCheckRunner should check this flag and skip Tier 2 registration.",
+      "needs_human_review": true,
+      "human_review_reason": "This is the first time the orchestrator calls the LLM API directly. The team should confirm this is acceptable from a cost and architectural perspective. An alternative is to spawn a lightweight container for the inspector (preserving the current boundary), though this adds latency."
     },
     {
-      "id": "R-4",
-      "category": "Correctness",
-      "title": "DependencyGraph cannot model phase-to-phase dependencies",
-      "description": "DependencyGraph (dependency_graph.py) uses AgentRole as the sole node type. Wave computation (lines 227-262) produces dict[AgentRole, int] — inherently single-instance-per-role. Tier 3 needs two dependency models: (1) within a phase cycle (coder -> tester -> reviewer, same as Tier 2), and (2) between plan phases (phase-4 depends on phase-1). The current graph cannot represent the second model. Building PhaseDependencyGraph requires a separate class since the node type is fundamentally different (phase ID string vs AgentRole enum).",
-      "likelihood": "Medium",
-      "impact": "High",
-      "risk_score": "High",
-      "affected_files": [
-        "shared/egg_contracts/dependency_graph.py:29-48",
-        "shared/egg_contracts/dependency_graph.py:227-262",
-        "shared/egg_contracts/orchestration.py:384-396"
+      "id": "RISK-4",
+      "title": "Health check false positives could terminate healthy pipelines",
+      "category": "correctness",
+      "severity": "high",
+      "likelihood": "low",
+      "impact": "critical",
+      "description": "The architect recommends automatic FAIL_PIPELINE enforcement (TD-7): when a health check returns FAIL_PIPELINE, the runner marks the pipeline as FAILED (after consulting retry logic). A false positive — where the health check incorrectly concludes a pipeline is failing — would terminate a healthy pipeline, destroying in-progress agent work. This is particularly risky for Tier 2 (LLM-based evaluation) where the inspector might misinterpret normal agent behavior as failure. For Tier 1, the phase output presence check could false-positive if git push is slow (commits exist locally but haven't reached the remote yet when the check runs).",
+      "evidence": [
+        "TD-7 specifies automatic enforcement: FAIL_PIPELINE action marks pipeline FAILED",
+        "The phase output presence check looks for commits on the remote — but git push is async and may not have completed when PHASE_COMPLETE triggers",
+        "Tier 2 uses Haiku to evaluate agent work quality — Haiku may not have sufficient context to understand all valid agent behaviors",
+        "A false positive on FAIL_PIPELINE is destructive: pipeline is terminated, containers killed, agent work potentially lost"
       ],
       "mitigation": {
-        "strategy": "New PhaseDependencyGraph class alongside existing DependencyGraph",
+        "strategy": "Defense-in-depth against false positives",
         "steps": [
-          "Create PhaseDependencyGraph with string phase IDs as nodes — do NOT modify existing DependencyGraph",
-          "Reuse topological sort and wave computation algorithms but with generic node type",
-          "Consider making a generic DependencyGraph[T] base class to share logic, but only if it doesn't complicate the existing code — premature generalization is a risk",
-          "Phase dependencies come from Phase.dependencies field (already parsed by plan_parser.py:88-96, just not persisted)",
-          "Integration test: graph with 3 independent + 1 dependent phase produces correct wave ordering"
-        ],
-        "residual_risk": "Low — new class has no coupling to existing graph"
+          "For phase output presence: check LOCAL branch head, not just remote. If local has commits but remote doesn't, return DEGRADED (not FAILED) — the push may still be in progress",
+          "No single health check should be able to trigger FAIL_PIPELINE alone. Require either: (a) FAILED from Tier 1 AND confirmed by Tier 2, or (b) FAILED from Tier 1 on a check with high confidence (e.g., all containers gone from Docker)",
+          "Add a 'confirmation delay' for FAIL_PIPELINE: on first FAILED result, store it but don't act. If the same check returns FAILED on the next trigger (e.g., next wave), then enforce. This handles transient conditions",
+          "Log every FAIL_PIPELINE action with full context (check name, reason, pipeline state snapshot) for post-mortem analysis",
+          "For Tier 2: the LLM prompt should include instructions to err on the side of DEGRADED over FAILED, and to explain its reasoning. FAILED should require clear evidence, not ambiguity"
+        ]
       },
-      "human_review_required": false,
-      "review_reason": null
+      "rollback_plan": "Change the runner to treat FAIL_PIPELINE as advisory-only (emit event but don't mutate pipeline state). This preserves observability without destructive action. Can be toggled via configuration."
     },
     {
-      "id": "R-5",
-      "category": "Correctness",
-      "title": "MultiAgentExecutor state tracking collides on role-keyed dictionaries",
-      "description": "MultiAgentExecutor (multi_agent.py) uses AgentRole as key in multiple dictionaries: AgentWave.containers (dict[AgentRole, ContainerInfo]), AgentWave.results (dict[AgentRole, AgentExecution]), and environment variables (EGG_AGENT_ROLE without phase context). If Tier 3 runs CODER for phase-1 and CODER for phase-2 sequentially, the wave-level state must track which phase each execution belongs to. Missing phase context in environment variables means the spawned agent cannot identify which phase's tasks to work on.",
-      "likelihood": "High",
-      "impact": "High",
-      "risk_score": "High",
-      "affected_files": [
-        "orchestrator/multi_agent.py:46-77",
-        "orchestrator/multi_agent.py:353-356",
-        "orchestrator/multi_agent.py:228-279"
+      "id": "RISK-5",
+      "title": "Scope and complexity of change (13 new files, 8 modified files)",
+      "category": "implementation_scope",
+      "severity": "medium",
+      "likelihood": "medium",
+      "impact": "medium",
+      "description": "The architect's plan includes 13 implementation phases across 6 stages, creating ~13 new files in orchestrator/health/ and modifying 8 existing files (including the critical routes/pipelines.py, container_monitor.py, multi_agent.py, cli.py, api.py, models.py). This is a large change that touches the orchestrator's critical path. The migration of startup_reconciliation and container_monitor adds behavioral equivalence requirements. The testing plan calls for 5 new test files. In aggregate, this is one of the larger changes proposed for the orchestrator, estimated at 1500-2500 lines of new code.",
+      "evidence": [
+        "New files: health/__init__.py, types.py, context.py, base.py, runner.py, llm_client.py, checks/__init__.py, checks/startup.py, checks/container_liveness.py, checks/phase_output.py, checks/state_consistency.py, checks/failure_patterns.py, checks/agent_inspector.py (~13 files)",
+        "Modified files: models.py, api.py, cli.py, container_monitor.py, multi_agent.py, routes/pipelines.py, routes/health.py, startup_reconciliation.py (~8 files)",
+        "Test files: test_health_types.py, test_health_context.py, test_health_checks.py, test_health_runner.py, test_health_integration.py (~5 files)"
       ],
       "mitigation": {
-        "strategy": "Add phase context to wave execution and environment variables",
+        "strategy": "Incremental delivery with clean merge boundaries",
         "steps": [
-          "For Stage 1 (sequential): each implement cycle runs a fresh set of waves for one phase. The MultiAgentExecutor is instantiated per phase cycle, so role collision doesn't occur within a single cycle — but result recording must include phase_id",
-          "Add EGG_PHASE_ID and EGG_PHASE_NUMBER to extra_env at line 353-356 so spawned agents know their scope",
-          "Update dispatcher.complete_agent() and dispatcher.fail_agent() to accept phase_id",
-          "For Stage 2 (parallel): separate MultiAgentExecutor instances per phase avoid state collision entirely — but orchestrator must coordinate across executors",
-          "Ensure the threading.Lock at line 129 doesn't become a bottleneck when running multiple sequential phase cycles"
-        ],
-        "residual_risk": "Medium — sequential cycling (Stage 1) avoids most collision but parallel (Stage 2) reintroduces it at the orchestrator level"
+          "Consider splitting into 2 PRs: PR-1 (foundation: types, interface, runner, model changes, Tier 1 checks, tests) and PR-2 (Tier 2 inspector, lifecycle wiring, integration tests)",
+          "PR-1 is independently valuable — it unifies the existing mechanisms under a common interface and adds phase output presence (which catches the issue-835 scenario)",
+          "PR-2 adds the novel capability (LLM-based semantic evaluation) and wires everything into the lifecycle",
+          "Within each PR, stage commits logically: types first, then runner, then checks, then wiring",
+          "Ensure each commit passes existing tests (no regression introduced mid-PR)"
+        ]
       },
-      "human_review_required": false,
-      "review_reason": null
+      "rollback_plan": "The orchestrator/health/ package is self-contained. To roll back: revert the wiring changes in pipelines.py, cli.py, container_monitor.py, and multi_agent.py (~20 lines of integration code). The health package can remain in the codebase without effect."
     },
     {
-      "id": "R-6",
-      "category": "Complexity",
-      "title": "orchestrator/routes/pipelines.py is 4500 LOC and bears most of the change burden",
-      "description": "pipelines.py is the largest and most complex file in the orchestrator at 4,495 lines. It handles pipeline creation, state management, agent spawning, decision queues, result collection, complexity detection, and phase prompt building. The Tier 3 changes add: _run_tier3_implement(), _check_high_complexity_signal(), per-phase prompt building with task filtering, and per-phase review cycling with retry. This file is already a maintenance risk and adding ~200-300 LOC of complex orchestration logic increases cognitive load and merge conflict surface.",
-      "likelihood": "Medium",
-      "impact": "Medium",
-      "risk_score": "Medium",
-      "affected_files": [
-        "orchestrator/routes/pipelines.py"
+      "id": "RISK-6",
+      "title": "Backward compatibility of startup reconciliation and container monitor migration",
+      "category": "backward_compatibility",
+      "severity": "medium",
+      "likelihood": "low",
+      "impact": "medium",
+      "description": "The plan migrates two existing, battle-tested mechanisms (startup_reconciliation.py and container_monitor.py) to the new HealthCheck interface. Both currently write directly to pipeline state. The migration moves state mutation to HealthCheckRunner._apply_result(). If the migrated behavior differs in any way (different error messages, different state mutation ordering, different timing), it could break existing monitoring dashboards, log-based alerts, or orchestrator workflows that depend on the current error strings.",
+      "evidence": [
+        "startup_reconciliation.py marks pipelines FAILED with specific error message 'Container not found at orchestrator startup'",
+        "container_monitor._reconcile_container_state() marks agents and pipelines FAILED with specific error messages including container IDs",
+        "Both use different locking patterns: startup reconciliation uses NO locking (runs before server starts), container monitor uses per-pipeline lock with optimistic versioning",
+        "The HealthCheckRunner._apply_result() would use a single code path for both, which may not preserve these differences"
       ],
       "mitigation": {
-        "strategy": "Encapsulate Tier 3 logic in a separate module",
+        "strategy": "Behavioral equivalence testing and preserved error messages",
         "steps": [
-          "Extract _run_tier3_implement() and related helpers to a new orchestrator/tier3_dispatch.py module",
-          "Keep pipelines.py as the routing/entry point — it dispatches to tier3_dispatch based on complexity_tier",
-          "This reduces merge conflict surface and keeps the PR reviewable",
-          "If extraction is out of scope, at minimum group all Tier 3 functions together at the end of pipelines.py with a clear section comment"
-        ],
-        "residual_risk": "Low — extraction is a clean refactor with no behavioral change"
+          "Create a test that captures the EXACT current behavior of startup_reconciliation: given a pipeline with a stale container, record the resulting Pipeline object (status, error message, agent statuses). Then run the migrated StartupReconciliationCheck through the runner and assert identical output",
+          "Same for container_monitor._reconcile_container_state(): capture before/after Pipeline state and verify the migrated ContainerLivenessCheck produces identical mutations",
+          "Preserve exact error message strings in the HealthResult.reason field — the runner should copy these to pipeline.error unchanged",
+          "Keep the original functions as deprecated wrappers (as the architect recommends) for at least one release cycle"
+        ]
       },
-      "human_review_required": false,
-      "review_reason": null
+      "rollback_plan": "If migration produces behavioral differences, revert to calling the original functions directly. The HealthCheck wrappers can coexist alongside the originals — they just don't replace them yet."
     },
     {
-      "id": "R-7",
-      "category": "Correctness",
-      "title": "Per-phase prompt isolation may leak cross-phase context",
-      "description": "Each phase's coder should only see its own tasks and files_affected. The current _build_agent_prompt() in pipelines.py constructs prompts from the full contract. If filtering is incorrect, a coder could receive tasks from another phase, leading to out-of-scope changes, file conflicts, or wasted work. This is especially dangerous in Stage 2 (parallel) where two coders editing the same file would cause merge conflicts.",
-      "likelihood": "Medium",
-      "impact": "Medium",
-      "risk_score": "Medium",
-      "affected_files": [
-        "orchestrator/routes/pipelines.py"
+      "id": "RISK-7",
+      "title": "Performance impact of lazy context assembly for PipelineHealthContext",
+      "category": "performance",
+      "severity": "low",
+      "likelihood": "low",
+      "impact": "medium",
+      "description": "PipelineHealthContext uses lazy-loaded properties for expensive operations (git log, git diff, agent output files). If a check inadvertently accesses a lazy property, or if the lazy implementation is not correctly cached, expensive git operations could run on every 10-second RUNTIME_TICK. The @cached_property pattern works for single-use context objects, but if the context is accidentally shared across trigger invocations, cached values become stale.",
+      "evidence": [
+        "The container monitor polls every 10 seconds — RUNTIME_TICK triggers are high-frequency",
+        "git log/diff on a large repository can take 1-5 seconds depending on history depth",
+        "The ContainerLivenessCheck (RUNTIME_TICK) should ONLY access container state, never git data",
+        "If PipelineHealthContext is created once and reused across triggers (implementation bug), cached git data becomes stale"
       ],
       "mitigation": {
-        "strategy": "Explicit phase filtering with validation",
+        "strategy": "Context is per-invocation and checks declare their data needs",
         "steps": [
-          "Build phase-filtered prompt function that accepts phase_id and only includes tasks where task.phase_id matches",
-          "Include a defensive check: if any task references a file in another phase's files_affected, log a warning",
-          "Add test: generate prompts for phase-1 and phase-2, verify no task/file overlap",
-          "In Stage 2, add pre-flight validation that files_affected across parallel phases are disjoint — abort if overlap detected"
-        ],
-        "residual_risk": "Low — with validation, leakage is caught before execution"
+          "Create a NEW PipelineHealthContext for every run_checks() invocation — never cache or reuse across triggers",
+          "Add an assertion or type check: RUNTIME_TICK trigger should never create a context with git-related data populated. If a check running on RUNTIME_TICK accesses context.git_log, it should raise an error (fail-fast, catches interface violations early)",
+          "Document which lazy properties are 'expensive' and which checks are allowed to access them",
+          "Add a performance test: run 100 RUNTIME_TICK triggers with ContainerLivenessCheck and verify total time is under 1 second (no git operations triggered)"
+        ]
       },
-      "human_review_required": false,
-      "review_reason": null
+      "rollback_plan": "If performance degrades, add a context_mode parameter to run_checks() that creates a lightweight context for RUNTIME_TICK (no lazy git properties available) vs. a full context for PHASE_COMPLETE."
     },
     {
-      "id": "R-8",
-      "category": "Performance",
-      "title": "Token cost multiplier is underestimated for retry scenarios",
-      "description": "The issue estimates Tier 3 at 2-2.5x the token cost of Tier 2. This assumes each phase cycle succeeds on the first attempt. If agentic review rejects a phase (triggering coder retry), the cost for that phase triples: original coder + tester + reviewer + retry coder + retry tester + retry reviewer. With 3 phases and max_review_cycles=3, worst case is 3 * (3 * (coder + tester + 2 reviewers)) = 36 agent runs, or 6x the Tier 2 cost. The integrator adds another agent on top.",
-      "likelihood": "Low",
-      "impact": "Medium",
-      "risk_score": "Medium",
-      "affected_files": [],
-      "mitigation": {
-        "strategy": "Cost caps and circuit breakers",
-        "steps": [
-          "Implement per-pipeline token budget with enforcement — abort Tier 3 if budget exceeded",
-          "Default max_review_cycles to 2 (not 3) for Tier 3 phases to limit retry cost",
-          "Add cost tracking per phase cycle — report per-phase costs in integrator output",
-          "Consider: if >50% of phases fail agentic review, escalate to human review instead of retrying — the plan may be flawed"
-        ],
-        "residual_risk": "Low — with budget caps, cost is bounded"
-      },
-      "human_review_required": false,
-      "review_reason": null
-    },
-    {
-      "id": "R-9",
-      "category": "Correctness",
-      "title": "Phase dependency graph cycles or missing phases cause deadlock",
-      "description": "If the plan contains circular dependencies (phase-1 depends on phase-2, phase-2 depends on phase-1) or references non-existent phases, the PhaseDependencyGraph could deadlock (infinite loop waiting for unresolvable dependencies) or error at runtime. The plan parser currently doesn't validate dependency consistency.",
-      "likelihood": "Low",
-      "impact": "High",
-      "risk_score": "Medium",
-      "affected_files": [
-        "shared/egg_contracts/dependency_graph.py",
-        "shared/egg_contracts/plan_parser.py:88-96"
+      "id": "RISK-8",
+      "title": "AgentCircuitBreaker is not thread-safe and health checks run from multiple threads",
+      "category": "concurrency",
+      "severity": "medium",
+      "likelihood": "medium",
+      "impact": "low",
+      "description": "The architect's plan (TD-7) specifies that the HealthCheckRunner should consult AgentRetryManager and AgentCircuitBreaker before applying FAIL_PIPELINE actions. However, the existing AgentCircuitBreaker in shared/egg_contracts/agent_recovery.py is NOT thread-safe — it uses no locking for state transitions (CLOSED -> OPEN -> HALF_OPEN). If the runner calls circuit breaker methods from multiple threads (pipeline thread + monitor thread), the internal failure_count and state could be corrupted.",
+      "evidence": [
+        "AgentCircuitBreaker.__init__() creates _failure_count, _success_count, _state without any locking primitives",
+        "record_failure() and record_success() mutate these counters without synchronization",
+        "is_open() calls _maybe_transition_to_half_open() which reads and writes _state without locks",
+        "The HealthCheckRunner will be invoked from multiple threads: pipeline execution, container monitor, HTTP request handlers"
       ],
       "mitigation": {
-        "strategy": "Validate dependency graph at plan parsing time",
+        "strategy": "Per-pipeline circuit breaker instances or external synchronization",
         "steps": [
-          "Add cycle detection in PhaseDependencyGraph construction (topological sort already handles this — make the error message clear)",
-          "Validate that all dependency references resolve to existing phase IDs",
-          "Reject plans with invalid dependency graphs during the plan phase, before implement begins",
-          "Add test: circular dependency plan is rejected with descriptive error"
-        ],
-        "residual_risk": "Negligible — standard DAG validation"
+          "Create circuit breaker instances per-pipeline (not shared globally) — each pipeline gets its own instance stored in the runner's registry",
+          "Alternatively, add a threading.Lock to AgentCircuitBreaker for state transitions (small upstream change to shared/egg_contracts/agent_recovery.py)",
+          "The simpler option is per-pipeline instances since the HealthCheckRunner already has a per-pipeline mental model",
+          "If the circuit breaker is only consulted (read-only) and never mutated by health checks, the thread-safety concern is reduced — verify whether run_checks needs to call record_failure() or just is_open()"
+        ]
       },
-      "human_review_required": false,
-      "review_reason": null
+      "rollback_plan": "Skip circuit breaker consultation in the initial implementation. The runner can apply FAIL_PIPELINE directly and defer retry/circuit-breaker integration to a follow-up."
     },
     {
-      "id": "R-10",
-      "category": "Reliability",
-      "title": "Sub-branch merge conflicts despite files_affected boundaries (Stage 2)",
-      "description": "In Stage 2 (parallel dispatch), each phase pushes to egg/<feature>/phase-N. The integrator merges sub-branches. Even with files_affected partitioning, shared files (package.json, __init__.py, imports, test fixtures) can cause merge conflicts. files_affected is declared by the plan but not enforced — a coder may modify files outside its declared scope. The gateway's branch prefix check (startswith('egg/')) already supports sub-branches, but worktree lifecycle management is new.",
-      "likelihood": "Medium",
-      "impact": "Medium",
-      "risk_score": "Medium",
-      "affected_files": [
-        "gateway/worktree_manager.py",
-        "gateway/policy.py:301-303"
+      "id": "RISK-9",
+      "title": "Tier 2 LLM cost accumulation in pipelines with many review cycles",
+      "category": "cost",
+      "severity": "low",
+      "likelihood": "low",
+      "impact": "low",
+      "description": "The architect estimates ~$0.01 per pipeline for Tier 2 LLM costs. However, pipelines with multiple review cycles trigger PHASE_COMPLETE per cycle, and DEGRADED escalation at WAVE_COMPLETE adds additional calls. A pathological pipeline with many review cycles and frequent DEGRADED signals could accumulate costs.",
+      "evidence": [
+        "Tier 2 runs at every PHASE_COMPLETE (TD-6)",
+        "Tier 2 also runs at WAVE_COMPLETE if Tier 1 returns DEGRADED",
+        "Review cycles can repeat multiple times per phase",
+        "Haiku costs are low (~$0.001/call) but accumulate"
       ],
       "mitigation": {
-        "strategy": "Enforce file boundaries at commit time; design integrator for conflict resolution",
+        "strategy": "Cost tracking and per-pipeline caps",
         "steps": [
-          "In Stage 2, add gateway enforcement: coder commit in phase-N can only modify files in that phase's files_affected list (reject commits that modify out-of-scope files)",
-          "Integrator prompt should explicitly include conflict resolution instructions and expect merge conflicts",
-          "Add test: two coders modify same file in different phases — integrator resolves or escalates",
-          "Consider: shared files (package.json, __init__.py) should be assigned to a single phase or to the integrator"
-        ],
-        "residual_risk": "Medium — merge conflicts are inherent in parallel work; integrator handles them but at token cost"
+          "Track Tier 2 invocation count per pipeline in the HealthCheckRunner (simple counter)",
+          "Set a per-pipeline cap on Tier 2 invocations (e.g., max 10 per pipeline) — after the cap, skip Tier 2 and log a warning",
+          "Use the existing orchestrator/metrics.py to track health check costs as a gauge",
+          "The cost is genuinely low with Haiku — this is a nice-to-have safeguard, not a blocking concern"
+        ]
       },
-      "human_review_required": false,
-      "review_reason": null
+      "rollback_plan": "Disable Tier 2 via environment variable if costs are unexpectedly high."
     },
     {
-      "id": "R-11",
-      "category": "Compatibility",
-      "title": "Tier 1 and Tier 2 regression risk from shared code changes",
-      "description": "The composite key migration, schema changes, and orchestration state refactoring touch code paths used by all three tiers. Tier 1 (short-circuit, PR #734) and Tier 2 (standard multi-agent) must continue working unchanged. The risk is that changes intended for Tier 3 introduce subtle regressions: e.g., get_agent_execution() returning wrong results when phase_id is None, or wave computation producing incorrect ordering when only one instance of each role exists.",
-      "likelihood": "Medium",
-      "impact": "High",
-      "risk_score": "High",
-      "affected_files": [
-        "shared/egg_contracts/orchestration.py",
-        "shared/egg_contracts/models.py",
-        "orchestrator/multi_agent.py",
-        "orchestrator/routes/pipelines.py"
+      "id": "RISK-10",
+      "title": "Health check results capped at 10 may lose diagnostic context",
+      "category": "observability",
+      "severity": "low",
+      "likelihood": "low",
+      "impact": "low",
+      "description": "The architect specifies a rolling window of 10 health check results per PhaseExecution (TD-5). For long-running phases with many waves, earlier health check results may be evicted before they can be analyzed. If a DEGRADED signal was recorded early and later a FAILED signal occurs, the original DEGRADED context may have been evicted.",
+      "evidence": [
+        "PhaseExecution.health_checks capped at 10 (TD-5)",
+        "Long implement phases can have 5+ waves, each producing 3-4 health check results",
+        "First-in-first-out eviction means early results are lost"
       ],
       "mitigation": {
-        "strategy": "Backward compatibility test suite run before and after every change",
+        "strategy": "Supplement persistence with event-based history",
         "steps": [
-          "Before starting implementation, capture baseline test results for Tier 1 and Tier 2",
-          "Write explicit regression tests: Tier 1 short-circuit flow end-to-end, Tier 2 standard multi-agent flow end-to-end",
-          "Every PR in the Stage 1 delivery must pass these regression tests",
-          "The composite key change must be tested with phase_id=None to verify Tier 2 behavior is identical",
-          "Use test_short_circuit.py (350 lines) as the quality bar for regression test coverage"
-        ],
-        "residual_risk": "Low — with comprehensive regression tests, regressions are caught at CI"
+          "Every health check result is also emitted as an EventType.HEALTH_CHECK event — the EventBus history (100 events) provides a secondary window",
+          "For post-mortem analysis, health check events can be queried from SSE stream logs",
+          "If 10 proves insufficient, increase the cap — at ~200 bytes per result, even 50 results adds only ~10KB",
+          "Consider keeping only the most recent N results per check_name (not globally) to ensure each check type retains its latest result"
+        ]
       },
-      "human_review_required": false,
-      "review_reason": null
-    },
-    {
-      "id": "R-12",
-      "category": "Scope",
-      "title": "12+ file change scope increases merge conflict risk with concurrent development",
-      "description": "The full implementation (Stages 1+2) touches 12+ files across 4 packages (shared/egg_contracts, orchestrator, gateway, .egg). While no active feature branches currently conflict, this repo sees frequent changes (4 commits in 2 days to key files). A multi-day implementation has significant merge conflict exposure, especially on pipelines.py (4500 LOC).",
-      "likelihood": "Medium",
-      "impact": "Low",
-      "risk_score": "Low",
-      "affected_files": [],
-      "mitigation": {
-        "strategy": "Small, frequent, independently mergeable PRs",
-        "steps": [
-          "Stage 1 should be split into multiple PRs matching the architect's phase decomposition",
-          "Phase 1 (schema/model) can merge independently — no behavioral change",
-          "Phase 2 (complexity assessment) can merge independently — adds detection without acting on it",
-          "Phases 3-5 (composite keys, phase DAG, cycling) are coupled and should be one PR",
-          "Phase 6 (integrator write access) should be a separate PR for security review",
-          "Rebase frequently against main to avoid large merge conflicts"
-        ],
-        "residual_risk": "Low — staged delivery naturally reduces conflict surface"
-      },
-      "human_review_required": false,
-      "review_reason": null
-    },
-    {
-      "id": "R-13",
-      "category": "Reliability",
-      "title": "Partial phase failure leaves pipeline in inconsistent state",
-      "description": "If a Tier 3 pipeline completes phases 1-2 but phase 3's coder fails after exhausting retries, the pipeline must decide: abort the entire feature (wasting completed phases' work), proceed to integrator with partial results, or escalate to human. The current pipeline model assumes all-or-nothing completion. Partial success tracking and recovery is not designed.",
-      "likelihood": "Medium",
-      "impact": "Medium",
-      "risk_score": "Medium",
-      "affected_files": [
-        "orchestrator/routes/pipelines.py",
-        "shared/egg_contracts/orchestration.py"
-      ],
-      "mitigation": {
-        "strategy": "Design partial completion policy before implementation",
-        "steps": [
-          "Define policy: if a phase fails after max retries, mark it failed and continue with remaining phases — integrator handles the gap",
-          "Add phase-level status to contract: each phase has status (pending/running/complete/failed/skipped)",
-          "Integrator receives list of completed vs failed phases — its prompt includes instructions for failed phases (stub, document limitation, or fix)",
-          "If >50% of phases fail, abort pipeline and escalate to human",
-          "Add test: 2/3 phases succeed, 1 fails — integrator produces valid output from partial results"
-        ],
-        "residual_risk": "Medium — partial success is inherently complex; policy decision needed"
-      },
-      "human_review_required": true,
-      "review_reason": "Partial failure policy is a product decision, not purely technical. Need human input on: should we proceed with partial results or abort?"
+      "rollback_plan": "Increase the cap or remove it entirely — the size impact is negligible."
     }
   ],
 
-  "areas_requiring_human_review": [
+  "risk_matrix": {
+    "critical_risks": [],
+    "high_risks": ["RISK-1", "RISK-2", "RISK-4"],
+    "medium_risks": ["RISK-3", "RISK-5", "RISK-6", "RISK-8"],
+    "low_risks": ["RISK-7", "RISK-9", "RISK-10"]
+  },
+
+  "overall_assessment": {
+    "verdict": "PROCEED_WITH_MITIGATIONS",
+    "confidence": "high",
+    "summary": "The proposed architecture is sound and well-aligned with existing codebase patterns. The three high risks (pipelines.py integration, concurrency, false positives) are all manageable with the mitigations described. The medium risks (new LLM dependency, scope, backward compatibility, thread safety) require attention during implementation but are not architectural blockers. I recommend proceeding with Approach A, with two key adjustments: (1) consider splitting Tier 1 and Tier 2 into separate PRs to reduce review burden and isolate the LLM dependency introduction, and (2) implement confirmation delay for FAIL_PIPELINE actions to prevent false positive destruction of healthy pipelines."
+  },
+
+  "recommendations": [
     {
-      "area": "Integrator privilege escalation (R-2)",
-      "reason": "Granting write access to src/, tests/, docs/ for the integrator in Tier 3 is a security boundary change. While defense in depth (agentic review + human review) mitigates risk, the integrator could theoretically introduce malicious code or overwrite reviewed changes. Need explicit human approval for the permission model.",
-      "decision_needed": "Confirm integrator write scope: unrestricted src/tests/docs (as proposed) vs scoped to files modified by phase coders vs unrestricted with mandatory diff review"
+      "id": "REC-1",
+      "priority": "high",
+      "title": "Split implementation into two PRs: Tier 1 first, Tier 2 second",
+      "rationale": "The architect recommends shipping both tiers together to validate the interface handles both cleanly. However, the risk profile differs significantly: Tier 1 is pure Python with deterministic checks and no new dependencies. Tier 2 introduces LLM API calls, a new SDK dependency, and non-deterministic evaluation. Splitting into two PRs (1) reduces review burden for the critical Tier 1 changes, (2) allows Tier 1 to be deployed and validated in production before adding Tier 2, (3) isolates the LLM dependency so it can be reverted independently if issues arise. The interface should be designed for both tiers from the start — only the implementation ships incrementally.",
+      "trade_off": "Slight risk that the interface may need adjustment when Tier 2 is added. Mitigated by designing PipelineHealthContext and HealthResult with Tier 2 fields from the start."
     },
     {
-      "area": "Contract schema migration strategy (R-3)",
-      "reason": "Schema changes affect all contract consumers. Need to verify: (1) no external tools parse contracts with strict validation, (2) migration strategy (version bump + defaults) is acceptable, (3) reviewer roles should be added to the role enum.",
-      "decision_needed": "Approve schema migration approach: additive fields with defaults + version bump to 1.1"
+      "id": "REC-2",
+      "priority": "high",
+      "title": "Implement FAIL_PIPELINE confirmation delay",
+      "rationale": "Automatic pipeline termination on a health check result is powerful but dangerous. A single false positive destroys in-progress work. Implement a 'two-strike' rule: the first FAIL_PIPELINE result is recorded but not enforced. If the same check returns FAIL_PIPELINE on the next trigger (e.g., next wave complete), then enforce. This handles transient conditions (slow git push, temporary Docker API error) without weakening the detection for persistent failures.",
+      "trade_off": "Adds a small delay before pipeline termination for genuine failures (one trigger cycle). Acceptable: if a pipeline is genuinely failing, waiting one more wave cycle before terminating is not costly."
     },
     {
-      "area": "Partial phase failure policy (R-13)",
-      "reason": "What happens when some phases succeed and others fail? This is a product/UX decision that affects user trust and pipeline reliability.",
-      "decision_needed": "Choose policy: abort on any failure / continue with partial results / escalate to human after N failures"
+      "id": "REC-3",
+      "priority": "high",
+      "title": "Exception isolation at all integration points",
+      "rationale": "Health checks are a safety net, not a gate. An unhandled exception in a health check must NEVER crash _run_pipeline, the container monitor, or the HTTP server. Every call to HealthCheckRunner.run_checks() at an integration site must be wrapped in try/except with logging. The runner itself should catch exceptions from individual checks and return DEGRADED/CONTINUE for that check, not propagate the exception.",
+      "trade_off": "None. This is a strict requirement with no downside."
     },
     {
-      "area": "Composite key migration rollout (R-1, R-11)",
-      "reason": "The composite (phase_id, role) key change is the single highest-risk modification. It touches the foundational state model used by all orchestration logic. Incorrect implementation causes silent data loss.",
-      "decision_needed": "Confirm implementation ordering: Phase 1 (schema) must merge and stabilize before Phase 3 (composite keys) begins"
+      "id": "REC-4",
+      "priority": "medium",
+      "title": "Add a kill-switch for health check enforcement",
+      "rationale": "Provide an environment variable (e.g., HEALTH_CHECK_MODE=enforce|observe|disabled) to control behavior without code changes. 'enforce' applies FAIL_PIPELINE actions. 'observe' emits events but never mutates pipeline state. 'disabled' skips all health checks. Start with 'observe' in production, switch to 'enforce' once confidence is established.",
+      "trade_off": "Adds a small amount of configuration complexity. Worth it for operational safety during rollout."
+    },
+    {
+      "id": "REC-5",
+      "priority": "medium",
+      "title": "Behavioral equivalence tests for migrated mechanisms",
+      "rationale": "The startup reconciliation and container monitor migrations must produce EXACTLY the same observable behavior (error messages, pipeline state, agent state). Create snapshot-style tests: run the original function and the migrated HealthCheck on the same input, assert the resulting Pipeline objects are identical. This catches subtle differences that code review might miss.",
+      "trade_off": "Adds test maintenance burden. Worth it for the confidence it provides during migration."
+    },
+    {
+      "id": "REC-6",
+      "priority": "low",
+      "title": "Consider spawning Tier 2 inspector as a lightweight container instead of in-process LLM calls",
+      "rationale": "The current architecture has a clean boundary: the orchestrator manages pipelines, containers make LLM calls. Introducing LLM calls into the orchestrator blurs this boundary. An alternative is to spawn a short-lived container for the inspector agent, which preserves the existing boundary and reuses the container spawning infrastructure. The downside is additional latency (container startup) and complexity. The in-process approach is simpler and faster — but the team should explicitly decide whether they want to maintain the boundary.",
+      "trade_off": "Container-based inspector adds 10-30 seconds of latency per check (container startup) vs. 1-2 seconds for in-process. In-process is preferred for speed but breaks an architectural boundary."
     }
   ],
 
-  "rollback_plan": {
-    "strategy": "Feature-flag gated rollback with contract compatibility",
+  "areas_needing_human_review": [
+    {
+      "area": "FAIL_PIPELINE auto-enforcement policy",
+      "reason": "The decision between automatic enforcement (TD-7) vs. advisory-only significantly affects pipeline reliability. Automatic enforcement with false positives destroys in-progress work. Advisory-only risks being ignored. The confirmation delay (REC-2) and observe mode (REC-4) are compromise positions. The team should decide the initial enforcement policy.",
+      "related_risks": ["RISK-4"]
+    },
+    {
+      "area": "Tier 2 delivery timing (same PR vs. follow-up)",
+      "reason": "The architect recommends shipping both tiers together. The risk assessment recommends splitting (REC-1). Both have valid rationale. The team should decide based on their risk tolerance and review capacity.",
+      "related_risks": ["RISK-3", "RISK-5"]
+    },
+    {
+      "area": "In-process LLM calls vs. container-based inspector",
+      "reason": "The orchestrator currently makes zero LLM API calls. Introducing this dependency is a meaningful architectural decision that should be deliberate, not implicit. The team should confirm this is acceptable.",
+      "related_risks": ["RISK-3"]
+    },
+    {
+      "area": "pipelines.py integration points",
+      "reason": "The exact lines in _run_pipeline() where health checks are wired in need review by someone familiar with the control flow. The 5543-line file has many edge cases (short-circuit paths, error recovery, review cycles) that the health check integration must not disrupt.",
+      "related_risks": ["RISK-1"]
+    }
+  ],
+
+  "security_assessment": {
+    "verdict": "No security concerns identified",
     "details": [
-      {
-        "stage": "Stage 1 rollback",
-        "mechanism": "The 3-tier complexity assessment is the entry point. Setting PipelineConfig.enable_tier3 to False (or removing the config) causes all pipelines to use Tier 2 dispatch regardless of complexity signal. Composite key tracking still works (phase_id=None behaves as Tier 2). No contract migration reversal needed since new fields have defaults.",
-        "data_impact": "None — contracts with phase_id=None are indistinguishable from pre-Tier-3 contracts",
-        "recovery_time": "Config change + restart"
-      },
-      {
-        "stage": "Stage 2 rollback",
-        "mechanism": "PipelineConfig.enable_parallel_phases defaults to False. Reverting to False restores sequential cycling (Stage 1 behavior). Sub-branches created during parallel dispatch persist on the remote but are not used. Worktree cleanup runs on pipeline completion regardless.",
-        "data_impact": "Orphaned sub-branches on remote — cleanup with script or manual deletion",
-        "recovery_time": "Config change + restart"
-      },
-      {
-        "stage": "Full rollback (remove Tier 3 entirely)",
-        "mechanism": "Revert the complexity assessment change so refine never signals Tier 3. All other code paths are unreachable. Phase_id fields in contracts remain but are ignored (None). Schema remains at 1.1 but is backward compatible.",
-        "data_impact": "None — all changes are additive and dormant when not triggered",
-        "recovery_time": "Code revert + deploy"
-      }
+      "No new external attack surface: the on-demand health check endpoint (POST /api/v1/pipelines/{id}/health-check) follows the same authentication/authorization pattern as existing pipeline endpoints",
+      "No secrets in health check results: HealthResult contains check_name, status, reason, and action — no credentials, tokens, or sensitive data",
+      "Tier 2 LLM calls use ANTHROPIC_API_KEY from environment (not hardcoded). The API key is already available via the gateway proxy in both network modes",
+      "Health check results persisted in pipeline state JSON use the same access controls as existing pipeline data",
+      "PipelineHealthContext does not expose raw Docker API access to checks — checks receive structured data, not the Docker client object"
     ]
   },
 
-  "implementation_ordering_recommendations": [
-    {
-      "recommendation": "Implement Phase 1 (schema/models) and Phase 3 (composite keys) together, test exhaustively, then merge before touching orchestration logic",
-      "rationale": "The composite key is the foundation. If it's wrong, everything built on top is wrong. Getting the data model right first — with backward compatibility tests against all 50+ existing contracts — eliminates the highest-risk unknown early."
-    },
-    {
-      "recommendation": "Implement Phase 6 (integrator write access) as a separate, independently reviewable PR",
-      "rationale": "Privilege escalation deserves focused security review. Mixing it with orchestration changes dilutes reviewer attention."
-    },
-    {
-      "recommendation": "Do NOT implement Stage 2 (parallel dispatch) until Stage 1 has been used in production for at least 2-3 real pipelines",
-      "rationale": "Sequential cycling validates the foundation (composite keys, phase DAG, per-phase review, integrator write access) without concurrent execution complexity. Production validation catches issues that tests miss."
-    },
-    {
-      "recommendation": "Extract Tier 3 orchestration logic from pipelines.py into a dedicated module",
-      "rationale": "pipelines.py at 4500 LOC is already at the maintenance risk threshold. Adding 200-300 LOC of Tier 3 logic makes it worse. A tier3_dispatch.py module keeps the change isolated and reviewable."
-    }
-  ],
+  "compatibility_assessment": {
+    "backward_compatible": true,
+    "details": [
+      "New HealthCheckResult field in PhaseExecution uses default_factory=list — existing pipelines without health_checks will deserialize correctly with an empty list",
+      "Startup reconciliation and container monitor keep their original functions as deprecated wrappers — no API breakage for external callers",
+      "EventType.HEALTH_CHECK already exists in the EventType enum — no event type migration needed",
+      "New health check REST endpoint is additive — no changes to existing endpoint signatures",
+      "The health/ package is new — no namespace collisions with existing code"
+    ]
+  },
 
-  "test_strategy_recommendations": [
-    {
-      "area": "Backward compatibility",
-      "tests_needed": [
-        "Load all 50+ existing contracts from .egg-state/contracts/ against new schema — all must pass",
-        "Tier 1 short-circuit end-to-end flow unchanged (baseline from test_short_circuit.py)",
-        "Tier 2 standard multi-agent flow unchanged (coder -> tester -> documenter -> integrator)",
-        "OrchestrationState.from_contract() with phase_id=None produces identical behavior to current code"
-      ]
-    },
-    {
-      "area": "Composite key correctness",
-      "tests_needed": [
-        "Create 3 CODER executions with different phase_ids — all 3 survive serialization/deserialization",
-        "get_agent_execution(role='coder', phase_id='phase-2') returns correct execution",
-        "can_agent_run() with phase-scoped dependencies returns correct result",
-        "Duplicate (phase_id, role) pair raises validation error"
-      ]
-    },
-    {
-      "area": "Phase cycling",
-      "tests_needed": [
-        "Sequential cycling: 3 phases execute in dependency order",
-        "Per-phase review: rejection triggers coder retry within same phase",
-        "Phase failure: one phase fails, others complete, integrator receives partial results",
-        "Prompt isolation: phase-1 coder prompt contains only phase-1 tasks"
-      ]
-    },
-    {
-      "area": "Integrator write access",
-      "tests_needed": [
-        "Tier 3 integrator can write to src/ — gateway allows",
-        "Tier 2 integrator cannot write to src/ — gateway blocks",
-        "Tier 3 integrator cannot write to .egg-state/contracts/ — readonly mount enforced"
-      ]
-    }
-  ],
+  "testing_requirements": {
+    "unit_tests": [
+      "Each HealthCheck implementation with mock PipelineHealthContext: verify correct HealthResult for healthy, degraded, and failed scenarios",
+      "HealthCheckRunner: trigger filtering, Tier 1->Tier 2 escalation, result capping, exception handling for individual check failures",
+      "PipelineHealthContext: lazy loading verified (expensive properties not computed until accessed), per-invocation isolation",
+      "LLM client: timeout handling, malformed response handling, API error handling, graceful degradation to DEGRADED/CONTINUE"
+    ],
+    "integration_tests": [
+      "Behavioral equivalence: migrated startup reconciliation produces identical Pipeline state as original",
+      "Behavioral equivalence: migrated container monitor produces identical Pipeline state as original",
+      "Lifecycle wiring: STARTUP trigger runs startup checks, RUNTIME_TICK runs container liveness, WAVE_COMPLETE runs Tier 1, PHASE_COMPLETE runs both tiers",
+      "Exception isolation: health check exception does not crash _run_pipeline, container monitor, or HTTP handler"
+    ],
+    "concurrency_tests": [
+      "Multiple threads invoking run_checks() on the same pipeline simultaneously — verify no VersionConflictError goes unhandled",
+      "Health check running while _run_pipeline saves phase transition — verify no deadlock or lost update",
+      "Container monitor handler and on_wave_complete callback firing simultaneously — verify correct pipeline state"
+    ],
+    "performance_tests": [
+      "100 RUNTIME_TICK triggers with ContainerLivenessCheck — total time under 1 second, no git operations triggered",
+      "PHASE_COMPLETE with Tier 2 inspector — total time under 35 seconds (30s LLM timeout + 5s overhead)",
+      "Pipeline state size with 10 HealthCheckResults — verify under 3KB additional per phase"
+    ]
+  },
 
   "architect_assessment_review": {
     "agreement": [
-      "Approach C (hybrid staged delivery) is the correct choice — reduces risk significantly vs Approach A",
-      "Composite (phase_id, role) key is the right abstraction — alternatives (nested structure, separate store) are more disruptive",
-      "Gateway prefix check already supports sub-branches — no policy change needed (confirmed by code analysis)",
-      "Sequential-first validates the foundation before adding parallelism complexity",
-      "No new PipelinePhase.INTEGRATE needed — internal cycling within IMPLEMENT is simpler"
+      "Approach A (unified HealthCheck interface) is the correct choice — the abstraction pays for itself immediately",
+      "The HealthCheck/HealthResult/PipelineHealthContext trio provides a testable, composable model that replaces ad-hoc mechanisms",
+      "Lazy context assembly (TD-2) is the right approach for avoiding unnecessary git operations on high-frequency triggers",
+      "Haiku for Tier 2 (TD-3) is appropriate for structured evaluation tasks — cost-effective and fast",
+      "Pure checks with centralized result application (TD-4) is the right separation of concerns",
+      "PhaseExecution.health_checks is the natural home for results (TD-5)",
+      "EventType.HEALTH_CHECK already exists — infrastructure is ready",
+      "The implementation staging (types -> runner -> migration -> new checks -> wiring -> tests) is well-ordered"
     ],
     "concerns": [
-      "Architect underestimates R-1 severity: silent data loss on deserialization is not 'Medium likelihood, High impact' — it's High likelihood because the dict conversion code has zero safety checks. First Tier 3 pipeline with >1 phase will trigger it if composite keys aren't implemented first.",
-      "Architect's R-3 (integrator write access) is correctly identified but doesn't account for the #800 readonly mount enforcement. The mitigation needs to be more specific about using the orchestrator API for contract updates.",
-      "Missing risk: partial phase failure policy is not addressed. The architect's plan assumes all phases succeed.",
-      "The 7-phase Stage 1 plan has strong dependencies (phase-5 depends on phases 2, 3, and 4). This creates a critical path that is essentially sequential despite the dependency graph suggesting some parallelism."
+      "The architect recommends shipping Tier 1 and Tier 2 together (recommended_approach justification point 3). This increases risk and review burden. The interface can be designed for both tiers while shipping Tier 1 first.",
+      "TD-7 (automatic FAIL_PIPELINE) lacks a false-positive protection mechanism. The 'confirmation delay' pattern should be explicitly incorporated into the runner design.",
+      "The architect's RISK-1 (integration complexity for pipelines.py) correctly rates it as 'high impact, medium likelihood' but the mitigation ('single runner.run_checks() calls') understates the risk of exception propagation from health checks into the pipeline execution thread.",
+      "The architect does not address that execute_all_waves() at line 3260 is currently called WITHOUT an on_wave_complete callback — this is a calling pattern change that deserves explicit attention.",
+      "Missing risk: the orchestrator has zero existing Anthropic SDK usage. This dependency introduction deserves its own risk entry (captured as RISK-3 in this assessment)."
     ],
     "additional_risks_identified": [
-      "R-9 (dependency graph cycles) — not in architect's analysis",
-      "R-13 (partial phase failure) — not in architect's analysis",
-      "R-6 (pipelines.py complexity) — architect notes it as 'largest file, most complex changes' but doesn't propose extraction"
+      "RISK-3 (new LLM dependency in orchestrator) — not in architect's risk list",
+      "RISK-4 (false positive pipeline termination) — architect mentions LLM reliability (risk-4) but not the broader false positive concern for both tiers",
+      "RISK-8 (AgentCircuitBreaker thread safety) — not in architect's analysis"
     ]
   }
 }
