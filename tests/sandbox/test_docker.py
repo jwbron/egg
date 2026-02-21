@@ -238,6 +238,39 @@ class TestHashDirectory:
         hash_directory(tmp_path, h)
         assert h.hexdigest() != hashlib.sha256().hexdigest()
 
+    def test_excludes_pycache(self, tmp_path):
+        """__pycache__ directories are excluded from the hash."""
+        (tmp_path / "a.py").write_text("code")
+        h1 = hashlib.sha256()
+        hash_directory(tmp_path, h1)
+        hash_without_pycache = h1.hexdigest()
+
+        # Add __pycache__ with .pyc files — hash should not change
+        pycache = tmp_path / "__pycache__"
+        pycache.mkdir()
+        (pycache / "a.cpython-312.pyc").write_bytes(b"compiled")
+
+        h2 = hashlib.sha256()
+        hash_directory(tmp_path, h2)
+        assert h2.hexdigest() == hash_without_pycache
+
+    def test_excludes_nested_pycache(self, tmp_path):
+        """Nested __pycache__ directories are also excluded."""
+        subpkg = tmp_path / "subpackage"
+        subpkg.mkdir()
+        (subpkg / "mod.py").write_text("code")
+        h1 = hashlib.sha256()
+        hash_directory(tmp_path, h1)
+        hash_without_pycache = h1.hexdigest()
+
+        nested_pycache = subpkg / "__pycache__"
+        nested_pycache.mkdir()
+        (nested_pycache / "mod.cpython-312.pyc").write_bytes(b"compiled")
+
+        h2 = hashlib.sha256()
+        hash_directory(tmp_path, h2)
+        assert h2.hexdigest() == hash_without_pycache
+
 
 class TestComputeBuildHash:
     """Tests for compute_build_hash."""
