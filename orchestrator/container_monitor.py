@@ -341,9 +341,6 @@ def _reconcile_container_state(store: Any, container_info: ContainerInfo) -> boo
             changed = False
 
             for phase_execution in pipeline.phases.values():
-                if phase_execution.status != PipelineStatus.RUNNING:
-                    continue
-
                 for ci in phase_execution.containers:
                     if (
                         ci.container_id == container_info.container_id

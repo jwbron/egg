@@ -87,9 +87,6 @@ def reconcile_stale_containers(store: object, docker_client: object) -> int:
         changed = False
 
         for phase_key, phase_execution in pipeline.phases.items():
-            if phase_execution.status != PipelineStatus.RUNNING:
-                continue
-
             for container_info in phase_execution.containers:
                 if container_info.status == ContainerStatus.RUNNING:
                     if container_info.container_id not in live_ids:
