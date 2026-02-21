@@ -1,0 +1,7 @@
+{
+  "reviewer": "refine",
+  "verdict": "approved",
+  "summary": "High-quality analysis with accurate codebase research, well-differentiated options, and a justified recommendation. All seven codebase claims (PhaseFileRestriction config, push-time enforcement, post-agent commit filtering, agent-role restrictions, Session dataclass fields, ContainerSpawner call signature, plan parser files_affected extraction) were independently verified as accurate. The three options span the enforcement strictness spectrum appropriately, constraints are thoroughly identified, and the open questions target genuine ambiguities requiring human input.",
+  "feedback": "",
+  "timestamp": "2026-02-21T12:00:00Z"
+}
