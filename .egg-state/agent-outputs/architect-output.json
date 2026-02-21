@@ -1,465 +1,421 @@
 {
-  "issue": 732,
+  "issue": 805,
   "phase": "plan",
   "agent": "architect",
-  "title": "Support parallel phase-level dispatch for implement phase",
-  "summary": "Architecture analysis for adding Tier 3 (high-complexity) dispatch to the SDLC pipeline. This tier runs independent plan phases as parallel implement cycles (coder -> tester -> agentic review), with dependent phases running sequentially. An integrator with write access merges sub-branches and fixes integration issues before human review. The recommended approach is a hybrid strategy: deliver sequential phase cycling first (foundation), then add parallel dispatch as an opt-in feature.",
+  "title": "Enforce per-task file restrictions from planner in implement phase",
+  "summary": "Architecture analysis for adding per-task file restriction enforcement to the gateway. When the orchestrator spawns an implement agent, the gateway restricts that agent's commits to only the files listed in its assigned tasks' files_affected lists (with directory-sibling expansion and glob support). The recommended approach adds an allowed_files field to the Session model, uses warn-then-block enforcement at push time, and provides an egg-contract request-file escape hatch for observability. This builds on existing PhaseFileRestriction infrastructure with minimal new abstractions.",
 
   "problem_statement": {
-    "description": "The SDLC pipeline supports two dispatch tiers: Tier 1 (short-circuit for low complexity) and Tier 2 (single coder with wave-based multi-agent for mid complexity). Large features with multiple independent phases are forced through a single coder processing all tasks sequentially, creating serial bottlenecks, late integration failures, unbounded reviewer scope, and no early-abort capability.",
+    "description": "Phase-level file restrictions in the implement phase block .egg-state/ directories but allow modification of any code file. When multiple implement agents work in parallel (Tier 3 dispatch), agent A can accidentally modify files that belong to agent B's task, creating cross-contamination. The planner already produces per-task files_affected lists, but these are purely informational today. The goal is to make them an enforced boundary at the gateway level.",
     "goals": [
-      "Extend complexity assessment from 2 tiers (low/not-low) to 3 tiers (low/mid/high)",
-      "Run independent plan phases as parallel implement cycles with per-phase agentic review",
-      "Enable early abort when a phase's agentic review finds a design flaw",
-      "Bound reviewer scope to one phase's changes at a time",
-      "Give the integrator write access to merge sub-branches and fix integration issues",
-      "Track per-phase-per-role execution status in the contract",
-      "Isolate parallel phases via sub-branches to prevent merge conflicts"
+      "Make the planner's per-task files list an enforced boundary, not just informational context",
+      "Warn on first out-of-scope file per session, block on repeated violations (guide, don't cage)",
+      "Support glob patterns in files_affected (e.g., src/components/*, tests/**)",
+      "Apply directory-sibling expansion: listing dir/foo.py implicitly allows other files in dir/",
+      "Filter post-agent auto-commits to exclude out-of-scope files (restore instead of commit)",
+      "Graceful fallback: empty files_affected = no per-file restriction",
+      "Provide egg-contract request-file escape hatch for observability when agents need out-of-scope files",
+      "Ensure Tier 3 parallel agent dispatch correctly scopes each agent to its task's file union"
     ]
   },
 
   "current_architecture": {
-    "complexity_assessment": {
-      "location": "orchestrator/routes/pipelines.py:1549-1567",
-      "mechanism": "Refine agent assesses complexity as low/medium/high. Low signals short_circuit: true in YAML metadata. Medium and high both flow to the plan phase — no Tier 3 differentiation exists.",
-      "signal_detection": "_check_short_circuit_signal() reads the last YAML block in the analysis draft for short_circuit: true",
-      "config_gate": "PipelineConfig.allow_short_circuit (default: True)"
+    "session_model": {
+      "location": "gateway/session_manager.py:209-317",
+      "mechanism": "Session dataclass carries phase, agent_role, pipeline_id, complexity_tier, and other metadata. Persisted to JSON on disk. No field exists for per-session file allowlists. register_session() at line 453-530 accepts all current fields but not allowed_files.",
+      "gap": "No mechanism to pass task-scoped file restrictions from orchestrator to gateway."
     },
-    "multi_agent_orchestration": {
-      "location": "orchestrator/multi_agent.py, shared/egg_contracts/orchestrator.py",
-      "mechanism": "MultiAgentExecutor runs agents in wave-based parallel execution. Waves are computed from role-level dependencies via DependencyGraph. Default implement wave order: CODER -> TESTER+DOCUMENTER -> INTEGRATOR.",
-      "key_limitation": "DependencyGraph nodes are AgentRole enum values, not (phase_id, role) composites. Only one execution slot exists per role."
+    "phase_file_restrictions": {
+      "location": "gateway/phase_filter.py:161-251, 480-525, 595-657",
+      "mechanism": "PhaseFileRestriction dataclass has allowed_patterns and blocked_patterns fields with glob matching via fnmatch. The implement phase uses only blocked_patterns (lines 510-519): blocks .egg-state/contracts/*, drafts/*, pipelines/*, reviews/* but has NO allowed_patterns, so all code files pass.",
+      "key_method": "is_file_allowed() at line 183 checks blocked patterns first, then allowed patterns. _matches_pattern() at line 231 supports wildcard (fnmatch), directory prefix (endswith /), and prefix matching.",
+      "integration": "check_phase_file_restrictions() called at gateway.py:789 during push validation and post_agent_commit.py:192 during auto-commit filtering."
     },
-    "execution_state": {
-      "location": "shared/egg_contracts/orchestration.py, shared/egg_contracts/models.py",
-      "mechanism": "OrchestrationState.executions is dict[AgentRole, AgentExecutionModel]. The contract's agent_executions is a flat list of AgentExecutionModel keyed by role.",
-      "key_limitation": "Running the same role twice (e.g., CODER for Phase 1 and CODER for Phase 2) would overwrite state. No phase_id dimension exists."
+    "push_validation_flow": {
+      "location": "gateway/gateway.py:562-822",
+      "mechanism": "Push handler at line 486 uses @require_session_auth. Session stored in g.session. Three layers of file checks: (1) implementer role check (line 679), (2) agent-role restrictions (line 711, warn-only by default), (3) phase-based file restrictions (line 789). Changed files retrieved via get_changed_files_in_push(). All checks run on the same changed_files list.",
+      "insertion_point": "Per-session file restrictions should be checked after phase restrictions (line 822) since they are a refinement of the phase-level allow-all-code policy."
     },
-    "dependency_graph": {
-      "location": "shared/egg_contracts/dependency_graph.py",
-      "mechanism": "DependencyNode contains role, dependencies[], dependents[]. compute_waves() returns list[list[AgentRole]] for parallel execution. Topological sort ensures correct ordering.",
-      "key_limitation": "Graph operates on AgentRole, not (phase_id, role). Cannot represent 'CODER for phase-1 depends on nothing' vs 'CODER for phase-4 depends on phase-1 completion'."
+    "post_agent_commit": {
+      "location": "gateway/post_agent_commit.py:126-333",
+      "mechanism": "auto_commit_worktree() filters uncommitted changes by phase restrictions (lines 183-206). Blocked files are restored via git checkout (line 208-217). Allowed files selectively staged (line 231). Push goes through gateway for re-validation (lines 286-315).",
+      "gap": "Only applies phase-level restrictions. No access to session's allowed_files at auto-commit time. Needs either the session token to look up allowed_files, or the allowed_files list passed directly."
     },
-    "plan_phase_dependencies": {
-      "location": "shared/egg_contracts/plan_parser.py:88-96, 427-428",
-      "mechanism": "ParsedPhase has a dependencies field that is populated from the YAML plan. However, to_contract_phase() at line 98-105 discards this field — the contract Phase model has no dependencies field.",
-      "gap": "Phase dependencies are parsed but not persisted in the contract schema."
+    "agent_role_restrictions": {
+      "location": "gateway/agent_restrictions.py:1-615",
+      "mechanism": "Separate system from phase restrictions. AgentFilePattern defines per-role allowed/blocked patterns. INTEGRATOR_TIER3_PATTERNS (line 325) gives Tier 3 integrators expanded write access. Checked at gateway.py:711, warn-only by default (EGG_AGENT_RESTRICTIONS_ENFORCE).",
+      "relationship": "Agent-role restrictions and per-task restrictions are orthogonal. Role restrictions define what a coder can write (e.g., src/, not docs/). Task restrictions further narrow that to specific files within the role's scope."
     },
-    "branch_management": {
-      "location": "gateway/policy.py:129-147, gateway/worktree_manager.py",
-      "mechanism": "Branch ownership validated via egg- or egg/ prefix using startswith(). Worktrees created per pipeline with branch pattern egg/{container_id}/work.",
-      "sub_branch_support": "The prefix check (startswith('egg/')) already supports nested paths like egg/feature/phase-1. No gateway policy changes are needed for sub-branch naming — only worktree lifecycle management needs extension."
+    "container_spawner": {
+      "location": "orchestrator/container_spawner.py:350-364",
+      "mechanism": "spawn_agent_container() calls self.gateway.register_session() with container_id, container_ip, mode, phase, pipeline_id, agent_role, issue_number, branch, complexity_tier. Does NOT read files_affected from the contract or pass them to the session.",
+      "gap": "The spawner has access to the contract (and thus task files_affected) but doesn't extract or forward this data."
     },
-    "integrator_role": {
-      "location": "shared/egg_contracts/agent_roles.py:289-318",
-      "mechanism": "INTEGRATOR_ROLE has blocked_write for src/, lib/, docs/, tests/, test/. Can only write to .egg-state/agent-outputs/.",
-      "key_limitation": "Read-only for production code. Tier 3 requires write access for merging sub-branches and fixing integration issues."
+    "gateway_client": {
+      "location": "orchestrator/gateway_client.py:230-334",
+      "mechanism": "register_session() makes POST to /api/v1/sessions/create. Parameters include phase, pipeline_id, agent_role, complexity_tier. No allowed_files parameter exists.",
+      "gap": "Client API needs a new allowed_files parameter."
     },
-    "phase_transitions": {
-      "location": "orchestrator/routes/phases.py:50-63",
-      "mechanism": "REFINE -> [PLAN, IMPLEMENT], PLAN -> [IMPLEMENT], IMPLEMENT -> [PR]. No INTEGRATE phase exists.",
-      "consideration": "Issue suggests either a new INTEGRATE phase or internal cycling within IMPLEMENT."
+    "task_files_affected": {
+      "location": "shared/egg_contracts/models.py:130, shared/egg_contracts/plan_parser.py:472-524",
+      "mechanism": "Task model has files_affected: list[str] (default empty). Plan parser extracts from YAML code fence (task_data.get('files', [])). Also supports markdown bracket extraction ([file1, file2]) and string-to-list normalization.",
+      "status": "Data is available in the contract. Just needs to be read by the container spawner and forwarded to session registration."
+    },
+    "gateway_session_create_endpoint": {
+      "location": "gateway/gateway.py:3011-3280",
+      "mechanism": "POST /api/v1/sessions/create accepts container_id, container_ip, mode, and optional phase, pipeline_id, agent_role, complexity_tier, branch. Calls session_manager.register_session(). Returns session_token.",
+      "gap": "Needs to accept and validate allowed_files parameter."
+    },
+    "egg_contract_cli": {
+      "location": "bin/egg-contract (Python CLI)",
+      "mechanism": "Supports show, add-commit, update-notes, add-decision, add-feedback subcommands. No request-file subcommand exists.",
+      "gap": "The escape hatch CLI (egg-contract request-file) needs to be built."
     }
   },
 
   "key_files": [
     {
-      "path": "shared/egg_contracts/dependency_graph.py",
-      "role": "DAG computation for agent execution waves",
-      "changes_needed": "Add PhaseDependencyGraph class that operates on phase IDs instead of AgentRole. Compute phase waves from Phase.dependencies for determining implement cycle ordering.",
-      "risk": "High — foundation of parallel execution ordering"
+      "path": "gateway/session_manager.py",
+      "role": "Session model definition and lifecycle management",
+      "changes_needed": "Add allowed_files: list[str] | None field to Session dataclass (default None). Add file_warnings: dict[str, int] field for violation tracking. Update to_dict_for_persistence() and from_persistence() for serialization. Update register_session() to accept allowed_files parameter.",
+      "risk": "Medium — schema change requires backward-compatible persistence"
     },
     {
-      "path": "shared/egg_contracts/agent_roles.py",
-      "role": "Role definitions including dependencies and file access patterns",
-      "changes_needed": "Modify INTEGRATOR_ROLE to support configurable write access for Tier 3. Add phase_id tracking to AgentExecution.",
-      "risk": "Medium — must maintain backward compatibility for Tier 2"
+      "path": "gateway/gateway.py",
+      "role": "Push validation endpoint and HTTP API",
+      "changes_needed": "Add per-session file restriction check after phase restriction check (after line 822). Implement warn-then-block logic using session.file_warnings. Update /api/v1/sessions/create endpoint to accept allowed_files. Add new /api/v1/sessions/{token}/request-file endpoint for escape hatch.",
+      "risk": "High — critical security boundary, push validation is the hottest path"
     },
     {
-      "path": "shared/egg_contracts/orchestration.py",
-      "role": "Orchestration state management, dependency checking",
-      "changes_needed": "Extend OrchestrationState.executions to support (phase_id, role) composite keys. Update can_agent_run() and get_runnable_agents() for phase-scoped dependency checking.",
-      "risk": "High — central state management module"
+      "path": "gateway/phase_filter.py",
+      "role": "PhaseFileRestriction and pattern matching infrastructure",
+      "changes_needed": "Add check_session_file_restrictions() function that takes session allowed_files + changed_files and returns FileRestrictionResult. Reuse existing _matches_pattern() and _normalize_path() for consistency. Apply directory-sibling expansion to allowed_files before matching.",
+      "risk": "Medium — new function, reuses proven pattern matching code"
     },
     {
-      "path": "shared/egg_contracts/orchestrator.py",
-      "role": "Dispatch logic and agent lifecycle management",
-      "changes_needed": "Add phase-aware dispatch decisions. Support per-phase implement cycling (coder -> tester -> agentic review -> next phase or retry).",
-      "risk": "High — dispatch is the core orchestration logic"
+      "path": "gateway/post_agent_commit.py",
+      "role": "Post-agent auto-commit filtering",
+      "changes_needed": "Accept session_allowed_files parameter. Apply per-session file filtering after phase filtering. Log out-of-scope files clearly before restoring them.",
+      "risk": "Medium — must not silently drop files without logging"
+    },
+    {
+      "path": "orchestrator/container_spawner.py",
+      "role": "Container lifecycle and session registration",
+      "changes_needed": "Read files_affected from all tasks assigned to the agent (union across tasks). Apply directory-sibling expansion. Pass combined list as allowed_files to gateway.register_session().",
+      "risk": "Medium — must correctly aggregate task files for multi-task agents"
+    },
+    {
+      "path": "orchestrator/gateway_client.py",
+      "role": "Orchestrator-side gateway HTTP client",
+      "changes_needed": "Add allowed_files: list[str] | None parameter to register_session(). Include in POST request body when not None.",
+      "risk": "Low — additive parameter change"
     },
     {
       "path": "shared/egg_contracts/models.py",
-      "role": "Pydantic contract models including Phase, AgentExecutionModel, Contract",
-      "changes_needed": "Add dependencies field to Phase model. Add phase_id field to AgentExecutionModel. Both optional for backward compat.",
-      "risk": "High — schema change requires backward compatibility"
+      "role": "Contract data models including Task",
+      "changes_needed": "No schema changes needed — Task.files_affected already exists. May add a utility method to compute the union of files_affected across a list of tasks with directory-sibling expansion.",
+      "risk": "Low — utility addition only"
     },
     {
-      "path": "shared/egg_contracts/plan_parser.py",
-      "role": "Plan document parsing, extracts phases/tasks from YAML",
-      "changes_needed": "Preserve ParsedPhase.dependencies when converting to contract Phase via to_contract_phase().",
-      "risk": "Low — straightforward field propagation"
+      "path": "bin/egg-contract",
+      "role": "CLI for contract operations",
+      "changes_needed": "Add request-file subcommand that calls the gateway escape hatch API. Accepts --path and --reason arguments. Logs the request for observability. Auto-approves and updates session allowed_files.",
+      "risk": "Low — new CLI subcommand, follows existing patterns"
     },
     {
-      "path": "orchestrator/multi_agent.py",
-      "role": "MultiAgentExecutor — wave spawning and parallel execution",
-      "changes_needed": "Support phase-level orchestration: run N implement cycles. Each cycle spawns coder -> tester -> agentic reviewers for a single phase's tasks.",
-      "risk": "High — significant behavioral change to execution flow"
-    },
-    {
-      "path": "orchestrator/dispatch.py",
-      "role": "PipelineDispatcher — wraps contract orchestrator for pipeline integration",
-      "changes_needed": "Add per-phase dispatching, phase-scoped handoff data, and phase cycling logic.",
-      "risk": "Medium — wrapper layer, follows orchestrator.py changes"
-    },
-    {
-      "path": "orchestrator/routes/pipelines.py",
-      "role": "Pipeline routes: phase transitions, agent prompts, complexity detection",
-      "changes_needed": "Extend complexity assessment to 3 tiers. Add _run_tier3_implement() for phase cycling. Update implement phase prompt for phase-scoped context.",
-      "risk": "High — largest file, most complex changes"
-    },
-    {
-      "path": "orchestrator/models.py",
-      "role": "Pipeline and PipelineConfig models (orchestrator-side)",
-      "changes_needed": "Add complexity_tier field to Pipeline. Extend PipelineConfig for Tier 3 settings.",
-      "risk": "Low — additive model changes"
-    },
-    {
-      "path": "gateway/worktree_manager.py",
-      "role": "Worktree lifecycle management",
-      "changes_needed": "Support per-phase worktrees for parallel execution (Stage 2 only).",
-      "risk": "Medium — filesystem lifecycle complexity"
-    },
-    {
-      "path": ".egg/schemas/contract.schema.json",
-      "role": "JSON schema for contract validation",
-      "changes_needed": "Add dependencies to Phase, phase_id to AgentExecutionModel.",
-      "risk": "Medium — schema migration affects all contracts"
+      "path": "docs/templates/plan.md",
+      "role": "Plan template used by the planner agent",
+      "changes_needed": "Document that files: is an enforcement boundary, not just a hint. Add guidance on generous listing with globs, directory coverage, and config file inclusion.",
+      "risk": "Low — documentation change"
     }
   ],
 
   "approaches": [
     {
       "id": "A",
-      "name": "Full Tier 3 in one pass (parallel + sub-branches)",
-      "description": "Implement complete Tier 3 dispatch: phase-level dependency graph, parallel implement cycles on sub-branches, integrator with write access merging sub-branches, per-phase agentic review with retry.",
+      "name": "Session-scoped allowed_files with warn-then-block (issue's design)",
+      "description": "Add allowed_files: list[str] | None to Session. Container spawner reads task files_affected, applies directory-sibling expansion, passes to register_session(). Gateway checks session allowed_files at push time after phase restrictions. First violation per file logs warning and allows push. Second violation for same file blocks push with actionable error. Post-agent commit filtering also applies session restrictions. egg-contract request-file escape hatch auto-approves and adds file to session's allowed_files.",
       "pros": [
-        "True parallelism with branch-level isolation prevents merge conflicts",
-        "Bounded agentic review scope per phase",
-        "Early abort saves tokens when a phase review finds flaws",
-        "Delivers the full vision from the issue in one delivery"
+        "Directly implements the issue's specification and design philosophy",
+        "Reuses existing PhaseFileRestriction pattern matching infrastructure",
+        "Warn-then-block is forgiving for agents acting in good faith",
+        "Directory-sibling expansion handles helper/test file creation naturally",
+        "Escape hatch provides observability without blocking legitimate needs",
+        "Violation tracking is simple (dict[str, int] on Session)",
+        "Graceful fallback when allowed_files is None (backward compat)"
       ],
       "cons": [
-        "Largest implementation scope — 12+ files across 4 packages",
-        "Per-phase worktree management adds lifecycle complexity",
-        "Composite key change is pervasive across orchestration stack",
-        "Testing parallel phase execution requires complex integration tests",
-        "High risk of regressions to Tier 1 and Tier 2"
+        "Violation tracking state must persist across pushes within a session",
+        "Directory-sibling expansion rules need careful scoping to avoid over-permissiveness",
+        "Two-strike model has edge cases: what if an agent intentionally touches a file, gets warned, then does it again in a legitimate follow-up push?",
+        "Escape hatch API adds a new gateway endpoint"
       ],
-      "estimated_complexity": "High",
-      "files_affected": 12
+      "estimated_complexity": "Medium",
+      "files_affected": 9
     },
     {
       "id": "B",
-      "name": "Sequential phase cycling only (no parallelism)",
-      "description": "Run implement cycles sequentially — one per plan phase — on the same branch. Each cycle spawns coder -> tester -> agentic review. No sub-branches, no gateway changes.",
+      "name": "Immediate soft-block with auto-approve escape hatch",
+      "description": "Same session model changes, but every out-of-scope file immediately triggers a soft block with an actionable error directing the agent to use egg-contract request-file. The request auto-approves (with logging) and the agent retries the push.",
       "pros": [
-        "No gateway or worktree changes needed",
-        "No merge conflicts (sequential execution on single branch)",
-        "Per-phase agentic review, early abort, and prompt isolation all work",
-        "Simpler integrator: validates rather than merges branches"
+        "Simpler implementation — no violation counter state",
+        "Every out-of-scope access is explicitly logged via escape hatch",
+        "Consistent behavior from the first push — no ambiguity about when blocking happens",
+        "Cleaner audit trail since every exception is explicitly requested"
       ],
       "cons": [
-        "No parallelism — no wall-clock time savings for independent phases",
-        "Still requires composite execution tracking (phase_id, role)",
-        "Does not meet the issue's full vision for Tier 3"
+        "More friction: every out-of-scope file requires explicit request-file + retry cycle",
+        "Agents with incomplete planner file lists will spin on request-file calls",
+        "Contradicts the issue's 'guide, don't cage' and 'warn before block' principles",
+        "Latency cost: each out-of-scope file adds a round-trip to request-file + retry push"
       ],
       "estimated_complexity": "Medium",
       "files_affected": 9
     },
     {
       "id": "C",
-      "name": "Hybrid — sequential foundation with optional parallelism (recommended)",
-      "description": "Stage 1: sequential phase cycling with composite execution tracking, per-phase agentic review, 3-tier complexity assessment, integrator write access. Stage 2: sub-branch isolation, per-phase worktrees, parallel dispatch behind a feature flag.",
+      "name": "Warn-only with post-agent-commit filtering (no push-time blocking)",
+      "description": "Add allowed_files to sessions and check at push time, but only ever log warnings — never block pushes. Rely on post-agent-commit filtering to prevent out-of-scope files from being permanently committed. No escape hatch needed since nothing is blocked.",
       "pros": [
-        "Incremental delivery — each stage is independently valuable and testable",
-        "Stage 1 provides 80% of value (per-phase review, early abort, bounded scope)",
-        "Stage 2 adds parallelism without rearchitecting the foundation",
-        "Feature flag allows gradual rollout and rollback",
-        "Composite execution tracking built once, used by both modes"
+        "Zero risk of agents spinning due to incorrect file lists",
+        "Full observability into cross-contamination via structured warnings",
+        "Can be promoted to blocking later once planner quality is proven",
+        "Simplest implementation — no violation tracking, no escape hatch API"
       ],
       "cons": [
-        "Two delivery stages means more review cycles",
-        "Sequential-first may seem incomplete vs the issue's parallel vision",
-        "Both stages still require the composite key change"
+        "Post-agent-commit filtering silently drops files, confusing when agent thinks it committed successfully",
+        "Doesn't prevent cross-contamination at push time — only catches it at auto-commit",
+        "If agent pushes successfully, other agents pulling the branch see out-of-scope changes",
+        "Doesn't meet the issue's acceptance criteria which require blocking on repeated violations"
       ],
-      "estimated_complexity": "Medium-High (Stage 1: Medium, Stage 2: Medium)",
-      "files_affected": 12
+      "estimated_complexity": "Low",
+      "files_affected": 7
     }
   ],
 
   "recommended_approach": {
-    "id": "C",
-    "name": "Hybrid — sequential foundation with optional parallelism",
+    "id": "A",
+    "name": "Session-scoped allowed_files with warn-then-block",
     "justification": [
-      "The refine analysis recommended Option C and both refine reviewers approved. Sequential phase cycling provides most of the value: per-phase agentic review, early abort, bounded reviewer scope, and prompt isolation. Parallelism primarily saves wall-clock time.",
-      "The composite execution tracking change (phase_id, role) is the riskiest part. Delivering it with sequential cycling first ensures stability before adding parallel dispatch and sub-branch management.",
-      "Gateway branch prefix checks already support nested paths (egg/feature/phase-1 passes startswith('egg/') check), so Stage 2 gateway changes are smaller than initially expected — the main work is worktree lifecycle management.",
-      "All 9 acceptance criteria from the issue are satisfiable: 3-tier complexity, per-phase implement cycles, coder -> tester -> agentic review with retry, integrator with write access, (phase_id, role) tracking, and sub-branch isolation (Stage 2)."
+      "This approach directly implements the issue's specification, which was detailed and specific about the warn-then-block model, directory-sibling expansion, and escape hatch design. The refine analysis (805-analysis.md) also recommended Option A, and both refine reviewers approved it.",
+      "The existing PhaseFileRestriction infrastructure (phase_filter.py) already has the pattern matching code needed: _matches_pattern() supports fnmatch globs, directory prefixes, and prefix matching. The new per-session check reuses this code rather than building a parallel system.",
+      "Warn-then-block is the right tradeoff for this use case. The enforcement catches accidental cross-contamination (the common case in Tier 3 parallel dispatch) while avoiding blocking agents with legitimate needs. The escape hatch (egg-contract request-file) handles the exception case with full observability.",
+      "The Session model already carries per-session metadata (phase, agent_role, pipeline_id, complexity_tier). Adding allowed_files and file_warnings follows the established pattern. Both serialize naturally to JSON for persistence."
     ]
   },
 
   "implementation_plan": {
-    "stage_1": {
-      "name": "Sequential phase cycling with composite execution tracking",
-      "description": "Build the orchestration foundation for Tier 3: 3-tier complexity assessment, sequential per-phase implement cycles, composite (phase_id, role) execution tracking, per-phase agentic review with retry, and integrator write access.",
-      "phases": [
-        {
-          "id": 1,
-          "name": "Contract schema and model extensions",
-          "description": "Extend the data model with phase dependencies, composite execution keys, and complexity tier fields. This is the foundation all other changes build on.",
-          "key_changes": [
-            "Add dependencies: list[str] field to Phase model (default: [] for backward compat)",
-            "Add phase_id: str | None field to AgentExecutionModel (None for Tier 2 compat)",
-            "Add complexity_tier: str field to Pipeline model with values low/mid/high",
-            "Update contract.schema.json with new fields",
-            "Update ParsedPhase.to_contract_phase() in plan_parser.py to propagate dependencies",
-            "Add dependencies field to YAML plan template"
-          ],
-          "files": [
-            "shared/egg_contracts/models.py",
-            "shared/egg_contracts/plan_parser.py",
-            ".egg/schemas/contract.schema.json",
-            "orchestrator/models.py",
-            "docs/templates/plan.md"
-          ],
-          "dependencies": []
-        },
-        {
-          "id": 2,
-          "name": "3-tier complexity assessment",
-          "description": "Extend refine phase complexity detection from binary to 3 tiers. Add Tier 3 signal detection.",
-          "key_changes": [
-            "Update refine prompt to signal complexity_tier: high alongside parallel_phases: true",
-            "Add _check_high_complexity_signal() in pipelines.py",
-            "Set pipeline.complexity_tier from detected signal (default: mid)",
-            "Tier 1 (low): short-circuit as before. Tier 2 (mid): standard waves. Tier 3 (high): phase cycling."
-          ],
-          "files": [
-            "orchestrator/routes/pipelines.py",
-            "orchestrator/models.py"
-          ],
-          "dependencies": ["phase-1"]
-        },
-        {
-          "id": 3,
-          "name": "Composite execution tracking",
-          "description": "Extend orchestration state to support (phase_id, role) composite keys.",
-          "key_changes": [
-            "Introduce PhaseExecutionKey type or extend OrchestrationState for (phase_id, role) keying",
-            "Update OrchestrationState.from_contract() to deserialize phase_id from AgentExecutionModel",
-            "Update can_agent_run() for phase-scoped dependency checking",
-            "Update get_runnable_agents() for phase-aware filtering",
-            "Backward compat: when phase_id is None, behavior matches current Tier 2"
-          ],
-          "files": [
-            "shared/egg_contracts/orchestration.py",
-            "shared/egg_contracts/orchestrator.py"
-          ],
-          "dependencies": ["phase-1"]
-        },
-        {
-          "id": 4,
-          "name": "Phase-level dependency graph",
-          "description": "Build a phase-level DAG that determines execution order for plan phases.",
-          "key_changes": [
-            "Add PhaseDependencyGraph class operating on phase IDs from Phase.dependencies",
-            "Compute phase waves: independent phases in same wave, dependent phases in later waves",
-            "Integrate with orchestrator to determine phase ordering for sequential cycling",
-            "For Stage 2, same graph determines parallel grouping"
-          ],
-          "files": [
-            "shared/egg_contracts/dependency_graph.py",
-            "shared/egg_contracts/orchestration.py"
-          ],
-          "dependencies": ["phase-1", "phase-3"]
-        },
-        {
-          "id": 5,
-          "name": "Sequential phase cycling in implement phase",
-          "description": "Modify implement phase to run N cycles (one per plan phase) sequentially. Each cycle: coder -> tester -> agentic review, with retry on rejection.",
-          "key_changes": [
-            "Add _run_tier3_implement() in pipelines.py that loops through phases in dependency order",
-            "Each iteration calls _run_multi_agent_phase() with phase-scoped task context",
-            "Per-phase agentic review dispatches REVIEWER_CODE + REVIEWER_CONTRACT after each cycle",
-            "Retry logic: reviewer rejection triggers coder retry within that phase (no human gate)",
-            "Phase-scoped prompts: each coder sees only its phase's tasks and files",
-            "Update _build_agent_prompt() to accept phase_id for task filtering"
-          ],
-          "files": [
-            "orchestrator/routes/pipelines.py",
-            "orchestrator/multi_agent.py",
-            "orchestrator/dispatch.py"
-          ],
-          "dependencies": ["phase-2", "phase-3", "phase-4"]
-        },
-        {
-          "id": 6,
-          "name": "Integrator write access for Tier 3",
-          "description": "Give the integrator conditional write access to source, tests, and docs in Tier 3 mode.",
-          "key_changes": [
-            "Create dynamic integrator file access based on complexity_tier",
-            "In Tier 3: integrator can write src/, tests/, docs/ to fix integration issues",
-            "In Tier 2: integrator remains read-only (backward compat)",
-            "Gateway phase_filter updated to allow integrator writes in Tier 3",
-            "Integrator prompt updated: run full test suite, fix integration issues, report"
-          ],
-          "files": [
-            "shared/egg_contracts/agent_roles.py",
-            "gateway/phase_filter.py",
-            "gateway/agent_restrictions.py"
-          ],
-          "dependencies": ["phase-1"]
-        },
-        {
-          "id": 7,
-          "name": "Tests for Stage 1",
-          "description": "Comprehensive test coverage for all Stage 1 changes.",
-          "key_changes": [
-            "Unit tests for 3-tier complexity detection and signal parsing",
-            "Unit tests for composite execution tracking (phase_id, role)",
-            "Unit tests for phase dependency graph computation",
-            "Integration tests for sequential phase cycling flow",
-            "Backward compat tests: Tier 1 and Tier 2 unchanged",
-            "Plan parser tests: dependencies field preserved"
-          ],
-          "files": [
-            "shared/egg_contracts/tests/",
-            "orchestrator/tests/"
-          ],
-          "dependencies": ["phase-5", "phase-6"]
-        }
-      ]
-    },
-    "stage_2": {
-      "name": "Parallel dispatch with sub-branch isolation",
-      "description": "Add parallel execution of independent phases on sub-branches, gated behind a feature flag. Integrator merges sub-branches before human review.",
-      "phases": [
-        {
-          "id": 8,
-          "name": "Per-phase worktree management",
-          "description": "Extend gateway WorktreeManager for per-phase worktrees.",
-          "key_changes": [
-            "Add create_phase_worktree() for sub-worktrees from pipeline worktree",
-            "Branch naming: egg/<feature>/phase-N (passes existing prefix check)",
-            "Worktree path: .egg-worktrees/{pipeline_id}/phase-{N}/{repo_name}",
-            "Lifecycle: cleanup phase worktrees after integrator merges"
-          ],
-          "files": ["gateway/worktree_manager.py"],
-          "dependencies": ["phase-7"]
-        },
-        {
-          "id": 9,
-          "name": "Parallel phase dispatch",
-          "description": "Concurrent execution of independent plan phases on sub-branches.",
-          "key_changes": [
-            "Use PhaseDependencyGraph to identify independent phase groups",
-            "Spawn parallel implement cycles for phases in same wave",
-            "Each coder pushes to egg/<feature>/phase-N",
-            "Gated behind PipelineConfig.enable_parallel_phases (default: False)"
-          ],
-          "files": ["orchestrator/routes/pipelines.py", "orchestrator/multi_agent.py"],
-          "dependencies": ["phase-8"]
-        },
-        {
-          "id": 10,
-          "name": "Integrator sub-branch merging",
-          "description": "Integrator merges phase sub-branches and resolves conflicts.",
-          "key_changes": [
-            "Integrator receives list of sub-branches to merge",
-            "Sequential merge of phase branches into main feature branch",
-            "Conflict resolution as part of integrator's fixup diff",
-            "Full test suite after merge, report integration issues"
-          ],
-          "files": ["orchestrator/routes/pipelines.py", "shared/egg_contracts/agent_roles.py"],
-          "dependencies": ["phase-9"]
-        },
-        {
-          "id": 11,
-          "name": "Tests for Stage 2",
-          "description": "Test coverage for parallel dispatch and sub-branch merging.",
-          "key_changes": [
-            "Integration tests for parallel phase execution",
-            "Tests for sub-branch creation, merge, cleanup",
-            "Merge conflict scenario tests",
-            "End-to-end: 3 independent + 1 dependent phase pipeline"
-          ],
-          "files": ["orchestrator/tests/", "gateway/tests/"],
-          "dependencies": ["phase-10"]
-        }
-      ]
-    }
+    "phases": [
+      {
+        "id": "phase-1",
+        "name": "Session model: add allowed_files and violation tracking",
+        "description": "Extend the Session dataclass with per-session file restriction state. This is the data model foundation that all other changes build on.",
+        "key_changes": [
+          "Add allowed_files: list[str] | None = None field to Session (session_manager.py:209)",
+          "Add file_warnings: dict[str, int] field for violation count tracking (default empty dict)",
+          "Update to_dict_for_persistence() to serialize allowed_files and file_warnings",
+          "Update from_persistence() to deserialize them (with backward-compat defaults)",
+          "Add record_file_warning(path) -> int method that increments and returns count",
+          "Add is_file_in_scope(path) -> bool method using existing _matches_pattern() logic with directory-sibling expansion"
+        ],
+        "files": [
+          "gateway/session_manager.py"
+        ],
+        "dependencies": []
+      },
+      {
+        "id": "phase-2",
+        "name": "Gateway API: accept allowed_files in session registration",
+        "description": "Update the session creation HTTP API and orchestrator client to pass allowed_files from the container spawner to the gateway.",
+        "key_changes": [
+          "Add allowed_files parameter to session_manager.register_session() (session_manager.py:453)",
+          "Update /api/v1/sessions/create endpoint to accept and validate allowed_files in request body (gateway.py:3011). Validate as list of strings, max 500 entries, max 500 chars each.",
+          "Add allowed_files: list[str] | None parameter to GatewayClient.register_session() (gateway_client.py:230). Include in POST body when not None."
+        ],
+        "files": [
+          "gateway/session_manager.py",
+          "gateway/gateway.py",
+          "orchestrator/gateway_client.py"
+        ],
+        "dependencies": ["phase-1"]
+      },
+      {
+        "id": "phase-3",
+        "name": "Container spawner: extract and forward task files",
+        "description": "Read files_affected from assigned tasks, apply directory-sibling expansion, and pass to register_session().",
+        "key_changes": [
+          "In container_spawner.py spawn_agent_container(), read the contract to get tasks assigned to this agent",
+          "Collect files_affected union across all assigned tasks",
+          "Apply directory-sibling expansion: for each file path with a parent directory, add the parent directory as an allowed prefix (e.g., src/auth/login.py -> src/auth/ prefix)",
+          "Handle glob patterns in files_affected: pass through as-is since _matches_pattern() already supports fnmatch",
+          "Pass combined list as allowed_files to self.gateway.register_session()",
+          "When files list is empty, pass None (graceful fallback, no restriction)"
+        ],
+        "files": [
+          "orchestrator/container_spawner.py"
+        ],
+        "dependencies": ["phase-2"]
+      },
+      {
+        "id": "phase-4",
+        "name": "Push validation: warn-then-block enforcement",
+        "description": "Add per-session file restriction check to the push validation flow with warn-then-block escalation.",
+        "key_changes": [
+          "Add check_session_file_restrictions() function to phase_filter.py that takes session.allowed_files + changed_files. Uses _matches_pattern() for matching. Returns FileRestrictionResult with out-of-scope files identified.",
+          "In gateway.py push handler (after line 822), if session has allowed_files, check changed files against session scope. For each out-of-scope file: call session.record_file_warning(path). If count == 1: log structured warning, allow push. If count >= 2: block push with 403 and actionable error.",
+          "Error message on block includes: which files are out of scope, which task's files_affected the agent should check, and how to use egg-contract request-file for an exception.",
+          "Audit log entries for both warnings and blocks with full context (session_id, phase, agent_role, file, violation_count)."
+        ],
+        "files": [
+          "gateway/phase_filter.py",
+          "gateway/gateway.py"
+        ],
+        "dependencies": ["phase-1"]
+      },
+      {
+        "id": "phase-5",
+        "name": "Post-agent commit: filter by session allowed_files",
+        "description": "Extend auto-commit filtering to respect per-session file restrictions in addition to phase restrictions.",
+        "key_changes": [
+          "Add allowed_files parameter to auto_commit_worktree() in post_agent_commit.py",
+          "After phase-level filtering, apply session-level filtering if allowed_files is provided",
+          "Use same matching logic as push validation (check_session_file_restrictions)",
+          "Log each out-of-scope file being restored with clear explanation (not silent drop)",
+          "The calling code (gateway auto-commit trigger) needs to look up the session's allowed_files and pass them",
+          "If session has expired or been cleaned up by auto-commit time, fall back to phase-only filtering"
+        ],
+        "files": [
+          "gateway/post_agent_commit.py",
+          "gateway/gateway.py"
+        ],
+        "dependencies": ["phase-4"]
+      },
+      {
+        "id": "phase-6",
+        "name": "Escape hatch: egg-contract request-file CLI and gateway API",
+        "description": "Build the escape hatch mechanism for agents to request access to out-of-scope files.",
+        "key_changes": [
+          "Add POST /api/v1/sessions/{token}/request-file endpoint to gateway. Accepts path and reason. Validates session exists. Adds path to session.allowed_files. Resets file_warnings for that path. Logs the request with full context. Returns success with updated allowed_files list.",
+          "Add request-file subcommand to egg-contract CLI (or a gateway-aware CLI). Accepts --path <file> --reason <why>. Calls the gateway API. Prints confirmation.",
+          "Auto-approve only in initial implementation (no strict/HITL mode). Strict mode can be added later behind a config flag."
+        ],
+        "files": [
+          "gateway/gateway.py",
+          "bin/egg-contract"
+        ],
+        "dependencies": ["phase-1"]
+      },
+      {
+        "id": "phase-7",
+        "name": "Plan template: document enforcement semantics",
+        "description": "Update the plan template and planner guidance to reflect that files: is an enforcement boundary.",
+        "key_changes": [
+          "Update docs/templates/plan.md to explain that files: entries are enforced at push time",
+          "Add guidance: list files generously, use glob patterns, include test files, include config files the task touches",
+          "Document directory-sibling expansion: listing src/auth/login.py gives access to all of src/auth/",
+          "Note that empty files: means no per-file restriction (graceful fallback)",
+          "Add examples of glob patterns: src/components/*.tsx, tests/**, gateway/phase_filter.py"
+        ],
+        "files": [
+          "docs/templates/plan.md"
+        ],
+        "dependencies": []
+      },
+      {
+        "id": "phase-8",
+        "name": "Tests",
+        "description": "Comprehensive test coverage for all changes.",
+        "key_changes": [
+          "gateway/tests/: Session allowed_files serialization and deserialization",
+          "gateway/tests/: check_session_file_restrictions() with exact files, globs, directory-sibling expansion",
+          "gateway/tests/: warn-then-block escalation (first violation warns, second blocks)",
+          "gateway/tests/: post-agent commit filtering with allowed_files",
+          "gateway/tests/: request-file API endpoint (adds file, resets warnings)",
+          "gateway/tests/: graceful fallback when allowed_files is None or empty",
+          "orchestrator/tests/: container spawner reads files_affected and passes to session",
+          "orchestrator/tests/: directory-sibling expansion logic",
+          "Integration test: push with in-scope files succeeds, out-of-scope warns then blocks"
+        ],
+        "files": [
+          "gateway/tests/",
+          "orchestrator/tests/"
+        ],
+        "dependencies": ["phase-4", "phase-5", "phase-6"]
+      }
+    ]
   },
 
   "technical_decisions": [
     {
       "id": "TD-1",
-      "decision": "Use composite key (phase_id, AgentRole) for execution tracking",
-      "rationale": "The contract's agent_executions list must support multiple CODER instances (one per phase). A composite key is the minimal change. phase_id is optional (None for Tier 2) for backward compatibility.",
+      "decision": "Store allowed_files on the Session dataclass rather than a separate store",
+      "rationale": "The Session already carries per-session metadata (phase, agent_role, pipeline_id, complexity_tier). Adding allowed_files follows the same pattern. Sessions are persisted to JSON — the list serializes naturally. No new storage mechanism needed.",
       "alternatives_considered": [
-        "Nested structure (phases -> executions) — rejected: too disruptive to contract consumers",
-        "Separate execution store per phase — rejected: fragments state management"
+        "Separate FileRestrictionStore keyed by session hash — rejected: fragments session state across two persistence systems",
+        "Extend PhaseFileRestriction with per-session overlays — rejected: PhaseFileRestriction is phase-scoped, not session-scoped. Per-session data on a phase-scoped structure conflates two concepts."
       ]
     },
     {
       "id": "TD-2",
-      "decision": "Store phase dependencies in the Phase model as dependencies: list[str]",
-      "rationale": "The Phase model is the natural home. PhaseDependencyGraph is computed at runtime from this data. The plan parser already parses dependencies — just need to propagate them.",
+      "decision": "Apply directory-sibling expansion at the container spawner (client-side), not the gateway (server-side)",
+      "rationale": "The container spawner is where task assignment happens and has full context about the plan structure. Expanding at the spawner means the gateway receives an already-expanded list and doesn't need to know about the expansion rules. This keeps the gateway's file matching logic simple and reusable. The gateway just does pattern matching on whatever list it receives.",
       "alternatives_considered": [
-        "Separate phase_graph field — rejected: duplicates information in phases",
-        "Dynamic computation from files_affected — rejected: imprecise and unreliable"
+        "Expand at gateway during session creation — rejected: gateway shouldn't need plan-structure awareness. Keeping gateway stateless about plan semantics preserves separation of concerns.",
+        "Expand at check time (lazy) — rejected: repeating expansion on every push wastes cycles and makes debugging harder since the effective list isn't visible in the session"
       ]
     },
     {
       "id": "TD-3",
-      "decision": "Tier 3 signaled by refine agent with same HITL override model as Tier 1",
-      "rationale": "The refine agent already assesses complexity. Adding a third tier follows the same pattern. Human can override during HITL review. Requiring explicit approval for every Tier 3 task adds friction without proportional benefit.",
+      "decision": "Violation tracking as dict[str, int] on Session, not persisted across gateway restarts",
+      "rationale": "The file_warnings dict maps normalized file paths to violation counts. It persists across pushes within a session (which is the normal case — agents push multiple times). Resetting on gateway restart is acceptable because: (1) gateway restarts during an agent session are rare, (2) the worst case is the agent gets one extra warning before being blocked, (3) simpler than introducing a separate violation store.",
       "alternatives_considered": [
-        "Always require human approval for Tier 3 — rejected: unnecessary friction",
-        "Auto-select from plan phase count — rejected: phase count alone doesn't indicate complexity"
+        "Persist violations to session JSON — considered acceptable and low-effort, but adds persistence overhead for a rare edge case. Decision: persist to session JSON for robustness since we're already serializing the session.",
+        "In-memory only with TTL — rejected: doesn't survive the session save/load cycle that happens on every session update"
       ]
     },
     {
       "id": "TD-4",
-      "decision": "Integrator gets conditional write access in Tier 3 only",
-      "rationale": "Privilege escalation scoped to Tier 3 limits blast radius. In Tier 2, integrator remains read-only. Integrator runs after all phase-level agentic reviews and before human review, providing defense in depth.",
+      "decision": "Per-session check runs AFTER phase-level and role-level checks, not instead of",
+      "rationale": "The three restriction layers (phase, role, per-session task scope) are independent and cumulative. Phase restrictions are the primary security boundary. Role restrictions scope by agent type. Per-session task restrictions narrow further to the specific files assigned. A file must pass all three checks. Per-session check runs last because it's the most granular and has the warn-then-block behavior that should only trigger after the hard security checks have passed.",
       "alternatives_considered": [
-        "Unconditional write access — rejected: breaks least privilege for Tier 2",
-        "New INTEGRATOR_TIER3 role — rejected: role proliferation"
+        "Replace phase restrictions with per-session restrictions for implement phase — rejected: phase restrictions are the authoritative security gate. Per-session is defense-in-depth, not a replacement.",
+        "Merge per-session into phase restrictions dynamically — rejected: conflates static security policy with dynamic per-session scope. Harder to audit and debug."
       ]
     },
     {
       "id": "TD-5",
-      "decision": "Sequential first, parallel second (hybrid delivery)",
-      "rationale": "Sequential cycling validates the orchestration foundation (composite keys, phase DAG, per-phase review) without concurrent execution complexity. Foundation is the risky part; parallelism is optimization.",
+      "decision": "Escape hatch auto-approves in initial implementation, strict mode deferred",
+      "rationale": "The issue mentions egg-contract request-file could 'auto-approve or queue a HITL decision for strict mode.' Auto-approve serves the primary use case: observability. Every exception is logged with the agent's reason, creating an audit trail without blocking the agent. Strict mode (HITL approval required) can be added later behind a config flag when there's evidence it's needed. Over-engineering the escape hatch risks making it unused.",
       "alternatives_considered": [
-        "Full parallel from start — rejected: too much risk in one delivery",
-        "Only sequential — rejected: doesn't meet the issue's Tier 3 vision"
+        "Strict mode from day one — rejected: adds HITL queue integration complexity for a feature that may not be needed. The issue calls this out as a future option.",
+        "No escape hatch (rely on planner quality) — rejected: issue explicitly requires it for observability"
       ]
     },
     {
       "id": "TD-6",
-      "decision": "No new PipelinePhase.INTEGRATE — implement phase manages cycling internally",
-      "rationale": "A new pipeline phase would require updating transitions, prompts, HITL gates, and phase_filter restrictions across the system. The implement phase can manage cycle-then-integrate internally. The integrator already runs as the final wave.",
+      "decision": "Directory-sibling expansion scoped to immediate parent directory, not ancestors",
+      "rationale": "Listing src/auth/login.py allows other files in src/auth/ but NOT all of src/. This is generous enough for the common case (creating helper files and tests next to implementation files) without being so permissive that listing any file in src/ gives access to the entire directory tree. The expansion adds the parent directory as a prefix pattern (src/auth/).",
       "alternatives_considered": [
-        "New INTEGRATE phase — rejected: too many cross-cutting changes for modest benefit"
+        "Multi-level expansion (allow all ancestor directories) — rejected: listing one file in src/ would allow writing anything in src/, defeating the purpose",
+        "No directory expansion (exact files only) — rejected: too strict. Agents commonly create helper files and tests next to their implementation files. The issue explicitly requires this.",
+        "Configurable expansion depth — rejected: over-engineering. Parent directory is the right granularity."
       ]
     },
     {
       "id": "TD-7",
-      "decision": "Gateway prefix check already supports sub-branches — no policy change needed",
-      "rationale": "gateway/policy.py _is_bot_branch() uses startswith(('egg-', 'egg/')) which matches egg/feature/phase-1. Confirmed by code analysis. Only worktree lifecycle management needs extension in Stage 2.",
+      "decision": "No hardcoded config file allowlist — planner responsibility with template guidance",
+      "rationale": "The refine analysis raised whether common config files (pyproject.toml, package.json, Makefile) should be implicitly allowed. The answer is no: a hardcoded allowlist in the gateway couples it to language/framework conventions and creates a maintenance burden. Instead, the plan template should guide the planner to include config files that the task will touch. The directory-sibling expansion already helps: if the planner lists any file in the repo root, other root files are accessible.",
       "alternatives_considered": [
-        "Add explicit sub-branch pattern — rejected: unnecessary given existing prefix logic"
+        "Hardcoded allowlist of common config files — rejected: couples gateway to language conventions, hard to maintain, may be overly permissive",
+        "Project-level config allowlist in .egg/phase-permissions.json — considered for future iteration. Would let repo owners declare always-allowed config files. Not needed in v1."
+      ]
+    },
+    {
+      "id": "TD-8",
+      "decision": "Violation tracking persisted in session JSON alongside allowed_files",
+      "rationale": "After further consideration (per TD-3), persisting file_warnings to the session JSON is the right call. Sessions are already saved to disk atomically after every update. Adding a dict[str, int] field is trivial. This ensures violations survive across session reloads and provides a complete audit trail in the persisted session state. The overhead is negligible since sessions are small JSON objects.",
+      "alternatives_considered": [
+        "In-memory only — rejected per TD-3 analysis: doesn't survive session save/load cycles"
       ]
     }
   ],
@@ -467,78 +423,126 @@
   "risks": [
     {
       "id": "R-1",
-      "description": "Composite key migration breaks existing pipeline state",
+      "description": "Planner produces incomplete files_affected lists, causing agents to spin on warnings/blocks",
       "likelihood": "Medium",
       "impact": "High",
-      "mitigation": "phase_id defaults to None on AgentExecutionModel. OrchestrationState falls back to role-only keying when phase_id is None. Explicit backward-compat tests required."
+      "mitigation": "Three-layer defense: (1) directory-sibling expansion makes exact listing unnecessary, (2) warn-then-block gives agents a chance to self-correct before being blocked, (3) egg-contract request-file escape hatch auto-approves with logging. Additionally, empty files_affected = no restriction (graceful fallback). Plan template updated with guidance on generous listing."
     },
     {
       "id": "R-2",
-      "description": "Per-phase prompts leak cross-phase context to coders",
+      "description": "Session allowed_files list grows unbounded via request-file escape hatch",
       "likelihood": "Low",
-      "impact": "Medium",
-      "mitigation": "Build phase-filtered prompt function that only includes current phase's tasks and files_affected. Test that coder prompts don't reference other phases."
+      "impact": "Low",
+      "mitigation": "Cap allowed_files at 500 entries (validated at session creation and request-file). If an agent needs more than 500 file patterns, the planner's file list is fundamentally broken and needs human intervention. Log a warning at 100 entries."
     },
     {
       "id": "R-3",
-      "description": "Integrator write access introduces security risk",
+      "description": "Push validation latency increases due to per-session file matching",
       "likelihood": "Low",
-      "impact": "Medium",
-      "mitigation": "Conditional on Tier 3 mode. Integrator runs after all agentic reviews and before human review. Defense in depth."
+      "impact": "Low",
+      "mitigation": "The existing _matches_pattern() uses fnmatch which is efficient for small pattern lists (<500). File matching runs after the changed_files list is already computed. For typical sessions with 5-50 file patterns and 1-20 changed files, matching is O(N*M) = O(1000) comparisons, which is negligible."
     },
     {
       "id": "R-4",
-      "description": "Sub-branch merge conflicts despite files_affected boundaries (Stage 2)",
+      "description": "Directory-sibling expansion is too permissive for top-level directories",
       "likelihood": "Medium",
       "impact": "Medium",
-      "mitigation": "Sub-branch isolation is primary mechanism. files_affected is safety net. Integrator explicitly tasked with conflict resolution. Conflict detection in integrator prompt."
+      "mitigation": "Expansion only adds parent directory prefix. Listing a file at the repo root (e.g., setup.py) would add '/' prefix allowing all root files — but not subdirectories. For subdirectories, listing src/module/foo.py adds src/module/ prefix, which is appropriately scoped. Edge case: listing src/foo.py adds src/ prefix which is broad. Mitigation: planner guidance to use specific subdirectories, and the directory expansion should handle repo-root files specially (only allow other root-level files, not subdirectory trees)."
     },
     {
       "id": "R-5",
-      "description": "Change scope across 12+ files increases merge conflict risk with other PRs",
-      "likelihood": "Medium",
-      "impact": "Medium",
-      "mitigation": "Staged delivery (Stage 1 then Stage 2). Each stage independently mergeable. Coordinate with in-flight orchestration work."
+      "description": "Race condition between push and request-file API calls",
+      "likelihood": "Low",
+      "impact": "Low",
+      "mitigation": "The session's allowed_files list is modified by request-file and read by push validation. Both run in the Flask request handler. The SessionManager uses thread locking for session modifications. No race condition because Flask handles requests sequentially per session (agents push sequentially)."
     },
     {
       "id": "R-6",
-      "description": "Token cost underestimated due to agentic review retries per phase",
+      "description": "Post-agent auto-commit cannot access session allowed_files if session expired",
+      "likelihood": "Medium",
+      "impact": "Low",
+      "mitigation": "The auto-commit trigger should capture allowed_files at container exit time, before session cleanup. Alternatively, the allowed_files can be passed as a parameter to auto_commit_worktree() rather than looking them up from the session. If neither is available, fall back to phase-only filtering (current behavior)."
+    },
+    {
+      "id": "R-7",
+      "description": "Backward compatibility: existing sessions without allowed_files field",
       "likelihood": "Low",
       "impact": "Low",
-      "mitigation": "Each phase has max_review_cycles (default: 3). If exhausted, escalates to human review. Total budget bounded: phases * (agents_per_cycle + retry_budget)."
+      "mitigation": "allowed_files defaults to None on the Session dataclass. from_persistence() uses .get('allowed_files', None) for backward compatibility. When None, per-session file checks are skipped entirely (current behavior preserved)."
     }
   ],
 
   "constraints": [
-    "Contract schema changes must be backward-compatible with existing contracts",
-    "Tier 1 (short-circuit) and Tier 2 (standard multi-agent) must continue working unchanged",
-    "Gateway branch prefix check already supports sub-branches (no policy change needed)",
-    "Per-phase worktrees (Stage 2) must not break single-worktree-per-pipeline model",
-    "Integrator write access conditional on Tier 3 only",
-    "Plan template and parser must support dependencies field in YAML plan",
-    "Per-phase review cycles must not require human approval — only agentic review gates"
+    "Sessions without allowed_files (non-pipeline, non-implement, or pre-existing) must behave identically to today",
+    "Empty files_affected on tasks = no per-file restriction (graceful fallback)",
+    "Phase-level restrictions remain the primary security boundary — per-session restrictions are defense-in-depth",
+    "Agent-role restrictions remain independent and are checked separately",
+    "Per-session file matching must reuse existing _matches_pattern() infrastructure for consistency",
+    "Violation tracking must persist within a session (survive session save/load cycles)",
+    "Gateway HTTP API changes must be backward-compatible (allowed_files is optional)",
+    "Post-agent auto-commit filtering must log clearly, not silently drop files",
+    "Escape hatch must auto-approve in v1 (strict mode deferred)"
   ],
 
   "open_questions_resolved": {
-    "Q1_integrator_write_scope": {
-      "question": "Should the integrator's write access be unrestricted, scoped to modified files, or unrestricted with separate review?",
-      "recommendation": "Unrestricted within src/, tests/, docs/. The integrator needs to fix integration issues that span beyond individual coders' changed files. Scoping to changed_files is too restrictive for merge conflict resolution. Agentic review of integrator changes is already planned.",
+    "Q1_config_file_allowlisting": {
+      "question": "Should the gateway maintain a hardcoded allowlist of common config files that bypass per-task restrictions?",
+      "resolution": "No hardcoded allowlist. Planner responsibility with template guidance. Directory-sibling expansion handles the common case. See TD-7.",
+      "decision": "TD-7"
+    },
+    "Q2_strict_mode_escape_hatch": {
+      "question": "Is strict mode (HITL approval required) needed for egg-contract request-file in the initial implementation?",
+      "resolution": "Auto-approve only in v1. Strict mode deferred. See TD-5.",
+      "decision": "TD-5"
+    },
+    "Q3_restriction_ordering": {
+      "question": "Should per-task restrictions be evaluated before or after role restrictions?",
+      "resolution": "After both phase and role restrictions. Per-session is the most granular layer and runs last. Role restrictions still win if they block a file. See TD-4.",
       "decision": "TD-4"
     },
-    "Q2_phase_dependency_storage": {
-      "question": "Should phase dependencies be in Phase model, separate field, or computed dynamically?",
-      "recommendation": "Phase model with dependencies: list[str]. Simplest, most natural location.",
-      "decision": "TD-2"
-    },
-    "Q3_tier_selection_authority": {
-      "question": "Should Tier 3 require explicit human approval?",
-      "recommendation": "Same model as Tier 1 — refine agent signals, human overrides during HITL.",
-      "decision": "TD-3"
-    },
-    "Q4_delivery_sequencing": {
-      "question": "Sequential-first or full parallel in one pass?",
-      "recommendation": "Sequential-first (hybrid). Foundation validated before adding parallelism.",
-      "decision": "TD-5"
+    "Q4_directory_expansion_scope": {
+      "question": "How broadly should directory-sibling expansion apply?",
+      "resolution": "Immediate parent directory only. Listing src/auth/login.py allows src/auth/* but not src/*. See TD-6.",
+      "decision": "TD-6"
     }
-  }
+  },
+
+  "acceptance_criteria_mapping": [
+    {
+      "criterion": "Gateway warns on first out-of-scope file per session, blocks on repeated violations",
+      "addressed_in": "phase-4 (push validation with warn-then-block)"
+    },
+    {
+      "criterion": "Post-agent auto-commit filters out files not in the task's allowlist with clear logging",
+      "addressed_in": "phase-5 (post-agent commit filtering)"
+    },
+    {
+      "criterion": "When files_affected is empty, no per-file restriction is applied (graceful fallback)",
+      "addressed_in": "phase-3 (spawner passes None when empty), phase-4 (gateway skips check when allowed_files is None)"
+    },
+    {
+      "criterion": "Glob patterns in files_affected supported",
+      "addressed_in": "phase-3 (pass through as-is), phase-4 (reuses _matches_pattern() which supports fnmatch)"
+    },
+    {
+      "criterion": "Directory-sibling expansion: listing dir/foo.py allows other files in dir/",
+      "addressed_in": "phase-3 (expansion at spawner), TD-2, TD-6"
+    },
+    {
+      "criterion": "Plan template documents that files: is enforced",
+      "addressed_in": "phase-7 (template update)"
+    },
+    {
+      "criterion": "Existing tests pass; new tests cover enforcement",
+      "addressed_in": "phase-8 (comprehensive tests)"
+    },
+    {
+      "criterion": "Tier 3 parallel dispatch correctly scopes each agent to its task file union",
+      "addressed_in": "phase-3 (spawner reads per-agent task files and passes union)"
+    },
+    {
+      "criterion": "Agent never hard-blocks on first attempt to modify an out-of-scope file",
+      "addressed_in": "phase-4 (first violation is warning only, block requires count >= 2)"
+    }
+  ]
 }
