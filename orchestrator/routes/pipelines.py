@@ -2732,7 +2732,6 @@ def _run_tier3_implement(
     from egg_contracts import load_contract
     from egg_contracts.dependency_graph import PhaseDependencyGraph
     from egg_contracts.loader import (
-        ContractNotFoundError,
         contract_exists,
         load_contract_from_branch,
         save_contract,
@@ -2769,7 +2768,7 @@ def _run_tier3_implement(
                 pipeline_id=pipeline_id,
                 phase_count=len(contract.phases) if contract.phases else 0,
             )
-        except (ContractNotFoundError, Exception) as exc:
+        except Exception as exc:
             logger.error(
                 "Failed to restore contract from worktree branch",
                 pipeline_id=pipeline_id,
