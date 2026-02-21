@@ -2834,7 +2834,7 @@ def worktree_create() -> tuple[Response, int] | Response:
 
     container_id = data.get("container_id")
     repos = data.get("repos", [])
-    base_branch = data.get("base_branch", "HEAD")
+    base_branch = data.get("base_branch")  # None = resolve per-repo
     # UID/GID for worktree ownership (default: 1000 for egg user)
     uid = data.get("uid")
     gid = data.get("gid")
@@ -2862,10 +2862,14 @@ def worktree_create() -> tuple[Response, int] | Response:
             repo_name = repo
 
         try:
+            # Resolve the default branch per-repo when no explicit base is given.
+            # This ensures repos with non-standard default branches (e.g., master)
+            # are handled correctly.  See #860.
+            effective_branch = base_branch or manager.resolve_default_branch(repo_name)
             info = manager.create_worktree(
                 repo_name=repo_name,
                 container_id=container_id,
-                base_branch=base_branch,
+                base_branch=effective_branch,
                 uid=uid,
                 gid=gid,
             )
@@ -3201,10 +3205,19 @@ def session_create() -> tuple[Response, int] | Response:
             repo_name = repo
 
         try:
+            # For pipeline sessions, use the remote default branch (e.g., origin/main)
+            # instead of HEAD.  HEAD may point to a feature branch in the main repo,
+            # which would pollute the worktree with commits outside the current phase's
+            # allowed scope and cause push rejections.  See #860.
+            if pipeline_id:
+                worktree_base_branch = manager.resolve_default_branch(repo_name)
+            else:
+                worktree_base_branch = "HEAD"
+
             info = manager.create_worktree(
                 repo_name=repo_name,
                 container_id=container_id,
-                base_branch="HEAD",
+                base_branch=worktree_base_branch,
                 uid=uid,
                 gid=gid,
             )
