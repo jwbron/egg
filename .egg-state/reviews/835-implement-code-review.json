@@ -1,0 +1,7 @@
+{
+  "reviewer": "code",
+  "verdict": "approved",
+  "summary": "Clean refactor of agent prompt construction to scope context by role. Analysis roles (architect, task_planner, risk_analyst) receive full issue body; execution roles (tester, documenter, integrator) receive summarized background with structured task information and context pointers. Phase-scoped coders get plan overview instead of full plan. All new functions (_summarize_issue, _extract_plan_overview, _build_role_context) have comprehensive test coverage (60+ new tests, 133 total pass). Changes to gateway, worktree_manager, container_monitor, checkpoint_cli, and test files are formatting-only (no logic changes). Documentation updated in architecture, agent-development guide, and SDLC pipeline guide. No security, correctness, or robustness issues found.",
+  "feedback": "",
+  "timestamp": "2026-02-21T12:00:00Z"
+}

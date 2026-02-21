@@ -96,11 +96,12 @@ class TestCostCommand:
         assert args.issue == 745
         assert args.pr == 42
 
+    @patch("egg_contracts.checkpoint_cli._get_gateway_url", return_value=None)
     @patch("egg_contracts.checkpoint_cli.load_checkpoint_from_ref")
     @patch("egg_contracts.checkpoint_cli.filter_checkpoints_v2")
     @patch("egg_contracts.checkpoint_cli.load_index_from_ref")
     @patch("egg_contracts.checkpoint_cli.ensure_checkpoint_ref")
-    def test_cost_aggregation(self, mock_ref, mock_index, mock_filter, mock_load, capsys):
+    def test_cost_aggregation(self, mock_ref, mock_index, mock_filter, mock_load, _mock_gw, capsys):
         """cost subcommand aggregates token usage by phase and agent."""
         mock_ref.return_value = "origin/egg/checkpoints/v2"
         mock_index.return_value = CheckpointIndexV2(
@@ -154,11 +155,12 @@ class TestCostCommand:
         assert "tester" in output
         assert "TOTAL" in output
 
+    @patch("egg_contracts.checkpoint_cli._get_gateway_url", return_value=None)
     @patch("egg_contracts.checkpoint_cli.load_checkpoint_from_ref")
     @patch("egg_contracts.checkpoint_cli.filter_checkpoints_v2")
     @patch("egg_contracts.checkpoint_cli.load_index_from_ref")
     @patch("egg_contracts.checkpoint_cli.ensure_checkpoint_ref")
-    def test_cost_json_output(self, mock_ref, mock_index, mock_filter, mock_load, capsys):
+    def test_cost_json_output(self, mock_ref, mock_index, mock_filter, mock_load, _mock_gw, capsys):
         """cost --json outputs structured JSON with breakdown."""
         mock_ref.return_value = "origin/egg/checkpoints/v2"
         mock_index.return_value = CheckpointIndexV2(
@@ -195,8 +197,9 @@ class TestCostCommand:
         assert data["breakdown"][0]["phase"] == "implement"
         assert data["breakdown"][0]["agent"] == "coder"
 
+    @patch("egg_contracts.checkpoint_cli._get_gateway_url", return_value=None)
     @patch("egg_contracts.checkpoint_cli.ensure_checkpoint_ref")
-    def test_cost_no_checkpoints(self, mock_ref, capsys):
+    def test_cost_no_checkpoints(self, mock_ref, _mock_gw, capsys):
         """cost returns 0 with message when no checkpoint branch exists."""
         mock_ref.return_value = None
 
@@ -208,12 +211,13 @@ class TestCostCommand:
         output = capsys.readouterr().out
         assert "No checkpoints found" in output
 
+    @patch("egg_contracts.checkpoint_cli._get_gateway_url", return_value=None)
     @patch("egg_contracts.checkpoint_cli.load_checkpoint_from_ref")
     @patch("egg_contracts.checkpoint_cli.filter_checkpoints_v2")
     @patch("egg_contracts.checkpoint_cli.load_index_from_ref")
     @patch("egg_contracts.checkpoint_cli.ensure_checkpoint_ref")
     def test_cost_skips_checkpoints_without_token_usage(
-        self, mock_ref, mock_index, mock_filter, mock_load, capsys
+        self, mock_ref, mock_index, mock_filter, mock_load, _mock_gw, capsys
     ):
         """Checkpoints without token_usage are skipped in cost calculation."""
         mock_ref.return_value = "origin/egg/checkpoints/v2"
@@ -241,7 +245,8 @@ class TestCostCommand:
         output = capsys.readouterr().out
         assert "No checkpoints with token usage data found" in output
 
-    def test_cost_via_main(self):
+    @patch("egg_contracts.checkpoint_cli._get_gateway_url", return_value=None)
+    def test_cost_via_main(self, _mock_gw):
         """cost subcommand is reachable via main()."""
         with patch("egg_contracts.checkpoint_cli.ensure_checkpoint_ref") as mock_ref:
             mock_ref.return_value = None

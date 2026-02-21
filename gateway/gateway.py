@@ -582,7 +582,9 @@ def git_push() -> tuple[Response, int] | Response:
                     "repo": repo,
                     "branch": branch,
                     "reason": "Checkpoint operation exempt from private mode policy",
-                    "exempt_type": "checkpoint_repo" if is_checkpoint_repo(repo_info.owner, repo_info.repo) else "checkpoint_branch",
+                    "exempt_type": "checkpoint_repo"
+                    if is_checkpoint_repo(repo_info.owner, repo_info.repo)
+                    else "checkpoint_branch",
                 },
             )
         else:
@@ -1592,9 +1594,7 @@ def checkpoint_list() -> tuple[Response, int] | Response:
     checkpoint_repo = _resolve_checkpoint_repo(repo_path)
 
     try:
-        index = handler.fetch_and_read_index(
-            repo_path, checkpoint_repo=checkpoint_repo
-        )
+        index = handler.fetch_and_read_index(repo_path, checkpoint_repo=checkpoint_repo)
     except Exception as e:
         logger.error("Checkpoint index fetch failed", error=str(e))
         return make_error("Failed to fetch checkpoints", status_code=500)
@@ -1664,21 +1664,22 @@ def checkpoint_cost() -> tuple[Response, int] | Response:
     # After the fetch in fetch_and_read_index, ensure_ref's fetch is a no-op
     # (branch already up-to-date), so only the ls-remote is repeated.
     try:
-        index = handler.fetch_and_read_index(
-            repo_path, checkpoint_repo=checkpoint_repo
-        )
+        index = handler.fetch_and_read_index(repo_path, checkpoint_repo=checkpoint_repo)
     except Exception as e:
         logger.error("Checkpoint index fetch failed", error=str(e))
         return make_error("Failed to fetch checkpoint data", status_code=500)
 
     if not index:
-        return make_success("No checkpoints found", {
-            "checkpoint_count": 0,
-            "total_input_tokens": 0,
-            "total_output_tokens": 0,
-            "total_cost_usd": 0,
-            "breakdown": [],
-        })
+        return make_success(
+            "No checkpoints found",
+            {
+                "checkpoint_count": 0,
+                "total_input_tokens": 0,
+                "total_output_tokens": 0,
+                "total_cost_usd": 0,
+                "breakdown": [],
+            },
+        )
 
     try:
         ref = handler.ensure_ref(repo_path, checkpoint_repo=checkpoint_repo)
@@ -1687,13 +1688,16 @@ def checkpoint_cost() -> tuple[Response, int] | Response:
         return make_error("Failed to fetch checkpoint data", status_code=500)
 
     if not ref:
-        return make_success("No checkpoints found", {
-            "checkpoint_count": 0,
-            "total_input_tokens": 0,
-            "total_output_tokens": 0,
-            "total_cost_usd": 0,
-            "breakdown": [],
-        })
+        return make_success(
+            "No checkpoints found",
+            {
+                "checkpoint_count": 0,
+                "total_input_tokens": 0,
+                "total_output_tokens": 0,
+                "total_cost_usd": 0,
+                "breakdown": [],
+            },
+        )
 
     filters: dict[str, Any] = {}
     if request.args.get("pipeline"):
@@ -1707,13 +1711,16 @@ def checkpoint_cost() -> tuple[Response, int] | Response:
 
     summaries = filter_checkpoints_v2(index, **filters)
     if not summaries:
-        return make_success("No checkpoints found", {
-            "checkpoint_count": 0,
-            "total_input_tokens": 0,
-            "total_output_tokens": 0,
-            "total_cost_usd": 0,
-            "breakdown": [],
-        })
+        return make_success(
+            "No checkpoints found",
+            {
+                "checkpoint_count": 0,
+                "total_input_tokens": 0,
+                "total_output_tokens": 0,
+                "total_cost_usd": 0,
+                "breakdown": [],
+            },
+        )
 
     rows: list[dict[str, Any]] = []
     for s in summaries:
@@ -1732,22 +1739,27 @@ def checkpoint_cost() -> tuple[Response, int] | Response:
         cost = float(tokens.calculate_cost(model=model))
         phase = checkpoint.pipeline_phase or "(none)"
         agent = checkpoint.agent_type.value if checkpoint.agent_type else "unknown"
-        rows.append({
-            "phase": phase,
-            "agent": agent,
-            "input_tokens": tu.input_tokens,
-            "output_tokens": tu.output_tokens,
-            "cost": cost,
-        })
+        rows.append(
+            {
+                "phase": phase,
+                "agent": agent,
+                "input_tokens": tu.input_tokens,
+                "output_tokens": tu.output_tokens,
+                "cost": cost,
+            }
+        )
 
     if not rows:
-        return make_success("No cost data", {
-            "checkpoint_count": 0,
-            "total_input_tokens": 0,
-            "total_output_tokens": 0,
-            "total_cost_usd": 0,
-            "breakdown": [],
-        })
+        return make_success(
+            "No cost data",
+            {
+                "checkpoint_count": 0,
+                "total_input_tokens": 0,
+                "total_output_tokens": 0,
+                "total_cost_usd": 0,
+                "breakdown": [],
+            },
+        )
 
     agg: dict[tuple[str, str], dict[str, Any]] = {}
     for row in rows:
@@ -1759,23 +1771,26 @@ def checkpoint_cost() -> tuple[Response, int] | Response:
         agg[key]["cost"] += row["cost"]
         agg[key]["count"] += 1
 
-    return make_success("OK", {
-        "checkpoint_count": len(rows),
-        "total_input_tokens": sum(v["input"] for v in agg.values()),
-        "total_output_tokens": sum(v["output"] for v in agg.values()),
-        "total_cost_usd": round(sum(v["cost"] for v in agg.values()), 4),
-        "breakdown": [
-            {
-                "phase": k[0],
-                "agent": k[1],
-                "input_tokens": v["input"],
-                "output_tokens": v["output"],
-                "cost_usd": round(v["cost"], 4),
-                "checkpoint_count": v["count"],
-            }
-            for k, v in sorted(agg.items())
-        ],
-    })
+    return make_success(
+        "OK",
+        {
+            "checkpoint_count": len(rows),
+            "total_input_tokens": sum(v["input"] for v in agg.values()),
+            "total_output_tokens": sum(v["output"] for v in agg.values()),
+            "total_cost_usd": round(sum(v["cost"] for v in agg.values()), 4),
+            "breakdown": [
+                {
+                    "phase": k[0],
+                    "agent": k[1],
+                    "input_tokens": v["input"],
+                    "output_tokens": v["output"],
+                    "cost_usd": round(v["cost"], 4),
+                    "checkpoint_count": v["count"],
+                }
+                for k, v in sorted(agg.items())
+            ],
+        },
+    )
 
 
 @app.route("/api/v1/checkpoints/<identifier>", methods=["GET"])
@@ -1810,21 +1825,15 @@ def checkpoint_show(identifier: str) -> tuple[Response, int] | Response:
     checkpoint_id = identifier
     if not identifier.startswith("ckpt-"):
         # Look up by commit SHA
-        index = handler.fetch_and_read_index(
-            repo_path, checkpoint_repo=checkpoint_repo
-        )
+        index = handler.fetch_and_read_index(repo_path, checkpoint_repo=checkpoint_repo)
         if index:
             checkpoint_id = index.get_by_commit(identifier)
         if not checkpoint_id:
-            return make_error(
-                f"Checkpoint not found: {identifier}", status_code=404
-            )
+            return make_error(f"Checkpoint not found: {identifier}", status_code=404)
 
     checkpoint = handler.read_checkpoint(repo_path, checkpoint_id, ref)
     if not checkpoint:
-        return make_error(
-            f"Checkpoint not found: {identifier}", status_code=404
-        )
+        return make_error(f"Checkpoint not found: {identifier}", status_code=404)
 
     return make_success("OK", {"checkpoint": checkpoint.model_dump(mode="json")})
 

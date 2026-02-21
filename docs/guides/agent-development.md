@@ -263,6 +263,21 @@ pytest tests/sdlc/test_multi_agent_orchestration.py -v
 pytest tests/gateway/test_agent_restrictions.py -v
 ```
 
+## Prompt Context Scoping
+
+Agent prompts are built with role-appropriate context via `_build_role_context()` in `orchestrator/routes/pipelines.py`. When adding a new agent, understand how context is scoped:
+
+**Analysis roles** (architect, task_planner, risk_analyst) receive the full issue body in a `## Task Description` section. They need complete context for problem analysis and planning.
+
+**Execution roles** (tester, documenter, integrator, and any new execution agents) receive:
+- A `## Background` section with a 1-2 sentence summary extracted from the issue
+- A `## Phase Scope` section with task details when running in Tier 3 (descriptions, acceptance criteria, affected files)
+- A `## For More Context` section with pointers to the full issue (`gh issue view`), handoff data, and git diff
+
+When adding a new execution role, `_build_role_context()` will automatically provide the summarized context. If the role needs phase-specific instructions (like the tester's "Focus your testing on..." or the documenter's "Focus your documentation on..."), add a condition in `_build_role_context()` for the new role.
+
+Phase-scoped coders (Tier 3) use `_build_phase_scoped_prompt()`, which embeds the plan overview (not the full plan) and one-line summaries of other phases. This is separate from `_build_role_context()`.
+
 ## Best Practices
 
 1. **Keep agents focused**: One clear responsibility per agent

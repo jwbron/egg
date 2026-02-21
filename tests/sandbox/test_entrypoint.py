@@ -1392,6 +1392,7 @@ class TestFindFreeUid:
 
     def test_skips_taken_uids(self):
         """Skips UIDs that are already in use."""
+
         def getpwuid_side_effect(uid):
             if uid in (60501, 60502):
                 return MagicMock(pw_uid=uid)
@@ -1510,11 +1511,13 @@ class TestSetupUserConflictResolution:
             # _find_free_uid checks 60501 — it's free
             raise KeyError(f"no user with uid {uid}")
 
-        with patch("pwd.getpwnam", side_effect=getpwnam_side_effect), \
-             patch("grp.getgrnam", side_effect=getgrnam_side_effect), \
-             patch("grp.getgrgid", side_effect=getgrgid_side_effect), \
-             patch("pwd.getpwuid", side_effect=getpwuid_side_effect), \
-             patch.object(entrypoint, "chown_recursive"):
+        with (
+            patch("pwd.getpwnam", side_effect=getpwnam_side_effect),
+            patch("grp.getgrnam", side_effect=getgrnam_side_effect),
+            patch("grp.getgrgid", side_effect=getgrgid_side_effect),
+            patch("pwd.getpwuid", side_effect=getpwuid_side_effect),
+            patch.object(entrypoint, "chown_recursive"),
+        ):
             entrypoint.setup_user(config, logger)
 
         # Should have 4 calls:
@@ -1545,8 +1548,10 @@ class TestSetupUserConflictResolution:
         mock_pwd_egg = MagicMock(pw_uid=1000, pw_name="egg")
         mock_grp_egg = MagicMock(gr_gid=1000, gr_name="egg")
 
-        with patch("pwd.getpwnam", return_value=mock_pwd_egg), \
-             patch("grp.getgrnam", return_value=mock_grp_egg):
+        with (
+            patch("pwd.getpwnam", return_value=mock_pwd_egg),
+            patch("grp.getgrnam", return_value=mock_grp_egg),
+        ):
             entrypoint.setup_user(config, logger)
 
         # No commands should have been run — IDs already match

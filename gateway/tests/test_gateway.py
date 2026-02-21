@@ -4423,10 +4423,12 @@ class TestCheckpointRepoBypass:
             response = client.post(
                 "/api/v1/git/fetch",
                 headers=session_auth_headers,
-                data=json.dumps({
-                    "repo_path": "/home/egg/repos/test",
-                    "remote": "origin",
-                }),
+                data=json.dumps(
+                    {
+                        "repo_path": "/home/egg/repos/test",
+                        "remote": "origin",
+                    }
+                ),
                 content_type="application/json",
             )
 
@@ -4446,11 +4448,13 @@ class TestCheckpointRepoBypass:
             response = client.post(
                 "/api/v1/git/fetch",
                 headers=session_auth_headers,
-                data=json.dumps({
-                    "repo_path": "/home/egg/repos/test",
-                    "remote": "origin",
-                    "operation": "ls-remote",
-                }),
+                data=json.dumps(
+                    {
+                        "repo_path": "/home/egg/repos/test",
+                        "remote": "origin",
+                        "operation": "ls-remote",
+                    }
+                ),
                 content_type="application/json",
             )
 
@@ -4480,10 +4484,12 @@ class TestCheckpointRepoBypass:
             response = client.post(
                 "/api/v1/git/fetch",
                 headers=session_auth_headers,
-                data=json.dumps({
-                    "repo_path": "/home/egg/repos/test",
-                    "remote": "origin",
-                }),
+                data=json.dumps(
+                    {
+                        "repo_path": "/home/egg/repos/test",
+                        "remote": "origin",
+                    }
+                ),
                 content_type="application/json",
             )
 
@@ -4525,11 +4531,13 @@ class TestCheckpointRepoBypass:
             response = client.post(
                 "/api/v1/git/push",
                 headers=session_auth_headers,
-                data=json.dumps({
-                    "repo_path": "/home/egg/repos/test",
-                    "remote": "origin",
-                    "refspec": "egg/checkpoints/v2",
-                }),
+                data=json.dumps(
+                    {
+                        "repo_path": "/home/egg/repos/test",
+                        "remote": "origin",
+                        "refspec": "egg/checkpoints/v2",
+                    }
+                ),
                 content_type="application/json",
             )
 
@@ -4570,11 +4578,13 @@ class TestCheckpointRepoBypass:
             response = client.post(
                 "/api/v1/git/push",
                 headers=session_auth_headers,
-                data=json.dumps({
-                    "repo_path": "/home/egg/repos/test",
-                    "remote": "origin",
-                    "refspec": "egg/checkpoints/v2",
-                }),
+                data=json.dumps(
+                    {
+                        "repo_path": "/home/egg/repos/test",
+                        "remote": "origin",
+                        "refspec": "egg/checkpoints/v2",
+                    }
+                ),
                 content_type="application/json",
             )
 
@@ -4625,11 +4635,13 @@ class TestCheckpointRepoBypass:
             response = client.post(
                 "/api/v1/git/push",
                 headers=session_auth_headers,
-                data=json.dumps({
-                    "repo_path": "/home/egg/repos/test",
-                    "remote": "origin",
-                    "refspec": "egg/my-branch",
-                }),
+                data=json.dumps(
+                    {
+                        "repo_path": "/home/egg/repos/test",
+                        "remote": "origin",
+                        "refspec": "egg/my-branch",
+                    }
+                ),
                 content_type="application/json",
             )
 

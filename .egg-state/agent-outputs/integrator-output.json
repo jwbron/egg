@@ -1,158 +1,91 @@
 {
   "status": "pass",
   "phase": "implement",
-  "pipeline_id": "issue-732",
-  "issue": 732,
-  "branch": "egg/issue-732",
-  "summary": "All coder and tester changes for Tier 3 parallel dispatch integrate cleanly after integrator fixes. The feature adds 3-tier complexity assessment, phase dependency graph, per-phase execution tracking, phase-scoped agent dispatch, and expanded integrator write access for Tier 3. Full test suite passes (5720 tests across gateway, shared, and orchestrator). Integrator fixed 8 test failures (invalid task ID format in test_tier3_execute.py) and 4 lint issues (unused variable, f-string placeholders, dict comprehension style).",
+  "pipeline_id": "issue-835",
+  "issue": 835,
+  "branch": "egg/issue-835",
+  "summary": "All changes from coder, tester, and documenter agents integrate cleanly. The feature scopes agent prompts to role-relevant context: execution roles (tester, documenter, integrator) receive summarized backgrounds with structured task info instead of the full issue body, while analysis roles retain the full issue. Phase-scoped coders see the plan overview instead of the full plan. 133 prompt-related tests pass (34 from coder + 40 tester-authored edge cases + 59 pre-existing). Full orchestrator suite: 736 passed, 3 pre-existing failures in test_docker_client.py. Lint passes clean.",
   "test_results": {
-    "gateway_and_shared_tests": {
+    "pipeline_prompts_tests": {
       "status": "pass",
-      "passed": 5164,
+      "passed": 133,
       "failed": 0,
-      "skipped": 83,
-      "warnings": 4,
-      "duration_seconds": 43.28,
-      "details": "Full gateway/tests/, tests/, and shared/egg_contracts/tests/ suite passes. 5164 passed, 83 skipped, 4 warnings (3 PytestCollectionWarning from dataclass constructors, 1 Pydantic serializer warning — all cosmetic)."
+      "duration_seconds": 0.57,
+      "details": "orchestrator/tests/test_pipeline_prompts.py — 133 tests covering _summarize_issue, _extract_plan_overview, _build_role_context, _build_agent_prompt role context, _build_phase_scoped_prompt overview, plus edge cases for all functions. All pass."
     },
-    "orchestrator_tests": {
+    "orchestrator_full_suite": {
       "status": "pass_with_pre_existing_failures",
-      "passed": 556,
-      "failed": 4,
-      "collection_errors": 2,
-      "duration_seconds": 15.88,
-      "details": "556 passed. 4 pre-existing failures in test_dag_visualizer.py (TestCheckerOrdering and TestRunCountDisplay reference AgentRole.REVIEWER_UNIFIED which does not exist in the enum — confirmed identical on main branch, not introduced by this PR). 2 collection errors in test_container_spawner.py and test_docker_client.py due to missing docker Python library in sandbox environment — pre-existing."
+      "passed": 736,
+      "failed": 3,
+      "duration_seconds": 17.96,
+      "details": "736 passed. 3 pre-existing failures in test_docker_client.py: TestDockerClientConnection.test_is_connected_false, TestContainerCreation.test_create_container_image_not_found, TestContainerOperations.test_start_container_not_found. All due to Docker mock exception handling issues unrelated to this PR."
     },
-    "new_tests_for_issue_732": {
+    "lint": {
       "status": "pass",
-      "test_files": [
-        "gateway/tests/test_integrator_tier3.py — Tier 3 integrator file access patterns",
-        "gateway/tests/test_phase_filter_tier3.py — Phase filter integration with complexity tier",
-        "gateway/tests/test_phase_worktree.py — Worktree lifecycle for phase-level execution",
-        "orchestrator/tests/test_tier3_dispatch.py — Tier 3 signal detection and phase-scoped prompt building",
-        "orchestrator/tests/test_tier3_execute.py — Sequential and parallel phase execution flow",
-        "shared/egg_contracts/tests/test_agent_roles_tier3.py — Tier 3 integrator role definition",
-        "shared/egg_contracts/tests/test_composite_execution.py — Composite (phase_id, role) execution tracking",
-        "shared/egg_contracts/tests/test_orchestrator_phase_id.py — Orchestrator class with phase_id parameter",
-        "shared/egg_contracts/tests/test_phase_dependency_graph.py — Phase dependency graph and wave computation",
-        "shared/egg_contracts/tests/test_plan_parser_dependencies.py — Dependency field propagation from plan parser"
-      ],
-      "details": "All 10 new test files pass. Comprehensive coverage across complexity tier detection, phase dispatch, dependency graph, composite execution tracking, and integrator access patterns."
+      "details": "ruff check passes clean on both orchestrator/routes/pipelines.py and orchestrator/tests/test_pipeline_prompts.py."
     }
   },
-  "lint_results": {
-    "status": "pass",
-    "details": "All source and test files pass ruff checks after integrator fixes. 4 lint issues fixed: unused variable in worktree_manager.py, 2 f-strings without placeholders in pipelines.py, dict comprehension style in dependency_graph.py."
-  },
   "integration_checks": {
-    "complexity_tier_flow": {
+    "new_helper_functions": {
       "status": "pass",
-      "details": "ComplexityTier enum (LOW, MID, HIGH) in orchestrator/models.py correctly drives feature gates. Refine phase detects complexity tier from analysis draft YAML metadata via _check_high_complexity_signal(). Pipeline model stores complexity_tier and enable_parallel_phases flag. All three tiers coexist: LOW triggers short-circuit, MID uses standard wave dispatch, HIGH enables phase-level dispatch."
+      "details": "_summarize_issue() extracts 1-2 sentence summaries from issue body. _extract_plan_overview() strips phase details and yaml-tasks from plan text. _build_role_context() dispatches to full body (analysis roles) or summary+pointers (execution roles). All three functions have matching tests covering normal and edge cases."
     },
-    "phase_dependency_graph": {
+    "agent_prompt_role_dispatch": {
       "status": "pass",
-      "details": "PhaseDependencyGraph in shared/egg_contracts/dependency_graph.py correctly builds dependency graph from Phase objects. compute_waves() produces correct wave groupings (linear chains, independent phases, diamond patterns). Cycle detection works for direct, indirect, and self-cycles. Unknown dependencies gracefully ignored. Deterministic ordering via sorted()."
+      "details": "_build_agent_prompt() now calls _build_role_context() instead of embedding pipeline.prompt verbatim. Analysis roles (architect, task_planner, risk_analyst) get ## Task Description with full body. Execution roles (tester, documenter, integrator) get ## Background with summary + ## For More Context pointers. New phase_obj and all_phases params properly threaded through."
     },
-    "composite_execution_tracking": {
+    "phase_scoped_prompt_changes": {
       "status": "pass",
-      "details": "OrchestrationState in shared/egg_contracts/orchestration.py supports dual keying: role-only (Tier 2 backward compat) and composite (phase_id, role) for Tier 3. set_execution(), get_execution(), mark_running/complete/failed all accept optional phase_id. to_execution_list() merges both keying schemes. Backward compatible: None phase_id defaults preserved."
+      "details": "_build_phase_scoped_prompt() embeds plan overview (not full plan) via _extract_plan_overview() on first cycle. Adds one-line summaries of other phases for orientation. Includes pointer to full plan file. Review cycle > 0 correctly skips plan embedding. New all_phases param propagated from _run_tier3_implement()."
     },
-    "phase_scoped_dispatch": {
+    "tier3_implement_call_sites": {
       "status": "pass",
-      "details": "Orchestrator class accepts phase_id parameter. start_agent(), complete_agent(), fail_agent() propagate phase_id to execution tracking. get_next_dispatch() returns phase-scoped dispatch decisions. Two Orchestrators with different phase_ids track independently. apply_to_contract() preserves phase_id."
-    },
-    "tier3_integrator_access": {
-      "status": "pass",
-      "details": "get_role_definition(INTEGRATOR, complexity_tier='high') returns expanded write patterns (src/, lib/, shared/, gateway/, orchestrator/, tests/, docs/) while still blocking .egg-state/contracts/ and .github/. Gateway agent_restrictions.py propagates complexity_tier through check_agent_file_access() and validate_agent_push(). Non-integrator roles unaffected by tier."
-    },
-    "plan_parser_dependencies": {
-      "status": "pass",
-      "details": "ParsedPhase.dependencies field parsed from plan YAML. Supports comma-separated strings, numeric IDs (normalized to phase-N format), and list format. to_contract_phase() produces Phase objects with validated dependencies list. Tasks preserved alongside dependencies."
-    },
-    "worktree_manager": {
-      "status": "pass",
-      "details": "WorktreeManager.create_phase_worktree() constructs composite container_id from container_id + sanitized phase_id. Phase ID sanitization replaces / and . with hyphens, blocks path traversal (../). cleanup_phase_worktrees() supports explicit phase_ids or scanning. Input validation for container_id and repo_name."
-    },
-    "sequential_phase_execution": {
-      "status": "pass",
-      "details": "_run_tier3_implement() processes phases sequentially when enable_parallel_phases=False. Each phase runs coder → tester → reviewer cycle. Coder failure aborts entire run. Reviewer rejection triggers retry within same phase (up to max_review_cycles). Integrator runs after all phases complete. EGG_PLAN_PHASE_ID env var passed to agents."
-    },
-    "parallel_phase_execution": {
-      "status": "pass",
-      "details": "_run_tier3_implement() with enable_parallel_phases=True uses PhaseDependencyGraph.compute_waves() to group independent phases into parallel waves. Diamond dependency pattern (1 → 2,3 → 4) produces correct wave ordering. Integrator still runs after all phases."
+      "details": "_run_tier3_implement() passes phase_obj and all_phases=contract.phases to coder (_build_phase_scoped_prompt), tester (_build_agent_prompt), documenter (_build_agent_prompt), and integrator (_build_agent_prompt). Previously ad-hoc tester phase scope lines removed — now handled by _build_role_context(). Documenter now also gets phase scoping (was previously missing)."
     },
     "backward_compatibility": {
       "status": "pass",
-      "details": "All new fields have defaults (complexity_tier=MID, enable_parallel_phases=False, phase dependencies=[], phase_id=None). Existing Tier 1 (short-circuit) and Tier 2 (standard multi-agent) flows unaffected. All 5164 existing gateway/shared tests pass. Contract schema extensions are additive."
+      "details": "New parameters phase_obj and all_phases default to None. Existing call sites without these params continue to work. Coder/refiner roles still delegate to _build_phase_prompt() unchanged. 59 pre-existing prompt tests continue to pass."
+    },
+    "documentation_updates": {
+      "status": "pass",
+      "details": "Three doc files updated: docs/architecture/orchestrator.md adds Prompt Context Scoping subsection. docs/guides/agent-development.md adds Prompt Context Scoping section with guidance for adding new roles. docs/guides/sdlc-pipeline.md adds Role-Specific Prompt Context section and updates Phase-scoped prompts description."
     }
   },
   "regressions": [],
   "issues_found": [],
-  "integrator_fixes": [
-    {
-      "description": "Fix task ID format in test_tier3_execute.py: changed 'TASK-N-1' to 'task-N-1' and 'T-N-1' to 'task-N-1' to match contract model validation pattern ^task-[0-9]+(-[0-9]+)?$. Fixed 8 test failures across TestRunTier3ImplementSequential and TestRunTier3ImplementParallel.",
-      "files": ["orchestrator/tests/test_tier3_execute.py"]
-    },
-    {
-      "description": "Remove unused import PipelinePhase in test_tier3_execute.py (ruff F401).",
-      "files": ["orchestrator/tests/test_tier3_execute.py"]
-    },
-    {
-      "description": "Remove unused variable phase_branch in gateway/worktree_manager.py (ruff F841). The variable was assigned but never used since create_worktree() is called with base_branch directly.",
-      "files": ["gateway/worktree_manager.py"]
-    },
-    {
-      "description": "Remove extraneous f-string prefixes on string literals without placeholders in orchestrator/routes/pipelines.py (ruff F541).",
-      "files": ["orchestrator/routes/pipelines.py"]
-    },
-    {
-      "description": "Replace dict comprehension {pid: 0 for pid in self.nodes} with dict.fromkeys(self.nodes, 0) in shared/egg_contracts/dependency_graph.py (ruff C420).",
-      "files": ["shared/egg_contracts/dependency_graph.py"]
-    }
-  ],
+  "integrator_fixes": [],
   "pre_existing_issues": [
     {
-      "severity": "medium",
-      "description": "4 tests in orchestrator/tests/test_dag_visualizer.py fail with 'AttributeError: REVIEWER_UNIFIED' — the AgentRole enum does not have a REVIEWER_UNIFIED member. Confirmed identical failures on main branch.",
-      "location": "orchestrator/tests/test_dag_visualizer.py"
-    },
-    {
       "severity": "low",
-      "description": "orchestrator/tests/test_container_spawner.py and test_docker_client.py fail to collect due to missing docker Python library in sandbox environment. Will work in CI where docker>=7.0.0 is installed.",
-      "location": "orchestrator/tests/"
-    }
-  ],
-  "code_review_observations": [
-    {
-      "severity": "low",
-      "category": "code_duplication",
-      "description": "AgentRole enum is duplicated in gateway/agent_restrictions.py (lines 30-52) from shared/egg_contracts/agent_roles.py. Comment acknowledges this avoids import complexity but creates maintenance burden if roles diverge.",
-      "recommendation": "Consider consolidating or adding a sync test."
-    },
-    {
-      "severity": "low",
-      "category": "silent_behavior",
-      "description": "PhaseDependencyGraph silently ignores unknown dependencies (line 435-436: 'if dep not in self.nodes: continue'). This prevents errors from typos in phase dependency declarations.",
-      "recommendation": "Add a warning log when skipping unknown dependencies."
-    },
-    {
-      "severity": "low",
-      "category": "validation_gap",
-      "description": "complexity_tier parameter in get_role_definition() only affects INTEGRATOR role. No validation of valid values ('low', 'mid', 'high'). Invalid values silently fall through to default behavior.",
-      "recommendation": "Document valid values or add validation."
+      "description": "3 tests in orchestrator/tests/test_docker_client.py fail due to Docker mock exception handling issues. test_is_connected_false asserts False but gets True; test_create_container_image_not_found and test_start_container_not_found hit TypeError from mocked exceptions. Present on main branch, not introduced by this PR.",
+      "location": "orchestrator/tests/test_docker_client.py"
     }
   ],
   "commits_on_branch": [
     {
-      "sha": "cd36ccd4",
-      "message": "Fix Tier 3 test task ID format and lint issues",
-      "author": "integrator"
+      "sha": "8ca953d3",
+      "message": "Scope agent prompts to role-relevant context only",
+      "author": "coder",
+      "files_changed": ["orchestrator/routes/pipelines.py", "orchestrator/tests/test_pipeline_prompts.py"],
+      "lines_added": 671,
+      "lines_removed": 22
+    },
+    {
+      "sha": "75b94aed",
+      "message": "docs: Document role-specific prompt context scoping",
+      "author": "documenter",
+      "files_changed": ["docs/architecture/orchestrator.md", "docs/guides/agent-development.md", "docs/guides/sdlc-pipeline.md"],
+      "lines_added": 43,
+      "lines_removed": 1
+    },
+    {
+      "sha": "42fa0ec2",
+      "message": "WIP: auto-commit uncommitted work (documenter) [issue-835]",
+      "author": "tester (auto-committed)",
+      "files_changed": ["orchestrator/tests/test_pipeline_prompts.py"],
+      "lines_added": 535,
+      "lines_removed": 0
     }
   ],
-  "files_changed_by_integrator": [
-    "orchestrator/tests/test_tier3_execute.py",
-    "gateway/worktree_manager.py",
-    "orchestrator/routes/pipelines.py",
-    "shared/egg_contracts/dependency_graph.py"
-  ]
+  "files_changed_by_integrator": []
 }

@@ -1,0 +1,103 @@
+{
+  "schemaVersion": "1.0",
+  "issue": {
+    "number": 835,
+    "title": "Issue #835",
+    "url": "https://github.com/jwbron/egg/issues/835"
+  },
+  "pipeline_id": null,
+  "current_phase": "refine",
+  "acceptance_criteria": [],
+  "phases": [],
+  "decisions": [],
+  "workflow_owner": null,
+  "audit_log": [],
+  "refine_review_cycles": 0,
+  "refine_review_feedback": "",
+  "plan_review_cycles": 0,
+  "plan_review_feedback": "",
+  "pr": null,
+  "feedback": null,
+  "phase_configs": null,
+  "agent_executions": [
+    {
+      "role": "coder",
+      "phase_id": null,
+      "status": "complete",
+      "started_at": "2026-02-21T19:53:58.364539Z",
+      "completed_at": "2026-02-21T20:05:20.605949Z",
+      "commit": null,
+      "checkpoint_id": null,
+      "outputs": {},
+      "error": null,
+      "retry_count": 0,
+      "conflicts": []
+    },
+    {
+      "role": "tester",
+      "phase_id": null,
+      "status": "complete",
+      "started_at": "2026-02-21T20:05:20.608028Z",
+      "completed_at": "2026-02-21T20:13:16.200327Z",
+      "commit": null,
+      "checkpoint_id": null,
+      "outputs": {},
+      "error": null,
+      "retry_count": 0,
+      "conflicts": []
+    },
+    {
+      "role": "documenter",
+      "phase_id": null,
+      "status": "complete",
+      "started_at": "2026-02-21T20:05:20.608959Z",
+      "completed_at": "2026-02-21T20:09:11.877481Z",
+      "commit": null,
+      "checkpoint_id": null,
+      "outputs": {},
+      "error": null,
+      "retry_count": 0,
+      "conflicts": []
+    },
+    {
+      "role": "integrator",
+      "phase_id": null,
+      "status": "complete",
+      "started_at": "2026-02-21T20:13:16.204106Z",
+      "completed_at": "2026-02-21T20:17:27.823898Z",
+      "commit": null,
+      "checkpoint_id": null,
+      "outputs": {},
+      "error": null,
+      "retry_count": 0,
+      "conflicts": []
+    },
+    {
+      "role": "reviewer_contract",
+      "phase_id": null,
+      "status": "complete",
+      "started_at": null,
+      "completed_at": "2026-02-21T20:26:40.674200Z",
+      "commit": null,
+      "checkpoint_id": null,
+      "outputs": {},
+      "error": null,
+      "retry_count": 0,
+      "conflicts": []
+    },
+    {
+      "role": "reviewer_code",
+      "phase_id": null,
+      "status": "complete",
+      "started_at": null,
+      "completed_at": "2026-02-21T20:29:12.767090Z",
+      "commit": null,
+      "checkpoint_id": null,
+      "outputs": {},
+      "error": null,
+      "retry_count": 0,
+      "conflicts": []
+    }
+  ],
+  "multi_agent_config": null
+}

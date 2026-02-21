@@ -1789,11 +1789,8 @@ class TestGetRepoFallback:
         # Use the actual repo directory — its remote (jwbron/egg) should
         # take precedence over the EGG_REPO fallback value.
         repo_dir = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
-        repo = self._run_get_repo(
-            egg_repo="fallback-owner/fallback-repo", cwd=repo_dir
-        )
+        repo = self._run_get_repo(egg_repo="fallback-owner/fallback-repo", cwd=repo_dir)
         assert repo == "jwbron/egg"
-
 
 
 class TestIssueEditBodyFile:

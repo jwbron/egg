@@ -690,9 +690,7 @@ def _cmd_browse_http(args: argparse.Namespace, gateway_url: str) -> int:
         for sid, session_summaries in sessions.items():
             first = session_summaries[0]
             agent = first.get("agent_type", "unknown")
-            triggers = {
-                _format_trigger(s.get("trigger_type", "")) for s in session_summaries
-            }
+            triggers = {_format_trigger(s.get("trigger_type", "")) for s in session_summaries}
             print(
                 f"Session: {sid[:12]}... (agent: {agent}, triggers: {', '.join(sorted(triggers))})"
             )
@@ -824,7 +822,9 @@ def _cmd_context_http(args: argparse.Namespace, gateway_url: str) -> int:
             print(json.dumps(summaries, indent=2))
     else:
         _print_context_summary_from_dicts(
-            summaries, gateway_url, args,
+            summaries,
+            gateway_url,
+            args,
             checkpoint_repo=params.get("checkpoint_repo"),
         )
 

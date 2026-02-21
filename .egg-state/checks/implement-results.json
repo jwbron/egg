@@ -1,15 +1,15 @@
 {
-  "all_passed": false,
+  "all_passed": true,
   "checks": [
     {
       "name": "lint",
       "passed": true,
-      "output": "ruff check: All checks passed!\nruff format: 391 files already formatted.\nFixed: 10 auto-fixable ruff errors (unused imports, import ordering), 19 files reformatted, 4 test_dag_visualizer tests fixed (removed references to non-existent AgentRole.CHECKER and AgentRole.REVIEWER_UNIFIED enum values)."
+      "output": "All checks passed! 398 files already formatted."
     },
     {
       "name": "test",
-      "passed": false,
-      "output": "5618 passed, 83 skipped, 22 failed, 4 warnings in 59.79s.\n\n22 failures in tests/scripts/test_checks.py: ModuleNotFoundError 'checks' is not a package. Pre-existing test isolation issue — the 'checks' module from orchestrator/ shadows '.github/scripts/checks/' when tests are run together. These 22 tests pass individually (pytest tests/scripts/test_checks.py → 22 passed).\n\n2 orchestrator tests skipped (test_container_spawner.py, test_docker_client.py) due to missing docker module — pre-existing environment issue.\n\nAll failures are pre-existing and unrelated to the current changes."
+      "passed": true,
+      "output": "3678 passed, 80 skipped, 3 warnings in 26.08s"
     }
   ]
 }

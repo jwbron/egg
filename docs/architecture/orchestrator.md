@@ -173,6 +173,10 @@ The orchestrator coordinates specialized agent roles across pipeline phases. Eac
 - **Code Reviewer**: Security, correctness, code quality, testing, documentation
 - **Contract Reviewer**: Verify acceptance criteria met, task completion status
 
+### Prompt Context Scoping
+
+Agent prompts are scoped to role-relevant context. Analysis roles (architect, task_planner, risk_analyst) receive the full issue body for problem understanding. Execution roles (tester, documenter, integrator) receive a summarized background with structured task information and pointers to full context on demand. Phase-scoped coders (Tier 3) see the plan overview and current phase tasks, not the full plan. See [SDLC Pipeline Guide: Role-Specific Prompt Context](../guides/sdlc-pipeline.md#role-specific-prompt-context) for details.
+
 ### Reviewer Execution
 
 Reviewers always run as a separate step after all workers (and checkers, if applicable) complete. They spawn in parallel with a configurable concurrency limit (`max_parallel_agents`). In implement phase, reviewers run after the integrator completes. In plan phase, reviewers run after the task planner and risk analyst complete. In refine phase, reviewers run after the refiner completes.
