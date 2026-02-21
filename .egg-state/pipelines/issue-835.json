@@ -5,7 +5,7 @@
   "branch": "egg/issue-835",
   "mode": "issue",
   "prompt": null,
-  "status": "failed",
+  "status": "running",
   "current_phase": "implement",
   "config": {
     "auto_create_pr": true,
@@ -228,175 +228,12 @@
     },
     "implement": {
       "phase": "implement",
-      "status": "running",
-      "started_at": "2026-02-21T08:02:43.133564",
-      "work_started_at": "2026-02-21T08:02:43.148010",
+      "status": "pending",
+      "started_at": null,
+      "work_started_at": null,
       "completed_at": null,
-      "containers": [
-        {
-          "container_id": "049cd3037c1142a038824970c6a98afb41f92b27538406bc664e9008fdacf80c",
-          "container_name": "egg-sandbox-egg-issue-835-coder",
-          "status": "exited",
-          "started_at": "2026-02-21T08:02:43.713642",
-          "exited_at": "2026-02-21T08:13:36.102631",
-          "exit_code": 0,
-          "agent_role": "coder",
-          "session_token": null
-        },
-        {
-          "container_id": "ba71c95728049495f1f75fd67db028cdf9778fd78c42818aa3b28049ba179bef",
-          "container_name": "egg-sandbox-egg-issue-835-tester",
-          "status": "exited",
-          "started_at": "2026-02-21T08:13:42.980698",
-          "exited_at": "2026-02-21T08:27:48.719265",
-          "exit_code": 0,
-          "agent_role": "tester",
-          "session_token": null
-        },
-        {
-          "container_id": "b2db0d502892e37939eaf0bcd76c9ff7b4899a2ec80738dd77f2c812f1104842",
-          "container_name": "egg-sandbox-egg-issue-835-documenter",
-          "status": "exited",
-          "started_at": "2026-02-21T08:13:42.992916",
-          "exited_at": "2026-02-21T08:26:06.957623",
-          "exit_code": 0,
-          "agent_role": "documenter",
-          "session_token": null
-        },
-        {
-          "container_id": "e323390445a6a7d16d3d6de362f9f1d9d5e92ff906b887f85e6006d08be08bab",
-          "container_name": "egg-sandbox-egg-issue-835-integrator",
-          "status": "exited",
-          "started_at": "2026-02-21T08:27:55.570104",
-          "exited_at": "2026-02-21T08:32:16.297522",
-          "exit_code": 0,
-          "agent_role": "integrator",
-          "session_token": null
-        },
-        {
-          "container_id": "81bfd888067fe129bdbdacbd4f6ee1fd6d8cdaed71cdd4f68c70a379768d6c24",
-          "container_name": "egg-sandbox-egg-issue-835-checker",
-          "status": "exited",
-          "started_at": "2026-02-21T08:32:23.755038",
-          "exited_at": "2026-02-21T08:35:00.878294",
-          "exit_code": 0,
-          "agent_role": "checker",
-          "session_token": null
-        },
-        {
-          "container_id": "ce60d3df07e679b6140f48995dd552d35afbb87cb487b1fe0c190addf7c3f22a",
-          "container_name": "egg-sandbox-egg-issue-835-reviewer_code",
-          "status": "failed",
-          "started_at": "2026-02-21T08:35:08.209586",
-          "exited_at": "2026-02-21T19:53:07.954991",
-          "exit_code": -1,
-          "agent_role": "reviewer_code",
-          "session_token": null
-        },
-        {
-          "container_id": "5ffead143ac166742118223ab8497b5b775b4b02423ac755d5da19af76d444f5",
-          "container_name": "egg-sandbox-egg-issue-835-reviewer_contract",
-          "status": "failed",
-          "started_at": "2026-02-21T08:35:08.226844",
-          "exited_at": "2026-02-21T19:53:07.955020",
-          "exit_code": -1,
-          "agent_role": "reviewer_contract",
-          "session_token": null
-        }
-      ],
-      "agents": [
-        {
-          "role": "coder",
-          "status": "complete",
-          "container_id": "049cd3037c1142a038824970c6a98afb41f92b27538406bc664e9008fdacf80c",
-          "started_at": "2026-02-21T08:02:43.713647",
-          "completed_at": "2026-02-21T08:13:36.102635",
-          "commit": null,
-          "outputs": {},
-          "error": null,
-          "retry_count": 0,
-          "conflicts": [],
-          "plan_phase_id": null
-        },
-        {
-          "role": "tester",
-          "status": "complete",
-          "container_id": "ba71c95728049495f1f75fd67db028cdf9778fd78c42818aa3b28049ba179bef",
-          "started_at": "2026-02-21T08:13:42.980703",
-          "completed_at": "2026-02-21T08:27:48.719269",
-          "commit": null,
-          "outputs": {},
-          "error": null,
-          "retry_count": 0,
-          "conflicts": [],
-          "plan_phase_id": null
-        },
-        {
-          "role": "documenter",
-          "status": "complete",
-          "container_id": "b2db0d502892e37939eaf0bcd76c9ff7b4899a2ec80738dd77f2c812f1104842",
-          "started_at": "2026-02-21T08:13:42.992921",
-          "completed_at": "2026-02-21T08:26:06.957627",
-          "commit": null,
-          "outputs": {},
-          "error": null,
-          "retry_count": 0,
-          "conflicts": [],
-          "plan_phase_id": null
-        },
-        {
-          "role": "integrator",
-          "status": "complete",
-          "container_id": "e323390445a6a7d16d3d6de362f9f1d9d5e92ff906b887f85e6006d08be08bab",
-          "started_at": "2026-02-21T08:27:55.570108",
-          "completed_at": "2026-02-21T08:32:16.297528",
-          "commit": null,
-          "outputs": {},
-          "error": null,
-          "retry_count": 0,
-          "conflicts": [],
-          "plan_phase_id": null
-        },
-        {
-          "role": "checker",
-          "status": "complete",
-          "container_id": "81bfd888067fe129bdbdacbd4f6ee1fd6d8cdaed71cdd4f68c70a379768d6c24",
-          "started_at": "2026-02-21T08:32:23.755042",
-          "completed_at": "2026-02-21T08:35:00.878296",
-          "commit": null,
-          "outputs": {},
-          "error": null,
-          "retry_count": 0,
-          "conflicts": [],
-          "plan_phase_id": null
-        },
-        {
-          "role": "reviewer_code",
-          "status": "failed",
-          "container_id": "ce60d3df07e679b6140f48995dd552d35afbb87cb487b1fe0c190addf7c3f22a",
-          "started_at": "2026-02-21T08:35:08.209593",
-          "completed_at": "2026-02-21T19:53:07.955047",
-          "commit": null,
-          "outputs": {},
-          "error": "Container not found at orchestrator startup — likely lost during a previous crash",
-          "retry_count": 0,
-          "conflicts": [],
-          "plan_phase_id": null
-        },
-        {
-          "role": "reviewer_contract",
-          "status": "failed",
-          "container_id": "5ffead143ac166742118223ab8497b5b775b4b02423ac755d5da19af76d444f5",
-          "started_at": "2026-02-21T08:35:08.226850",
-          "completed_at": "2026-02-21T19:53:07.955074",
-          "commit": null,
-          "outputs": {},
-          "error": "Container not found at orchestrator startup — likely lost during a previous crash",
-          "retry_count": 0,
-          "conflicts": [],
-          "plan_phase_id": null
-        }
-      ],
+      "containers": [],
+      "agents": [],
       "review_cycles": 0,
       "hitl_review_cycles": 0,
       "cycle_timings": [
@@ -439,12 +276,12 @@
       "resolution": "Approved"
     }
   ],
-  "created_at": "2026-02-21T07:40:50.835169",
-  "updated_at": "2026-02-21T19:53:07.955168",
+  "created_at": "2026-02-21T19:53:58.218762",
+  "updated_at": "2026-02-21T19:53:58.219404",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
   "complexity_tier": "mid",
-  "error": "Pipeline marked FAILED at orchestrator startup: one or more agent containers were not found. Restart via POST /pipelines/{id}/start.",
-  "version": 51
+  "error": null,
+  "version": 52
 }
