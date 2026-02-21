@@ -14,9 +14,8 @@ Start and manage egg sandbox sessions.
 | `egg --setup` | Run interactive setup wizard |
 | `egg --reset` | Reset configuration and start over |
 | `egg --exec <cmd>` | Execute command in ephemeral container |
-| `egg --compose` | Start gateway via Docker Compose |
+| `egg --compose` | Start gateway via Docker Compose (auto-rebuilds images when code changes) |
 | `egg --compose --down` | Stop the Docker Compose stack (gateway + orchestrator) |
-| `egg --compose --build` | Rebuild compose images before starting (default behavior when using --compose) |
 
 **Common flags:**
 
@@ -25,7 +24,7 @@ Start and manage egg sandbox sessions.
 | `--private` / `--public` | Network mode (private locks down to Anthropic API + private GitHub repos) |
 | `--compose` | Use Docker Compose to manage the gateway stack |
 | `--down` | Stop the Docker Compose stack (use with `--compose`) |
-| `--build` | Rebuild compose images before starting (default with `--compose`; Docker layer cache makes this fast when nothing changed) |
+| `--build` | Rebuild compose images before starting (no-op — `--compose` auto-rebuilds by default) |
 | `--multi-agent` / `--no-multi-agent` | Enable/disable multi-agent execution (wave-based parallel agents) |
 | `--max-parallel <n>` | Maximum parallel agents per wave (default: 10) |
 | `--exec <cmd>` | Execute command in new ephemeral container |
