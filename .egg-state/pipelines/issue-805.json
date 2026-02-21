@@ -121,18 +121,18 @@
         "approve",
         "request changes"
       ],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-02-21T20:02:09.588905",
-      "resolved_at": null,
-      "resolution": null
+      "resolved_at": "2026-02-21T20:04:39.363660",
+      "resolution": "Approved"
     }
   ],
   "created_at": "2026-02-21T19:54:50.533598",
-  "updated_at": "2026-02-21T20:02:09.609537",
+  "updated_at": "2026-02-21T20:04:39.365454",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
   "complexity_tier": "high",
   "error": null,
-  "version": 16
+  "version": 17
 }
