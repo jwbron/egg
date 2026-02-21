@@ -184,8 +184,9 @@ class WorktreeManager:
         if result.returncode == 0:
             return "origin/master"
 
-        # Fallback to HEAD
-        logger.warning(
+        # Fallback to HEAD — this may re-introduce the push rejection from #860
+        # for pipeline sessions, so log at error level.
+        logger.error(
             "Could not resolve remote default branch, falling back to HEAD",
             repo=repo_name,
         )

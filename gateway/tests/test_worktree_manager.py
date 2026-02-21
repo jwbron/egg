@@ -873,7 +873,7 @@ class TestResolveDefaultBranch:
 
         result = manager.resolve_default_branch("test-repo")
         # Should return origin/main or origin/master depending on git defaults
-        assert result.startswith("origin/")
+        assert result in ("origin/main", "origin/master")
 
     def test_uses_origin_head_when_configured(self, tmp_path):
         """Returns origin/HEAD target when symbolic-ref is configured."""
