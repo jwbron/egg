@@ -95,6 +95,7 @@ orchestrator/
 ├── resilience.py           # Retry and error recovery
 ├── sandbox_template.py     # Sandbox container template
 ├── sse.py                  # Server-Sent Events streaming for pipeline visualization
+├── startup_reconciliation.py # Startup reconciliation for orphaned containers
 ├── state_store.py          # Git-backed pipeline state
 ├── status_reporter.py      # Real-time status reporter for collaborators
 ├── unified_sse.py          # Unified SSE stream for all pipelines

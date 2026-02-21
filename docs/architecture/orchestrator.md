@@ -36,7 +36,13 @@ The orchestrator persists pipeline state using a dedicated git worktree on an or
 
 This differs from agent worktrees (managed by the gateway for agent isolation). The orchestrator manages its own state worktree independently.
 
-See `orchestrator/state_store.py` for implementation details.
+**Startup reconciliation:**
+
+On orchestrator restart, orphaned container state is automatically recovered. For each pipeline showing `status=RUNNING`, any agent/container whose container ID is absent from the live Docker container set is marked `FAILED`. If at least one stale entry is found, the pipeline itself is marked `FAILED` with an error message instructing operators to restart via `POST /pipelines/{id}/start`.
+
+This prevents pipelines from being stuck in a `RUNNING` state indefinitely after a crash. Operators (or CI systems) can detect the `FAILED` status and restart the pipeline using the existing restart endpoint, which preserves worktrees and phase state while re-spawning containers.
+
+See `orchestrator/state_store.py` and `orchestrator/startup_reconciliation.py` for implementation details.
 
 ## Network Mode
 
