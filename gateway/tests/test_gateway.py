@@ -3443,6 +3443,77 @@ class TestSessionCreateWithPhase:
         assert "non-empty" in data["message"].lower()
 
 
+class TestWorktreeCreateEndpointResolution:
+    """Tests for worktree_create endpoint's resolve_default_branch logic."""
+
+    def test_worktree_create_resolves_branch_when_no_base_branch(
+        self, client, launcher_auth_headers
+    ):
+        """When base_branch is absent from the request, the endpoint resolves
+        the remote default branch via resolve_default_branch().  See #860."""
+        with patch.object(gateway, "get_worktree_manager") as mock_worktree:
+            mock_wt_manager = mock_worktree.return_value
+            mock_wt_manager.resolve_default_branch.return_value = "origin/main"
+            mock_worktree_info = MagicMock()
+            mock_worktree_info.worktree_path = "/path/to/worktree"
+            mock_wt_manager.create_worktree.return_value = mock_worktree_info
+
+            response = client.post(
+                "/api/v1/worktree/create",
+                headers=launcher_auth_headers,
+                data=json.dumps(
+                    {
+                        "container_id": "test-container",
+                        "repos": ["owner/repo"],
+                    }
+                ),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 200
+            data = json.loads(response.data)
+            assert data["success"] is True
+
+            # resolve_default_branch should have been called for the repo
+            mock_wt_manager.resolve_default_branch.assert_called_once_with("repo")
+            # create_worktree should have received the resolved branch
+            call_kwargs = mock_wt_manager.create_worktree.call_args
+            base = call_kwargs.kwargs.get("base_branch") or call_kwargs[1].get("base_branch")
+            assert base == "origin/main"
+
+    def test_worktree_create_uses_explicit_base_branch(
+        self, client, launcher_auth_headers
+    ):
+        """When base_branch is explicitly provided, the endpoint uses it
+        without calling resolve_default_branch()."""
+        with patch.object(gateway, "get_worktree_manager") as mock_worktree:
+            mock_wt_manager = mock_worktree.return_value
+            mock_worktree_info = MagicMock()
+            mock_worktree_info.worktree_path = "/path/to/worktree"
+            mock_wt_manager.create_worktree.return_value = mock_worktree_info
+
+            response = client.post(
+                "/api/v1/worktree/create",
+                headers=launcher_auth_headers,
+                data=json.dumps(
+                    {
+                        "container_id": "test-container",
+                        "repos": ["owner/repo"],
+                        "base_branch": "origin/develop",
+                    }
+                ),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 200
+            # resolve_default_branch should NOT be called when base_branch is explicit
+            mock_wt_manager.resolve_default_branch.assert_not_called()
+            # create_worktree should have received the explicit branch
+            call_kwargs = mock_wt_manager.create_worktree.call_args
+            base = call_kwargs.kwargs.get("base_branch") or call_kwargs[1].get("base_branch")
+            assert base == "origin/develop"
+
+
 class TestLocalModeBlocking:
     """Tests for local SDLC mode blocking across PR endpoints and gh_execute.
 
