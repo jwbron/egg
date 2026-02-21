@@ -132,14 +132,11 @@ To use the `egg` CLI with a separately-managed Docker Compose gateway:
 ### Using --compose Mode
 
 ```bash
-# Start gateway via compose, then launch sandbox
+# Start gateway via compose, then launch sandbox (auto-rebuilds when code changes)
 egg --compose
 
 # Stop the compose stack
 egg --compose --down
-
-# Rebuild and start
-egg --compose --build
 ```
 
 ### Traditional Mode
