@@ -357,7 +357,7 @@ After all phases complete:
 
 **Composite execution tracking**: Agent executions are keyed by `(phase_id, role)` instead of just `role`. The `OrchestrationState` maintains both `executions` (role-only, backward compatible) and `phase_executions` (composite key) dicts. Functions like `can_agent_run()`, `get_runnable_agents()`, and `get_next_wave()` accept an optional `phase_id` parameter for phase-scoped dispatch.
 
-**Phase-scoped prompts**: Each coder in a phase cycle receives a prompt scoped to that phase's tasks only (`_build_phase_scoped_prompt()`), preventing cross-phase context leakage.
+**Phase-scoped prompts**: Each coder in a phase cycle receives a prompt scoped to that phase's tasks only (`_build_phase_scoped_prompt()`), preventing cross-phase context leakage. The prompt embeds the plan overview (goals, approach, constraints) rather than the full plan, with other phases shown as one-line summaries for orientation. A pointer to the full plan file is included for on-demand access.
 
 **Parallel execution**: When `parallel_phases: true` is signaled by the refine agent and `PipelineConfig.enable_parallel_phases` is set, independent phases within the same wave run concurrently using `ThreadPoolExecutor`. The `PipelineConfig.max_parallel_agents` controls concurrency.
 
@@ -586,6 +586,29 @@ Each agent invocation runs in a fresh container with no memory of previous runs.
 3. GitHub issue/PR comments and reviews
 
 This prevents context pollution and ensures reproducible behavior. When the implementer is re-invoked after review feedback, it receives the PR review comments as part of its prompt context.
+
+### Role-Specific Prompt Context
+
+Agent prompts include role-appropriate context rather than embedding the full issue body for every agent. This reduces noise and focuses each agent on its responsibilities.
+
+**Analysis roles** (architect, task_planner, risk_analyst) receive the full issue body, since they need it for problem understanding and planning.
+
+**Execution roles** (tester, documenter, integrator) receive:
+- A 1-2 sentence background summary extracted from the issue title and first paragraph
+- Phase-scoped task details with descriptions, acceptance criteria, and affected files (Tier 3)
+- An implementation summary across all phases (integrator only)
+- One-line orientation summaries of other phases (tester/documenter in Tier 3)
+- Pointers to full context on demand (`gh issue view`, handoff data, git diff)
+
+**Phase-scoped coders** (Tier 3) receive:
+- The plan overview section (goals, approach, constraints) instead of the full plan
+- The current phase's task details in full
+- One-line summaries of other phases for orientation
+- A pointer to the full plan file
+
+This approach follows a "focus, don't starve" philosophy: agents get enough context to make good decisions without being distracted by irrelevant detail. Full context is always accessible on demand via CLI commands and file paths.
+
+The context is built by `_build_role_context()` in `orchestrator/routes/pipelines.py`, which replaces the previous pattern of embedding `pipeline.prompt` verbatim into every agent prompt.
 
 ## Multi-Agent Orchestration
 
