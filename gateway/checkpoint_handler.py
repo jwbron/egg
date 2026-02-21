@@ -4,7 +4,7 @@ Checkpoint handler for the gateway sidecar.
 Captures agent session context on git push operations and session termination,
 storing checkpoints in a dedicated branch (egg/checkpoints/v2). Supports two
 trigger types:
-- COMMIT: Created per-commit on git push (one checkpoint per commit)
+- COMMIT: Created on git push (one checkpoint per push)
 - SESSION_END: Created when a session terminates (graceful, expired, or crashed)
 
 Architecture Overview:
@@ -272,7 +272,7 @@ class CheckpointHandler:
     Handles checkpoint capture and storage for agent sessions.
 
     Supports two checkpoint types:
-    - COMMIT: Created per-commit on git push
+    - COMMIT: Created on git push (one checkpoint per push)
     - SESSION_END: Created when a session terminates
     """
 
