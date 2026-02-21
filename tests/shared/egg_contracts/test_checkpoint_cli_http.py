@@ -136,6 +136,34 @@ class TestBuildListParams:
         assert params["pipeline"] == "p1"
 
 
+class TestBuildListParamsCheckpointRepo:
+    """Tests that _build_list_params passes checkpoint_repo to HTTP."""
+
+    @patch("egg_contracts.checkpoint_cli._get_checkpoint_repo_from_args")
+    def test_includes_checkpoint_repo_when_set(self, mock_get_ckpt):
+        mock_get_ckpt.return_value = "org/checkpoints"
+        args = argparse.Namespace(
+            limit=50, issue=835, pr=None, branch=None, session=None,
+            trigger=None, status=None, agent_type=None, phase=None,
+            pipeline=None, repo=None, repo_path="/repo",
+            checkpoint_repo="org/checkpoints",
+        )
+        params = _build_list_params(args)
+        assert params["checkpoint_repo"] == "org/checkpoints"
+
+    @patch("egg_contracts.checkpoint_cli._get_checkpoint_repo_from_args")
+    def test_omits_checkpoint_repo_when_none(self, mock_get_ckpt):
+        mock_get_ckpt.return_value = None
+        args = argparse.Namespace(
+            limit=50, issue=835, pr=None, branch=None, session=None,
+            trigger=None, status=None, agent_type=None, phase=None,
+            pipeline=None, repo=None, repo_path="/repo",
+            checkpoint_repo=None,
+        )
+        params = _build_list_params(args)
+        assert "checkpoint_repo" not in params
+
+
 class TestCmdListHttpFallback:
     """Tests that cmd_list falls back to git on RuntimeError."""
 

@@ -27,6 +27,7 @@ import argparse
 import functools
 import json
 import os
+import re
 import secrets
 import subprocess
 import sys
@@ -1568,6 +1569,7 @@ def checkpoint_list() -> tuple[Response, int] | Response:
 
     Query params:
         repo_path: Repository path (required if not inferable)
+        checkpoint_repo: External checkpoint repo (owner/repo), overrides auto-detection
         issue: Filter by issue number
         pr: Filter by PR number
         branch: Filter by branch name
@@ -1587,7 +1589,7 @@ def checkpoint_list() -> tuple[Response, int] | Response:
         return make_error("Cannot determine repo_path")
 
     handler = get_checkpoint_handler()
-    checkpoint_repo = _get_checkpoint_repo_for_path(repo_path)
+    checkpoint_repo = _resolve_checkpoint_repo(repo_path)
 
     try:
         index = handler.fetch_and_read_index(
@@ -1641,6 +1643,7 @@ def checkpoint_cost() -> tuple[Response, int] | Response:
 
     Query params:
         repo_path: Repository path
+        checkpoint_repo: External checkpoint repo (owner/repo), overrides auto-detection
         pipeline: Filter by pipeline ID
         issue: Filter by issue number
         pr: Filter by PR number
@@ -1654,7 +1657,7 @@ def checkpoint_cost() -> tuple[Response, int] | Response:
         return make_error("Cannot determine repo_path")
 
     handler = get_checkpoint_handler()
-    checkpoint_repo = _get_checkpoint_repo_for_path(repo_path)
+    checkpoint_repo = _resolve_checkpoint_repo(repo_path)
 
     # fetch_and_read_index does ls-remote + fetch + read index in one pass.
     # We then call ensure_ref to get a ref for read_checkpoint calls below.
@@ -1786,13 +1789,14 @@ def checkpoint_show(identifier: str) -> tuple[Response, int] | Response:
 
     Query params:
         repo_path: Repository path
+        checkpoint_repo: External checkpoint repo (owner/repo), overrides auto-detection
     """
     repo_path = _resolve_repo_path_for_checkpoints()
     if not repo_path:
         return make_error("Cannot determine repo_path")
 
     handler = get_checkpoint_handler()
-    checkpoint_repo = _get_checkpoint_repo_for_path(repo_path)
+    checkpoint_repo = _resolve_checkpoint_repo(repo_path)
 
     try:
         ref = handler.ensure_ref(repo_path, checkpoint_repo=checkpoint_repo)
@@ -1823,6 +1827,26 @@ def checkpoint_show(identifier: str) -> tuple[Response, int] | Response:
         )
 
     return make_success("OK", {"checkpoint": checkpoint.model_dump(mode="json")})
+
+
+def _resolve_checkpoint_repo(repo_path: str) -> str | None:
+    """Resolve checkpoint_repo from query param or auto-detection.
+
+    Accepts an explicit ``checkpoint_repo`` query parameter in
+    ``owner/repo`` format.  Falls back to auto-detection via
+    ``_get_checkpoint_repo_for_path`` when no explicit value is given.
+    """
+    explicit = request.args.get("checkpoint_repo")
+    if explicit:
+        # Basic validation: must look like "owner/repo"
+        if re.match(r"^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$", explicit):
+            return explicit
+        logger.warning(
+            "Invalid checkpoint_repo format, falling back to auto-detection",
+            checkpoint_repo=explicit,
+        )
+        return None
+    return _get_checkpoint_repo_for_path(repo_path)
 
 
 def _resolve_repo_path_for_checkpoints() -> str | None:
