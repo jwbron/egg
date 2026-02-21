@@ -1,116 +1,139 @@
 {
-  "issue": 835,
+  "issue": 829,
   "phase": "plan",
   "agent": "architect",
-  "title": "Scope agent prompts to role-relevant context only",
-  "summary": "Architecture analysis for replacing the one-size-fits-all pipeline.prompt embedding with role-appropriate context in agent prompts. Currently every agent (tester, documenter, integrator, etc.) receives the full issue body verbatim, and Tier 3 phase-scoped coders receive the entire plan draft including other phases. The recommended approach introduces a _build_role_context() helper and a _summarize_issue() helper to provide each role with focused context while keeping full information accessible on demand via file paths and CLI commands.",
+  "title": "Full DAG visualization for Tier 3 parallel phase execution",
+  "summary": "Architecture analysis for extending the pipeline DAG visualizer to render Tier 3 parallel plan phase execution as a true branching graph. The current visualizer renders a flat linear sequence (Refine -> Plan -> Implement -> PR) with Tier 3 sub-phases grouped by plan_phase_id inside the Implement box. This produces non-deterministic ordering for parallel phases and no branching structure. The recommended approach expands the Implement phase into its constituent sub-phases as first-class boxes in the DAG, connected with fan-out/fan-in connectors, while keeping the data model unchanged.",
 
   "problem_statement": {
-    "description": "Every agent in the SDLC pipeline receives the full original issue body (pipeline.prompt) as 'Task Description', regardless of role. A tester gets the entire feature request narrative when it only needs to know what code changed and what to verify. A documenter gets technical constraints when it only needs to know what was built. In Tier 3 dispatch, the phase-scoped coder prompt embeds the entire plan draft even though the agent only implements one phase. This wastes context tokens and risks agents working outside their assigned scope.",
+    "description": "The current DAG visualizer in dag_visualizer.py renders a fixed 4-phase linear DAG (Refine -> Plan -> Implement -> PR). For Tier 3 (high-complexity) pipelines, the Implement phase runs multiple plan sub-phases, some in parallel, but this structure is invisible in the visualization. The current workaround groups agents by plan_phase_id inside the Implement box (lines 283-298 of dag_visualizer.py), producing a flat listing like 'phase-1: coder, tester... phase-2: coder, tester...' with two problems: (1) parallel sub-phases are shown in lock-acquisition order rather than sorted deterministically, and (2) there is no branching structure showing fan-out/fan-in for parallel phases.",
     "goals": [
-      "Replace full issue body with 1-2 sentence background summary for scoped roles (tester, documenter, integrator)",
-      "Include 'For more context' pointers in every scoped prompt (gh issue view, cat .egg-state/drafts/...)",
-      "Provide tester prompts with task descriptions, acceptance criteria, and files_affected instead of raw issue body",
-      "Provide documenter prompts with implementation summary instead of raw issue body",
-      "Filter Tier 3 phase-scoped coder plan embedding to overview + current phase detail only",
-      "Provide integrator prompts with structured summary of all phases instead of raw issue body",
-      "Keep full issue body for architect/task_planner/risk_analyst (they need it for analysis)",
-      "Update existing prompt tests to reflect new context structure"
+      "Render Tier 3 sub-phases as individual boxes in the DAG, each showing its own agent sequence and status",
+      "Display parallel sub-phases side-by-side with fan-out connectors from Plan and fan-in connectors to the post-phase section (reviewer_contract + integrator)",
+      "Display sequential sub-phases in single-column layout",
+      "Sort parallel sub-phases deterministically by phase ID, not lock acquisition order",
+      "Show per-sub-phase status symbols, agent waves, and timing",
+      "Show the reviewer_contract + integrator section as a separate box between sub-phases and PR",
+      "Maintain backward compatibility for Tier 1/2 pipelines (no sub-phases) and the compact/progress views",
+      "Update the SSE streaming and CLI tools (egg-pipeline-watch, egg-status) to render the new layout"
     ]
   },
 
   "current_architecture": {
-    "_build_agent_prompt": {
-      "location": "orchestrator/routes/pipelines.py:1942-2240",
-      "mechanism": "Main dispatcher for role-specific prompts. Delegates CODER/REFINER to _build_phase_prompt(), REVIEWER_* to _build_review_prompt(). For all other roles (tester, documenter, integrator, architect, task_planner, risk_analyst), builds a shared context header, embeds pipeline.prompt verbatim under '## Task Description' (lines 2014-2018), then appends role-specific instructions.",
-      "key_issue": "The 'if prompt:' block at lines 2014-2018 unconditionally embeds the full issue body for ALL non-coder, non-reviewer roles. No role-based filtering of context content exists."
+    "dag_visualizer": {
+      "location": "orchestrator/dag_visualizer.py (665 lines)",
+      "mechanism": "render_pipeline_dag() iterates PHASE_ORDER = [REFINE, PLAN, IMPLEMENT, PR], calling _render_phase_box() for each. Boxes are connected by vertical arrows. For Tier 3, _render_phase_box lines 283-300 partition agents by plan_phase_id into sub_phase_buckets and render them as labeled groups inside the Implement box.",
+      "key_issue": "The Implement box is treated as a single monolithic phase. There is no concept of expanding it into multiple boxes with branching connectors. The sub_phase_buckets dict uses insertion order which is non-deterministic for parallel phases."
     },
-    "_build_phase_scoped_prompt": {
-      "location": "orchestrator/routes/pipelines.py:2243-2348",
-      "mechanism": "Builds Tier 3 coder prompts scoped to a single plan phase. Reads the full plan draft via _read_phase_draft() and embeds it in a markdown code block (lines 2293-2304). Then renders phase-specific task checklist (lines 2306-2320). Does NOT embed pipeline.prompt directly.",
-      "key_issue": "The plan embedding at lines 2302-2304 includes the ENTIRE plan draft. Other phases' detailed task lists, acceptance criteria, and file lists are included even though the coder should only see its own phase's details. The phase scope section (lines 2307-2320) correctly limits the task checklist, but the plan section above leaks all phases."
+    "dependency_graph": {
+      "location": "shared/egg_contracts/dependency_graph.py (536 lines)",
+      "mechanism": "PhaseDependencyGraph.compute_waves() returns list[PhaseWave], each containing phase_ids that can run concurrently. PhaseWave.is_parallel() returns True if multiple phases share a wave. Phases within a wave are sorted by bisect.insort in topological_sort() (line 482), giving deterministic alphabetical ordering.",
+      "key_insight": "The wave computation already exists and produces exactly the grouping needed for visualization. The visualizer just needs to consume it."
     },
-    "_run_tier3_implement": {
-      "location": "orchestrator/routes/pipelines.py:2351-3033",
-      "mechanism": "Orchestrates Tier 3 phase-level dispatch. For each plan phase, runs coder -> tester -> documenter -> checker -> reviewer. After all phases, runs integrator.",
-      "tester_prompt_construction": "Lines 2555-2579: Calls _build_agent_prompt(prompt=pipeline.prompt, ...) which embeds full issue body, then appends phase scope lines with task list and files_affected.",
-      "documenter_prompt_construction": "Lines 2631-2642: Calls _build_agent_prompt(prompt=pipeline.prompt, ...) — gets full issue body with no additional phase scoping appended.",
-      "integrator_prompt_construction": "Lines 2961-2990: Calls _build_agent_prompt(prompt=pipeline.prompt, ...) then appends Tier 3-specific integration instructions with phase list."
+    "pipeline_state": {
+      "location": "orchestrator/models.py (279 lines)",
+      "mechanism": "Pipeline.phases is a dict[str, PhaseExecution]. PhaseExecution.agents is a list[AgentExecution]. Each AgentExecution has a plan_phase_id field for Tier 3 sub-phase tagging. Pipeline.complexity_tier indicates LOW/MID/HIGH.",
+      "key_insight": "All the data needed to render sub-phase boxes already exists in the pipeline state. Agents tagged with plan_phase_id can be grouped by sub-phase, and the PhaseDependencyGraph provides the branching structure."
     },
-    "_run_multi_agent_phase": {
-      "location": "orchestrator/routes/pipelines.py:3062-3149",
-      "mechanism": "Standard (non-Tier 3) multi-agent execution. Loops over get_roles_for_phase() and calls _build_agent_prompt(prompt=pipeline.prompt, ...) for each role. Same issue — all roles get the full prompt.",
-      "key_code": "Lines 3106-3121: Iterates roles, calls _build_agent_prompt() with pipeline.prompt for every role."
+    "contract_model": {
+      "location": "shared/egg_contracts/models.py (lines 143-161)",
+      "mechanism": "Phase model has id (e.g., 'phase-1'), name, status, tasks, and dependencies (list of phase IDs). The contract's phases list defines the complete dependency graph.",
+      "key_insight": "Phase names and dependency info from the contract are needed for display labels and DAG structure."
     },
-    "handoff_data_flow": {
-      "mechanism": "Handoff data flows via EGG_HANDOFF_DATA environment variable (set in multi_agent.py:160-169), NOT via prompts. Agents parse it at runtime. Contains changed_files, commits, and other outputs from upstream agents.",
-      "formatter": "orchestrator/handoffs.py:281-314 — format_handoff_for_prompt() exists but is not currently used to embed handoff data in prompts.",
-      "note": "The handoff mechanism is out of scope for this issue — it works correctly."
+    "tier3_dispatch": {
+      "location": "orchestrator/routes/pipelines.py (lines 2708-3290)",
+      "mechanism": "_run_tier3_implement() loads the contract, builds PhaseDependencyGraph, computes waves, then executes phases either sequentially or in parallel waves using ThreadPoolExecutor. Each phase runs a full coder -> tester -> documenter -> checker -> reviewer cycle. After all phases, reviewer_contract and integrator run as top-level agents (no plan_phase_id).",
+      "key_insight": "The dispatch already uses the same wave structure we need for visualization. The contract is available in .egg-state/contracts/ and can be loaded by the visualizer."
+    },
+    "sse_streaming": {
+      "location": "orchestrator/sse.py (447 lines)",
+      "mechanism": "SSEClientManager subscribes to EventBus, fans out to connected clients. Refresh cycle (1s) re-renders the full DAG and sends it if changed. The rendered DAG is a text string.",
+      "key_insight": "No structural changes needed to SSE. The refresh cycle already re-renders the full DAG text. A wider DAG will just be a wider string."
+    },
+    "cli_tools": {
+      "egg_pipeline_watch": {
+        "location": "sandbox/bin/egg-pipeline-watch (445 lines)",
+        "mechanism": "Connects to per-pipeline SSE endpoint. Receives rendered DAG text. Uses ANSI cursor control for in-place terminal updates.",
+        "key_insight": "The tool renders whatever DAG text it receives. No changes needed to the streaming logic, only to dag_visualizer.py output."
+      },
+      "egg_status": {
+        "location": "bin/egg-status (388 lines)",
+        "mechanism": "Multi-pipeline dashboard. Uses compact mode by default. Full DAG mode is optional via --verbose.",
+        "key_insight": "Compact mode is unchanged. Full DAG mode uses the same render_pipeline_dag() output."
+      }
     },
     "test_coverage": {
-      "location": "orchestrator/tests/test_pipeline_prompts.py (738 lines)",
-      "classes_tested": [
-        "TestBuildCheckerPrompt — checker prompt modes (discovery vs explicit)",
-        "TestBuildAutofixPrompt — autofix prompt with/without repo",
-        "TestBuildCheckAndFixPrompt — combined checker+autofixer",
-        "TestBuildPhasePromptPlanEmbedding — plan/analysis embedding in implement phase",
-        "TestBuildPhasePromptRevisionMode — revision cycle behavior",
-        "TestReadSharedCriteria — shared file loading with user overrides",
-        "TestSharedPromptFileContent — shared criteria file content verification",
-        "TestRenderContractTasks — contract checklist rendering"
+      "location": "orchestrator/tests/test_dag_visualizer.py (1313 lines)",
+      "classes": [
+        "TestFormatDuration — duration formatting helpers",
+        "TestStatusSymbol — status symbol mapping",
+        "TestAgentStatusSymbol — agent status symbols",
+        "TestRenderPipelineDag — full DAG rendering with various states",
+        "TestRenderCompactStatus — compact single-line rendering",
+        "TestRenderProgressBar — progress bar rendering",
+        "TestRenderPhaseDetail — per-phase detail view",
+        "TestGenerateStatusReport — status report generation",
+        "TestWaveGrouping — wave-based agent grouping (implement, plan, refine)",
+        "TestCycleTimingDisplay — per-cycle and total timing",
+        "TestDeduplicateAgents — agent deduplication",
+        "TestNonGraphAgentOrdering — non-graph agent placement",
+        "TestRunCountDisplay — run count display"
       ],
-      "gap": "No tests exist for _build_agent_prompt() role-specific context. No tests for _build_phase_scoped_prompt() plan filtering. No tests for Tier 3 tester/documenter prompt content."
+      "gap": "No tests exist for Tier 3 sub-phase branching visualization since it doesn't exist yet. The test for plan_phase_id grouping inside the Implement box is only indirect (via the sub_phase_buckets logic)."
     }
   },
 
   "implementation_approaches": [
     {
       "id": "A",
-      "name": "_build_role_context() helper (recommended)",
-      "description": "Create a new _build_role_context(role, pipeline, phase_obj=None) function that returns role-appropriate context markdown. Create a companion _summarize_issue(title, body) function that extracts a 1-2 sentence summary. Replace the 'if prompt:' block in _build_agent_prompt() with a call to _build_role_context(). For _build_phase_scoped_prompt(), add plan filtering logic to show overview + current phase detail + one-line summaries of other phases.",
+      "name": "Expand Implement phase into sub-phase boxes in render_pipeline_dag (recommended)",
+      "description": "Modify render_pipeline_dag() to detect Tier 3 pipelines (complexity_tier == HIGH and agents have plan_phase_id). When detected, instead of rendering a single Implement box, render: (1) the Plan box with a fan-out connector, (2) sub-phase boxes arranged by wave (parallel phases side-by-side, sequential phases stacked), (3) fan-in connector to a 'Review + Integrate' box for top-level agents (reviewer_contract, integrator), (4) the PR box. Use PhaseDependencyGraph to determine wave structure. Each sub-phase box uses the existing _render_phase_box rendering with its subset of agents. Add new helper functions: _render_tier3_section() for the multi-column layout, _render_fan_out() and _render_fan_in() for branching connectors, _render_side_by_side_boxes() for parallel phase boxes.",
       "pros": [
-        "Single point of control for role-context mapping — easy to extend for new roles",
-        "Matches the design proposed in the issue",
-        "Clean separation: _build_role_context() handles what context; _build_agent_prompt() handles prompt structure",
-        "_summarize_issue() is reusable across all roles",
-        "Helper can be unit tested in isolation",
-        "Manageable diff size — modifies 3-4 functions, adds 2 helpers"
+        "Changes are concentrated in dag_visualizer.py — the primary file for visualization",
+        "Reuses existing _render_phase_box for sub-phase rendering — consistent look and feel",
+        "Leverages PhaseDependencyGraph.compute_waves() which already provides the exact grouping needed",
+        "SSE, CLI tools, and API endpoints require no changes — they already consume text output from render_pipeline_dag()",
+        "Tier 1/2 pipelines are completely unaffected — the expansion only triggers for Tier 3",
+        "Deterministic ordering comes naturally from PhaseDependencyGraph.topological_sort() which uses bisect.insort",
+        "The phase name and status can be derived from the contract and agent statuses"
       ],
       "cons": [
-        "Requires parsing/summarizing the issue body, which may be fragile if formats vary",
-        "Introduces a new abstraction in already-complex prompt building code"
+        "Side-by-side ASCII box rendering requires careful width management and padding",
+        "Loading the contract from dag_visualizer creates a new dependency (currently it only reads Pipeline model)",
+        "Terminal width constraints may limit how many parallel phases can be shown side-by-side"
       ],
-      "risk_level": "low"
+      "risk_level": "low-medium"
     },
     {
       "id": "B",
-      "name": "Inline role-specific branches (no helper extraction)",
-      "description": "Expand the existing role-specific if/elif block in _build_agent_prompt() to include role-specific context before '## Your Task'. Move the 'if prompt:' block inside the conditional, so architect/task_planner/risk_analyst get the full body while scoped roles get inline summaries.",
+      "name": "Embed phase wave structure in Pipeline model, render from model alone",
+      "description": "Add a new field to Pipeline model (e.g., phase_waves: list[PhaseWaveInfo]) populated by the orchestrator during Tier 3 dispatch. The visualizer reads this field directly without needing to load the contract. PhaseWaveInfo contains wave_number, phase_ids, phase_names, and is_parallel. The visualizer uses this data to render the branching DAG.",
       "pros": [
-        "Minimal structural change — no new functions",
-        "Easier initial review since changes are localized"
+        "No contract loading in the visualizer — all data is in the Pipeline model",
+        "Cleaner separation of concerns — orchestrator computes structure, visualizer renders it",
+        "PhaseWaveInfo can include derived data (phase names, overall phase status) for easier rendering"
       ],
       "cons": [
-        "_build_agent_prompt() is already 300 lines — adding context per role makes it harder to maintain",
-        "Plan filtering for Tier 3 would duplicate logic",
-        "Harder to test individual role context in isolation",
-        "Does not match the issue's proposed design"
+        "Requires a model migration — adding a new field to Pipeline model",
+        "Duplicates information already available in the contract",
+        "Existing pipelines in flight would not have the new field — needs backward-compatible handling",
+        "The orchestrator would need to persist wave info during dispatch, adding logic to _run_tier3_implement"
       ],
-      "risk_level": "low"
+      "risk_level": "medium"
     },
     {
       "id": "C",
-      "name": "Per-role prompt builder functions",
-      "description": "Create separate _build_tester_prompt(), _build_documenter_prompt(), _build_integrator_prompt() functions. Have _build_agent_prompt() dispatch to these.",
+      "name": "Separate Tier 3 DAG renderer",
+      "description": "Create a new function render_tier3_dag() that produces a completely separate visualization for Tier 3 pipelines. render_pipeline_dag() detects Tier 3 and delegates to this function. The Tier 3 renderer builds the entire DAG from scratch using contract data, with no dependency on the linear phase rendering.",
       "pros": [
-        "Maximum clarity — each role's prompt is fully self-contained",
-        "Easy to test independently"
+        "Complete freedom to design the Tier 3 layout without constraints from the linear renderer",
+        "No risk of breaking existing visualization — linear renderer is untouched",
+        "Easier to test independently"
       ],
       "cons": [
-        "Significant duplication of shared prompt structure (header, restrictions, completion)",
-        "Much larger diff",
-        "Divergence risk — shared improvements must be applied to every builder",
-        "Over-engineering for a context-scoping change"
+        "Significant code duplication — header, phase box rendering, status symbols, timing all need to be reimplemented or extracted",
+        "Maintenance burden — two parallel rendering paths that must stay in sync",
+        "Over-engineering — the linear renderer already does most of what's needed"
       ],
       "risk_level": "medium"
     }
@@ -118,193 +141,255 @@
 
   "recommended_approach": {
     "id": "A",
-    "name": "_build_role_context() helper",
+    "name": "Expand Implement phase into sub-phase boxes in render_pipeline_dag",
     "justification": [
-      "The refine analysis already recommended this approach, and it aligns with the issue's proposed design",
-      "Provides clean separation of concerns: context selection vs prompt structure",
-      "The _build_role_context() helper is independently testable, making it easy to verify each role gets the right context",
-      "The _summarize_issue() helper is simple — issue title + first paragraph truncated at ~200 chars. The issue states 'A few hundred extra tokens of useful background is fine'",
-      "Manageable scope: core changes in one file (pipelines.py), new tests in one file (test_pipeline_prompts.py)"
+      "Minimal blast radius — changes are concentrated in dag_visualizer.py with no model changes and no orchestrator changes",
+      "All downstream consumers (SSE, CLI tools, API) require zero changes since they already consume text output",
+      "Reuses existing infrastructure: _render_phase_box for sub-phase boxes, PhaseDependencyGraph for wave structure, _compute_wave_order for agent grouping within sub-phases",
+      "The contract loading dependency is manageable — the contract file is available in .egg-state/contracts/ which the orchestrator already manages, and the visualizer runs in the same filesystem context",
+      "Deterministic ordering is solved by using PhaseDependencyGraph.topological_sort() instead of dict insertion order",
+      "Backward compatibility is trivial — the expansion only triggers when Tier 3 agents with plan_phase_id are detected"
     ]
   },
 
   "technical_design": {
     "new_functions": {
-      "_summarize_issue": {
-        "signature": "_summarize_issue(title: str | None, body: str | None) -> str",
-        "behavior": "Returns a 1-2 sentence summary. Uses issue title as the first sentence. Extracts the first paragraph of the body (up to ~200 chars, truncated at sentence boundary). Returns empty string if both inputs are None.",
-        "location": "orchestrator/routes/pipelines.py (new, near other helpers around line 1090)",
-        "test_strategy": "Unit test with various issue bodies: short, long, markdown-heavy, empty"
+      "_render_sub_phase_box": {
+        "signature": "_render_sub_phase_box(phase_id: str, phase_name: str, status: PipelineStatus, agents: list[AgentExecution], duration: str, total_duration: str, review_cycles: int, is_current: bool, use_ascii: bool) -> list[str]",
+        "behavior": "Renders a single sub-phase box similar to _render_phase_box but with a shorter label format showing the phase ID and name. Box width is constrained to fit in multi-column layouts. Each box shows its agents grouped by wave, status symbol, and timing.",
+        "location": "orchestrator/dag_visualizer.py (new, near _render_phase_box)"
       },
-      "_build_role_context": {
-        "signature": "_build_role_context(role: str, pipeline: Pipeline, phase_obj=None, handoff_summary: str | None = None) -> str",
-        "behavior": "Returns role-appropriate context markdown for embedding in the prompt. Dispatch by role: (1) architect/task_planner/risk_analyst → returns pipeline.prompt verbatim (full issue body), (2) tester → returns summary + task descriptions with acceptance criteria + files_affected + 'For more context' pointers, (3) documenter → returns summary + implementation summary from handoff + files changed + 'For more context' pointers, (4) integrator → returns summary + structured phase summary + test results from handoff + 'For more context' pointers, (5) all others → returns summary + 'For more context' pointers.",
-        "location": "orchestrator/routes/pipelines.py (new, near other helpers around line 1090)",
-        "test_strategy": "Unit test each role path: verify contains expected sections, omits full issue body for scoped roles, includes full body for analysis roles"
+      "_render_side_by_side": {
+        "signature": "_render_side_by_side(box_groups: list[list[str]], gap: int, left_margin: int, use_ascii: bool) -> list[str]",
+        "behavior": "Takes multiple box line-lists and renders them side-by-side. Pads shorter boxes with empty lines. Inserts a gap (spaces) between columns. Handles boxes of different heights by padding to the tallest. Returns combined lines. The left_margin parameter provides consistent indentation.",
+        "location": "orchestrator/dag_visualizer.py (new helper)",
+        "key_detail": "Each box's lines are already generated by _render_sub_phase_box(). This function only handles horizontal composition."
+      },
+      "_render_fan_out_connector": {
+        "signature": "_render_fan_out_connector(num_branches: int, box_widths: list[int], gap: int, left_margin: int, use_ascii: bool) -> list[str]",
+        "behavior": "Renders the branching connector from a single point to N parallel boxes. Uses Unicode box-drawing characters (or ASCII fallback). Structure: vertical line from parent, horizontal line spanning all branches, vertical lines dropping to each branch. Example for 2 branches: '|' -> '+-+-+' -> '| |'.",
+        "location": "orchestrator/dag_visualizer.py (new helper)"
+      },
+      "_render_fan_in_connector": {
+        "signature": "_render_fan_in_connector(num_branches: int, box_widths: list[int], gap: int, left_margin: int, use_ascii: bool) -> list[str]",
+        "behavior": "Inverse of fan-out: renders vertical lines from each branch merging into a single point. Uses same character set as fan-out.",
+        "location": "orchestrator/dag_visualizer.py (new helper)"
+      },
+      "_render_tier3_implement_section": {
+        "signature": "_render_tier3_implement_section(pipeline: Pipeline, phase_waves: list[PhaseWave], phase_info: dict[str, dict], is_current: bool, use_ascii: bool) -> list[str]",
+        "behavior": "Main orchestrating function for the Tier 3 section. Iterates over phase_waves. For each wave: if is_parallel(), renders boxes side-by-side with fan-out/fan-in connectors; otherwise renders a single-column box. Then renders the top-level agents box (reviewer_contract, integrator). Returns all lines. The phase_info dict maps phase_id to {name, status, agents, duration, etc.}.",
+        "location": "orchestrator/dag_visualizer.py (new helper)"
+      },
+      "_get_phase_dependency_info": {
+        "signature": "_get_phase_dependency_info(pipeline: Pipeline) -> tuple[list[PhaseWave], dict[str, dict]] | None",
+        "behavior": "Loads the contract for the pipeline's issue_number, builds PhaseDependencyGraph, computes waves. Extracts per-phase info by partitioning the Implement phase's agents by plan_phase_id. Computes per-sub-phase status from agent statuses (all complete -> complete, any running -> running, any failed -> failed, else pending). Returns None if pipeline is not Tier 3 or contract cannot be loaded. Falls back gracefully.",
+        "location": "orchestrator/dag_visualizer.py (new helper)",
+        "contract_loading": "Uses egg_contracts.load_contract(issue_number, repo_path). The repo_path can be derived from environment or passed as a parameter. If contract loading fails, returns None to trigger fallback to the existing flat rendering."
       }
     },
     "modified_functions": {
-      "_build_agent_prompt": {
-        "location": "orchestrator/routes/pipelines.py:1942-2240",
-        "change": "Replace lines 2014-2018 ('if prompt:' block) with a call to _build_role_context(role_value, pipeline_obj, phase_obj). The function needs to accept either a Pipeline object or the prompt string — recommend adding an optional pipeline parameter alongside the existing prompt parameter for backward compatibility, or extracting the issue title from the prompt (first line). For architect/task_planner/risk_analyst, _build_role_context returns the full prompt. For scoped roles, it returns the focused summary.",
-        "backward_compatibility": "All call sites already pass pipeline.prompt as the 'prompt' parameter. The _build_role_context() function needs access to the Pipeline object for the issue title and phase data. Two options: (a) pass the Pipeline object as a new parameter, or (b) pass issue_number and title separately. Option (a) is cleaner since the Pipeline is available at all call sites.",
-        "impact": "All non-coder, non-reviewer roles will see different prompt content"
+      "render_pipeline_dag": {
+        "location": "orchestrator/dag_visualizer.py:362-436",
+        "change": "After rendering the Plan box and its arrow, check if the pipeline is Tier 3 with sub-phase data. If yes, call _render_tier3_implement_section() instead of _render_phase_box(IMPLEMENT). Then render the arrow and PR box. If Tier 3 detection fails or returns None, fall back to the existing single Implement box rendering.",
+        "detection": "Tier 3 is detected by checking: (1) pipeline.complexity_tier == ComplexityTier.HIGH, and (2) the Implement phase has agents with plan_phase_id set. Both conditions must be true.",
+        "fallback": "If PhaseDependencyGraph cannot be built (contract not found, import error, etc.), fall back to existing rendering. This ensures the visualizer never crashes."
       },
-      "_build_phase_scoped_prompt": {
-        "location": "orchestrator/routes/pipelines.py:2243-2348",
-        "change": "Replace lines 2293-2304 (full plan embedding) with filtered plan content: (1) Extract the plan's overview/summary section (everything before '## Implementation Phases' or the first '### Phase'), (2) Embed the current phase's detail in full, (3) Show other phases as one-line summaries: 'Phase N: [name] — [goal]', (4) Add pointer: 'For full plan: cat .egg-state/drafts/...'",
-        "plan_parsing": "The plan follows a template (docs/templates/plan.md) with '## Summary', '### Phase N: [Name]' sections, and '## Test Strategy'. Parse by heading level: H2 for top-level sections, H3 for phases. Extract current phase by matching phase_obj.id or phase_obj.name. This parsing is simple string splitting — no markdown parser needed.",
-        "impact": "Tier 3 coders will see a more focused plan prompt"
+      "_render_phase_box": {
+        "location": "orchestrator/dag_visualizer.py:222-351",
+        "change": "No changes needed. Sub-phase boxes use _render_sub_phase_box (a slimmed-down variant). The existing _render_phase_box continues to work for Refine, Plan, PR, and non-Tier-3 Implement.",
+        "alternative": "Could add a 'compact' parameter to _render_phase_box to reuse it for sub-phases. But a separate function is cleaner since sub-phase boxes have different label format and width constraints."
       },
-      "_run_tier3_implement_tester": {
-        "location": "orchestrator/routes/pipelines.py:2555-2579",
-        "change": "Instead of calling _build_agent_prompt(prompt=pipeline.prompt, ...) then appending phase scope lines, call _build_agent_prompt() with role-context that already includes the phase scope. The _build_role_context('tester', ...) function will include task descriptions, acceptance criteria, files_affected from phase_obj when provided. The separate phase_scope_lines appended at 2567-2579 can be simplified or removed since the role context already contains this information.",
-        "alternative": "Keep the existing append pattern but have _build_agent_prompt use _build_role_context for the base context. The phase scope lines at 2567-2579 provide additional Tier 3 focusing — these can remain as-is since they augment rather than duplicate.",
-        "impact": "Tier 3 testers will see focused context instead of full issue body"
+      "render_compact_status": {
+        "location": "orchestrator/dag_visualizer.py:538-565",
+        "change": "Minor enhancement: for Tier 3 pipelines, could show sub-phase progress in the compact line. Example: 'Refine -> Plan -> [Implement: 2/3] -> PR'. This is optional and can be deferred.",
+        "note": "The compact view is inherently a summary — detailed sub-phase info belongs in the full DAG view."
       },
-      "_run_tier3_implement_documenter": {
-        "location": "orchestrator/routes/pipelines.py:2631-2642",
-        "change": "Same pattern as tester — _build_role_context will provide focused context instead of full issue body.",
-        "impact": "Tier 3 documenters will see focused context instead of full issue body"
+      "render_progress_bar": {
+        "location": "orchestrator/dag_visualizer.py:568-604",
+        "change": "For Tier 3 pipelines, could weight the Implement phase by sub-phase completion. Example: if 2 of 3 sub-phases are complete, the Implement phase contributes 2/3 instead of 0.5. This is optional and can be deferred.",
+        "note": "More accurate progress for Tier 3 but not required for the core visualization change."
       },
-      "_run_tier3_implement_integrator": {
-        "location": "orchestrator/routes/pipelines.py:2961-2990",
-        "change": "_build_role_context('integrator', ...) will provide a structured summary of all phases. The Tier 3-specific integration instructions appended at 2974-2990 can remain as-is.",
-        "impact": "Integrator sees structured overview instead of full issue body"
-      },
-      "_run_multi_agent_phase": {
-        "location": "orchestrator/routes/pipelines.py:3062-3149",
-        "change": "Need to pass Pipeline object (or issue title + phase context) to _build_agent_prompt() so _build_role_context() can construct appropriate context. Currently only passes pipeline.prompt as the 'prompt' parameter.",
-        "impact": "Standard multi-agent execution will use role-scoped context"
+      "generate_status_report": {
+        "location": "orchestrator/dag_visualizer.py:607-665",
+        "change": "No changes needed. The DAG visualization in the report is just the text output from render_pipeline_dag(), which will now include the expanded Tier 3 layout."
       }
     },
-    "parameter_threading": {
-      "problem": "_build_agent_prompt() currently receives 'prompt: str' (the raw issue body). To build role-specific context, _build_role_context() needs: (1) the Pipeline object or issue title, (2) optionally a phase_obj for Tier 3 scoping, (3) optionally handoff_summary for downstream roles.",
-      "recommended_solution": "Add optional parameters to _build_agent_prompt(): 'pipeline: Pipeline | None = None' and 'phase_obj: Phase | None = None'. When pipeline is provided, use _build_role_context() for context building. When only prompt is provided (backward compatibility), fall back to the existing behavior. All 4 call sites (_run_tier3_implement tester/documenter/integrator, _run_multi_agent_phase) have the pipeline object available, so threading it through is straightforward.",
-      "alternative": "Add 'issue_title: str | None = None' parameter instead of the full Pipeline object. This is more minimal but less flexible for future context needs."
+    "sub_phase_status_derivation": {
+      "description": "Each sub-phase's status must be derived from its agents. The pipeline state does not store per-sub-phase status directly — only the overall Implement phase status and per-agent statuses.",
+      "algorithm": "For agents with matching plan_phase_id: (1) if any agent has status FAILED -> sub-phase FAILED, (2) if any agent has status RUNNING -> sub-phase RUNNING, (3) if all agents have status COMPLETE -> sub-phase COMPLETE, (4) otherwise -> sub-phase PENDING. This mirrors how the orchestrator determines overall phase status.",
+      "phase_name": "Derived from the contract's Phase.name field. If contract is unavailable, fall back to the phase_id (e.g., 'phase-1')."
+    },
+    "layout_algorithm": {
+      "description": "The side-by-side rendering algorithm must handle variable-height boxes and arbitrary numbers of parallel phases.",
+      "approach": "For each parallel wave: (1) render each sub-phase box independently, (2) compute maximum height across all boxes, (3) pad shorter boxes with empty lines, (4) horizontally compose with gap spacing, (5) add fan-out connector above and fan-in connector below.",
+      "width_management": "Each sub-phase box has a fixed minimum width (e.g., 25 chars) and a maximum width based on terminal width / number of columns. If too many parallel phases to fit, fall back to sequential rendering with a note.",
+      "terminal_width": "Use shutil.get_terminal_size() for width detection. Default to 80 columns. For SSE streaming (not a terminal), default to 120 columns.",
+      "example_output": "For a diamond pattern (phase-1 -> [phase-2, phase-3] -> phase-4):\n\n    ╔═══════════════╗\n    │ ✓ Plan        │\n    ╚═══════════════╝\n          │\n       ┌──┴──┐\n       │     │\n  ╔═════════╗ ╔═════════╗\n  │phase-1  │ │phase-2  │\n  │✓ coder  │ │▶ coder  │\n  │✓ tester │ │○ tester │\n  ╚═════════╝ ╚═════════╝\n       │     │\n       └──┬──┘\n          │\n    ╔═══════════════╗\n    │ Review + Int  │\n    ╚═══════════════╝\n          │\n    ╔═══════════════╗\n    │ ○ PR          │\n    ╚═══════════════╝"
+    },
+    "connector_characters": {
+      "unicode": {
+        "horizontal": "─",
+        "vertical": "│",
+        "top_left": "┌",
+        "top_right": "┐",
+        "bottom_left": "└",
+        "bottom_right": "┘",
+        "tee_down": "┬",
+        "tee_up": "┴",
+        "cross": "┼"
+      },
+      "ascii": {
+        "horizontal": "-",
+        "vertical": "|",
+        "top_left": "+",
+        "top_right": "+",
+        "bottom_left": "+",
+        "bottom_right": "+",
+        "tee_down": "+",
+        "tee_up": "+",
+        "cross": "+"
+      }
     }
   },
 
   "key_files": [
     {
-      "path": "orchestrator/routes/pipelines.py",
-      "relevance": "Primary file — contains all prompt building functions and dispatch logic",
+      "path": "orchestrator/dag_visualizer.py",
+      "relevance": "Primary file — all visualization changes happen here",
       "functions_affected": [
-        "_build_agent_prompt (lines 1942-2240) — replace prompt embedding with role context",
-        "_build_phase_scoped_prompt (lines 2243-2348) — filter plan to overview + current phase",
-        "_run_tier3_implement (lines 2555-2642, 2961-2990) — update tester/documenter/integrator prompt calls",
-        "_run_multi_agent_phase (lines 3106-3121) — thread pipeline object through",
-        "New: _build_role_context() — role-context dispatch helper",
-        "New: _summarize_issue() — issue summary extraction helper"
+        "render_pipeline_dag (lines 362-436) — detect Tier 3 and delegate to tier3 section renderer",
+        "New: _render_sub_phase_box — render a single sub-phase box",
+        "New: _render_side_by_side — horizontally compose multiple box renders",
+        "New: _render_fan_out_connector — branching connector from one to many",
+        "New: _render_fan_in_connector — merging connector from many to one",
+        "New: _render_tier3_implement_section — orchestrate full Tier 3 section",
+        "New: _get_phase_dependency_info — load contract and compute wave structure"
       ]
     },
     {
-      "path": "orchestrator/tests/test_pipeline_prompts.py",
-      "relevance": "Test file — needs new test classes for role context and plan filtering",
-      "changes": "Add TestBuildRoleContext, TestSummarizeIssue, TestPhaseScoptedPlanFiltering test classes"
+      "path": "orchestrator/tests/test_dag_visualizer.py",
+      "relevance": "Test file — needs new test classes for Tier 3 visualization",
+      "changes": "Add TestTier3DagVisualization class with tests for: single-column sequential sub-phases, multi-column parallel sub-phases, diamond pattern (fan-out + fan-in), mixed sequential and parallel waves, sub-phase status derivation, deterministic ordering, fallback to flat rendering when contract unavailable, ASCII mode, top-level agent box (reviewer_contract + integrator). Add TestSideBySideRendering for the horizontal composition helper. Add TestFanOutFanInConnectors for connector rendering."
+    },
+    {
+      "path": "shared/egg_contracts/dependency_graph.py",
+      "relevance": "Read-only dependency — PhaseDependencyGraph and PhaseWave classes are consumed by the visualizer",
+      "changes": "None — existing API is sufficient"
+    },
+    {
+      "path": "shared/egg_contracts/models.py",
+      "relevance": "Read-only dependency — Phase model provides id, name, dependencies, status",
+      "changes": "None — existing model is sufficient"
     },
     {
       "path": "orchestrator/models.py",
-      "relevance": "Pipeline model definition (line 235) — read-only reference, no changes needed",
-      "changes": "None — the Pipeline model already has prompt, issue_number, and all fields needed"
+      "relevance": "Read-only dependency — Pipeline model provides complexity_tier, phases, agents with plan_phase_id",
+      "changes": "None — existing model is sufficient"
     },
     {
-      "path": "shared/egg_contracts/agent_roles.py",
-      "relevance": "Role definitions — read-only reference, no changes needed",
-      "changes": "None — role definitions are used for access control, not prompt building"
+      "path": "orchestrator/status_reporter.py",
+      "relevance": "Downstream consumer — calls render_pipeline_dag(), render_compact_status(), render_progress_bar()",
+      "changes": "None — already consumes text output from dag_visualizer functions"
     },
     {
-      "path": "orchestrator/handoffs.py",
-      "relevance": "Contains format_handoff_for_prompt() (line 281) which could be useful for building role context summaries",
-      "changes": "None — existing function is available if needed, but _build_role_context will build its own summary format"
+      "path": "orchestrator/sse.py",
+      "relevance": "Downstream consumer — calls render_pipeline_dag() for SSE refresh",
+      "changes": "None — already consumes text output"
     },
     {
-      "path": "docs/templates/plan.md",
-      "relevance": "Plan template — defines the heading structure used for plan parsing in _build_phase_scoped_prompt filtering",
-      "changes": "None — read-only reference for understanding plan structure"
+      "path": "sandbox/bin/egg-pipeline-watch",
+      "relevance": "CLI tool — receives rendered DAG text via SSE",
+      "changes": "None — already renders whatever text it receives. Wider DAGs will require horizontal scrolling in narrow terminals, but this is acceptable."
+    },
+    {
+      "path": "bin/egg-status",
+      "relevance": "CLI tool — unified dashboard",
+      "changes": "None — compact mode unchanged, full DAG mode consumes text output"
+    },
+    {
+      "path": "shared/egg_contracts/__init__.py",
+      "relevance": "Contract loading — load_contract() function used by _get_phase_dependency_info",
+      "changes": "None — existing load_contract API is sufficient"
     }
   ],
 
   "constraints": [
-    "Architect/task_planner/risk_analyst must continue to receive the full issue body — they need it for analysis",
-    "Reviewer prompts (_build_review_prompt) are out of scope — they have their own prompt construction",
-    "Handoff data mechanism (EGG_HANDOFF_DATA env var) is out of scope — no changes to how handoff data flows",
-    "Refiner role delegates to _build_phase_prompt(), not _build_agent_prompt() — no changes needed for refiner",
-    "Coder role delegates to _build_phase_prompt() for standard dispatch — no changes needed for standard coders",
-    "Every agent prompt must include a 'For more context' section with pointers to full context",
-    "Summary should be 1-2 sentences, not nothing — agents need orientation for good judgment calls",
-    "Plan filtering should preserve the overview/summary section — coders need to understand how their phase fits",
-    "Existing test patterns use string presence/absence assertions — new tests should follow the same pattern",
-    "The _build_agent_prompt function signature change must not break _run_multi_agent_phase or _run_tier3_implement call sites"
+    "Tier 1 and Tier 2 pipelines must render identically to today — no visual changes for non-Tier-3 pipelines",
+    "If the contract cannot be loaded (e.g., missing, corrupted, wrong format), the visualizer must fall back gracefully to the existing flat Implement box rendering",
+    "The visualizer must never crash — all new code paths must have error handling with fallback",
+    "Sub-phase boxes must be sorted by phase ID (phase-1, phase-2, ...) for deterministic ordering, matching PhaseDependencyGraph.topological_sort()",
+    "ASCII mode must be supported for all new rendering (connectors, boxes, etc.)",
+    "The render_pipeline_dag() function signature must not change — it takes (pipeline, use_ascii, include_header) and returns a string",
+    "generate_status_report() return structure must not change — the 'dag' field just contains the new text",
+    "No changes to Pipeline model, PhaseExecution model, or AgentExecution model — the visualization derives structure from existing data plus the contract",
+    "The visualizer runs in the orchestrator process — it has filesystem access to .egg-state/contracts/",
+    "Terminal width for side-by-side rendering should default to 120 columns for non-TTY (SSE) contexts",
+    "Top-level agents (reviewer_contract, integrator) that have no plan_phase_id must be rendered in a separate box below all sub-phases, not inside any sub-phase box"
   ],
 
   "dependencies": [
-    "Pipeline model (orchestrator/models.py) — provides prompt, issue_number, repo, branch",
-    "Contract Phase model (shared/egg_contracts/models.py) — provides phase_obj with tasks, acceptance criteria, files_affected",
-    "Plan template format (docs/templates/plan.md) — heading structure for plan parsing",
-    "_read_phase_draft() helper (pipelines.py:1065-1087) — reads plan draft from disk",
-    "_render_contract_tasks() helper (pipelines.py:1090-1133) — renders contract tasks as markdown"
+    "PhaseDependencyGraph (shared/egg_contracts/dependency_graph.py) — compute_waves() and PhaseWave for branching structure",
+    "load_contract() (shared/egg_contracts/__init__.py) — load contract for phase names and dependencies",
+    "Phase model (shared/egg_contracts/models.py) — phase id, name, dependencies, status",
+    "Pipeline model (orchestrator/models.py) — complexity_tier, phases dict, agents with plan_phase_id",
+    "AgentExecution model (orchestrator/models.py) — plan_phase_id field for sub-phase grouping",
+    "shutil.get_terminal_size() — terminal width detection for layout decisions"
   ],
 
   "risk_assessment": [
     {
-      "risk": "Issue body parsing fragility in _summarize_issue()",
+      "risk": "Side-by-side ASCII rendering is complex and error-prone",
+      "likelihood": "medium",
+      "impact": "low",
+      "mitigation": "Implement the _render_side_by_side helper as a pure function with comprehensive unit tests. Use simple padding logic (pad to max height, join with spaces). Handle edge cases: single column (no side-by-side needed), empty boxes, very wide boxes (truncate or wrap)."
+    },
+    {
+      "risk": "Contract loading adds a filesystem dependency to the visualizer",
       "likelihood": "low",
       "impact": "low",
-      "mitigation": "Use a simple approach: issue title + first paragraph. If parsing fails or body is empty, fall back to just the title. No complex markdown parsing needed."
+      "mitigation": "Wrap contract loading in try/except with fallback to flat rendering. The contract file is always present during pipeline execution (written by plan phase). Cache the loaded contract in-memory per pipeline_id to avoid repeated file reads on refresh."
     },
     {
-      "risk": "Plan heading structure varies between drafts, breaking plan filtering",
-      "likelihood": "low",
-      "impact": "medium",
-      "mitigation": "Plan template is standardized (docs/templates/plan.md). Use heading-level parsing (## for sections, ### for phases). If parsing fails, fall back to embedding the full plan with a warning comment."
-    },
-    {
-      "risk": "Agent behavior regression — scoped agents lack sufficient context and spin",
-      "likelihood": "low",
-      "impact": "medium",
-      "mitigation": "Every scoped prompt includes 'For more context' pointers with CLI commands (gh issue view, cat drafts). Agents can self-serve additional context. The summary provides orientation for judgment calls."
-    },
-    {
-      "risk": "Test maintenance burden — new tests for each role's context",
+      "risk": "Wide DAGs overflow terminal width for many parallel phases",
       "likelihood": "low",
       "impact": "low",
-      "mitigation": "Follow existing test patterns (string presence/absence). _build_role_context() is a pure function — easy to test with mock Pipeline objects."
+      "mitigation": "For 4+ parallel phases, fall back to sequential (stacked) rendering with a '(parallel)' label. Or use a 2-row grid layout. Most Tier 3 pipelines have 2-3 parallel phases per wave."
+    },
+    {
+      "risk": "SSE refresh performance degradation with more complex rendering",
+      "likelihood": "low",
+      "impact": "low",
+      "mitigation": "The existing refresh cycle already compares rendered strings to skip redundant sends. The additional rendering cost is O(num_phases) which is bounded (typically < 10 phases)."
+    },
+    {
+      "risk": "Connector character alignment breaks with different box widths",
+      "likelihood": "medium",
+      "impact": "low",
+      "mitigation": "Normalize all sub-phase boxes in a parallel wave to the same width (max width in the wave). This simplifies connector math and produces clean visual alignment."
     }
   ],
-
-  "acceptance_criteria_mapping": {
-    "AC1_background_summary": "Every agent prompt includes 1-2 sentence background → _summarize_issue() + _build_role_context() for all roles",
-    "AC2_context_pointers": "Every agent prompt includes 'For more context' pointers → _build_role_context() adds these for all scoped roles",
-    "AC3_tester_focused": "Tester prompt contains task descriptions, acceptance criteria, files_affected → _build_role_context('tester') builds this from phase_obj",
-    "AC4_documenter_focused": "Documenter prompt contains implementation summary → _build_role_context('documenter') includes handoff summary and changed files",
-    "AC5_coder_plan_filtered": "Phase-scoped coder sees overview + current phase, not full plan → _build_phase_scoped_prompt() plan filtering",
-    "AC6_integrator_structured": "Integrator sees structured phase summary → _build_role_context('integrator') builds phase-by-phase summary",
-    "AC7_analysis_roles_full": "Architect/task_planner/risk_analyst get full issue body → _build_role_context() returns pipeline.prompt for these roles",
-    "AC8_tests_updated": "Existing prompt tests updated → New test classes in test_pipeline_prompts.py",
-    "AC9_no_regression": "No regression in agent behavior → Combination of tests, summary quality, and context pointers"
-  },
 
   "estimated_complexity": "mid",
   "estimated_phases": 2,
   "phase_outline": [
     {
       "id": 1,
-      "name": "Core helper functions and _build_agent_prompt refactor",
-      "description": "Implement _summarize_issue() and _build_role_context() helpers. Refactor _build_agent_prompt() to use _build_role_context() instead of embedding pipeline.prompt for scoped roles. Update _run_tier3_implement() and _run_multi_agent_phase() call sites to thread Pipeline object. Add unit tests for new helpers and modified function behavior.",
+      "name": "Core rendering helpers and single-column Tier 3 visualization",
+      "description": "Implement _render_sub_phase_box, _get_phase_dependency_info, and _render_tier3_implement_section for sequential (non-parallel) sub-phases. Modify render_pipeline_dag to detect Tier 3 and delegate. Fix deterministic ordering by using PhaseDependencyGraph. Add tests for sequential sub-phase rendering, status derivation, deterministic ordering, and fallback behavior.",
       "key_files": [
-        "orchestrator/routes/pipelines.py",
-        "orchestrator/tests/test_pipeline_prompts.py"
+        "orchestrator/dag_visualizer.py",
+        "orchestrator/tests/test_dag_visualizer.py"
       ]
     },
     {
       "id": 2,
-      "name": "Phase-scoped plan filtering and integration tests",
-      "description": "Implement plan filtering in _build_phase_scoped_prompt() to show overview + current phase detail + one-line summaries of other phases. Add tests for plan filtering with various plan formats. Verify end-to-end behavior with existing test infrastructure.",
+      "name": "Side-by-side parallel rendering with fan-out/fan-in connectors",
+      "description": "Implement _render_side_by_side, _render_fan_out_connector, _render_fan_in_connector. Update _render_tier3_implement_section to use these for parallel waves. Handle width constraints and fallback for many parallel phases. Add tests for parallel rendering, connector alignment, mixed sequential/parallel waves, ASCII mode, and terminal width handling. Optionally enhance compact view and progress bar for Tier 3.",
       "key_files": [
-        "orchestrator/routes/pipelines.py",
-        "orchestrator/tests/test_pipeline_prompts.py"
-      ]
+        "orchestrator/dag_visualizer.py",
+        "orchestrator/tests/test_dag_visualizer.py"
+      ],
+      "dependencies": ["phase-1"]
     }
   ]
 }
