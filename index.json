@@ -1,0 +1,51 @@
+{
+  "by_agent_type": {
+    "unknown": [
+      "ckpt-04bb218610264d80"
+    ]
+  },
+  "by_commit": {},
+  "by_issue": {},
+  "by_phase": {},
+  "by_pipeline": {},
+  "by_pr": {},
+  "by_repo": {},
+  "by_session": {
+    "egg-20260221-094117-325875": [
+      "ckpt-04bb218610264d80"
+    ]
+  },
+  "by_status": {
+    "completed": [
+      "ckpt-04bb218610264d80"
+    ]
+  },
+  "by_trigger": {
+    "session_end": [
+      "ckpt-04bb218610264d80"
+    ]
+  },
+  "checkpoints": [
+    {
+      "agent_type": "unknown",
+      "branch": null,
+      "commit_sha": null,
+      "created_at": "2026-02-21T17:42:39.856342Z",
+      "files_touched_count": 0,
+      "id": "ckpt-04bb218610264d80",
+      "issue_number": null,
+      "message_count": 0,
+      "pipeline_id": null,
+      "pipeline_phase": null,
+      "pr_number": null,
+      "repo": null,
+      "session_id": "egg-20260221-094117-325875",
+      "session_status": "completed",
+      "tool_call_count": 0,
+      "total_tokens": 0,
+      "trigger_type": "session_end"
+    }
+  ],
+  "last_updated": "2026-02-21T17:42:40.427642Z",
+  "schemaVersion": "2.0"
+}
