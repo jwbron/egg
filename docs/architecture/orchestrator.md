@@ -48,7 +48,7 @@ See `orchestrator/state_store.py` and `orchestrator/startup_reconciliation.py` f
 
 A background `ContainerMonitor` thread runs continuously after orchestrator startup to detect container failures during execution. The monitor periodically checks container status and invokes registered handlers when state changes occur (container exits, fails, or becomes unhealthy).
 
-A pipeline reconciliation handler detects when agent containers exit or fail during runtime and updates pipeline state accordingly. When a container running an agent exits with a non-zero code, the handler marks the container as `FAILED`, marks the owning agent as `FAILED` with an error message, and transitions the entire pipeline to `FAILED` status. This complements startup reconciliation by catching failures that occur during execution rather than only on orchestrator restart.
+A pipeline reconciliation handler detects when agent containers exit or fail during runtime and updates pipeline state accordingly. When a container running an agent exits with a non-zero code, the handler marks the container as `FAILED`, marks the owning agent as `FAILED` with an error message, and transitions the entire pipeline to `FAILED` status. Containers that exit with code 0 (graceful exit) emit a `STOPPED` event and do not trigger failure reconciliation. This complements startup reconciliation by catching failures that occur during execution rather than only on orchestrator restart.
 
 The monitor uses per-pipeline locking and optimistic version checks to prevent race conditions with concurrent state writers (e.g., agent signal handlers).
 
