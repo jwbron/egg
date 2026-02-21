@@ -116,7 +116,13 @@ The orchestrator calls `ensure_egg_state_dirs()` before spawning containers to c
 
 **Host path translation:** The gateway returns worktree paths relative to the Docker host (e.g., `/home/jwies/.egg-worktrees/...`), but the orchestrator container only mounts these via `/home/egg/...`. The `_host_to_local_volumes()` helper in `container_spawner.py` uses the `HOST_HOME` env var to translate host paths to orchestrator-accessible local paths for `is_dir()` checks and `ensure_egg_state_dirs()`. Docker mount sources still use the original host paths unchanged.
 
-**Worktree state synchronization:** The orchestrator pushes worktree contents (including `.egg-state/` files) to the remote branch at key pipeline checkpoints — after contract initialization, after phase completion, and on pipeline failure. This ensures agents always see the latest statefiles without working on unpushed changes. Pushes use `GatewayClient.push_worktree_branch()` with a temporary session token and are logged as warnings on failure (non-blocking). See `orchestrator/routes/pipelines.py` for the push call sites.
+**Worktree state synchronization:** The orchestrator maintains bidirectional synchronization between local worktree branches and their remote counterparts:
+
+1. **Push to remote** (outbound): The orchestrator pushes worktree contents (including `.egg-state/` files) to the remote branch at key pipeline checkpoints — after contract initialization, after phase completion, and on pipeline failure. This ensures agents always see the latest statefiles without working on unpushed changes. Pushes use `GatewayClient.push_worktree_branch()` with a temporary session token and are logged as warnings on failure (non-blocking).
+
+2. **Fetch from remote** (inbound): Before starting pipeline phases, the orchestrator syncs the local worktree with the remote branch via `_sync_worktree_with_remote()`. This handles orchestrator restarts where the local worktree branch lags behind origin: commits pushed by agents in previous phases (contracts, drafts, statefiles) exist on the remote but not in the local checkout. The function performs a gateway-authenticated fetch (`GatewayClient.fetch_worktree_branch()`) followed by a local `git reset --hard origin/<branch>`. The operation is best-effort and idempotent — it skips gracefully when the remote branch doesn't yet exist (first pipeline run), when fetch fails, or when local has diverged from remote (uncommitted local work).
+
+See `orchestrator/routes/pipelines.py` for implementation details.
 
 This architecture ensures the orchestrator reads artifacts from the correct isolated workspace rather than the main repository, preventing cross-contamination between pipelines.
 
