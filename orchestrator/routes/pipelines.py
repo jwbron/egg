@@ -2731,11 +2731,52 @@ def _run_tier3_implement(
     """
     from egg_contracts import load_contract
     from egg_contracts.dependency_graph import PhaseDependencyGraph
+    from egg_contracts.loader import (
+        ContractNotFoundError,
+        contract_exists,
+        load_contract_from_branch,
+        save_contract,
+    )
 
     pipeline_mode = pipeline.mode or "issue"
     contract_key: int | str = (
         pipeline.issue_number if pipeline.issue_number is not None else pipeline_id
     )
+
+    # Ensure contract exists in the worktree.  Agent git checkout in a
+    # prior phase (e.g. `git checkout -b egg/... origin/main`) may have
+    # switched the working tree to a branch that doesn't have the
+    # .egg-state/contracts/ file, since the contract was only committed
+    # to the worktree's initial temp branch.
+    #
+    # Restore from the original worktree branch via git show so the full
+    # contract (including plan phases) is preserved for Tier 3 dispatch.
+    if not contract_exists(contract_key, worktree_repo_path):
+        worktree_branch = f"egg/{pipeline_id}/work"
+        logger.warning(
+            "Contract missing from worktree, restoring from branch",
+            pipeline_id=pipeline_id,
+            contract_key=contract_key,
+            branch=worktree_branch,
+        )
+        try:
+            contract = load_contract_from_branch(
+                contract_key, worktree_repo_path, branch=worktree_branch
+            )
+            save_contract(contract, worktree_repo_path)
+            logger.info(
+                "Contract restored from worktree branch",
+                pipeline_id=pipeline_id,
+                phase_count=len(contract.phases) if contract.phases else 0,
+            )
+        except (ContractNotFoundError, Exception) as exc:
+            logger.error(
+                "Failed to restore contract from worktree branch",
+                pipeline_id=pipeline_id,
+                branch=worktree_branch,
+                error=str(exc),
+            )
+            raise
 
     # Load contract to get plan phases
     contract = load_contract(contract_key, worktree_repo_path)
