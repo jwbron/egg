@@ -2,8 +2,10 @@
   "issue": 850,
   "phase": "plan",
   "agent": "architect",
+  "revision": 2,
+  "revision_reason": "Addresses plan reviewer feedback: (1) FAIL_PIPELINE two-strike confirmation, (2) exception isolation at integration points, (3) HEALTH_CHECK_MODE operational kill-switch, plus minor observations on docs, circuit breaker thread safety, 2-PR decision justification, and test coverage.",
   "title": "Holistic pipeline failure detection: two-tier health check framework",
-  "summary": "Architecture analysis for a unified health check framework in the orchestrator. The framework introduces a shared HealthCheck interface with two tiers: Tier 1 (programmatic checks for structural invariants — fast, deterministic, run on every lifecycle event) and Tier 2 (LLM-based agent inspector for semantic health — run at phase boundaries and on degraded signals). Existing mechanisms (startup reconciliation, container monitor) are migrated to the interface. New checks include phase output presence, state consistency, and repeated failure patterns. A HealthCheckRunner coordinates execution, applies results, and emits events for observability. The recommended approach is the unified HealthCheck interface with lazy context assembly, building bottom-up from types through runner to individual checks and lifecycle wiring.",
+  "summary": "Revised architecture for a unified health check framework in the orchestrator. Key changes from v1: (1) HealthCheckRunner implements a two-strike confirmation mechanism for FAIL_PIPELINE actions — first occurrence is recorded but not enforced, only on repeated FAIL_PIPELINE from the same check on the next trigger is the action applied (critical false-positive protection per RISK-4/REC-2). (2) Runner catches exceptions from individual checks and returns DEGRADED/CONTINUE; all integration sites wrap run_checks() in try/except (REC-3). (3) HEALTH_CHECK_MODE environment variable (enforce/observe/disabled) controls runtime behavior without code changes (REC-4). (4) PhaseOutputPresenceCheck checks local branch head before remote. (5) Per-pipeline AgentCircuitBreaker instances avoid thread-safety issues (RISK-8). (6) Explicit exception isolation acceptance criteria on Phase 7 integration tasks. (7) Phase 8 includes exception isolation tests and RUNTIME_TICK performance test.",
 
   "problem_statement": {
     "description": "Pipeline failure detection is a collection of ad-hoc mechanisms built reactively for specific failure modes. startup_reconciliation.py handles crash recovery at startup, container_monitor.py detects container exits at runtime, signals.py records agent self-reported errors, and multi_agent.py has a blunt max_waves=5 iteration cap. None share a common abstraction, none produce structured verdicts, and none can detect semantic failures — cases where infrastructure is healthy but agents failed to accomplish meaningful work.",
@@ -15,7 +17,9 @@
       "Add Tier 2 agent inspector: LLM-based semantic evaluation of agent work quality",
       "Wire trigger points into lifecycle: STARTUP, RUNTIME_TICK, WAVE_COMPLETE, PHASE_COMPLETE, ON_DEMAND",
       "Surface health check results via the existing EventBus/SSE system for observability",
-      "Persist health check results in pipeline state for debugging (capped rolling window)"
+      "Persist health check results in pipeline state for debugging (capped rolling window)",
+      "Implement two-strike confirmation for FAIL_PIPELINE to prevent false positive pipeline termination",
+      "Provide HEALTH_CHECK_MODE kill-switch for safe production rollout (enforce/observe/disabled)"
     ]
   },
 
@@ -37,28 +41,38 @@
     },
     "iteration_caps": {
       "location": "orchestrator/multi_agent.py:509-559",
-      "mechanism": "execute_all_waves(on_wave_complete, agent_prompts, max_waves=5). When max_waves exceeded, logs warning 'Max waves reached ({max_waves}), stopping execution' and breaks. No structured verdict, no pipeline status update.",
-      "interface_gap": "Silent stop. Pipeline not marked FAILED. No structured reason provided."
+      "mechanism": "execute_all_waves(on_wave_complete, agent_prompts, max_waves=5). on_wave_complete callback parameter exists but is NEVER passed in the single call site at pipelines.py:3260 — called as execute_all_waves(agent_prompts=agent_prompts_by_role) without the callback. When max_waves exceeded, logs warning and breaks. No structured verdict, no pipeline status update.",
+      "interface_gap": "Silent stop. Pipeline not marked FAILED. No structured reason provided. on_wave_complete hook exists but is unused — clean extension point."
     },
     "event_system": {
       "location": "orchestrator/events.py",
-      "mechanism": "EventBus with typed EventType StrEnum. Supports: PIPELINE_* (created/started/completed/failed/cancelled), PHASE_* (started/completed/failed), AGENT_* (started/completed/failed/timeout), CONTAINER_* (spawned/stopped/removed), DECISION_* (created/resolved), HEALTH_CHECK, ERROR. Pub/sub with wildcard subscriptions, async delivery via worker thread, event history (max 100). Singleton via get_event_bus(). Convenience emit_event() function.",
-      "readiness": "EventType.HEALTH_CHECK already exists and is ready for health check result events. No new event types needed."
+      "mechanism": "EventBus with typed EventType StrEnum. EventType.HEALTH_CHECK = 'system.health_check' already exists. Pub/sub with wildcard subscriptions, async delivery via worker thread, event history (max 100). Singleton via get_event_bus(). Convenience emit_event() function.",
+      "readiness": "EventType.HEALTH_CHECK already exists. No new event types needed."
     },
     "resilience_patterns": {
-      "location": "shared/egg_contracts/agent_recovery.py, shared/egg_contracts/resilience.py",
-      "mechanism": "agent_recovery.py: AgentRetryManager with RetryPolicy (IMMEDIATE/BACKOFF/ESCALATE/NO_RETRY), AgentRetryConfig (max_retries, retry_delay), RetryDecision. AgentCircuitBreaker with CircuitBreakerConfig (failure_threshold, reset_timeout). resilience.py: RetryConfig and RetryableError for general retry patterns.",
-      "relevance": "HealthCheckRunner should consult AgentRetryManager/AgentCircuitBreaker before applying FAIL_PIPELINE action — if retries are available and the failure is retryable, trigger retry instead of termination."
+      "location": "shared/egg_contracts/agent_recovery.py, orchestrator/resilience.py",
+      "mechanism": "agent_recovery.py: AgentRetryManager with RetryPolicy (IMMEDIATE/BACKOFF/ESCALATE/NO_RETRY), AgentRetryConfig (max_retries, retry_delay), RetryDecision. AgentCircuitBreaker with CircuitBreakerConfig (failure_threshold, reset_timeout) — NOT thread-safe (no locking, plain instance attributes). orchestrator/resilience.py: separate thread-safe CircuitBreaker class (uses threading.Lock) with global instances for container_spawn and gateway_api.",
+      "thread_safety_note": "AgentCircuitBreaker is NOT thread-safe and is currently NOT used in production code. The orchestrator's own CircuitBreaker in resilience.py IS thread-safe. The HealthCheckRunner must use per-pipeline AgentCircuitBreaker instances accessed only under per-pipeline lock to avoid concurrent state mutation."
     },
     "state_persistence": {
       "location": "orchestrator/state_store.py",
       "mechanism": "Git-backed pipeline state on orphan branch egg/pipeline-state. StateStore with per-pipeline locking via get_pipeline_state_lock() (threading.RLock + fcntl.flock). Optimistic versioning via save_pipeline(pipeline, expected_version=N) → VersionConflictError on mismatch. Pipeline.version incremented on each save.",
       "relevance": "Health check state mutations must use per-pipeline locking and optimistic versioning to avoid races with concurrent signal handlers and the container monitor thread."
     },
+    "singleton_pattern": {
+      "location": "orchestrator/events.py, orchestrator/container_spawner.py, orchestrator/status_reporter.py",
+      "mechanism": "Module-level _variable with get_variable() lazy-init getter function. Used consistently across EventBus, ContainerSpawner, StatusReporter. HealthCheckRunner should follow the same pattern.",
+      "relevance": "HealthCheckRunner singleton should use this pattern: _runner + get_health_check_runner() in orchestrator/health/runner.py."
+    },
+    "env_var_pattern": {
+      "location": "orchestrator/cli.py, orchestrator/state_store.py, orchestrator/sandbox_template.py",
+      "mechanism": "os.environ.get(name, default) for configuration. Boolean flags use .lower() == 'true'. No explicit feature flag mechanism exists — HEALTH_CHECK_MODE will follow this pattern.",
+      "relevance": "HEALTH_CHECK_MODE should use os.environ.get('HEALTH_CHECK_MODE', 'enforce').lower() with values: enforce, observe, disabled."
+    },
     "existing_http_health": {
       "location": "orchestrator/routes/health.py",
-      "mechanism": "Flask blueprint at /api/v1/health, /api/v1/ready, /api/v1/live. Basic service health — returns 200 with status='healthy'. No pipeline-level health checking.",
-      "relevance": "The on-demand pipeline health check endpoint should be added here, extending the existing health blueprint."
+      "mechanism": "Flask blueprint with GET /api/v1/health (returns status, service, timestamp, component health), GET /api/v1/ready (returns {ready: true}), GET /api/v1/live (returns {alive: true}). Basic service health — no pipeline-level health checking.",
+      "relevance": "The on-demand pipeline health check endpoint (POST /api/v1/pipelines/<id>/health-check) should be added to the pipelines blueprint (routes/pipelines.py) since it operates on a specific pipeline, not the general health blueprint."
     },
     "pipeline_models": {
       "location": "orchestrator/models.py",
@@ -77,20 +91,20 @@
     {
       "path": "orchestrator/container_monitor.py",
       "role": "Runtime container failure detection via Docker polling",
-      "changes_needed": "Extract _reconcile_container_state() evaluation logic into a ContainerLivenessCheck implementing HealthCheck. Update create_pipeline_reconciliation_handler() to route through HealthCheckRunner. Monitor continues polling Docker and emitting ContainerEvents; the runner handles state mutation.",
+      "changes_needed": "Extract _reconcile_container_state() evaluation logic into a ContainerLivenessCheck implementing HealthCheck. Update create_pipeline_reconciliation_handler() to route through HealthCheckRunner. Monitor continues polling Docker and emitting ContainerEvents; the runner handles state mutation. Integration site MUST wrap run_checks() in try/except.",
       "risk": "Medium — concurrent thread with state access. Must preserve per-pipeline locking and optimistic versioning behavior."
     },
     {
       "path": "orchestrator/multi_agent.py",
       "role": "Wave-based parallel agent execution with on_wave_complete callback",
-      "changes_needed": "Wire on_wave_complete callback (line 545-546) to invoke HealthCheckRunner.run_checks(trigger=WAVE_COMPLETE). Pass wave results in PipelineHealthContext. Replace silent max_waves stop with structured health check result.",
-      "risk": "Medium — on_wave_complete runs from execution thread; checks must not block indefinitely."
+      "changes_needed": "Wire on_wave_complete callback (line 545-546) to invoke HealthCheckRunner.run_checks(trigger=WAVE_COMPLETE). Pass wave results in PipelineHealthContext. The on_wave_complete callback is currently NEVER passed — this is a clean extension point. Callback MUST be wrapped in try/except — exceptions must not propagate to the execution thread. Replace silent max_waves stop with structured health check result.",
+      "risk": "Medium — on_wave_complete runs from execution thread; checks must not block indefinitely. Exception isolation is critical."
     },
     {
       "path": "orchestrator/routes/pipelines.py",
       "role": "Pipeline CRUD and _run_pipeline() orchestration loop (5543 lines)",
-      "changes_needed": "Invoke HealthCheckRunner.run_checks(trigger=PHASE_COMPLETE) after phase completion in _run_pipeline(). Act on HealthResult.action. Changes should be minimal — single function calls at well-defined lifecycle points.",
-      "risk": "High — largest, most complex file. Changes must be surgical. No restructuring."
+      "changes_needed": "Invoke HealthCheckRunner.run_checks(trigger=PHASE_COMPLETE) after phase completion in _run_pipeline(). Act on HealthResult.action. Changes must be surgical — single function calls at well-defined lifecycle points. ALL calls wrapped in try/except. Call site: _run_multi_agent_phase() at line 3260 should pass on_wave_complete callback to execute_all_waves().",
+      "risk": "High — largest, most complex file. Changes must be purely additive (2-3 line insertions). No restructuring."
     },
     {
       "path": "orchestrator/events.py",
@@ -107,20 +121,20 @@
     {
       "path": "orchestrator/routes/health.py",
       "role": "HTTP health check endpoints (/health, /ready, /live)",
-      "changes_needed": "Add POST /api/v1/pipelines/{id}/health-check endpoint for on-demand health evaluation. Returns aggregated HealthResult for the pipeline.",
+      "changes_needed": "Add POST /api/v1/pipelines/{id}/health-check endpoint for on-demand health evaluation. Returns aggregated HealthResult for the pipeline. Document the endpoint.",
       "risk": "Low — additive endpoint on existing blueprint."
     },
     {
       "path": "orchestrator/cli.py",
       "role": "CLI entry point, calls cmd_serve() which starts startup reconciliation",
-      "changes_needed": "Initialize HealthCheckRunner with all checks registered. Replace direct reconcile_stale_containers() call with runner.run_checks(trigger=STARTUP).",
+      "changes_needed": "Initialize HealthCheckRunner with all checks registered. Replace direct reconcile_stale_containers() call with runner.run_checks(trigger=STARTUP). Wrap in try/except for exception isolation.",
       "risk": "Low — initialization code, straightforward replacement."
     },
     {
       "path": "orchestrator/api.py",
       "role": "Flask app creation and blueprint registration",
-      "changes_needed": "Initialize HealthCheckRunner singleton at app creation. Make it accessible to routes (e.g., via app context or module-level getter).",
-      "risk": "Low — initialization plumbing."
+      "changes_needed": "No changes to api.py. HealthCheckRunner follows the codebase singleton pattern: module-level _runner + get_health_check_runner() in health/runner.py. Routes import the getter. This matches existing patterns (get_event_bus, get_container_spawner, get_status_reporter).",
+      "risk": "None — no changes needed."
     }
   ],
 
@@ -128,11 +142,14 @@
     {
       "id": "A",
       "name": "Unified HealthCheck interface with HealthCheckRunner",
-      "description": "Define HealthCheck ABC, HealthResult, PipelineHealthContext, and Tier/Trigger enums in a new orchestrator/health/ package. Implement HealthCheckRunner that manages a registry of checks, runs them at trigger points, and applies results (emit events, optionally fail pipeline). Migrate startup reconciliation and container monitor. Add new Tier 1 checks (phase output presence, state consistency, repeated failures) and Tier 2 agent inspector. Wire triggers into lifecycle.",
+      "description": "Define HealthCheck ABC, HealthResult, PipelineHealthContext, and Tier/Trigger enums in a new orchestrator/health/ package. Implement HealthCheckRunner that manages a registry of checks, runs them at trigger points, and applies results (emit events, optionally fail pipeline). Includes two-strike confirmation for FAIL_PIPELINE actions, exception isolation in runner and at integration sites, and HEALTH_CHECK_MODE kill-switch. Migrate startup reconciliation and container monitor. Add new Tier 1 checks and Tier 2 agent inspector. Wire triggers into lifecycle.",
       "pros": [
         "Clean, composable abstraction — new checks are just new HealthCheck implementations",
         "Unified HealthResult model standardizes all failure detection output with structured verdicts and actions",
         "HealthCheckRunner centralizes result handling (event emission, pipeline state mutation, retry consultation)",
+        "Two-strike confirmation prevents false positive pipeline termination (RISK-4/REC-2)",
+        "HEALTH_CHECK_MODE enables safe production rollout starting in observe mode (REC-4)",
+        "Exception isolation at every layer prevents health checks from crashing pipeline execution (REC-3)",
         "Trigger points declared on the check — easy to reason about which checks run when",
         "Each check independently testable — inject mock PipelineHealthContext, assert HealthResult",
         "EventType.HEALTH_CHECK already exists — observability via SSE for free",
@@ -193,19 +210,21 @@
     "name": "Unified HealthCheck interface with HealthCheckRunner",
     "justification": [
       "The refine analysis recommended Option A and both refine reviewers (refine + agent-design) approved. The issue description provides a well-considered design for the full two-tier framework.",
-      "The interface pays for itself immediately. The HealthCheck/HealthResult/PipelineHealthContext trio provides a testable, composable abstraction that replaces ad-hoc state mutations with structured verdicts. Instead of scanning logs for reconciliation warnings, operators get typed results with reasons and suggested actions.",
-      "Migration is mechanical. Both startup_reconciliation.py and container_monitor.py already follow the 'gather context → evaluate condition → mutate state' pattern. Wrapping them in HealthCheck.check() with HealthResult return is straightforward. State mutation moves to HealthCheckRunner._apply_result().",
+      "The interface pays for itself immediately. The HealthCheck/HealthResult/PipelineHealthContext trio provides a testable, composable abstraction that replaces ad-hoc state mutations with structured verdicts.",
+      "Migration is mechanical. Both startup_reconciliation.py and container_monitor.py already follow the 'gather context → evaluate condition → mutate state' pattern. Wrapping them in HealthCheck.check() with HealthResult return is straightforward.",
       "Tier 2 should ship in the same change to establish the full framework. This validates the interface handles both tiers cleanly and avoids the risk of designing for Tier 1 only and needing to adjust when Tier 2 arrives. The Tier 2 inspector is scoped (Haiku model, structured evaluation, 30s timeout) and the LLM call pattern is well-understood.",
-      "The codebase has the infrastructure: EventType.HEALTH_CHECK exists, per-pipeline locking is battle-tested, resilience patterns (AgentRetryManager, AgentCircuitBreaker) are available for retry consultation."
-    ]
+      "The codebase has the infrastructure: EventType.HEALTH_CHECK exists, per-pipeline locking is battle-tested, resilience patterns are available, the singleton pattern (get_event_bus, get_container_spawner) is established.",
+      "Revision v2 addresses all reviewer concerns: two-strike confirmation (RISK-4/REC-2), exception isolation (REC-3), and HEALTH_CHECK_MODE kill-switch (REC-4) are now integral to the design."
+    ],
+    "single_pr_justification": "The risk analyst recommended considering a 2-PR split (REC-1: Tier 1 first, Tier 2 second). We ship as a single PR for these reasons: (1) The HealthCheck interface is designed for both tiers — shipping Tier 1 alone risks designing an interface that needs adjustment for Tier 2. (2) The HEALTH_CHECK_MODE=observe kill-switch provides the same safety as a staged rollout — deploy everything, start in observe mode, graduate to enforce. (3) Tier 2 adds exactly 2 files (llm_client.py, agent_inspector.py) with well-isolated scope — splitting adds coordination overhead for minimal risk reduction. (4) The integration wiring in Phase 7 is identical regardless of which checks are registered — the runner handles both tiers transparently. If review capacity is constrained, the PR can be reviewed in two passes: core+Tier1 first, then Tier2+wiring."
   },
 
   "implementation_plan": {
     "stages": [
       {
         "id": "stage-1",
-        "name": "Foundation: types, interface, and runner",
-        "description": "Define core abstractions in new orchestrator/health/ package. This is the foundation everything else builds on.",
+        "name": "Foundation: types, interface, runner, and model",
+        "description": "Define core abstractions in new orchestrator/health/ package and extend the pipeline model for result persistence.",
         "phases": [
           {
             "id": "phase-1",
@@ -213,9 +232,9 @@
             "description": "Create the core type definitions and abstract base class for the health check framework.",
             "key_changes": [
               "New orchestrator/health/__init__.py — package init with public API exports",
-              "New orchestrator/health/types.py — HealthStatus enum (HEALTHY/DEGRADED/FAILED), Action enum (CONTINUE/FAIL_PIPELINE/ALERT/RETRY), Tier enum (PROGRAMMATIC/AGENT), Trigger enum (STARTUP/RUNTIME_TICK/WAVE_COMPLETE/PHASE_COMPLETE/ON_DEMAND), HealthResult dataclass (status, reason, action, check_name, tier, timestamp, metadata dict)",
-              "New orchestrator/health/context.py — PipelineHealthContext with lazy-loaded properties: pipeline (eager), phase_execution (eager), containers (eager), agents (eager), git_log (lazy — subprocess git log on worktree), git_diff (lazy — subprocess git diff), agent_output_files (lazy — filesystem glob), wave_results (optional, passed for WAVE_COMPLETE triggers). Lazy fields use @cached_property or explicit _loaded flags.",
-              "New orchestrator/health/base.py — abstract HealthCheck class with abstract properties tier -> Tier, triggers -> list[Trigger], name -> str, and abstract method check(context: PipelineHealthContext) -> HealthResult"
+              "New orchestrator/health/types.py — HealthStatus enum (HEALTHY/DEGRADED/FAILED), Action enum (CONTINUE/FAIL_PIPELINE/ALERT/RETRY), Tier enum (PROGRAMMATIC/AGENT), Trigger enum (STARTUP/RUNTIME_TICK/WAVE_COMPLETE/PHASE_COMPLETE/ON_DEMAND), HealthResult dataclass (status, reason, action, check_name, tier, timestamp, metadata dict), HealthCheckMode enum (ENFORCE/OBSERVE/DISABLED) for the kill-switch",
+              "New orchestrator/health/context.py — PipelineHealthContext with lazy-loaded properties: pipeline (eager), phase_execution (eager), containers (eager), agents (eager), git_log (lazy — subprocess git log on worktree), git_diff (lazy — subprocess git diff), agent_output_files (lazy — filesystem glob), wave_results (optional, passed for WAVE_COMPLETE triggers), local_branch_head (lazy — git rev-parse for local branch head). Lazy fields use @cached_property. Context is created per-invocation — never cached or reused across triggers.",
+              "New orchestrator/health/base.py — abstract HealthCheck class with abstract properties tier -> Tier, triggers -> list[Trigger], name -> str, and abstract method check(context: PipelineHealthContext) -> HealthResult. Also: allow_immediate_fail -> bool property (default False) — when True, bypasses two-strike confirmation for checks where false positives are impossible (e.g., all containers verified gone from Docker)."
             ],
             "files": [
               "orchestrator/health/__init__.py",
@@ -227,15 +246,33 @@
           },
           {
             "id": "phase-2",
-            "name": "HealthCheckRunner",
-            "description": "Implement the central runner that manages check registration, trigger filtering, execution, and result application.",
+            "name": "HealthCheckRunner with two-strike confirmation and kill-switch",
+            "description": "Implement the central runner that manages check registration, trigger filtering, execution, result application, two-strike FAIL_PIPELINE confirmation, and HEALTH_CHECK_MODE enforcement.",
             "key_changes": [
-              "New orchestrator/health/runner.py — HealthCheckRunner class with: register(check: HealthCheck) adds to registry, run_checks(trigger: Trigger, context: PipelineHealthContext) -> list[HealthResult] filters checks by trigger, runs Tier 1 first, escalates to Tier 2 if Tier 1 returns DEGRADED or trigger is PHASE_COMPLETE/ON_DEMAND. _apply_result(result, pipeline_id) emits HEALTH_CHECK event via emit_event(), persists result to PhaseExecution.health_checks (capped at 10), and for FAIL_PIPELINE action: consults AgentRetryManager — if retries available trigger retry, else mark pipeline FAILED. Uses per-pipeline locking for state mutations. Configurable per-check timeout (default 5s for Tier 1, 30s for Tier 2)."
+              "New orchestrator/health/runner.py — HealthCheckRunner class with: register(check: HealthCheck) adds to registry. run_checks(trigger: Trigger, context: PipelineHealthContext) -> list[HealthResult] filters checks by trigger, runs Tier 1 first, escalates to Tier 2 if Tier 1 returns DEGRADED or trigger is PHASE_COMPLETE/ON_DEMAND.",
+              "Two-strike confirmation for FAIL_PIPELINE: _pending_failures dict keyed by (pipeline_id, check_name). When a check returns FAIL_PIPELINE for the first time, store the result in _pending_failures and downgrade to ALERT (emit event, log warning, but do NOT fail the pipeline). If the same (pipeline_id, check_name) returns FAIL_PIPELINE on the next trigger, enforce the FAIL_PIPELINE action. Clear the pending entry when a check returns non-FAIL_PIPELINE. Exception: checks with allow_immediate_fail=True bypass two-strike (for cases where false positives are impossible, e.g., all containers verified absent from Docker).",
+              "HEALTH_CHECK_MODE support: read from os.environ.get('HEALTH_CHECK_MODE', 'enforce').lower(). 'enforce' mode applies FAIL_PIPELINE actions (with two-strike). 'observe' mode emits events and persists results but NEVER mutates pipeline state (all FAIL_PIPELINE/RETRY actions downgraded to ALERT). 'disabled' mode: run_checks() returns empty list immediately.",
+              "Exception isolation in runner: each individual check execution wrapped in try/except. If a check raises an exception, catch it, log the error, and return a synthetic HealthResult(status=DEGRADED, action=CONTINUE, reason='Check {name} raised {exception}') for that check. Never propagate check exceptions to the caller.",
+              "_apply_result(result, pipeline_id) emits HEALTH_CHECK event via emit_event(), persists result to PhaseExecution.health_checks (capped at 10). For FAIL_PIPELINE action in enforce mode: consults AgentRetryManager — if retries available trigger retry, else mark pipeline FAILED. Uses per-pipeline locking for state mutations. Configurable per-check timeout (default 5s for Tier 1, 30s for Tier 2).",
+              "Per-pipeline AgentCircuitBreaker instances: stored in runner._circuit_breakers dict keyed by pipeline_id. Created on first access. Accessed only under per-pipeline lock during _apply_result(), avoiding thread-safety issues (RISK-8). Cleaned up when pipeline completes/fails.",
+              "Singleton pattern: module-level _runner + get_health_check_runner() function, matching existing codebase patterns (get_event_bus, get_container_spawner)."
             ],
             "files": [
               "orchestrator/health/runner.py"
             ],
             "dependencies": ["phase-1"]
+          },
+          {
+            "id": "phase-3",
+            "name": "Pipeline state model extension",
+            "description": "Add HealthCheckResult model to pipeline state for persistence and observability.",
+            "key_changes": [
+              "Modify orchestrator/models.py — add HealthCheckResult model (Pydantic BaseModel with: check_name: str, tier: str, status: str, reason: str, action: str, timestamp: datetime, metadata: dict[str, Any] = {}). Add health_checks: list[HealthCheckResult] = Field(default_factory=list) to PhaseExecution. Backward compatible — defaults to empty list."
+            ],
+            "files": [
+              "orchestrator/models.py"
+            ],
+            "dependencies": []
           }
         ]
       },
@@ -245,29 +282,27 @@
         "description": "Wrap startup reconciliation and container monitor detection logic in HealthCheck implementations. Preserve exact existing behavior.",
         "phases": [
           {
-            "id": "phase-3",
+            "id": "phase-4",
             "name": "Migrate startup reconciliation",
             "description": "Extract startup reconciliation logic into a HealthCheck implementation.",
             "key_changes": [
               "New orchestrator/health/checks/__init__.py — package init",
-              "New orchestrator/health/checks/startup.py — StartupReconciliationCheck implementing HealthCheck. tier=PROGRAMMATIC, triggers=[STARTUP], name='startup_reconciliation'. check(context) compares persisted RUNNING containers against live Docker set (via docker_client in context). Returns FAILED if stale containers found (with list of affected pipeline/container IDs in reason), HEALTHY otherwise. Does NOT mutate state — runner handles that.",
-              "Modify orchestrator/cli.py — replace direct reconcile_stale_containers() call with runner.run_checks(trigger=STARTUP). The runner's _apply_result() handles marking pipelines FAILED, preserving the same error messages.",
-              "Keep orchestrator/startup_reconciliation.py — deprecate reconcile_stale_containers() but keep as thin wrapper calling StartupReconciliationCheck for backward compat if anything imports it directly"
+              "New orchestrator/health/checks/startup.py — StartupReconciliationCheck implementing HealthCheck. tier=PROGRAMMATIC, triggers=[STARTUP], name='startup_reconciliation', allow_immediate_fail=True (stale container at startup is definitively not a false positive — the container is verifiably absent from Docker). check(context) compares persisted RUNNING containers against live Docker set (via docker_client in context). Returns FAILED with action FAIL_PIPELINE if stale containers found (with list of affected pipeline/container IDs in reason), HEALTHY otherwise. Does NOT mutate state — runner handles that.",
+              "Modify orchestrator/startup_reconciliation.py — deprecate reconcile_stale_containers() but keep as thin wrapper calling StartupReconciliationCheck for backward compat if anything imports it directly"
             ],
             "files": [
               "orchestrator/health/checks/__init__.py",
               "orchestrator/health/checks/startup.py",
-              "orchestrator/cli.py",
               "orchestrator/startup_reconciliation.py"
             ],
             "dependencies": ["phase-2"]
           },
           {
-            "id": "phase-4",
+            "id": "phase-5",
             "name": "Migrate container monitor detection",
             "description": "Extract container failure reconciliation logic into a HealthCheck implementation.",
             "key_changes": [
-              "New orchestrator/health/checks/container_liveness.py — ContainerLivenessCheck implementing HealthCheck. tier=PROGRAMMATIC, triggers=[RUNTIME_TICK], name='container_liveness'. check(context) takes failed container info from context, scans RUNNING pipelines for the container, returns FAILED if pipeline has stale container(s), HEALTHY otherwise. Does NOT mutate state.",
+              "New orchestrator/health/checks/container_liveness.py — ContainerLivenessCheck implementing HealthCheck. tier=PROGRAMMATIC, triggers=[RUNTIME_TICK], name='container_liveness', allow_immediate_fail=True (container verified absent from Docker is definitively not a false positive). check(context) takes failed container info from context, scans RUNNING pipelines for the container, returns FAILED if pipeline has stale container(s), HEALTHY otherwise. Does NOT mutate state.",
               "Modify orchestrator/container_monitor.py — update create_pipeline_reconciliation_handler() to create handler that invokes HealthCheckRunner.run_checks(trigger=RUNTIME_TICK) with context containing the failed container info, instead of calling _reconcile_container_state() directly. Keep _reconcile_container_state() as deprecated backward-compat wrapper."
             ],
             "files": [
@@ -284,11 +319,13 @@
         "description": "Add programmatic checks that detect failure modes not currently covered.",
         "phases": [
           {
-            "id": "phase-5",
+            "id": "phase-6",
             "name": "Phase output presence check",
             "description": "Check that phases produced expected artifacts. This is the check that would have caught issue-835.",
             "key_changes": [
-              "New orchestrator/health/checks/phase_output.py — PhaseOutputPresenceCheck implementing HealthCheck. tier=PROGRAMMATIC, triggers=[PHASE_COMPLETE, WAVE_COMPLETE], name='phase_output_presence'. check(context) evaluates based on current phase: implement → checks git log for new commits on remote worktree branch since phase.work_started_at (uses context.git_log lazy property), plan → checks .egg-state/agent-outputs/ for architect/task_planner output files, refine → checks .egg-state/drafts/ for analysis document. Returns DEGRADED if expected outputs missing (not FAILED — gives Tier 2 a chance to evaluate), HEALTHY if present."
+              "New orchestrator/health/checks/phase_output.py — PhaseOutputPresenceCheck implementing HealthCheck. tier=PROGRAMMATIC, triggers=[PHASE_COMPLETE, WAVE_COMPLETE], name='phase_output_presence', allow_immediate_fail=False (uses two-strike confirmation — git push timing makes false positives possible).",
+              "check(context) evaluates based on current phase: implement → first checks context.local_branch_head for new commits on local branch since phase.work_started_at; if local has commits but remote doesn't (context.git_log shows no remote commits), return DEGRADED with reason 'Commits exist locally but not on remote — push may be in progress'; if neither local nor remote has commits, return DEGRADED with reason 'No commits found for implement phase'. plan → checks .egg-state/agent-outputs/ for architect/task_planner output files. refine → checks .egg-state/drafts/ for analysis document. Returns HEALTHY if present.",
+              "Key change from v1: checks LOCAL branch head first before remote, addressing the reviewer's concern that git push may still be in progress when the check runs. This prevents false positives from slow pushes."
             ],
             "files": [
               "orchestrator/health/checks/phase_output.py"
@@ -296,11 +333,11 @@
             "dependencies": ["phase-2"]
           },
           {
-            "id": "phase-6",
+            "id": "phase-7",
             "name": "State consistency check",
             "description": "Verify orchestrator state matches Docker reality during runtime.",
             "key_changes": [
-              "New orchestrator/health/checks/state_consistency.py — StateConsistencyCheck implementing HealthCheck. tier=PROGRAMMATIC, triggers=[WAVE_COMPLETE, PHASE_COMPLETE], name='state_consistency'. check(context) verifies: containers marked RUNNING in pipeline state actually exist and are running in Docker (via docker_client), agents marked RUNNING have corresponding running containers, pipeline marked RUNNING has at least one active phase with active containers. Returns DEGRADED on drift (some containers gone), FAILED on critical inconsistency (all containers gone but pipeline RUNNING)."
+              "New orchestrator/health/checks/state_consistency.py — StateConsistencyCheck implementing HealthCheck. tier=PROGRAMMATIC, triggers=[WAVE_COMPLETE, PHASE_COMPLETE], name='state_consistency', allow_immediate_fail=False (uses two-strike — transient Docker API errors could cause temporary state drift). check(context) verifies: containers marked RUNNING in pipeline state actually exist and are running in Docker (via docker_client), agents marked RUNNING have corresponding running containers, pipeline marked RUNNING has at least one active phase with active containers. Returns DEGRADED on drift (some containers gone), FAILED on critical inconsistency (all containers gone but pipeline RUNNING)."
             ],
             "files": [
               "orchestrator/health/checks/state_consistency.py"
@@ -308,11 +345,11 @@
             "dependencies": ["phase-2"]
           },
           {
-            "id": "phase-7",
+            "id": "phase-8",
             "name": "Repeated failure pattern check",
             "description": "Detect agents failing repeatedly with the same error, replacing the blunt max_waves cap.",
             "key_changes": [
-              "New orchestrator/health/checks/failure_patterns.py — RepeatedFailureCheck implementing HealthCheck. tier=PROGRAMMATIC, triggers=[WAVE_COMPLETE], name='repeated_failure_pattern'. check(context) examines agent execution history in current phase: if same role failed N times (configurable, default 3) with same/similar error, returns FAILED with action FAIL_PIPELINE and reason containing error pattern. Optionally consults AgentCircuitBreaker state if available. Replaces the blunt max_waves silent stop with a smarter detection that explains why it's failing."
+              "New orchestrator/health/checks/failure_patterns.py — RepeatedFailureCheck implementing HealthCheck. tier=PROGRAMMATIC, triggers=[WAVE_COMPLETE], name='repeated_failure_pattern', allow_immediate_fail=False (uses two-strike — one bad wave shouldn't immediately kill the pipeline). check(context) examines agent execution history in current phase: if same role failed N times (configurable, default 3) with same/similar error, returns FAILED with action FAIL_PIPELINE and reason containing error pattern. Replaces the blunt max_waves silent stop with a smarter detection that explains why it's failing."
             ],
             "files": [
               "orchestrator/health/checks/failure_patterns.py"
@@ -327,11 +364,11 @@
         "description": "Implement LLM-based semantic health evaluation for detecting novel failure patterns.",
         "phases": [
           {
-            "id": "phase-8",
+            "id": "phase-9",
             "name": "LLM client for orchestrator",
             "description": "Thin wrapper for Anthropic API calls from the orchestrator context.",
             "key_changes": [
-              "New orchestrator/health/llm_client.py — HealthInspectorClient class wrapping Anthropic API. Uses Haiku model for cost efficiency. Configurable model (default: claude-haiku). Structured output via JSON mode. Timeout: 30 seconds. Handles API errors gracefully (returns None on failure — inspector treats this as CONTINUE). Uses ANTHROPIC_API_KEY from environment (available via gateway proxy in both network modes)."
+              "New orchestrator/health/llm_client.py — HealthInspectorClient class wrapping Anthropic API. Uses Haiku model for cost efficiency. Configurable model (default: claude-haiku). Structured output via JSON mode. Timeout: 30 seconds. Handles API errors gracefully (returns None on failure — inspector treats this as CONTINUE). Uses ANTHROPIC_API_KEY from environment. If ANTHROPIC_API_KEY is missing, log warning at startup and disable Tier 2 automatically. No connection reuse across invocations to prevent leaked connection state."
             ],
             "files": [
               "orchestrator/health/llm_client.py"
@@ -339,92 +376,83 @@
             "dependencies": []
           },
           {
-            "id": "phase-9",
+            "id": "phase-10",
             "name": "Agent inspector implementation",
             "description": "LLM-based check that evaluates whether agents produced meaningful work matching the phase goal.",
             "key_changes": [
-              "New orchestrator/health/checks/agent_inspector.py — AgentInspectorCheck implementing HealthCheck. tier=AGENT, triggers=[PHASE_COMPLETE, ON_DEMAND], name='agent_inspector'. check(context) assembles structured prompt with: (1) phase goal from contract, (2) agent output files content (context.agent_output_files), (3) git log/diff on worktree branch (context.git_log, context.git_diff), (4) agent execution results (success/fail/error messages). Prompt asks LLM to evaluate: did agents produce work matching the phase goal? Is the work substantive or empty? Are there signs of stuck/looping behavior? Did reviewers actually review? LLM returns structured JSON verdict: {status: 'HEALTHY'|'DEGRADED'|'FAILED', reasoning: str, suggested_action: str}. Parses response into HealthResult. On LLM failure (timeout, API error, malformed response): returns DEGRADED with action CONTINUE and reason explaining inspector failure."
+              "New orchestrator/health/checks/agent_inspector.py — AgentInspectorCheck implementing HealthCheck. tier=AGENT, triggers=[PHASE_COMPLETE, ON_DEMAND], name='agent_inspector', allow_immediate_fail=False (LLM verdict uses two-strike). check(context) assembles structured prompt with: (1) phase goal from contract, (2) agent output files content (context.agent_output_files), (3) git log/diff on worktree branch (context.git_log, context.git_diff), (4) agent execution results. Prompt asks LLM to evaluate work quality. Prompt includes explicit instruction to err on the side of DEGRADED over FAILED — FAILED requires clear evidence, not ambiguity. LLM returns structured JSON verdict: {status, reasoning, suggested_action}. Parses response into HealthResult. On LLM failure (timeout, API error, malformed response): returns DEGRADED with action CONTINUE."
             ],
             "files": [
               "orchestrator/health/checks/agent_inspector.py"
             ],
-            "dependencies": ["phase-8"]
+            "dependencies": ["phase-9"]
           }
         ]
       },
       {
         "id": "stage-5",
         "name": "Lifecycle wiring and observability",
-        "description": "Wire health check trigger points into the orchestrator lifecycle and persist results.",
+        "description": "Wire health check trigger points into the orchestrator lifecycle. Every integration site wraps run_checks() in try/except for exception isolation.",
         "phases": [
-          {
-            "id": "phase-10",
-            "name": "Pipeline state model extension",
-            "description": "Add health check result persistence to the pipeline state model.",
-            "key_changes": [
-              "Modify orchestrator/models.py — add HealthCheckResult model (Pydantic BaseModel with: check_name: str, tier: str, status: str, reason: str, action: str, timestamp: datetime, metadata: dict[str, Any] = {}). Add health_checks: list[HealthCheckResult] = Field(default_factory=list) to PhaseExecution. Backward compatible — defaults to empty list."
-            ],
-            "files": [
-              "orchestrator/models.py"
-            ],
-            "dependencies": []
-          },
           {
             "id": "phase-11",
             "name": "Wire trigger points into lifecycle",
-            "description": "Integrate HealthCheckRunner into the orchestrator's main execution paths.",
+            "description": "Integrate HealthCheckRunner into the orchestrator's main execution paths with strict exception isolation at every integration site.",
             "key_changes": [
-              "Modify orchestrator/api.py — create HealthCheckRunner singleton at app creation, register all checks (StartupReconciliation, ContainerLiveness, PhaseOutputPresence, StateConsistency, RepeatedFailure, AgentInspector). Expose via module-level getter.",
-              "Modify orchestrator/cli.py — replace reconcile_stale_containers() with runner.run_checks(trigger=STARTUP)",
-              "Modify orchestrator/container_monitor.py — update create_pipeline_reconciliation_handler() to use runner",
-              "Modify orchestrator/multi_agent.py — ensure on_wave_complete callback invokes runner.run_checks(trigger=WAVE_COMPLETE)",
-              "Modify orchestrator/routes/pipelines.py — invoke runner.run_checks(trigger=PHASE_COMPLETE) after phase completion in _run_pipeline(). Act on results: FAIL_PIPELINE → mark pipeline failed, RETRY → trigger agent retry, ALERT → emit event only, CONTINUE → proceed.",
-              "Modify orchestrator/routes/health.py — add POST /api/v1/pipelines/<pipeline_id>/health-check endpoint for on-demand evaluation. Returns aggregated health results."
+              "Modify orchestrator/health/runner.py — add init_health_check_runner() function that creates the singleton, registers all checks (StartupReconciliation, ContainerLiveness, PhaseOutputPresence, StateConsistency, RepeatedFailure, AgentInspector), and returns the runner. Called from cli.py during startup.",
+              "Modify orchestrator/cli.py — call init_health_check_runner() at startup. Replace reconcile_stale_containers() with try/except wrapped runner.run_checks(trigger=STARTUP). Exception isolation: on any exception from run_checks(), log error and fall back to original reconcile_stale_containers() for safety.",
+              "Modify orchestrator/container_monitor.py — update create_pipeline_reconciliation_handler() to use runner. Handler wraps run_checks(trigger=RUNTIME_TICK) in try/except. On exception: log error and fall back to original _reconcile_container_state() for safety.",
+              "Modify orchestrator/multi_agent.py — pass on_wave_complete callback to execute_all_waves() in _run_multi_agent_phase(). The callback wraps runner.run_checks(trigger=WAVE_COMPLETE) in try/except. On exception: log error and continue — health check failure must NEVER block wave execution or crash the pipeline thread.",
+              "Modify orchestrator/routes/pipelines.py — invoke runner.run_checks(trigger=PHASE_COMPLETE) after phase completion in _run_pipeline(). Wrap in try/except. Act on results: FAIL_PIPELINE → mark pipeline failed, RETRY → trigger agent retry, ALERT → emit event only, CONTINUE → proceed. On exception: log error and continue — health check failure must NEVER block phase transition.",
+              "Modify orchestrator/routes/health.py — add POST /api/v1/pipelines/<pipeline_id>/health-check endpoint for on-demand evaluation. Returns aggregated health results as JSON. Document the endpoint with docstring describing request/response format."
             ],
             "files": [
-              "orchestrator/api.py",
+              "orchestrator/health/runner.py",
               "orchestrator/cli.py",
               "orchestrator/container_monitor.py",
               "orchestrator/multi_agent.py",
               "orchestrator/routes/pipelines.py",
               "orchestrator/routes/health.py"
             ],
-            "dependencies": ["phase-3", "phase-4", "phase-5", "phase-6", "phase-7", "phase-9", "phase-10"]
+            "dependencies": ["phase-3", "phase-4", "phase-5", "phase-6", "phase-7", "phase-8", "phase-10"]
           }
         ]
       },
       {
         "id": "stage-6",
         "name": "Testing",
-        "description": "Comprehensive test coverage for the health check framework.",
+        "description": "Comprehensive test coverage for the health check framework including exception isolation and performance tests.",
         "phases": [
           {
             "id": "phase-12",
-            "name": "Unit tests for types, context, and individual checks",
+            "name": "Unit tests for types, context, runner, and individual checks",
             "description": "Test each component independently with mock dependencies.",
             "key_changes": [
-              "New orchestrator/tests/test_health_types.py — test HealthResult creation, HealthStatus/Action/Tier/Trigger enums",
-              "New orchestrator/tests/test_health_context.py — test PipelineHealthContext lazy loading, test that expensive fields aren't computed until accessed",
-              "New orchestrator/tests/test_health_checks.py — test each HealthCheck implementation: StartupReconciliation (mock Docker, verify HEALTHY/FAILED), ContainerLiveness (mock pipeline state, verify detection), PhaseOutputPresence (mock git/filesystem, verify DEGRADED on missing outputs), StateConsistency (mock Docker vs state, verify drift detection), RepeatedFailure (mock execution history, verify pattern detection), AgentInspector (mock LLM client, verify structured verdict parsing and graceful failure handling)"
+              "New orchestrator/tests/test_health_types.py — test HealthResult creation, HealthStatus/Action/Tier/Trigger/HealthCheckMode enums",
+              "New orchestrator/tests/test_health_context.py — test PipelineHealthContext lazy loading, test that expensive fields aren't computed until accessed, test local_branch_head field",
+              "New orchestrator/tests/test_health_checks.py — test each HealthCheck implementation: StartupReconciliation (mock Docker, verify HEALTHY/FAILED, verify allow_immediate_fail=True), ContainerLiveness (mock pipeline state, verify detection, verify allow_immediate_fail=True), PhaseOutputPresence (mock git/filesystem, verify DEGRADED on missing outputs, verify local-before-remote check logic, verify allow_immediate_fail=False), StateConsistency (mock Docker vs state, verify drift detection), RepeatedFailure (mock execution history, verify pattern detection), AgentInspector (mock LLM client, verify structured verdict parsing and graceful failure handling)",
+              "New orchestrator/tests/test_health_runner.py — test HealthCheckRunner: trigger filtering (only matching checks run), Tier 1→Tier 2 escalation (DEGRADED triggers Tier 2), two-strike confirmation (first FAIL_PIPELINE is downgraded to ALERT, second FAIL_PIPELINE is enforced, allow_immediate_fail=True bypasses two-strike, non-FAIL result clears pending), HEALTH_CHECK_MODE behavior (enforce applies, observe emits only, disabled returns empty), exception isolation (check raising exception produces DEGRADED/CONTINUE result), result application (event emission, result persistence, cap at 10 results), per-pipeline circuit breaker instances, concurrent execution safety (per-pipeline locking)"
             ],
             "files": [
               "orchestrator/tests/test_health_types.py",
               "orchestrator/tests/test_health_context.py",
-              "orchestrator/tests/test_health_checks.py"
+              "orchestrator/tests/test_health_checks.py",
+              "orchestrator/tests/test_health_runner.py"
             ],
-            "dependencies": ["phase-9"]
+            "dependencies": ["phase-10"]
           },
           {
             "id": "phase-13",
-            "name": "Unit tests for runner and integration tests for lifecycle",
-            "description": "Test the runner and end-to-end lifecycle wiring.",
+            "name": "Integration tests, backward compatibility, exception isolation, and performance",
+            "description": "Test end-to-end lifecycle wiring, backward compatibility, exception isolation at integration sites, and RUNTIME_TICK performance.",
             "key_changes": [
-              "New orchestrator/tests/test_health_runner.py — test HealthCheckRunner: trigger filtering (only matching checks run), Tier 1→Tier 2 escalation (DEGRADED triggers Tier 2), result application (FAIL_PIPELINE with retry consultation, event emission, result persistence, cap at 10 results), concurrent execution safety (per-pipeline locking)",
               "New orchestrator/tests/test_health_integration.py — test lifecycle wiring: startup trigger runs startup check, container failure triggers runtime check, wave complete triggers wave checks, phase complete triggers all checks including Tier 2, on-demand REST endpoint returns results. Mock Docker and LLM API throughout.",
-              "Verify backward compatibility: migrated startup reconciliation produces same state changes as original. Migrated container monitor produces same state changes as original."
+              "Exception isolation tests: verify health check exception does NOT crash _run_pipeline; verify health check exception does NOT crash container monitor handler; verify health check exception does NOT crash on_wave_complete callback; verify health check timeout does NOT block phase transition.",
+              "Backward compatibility tests: migrated startup reconciliation produces same state changes as original. Migrated container monitor produces same state changes as original.",
+              "Performance test: run 100 RUNTIME_TICK triggers with ContainerLivenessCheck, verify total time under 1 second and no git operations triggered (lazy context properties not accessed).",
+              "HEALTH_CHECK_MODE integration tests: verify observe mode emits events but does not fail pipelines; verify disabled mode skips all checks."
             ],
             "files": [
-              "orchestrator/tests/test_health_runner.py",
               "orchestrator/tests/test_health_integration.py"
             ],
             "dependencies": ["phase-11"]
@@ -448,7 +476,7 @@
     {
       "id": "TD-2",
       "decision": "Lazy context assembly for PipelineHealthContext",
-      "rationale": "Some fields are expensive: git log/diff requires subprocess calls to git, agent output files require filesystem reads. Runtime tick triggers happen every 10 seconds — eagerly computing all fields would add unnecessary overhead. Lazy properties (@cached_property or explicit flags) ensure a check that only needs container state never triggers git operations. Context objects are short-lived (per trigger invocation), so caching doesn't cause staleness.",
+      "rationale": "Some fields are expensive: git log/diff requires subprocess calls to git, agent output files require filesystem reads. Runtime tick triggers happen every 10 seconds — eagerly computing all fields would add unnecessary overhead. Lazy properties (@cached_property) ensure a check that only needs container state never triggers git operations. Context objects are short-lived (per trigger invocation), so caching doesn't cause staleness.",
       "alternatives_considered": [
         "Eager assembly with caching — rejected: cache invalidation is complex and most checks only need a subset",
         "Pass raw pipeline object, let checks gather their own context — rejected: couples checks to orchestrator internals, prevents testing with mock context",
@@ -458,9 +486,9 @@
     {
       "id": "TD-3",
       "decision": "Tier 2 agent inspector uses Haiku model",
-      "rationale": "The inspector's task is structured evaluation against a checklist: did agents produce work, is it substantive, any signs of looping. The input is well-defined (agent outputs, git diff, execution results) and output is a structured JSON verdict. Haiku handles this well, is fast (~1-2s), and cheap. If Haiku proves insufficient for nuanced semantic evaluation, the model can be upgraded per-check without interface changes.",
+      "rationale": "The inspector's task is structured evaluation against a checklist. The input is well-defined and output is a structured JSON verdict. Haiku handles this well, is fast (~1-2s), and cheap. If Haiku proves insufficient, the model can be upgraded per-check without interface changes.",
       "alternatives_considered": [
-        "Use Sonnet/Opus (same as agent sandboxes) — rejected: expensive and slow for a supervisory check at every phase boundary",
+        "Use Sonnet/Opus — rejected: expensive and slow for a supervisory check at every phase boundary",
         "No LLM (pattern matching only) — rejected: cannot detect novel failure modes, which is the core value of Tier 2",
         "Configurable model per pipeline — considered but deferred: start with Haiku default, add config if needed"
       ]
@@ -468,7 +496,7 @@
     {
       "id": "TD-4",
       "decision": "HealthCheckRunner applies results centrally — checks are pure evaluation functions",
-      "rationale": "Checks should be pure: context in, result out. The runner handles side effects (event emission, pipeline state mutation, retry consultation, result persistence). This makes checks independently testable without requiring a real state store, prevents duplicate state mutations from concurrent checks, and centralizes the decision logic for what to do with a FAIL_PIPELINE result (e.g., consult AgentRetryManager first).",
+      "rationale": "Checks should be pure: context in, result out. The runner handles side effects (event emission, pipeline state mutation, retry consultation, two-strike confirmation, HEALTH_CHECK_MODE enforcement). This makes checks independently testable without requiring a real state store, prevents duplicate state mutations from concurrent checks, and centralizes the decision logic for FAIL_PIPELINE.",
       "alternatives_considered": [
         "Checks mutate state directly (current container_monitor pattern) — rejected: scatters mutation logic, requires real state store for testing",
         "Checks return results, caller applies at each trigger point — rejected: duplicates application logic across 5 trigger points"
@@ -477,41 +505,79 @@
     {
       "id": "TD-5",
       "decision": "Health check results persisted in PhaseExecution.health_checks, capped at 10",
-      "rationale": "Results need persistence for debugging and observability but must not bloat pipeline state JSON. PhaseExecution is the natural home — health checks evaluate phase-level health. A rolling window of 10 results per phase provides enough history for recent failure diagnosis without unbounded growth. At ~200 bytes per result, 10 results adds ~2KB per phase — negligible relative to the typical pipeline state.",
+      "rationale": "Results need persistence for debugging and observability but must not bloat pipeline state JSON. PhaseExecution is the natural home — health checks evaluate phase-level health. A rolling window of 10 results per phase provides enough history. At ~200 bytes per result, 10 results adds ~2KB per phase — negligible relative to the typical pipeline state.",
       "alternatives_considered": [
         "Separate .egg-state/health/{pipeline-id}.json — rejected: adds another artifact with separate lifecycle management",
         "Only emit events, don't persist — rejected: events are ephemeral (100 max in EventBus history), debugging needs historical results",
-        "Store in Pipeline.health_checks (top-level) — rejected: loses phase-level granularity, less natural for phase-scoped checks"
+        "Store in Pipeline.health_checks (top-level) — rejected: loses phase-level granularity"
       ]
     },
     {
       "id": "TD-6",
       "decision": "Tier 2 triggers: always at PHASE_COMPLETE, at WAVE_COMPLETE only on DEGRADED from Tier 1",
-      "rationale": "PHASE_COMPLETE is the natural checkpoint for semantic evaluation — the phase is done and we need to assess work quality before advancing. Running Tier 2 at every WAVE_COMPLETE would be expensive (LLM calls per wave). The DEGRADED trigger provides escalation: if Tier 1 detects structural anomalies (missing outputs, state drift), Tier 2 evaluates whether the anomaly is a real failure or benign edge case. ON_DEMAND via REST endpoint covers ad-hoc investigation.",
+      "rationale": "PHASE_COMPLETE is the natural checkpoint for semantic evaluation. Running Tier 2 at every WAVE_COMPLETE would be expensive. The DEGRADED trigger provides escalation: if Tier 1 detects structural anomalies, Tier 2 evaluates whether the anomaly is a real failure. ON_DEMAND via REST endpoint covers ad-hoc investigation.",
       "alternatives_considered": [
         "Tier 2 at every trigger — rejected: prohibitive LLM cost",
         "Tier 2 only on-demand — rejected: defeats automatic detection purpose",
         "Tier 2 on a timer — rejected: not correlated with meaningful lifecycle events",
-        "Tier 2 only at PHASE_COMPLETE, never at WAVE_COMPLETE — considered but escalation from DEGRADED is valuable for catching issues mid-phase before all waves complete"
+        "Tier 2 only at PHASE_COMPLETE, never at WAVE_COMPLETE — considered but escalation from DEGRADED is valuable"
       ]
     },
     {
       "id": "TD-7",
-      "decision": "FAIL_PIPELINE action is automatic but consulted against retry logic",
-      "rationale": "Advisory-only FAIL_PIPELINE risks being ignored (no handler watching → silent failure). Automatic enforcement ensures health check results have teeth. However, the runner consults AgentRetryManager before failing: if the failure is retryable and retries remain, trigger retry instead of terminating the pipeline. This bridges health checks and the recovery system. If retries are exhausted or the circuit breaker is open, proceed with FAIL_PIPELINE.",
+      "decision": "FAIL_PIPELINE uses two-strike confirmation by default, with immediate-fail override for verified-true checks",
+      "rationale": "REVISION v2: Addresses RISK-4/REC-2. Automatic enforcement is powerful but a false positive destroys in-progress work. The two-strike rule provides a safety net: the first FAIL_PIPELINE result is recorded but downgraded to ALERT. If the same check returns FAIL_PIPELINE on the next trigger, the action is enforced. This handles transient conditions (slow git push, temporary Docker API error) without weakening detection for persistent failures. Checks where false positives are structurally impossible (e.g., startup reconciliation — container is verifiably absent from Docker) can set allow_immediate_fail=True to bypass two-strike. Additionally, the runner consults AgentRetryManager before failing: if retries available, trigger retry instead.",
       "alternatives_considered": [
         "Advisory only (emit event, let caller decide) — rejected: existing code doesn't watch for health events, failure would be silently ignored",
-        "Always fail immediately (no retry) — rejected: some failures are transient, retrying is cheaper than failing the whole pipeline",
-        "Separate RETRY action — implemented: checks can return Action.RETRY explicitly to request retry without FAIL"
+        "Always fail immediately (no delay) — rejected: false positives destroy in-progress work",
+        "Require Tier 1 AND Tier 2 confirmation — rejected: over-constrains Tier 1 checks that are deterministic and don't need LLM confirmation",
+        "Fixed time delay (e.g., 60 seconds) — rejected: trigger-based delay is more natural and adapts to pipeline pace"
       ]
     },
     {
       "id": "TD-8",
       "decision": "Inspector failures treated as DEGRADED/CONTINUE, not blocking",
-      "rationale": "The agent inspector is a safety net, not a gate. If the LLM API is down, returns malformed output, or times out, the pipeline should not be blocked. Returning DEGRADED with CONTINUE means the failure is logged and visible in health check results but doesn't prevent phase advancement. This avoids a scenario where Anthropic API outage blocks all pipelines.",
+      "rationale": "The agent inspector is a safety net, not a gate. If the LLM API is down, returns malformed output, or times out, the pipeline should not be blocked. Returning DEGRADED with CONTINUE means the failure is logged and visible but doesn't prevent phase advancement.",
       "alternatives_considered": [
         "Block on inspector failure — rejected: makes pipeline availability dependent on LLM API availability",
         "Skip silently — rejected: losing visibility into inspector failures hinders debugging"
+      ]
+    },
+    {
+      "id": "TD-9",
+      "decision": "HEALTH_CHECK_MODE environment variable (enforce/observe/disabled) as operational kill-switch",
+      "rationale": "REVISION v2: Addresses REC-4. Provides operational control without code changes. 'enforce' applies all FAIL_PIPELINE actions (with two-strike). 'observe' emits events and persists results but never mutates pipeline state — all FAIL_PIPELINE/RETRY actions downgraded to ALERT. 'disabled' skips all health checks. Default is 'enforce'. For initial production rollout, operators can start with 'observe' to build confidence, then graduate to 'enforce'. The env var follows the existing codebase pattern: os.environ.get('HEALTH_CHECK_MODE', 'enforce').lower().",
+      "alternatives_considered": [
+        "Per-pipeline configuration flag — rejected: adds pipeline config complexity; env var is simpler for operational control",
+        "Feature flag service — rejected: no feature flag infrastructure exists in the orchestrator",
+        "Code-level boolean — rejected: requires redeploy to change; env var can be changed with container restart"
+      ]
+    },
+    {
+      "id": "TD-10",
+      "decision": "Exception isolation at every layer — runner catches per-check exceptions, integration sites catch runner exceptions",
+      "rationale": "REVISION v2: Addresses REC-3. Health checks are a safety net. An unhandled exception in a health check must NEVER crash _run_pipeline(), the container monitor, or the HTTP server. Defense-in-depth: (1) The runner wraps each individual check execution in try/except and returns DEGRADED/CONTINUE for failed checks. (2) Every integration site (cli.py, container_monitor.py, multi_agent.py, pipelines.py) wraps its run_checks() call in try/except with logging and fallback behavior. This provides two layers of protection against unexpected exceptions.",
+      "alternatives_considered": [
+        "Runner-level isolation only — rejected: defense-in-depth is better; a bug in the runner itself should also be caught",
+        "Integration-site isolation only — rejected: individual check exceptions should be isolated from each other within a single run_checks() call"
+      ]
+    },
+    {
+      "id": "TD-11",
+      "decision": "Per-pipeline AgentCircuitBreaker instances in runner, not shared global",
+      "rationale": "REVISION v2: Addresses RISK-8. AgentCircuitBreaker in shared/egg_contracts/agent_recovery.py is NOT thread-safe (no locking). The orchestrator's own CircuitBreaker in resilience.py IS thread-safe but has different semantics (service-level, not agent-level). Solution: the runner stores per-pipeline AgentCircuitBreaker instances in _circuit_breakers[pipeline_id]. These are accessed only during _apply_result() under the per-pipeline lock (get_pipeline_state_lock), eliminating concurrent access to any single instance. Instances are cleaned up when a pipeline completes or fails.",
+      "alternatives_considered": [
+        "Add threading.Lock to AgentCircuitBreaker — rejected: upstream change to shared library for a single consumer",
+        "Use orchestrator's thread-safe CircuitBreaker — rejected: different semantics (tracks service health, not per-pipeline agent health)",
+        "Skip circuit breaker consultation — rejected: valuable to bridge health checks and recovery system"
+      ]
+    },
+    {
+      "id": "TD-12",
+      "decision": "Ship as single PR with HEALTH_CHECK_MODE as the rollout safety mechanism",
+      "rationale": "REVISION v2: Acknowledges REC-1 (2-PR split recommendation). We ship as a single PR because: (1) The HealthCheck interface is designed for both tiers — shipping Tier 1 alone risks needing interface adjustments for Tier 2. (2) HEALTH_CHECK_MODE=observe provides the same production safety as a staged PR rollout — deploy everything, start in observe mode, graduate to enforce. (3) Tier 2 adds exactly 2 files (llm_client.py, agent_inspector.py) — splitting adds coordination overhead for minimal risk reduction. (4) Integration wiring in Phase 7 is identical regardless of which checks are registered. If review capacity is a concern, the PR can be reviewed in two passes: core+Tier1 first, then Tier2.",
+      "alternatives_considered": [
+        "2-PR split (Tier 1 first, Tier 2 second) — considered per REC-1; rejected for reasons above, but valid if team prefers it"
       ]
     }
   ],
@@ -520,10 +586,10 @@
     {
       "id": "risk-1",
       "category": "Integration complexity",
-      "description": "routes/pipelines.py is 5543 lines and the central orchestration point. Wiring health check triggers into _run_pipeline() requires surgical changes to a complex control flow with review cycles, phase transitions, and error handling.",
+      "description": "routes/pipelines.py is 5543 lines and the central orchestration point. Wiring health check triggers into _run_pipeline() requires surgical changes. execute_all_waves() at line 3260 is currently called WITHOUT an on_wave_complete callback — adding one changes the calling pattern.",
       "likelihood": "medium",
       "impact": "high",
-      "mitigation": "Keep integration points minimal — single runner.run_checks() calls at well-defined lifecycle events. The runner encapsulates all complexity. Integration sites pass trigger and context only. No structural changes to _run_pipeline()."
+      "mitigation": "Keep integration points minimal — single runner.run_checks() calls at well-defined lifecycle events. All integration sites wrapped in try/except (TD-10). The on_wave_complete callback is already a defined parameter that defaults to None — passing it doesn't change execution behavior, it just activates unused code. No structural changes to _run_pipeline()."
     },
     {
       "id": "risk-2",
@@ -531,39 +597,63 @@
       "description": "Health checks run on lifecycle events from concurrent threads: RUNTIME_TICK from monitor thread, WAVE_COMPLETE from execution thread, ON_DEMAND from HTTP thread. Multiple checks trying to fail the same pipeline simultaneously could cause optimistic locking conflicts.",
       "likelihood": "medium",
       "impact": "medium",
-      "mitigation": "HealthCheckRunner uses per-pipeline locking (get_pipeline_state_lock) and optimistic versioning (expected_version) — same patterns as _reconcile_container_state() today. On VersionConflictError, reload pipeline and re-evaluate rather than retrying the state mutation blindly. Short-circuit if pipeline is already FAILED."
+      "mitigation": "HealthCheckRunner uses per-pipeline locking (get_pipeline_state_lock) and optimistic versioning (expected_version). On VersionConflictError, reload pipeline and check if already FAILED (short-circuit). Per-pipeline AgentCircuitBreaker instances accessed only under pipeline lock (TD-11). Checks are pure functions — no locks held during check execution, especially during Tier 2 LLM calls."
     },
     {
       "id": "risk-3",
       "category": "Performance",
-      "description": "Tier 1 checks run on every lifecycle event including 10-second runtime ticks. Slow checks (git operations on large repos) could delay the monitor loop and miss container failures.",
+      "description": "Tier 1 checks run on every lifecycle event including 10-second runtime ticks. Slow checks could delay the monitor loop.",
       "likelihood": "low",
       "impact": "medium",
-      "mitigation": "Lazy context assembly ensures expensive operations (git log, file reads) only run when accessed. Runtime tick checks (container liveness) only need in-memory state and Docker API — no git operations. Per-check timeout: 5s default for Tier 1. Phase output check (which needs git) only runs on PHASE_COMPLETE/WAVE_COMPLETE, not RUNTIME_TICK."
+      "mitigation": "Lazy context assembly — runtime tick checks only use in-memory state. Git operations only on PHASE_COMPLETE/WAVE_COMPLETE. 5s timeout per Tier 1 check. Performance test validates: 100 RUNTIME_TICK triggers < 1 second, no git operations."
     },
     {
       "id": "risk-4",
-      "category": "LLM reliability",
-      "description": "Tier 2 agent inspector depends on LLM API availability and response quality. API outage, malformed output, or incorrect verdict could impact pipeline operations.",
+      "category": "False positive pipeline termination",
+      "description": "A health check incorrectly returning FAIL_PIPELINE would terminate a healthy pipeline, destroying in-progress work. Particularly risky for phase output presence (slow git push) and Tier 2 (LLM misinterpretation).",
       "likelihood": "low",
-      "impact": "medium",
-      "mitigation": "Inspector failures → DEGRADED/CONTINUE (not blocking). 30-second timeout. JSON mode for structured output. Structured prompt with explicit verdict format reduces parsing failures. False positive rate managed by requiring high confidence for FAILED verdict."
+      "impact": "critical",
+      "mitigation": "REVISION v2: Three-layer protection. (1) Two-strike confirmation (TD-7): first FAIL_PIPELINE is recorded but not enforced; only repeated FAIL_PIPELINE from the same check on the next trigger is applied. Checks with allow_immediate_fail=True (container liveness, startup reconciliation — where the container is verified absent from Docker) bypass this. (2) PhaseOutputPresenceCheck checks local branch head first (TD-7 note) — if local has commits but remote doesn't, returns DEGRADED, not FAILED. (3) HEALTH_CHECK_MODE=observe (TD-9) for initial rollout — events emitted but no pipeline state mutations."
     },
     {
       "id": "risk-5",
+      "category": "LLM reliability",
+      "description": "Tier 2 agent inspector depends on LLM API availability and response quality.",
+      "likelihood": "low",
+      "impact": "medium",
+      "mitigation": "Inspector failures → DEGRADED/CONTINUE (non-blocking per TD-8). 30-second timeout. JSON mode for structured output. LLM prompt instructs to err on side of DEGRADED over FAILED. Two-strike confirmation means even a false FAILED from Tier 2 requires repetition before enforcement."
+    },
+    {
+      "id": "risk-6",
       "category": "Backward compatibility",
       "description": "Migrating startup reconciliation and container monitor to the new interface could change observable behavior (error messages, state mutation timing, event emission).",
       "likelihood": "low",
       "impact": "low",
-      "mitigation": "Preserve exact error messages. Add comparison tests: run original function and migrated check on same input, verify same pipeline state mutations. Keep original functions as deprecated wrappers during transition."
+      "mitigation": "Preserve exact error messages. Behavioral equivalence tests compare original function output with migrated check output on same input. Keep original functions as deprecated wrappers."
     },
     {
-      "id": "risk-6",
+      "id": "risk-7",
+      "category": "Exception propagation from health checks",
+      "description": "REVISION v2 addition. An unhandled exception in a health check could crash _run_pipeline(), the container monitor thread, or an HTTP handler, causing wider pipeline failures than the check was meant to prevent.",
+      "likelihood": "medium",
+      "impact": "high",
+      "mitigation": "Two-layer exception isolation (TD-10). (1) Runner catches per-check exceptions and returns synthetic DEGRADED/CONTINUE. (2) Every integration site wraps run_checks() in try/except with logging. Startup and container monitor integration sites fall back to original functions on exception."
+    },
+    {
+      "id": "risk-8",
+      "category": "Circuit breaker thread safety",
+      "description": "REVISION v2 addition per RISK-8 from risk analyst. AgentCircuitBreaker in shared/egg_contracts/agent_recovery.py is NOT thread-safe — no locking on state transitions or counter mutations. If accessed from multiple threads, failure_count and state could be corrupted.",
+      "likelihood": "medium",
+      "impact": "low",
+      "mitigation": "Per-pipeline instances stored in runner._circuit_breakers (TD-11). Each instance accessed only under per-pipeline lock during _apply_result(). No concurrent access to any single instance. Instances cleaned up on pipeline completion/failure."
+    },
+    {
+      "id": "risk-9",
       "category": "Cost",
-      "description": "Tier 2 agent inspector makes LLM API calls at phase boundaries. In a multi-phase pipeline with review cycles, this could accumulate non-trivial costs.",
+      "description": "Tier 2 agent inspector makes LLM API calls at phase boundaries. With review cycles, costs could accumulate.",
       "likelihood": "low",
       "impact": "low",
-      "mitigation": "Use Haiku (cheapest model). Typical pipeline: 3-4 phases × 1 PHASE_COMPLETE each = 3-4 Haiku calls. At ~$0.001/call, total cost per pipeline is under $0.01. DEGRADED escalation at WAVE_COMPLETE adds occasional extra calls. Configurable model and can disable Tier 2 per pipeline if needed."
+      "mitigation": "Haiku at ~$0.001/call. Typical pipeline: 3-4 PHASE_COMPLETE calls. Two-strike means most Tier 2 calls produce HEALTHY and don't trigger additional actions. Can disable Tier 2 via HEALTH_CHECK_MODE=disabled or by not setting ANTHROPIC_API_KEY."
     }
   ],
 
@@ -576,7 +666,10 @@
     "Network mode awareness: Tier 2 inspector works in both public and private modes (Anthropic API available in both via gateway proxy)",
     "Each HealthCheck must be independently testable with mock PipelineHealthContext — no singleton access to Docker or state store inside check logic",
     "HealthCheckRunner must be thread-safe — concurrent triggers from monitor, execution, and HTTP threads",
-    "No new EventType needed — use existing EventType.HEALTH_CHECK with structured data payload"
+    "No new EventType needed — use existing EventType.HEALTH_CHECK with structured data payload",
+    "Two-strike confirmation required for FAIL_PIPELINE actions (except allow_immediate_fail checks)",
+    "Exception isolation required at every integration site — health check failures must NEVER propagate to _run_pipeline(), container monitor, or HTTP handlers",
+    "HEALTH_CHECK_MODE environment variable must be respected at runtime — enforce/observe/disabled"
   ],
 
   "open_questions_resolved": [
@@ -586,7 +679,7 @@
     },
     {
       "question": "Should FAIL_PIPELINE action be automatic or advisory?",
-      "resolution": "Automatic but consulted against retry logic (TD-7). Runner checks AgentRetryManager before failing — retries first if available."
+      "resolution": "Automatic with two-strike confirmation (TD-7, revised per REC-2). First FAIL_PIPELINE is recorded but downgraded to ALERT. Repeated FAIL_PIPELINE from same check on next trigger is enforced. Checks with allow_immediate_fail=True bypass two-strike. Runner also consults AgentRetryManager before failing — retries first if available."
     },
     {
       "question": "Where should health check results be persisted?",
@@ -598,7 +691,89 @@
     },
     {
       "question": "Should health checks interact with AgentRetryManager?",
-      "resolution": "Yes (TD-7). Runner consults retry/circuit-breaker logic before applying FAIL_PIPELINE. Bridges health check and recovery systems."
+      "resolution": "Yes (TD-7). Runner consults retry/circuit-breaker logic before applying FAIL_PIPELINE. Per-pipeline AgentCircuitBreaker instances avoid thread-safety issues (TD-11)."
+    },
+    {
+      "question": "How to prevent false positive pipeline termination?",
+      "resolution": "Three-layer protection (risk-4 mitigation): (1) Two-strike confirmation with allow_immediate_fail override (TD-7). (2) PhaseOutputPresenceCheck checks local branch head first. (3) HEALTH_CHECK_MODE=observe for initial rollout (TD-9)."
+    },
+    {
+      "question": "How to ensure health checks don't crash pipeline execution?",
+      "resolution": "Two-layer exception isolation (TD-10): runner catches per-check exceptions, integration sites catch runner exceptions. Startup and container monitor fall back to original functions on exception."
+    },
+    {
+      "question": "How to safely roll out the health check framework?",
+      "resolution": "HEALTH_CHECK_MODE environment variable (TD-9): start with 'observe' (emit events, no state mutations), graduate to 'enforce' once confidence is established. 'disabled' turns off entirely."
+    },
+    {
+      "question": "Should the implementation be split into 2 PRs (Tier 1 first, Tier 2 second)?",
+      "resolution": "Single PR (TD-12). HEALTH_CHECK_MODE=observe provides the same rollout safety as staged PRs. Interface designed for both tiers from the start. Tier 2 is only 2 files with well-isolated scope. If review capacity is a concern, the PR can be reviewed in two logical passes."
     }
-  ]
+  ],
+
+  "review_feedback_addressed": {
+    "critical_1_fail_pipeline_two_strike": {
+      "status": "addressed",
+      "feedback": "TASK-1-4 (runner) should include a 'two-strike' confirmation mechanism for FAIL_PIPELINE actions. PhaseOutputPresenceCheck (TASK-5-1) should check LOCAL branch head first.",
+      "changes": [
+        "TD-7 revised: two-strike confirmation is now integral to HealthCheckRunner design. _pending_failures dict tracks (pipeline_id, check_name) -> first failure. Second FAIL_PIPELINE from same check on next trigger enforces.",
+        "HealthCheck base class gains allow_immediate_fail property (default False). StartupReconciliationCheck and ContainerLivenessCheck set allow_immediate_fail=True (container verified absent from Docker — false positive impossible).",
+        "PhaseOutputPresenceCheck (phase-6) now checks local branch head first via context.local_branch_head. If local has commits but remote doesn't, returns DEGRADED (push may be in progress), not FAILED.",
+        "PipelineHealthContext gains local_branch_head lazy property."
+      ]
+    },
+    "high_2_exception_isolation": {
+      "status": "addressed",
+      "feedback": "Every call to run_checks() at integration sites must be wrapped in try/except. Runner should catch exceptions from individual checks.",
+      "changes": [
+        "TD-10 added: two-layer exception isolation. Runner catches per-check exceptions. Integration sites catch runner exceptions.",
+        "TASK-1-4 (phase-2, runner): runner wraps each individual check in try/except, returns synthetic DEGRADED/CONTINUE on exception.",
+        "Phase 7 (phase-11, lifecycle wiring): every integration site (cli.py, container_monitor.py, multi_agent.py, pipelines.py) explicitly wraps run_checks() in try/except with logging. cli.py and container_monitor.py fall back to original functions on exception.",
+        "Acceptance criteria on all Phase 7 tasks now explicitly require: 'Health check exceptions are caught and logged at the integration site; they never propagate to the pipeline execution thread.'"
+      ]
+    },
+    "medium_3_kill_switch": {
+      "status": "addressed",
+      "feedback": "HEALTH_CHECK_MODE environment variable (enforce/observe/disabled) for safe production rollout.",
+      "changes": [
+        "TD-9 added: HEALTH_CHECK_MODE with three modes. Default is 'enforce'. 'observe' emits events but never mutates pipeline state. 'disabled' skips all checks.",
+        "HealthCheckMode enum added to types.py (phase-1).",
+        "HealthCheckRunner reads HEALTH_CHECK_MODE in run_checks() (phase-2).",
+        "Integration tests verify all three modes (phase-13)."
+      ]
+    },
+    "minor_documentation": {
+      "status": "addressed",
+      "feedback": "Plan does not mention documentation updates for the new POST endpoint.",
+      "changes": [
+        "Phase 11 (lifecycle wiring): health.py task includes 'Document the endpoint with docstring describing request/response format.'"
+      ]
+    },
+    "minor_circuit_breaker_thread_safety": {
+      "status": "addressed",
+      "feedback": "RISK-8 (AgentCircuitBreaker not thread-safe) not addressed.",
+      "changes": [
+        "TD-11 added: per-pipeline AgentCircuitBreaker instances accessed only under per-pipeline lock.",
+        "risk-8 added to risk table.",
+        "Codebase research confirmed: AgentCircuitBreaker has NO locking, IS NOT used in production. Orchestrator's own CircuitBreaker in resilience.py IS thread-safe but has different semantics."
+      ]
+    },
+    "minor_2pr_split": {
+      "status": "addressed",
+      "feedback": "Plan should acknowledge the 2-PR split decision and justify it.",
+      "changes": [
+        "TD-12 added with explicit justification for single-PR approach.",
+        "recommended_approach.single_pr_justification field added with detailed reasoning.",
+        "Acknowledges REC-1 is valid alternative if team prefers it."
+      ]
+    },
+    "minor_test_coverage": {
+      "status": "addressed",
+      "feedback": "Phase 8 tests should include exception isolation tests and RUNTIME_TICK performance test.",
+      "changes": [
+        "Phase 12 (unit tests): runner tests now include exception isolation test (check raising exception produces DEGRADED/CONTINUE), HEALTH_CHECK_MODE tests, two-strike confirmation tests.",
+        "Phase 13 (integration tests): explicit exception isolation tests for each integration site, performance test (100 RUNTIME_TICK < 1s), HEALTH_CHECK_MODE integration tests."
+      ]
+    }
+  }
 }
