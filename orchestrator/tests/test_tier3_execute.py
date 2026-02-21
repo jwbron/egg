@@ -137,9 +137,9 @@ class TestRunTier3ImplementSequential:
         )
 
         assert exit_code == 0
-        # Should have called spawn for: coder + tester + reviewer for each of 2 phases
-        # plus integrator at the end = 2 * 3 + 1 = 7
-        assert mock_spawn.call_count == 7
+        # Should have called spawn for: coder + tester + documenter + checker + reviewer
+        # for each of 2 phases plus integrator at the end = 2 * 5 + 1 = 11
+        assert mock_spawn.call_count == 11
 
     @patch("pipelines._spawn_and_wait")
     @patch("pipelines._read_review_verdict")
@@ -226,9 +226,9 @@ class TestRunTier3ImplementSequential:
         """Reviewer rejection triggers a coder retry within the same phase."""
         self._make_contract_with_phases(tmp_path, phase_count=1)
         mock_spawn.return_value = (0, "agent logs")
-        # First review: rejected, second: approved
+        # First review: needs_revision, second: approved
         mock_read_verdict.side_effect = [
-            ReviewVerdict(verdict="rejected", feedback="Fix types"),
+            ReviewVerdict(verdict="needs_revision", feedback="Fix types"),
             ReviewVerdict(verdict="approved"),
         ]
         mock_read_feedback.return_value = "Fix types"
@@ -256,11 +256,11 @@ class TestRunTier3ImplementSequential:
         )
 
         assert exit_code == 0
-        # retry=0: coder + tester + reviewer = 3
-        # retry=1: coder + tester + reviewer = 3
+        # retry=0: coder + tester + documenter + checker + reviewer = 5
+        # retry=1: coder + tester + documenter + checker + reviewer = 5
         # integrator = 1
-        # total = 7
-        assert mock_spawn.call_count == 7
+        # total = 11
+        assert mock_spawn.call_count == 11
 
     @patch("pipelines._spawn_and_wait")
     @patch("pipelines._read_review_verdict")
@@ -364,6 +364,8 @@ class TestRunTier3ImplementSequential:
         mock_spawn.side_effect = [
             (0, "coder logs"),  # coder
             (0, "tester logs"),  # tester
+            (0, "documenter logs"),  # documenter
+            (0, "checker logs"),  # checker
             (0, "review logs"),  # reviewer
             (1, "integrator fail"),  # integrator
         ]
@@ -483,8 +485,8 @@ class TestRunTier3ImplementParallel:
         )
 
         assert exit_code == 0
-        # 2 phases * 3 agents + 1 integrator = 7
-        assert mock_spawn.call_count == 7
+        # 2 phases * 5 agents (coder+tester+documenter+checker+reviewer) + 1 integrator = 11
+        assert mock_spawn.call_count == 11
 
     def _make_diamond_phases(self, tmp_path: Path):
         """Create contract with diamond dependency pattern."""
@@ -561,8 +563,8 @@ class TestRunTier3ImplementParallel:
         )
 
         assert exit_code == 0
-        # 4 phases * 3 agents + 1 integrator = 13
-        assert mock_spawn.call_count == 13
+        # 4 phases * 5 agents (coder+tester+documenter+checker+reviewer) + 1 integrator = 21
+        assert mock_spawn.call_count == 21
 
 
 class TestReadReviewVerdict:
@@ -708,8 +710,8 @@ class TestRetryExhaustion:
         """Exhausting all review retries without approval returns exit code 1."""
         self._make_contract(tmp_path)
         mock_spawn.return_value = (0, "agent logs")
-        # Reviewer always rejects
-        mock_read_verdict.return_value = ReviewVerdict(verdict="rejected", feedback="Needs work")
+        # Reviewer always requests revision
+        mock_read_verdict.return_value = ReviewVerdict(verdict="needs_revision", feedback="Needs work")
         mock_read_feedback.return_value = "Needs work"
         mock_read_draft.return_value = "# Plan"
 
@@ -729,8 +731,8 @@ class TestRetryExhaustion:
         )
 
         assert exit_code == 1
-        # 3 cycles (0, 1, 2) * 3 agents (coder, tester, reviewer) = 9 spawns
-        assert mock_spawn.call_count == 9
+        # 3 cycles (0, 1, 2) * 5 agents (coder, tester, documenter, checker, reviewer) = 15
+        assert mock_spawn.call_count == 15
 
 
 class TestCancelEventParallelCancellation:
@@ -842,7 +844,7 @@ class TestCancelEventParallelCancellation:
 
         assert exit_code == 1
         # The failing phase spawned 1 coder. The sibling may have spawned
-        # its coder concurrently, but should not proceed to tester/reviewer
-        # once cancel_event is set. Total spawns should be less than the
-        # full 6 (2 phases * 3 agents).
-        assert mock_spawn.call_count < 6
+        # its coder concurrently, but should not proceed past tester/documenter/
+        # checker/reviewer once cancel_event is set. Total spawns should be
+        # less than the full 10 (2 phases * 5 agents).
+        assert mock_spawn.call_count < 10

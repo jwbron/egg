@@ -2363,9 +2363,11 @@ def _run_tier3_implement(
     """Run Tier 3 phase-level dispatch for the implement phase.
 
     Loops through plan phases in dependency order, running a full
-    coder -> tester -> documenter -> checker -> reviewers (code + contract)
-    cycle for each phase's tasks. If reviewers reject, the coder retries
-    within that phase. After all phases, an integrator runs once.
+    coder -> tester -> documenter -> checker -> code reviewer cycle for
+    each phase's tasks. If the code reviewer rejects, the coder retries
+    within that phase. Contract review runs once in the outer pipeline
+    loop after all phases complete. After all phases, an integrator runs
+    once.
 
     Args:
         pipeline_id: Pipeline ID
@@ -2446,8 +2448,8 @@ def _run_tier3_implement(
     def _run_single_phase_cycle(phase_id: str) -> tuple[int, list[str]]:
         """Run a single phase implementation cycle.
 
-        Runs coder -> tester -> documenter -> checker -> reviewers (code +
-        contract in parallel) for each plan phase, retrying on rejection.
+        Runs coder -> tester -> documenter -> checker -> code reviewer for
+        each plan phase, retrying on rejection.
 
         Checks ``cancel_event`` before each container spawn so that parallel
         phases can abort early when a sibling phase fails.
@@ -2473,8 +2475,25 @@ def _run_tier3_implement(
 
         phase_env = {**sandbox_env, "EGG_PLAN_PHASE_ID": phase_id}
         prior_feedback: str | None = None  # Combined reviewer feedback from prior cycle
+        last_reviewed_commit: str | None = None  # HEAD before the previous cycle's coder
 
         for retry in range(max_retries + 1):
+            # Capture HEAD before coder runs so reviewers on the next
+            # retry can diff against this commit (delta reviews).
+            cycle_head: str | None = None
+            try:
+                _head_result = subprocess.run(
+                    ["git", "rev-parse", "HEAD"],
+                    capture_output=True,
+                    text=True,
+                    cwd=str(worktree_repo_path),
+                    timeout=10,
+                )
+                if _head_result.returncode == 0:
+                    cycle_head = _head_result.stdout.strip()
+            except Exception:
+                pass
+
             # --- CODER ---
             coder_prompt = _build_phase_scoped_prompt(
                 phase_obj=phase_obj,
@@ -2730,7 +2749,7 @@ def _run_tier3_implement(
                     error=str(e),
                 )
 
-            # --- REVIEWERS (code + contract) in parallel ---
+            # --- CODE REVIEWER ---
             if cancel_event.is_set():
                 phase_logs.append(f"--- reviewers ({phase_id}, retry={retry}) cancelled ---")
                 return 1, phase_logs
@@ -2744,6 +2763,7 @@ def _run_tier3_implement(
                 *,
                 _retry=retry,
                 _prior_feedback=prior_feedback,
+                _last_reviewed_commit=last_reviewed_commit,
                 _reviewer_exits=reviewer_exits,
                 _reviewer_logs_map=reviewer_logs_map,
             ) -> None:
@@ -2756,6 +2776,7 @@ def _run_tier3_implement(
                     review_cycle=_retry + 1,
                     prior_feedback=_prior_feedback,
                     repo_path=str(worktree_repo_path),
+                    last_reviewed_commit=_last_reviewed_commit,
                     plan_phase_id=phase_id,
                 )
                 try:
@@ -2851,6 +2872,7 @@ def _run_tier3_implement(
                     retry=retry,
                 )
                 prior_feedback = combined_feedback
+                last_reviewed_commit = cycle_head
                 continue
             else:
                 logger.warning(
@@ -4472,7 +4494,8 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                     break
 
                 # 2. Combined check-and-fix (implement phase only)
-                if current_phase.value == "implement":
+                # Tier 3 already runs checker per-phase, so skip here.
+                if current_phase.value == "implement" and not use_tier3:
                     # Look up configured check commands for this repo
                     repo_checks: list[dict] | None = None
                     if pipeline.repo:
