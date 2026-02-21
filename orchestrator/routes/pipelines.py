@@ -4391,11 +4391,16 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
             try:
                 # Request repos in owner/repo format if available, else bare names
                 wt_repos = pipeline_repos if pipeline_repos else list(host_repo_map.keys())
+                # Use origin/main as base to ensure worktrees start from a clean
+                # default branch.  Defaulting to HEAD is unsafe because the main
+                # repo's HEAD may point to a feature branch, polluting the
+                # worktree with commits from prior pipelines.  See #860.
                 wt_result = spawner.gateway.create_worktrees(
                     container_id=worktree_id,
                     repos=wt_repos,
                     uid=host_uid,
                     gid=host_gid,
+                    base_branch="origin/main",
                 )
 
                 if wt_result.success and wt_result.worktrees:
