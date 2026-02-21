@@ -316,6 +316,31 @@ GET /api/v1/repos/visibility
   Description: Get repository visibility information (public/private)
 ```
 
+### Checkpoint Operations
+
+The checkpoint API provides read access to agent session checkpoints stored on the `egg/checkpoints/v2` branch. These endpoints enable checkpoint access in the sandbox when checkpoints are stored in an external repository.
+
+```
+GET /api/v1/checkpoints
+  Query: ?repo_path=<path>&issue=<n>&pr=<n>&branch=<name>&session=<id>
+         &trigger=<type>&status=<status>&agent_type=<type>&phase=<phase>
+         &pipeline=<id>&repo=<owner/repo>&limit=<n>
+  Policy: session_auth
+  Description: List checkpoint summaries with optional filters (default limit: 50)
+
+GET /api/v1/checkpoints/cost
+  Query: ?repo_path=<path>&pipeline=<id>&issue=<n>&pr=<n>&limit=<n>
+  Policy: session_auth
+  Description: Get cost breakdown (token usage and USD) for matching checkpoints
+  Response: {checkpoint_count, total_input_tokens, total_output_tokens, total_cost_usd, breakdown[]}
+
+GET /api/v1/checkpoints/<identifier>
+  Path: identifier (checkpoint ID or commit SHA)
+  Query: ?repo_path=<path>
+  Policy: session_auth
+  Description: Get full checkpoint details by ID (ckpt-...) or commit SHA
+```
+
 ### Git Execute
 
 ```
