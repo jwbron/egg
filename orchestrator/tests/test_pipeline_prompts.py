@@ -1177,10 +1177,14 @@ class TestSummarizeIssueEdgeCases:
     """Edge cases for _summarize_issue() not covered by the coder's tests."""
 
     def test_whitespace_only_prompt(self):
-        """Whitespace-only prompt produces a background with empty title."""
-        # prompt.strip() yields "" but the truthy check passes the non-empty str
+        """Whitespace-only prompt gets the same fallback as None."""
         result = _summarize_issue("   \n\n  \t  ")
-        assert "**Background**:" in result
+        assert result == ""
+
+    def test_whitespace_only_prompt_with_issue(self):
+        """Whitespace-only prompt with issue_number gets the same fallback as None."""
+        result = _summarize_issue("   \n\n  \t  ", issue_number=42)
+        assert result == "Working on issue #42."
 
     def test_title_only_no_paragraph(self):
         """Prompt with only a title and no body paragraph."""

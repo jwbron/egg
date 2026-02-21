@@ -1101,7 +1101,7 @@ def _summarize_issue(prompt: str | None, issue_number: int | None = None) -> str
     Extracts the first markdown heading (or first non-empty line) as the title,
     then the first paragraph as supporting context.
     """
-    if not prompt:
+    if not prompt or not prompt.strip():
         return f"Working on issue #{issue_number}." if issue_number else ""
 
     lines = prompt.strip().splitlines()
@@ -3319,7 +3319,10 @@ def _run_multi_agent_phase(
     # Get pipeline mode
     pipeline_mode = pipeline.mode or "issue"
 
-    # Build agent-specific prompts for all roles in this phase
+    # Build agent-specific prompts for all roles in this phase.
+    # Note: phase_obj / all_phases are not passed here because Tier 2
+    # dispatch has no contract phases. _build_role_context() handles this
+    # gracefully — execution roles still get a summarized background.
     roles = get_roles_for_phase(phase, include_reviewers=False)
     agent_prompts_by_role: dict = {}
     for contract_role in roles:
