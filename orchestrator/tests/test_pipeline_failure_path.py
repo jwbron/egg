@@ -378,3 +378,148 @@ class TestWorktreeCreationFailure:
 
         # _spawn_and_wait should NOT have been called — we failed before reaching it
         mock_spawn_wait.assert_not_called()
+
+
+class TestSuccessPathPushesStatefiles:
+    """Verify push_worktree_branch is called after successful phase completion
+    to push .egg-state/ files to the remote before the next phase begins."""
+
+    @patch("routes.pipelines._commit_statefiles_to_worktree")
+    @patch(_COMMON_PATCHES[7])
+    @patch(_COMMON_PATCHES[6])
+    @patch(_COMMON_PATCHES[5])
+    @patch(_COMMON_PATCHES[4])
+    @patch(_COMMON_PATCHES[3])
+    @patch(_COMMON_PATCHES[2])
+    @patch(_COMMON_PATCHES[1])
+    @patch(_COMMON_PATCHES[0])
+    def test_push_after_successful_phase(
+        self,
+        mock_emit,
+        mock_get_spawner,
+        mock_get_store,
+        mock_spawn_wait,
+        mock_state_lock,
+        mock_build_prompt,
+        mock_read_draft,
+        mock_report,
+        mock_commit_statefiles,
+    ):
+        """When a phase succeeds, push_worktree_branch should be called to push
+        statefiles to the remote so the next phase's agents don't see unpushed
+        .egg-state/ files in their diff."""
+        from routes.pipelines import WORKTREE_BASE_DIR, _run_pipeline
+
+        # Use PR phase (terminal) so the pipeline completes after one iteration
+        pipeline = Pipeline(
+            id="issue-42",
+            issue_number=42,
+            repo="owner/repo",
+            branch="egg/issue-42",
+            mode="issue",
+            status=PipelineStatus.RUNNING,
+            current_phase=PipelinePhase.PR,
+        )
+        pipeline.contract_synced = True
+        execution = pipeline.get_phase_execution(PipelinePhase.PR)
+        execution.status = PipelineStatus.RUNNING
+        execution.started_at = datetime.utcnow()
+
+        mock_store, mock_gateway = _setup_mocks(
+            mock_report,
+            mock_read_draft,
+            mock_build_prompt,
+            mock_state_lock,
+            mock_spawn_wait,
+            mock_get_store,
+            mock_get_spawner,
+            mock_emit,
+            pipeline,
+        )
+
+        # Phase succeeds (exit code 0)
+        mock_spawn_wait.return_value = (0, "success")
+
+        worktree_dir = WORKTREE_BASE_DIR / "issue-42" / "repo"
+        mock_gateway.create_worktrees.return_value = MagicMock(
+            success=True,
+            worktrees={"repo": str(worktree_dir)},
+            errors=[],
+        )
+
+        with (
+            patch.dict(os.environ, {"EGG_HOST_REPO_MAP": '{"repo": "/host/repo"}'}, clear=False),
+            patch("pathlib.Path.exists", return_value=True),
+        ):
+            _run_pipeline("issue-42", Path("/repo"))
+
+        # Pipeline should complete successfully (PR is terminal phase)
+        assert pipeline.status == PipelineStatus.COMPLETE
+
+        # push_worktree_branch should have been called after phase completion
+        mock_gateway.push_worktree_branch.assert_called_with(
+            pipeline_id="issue-42",
+            repo_path=str(worktree_dir),
+            branch="egg/issue-42",
+        )
+
+    @patch("routes.pipelines._commit_statefiles_to_worktree")
+    @patch(_COMMON_PATCHES[7])
+    @patch(_COMMON_PATCHES[6])
+    @patch(_COMMON_PATCHES[5])
+    @patch(_COMMON_PATCHES[4])
+    @patch(_COMMON_PATCHES[3])
+    @patch(_COMMON_PATCHES[2])
+    @patch(_COMMON_PATCHES[1])
+    @patch(_COMMON_PATCHES[0])
+    def test_push_not_called_without_branch(
+        self,
+        mock_emit,
+        mock_get_spawner,
+        mock_get_store,
+        mock_spawn_wait,
+        mock_state_lock,
+        mock_build_prompt,
+        mock_read_draft,
+        mock_report,
+        mock_commit_statefiles,
+    ):
+        """When pipeline.branch is not set, push_worktree_branch should not be
+        called even on success."""
+        from routes.pipelines import _run_pipeline
+
+        pipeline = Pipeline(
+            id="issue-42",
+            issue_number=42,
+            repo="owner/repo",
+            branch=None,
+            mode="issue",
+            status=PipelineStatus.RUNNING,
+            current_phase=PipelinePhase.PR,
+        )
+        pipeline.contract_synced = True
+        execution = pipeline.get_phase_execution(PipelinePhase.PR)
+        execution.status = PipelineStatus.RUNNING
+        execution.started_at = datetime.utcnow()
+
+        mock_store, mock_gateway = _setup_mocks(
+            mock_report,
+            mock_read_draft,
+            mock_build_prompt,
+            mock_state_lock,
+            mock_spawn_wait,
+            mock_get_store,
+            mock_get_spawner,
+            mock_emit,
+            pipeline,
+        )
+
+        mock_spawn_wait.return_value = (0, "success")
+
+        with (
+            patch.dict(os.environ, {"EGG_HOST_REPO_MAP": '{"repo": "/host/repo"}'}, clear=False),
+            patch("pathlib.Path.exists", return_value=True),
+        ):
+            _run_pipeline("issue-42", Path("/repo"))
+
+        mock_gateway.push_worktree_branch.assert_not_called()
