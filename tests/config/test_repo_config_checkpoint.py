@@ -7,7 +7,16 @@ by the gateway to exempt checkpoint repos from private mode policy.
 
 import pytest
 
+import config.repo_config as repo_config_module
 from config.repo_config import get_all_checkpoint_repos, is_checkpoint_repo
+
+
+@pytest.fixture(autouse=True)
+def clear_checkpoint_cache():
+    """Clear the checkpoint repos cache before each test."""
+    repo_config_module._checkpoint_repos_cache = None
+    yield
+    repo_config_module._checkpoint_repos_cache = None
 
 
 class TestGetAllCheckpointRepos:

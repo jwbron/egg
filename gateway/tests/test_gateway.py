@@ -4536,6 +4536,51 @@ class TestCheckpointRepoBypass:
             assert response.status_code == 200
             mock_priv_check.assert_not_called()
 
+    def test_push_checkpoint_branch_bypasses_private_mode(self, client, session_auth_headers):
+        """Push to egg/checkpoints/v2 branch skips check_private_repo_access even for non-checkpoint repos."""
+        with (
+            patch("subprocess.run") as mock_run,
+            patch.object(gateway, "get_token_for_repo", return_value=("token", "bot", "")),
+            patch.object(gateway, "is_checkpoint_repo", return_value=False),
+            patch.object(gateway, "check_private_repo_access") as mock_priv_check,
+            patch.object(gateway, "get_policy_engine") as mock_policy,
+        ):
+
+            def run_side_effect(*args, **kwargs):
+                cmd = args[0] if args else kwargs.get("args", [])
+                result = MagicMock()
+                result.returncode = 0
+                result.stderr = ""
+                if "remote" in cmd and "get-url" in cmd:
+                    result.stdout = "https://github.com/owner/repo.git\n"
+                elif "push" in cmd:
+                    result.stdout = ""
+                else:
+                    result.stdout = ""
+                return result
+
+            mock_run.side_effect = run_side_effect
+
+            mock_engine = MagicMock()
+            mock_engine.check_branch_ownership.return_value = PolicyResult(
+                allowed=True, reason="allowed"
+            )
+            mock_policy.return_value = mock_engine
+
+            response = client.post(
+                "/api/v1/git/push",
+                headers=session_auth_headers,
+                data=json.dumps({
+                    "repo_path": "/home/egg/repos/test",
+                    "remote": "origin",
+                    "refspec": "egg/checkpoints/v2",
+                }),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 200
+            mock_priv_check.assert_not_called()
+
     def test_push_non_checkpoint_repo_still_checked(self, client, session_auth_headers):
         """Push to a non-checkpoint repo still calls check_private_repo_access."""
         from private_repo_policy import PrivateRepoPolicyResult

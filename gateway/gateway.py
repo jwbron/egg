@@ -569,16 +569,19 @@ def git_push() -> tuple[Response, int] | Response:
 
     repo_info = parse_owner_repo(repo)
     if repo_info:
-        # Checkpoint repos are infrastructure — always accessible regardless of session mode
-        if is_checkpoint_repo(repo_info.owner, repo_info.repo):
+        # Checkpoint operations are infrastructure — always accessible regardless of
+        # session mode. This covers both dedicated checkpoint repos and checkpoint
+        # branch pushes to the source repo itself.
+        if is_checkpoint_push or is_checkpoint_repo(repo_info.owner, repo_info.repo):
             audit_log(
-                "push_checkpoint_repo_exempt",
+                "push_checkpoint_exempt",
                 "git_push",
                 success=True,
                 details={
                     "repo": repo,
                     "branch": branch,
-                    "reason": "Checkpoint repo exempt from private mode policy",
+                    "reason": "Checkpoint operation exempt from private mode policy",
+                    "exempt_type": "checkpoint_repo" if is_checkpoint_repo(repo_info.owner, repo_info.repo) else "checkpoint_branch",
                 },
             )
         else:

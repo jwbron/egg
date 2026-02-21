@@ -32,6 +32,7 @@ Usage:
 """
 
 import os
+import time
 from pathlib import Path
 from typing import Any, cast
 
@@ -343,31 +344,52 @@ def get_checkpoint_repo(repo: str) -> str | None:
     return cast(str | None, get_repo_setting(repo, "checkpoint_repo", None))
 
 
-def get_all_checkpoint_repos() -> set[str]:
+_checkpoint_repos_cache: tuple[float, frozenset[str]] | None = None
+_CHECKPOINT_REPOS_TTL = 60  # seconds
+
+
+def get_all_checkpoint_repos() -> frozenset[str]:
     """Get the set of all configured checkpoint repositories.
 
     Scans all repo_settings entries and collects every checkpoint_repo value.
     Used by the gateway to exempt checkpoint repos from private mode policy.
 
+    Results are cached for 60 seconds to avoid redundant config file I/O
+    on every git request.
+
     Returns:
-        Set of checkpoint repo names in "owner/repo" format, lowercased.
-        Returns empty set if config cannot be loaded or has no checkpoint repos.
+        Frozenset of checkpoint repo names in "owner/repo" format, lowercased.
+        Returns empty frozenset if config cannot be loaded or has no checkpoint repos.
     """
+    global _checkpoint_repos_cache
+
+    now = time.monotonic()
+    if _checkpoint_repos_cache is not None:
+        cached_time, cached_result = _checkpoint_repos_cache
+        if now - cached_time < _CHECKPOINT_REPOS_TTL:
+            return cached_result
+
     try:
         config = _load_config()
     except Exception:
-        return set()
+        result: frozenset[str] = frozenset()
+        _checkpoint_repos_cache = (now, result)
+        return result
 
     repo_settings = config.get("repo_settings", {})
     if not isinstance(repo_settings, dict):
-        return set()
+        result = frozenset()
+        _checkpoint_repos_cache = (now, result)
+        return result
 
-    result: set[str] = set()
+    repos: set[str] = set()
     for settings in repo_settings.values():
         if isinstance(settings, dict):
             checkpoint_repo = settings.get("checkpoint_repo")
             if checkpoint_repo and isinstance(checkpoint_repo, str):
-                result.add(checkpoint_repo.lower())
+                repos.add(checkpoint_repo.lower())
+    result = frozenset(repos)
+    _checkpoint_repos_cache = (now, result)
     return result
 
 
