@@ -1,116 +1,107 @@
 {
-  "issue": 835,
+  "issue": 850,
   "phase": "plan",
   "agent": "architect",
-  "title": "Scope agent prompts to role-relevant context only",
-  "summary": "Architecture analysis for replacing the one-size-fits-all pipeline.prompt embedding with role-appropriate context in agent prompts. Currently every agent (tester, documenter, integrator, etc.) receives the full issue body verbatim, and Tier 3 phase-scoped coders receive the entire plan draft including other phases. The recommended approach introduces a _build_role_context() helper and a _summarize_issue() helper to provide each role with focused context while keeping full information accessible on demand via file paths and CLI commands.",
+  "title": "Holistic pipeline failure detection: programmatic checks + agent inspector",
+  "summary": "Architecture analysis for a two-tier health check framework that unifies existing ad-hoc failure detection mechanisms (startup reconciliation, container monitor, wave/review caps) under a common HealthCheck interface and adds new checks for phase output presence, state consistency, and LLM-based semantic health evaluation. The framework uses a HealthCheckRunner that dispatches checks at lifecycle trigger points and escalates from fast Tier 1 programmatic checks to Tier 2 agent inspection when structural checks flag degraded health.",
 
   "problem_statement": {
-    "description": "Every agent in the SDLC pipeline receives the full original issue body (pipeline.prompt) as 'Task Description', regardless of role. A tester gets the entire feature request narrative when it only needs to know what code changed and what to verify. A documenter gets technical constraints when it only needs to know what was built. In Tier 3 dispatch, the phase-scoped coder prompt embeds the entire plan draft even though the agent only implements one phase. This wastes context tokens and risks agents working outside their assigned scope.",
+    "description": "Pipeline failure detection consists of three isolated mechanisms that share no common abstraction and cannot detect semantic failures. startup_reconciliation.py detects containers missing after restart. container_monitor.py detects containers that exit/fail at runtime. max_waves/max_review_cycles provide blunt iteration caps. None of these can detect cases where infrastructure looks healthy but agents didn't accomplish meaningful work — the issue-835 post-mortem proved this: reviewers exited cleanly (code 0) but had nothing to review because coder work never reached the remote.",
     "goals": [
-      "Replace full issue body with 1-2 sentence background summary for scoped roles (tester, documenter, integrator)",
-      "Include 'For more context' pointers in every scoped prompt (gh issue view, cat .egg-state/drafts/...)",
-      "Provide tester prompts with task descriptions, acceptance criteria, and files_affected instead of raw issue body",
-      "Provide documenter prompts with implementation summary instead of raw issue body",
-      "Filter Tier 3 phase-scoped coder plan embedding to overview + current phase detail only",
-      "Provide integrator prompts with structured summary of all phases instead of raw issue body",
-      "Keep full issue body for architect/task_planner/risk_analyst (they need it for analysis)",
-      "Update existing prompt tests to reflect new context structure"
+      "Define a shared HealthCheck protocol with HealthResult (HEALTHY/DEGRADED/FAILED) and Action (CONTINUE/FAIL_PIPELINE/ALERT)",
+      "Migrate existing startup reconciliation and container monitor logic to implement the interface without rewriting their internals",
+      "Add Tier 1 checks for phase output presence (commits on remote, agent output files, contract fields) and state consistency (orchestrator vs Docker vs contract)",
+      "Add Tier 2 agent inspector that uses an LLM to evaluate whether meaningful progress was made",
+      "Wire trigger points into multi_agent.py (wave complete), routes/pipelines.py (phase complete, startup), and container_monitor.py (runtime tick)",
+      "Surface results through the existing EventBus/SSE system for observability"
     ]
   },
 
   "current_architecture": {
-    "_build_agent_prompt": {
-      "location": "orchestrator/routes/pipelines.py:1942-2240",
-      "mechanism": "Main dispatcher for role-specific prompts. Delegates CODER/REFINER to _build_phase_prompt(), REVIEWER_* to _build_review_prompt(). For all other roles (tester, documenter, integrator, architect, task_planner, risk_analyst), builds a shared context header, embeds pipeline.prompt verbatim under '## Task Description' (lines 2014-2018), then appends role-specific instructions.",
-      "key_issue": "The 'if prompt:' block at lines 2014-2018 unconditionally embeds the full issue body for ALL non-coder, non-reviewer roles. No role-based filtering of context content exists."
+    "startup_reconciliation": {
+      "location": "orchestrator/startup_reconciliation.py (143 lines)",
+      "mechanism": "reconcile_stale_containers(store, docker_client) runs once at boot in cli.py:cmd_serve(). Collects live Docker container IDs, compares against persisted RUNNING containers in all pipelines, marks missing ones FAILED.",
+      "test_coverage": "11 tests in test_startup_reconciliation.py",
+      "strengths": "Simple, deterministic, well-tested",
+      "limitations": "One-shot only — runs once at startup, not during runtime"
     },
-    "_build_phase_scoped_prompt": {
-      "location": "orchestrator/routes/pipelines.py:2243-2348",
-      "mechanism": "Builds Tier 3 coder prompts scoped to a single plan phase. Reads the full plan draft via _read_phase_draft() and embeds it in a markdown code block (lines 2293-2304). Then renders phase-specific task checklist (lines 2306-2320). Does NOT embed pipeline.prompt directly.",
-      "key_issue": "The plan embedding at lines 2302-2304 includes the ENTIRE plan draft. Other phases' detailed task lists, acceptance criteria, and file lists are included even though the coder should only see its own phase's details. The phase scope section (lines 2307-2320) correctly limits the task checklist, but the plan section above leaks all phases."
+    "container_monitor": {
+      "location": "orchestrator/container_monitor.py (442 lines)",
+      "mechanism": "ContainerMonitor runs a background thread polling Docker every 10 seconds. Emits ContainerEvent types (STARTED/STOPPED/FAILED/REMOVED). Has _reconcile_container_state() function that scans all RUNNING pipelines on FAILED events, marks containers and agents FAILED, uses optimistic locking.",
+      "wiring": "cli.py creates singleton, registers pipeline reconciliation handler via create_pipeline_reconciliation_handler(repo_path), starts the monitor thread",
+      "test_coverage": "12 tests in test_container_monitor.py",
+      "strengths": "Continuous monitoring, event-driven, thread-safe",
+      "limitations": "Only detects infrastructure failures (exit code != 0). Cannot detect semantic failures (exit code 0 but no meaningful work)"
     },
-    "_run_tier3_implement": {
-      "location": "orchestrator/routes/pipelines.py:2351-3033",
-      "mechanism": "Orchestrates Tier 3 phase-level dispatch. For each plan phase, runs coder -> tester -> documenter -> checker -> reviewer. After all phases, runs integrator.",
-      "tester_prompt_construction": "Lines 2555-2579: Calls _build_agent_prompt(prompt=pipeline.prompt, ...) which embeds full issue body, then appends phase scope lines with task list and files_affected.",
-      "documenter_prompt_construction": "Lines 2631-2642: Calls _build_agent_prompt(prompt=pipeline.prompt, ...) — gets full issue body with no additional phase scoping appended.",
-      "integrator_prompt_construction": "Lines 2961-2990: Calls _build_agent_prompt(prompt=pipeline.prompt, ...) then appends Tier 3-specific integration instructions with phase list."
-    },
-    "_run_multi_agent_phase": {
-      "location": "orchestrator/routes/pipelines.py:3062-3149",
-      "mechanism": "Standard (non-Tier 3) multi-agent execution. Loops over get_roles_for_phase() and calls _build_agent_prompt(prompt=pipeline.prompt, ...) for each role. Same issue — all roles get the full prompt.",
-      "key_code": "Lines 3106-3121: Iterates roles, calls _build_agent_prompt() with pipeline.prompt for every role."
-    },
-    "handoff_data_flow": {
-      "mechanism": "Handoff data flows via EGG_HANDOFF_DATA environment variable (set in multi_agent.py:160-169), NOT via prompts. Agents parse it at runtime. Contains changed_files, commits, and other outputs from upstream agents.",
-      "formatter": "orchestrator/handoffs.py:281-314 — format_handoff_for_prompt() exists but is not currently used to embed handoff data in prompts.",
-      "note": "The handoff mechanism is out of scope for this issue — it works correctly."
-    },
-    "test_coverage": {
-      "location": "orchestrator/tests/test_pipeline_prompts.py (738 lines)",
-      "classes_tested": [
-        "TestBuildCheckerPrompt — checker prompt modes (discovery vs explicit)",
-        "TestBuildAutofixPrompt — autofix prompt with/without repo",
-        "TestBuildCheckAndFixPrompt — combined checker+autofixer",
-        "TestBuildPhasePromptPlanEmbedding — plan/analysis embedding in implement phase",
-        "TestBuildPhasePromptRevisionMode — revision cycle behavior",
-        "TestReadSharedCriteria — shared file loading with user overrides",
-        "TestSharedPromptFileContent — shared criteria file content verification",
-        "TestRenderContractTasks — contract checklist rendering"
+    "wave_and_review_caps": {
+      "locations": [
+        "multi_agent.py:execute_all_waves() — max_waves=5 (hardcoded default)",
+        "models.py:PipelineConfig — max_review_cycles=3, max_hitl_review_cycles=3"
       ],
-      "gap": "No tests exist for _build_agent_prompt() role-specific context. No tests for _build_phase_scoped_prompt() plan filtering. No tests for Tier 3 tester/documenter prompt content."
+      "mechanism": "Blunt iteration caps that prevent infinite loops. max_waves stops wave execution after 5 iterations. max_review_cycles breaks the review cycle loop after 3 rejections.",
+      "limitations": "No nuance — treats all cap-hits the same regardless of reason. Cannot distinguish 'legitimate iteration' from 'stuck in a loop'"
+    },
+    "event_system": {
+      "location": "orchestrator/events.py (330 lines)",
+      "mechanism": "EventBus with pub/sub, async delivery, event history. EventType enum already includes HEALTH_CHECK (unused). Events flow to SSE clients via sse.py and unified_sse.py.",
+      "relevance": "Natural integration point for health check results"
+    },
+    "state_management": {
+      "location": "orchestrator/state_store.py, orchestrator/models.py",
+      "mechanism": "Git-backed state store with optimistic locking (version field). Pipeline model tracks phases, containers, agents, decisions. PhaseExecution tracks containers, agents, review cycles, artifacts.",
+      "relevance": "Health checks must respect optimistic locking. Read-only checks are safe; only the caller (not the check) should mutate state."
     }
   },
 
   "implementation_approaches": [
     {
       "id": "A",
-      "name": "_build_role_context() helper (recommended)",
-      "description": "Create a new _build_role_context(role, pipeline, phase_obj=None) function that returns role-appropriate context markdown. Create a companion _summarize_issue(title, body) function that extracts a 1-2 sentence summary. Replace the 'if prompt:' block in _build_agent_prompt() with a call to _build_role_context(). For _build_phase_scoped_prompt(), add plan filtering logic to show overview + current phase detail + one-line summaries of other phases.",
+      "name": "HealthCheck Protocol + HealthCheckRunner + adapter migration (recommended)",
+      "description": "Define a HealthCheck typing.Protocol with check(context) -> HealthResult. Create a HealthCheckRunner that manages registration, trigger-based dispatch, and Tier 1 -> Tier 2 escalation. Wrap existing reconciliation and container monitor in thin adapter classes. Add new Tier 1 checks and Tier 2 agent inspector as separate implementations. Wire triggers at lifecycle points.",
       "pros": [
-        "Single point of control for role-context mapping — easy to extend for new roles",
-        "Matches the design proposed in the issue",
-        "Clean separation: _build_role_context() handles what context; _build_agent_prompt() handles prompt structure",
-        "_summarize_issue() is reusable across all roles",
-        "Helper can be unit tested in isolation",
-        "Manageable diff size — modifies 3-4 functions, adds 2 helpers"
+        "Existing mechanisms preserved unchanged (23 tests remain valid)",
+        "Protocol enables structural subtyping — adapters, dataclasses, and functions all work",
+        "Explicit runner makes testing straightforward",
+        "Tier escalation logic is centralized and auditable",
+        "Natural extension point for future checks",
+        "Health check results flow through existing EventBus"
       ],
       "cons": [
-        "Requires parsing/summarizing the issue body, which may be fragile if formats vary",
-        "Introduces a new abstraction in already-complex prompt building code"
+        "Introduces a new package (health_checks/) and ~10 new files",
+        "Adapter indirection adds a thin layer over existing code",
+        "Runner must be threaded to all trigger points"
       ],
       "risk_level": "low"
     },
     {
       "id": "B",
-      "name": "Inline role-specific branches (no helper extraction)",
-      "description": "Expand the existing role-specific if/elif block in _build_agent_prompt() to include role-specific context before '## Your Task'. Move the 'if prompt:' block inside the conditional, so architect/task_planner/risk_analyst get the full body while scoped roles get inline summaries.",
+      "name": "Rewrite existing mechanisms as HealthCheck implementations",
+      "description": "Rewrite startup_reconciliation.py and container_monitor.py as native HealthCheck implementations. Remove the existing standalone functions and replace all call sites.",
       "pros": [
-        "Minimal structural change — no new functions",
-        "Easier initial review since changes are localized"
+        "Cleaner architecture — no adapter indirection",
+        "Single code path for all health checking"
       ],
       "cons": [
-        "_build_agent_prompt() is already 300 lines — adding context per role makes it harder to maintain",
-        "Plan filtering for Tier 3 would duplicate logic",
-        "Harder to test individual role context in isolation",
-        "Does not match the issue's proposed design"
+        "High risk — rewrites 23 passing tests worth of battle-tested code",
+        "Container monitor's background thread model doesn't naturally fit a check() method",
+        "startup_reconciliation's one-shot pattern conflicts with check() which implies repeatable execution",
+        "Large blast radius — all call sites in cli.py, container_monitor.py need updates"
       ],
-      "risk_level": "low"
+      "risk_level": "high"
     },
     {
       "id": "C",
-      "name": "Per-role prompt builder functions",
-      "description": "Create separate _build_tester_prompt(), _build_documenter_prompt(), _build_integrator_prompt() functions. Have _build_agent_prompt() dispatch to these.",
+      "name": "Decorator/registry pattern instead of explicit runner",
+      "description": "Use @health_check(tier=PROGRAMMATIC, triggers=[STARTUP]) decorators on check functions. A module-level registry collects them at import time. A run_checks(trigger) module function dispatches.",
       "pros": [
-        "Maximum clarity — each role's prompt is fully self-contained",
-        "Easy to test independently"
+        "Concise check definitions",
+        "No explicit registration code"
       ],
       "cons": [
-        "Significant duplication of shared prompt structure (header, restrictions, completion)",
-        "Much larger diff",
-        "Divergence risk — shared improvements must be applied to every builder",
-        "Over-engineering for a context-scoping change"
+        "Import-time side effects make testing harder",
+        "Difficult to configure differently in tests vs production",
+        "Module-level state couples check definitions to the registry",
+        "Harder to inject dependencies (docker_client, store) without globals"
       ],
       "risk_level": "medium"
     }
@@ -118,193 +109,500 @@
 
   "recommended_approach": {
     "id": "A",
-    "name": "_build_role_context() helper",
+    "name": "HealthCheck Protocol + HealthCheckRunner + adapter migration",
     "justification": [
-      "The refine analysis already recommended this approach, and it aligns with the issue's proposed design",
-      "Provides clean separation of concerns: context selection vs prompt structure",
-      "The _build_role_context() helper is independently testable, making it easy to verify each role gets the right context",
-      "The _summarize_issue() helper is simple — issue title + first paragraph truncated at ~200 chars. The issue states 'A few hundred extra tokens of useful background is fine'",
-      "Manageable scope: core changes in one file (pipelines.py), new tests in one file (test_pipeline_prompts.py)"
+      "Preserves existing battle-tested code without modification — adapter pattern eliminates rewrite risk",
+      "typing.Protocol is the idiomatic Python approach for structural interfaces",
+      "Explicit HealthCheckRunner is easily testable with mock checks and provides centralized escalation logic",
+      "Matches the issue's proposed design (shared HealthCheck interface, two tiers, trigger-based dispatch)",
+      "Natural integration with existing EventBus — HEALTH_CHECK event type was already defined for this purpose"
     ]
   },
 
-  "technical_design": {
-    "new_functions": {
-      "_summarize_issue": {
-        "signature": "_summarize_issue(title: str | None, body: str | None) -> str",
-        "behavior": "Returns a 1-2 sentence summary. Uses issue title as the first sentence. Extracts the first paragraph of the body (up to ~200 chars, truncated at sentence boundary). Returns empty string if both inputs are None.",
-        "location": "orchestrator/routes/pipelines.py (new, near other helpers around line 1090)",
-        "test_strategy": "Unit test with various issue bodies: short, long, markdown-heavy, empty"
-      },
-      "_build_role_context": {
-        "signature": "_build_role_context(role: str, pipeline: Pipeline, phase_obj=None, handoff_summary: str | None = None) -> str",
-        "behavior": "Returns role-appropriate context markdown for embedding in the prompt. Dispatch by role: (1) architect/task_planner/risk_analyst → returns pipeline.prompt verbatim (full issue body), (2) tester → returns summary + task descriptions with acceptance criteria + files_affected + 'For more context' pointers, (3) documenter → returns summary + implementation summary from handoff + files changed + 'For more context' pointers, (4) integrator → returns summary + structured phase summary + test results from handoff + 'For more context' pointers, (5) all others → returns summary + 'For more context' pointers.",
-        "location": "orchestrator/routes/pipelines.py (new, near other helpers around line 1090)",
-        "test_strategy": "Unit test each role path: verify contains expected sections, omits full issue body for scoped roles, includes full body for analysis roles"
+  "design_decisions": [
+    {
+      "id": "DD-1",
+      "title": "HealthCheck as Protocol, not ABC",
+      "decision": "Use typing.Protocol for the HealthCheck interface",
+      "rationale": "Protocol enables structural subtyping (duck typing), which lets existing functions be wrapped without inheritance. Both dataclass-based checks and simple function adapters can conform. This is the standard Python pattern for interfaces that don't need shared implementation."
+    },
+    {
+      "id": "DD-2",
+      "title": "Runner pattern over decorator/registry",
+      "decision": "Use an explicit HealthCheckRunner class with register() and run_checks() methods",
+      "rationale": "Explicit registration makes checks testable in isolation and avoids import-time side effects. The runner can be configured differently in tests vs production. Centralized trigger dispatch logic is auditable."
+    },
+    {
+      "id": "DD-3",
+      "title": "Preserve existing mechanisms, adapt via wrapper",
+      "decision": "Keep container_monitor.py and startup_reconciliation.py unchanged. Create thin adapter classes that implement HealthCheck by delegating to existing code.",
+      "rationale": "Both are well-tested (23 tests combined) and production-proven. Rewriting introduces unnecessary risk for no functional gain. The adapter pattern provides the unified interface without touching working internals."
+    },
+    {
+      "id": "DD-4",
+      "title": "Tier 2 uses direct API calls, not sandbox containers",
+      "decision": "The agent inspector calls Claude API via the Anthropic Python SDK directly from the orchestrator process",
+      "rationale": "Spawning a container for health evaluation takes 30+ seconds and creates recursive monitoring problems. Direct API calls are fast (~2-5s), lightweight, and don't require container infrastructure. The orchestrator has API access through the proxy."
+    },
+    {
+      "id": "DD-5",
+      "title": "Three-valued action enum",
+      "decision": "HealthResult.action uses CONTINUE | FAIL_PIPELINE | ALERT rather than binary pass/fail",
+      "rationale": "Many failure modes are ambiguous. DEGRADED state allows graduated response: log a warning, escalate to Tier 2, or notify operators — rather than immediately killing the pipeline. ALERT provides an intermediate action for human notification without pipeline failure."
+    },
+    {
+      "id": "DD-6",
+      "title": "Tier 2 gated by Tier 1 DEGRADED at WAVE_COMPLETE, unconditional at PHASE_COMPLETE",
+      "decision": "Limit Tier 2 to WAVE_COMPLETE (only when Tier 1 flags DEGRADED) and PHASE_COMPLETE (always)",
+      "rationale": "Each Tier 2 call costs ~$0.02-0.10 and takes 2-5 seconds. Running on every tick is wasteful. The DEGRADED gate at WAVE_COMPLETE acts as a cost-effective escalation mechanism. PHASE_COMPLETE always runs both tiers as a final quality gate."
+    },
+    {
+      "id": "DD-7",
+      "title": "PipelineHealthContext with lazy property evaluation",
+      "decision": "Context object fetches git log/diff and agent outputs lazily, not eagerly",
+      "rationale": "Tier 1 checks typically need only in-memory pipeline state and container info. Expensive git operations and file reads should only execute when Tier 2 or specific checks access them."
+    },
+    {
+      "id": "DD-8",
+      "title": "Health check results via EventBus + SSE",
+      "decision": "Emit results as events through the existing EventBus, flowing automatically to SSE clients and status reporter",
+      "rationale": "No new transport mechanism needed. The EventBus already has HEALTH_CHECK type. SSE clients get health updates in real-time. Event history provides debugging capability."
+    },
+    {
+      "id": "DD-9",
+      "title": "Tier 2 advisory by default, Tier 1 can enforce",
+      "decision": "Only Tier 1 checks (phase_output, state_consistency) can return FAIL_PIPELINE action. Tier 2 returns ALERT by default.",
+      "rationale": "LLM-based evaluation may have false positives. Starting with ALERT for Tier 2 provides observability without risking premature pipeline failures. This can be tuned to FAIL_PIPELINE once confidence grows from production data."
+    }
+  ],
+
+  "core_interfaces": {
+    "HealthStatus": {
+      "type": "StrEnum",
+      "values": ["HEALTHY", "DEGRADED", "FAILED"],
+      "description": "Three-valued health assessment. HEALTHY = no issues. DEGRADED = something looks wrong but not conclusively broken. FAILED = clear failure detected."
+    },
+    "Tier": {
+      "type": "StrEnum",
+      "values": ["PROGRAMMATIC", "AGENT"],
+      "description": "Check tier. PROGRAMMATIC = fast deterministic checks. AGENT = LLM-based semantic evaluation."
+    },
+    "Trigger": {
+      "type": "StrEnum",
+      "values": ["STARTUP", "RUNTIME_TICK", "WAVE_COMPLETE", "PHASE_COMPLETE", "ON_DEMAND"],
+      "description": "Lifecycle event that triggers health check execution."
+    },
+    "Action": {
+      "type": "StrEnum",
+      "values": ["CONTINUE", "FAIL_PIPELINE", "ALERT"],
+      "description": "What to do with the result. CONTINUE = no action. FAIL_PIPELINE = mark pipeline FAILED. ALERT = emit event + log warning, potentially notify humans."
+    },
+    "HealthResult": {
+      "type": "dataclass",
+      "fields": {
+        "check_name": "str",
+        "tier": "Tier",
+        "status": "HealthStatus",
+        "reason": "str",
+        "action": "Action",
+        "details": "dict[str, Any]",
+        "timestamp": "datetime"
       }
     },
-    "modified_functions": {
-      "_build_agent_prompt": {
-        "location": "orchestrator/routes/pipelines.py:1942-2240",
-        "change": "Replace lines 2014-2018 ('if prompt:' block) with a call to _build_role_context(role_value, pipeline_obj, phase_obj). The function needs to accept either a Pipeline object or the prompt string — recommend adding an optional pipeline parameter alongside the existing prompt parameter for backward compatibility, or extracting the issue title from the prompt (first line). For architect/task_planner/risk_analyst, _build_role_context returns the full prompt. For scoped roles, it returns the focused summary.",
-        "backward_compatibility": "All call sites already pass pipeline.prompt as the 'prompt' parameter. The _build_role_context() function needs access to the Pipeline object for the issue title and phase data. Two options: (a) pass the Pipeline object as a new parameter, or (b) pass issue_number and title separately. Option (a) is cleaner since the Pipeline is available at all call sites.",
-        "impact": "All non-coder, non-reviewer roles will see different prompt content"
+    "HealthCheck_protocol": {
+      "type": "Protocol",
+      "properties": {
+        "name": "str",
+        "tier": "Tier",
+        "triggers": "list[Trigger]"
       },
-      "_build_phase_scoped_prompt": {
-        "location": "orchestrator/routes/pipelines.py:2243-2348",
-        "change": "Replace lines 2293-2304 (full plan embedding) with filtered plan content: (1) Extract the plan's overview/summary section (everything before '## Implementation Phases' or the first '### Phase'), (2) Embed the current phase's detail in full, (3) Show other phases as one-line summaries: 'Phase N: [name] — [goal]', (4) Add pointer: 'For full plan: cat .egg-state/drafts/...'",
-        "plan_parsing": "The plan follows a template (docs/templates/plan.md) with '## Summary', '### Phase N: [Name]' sections, and '## Test Strategy'. Parse by heading level: H2 for top-level sections, H3 for phases. Extract current phase by matching phase_obj.id or phase_obj.name. This parsing is simple string splitting — no markdown parser needed.",
-        "impact": "Tier 3 coders will see a more focused plan prompt"
-      },
-      "_run_tier3_implement_tester": {
-        "location": "orchestrator/routes/pipelines.py:2555-2579",
-        "change": "Instead of calling _build_agent_prompt(prompt=pipeline.prompt, ...) then appending phase scope lines, call _build_agent_prompt() with role-context that already includes the phase scope. The _build_role_context('tester', ...) function will include task descriptions, acceptance criteria, files_affected from phase_obj when provided. The separate phase_scope_lines appended at 2567-2579 can be simplified or removed since the role context already contains this information.",
-        "alternative": "Keep the existing append pattern but have _build_agent_prompt use _build_role_context for the base context. The phase scope lines at 2567-2579 provide additional Tier 3 focusing — these can remain as-is since they augment rather than duplicate.",
-        "impact": "Tier 3 testers will see focused context instead of full issue body"
-      },
-      "_run_tier3_implement_documenter": {
-        "location": "orchestrator/routes/pipelines.py:2631-2642",
-        "change": "Same pattern as tester — _build_role_context will provide focused context instead of full issue body.",
-        "impact": "Tier 3 documenters will see focused context instead of full issue body"
-      },
-      "_run_tier3_implement_integrator": {
-        "location": "orchestrator/routes/pipelines.py:2961-2990",
-        "change": "_build_role_context('integrator', ...) will provide a structured summary of all phases. The Tier 3-specific integration instructions appended at 2974-2990 can remain as-is.",
-        "impact": "Integrator sees structured overview instead of full issue body"
-      },
-      "_run_multi_agent_phase": {
-        "location": "orchestrator/routes/pipelines.py:3062-3149",
-        "change": "Need to pass Pipeline object (or issue title + phase context) to _build_agent_prompt() so _build_role_context() can construct appropriate context. Currently only passes pipeline.prompt as the 'prompt' parameter.",
-        "impact": "Standard multi-agent execution will use role-scoped context"
+      "methods": {
+        "check(context: PipelineHealthContext) -> HealthResult": "Execute the check"
       }
     },
-    "parameter_threading": {
-      "problem": "_build_agent_prompt() currently receives 'prompt: str' (the raw issue body). To build role-specific context, _build_role_context() needs: (1) the Pipeline object or issue title, (2) optionally a phase_obj for Tier 3 scoping, (3) optionally handoff_summary for downstream roles.",
-      "recommended_solution": "Add optional parameters to _build_agent_prompt(): 'pipeline: Pipeline | None = None' and 'phase_obj: Phase | None = None'. When pipeline is provided, use _build_role_context() for context building. When only prompt is provided (backward compatibility), fall back to the existing behavior. All 4 call sites (_run_tier3_implement tester/documenter/integrator, _run_multi_agent_phase) have the pipeline object available, so threading it through is straightforward.",
-      "alternative": "Add 'issue_title: str | None = None' parameter instead of the full Pipeline object. This is more minimal but less flexible for future context needs."
+    "PipelineHealthContext": {
+      "type": "dataclass",
+      "fields": {
+        "pipeline": "Pipeline",
+        "phase_execution": "PhaseExecution | None",
+        "store": "StateStore",
+        "docker_client": "DockerClient",
+        "repo_path": "Path",
+        "trigger": "Trigger",
+        "wave": "AgentWave | None",
+        "tier1_results": "list[HealthResult]"
+      },
+      "lazy_properties": {
+        "git_log": "str — git log --oneline -20 on worktree branch",
+        "git_diff_stat": "str — git diff --stat on worktree branch vs base",
+        "agent_outputs": "dict[str, dict] — loaded .egg-state/agent-outputs/*.json",
+        "contract": "Contract | None — loaded SDLC contract"
+      }
+    },
+    "HealthCheckRunner": {
+      "type": "class",
+      "constructor": "HealthCheckRunner(event_bus: EventBus | None = None)",
+      "methods": {
+        "register(check: HealthCheck) -> None": "Register a check",
+        "run_checks(trigger: Trigger, context: PipelineHealthContext) -> list[HealthResult]": "Run checks for trigger (Tier 1 first, escalate to Tier 2 if needed)",
+        "run_tier1(trigger: Trigger, context: PipelineHealthContext) -> list[HealthResult]": "Run only Tier 1 checks for trigger",
+        "run_tier2(context: PipelineHealthContext) -> list[HealthResult]": "Run only Tier 2 checks",
+        "get_registered_checks() -> list[HealthCheck]": "List all registered checks"
+      }
     }
   },
 
-  "key_files": [
+  "tier1_checks": {
+    "container_liveness": {
+      "name": "container_liveness",
+      "triggers": ["STARTUP", "RUNTIME_TICK"],
+      "description": "Adapter wrapping existing ContainerMonitor. At STARTUP, checks persisted RUNNING containers against live Docker. At RUNTIME_TICK, reports containers that transitioned to FAILED since last check.",
+      "implementation": "Delegates to ContainerMonitor.check_container_health() and startup_reconciliation.reconcile_stale_containers(). Does not duplicate their logic.",
+      "healthy": "All expected containers running or gracefully exited",
+      "degraded": "A container exited non-zero but pipeline has other running agents",
+      "failed": "All agents for current phase are dead"
+    },
+    "startup_state": {
+      "name": "startup_state",
+      "triggers": ["STARTUP"],
+      "description": "Adapter wrapping reconcile_stale_containers(). Detects pipelines with missing containers after orchestrator restart.",
+      "implementation": "Calls reconcile_stale_containers() and translates the count into HealthResult.",
+      "healthy": "No stale containers found",
+      "failed": "One or more pipelines had missing containers"
+    },
+    "phase_output": {
+      "name": "phase_output",
+      "triggers": ["PHASE_COMPLETE", "WAVE_COMPLETE"],
+      "description": "NEW check. Verifies completed phase produced expected artifacts based on phase type.",
+      "implementation": "For implement: checks git log for new commits on worktree branch, checks .egg-state/agent-outputs/ for expected files, checks contract tasks for COMPLETE status. For plan: checks for architect-output.json and task_planner-output.json. For refine: checks for refiner-output.json.",
+      "healthy": "All expected artifacts present",
+      "degraded": "Some artifacts missing but agents reported success (issue-835 case)",
+      "failed": "No artifacts produced despite agents reporting success"
+    },
+    "state_consistency": {
+      "name": "state_consistency",
+      "triggers": ["WAVE_COMPLETE", "PHASE_COMPLETE"],
+      "description": "NEW check. Cross-references orchestrator state vs Docker reality vs contract.",
+      "implementation": "For each agent in current phase: verify container status in Docker matches pipeline state. Verify contract task statuses are consistent with agent completion statuses.",
+      "healthy": "All states consistent",
+      "degraded": "Minor drift (container status stale but agent correctly marked)",
+      "failed": "Major inconsistency (orchestrator thinks agent RUNNING but container gone)"
+    }
+  },
+
+  "tier2_check": {
+    "agent_inspector": {
+      "name": "agent_inspector",
+      "triggers": ["WAVE_COMPLETE", "PHASE_COMPLETE"],
+      "description": "LLM-based semantic health evaluation. Evaluates whether agents made meaningful progress toward the phase goal.",
+      "context_assembly": [
+        "Pipeline ID, phase, trigger, issue title/body",
+        "Agent output files for completed agents",
+        "git log --oneline -20 on worktree branch",
+        "git diff --stat vs base branch",
+        "Contract task statuses and review feedback",
+        "Tier 1 results (especially DEGRADED findings)"
+      ],
+      "model": "claude-sonnet-4-20250514",
+      "max_tokens": 1024,
+      "output_format": {
+        "status": "HEALTHY | DEGRADED | FAILED",
+        "reasoning": "str (2-3 sentences)",
+        "suggested_action": "CONTINUE | FAIL_PIPELINE | ALERT",
+        "findings": [{"aspect": "str", "status": "str", "detail": "str"}]
+      },
+      "error_handling": "On API failure, returns HEALTHY with reason='Tier 2 evaluation unavailable — API error'. Health check infrastructure failure must never block pipeline execution.",
+      "cost": "~$0.02-0.10 per invocation. Only runs when Tier 1 flags DEGRADED (WAVE_COMPLETE) or unconditionally (PHASE_COMPLETE)."
+    }
+  },
+
+  "integration_plan": {
+    "trigger_wiring": {
+      "STARTUP": {
+        "location": "orchestrator/cli.py:cmd_serve() lines 99-128",
+        "description": "After existing reconciliation runs, create HealthCheckRunner, register all checks, run STARTUP trigger. Additive — existing reconciliation still runs first.",
+        "code_pattern": "runner = create_health_check_runner(repo_path); results = runner.run_checks(Trigger.STARTUP, ctx)"
+      },
+      "RUNTIME_TICK": {
+        "location": "orchestrator/container_monitor.py:_monitor_loop() line 201-209",
+        "description": "After _check_all_containers(), if any state changed, run RUNTIME_TICK via runner. Existing event handlers continue to work.",
+        "code_pattern": "if state_changed: runner.run_checks(Trigger.RUNTIME_TICK, ctx)"
+      },
+      "WAVE_COMPLETE": {
+        "location": "orchestrator/multi_agent.py:execute_all_waves() line 545-546",
+        "description": "After on_wave_complete callback, run WAVE_COMPLETE checks. If FAIL_PIPELINE returned, break wave loop.",
+        "code_pattern": "results = runner.run_checks(Trigger.WAVE_COMPLETE, ctx); if any_fail_pipeline(results): break"
+      },
+      "PHASE_COMPLETE": {
+        "location": "orchestrator/routes/pipelines.py phase completion logic",
+        "description": "Before advancing to next phase, run PHASE_COMPLETE checks (both tiers). If FAIL_PIPELINE, mark phase failed instead of advancing.",
+        "code_pattern": "results = runner.run_checks(Trigger.PHASE_COMPLETE, ctx); if any_fail_pipeline(results): mark_failed()"
+      },
+      "ON_DEMAND": {
+        "location": "orchestrator/routes/health.py (new endpoint)",
+        "description": "GET /api/v1/pipelines/{id}/health runs all checks on demand. New endpoint, no existing code changed."
+      }
+    },
+    "event_flow": {
+      "new_event_types": [
+        "HEALTH_CHECK_STARTED",
+        "HEALTH_CHECK_COMPLETED",
+        "HEALTH_CHECK_DEGRADED",
+        "HEALTH_CHECK_FAILED"
+      ],
+      "description": "Runner emits events through EventBus for each check result. Events flow to SSE clients automatically. Status reporter includes health info."
+    }
+  },
+
+  "new_files": [
+    {"path": "orchestrator/health_checks/__init__.py", "purpose": "Package init, re-exports core types"},
+    {"path": "orchestrator/health_checks/types.py", "purpose": "HealthCheck protocol, HealthResult, HealthStatus, Tier, Trigger, Action enums"},
+    {"path": "orchestrator/health_checks/context.py", "purpose": "PipelineHealthContext with lazy property accessors"},
+    {"path": "orchestrator/health_checks/runner.py", "purpose": "HealthCheckRunner: registration, trigger dispatch, escalation, event emission"},
+    {"path": "orchestrator/health_checks/tier1/__init__.py", "purpose": "Tier 1 package init"},
+    {"path": "orchestrator/health_checks/tier1/container_liveness.py", "purpose": "Adapter wrapping ContainerMonitor"},
+    {"path": "orchestrator/health_checks/tier1/startup_state.py", "purpose": "Adapter wrapping reconcile_stale_containers"},
+    {"path": "orchestrator/health_checks/tier1/phase_output.py", "purpose": "Phase output presence check"},
+    {"path": "orchestrator/health_checks/tier1/state_consistency.py", "purpose": "State consistency cross-check"},
+    {"path": "orchestrator/health_checks/tier2/__init__.py", "purpose": "Tier 2 package init"},
+    {"path": "orchestrator/health_checks/tier2/agent_inspector.py", "purpose": "LLM-based semantic health evaluator"},
+    {"path": "orchestrator/tests/test_health_check_types.py", "purpose": "Tests for core types and runner"},
+    {"path": "orchestrator/tests/test_health_check_tier1.py", "purpose": "Tests for all Tier 1 checks"},
+    {"path": "orchestrator/tests/test_health_check_tier2.py", "purpose": "Tests for agent inspector (mocked LLM)"}
+  ],
+
+  "modified_files": [
+    {"path": "orchestrator/events.py", "changes": "Add HEALTH_CHECK_STARTED, HEALTH_CHECK_COMPLETED, HEALTH_CHECK_DEGRADED, HEALTH_CHECK_FAILED to EventType enum"},
+    {"path": "orchestrator/models.py", "changes": "Add HealthCheckResultModel for persistence. Add optional health_check_results field to PhaseExecution."},
+    {"path": "orchestrator/cli.py", "changes": "Initialize HealthCheckRunner, register all checks, run STARTUP trigger after existing reconciliation"},
+    {"path": "orchestrator/container_monitor.py", "changes": "Add optional runner integration for RUNTIME_TICK triggers on state changes"},
+    {"path": "orchestrator/multi_agent.py", "changes": "Add WAVE_COMPLETE health check trigger after wave completion, break on FAIL_PIPELINE"},
+    {"path": "orchestrator/routes/pipelines.py", "changes": "Add PHASE_COMPLETE health check trigger before phase advancement"},
+    {"path": "orchestrator/routes/health.py", "changes": "Add GET /api/v1/pipelines/{id}/health on-demand health check endpoint"}
+  ],
+
+  "what_this_catches_in_issue_835": {
+    "tier1_phase_output": "Implement phase completed, but phase_output check finds no new commits on the remote branch and no agent output files with substantive content -> DEGRADED. This alone would have flagged the problem before reviewers were spawned.",
+    "tier2_agent_inspector": "At PHASE_COMPLETE, inspector reads reviewer output files (empty), checks git diff (no changes), evaluates against issue goal -> FAILED with reasoning: 'Reviewers produced no review content. Git diff shows no substantive changes from the implement phase. The coder work likely did not reach the remote branch.' Suggested action: ALERT."
+  },
+
+  "risks_and_mitigations": [
     {
-      "path": "orchestrator/routes/pipelines.py",
-      "relevance": "Primary file — contains all prompt building functions and dispatch logic",
-      "functions_affected": [
-        "_build_agent_prompt (lines 1942-2240) — replace prompt embedding with role context",
-        "_build_phase_scoped_prompt (lines 2243-2348) — filter plan to overview + current phase",
-        "_run_tier3_implement (lines 2555-2642, 2961-2990) — update tester/documenter/integrator prompt calls",
-        "_run_multi_agent_phase (lines 3106-3121) — thread pipeline object through",
-        "New: _build_role_context() — role-context dispatch helper",
-        "New: _summarize_issue() — issue summary extraction helper"
+      "risk": "Tier 2 API calls add latency to phase transitions",
+      "severity": "low",
+      "mitigation": "Tier 2 only runs at two trigger points. claude-sonnet-4-20250514 with max_tokens=1024 responds in 2-3s. Phase transitions already involve container spawn/wait cycles of minutes."
+    },
+    {
+      "risk": "Tier 2 API failure blocks pipeline advancement",
+      "severity": "medium",
+      "mitigation": "Wrap in try/except, return HEALTHY with warning on failure. Health check infrastructure failures never block the pipeline."
+    },
+    {
+      "risk": "False positives from Tier 2 cause premature failures",
+      "severity": "medium",
+      "mitigation": "Tier 2 returns ALERT by default, not FAIL_PIPELINE. Only Tier 1 programmatic checks can enforce pipeline failure. Tier 2 enforcement can be enabled once confidence grows."
+    },
+    {
+      "risk": "Race conditions between health runner and existing reconciliation",
+      "severity": "low",
+      "mitigation": "Health checks are read-only inspections. Only the caller (cli.py, multi_agent.py, routes/pipelines.py) acts on results. Existing optimistic locking handles writes."
+    },
+    {
+      "risk": "Expensive context assembly for Tier 2",
+      "severity": "low",
+      "mitigation": "PipelineHealthContext uses lazy properties. Git operations only execute when Tier 2 accesses them. Tier 1 checks never trigger these."
+    },
+    {
+      "risk": "New health_checks package increases code volume",
+      "severity": "low",
+      "mitigation": "~10 new files is proportionate to the feature scope. Each file is focused and testable. The alternative — inline everything — would make routes/pipelines.py even more unwieldy."
+    }
+  ],
+
+  "alternatives_considered": [
+    {
+      "approach": "Spawn sandbox container for Tier 2 evaluation",
+      "rejected_because": "Container startup takes 30+ seconds. Creates recursive monitoring problem. Direct API calls are faster, cheaper, simpler."
+    },
+    {
+      "approach": "Decorator/registry pattern for check registration",
+      "rejected_because": "Import-time side effects make testing harder. Explicit runner is more transparent and injectable."
+    },
+    {
+      "approach": "Rewrite existing reconciliation as HealthCheck from scratch",
+      "rejected_because": "23 passing tests and production-proven code. Adapter pattern gives the unified interface without rewrite risk."
+    },
+    {
+      "approach": "Binary PASS/FAIL result instead of three-valued status",
+      "rejected_because": "Many failures are ambiguous. DEGRADED allows graduated response: escalate to Tier 2 rather than immediately kill the pipeline."
+    }
+  ],
+
+  "task_breakdown": [
+    {
+      "id": "task-1",
+      "title": "Define core health check types and interfaces",
+      "description": "Create orchestrator/health_checks/ package with types.py (HealthCheck protocol, HealthResult dataclass, HealthStatus/Tier/Trigger/Action enums) and context.py (PipelineHealthContext with lazy property accessors for git_log, git_diff_stat, agent_outputs, contract).",
+      "files_affected": [
+        "orchestrator/health_checks/__init__.py",
+        "orchestrator/health_checks/types.py",
+        "orchestrator/health_checks/context.py"
+      ],
+      "acceptance_criteria": [
+        "HealthCheck protocol defined with name, tier, triggers properties and check() method",
+        "HealthResult dataclass with check_name, tier, status, reason, action, details, timestamp",
+        "All enums defined: HealthStatus (HEALTHY/DEGRADED/FAILED), Tier (PROGRAMMATIC/AGENT), Trigger (STARTUP/RUNTIME_TICK/WAVE_COMPLETE/PHASE_COMPLETE/ON_DEMAND), Action (CONTINUE/FAIL_PIPELINE/ALERT)",
+        "PipelineHealthContext with lazy git_log, git_diff_stat, agent_outputs, contract properties",
+        "Unit tests for type construction and context lazy loading"
       ]
     },
     {
-      "path": "orchestrator/tests/test_pipeline_prompts.py",
-      "relevance": "Test file — needs new test classes for role context and plan filtering",
-      "changes": "Add TestBuildRoleContext, TestSummarizeIssue, TestPhaseScoptedPlanFiltering test classes"
+      "id": "task-2",
+      "title": "Implement HealthCheckRunner with trigger dispatch and event emission",
+      "description": "Create runner.py with HealthCheckRunner. Supports register(), run_checks(), run_tier1(), run_tier2(). Implements trigger-based dispatch: runs Tier 1 first, escalates to Tier 2 at WAVE_COMPLETE if DEGRADED, always runs both at PHASE_COMPLETE. Emits events through EventBus. Add new EventType values to events.py.",
+      "files_affected": [
+        "orchestrator/health_checks/runner.py",
+        "orchestrator/events.py"
+      ],
+      "acceptance_criteria": [
+        "Runner registers checks and dispatches by trigger type",
+        "Tier 1 runs before Tier 2 in all cases",
+        "WAVE_COMPLETE: Tier 2 only runs if any Tier 1 result is DEGRADED",
+        "PHASE_COMPLETE: Both tiers always run",
+        "Events emitted via EventBus for each check result",
+        "New EventType values: HEALTH_CHECK_STARTED, HEALTH_CHECK_COMPLETED, HEALTH_CHECK_DEGRADED, HEALTH_CHECK_FAILED",
+        "Unit tests for registration, dispatch, escalation, event emission"
+      ]
     },
     {
-      "path": "orchestrator/models.py",
-      "relevance": "Pipeline model definition (line 235) — read-only reference, no changes needed",
-      "changes": "None — the Pipeline model already has prompt, issue_number, and all fields needed"
+      "id": "task-3",
+      "title": "Create adapter checks for existing mechanisms",
+      "description": "Create ContainerLivenessCheck and StartupStateCheck adapter classes that implement HealthCheck protocol by delegating to existing container_monitor and startup_reconciliation code. No modifications to existing files.",
+      "files_affected": [
+        "orchestrator/health_checks/tier1/__init__.py",
+        "orchestrator/health_checks/tier1/container_liveness.py",
+        "orchestrator/health_checks/tier1/startup_state.py"
+      ],
+      "acceptance_criteria": [
+        "ContainerLivenessCheck conforms to HealthCheck protocol",
+        "StartupStateCheck conforms to HealthCheck protocol",
+        "Both delegate to existing code without modifying it",
+        "Existing tests for container_monitor.py and startup_reconciliation.py still pass unchanged",
+        "New adapter tests verify correct HealthResult generation for various scenarios"
+      ]
     },
     {
-      "path": "shared/egg_contracts/agent_roles.py",
-      "relevance": "Role definitions — read-only reference, no changes needed",
-      "changes": "None — role definitions are used for access control, not prompt building"
+      "id": "task-4",
+      "title": "Implement phase output presence check",
+      "description": "New Tier 1 check verifying completed phases produced expected artifacts. Checks for commits on remote branch (git log), agent output files in .egg-state/agent-outputs/, and contract task completion status. Phase-specific expectations (implement needs commits, plan needs architect output, etc.).",
+      "files_affected": [
+        "orchestrator/health_checks/tier1/phase_output.py"
+      ],
+      "acceptance_criteria": [
+        "Implement phase: verifies commits exist on remote, agent output files present",
+        "Plan phase: verifies architect-output.json and task_planner-output.json exist",
+        "Refine phase: verifies refiner-output.json exists",
+        "Returns DEGRADED when agents report success but artifacts missing",
+        "Returns HEALTHY when all expected artifacts present",
+        "Returns FAILED when no artifacts produced despite successful agents",
+        "Unit tests with mocked git operations and file system"
+      ]
     },
     {
-      "path": "orchestrator/handoffs.py",
-      "relevance": "Contains format_handoff_for_prompt() (line 281) which could be useful for building role context summaries",
-      "changes": "None — existing function is available if needed, but _build_role_context will build its own summary format"
+      "id": "task-5",
+      "title": "Implement state consistency check",
+      "description": "New Tier 1 check cross-referencing orchestrator pipeline state against Docker container reality and contract state.",
+      "files_affected": [
+        "orchestrator/health_checks/tier1/state_consistency.py"
+      ],
+      "acceptance_criteria": [
+        "Detects containers marked RUNNING in pipeline but missing from Docker",
+        "Detects agents marked COMPLETE but contract tasks still PENDING",
+        "Returns FAILED for major inconsistencies",
+        "Returns DEGRADED for minor drift",
+        "Unit tests with mocked Docker client and state store"
+      ]
     },
     {
-      "path": "docs/templates/plan.md",
-      "relevance": "Plan template — defines the heading structure used for plan parsing in _build_phase_scoped_prompt filtering",
-      "changes": "None — read-only reference for understanding plan structure"
+      "id": "task-6",
+      "title": "Implement Tier 2 agent inspector",
+      "description": "LLM-based semantic health evaluation. Assembles context from pipeline state, git operations, agent outputs, and contract. Calls Claude API (claude-sonnet-4-20250514) with structured prompt. Parses JSON response. Handles API failures gracefully.",
+      "files_affected": [
+        "orchestrator/health_checks/tier2/__init__.py",
+        "orchestrator/health_checks/tier2/agent_inspector.py"
+      ],
+      "acceptance_criteria": [
+        "Assembles context from git log, git diff --stat, agent outputs, contract, issue",
+        "Calls Claude API with structured output prompt and max_tokens=1024",
+        "Parses JSON response into HealthResult with status, reasoning, findings",
+        "Handles API failures gracefully: returns HEALTHY with warning reason",
+        "Returns ALERT action (not FAIL_PIPELINE) for DEGRADED/FAILED findings",
+        "Context capped at ~4000 tokens by truncating diffs",
+        "Unit tests with mocked API responses covering healthy, degraded, failed, and API error scenarios"
+      ]
+    },
+    {
+      "id": "task-7",
+      "title": "Wire trigger points and add on-demand endpoint",
+      "description": "Connect HealthCheckRunner to all lifecycle trigger points: cli.py (STARTUP), container_monitor.py (RUNTIME_TICK), multi_agent.py (WAVE_COMPLETE), routes/pipelines.py (PHASE_COMPLETE). Add GET /api/v1/pipelines/{id}/health endpoint. Add HealthCheckResultModel to models.py.",
+      "files_affected": [
+        "orchestrator/cli.py",
+        "orchestrator/container_monitor.py",
+        "orchestrator/multi_agent.py",
+        "orchestrator/routes/pipelines.py",
+        "orchestrator/routes/health.py",
+        "orchestrator/models.py"
+      ],
+      "acceptance_criteria": [
+        "STARTUP checks run after existing reconciliation in cli.py",
+        "RUNTIME_TICK checks run in container monitor on state changes",
+        "WAVE_COMPLETE checks run after each wave in execute_all_waves()",
+        "PHASE_COMPLETE checks run before phase advancement in routes/pipelines.py",
+        "GET /api/v1/pipelines/{id}/health returns on-demand results as JSON",
+        "HealthCheckResultModel added to models.py",
+        "Optional health_check_results field added to PhaseExecution",
+        "Integration tests verifying trigger -> check -> event flow"
+      ]
     }
+  ],
+
+  "key_files": [
+    {"path": "orchestrator/container_monitor.py", "relevance": "Existing runtime container monitoring — adapted, not rewritten"},
+    {"path": "orchestrator/startup_reconciliation.py", "relevance": "Existing startup reconciliation — adapted, not rewritten"},
+    {"path": "orchestrator/multi_agent.py", "relevance": "Wave execution — WAVE_COMPLETE trigger integration point"},
+    {"path": "orchestrator/routes/pipelines.py", "relevance": "Phase lifecycle — PHASE_COMPLETE trigger integration point"},
+    {"path": "orchestrator/cli.py", "relevance": "Startup flow — runner initialization and STARTUP trigger"},
+    {"path": "orchestrator/events.py", "relevance": "Event system — new event types for health check results"},
+    {"path": "orchestrator/models.py", "relevance": "Pipeline models — add health check result persistence"},
+    {"path": "orchestrator/state_store.py", "relevance": "State persistence — health checks must respect optimistic locking"},
+    {"path": "shared/egg_contracts/orchestrator.py", "relevance": "Agent output loading — Tier 2 reads these for evaluation"},
+    {"path": "orchestrator/routes/health.py", "relevance": "Health endpoints — add on-demand pipeline health check endpoint"}
   ],
 
   "constraints": [
-    "Architect/task_planner/risk_analyst must continue to receive the full issue body — they need it for analysis",
-    "Reviewer prompts (_build_review_prompt) are out of scope — they have their own prompt construction",
-    "Handoff data mechanism (EGG_HANDOFF_DATA env var) is out of scope — no changes to how handoff data flows",
-    "Refiner role delegates to _build_phase_prompt(), not _build_agent_prompt() — no changes needed for refiner",
-    "Coder role delegates to _build_phase_prompt() for standard dispatch — no changes needed for standard coders",
-    "Every agent prompt must include a 'For more context' section with pointers to full context",
-    "Summary should be 1-2 sentences, not nothing — agents need orientation for good judgment calls",
-    "Plan filtering should preserve the overview/summary section — coders need to understand how their phase fits",
-    "Existing test patterns use string presence/absence assertions — new tests should follow the same pattern",
-    "The _build_agent_prompt function signature change must not break _run_multi_agent_phase or _run_tier3_implement call sites"
+    "Existing startup_reconciliation.py and container_monitor.py must remain functionally unchanged (23 combined tests must pass without modification)",
+    "Health checks must be read-only — they inspect state but never mutate pipeline state directly",
+    "Only the caller (cli.py, multi_agent.py, routes/pipelines.py) can act on HealthResult by mutating state",
+    "Tier 2 agent inspector must handle API failures gracefully (return HEALTHY, never block the pipeline)",
+    "Health check results must flow through existing EventBus/SSE for observability",
+    "State mutations must respect optimistic locking via state_store",
+    "Tier 2 uses claude-sonnet-4-20250514 for cost efficiency (~$0.02-0.10 per call)",
+    "PipelineHealthContext lazy properties must not execute expensive operations for Tier 1 checks that don't need them",
+    "Health check infrastructure failure must never block or crash the pipeline"
   ],
 
   "dependencies": [
-    "Pipeline model (orchestrator/models.py) — provides prompt, issue_number, repo, branch",
-    "Contract Phase model (shared/egg_contracts/models.py) — provides phase_obj with tasks, acceptance criteria, files_affected",
-    "Plan template format (docs/templates/plan.md) — heading structure for plan parsing",
-    "_read_phase_draft() helper (pipelines.py:1065-1087) — reads plan draft from disk",
-    "_render_contract_tasks() helper (pipelines.py:1090-1133) — renders contract tasks as markdown"
+    "Pipeline model (orchestrator/models.py) — pipeline state, phases, containers, agents",
+    "StateStore (orchestrator/state_store.py) — pipeline persistence and optimistic locking",
+    "DockerClient (orchestrator/docker_client.py) — container state queries",
+    "EventBus (orchestrator/events.py) — event emission for results",
+    "ContainerMonitor (orchestrator/container_monitor.py) — existing runtime monitoring (adapted)",
+    "reconcile_stale_containers (orchestrator/startup_reconciliation.py) — existing startup check (adapted)",
+    "Contract models (shared/egg_contracts/models.py) — task statuses, review feedback",
+    "Agent output loading (shared/egg_contracts/orchestrator.py) — load_agent_output(), save_agent_output()",
+    "Anthropic Python SDK — Tier 2 Claude API calls"
   ],
 
-  "risk_assessment": [
-    {
-      "risk": "Issue body parsing fragility in _summarize_issue()",
-      "likelihood": "low",
-      "impact": "low",
-      "mitigation": "Use a simple approach: issue title + first paragraph. If parsing fails or body is empty, fall back to just the title. No complex markdown parsing needed."
-    },
-    {
-      "risk": "Plan heading structure varies between drafts, breaking plan filtering",
-      "likelihood": "low",
-      "impact": "medium",
-      "mitigation": "Plan template is standardized (docs/templates/plan.md). Use heading-level parsing (## for sections, ### for phases). If parsing fails, fall back to embedding the full plan with a warning comment."
-    },
-    {
-      "risk": "Agent behavior regression — scoped agents lack sufficient context and spin",
-      "likelihood": "low",
-      "impact": "medium",
-      "mitigation": "Every scoped prompt includes 'For more context' pointers with CLI commands (gh issue view, cat drafts). Agents can self-serve additional context. The summary provides orientation for judgment calls."
-    },
-    {
-      "risk": "Test maintenance burden — new tests for each role's context",
-      "likelihood": "low",
-      "impact": "low",
-      "mitigation": "Follow existing test patterns (string presence/absence). _build_role_context() is a pure function — easy to test with mock Pipeline objects."
-    }
-  ],
-
-  "acceptance_criteria_mapping": {
-    "AC1_background_summary": "Every agent prompt includes 1-2 sentence background → _summarize_issue() + _build_role_context() for all roles",
-    "AC2_context_pointers": "Every agent prompt includes 'For more context' pointers → _build_role_context() adds these for all scoped roles",
-    "AC3_tester_focused": "Tester prompt contains task descriptions, acceptance criteria, files_affected → _build_role_context('tester') builds this from phase_obj",
-    "AC4_documenter_focused": "Documenter prompt contains implementation summary → _build_role_context('documenter') includes handoff summary and changed files",
-    "AC5_coder_plan_filtered": "Phase-scoped coder sees overview + current phase, not full plan → _build_phase_scoped_prompt() plan filtering",
-    "AC6_integrator_structured": "Integrator sees structured phase summary → _build_role_context('integrator') builds phase-by-phase summary",
-    "AC7_analysis_roles_full": "Architect/task_planner/risk_analyst get full issue body → _build_role_context() returns pipeline.prompt for these roles",
-    "AC8_tests_updated": "Existing prompt tests updated → New test classes in test_pipeline_prompts.py",
-    "AC9_no_regression": "No regression in agent behavior → Combination of tests, summary quality, and context pointers"
-  },
-
-  "estimated_complexity": "mid",
-  "estimated_phases": 2,
-  "phase_outline": [
-    {
-      "id": 1,
-      "name": "Core helper functions and _build_agent_prompt refactor",
-      "description": "Implement _summarize_issue() and _build_role_context() helpers. Refactor _build_agent_prompt() to use _build_role_context() instead of embedding pipeline.prompt for scoped roles. Update _run_tier3_implement() and _run_multi_agent_phase() call sites to thread Pipeline object. Add unit tests for new helpers and modified function behavior.",
-      "key_files": [
-        "orchestrator/routes/pipelines.py",
-        "orchestrator/tests/test_pipeline_prompts.py"
-      ]
-    },
-    {
-      "id": 2,
-      "name": "Phase-scoped plan filtering and integration tests",
-      "description": "Implement plan filtering in _build_phase_scoped_prompt() to show overview + current phase detail + one-line summaries of other phases. Add tests for plan filtering with various plan formats. Verify end-to-end behavior with existing test infrastructure.",
-      "key_files": [
-        "orchestrator/routes/pipelines.py",
-        "orchestrator/tests/test_pipeline_prompts.py"
-      ]
-    }
-  ]
+  "estimated_complexity": "high",
+  "estimated_task_count": 7
 }
