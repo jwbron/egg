@@ -249,6 +249,34 @@ class TestCheckpointRepoOverride:
             "/repo", checkpoint_repo="org/checkpoints"
         )
 
+    @patch("gateway.get_checkpoint_handler")
+    @patch("gateway._get_checkpoint_repo_for_path")
+    @patch("gateway._resolve_repo_path_for_checkpoints")
+    def test_cost_uses_explicit_checkpoint_repo(
+        self, mock_resolve, mock_ckpt_repo, mock_get_handler, client, auth_headers
+    ):
+        mock_resolve.return_value = "/repo"
+        mock_ckpt_repo.return_value = None
+
+        mock_handler = MagicMock()
+        mock_handler.fetch_and_read_index.return_value = _make_index()
+        mock_handler.ensure_ref.return_value = "abc123sha"
+        mock_handler.read_checkpoint.return_value = _make_checkpoint()
+        mock_get_handler.return_value = mock_handler
+
+        response = client.get(
+            "/api/v1/checkpoints/cost?issue=738&checkpoint_repo=org/checkpoints",
+            headers=auth_headers,
+        )
+        assert response.status_code == 200
+
+        # The explicit checkpoint_repo should be passed to fetch_and_read_index
+        mock_handler.fetch_and_read_index.assert_called_once_with(
+            "/repo", checkpoint_repo="org/checkpoints"
+        )
+        # Auto-detection should not be called when explicit value is valid
+        mock_ckpt_repo.assert_not_called()
+
 
 class TestCheckpointShow:
     """Tests for GET /api/v1/checkpoints/<id>."""

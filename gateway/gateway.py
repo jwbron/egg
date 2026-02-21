@@ -1841,6 +1841,10 @@ def _resolve_checkpoint_repo(repo_path: str) -> str | None:
         # Basic validation: must look like "owner/repo"
         if re.match(r"^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$", explicit):
             return explicit
+        logger.warning(
+            "Invalid checkpoint_repo format, falling back to auto-detection",
+            checkpoint_repo=explicit,
+        )
         return None
     return _get_checkpoint_repo_for_path(repo_path)
 

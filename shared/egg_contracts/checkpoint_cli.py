@@ -799,10 +799,13 @@ def _cmd_context_http(args: argparse.Namespace, gateway_url: str) -> int:
             for s in summaries:
                 cp_id = s.get("id", "")
                 try:
+                    show_params: dict[str, Any] = {"repo_path": params["repo_path"]}
+                    if params.get("checkpoint_repo"):
+                        show_params["checkpoint_repo"] = params["checkpoint_repo"]
                     cp_result = _http_get(
                         gateway_url,
                         f"/api/v1/checkpoints/{cp_id}",
-                        {"repo_path": params["repo_path"]},
+                        show_params,
                     )
                     cp_data = cp_result.get("data", {}).get("checkpoint", {})
                     entry = dict(s)
@@ -820,7 +823,10 @@ def _cmd_context_http(args: argparse.Namespace, gateway_url: str) -> int:
         else:
             print(json.dumps(summaries, indent=2))
     else:
-        _print_context_summary_from_dicts(summaries, gateway_url, args)
+        _print_context_summary_from_dicts(
+            summaries, gateway_url, args,
+            checkpoint_repo=params.get("checkpoint_repo"),
+        )
 
     return 0
 
@@ -829,6 +835,7 @@ def _print_context_summary_from_dicts(
     summaries: list[dict[str, Any]],
     gateway_url: str,
     args: argparse.Namespace,
+    checkpoint_repo: str | None = None,
 ) -> None:
     """Print hierarchical context summary from dict data (HTTP mode)."""
     groups: dict[str, dict[str, list[dict[str, Any]]]] = {}
@@ -872,10 +879,13 @@ def _print_context_summary_from_dicts(
                     repo_path = args.repo_path or get_repo_path()
                     cp_id = cp.get("id", "")
                     try:
+                        show_params: dict[str, Any] = {"repo_path": repo_path}
+                        if checkpoint_repo:
+                            show_params["checkpoint_repo"] = checkpoint_repo
                         cp_result = _http_get(
                             gateway_url,
                             f"/api/v1/checkpoints/{cp_id}",
-                            {"repo_path": repo_path},
+                            show_params,
                         )
                         cp_data = cp_result.get("data", {}).get("checkpoint", {})
                         for f in cp_data.get("files_touched", []):
