@@ -68,11 +68,11 @@ Setting `auth_mode: user` tells the gateway to use `GITHUB_USER_TOKEN` for git/g
 ## 3. Build and start
 
 ```bash
-egg --compose --build   # build gateway + orchestrator images (first time only)
+egg --compose           # start gateway + orchestrator (auto-rebuilds when build context changes)
 egg                     # start sandbox session
 ```
 
-On subsequent runs, `egg` starts the gateway and orchestrator automatically. Use `--compose --build` again only when the gateway or orchestrator code changes.
+On subsequent runs, `egg` starts the gateway and orchestrator automatically. The gateway and orchestrator images are rebuilt when their build context changes — Docker's layer cache makes this fast when nothing has changed.
 
 ## 4. Using the SDLC pipeline
 
@@ -165,7 +165,7 @@ The pipeline stores its internal state in `.egg-state/` on the feature branch (n
 
 ```bash
 egg                        # start interactive session
-egg --compose --build      # rebuild after code changes to gateway/orchestrator
+egg --compose              # start gateway + orchestrator (auto-rebuilds when code changes)
 egg --compose --down       # stop gateway + orchestrator
 egg --private              # run in private mode (Anthropic API only, private repos)
 egg --public               # run in public mode (full internet, public repos — default)
