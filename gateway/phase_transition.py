@@ -39,6 +39,7 @@ class TransitionRole(StrEnum):
 
 # Phase transition graph: defines which phases can transition to which
 VALID_TRANSITIONS: dict[PipelinePhase, list[PipelinePhase]] = {
+    PipelinePhase.PRE_REFINE: [PipelinePhase.REFINE],
     PipelinePhase.REFINE: [PipelinePhase.PLAN],
     PipelinePhase.PLAN: [PipelinePhase.IMPLEMENT],
     PipelinePhase.IMPLEMENT: [PipelinePhase.PR],

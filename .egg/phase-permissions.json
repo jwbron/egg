@@ -1,6 +1,33 @@
 {
   "schemaVersion": "1.0",
   "phases": {
+    "pre_refine": {
+      "allowed_operations": [
+        {
+          "type": "gh",
+          "pattern": "issue comment *",
+          "description": "Comment on issues"
+        },
+        {
+          "type": "git",
+          "pattern": "push *",
+          "description": "Push state files to remote"
+        },
+        {
+          "type": "egg-contract",
+          "pattern": "show *",
+          "description": "View contract state"
+        }
+      ],
+      "blocked_operations": [
+        {
+          "type": "gh",
+          "pattern": "pr create*",
+          "description": "Cannot create PRs during pre-refine phase"
+        }
+      ],
+      "exit_requires": "human"
+    },
     "refine": {
       "allowed_operations": [
         {
@@ -135,6 +162,14 @@
     }
   },
   "phase_file_restrictions": {
+    "pre_refine": {
+      "allowed_patterns": [
+        ".egg-state/drafts/*requirements*",
+        ".egg-state/checkpoints/*",
+        ".egg-state/agent-outputs/*"
+      ],
+      "description": "Pre-refine phase can only push requirements drafts, checkpoints, and agent outputs"
+    },
     "refine": {
       "allowed_patterns": [
         ".egg-state/contracts/*",

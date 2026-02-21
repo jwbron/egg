@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field
 class PipelinePhase(StrEnum):
     """Current phase in the SDLC pipeline."""
 
+    PRE_REFINE = "pre_refine"
     REFINE = "refine"
     PLAN = "plan"
     IMPLEMENT = "implement"
@@ -225,6 +226,10 @@ class PipelineConfig(BaseModel):
     enable_parallel_phases: bool = Field(
         default=False,
         description="Enable parallel phase execution for independent plan phases (Tier 3 only)",
+    )
+    skip_pre_refine: bool = Field(
+        default=True,
+        description="Skip the interactive pre-refine requirements gathering step",
     )
 
 

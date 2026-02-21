@@ -34,6 +34,7 @@ class PhaseStatus(StrEnum):
 class PipelinePhase(StrEnum):
     """Current pipeline phase."""
 
+    PRE_REFINE = "pre_refine"
     REFINE = "refine"
     PLAN = "plan"
     IMPLEMENT = "implement"

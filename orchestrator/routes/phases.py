@@ -48,6 +48,7 @@ phases_bp = Blueprint("phases", __name__, url_prefix="/api/v1/pipelines")
 
 # Valid phase transitions for issue-driven pipelines
 PHASE_TRANSITIONS = {
+    PipelinePhase.PRE_REFINE: [PipelinePhase.REFINE],
     PipelinePhase.REFINE: [PipelinePhase.PLAN, PipelinePhase.IMPLEMENT],
     PipelinePhase.PLAN: [PipelinePhase.IMPLEMENT],
     PipelinePhase.IMPLEMENT: [PipelinePhase.PR],
@@ -56,6 +57,7 @@ PHASE_TRANSITIONS = {
 
 # Valid phase transitions for local pipelines
 LOCAL_PHASE_TRANSITIONS = {
+    PipelinePhase.PRE_REFINE: [PipelinePhase.REFINE],
     PipelinePhase.REFINE: [PipelinePhase.PLAN, PipelinePhase.IMPLEMENT],
     PipelinePhase.PLAN: [PipelinePhase.IMPLEMENT],
     PipelinePhase.IMPLEMENT: [PipelinePhase.PR],

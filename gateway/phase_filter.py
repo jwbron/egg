@@ -32,6 +32,7 @@ class PipelinePhase(StrEnum):
     complexity in the gateway module. Values must be kept in sync.
     """
 
+    PRE_REFINE = "pre_refine"
     REFINE = "refine"
     PLAN = "plan"
     IMPLEMENT = "implement"
@@ -409,6 +410,19 @@ class PhaseFilter:
     def _get_default_permissions(self) -> dict[PipelinePhase, PhasePermissions]:
         """Get default permissions when no file is available."""
         return {
+            PipelinePhase.PRE_REFINE: PhasePermissions(
+                allowed_operations=[
+                    Operation(OperationType.GH, "issue comment *", "Comment on issues"),
+                    Operation(OperationType.GIT, "push *", "Push state files to remote"),
+                    Operation(OperationType.EGG_CONTRACT, "show *", "View contract state"),
+                ],
+                blocked_operations=[
+                    Operation(
+                        OperationType.GH, "pr create*", "Cannot create PRs during pre-refine"
+                    ),
+                ],
+                exit_requires="human",
+            ),
             PipelinePhase.REFINE: PhasePermissions(
                 allowed_operations=[
                     Operation(OperationType.GH, "issue comment *", "Comment on issues"),
@@ -487,6 +501,14 @@ class PhaseFilter:
         - pr: Everything
         """
         return {
+            PipelinePhase.PRE_REFINE: PhaseFileRestriction(
+                allowed_patterns=[
+                    ".egg-state/drafts/*requirements*",
+                    ".egg-state/checkpoints/*",
+                    ".egg-state/agent-outputs/*",
+                ],
+                description="Pre-refine phase can only push requirements drafts, checkpoints, and agent outputs",
+            ),
             PipelinePhase.REFINE: PhaseFileRestriction(
                 allowed_patterns=[
                     ".egg-state/contracts/*",

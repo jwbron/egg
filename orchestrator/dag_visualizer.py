@@ -47,6 +47,7 @@ ASCII_STATUS_SYMBOLS = {
 
 # Phase order for linear DAG
 PHASE_ORDER = [
+    PipelinePhase.PRE_REFINE,
     PipelinePhase.REFINE,
     PipelinePhase.PLAN,
     PipelinePhase.IMPLEMENT,
@@ -55,6 +56,7 @@ PHASE_ORDER = [
 
 # Phase display names
 PHASE_NAMES = {
+    PipelinePhase.PRE_REFINE: "Pre-Refine",
     PipelinePhase.REFINE: "Refine",
     PipelinePhase.PLAN: "Plan",
     PipelinePhase.IMPLEMENT: "Implement",

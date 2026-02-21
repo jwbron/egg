@@ -365,7 +365,8 @@ class TestPipelinePhase:
     def test_phase_order(self):
         """Test phases are defined in SDLC order."""
         phases = list(PipelinePhase)
-        assert phases[0] == PipelinePhase.REFINE
-        assert phases[1] == PipelinePhase.PLAN
-        assert phases[2] == PipelinePhase.IMPLEMENT
-        assert phases[3] == PipelinePhase.PR
+        assert phases[0] == PipelinePhase.PRE_REFINE
+        assert phases[1] == PipelinePhase.REFINE
+        assert phases[2] == PipelinePhase.PLAN
+        assert phases[3] == PipelinePhase.IMPLEMENT
+        assert phases[4] == PipelinePhase.PR

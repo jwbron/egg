@@ -78,6 +78,11 @@ _PR_CHECKS: list[CheckDefinition] = []
 
 # Default phase configurations
 _DEFAULT_PHASE_CONFIGS: dict[PipelinePhase, PhaseConfig] = {
+    PipelinePhase.PRE_REFINE: PhaseConfig(
+        checks=[],
+        max_review_cycles=3,
+        human_review_mechanism=HumanReviewMechanism.ISSUE_CHECKBOX,
+    ),
     PipelinePhase.REFINE: PhaseConfig(
         checks=_REFINE_CHECKS,
         max_review_cycles=3,
