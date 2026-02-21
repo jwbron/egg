@@ -183,7 +183,7 @@ except ImportError:
 _config_path = Path(__file__).parent.parent / "config"
 if _config_path.exists() and str(_config_path) not in sys.path:
     sys.path.insert(0, str(_config_path))
-from repo_config import get_auth_mode, get_checkpoint_repo
+from repo_config import get_auth_mode, get_checkpoint_repo, is_checkpoint_repo
 
 logger = get_logger("gateway")
 
@@ -569,31 +569,47 @@ def git_push() -> tuple[Response, int] | Response:
 
     repo_info = parse_owner_repo(repo)
     if repo_info:
-        priv_result = check_private_repo_access(
-            operation="push",
-            owner=repo_info.owner,
-            repo=repo_info.repo,
-            for_write=True,
-            session_mode=session_mode,
-        )
-        if not priv_result.allowed:
+        # Checkpoint operations are infrastructure — always accessible regardless of
+        # session mode. This covers both dedicated checkpoint repos and checkpoint
+        # branch pushes to the source repo itself.
+        if is_checkpoint_push or is_checkpoint_repo(repo_info.owner, repo_info.repo):
             audit_log(
-                "push_denied_private_mode",
+                "push_checkpoint_exempt",
                 "git_push",
-                success=False,
+                success=True,
                 details={
                     "repo": repo,
                     "branch": branch,
-                    "reason": priv_result.reason,
-                    "visibility": priv_result.visibility,
-                    "auth_mode": auth_mode,
+                    "reason": "Checkpoint operation exempt from private mode policy",
+                    "exempt_type": "checkpoint_repo" if is_checkpoint_repo(repo_info.owner, repo_info.repo) else "checkpoint_branch",
                 },
             )
-            return make_error(
-                priv_result.reason,
-                status_code=403,
-                details=priv_result.to_dict(),
+        else:
+            priv_result = check_private_repo_access(
+                operation="push",
+                owner=repo_info.owner,
+                repo=repo_info.repo,
+                for_write=True,
+                session_mode=session_mode,
             )
+            if not priv_result.allowed:
+                audit_log(
+                    "push_denied_private_mode",
+                    "git_push",
+                    success=False,
+                    details={
+                        "repo": repo,
+                        "branch": branch,
+                        "reason": priv_result.reason,
+                        "visibility": priv_result.visibility,
+                        "auth_mode": auth_mode,
+                    },
+                )
+                return make_error(
+                    priv_result.reason,
+                    status_code=403,
+                    details=priv_result.to_dict(),
+                )
 
     # Check branch ownership policy (pass auth mode for relaxed policy in user mode)
     policy = get_policy_engine()
@@ -1408,29 +1424,41 @@ def git_fetch() -> tuple[Response, int] | Response:
     # Check Private Repo Mode policy (if enabled)
     repo_info = parse_owner_repo(repo)
     if repo_info:
-        priv_result = check_private_repo_access(
-            operation=operation,
-            owner=repo_info.owner,
-            repo=repo_info.repo,
-            for_write=False,
-            session_mode=session_mode,
-        )
-        if not priv_result.allowed:
+        # Checkpoint repos are infrastructure — always accessible regardless of session mode
+        if is_checkpoint_repo(repo_info.owner, repo_info.repo):
             audit_log(
-                f"{operation}_denied_private_mode",
+                f"{operation}_checkpoint_repo_exempt",
                 f"git_{operation}",
-                success=False,
+                success=True,
                 details={
                     "repo": repo,
-                    "reason": priv_result.reason,
-                    "visibility": priv_result.visibility,
+                    "reason": "Checkpoint repo exempt from private mode policy",
                 },
             )
-            return make_error(
-                priv_result.reason,
-                status_code=403,
-                details=priv_result.to_dict(),
+        else:
+            priv_result = check_private_repo_access(
+                operation=operation,
+                owner=repo_info.owner,
+                repo=repo_info.repo,
+                for_write=False,
+                session_mode=session_mode,
             )
+            if not priv_result.allowed:
+                audit_log(
+                    f"{operation}_denied_private_mode",
+                    f"git_{operation}",
+                    success=False,
+                    details={
+                        "repo": repo,
+                        "reason": priv_result.reason,
+                        "visibility": priv_result.visibility,
+                    },
+                )
+                return make_error(
+                    priv_result.reason,
+                    status_code=403,
+                    details=priv_result.to_dict(),
+                )
 
     # Get authentication token using shared helper
     token_str, auth_mode, token_error = get_token_for_repo(repo)
