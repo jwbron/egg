@@ -73,20 +73,25 @@ class TestTokenCounts:
         assert cost == expected
 
     def test_calculate_cost_with_cache(self):
-        """Test cost calculation with cache tokens."""
+        """Test cost calculation with cache tokens.
+
+        input_tokens from the Anthropic API is already the non-cached count.
+        cache_read_tokens is an additional category charged at the reduced rate.
+        They are additive, not overlapping.
+        """
         counts = TokenCounts(
             input_tokens=1_000_000,
             output_tokens=500_000,
-            cache_read_tokens=500_000,  # Half of input is from cache
+            cache_read_tokens=500_000,
             cache_creation_tokens=100_000,
         )
         cost = counts.calculate_cost()
-        # Regular input: 500K at $5/MTok = $2.50
-        # Cache read: 500K at $0.50/MTok = $0.25
+        # Input (non-cached): 1M at $5/MTok = $5.00
         # Output: 500K at $25/MTok = $12.50
+        # Cache read: 500K at $0.50/MTok = $0.25
         # Cache write: 100K at $6.25/MTok = $0.625
-        # Total: $15.875
-        expected = Decimal("2.50") + Decimal("0.25") + Decimal("12.50") + Decimal("0.625")
+        # Total: $18.375
+        expected = Decimal("5.00") + Decimal("12.50") + Decimal("0.25") + Decimal("0.625")
         assert cost == expected
 
     def test_calculate_cost_with_model(self):

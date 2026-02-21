@@ -159,292 +159,123 @@ class TestCaptureAndStoreCheckpointsForPush:
         finally:
             checkpoint_handler.CHECKPOINT_ENABLED = original
 
-    @patch("checkpoint_handler.get_commits_in_push")
-    def test_returns_empty_for_no_commits(self, mock_get_commits):
-        """Test that empty commit list returns empty checkpoint list."""
-        mock_get_commits.return_value = []
-
-        import checkpoint_handler
-
-        result = checkpoint_handler.capture_and_store_checkpoints_for_push(
-            repo_path="/repo",
-            old_sha="old",
-            new_sha="new",
-            branch="main",
-        )
-        assert result == []
-
-    @patch("checkpoint_handler.get_commits_in_push")
-    @patch("checkpoint_handler.get_checkpoint_handler")
-    def test_creates_checkpoint_for_each_commit(self, mock_get_handler, mock_get_commits):
-        """Test that a checkpoint is created for each commit in the push."""
+    @patch("checkpoint_handler.capture_and_store_checkpoint")
+    def test_creates_single_checkpoint_per_push(self, mock_capture):
+        """Test that exactly one checkpoint is created per push, using new_sha."""
         from egg_contracts.checkpoints import CheckpointV2, SessionMetadata, TriggerType
 
-        # Mock 3 commits
-        commit1 = "1111111111111111111111111111111111111111"
-        commit2 = "2222222222222222222222222222222222222222"
-        commit3 = "3333333333333333333333333333333333333333"
-        mock_get_commits.return_value = [commit1, commit2, commit3]
-
-        # Mock handler
-        mock_handler = MagicMock()
-        mock_get_handler.return_value = mock_handler
-
-        # Create mock checkpoints
-        def create_checkpoint(
-            repo_path,
-            commit_sha,
-            branch,
-            session=None,
-            issue_number=None,
-            pipeline_phase=None,
-            push_sha=None,
-        ):
-            now = datetime.now(UTC)
-            return CheckpointV2(
-                id=f"ckpt-{commit_sha[:12]}",
-                trigger_type=TriggerType.COMMIT,
-                commit_sha=commit_sha,
-                session_id="test",
-                session=SessionMetadata(session_id="test", started_at=now),
-                created_at=now,
-                session_started_at=now,
-                push_sha=push_sha,
-                branch=branch,
-            )
-
-        mock_handler.capture_checkpoint.side_effect = create_checkpoint
-        mock_handler.store_checkpoint_v2.return_value = True
-
-        import checkpoint_handler
-
-        checkpoints = checkpoint_handler.capture_and_store_checkpoints_for_push(
-            repo_path="/repo",
-            old_sha="0" * 40,
-            new_sha=commit3,
-            branch="main",
-            async_store=False,
-        )
-
-        # Should have 3 checkpoints
-        assert len(checkpoints) == 3
-        assert mock_handler.capture_checkpoint.call_count == 3
-        assert mock_handler.store_checkpoint_v2.call_count == 3
-
-    @patch("checkpoint_handler.get_commits_in_push")
-    @patch("checkpoint_handler.get_checkpoint_handler")
-    def test_push_sha_set_on_all_checkpoints(self, mock_get_handler, mock_get_commits):
-        """Test that push_sha is set to the tip commit for all checkpoints."""
-        from egg_contracts.checkpoints import CheckpointV2, SessionMetadata, TriggerType
-
-        # Mock 2 commits
-        commit1 = "1111111111111111111111111111111111111111"
-        commit2 = "2222222222222222222222222222222222222222"
-        mock_get_commits.return_value = [commit1, commit2]
-
-        # Track push_sha values
-        captured_push_shas = []
-
-        def capture_and_record(
-            repo_path,
-            commit_sha,
-            branch,
-            session=None,
-            issue_number=None,
-            pipeline_phase=None,
-            push_sha=None,
-        ):
-            captured_push_shas.append(push_sha)
-            now = datetime.now(UTC)
-            return CheckpointV2(
-                id=f"ckpt-{commit_sha[:12]}",
-                trigger_type=TriggerType.COMMIT,
-                commit_sha=commit_sha,
-                session_id="test",
-                session=SessionMetadata(session_id="test", started_at=now),
-                created_at=now,
-                session_started_at=now,
-                push_sha=push_sha,
-                branch=branch,
-            )
-
-        mock_handler = MagicMock()
-        mock_handler.capture_checkpoint.side_effect = capture_and_record
-        mock_handler.store_checkpoint_v2.return_value = True
-        mock_get_handler.return_value = mock_handler
-
-        import checkpoint_handler
-
-        checkpoint_handler.capture_and_store_checkpoints_for_push(
-            repo_path="/repo",
-            old_sha="0" * 40,
-            new_sha=commit2,
-            branch="main",
-            async_store=False,
-        )
-
-        # All push_sha values should be commit2 (the tip)
-        assert all(ps == commit2 for ps in captured_push_shas)
-        assert len(captured_push_shas) == 2
-
-    @patch("checkpoint_handler.get_commits_in_push")
-    @patch("checkpoint_handler.get_checkpoint_handler")
-    def test_continues_on_individual_checkpoint_failure(self, mock_get_handler, mock_get_commits):
-        """Test that failure to capture one checkpoint doesn't stop others."""
-        from egg_contracts.checkpoints import CheckpointV2, SessionMetadata, TriggerType
-
-        # Mock 3 commits
-        commit1 = "1111111111111111111111111111111111111111"
-        commit2 = "2222222222222222222222222222222222222222"
-        commit3 = "3333333333333333333333333333333333333333"
-        mock_get_commits.return_value = [commit1, commit2, commit3]
-
-        call_count = [0]
-
-        def capture_with_failure(
-            repo_path,
-            commit_sha,
-            branch,
-            session=None,
-            issue_number=None,
-            pipeline_phase=None,
-            push_sha=None,
-        ):
-            call_count[0] += 1
-            if call_count[0] == 2:
-                raise Exception("Simulated failure")
-            now = datetime.now(UTC)
-            return CheckpointV2(
-                id=f"ckpt-{commit_sha[:12]}",
-                trigger_type=TriggerType.COMMIT,
-                commit_sha=commit_sha,
-                session_id="test",
-                session=SessionMetadata(session_id="test", started_at=now),
-                created_at=now,
-                session_started_at=now,
-                push_sha=push_sha,
-                branch=branch,
-            )
-
-        mock_handler = MagicMock()
-        mock_handler.capture_checkpoint.side_effect = capture_with_failure
-        mock_handler.store_checkpoint_v2.return_value = True
-        mock_get_handler.return_value = mock_handler
-
-        import checkpoint_handler
-
-        checkpoints = checkpoint_handler.capture_and_store_checkpoints_for_push(
-            repo_path="/repo",
-            old_sha="0" * 40,
-            new_sha=commit3,
-            branch="main",
-            async_store=False,
-        )
-
-        # Should have 2 checkpoints (first and third succeeded)
-        assert len(checkpoints) == 2
-        assert call_count[0] == 3
-        assert mock_handler.store_checkpoint_v2.call_count == 2
-
-    @patch("checkpoint_handler.get_commits_in_push")
-    @patch("checkpoint_handler.get_checkpoint_handler")
-    def test_async_store_uses_thread(self, mock_get_handler, mock_get_commits):
-        """Test that async_store=True stores in a background thread."""
-        from egg_contracts.checkpoints import CheckpointV2, SessionMetadata, TriggerType
-
-        commit1 = "1111111111111111111111111111111111111111"
-        mock_get_commits.return_value = [commit1]
-
-        mock_handler = MagicMock()
+        new_sha = "3333333333333333333333333333333333333333"
         now = datetime.now(UTC)
-        mock_handler.capture_checkpoint.return_value = CheckpointV2(
+        mock_capture.return_value = CheckpointV2(
+            id="ckpt-333333333333",
+            trigger_type=TriggerType.COMMIT,
+            commit_sha=new_sha,
+            session_id="test",
+            session=SessionMetadata(session_id="test", started_at=now),
+            created_at=now,
+            session_started_at=now,
+            push_sha=new_sha,
+            branch="main",
+        )
+
+        import checkpoint_handler
+
+        checkpoints = checkpoint_handler.capture_and_store_checkpoints_for_push(
+            repo_path="/repo",
+            old_sha="1111111111111111111111111111111111111111",
+            new_sha=new_sha,
+            branch="main",
+            async_store=False,
+        )
+
+        # Exactly one checkpoint for the push tip, regardless of commit count
+        assert len(checkpoints) == 1
+        assert checkpoints[0].commit_sha == new_sha
+        mock_capture.assert_called_once()
+        call_kwargs = mock_capture.call_args[1]
+        assert call_kwargs["commit_sha"] == new_sha
+        assert call_kwargs["push_sha"] == new_sha
+
+    @patch("checkpoint_handler.capture_and_store_checkpoint")
+    def test_multi_commit_push_still_one_checkpoint(self, mock_capture):
+        """Multi-commit push creates only one checkpoint (for the tip)."""
+        from egg_contracts.checkpoints import CheckpointV2, SessionMetadata, TriggerType
+
+        new_sha = "3333333333333333333333333333333333333333"
+        now = datetime.now(UTC)
+        mock_capture.return_value = CheckpointV2(
+            id="ckpt-333333333333",
+            trigger_type=TriggerType.COMMIT,
+            commit_sha=new_sha,
+            session_id="test",
+            session=SessionMetadata(session_id="test", started_at=now),
+            created_at=now,
+            session_started_at=now,
+            push_sha=new_sha,
+            branch="main",
+        )
+
+        import checkpoint_handler
+
+        # old_sha differs by many commits — still only one checkpoint created
+        checkpoints = checkpoint_handler.capture_and_store_checkpoints_for_push(
+            repo_path="/repo",
+            old_sha="1111111111111111111111111111111111111111",
+            new_sha=new_sha,
+            branch="main",
+            async_store=False,
+        )
+
+        assert len(checkpoints) == 1
+        mock_capture.assert_called_once()
+
+    @patch("checkpoint_handler.capture_and_store_checkpoint")
+    def test_async_store_passes_through(self, mock_capture):
+        """Test that async_store=True is passed through to capture_and_store_checkpoint."""
+        from egg_contracts.checkpoints import CheckpointV2, SessionMetadata, TriggerType
+
+        new_sha = "1111111111111111111111111111111111111111"
+        now = datetime.now(UTC)
+        mock_capture.return_value = CheckpointV2(
             id="ckpt-1111111111111",
             trigger_type=TriggerType.COMMIT,
-            commit_sha=commit1,
+            commit_sha=new_sha,
             session_id="test",
             session=SessionMetadata(session_id="test", started_at=now),
             created_at=now,
             session_started_at=now,
             branch="main",
         )
-        mock_get_handler.return_value = mock_handler
 
         import checkpoint_handler
 
-        with patch("checkpoint_handler.threading.Thread") as mock_thread:
-            mock_thread_instance = MagicMock()
-            mock_thread.return_value = mock_thread_instance
+        checkpoint_handler.capture_and_store_checkpoints_for_push(
+            repo_path="/repo",
+            old_sha="0" * 40,
+            new_sha=new_sha,
+            branch="main",
+            async_store=True,
+        )
 
-            checkpoint_handler.capture_and_store_checkpoints_for_push(
-                repo_path="/repo",
-                old_sha="0" * 40,
-                new_sha=commit1,
-                branch="main",
-                async_store=True,  # Use async
-            )
+        mock_capture.assert_called_once()
+        assert mock_capture.call_args[1]["async_store"] is True
 
-            # Thread should have been created and started
-            mock_thread.assert_called_once()
-            mock_thread_instance.start.assert_called_once()
-
-            # store_checkpoint should NOT have been called directly (it's in the thread)
-            mock_handler.store_checkpoint_v2.assert_not_called()
-
-    @patch("checkpoint_handler.get_commits_in_push")
-    @patch("checkpoint_handler.get_checkpoint_handler")
-    def test_checkpoint_returns_none_excluded(self, mock_get_handler, mock_get_commits):
-        """Test that checkpoints returning None are excluded from result."""
-        from egg_contracts.checkpoints import CheckpointV2, SessionMetadata, TriggerType
-
-        commit1 = "1111111111111111111111111111111111111111"
-        commit2 = "2222222222222222222222222222222222222222"
-        mock_get_commits.return_value = [commit1, commit2]
-
-        call_count = [0]
-
-        def sometimes_returns_none(
-            repo_path,
-            commit_sha,
-            branch,
-            session=None,
-            issue_number=None,
-            pipeline_phase=None,
-            push_sha=None,
-        ):
-            call_count[0] += 1
-            if call_count[0] == 1:
-                return None
-            now = datetime.now(UTC)
-            return CheckpointV2(
-                id=f"ckpt-{commit_sha[:12]}",
-                trigger_type=TriggerType.COMMIT,
-                commit_sha=commit_sha,
-                session_id="test",
-                session=SessionMetadata(session_id="test", started_at=now),
-                created_at=now,
-                session_started_at=now,
-                push_sha=push_sha,
-                branch=branch,
-            )
-
-        mock_handler = MagicMock()
-        mock_handler.capture_checkpoint.side_effect = sometimes_returns_none
-        mock_handler.store_checkpoint_v2.return_value = True
-        mock_get_handler.return_value = mock_handler
+    @patch("checkpoint_handler.capture_and_store_checkpoint")
+    def test_returns_empty_when_capture_returns_none(self, mock_capture):
+        """Returns empty list when capture_and_store_checkpoint returns None."""
+        mock_capture.return_value = None
 
         import checkpoint_handler
 
         checkpoints = checkpoint_handler.capture_and_store_checkpoints_for_push(
             repo_path="/repo",
             old_sha="0" * 40,
-            new_sha=commit2,
+            new_sha="2222222222222222222222222222222222222222",
             branch="main",
             async_store=False,
         )
 
-        # Only second commit's checkpoint should be returned
-        assert len(checkpoints) == 1
-        assert checkpoints[0].commit_sha == commit2
+        assert checkpoints == []
 
 
 def _make_test_session(
