@@ -96,10 +96,13 @@ All endpoints are prefixed with `/api/v1`.
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `POST` | `/pipelines/{id}/containers` | Spawn container |
+| `POST` | `/pipelines/{id}/spawn` | Spawn container |
 | `GET` | `/pipelines/{id}/containers` | List containers |
 | `GET` | `/pipelines/{id}/containers/{cid}` | Get container details |
 | `DELETE` | `/pipelines/{id}/containers/{cid}` | Remove container |
+| `POST` | `/pipelines/{id}/containers/{cid}/stop` | Stop container |
+| `GET` | `/pipelines/{id}/containers/{cid}/logs` | Get container logs |
+| `GET` | `/pipelines/{id}/containers/{cid}/health` | Container health check |
 
 ### HITL Decisions
 
@@ -107,14 +110,20 @@ All endpoints are prefixed with `/api/v1`.
 |--------|------|-------------|
 | `GET` | `/pipelines/{id}/decisions` | List pending decisions |
 | `POST` | `/pipelines/{id}/decisions` | Create decision |
+| `GET` | `/pipelines/{id}/decisions/{did}` | Get decision details |
 | `POST` | `/pipelines/{id}/decisions/{did}/resolve` | Resolve decision |
+| `POST` | `/pipelines/{id}/decisions/{did}/cancel` | Cancel decision |
+| `GET` | `/pipelines/{id}/decisions/status` | Decision queue summary |
 
 ### Phases
 
 | Method | Path | Description |
 |--------|------|-------------|
 | `GET` | `/pipelines/{id}/phase` | Get current phase |
-| `POST` | `/pipelines/{id}/phase/advance` | Advance to next phase |
+| `POST` | `/pipelines/{id}/phase` | Advance to next phase |
+| `POST` | `/pipelines/{id}/phase/start` | Start current phase |
+| `POST` | `/pipelines/{id}/phase/complete` | Complete current phase |
+| `POST` | `/pipelines/{id}/phase/fail` | Fail current phase |
 
 ### Deployment Checks
 
