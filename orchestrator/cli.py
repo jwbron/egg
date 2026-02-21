@@ -88,6 +88,45 @@ def cmd_serve(args: argparse.Namespace) -> int:
         debug=debug,
     )
 
+    repo_path = os.environ.get("EGG_REPO_PATH", "not set")
+    host_repo_map = os.environ.get("EGG_HOST_REPO_MAP", "not set")
+    logger.info(
+        "Configuration",
+        repo_path=repo_path,
+        host_repo_map=host_repo_map,
+    )
+
+    if repo_path != "not set":
+        try:
+            from docker_client import get_docker_client
+            from startup_reconciliation import reconcile_stale_containers
+            from state_store import get_state_store
+
+            recovered = reconcile_stale_containers(get_state_store(repo_path), get_docker_client())
+            if recovered:
+                logger.warning("Recovered stale pipelines on startup", count=recovered)
+        except Exception as reconcile_err:
+            logger.warning(
+                "Startup reconciliation failed",
+                error=str(reconcile_err),
+            )
+
+        try:
+            from container_monitor import (
+                create_pipeline_reconciliation_handler,
+                get_container_monitor,
+            )
+
+            monitor = get_container_monitor()
+            monitor.add_handler(create_pipeline_reconciliation_handler(repo_path))
+            monitor.start()
+            logger.info("Container monitor started for runtime liveness checks")
+        except Exception as monitor_err:
+            logger.warning(
+                "Container monitor startup failed",
+                error=str(monitor_err),
+            )
+
     if debug:
         # Use Flask's built-in server for development
         app.run(host=host, port=port, debug=True)
@@ -95,7 +134,7 @@ def cmd_serve(args: argparse.Namespace) -> int:
         # Use waitress for production
         from waitress import serve
 
-        serve(app, host=host, port=port)
+        serve(app, host=host, port=port, threads=16)
 
     return 0
 
