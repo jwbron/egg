@@ -8,7 +8,242 @@
   "pipeline_id": null,
   "current_phase": "refine",
   "acceptance_criteria": [],
-  "phases": [],
+  "phases": [
+    {
+      "id": "phase-1",
+      "name": "Extend Pipeline model and populate wave data",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-1-1",
+          "description": "Add optional plan_phase_waves (list[list[str]] | None) and plan_phase_names (dict[str, str] | None) fields to the Pipeline model in orchestrator/models.py",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Pipeline model accepts and serializes the new fields; existing pipelines without these fields deserialize without error (defaults to None)",
+          "files_affected": [
+            "orchestrator/models.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-2",
+          "description": "Populate plan_phase_waves and plan_phase_names in _run_tier3_implement() after computing the PhaseDependencyGraph, before entering the phase dispatch loop",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "After Tier 3 dispatch starts, pipeline.plan_phase_waves contains the wave structure from PhaseDependencyGraph.compute_waves() and plan_phase_names maps phase IDs to names from the contract",
+          "files_affected": [
+            "orchestrator/routes/pipelines.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        }
+      ],
+      "dependencies": [],
+      "review_feedback": []
+    },
+    {
+      "id": "phase-2",
+      "name": "Implement sub-phase box and side-by-side rendering",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-2-1",
+          "description": "Add _render_subphase_box() function that renders a compact box for a single sub-phase, showing phase name, aggregate status, and agent sequence with status symbols",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Function returns a list[str] of box lines; works in both Unicode and ASCII modes; derives sub-phase status from agent statuses",
+          "files_affected": [
+            "orchestrator/dag_visualizer.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-2-2",
+          "description": "Add _render_side_by_side() function that takes multiple box line-lists, normalizes heights by padding shorter boxes, and concatenates them horizontally with spacing",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Function correctly merges boxes of different heights; output lines are consistently wide; handles 1 to 4+ boxes",
+          "files_affected": [
+            "orchestrator/dag_visualizer.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-2-3",
+          "description": "Add _render_fan_out() and _render_fan_in() functions that render branching connectors between sequential and parallel waves, supporting both Unicode and ASCII",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Fan-out produces a top-to-branches visual; fan-in produces a branches-to-bottom visual; connector width scales with the number and width of parallel boxes",
+          "files_affected": [
+            "orchestrator/dag_visualizer.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-2-4",
+          "description": "Add _render_tier3_implement() orchestrator function that assembles the full expanded Implement section using wave data, sub-phase boxes, side-by-side rendering, and connectors; renders top-level agents (integrator, reviewer_contract) in a separate box after sub-phases",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Returns list[str] lines for the complete Tier 3 Implement section; handles sequential waves (single box), parallel waves (side-by-side boxes with connectors), and top-level agents",
+          "files_affected": [
+            "orchestrator/dag_visualizer.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-2-5",
+          "description": "Modify render_pipeline_dag() to detect Tier 3 pipelines (plan_phase_waves is not None) and call _render_tier3_implement() instead of _render_phase_box() for the Implement phase",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Tier 3 pipelines render expanded sub-phase DAG; Tier 1/2 pipelines render unchanged; no change to function signature",
+          "files_affected": [
+            "orchestrator/dag_visualizer.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        }
+      ],
+      "dependencies": [],
+      "review_feedback": []
+    },
+    {
+      "id": "phase-3",
+      "name": "Add tests for Tier 3 DAG visualization",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-3-1",
+          "description": "Add unit tests for _render_subphase_box() covering various agent statuses, phase names, Unicode and ASCII modes",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Tests pass and cover completed/running/pending/failed sub-phase states",
+          "files_affected": [
+            "orchestrator/tests/test_dag_visualizer.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-3-2",
+          "description": "Add unit tests for _render_side_by_side() covering different box heights, 2-box and 3+-box scenarios",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Tests verify correct horizontal concatenation and height normalization",
+          "files_affected": [
+            "orchestrator/tests/test_dag_visualizer.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-3-3",
+          "description": "Add unit tests for _render_fan_out() and _render_fan_in() in Unicode and ASCII modes with varying widths",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Tests verify correct connector rendering for 2 and 3+ branches",
+          "files_affected": [
+            "orchestrator/tests/test_dag_visualizer.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-3-4",
+          "description": "Add integration tests for render_pipeline_dag() with Tier 3 pipeline data (sequential + parallel waves, top-level agents, ASCII mode)",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Full DAG output matches expected structure; sub-phase boxes appear in wave order; fan-out/fan-in connectors present for parallel waves",
+          "files_affected": [
+            "orchestrator/tests/test_dag_visualizer.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-3-5",
+          "description": "Add backward-compatibility regression tests verifying Tier 1/2 pipelines render identically to current output",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Tests create pipelines without plan_phase_waves and verify output matches baseline",
+          "files_affected": [
+            "orchestrator/tests/test_dag_visualizer.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-3-6",
+          "description": "Add edge case tests for single-wave Tier 3, empty plan_phase_waves, missing plan_phase_names, and 4+ parallel phases",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "All edge cases handled gracefully without errors",
+          "files_affected": [
+            "orchestrator/tests/test_dag_visualizer.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        }
+      ],
+      "dependencies": [],
+      "review_feedback": []
+    }
+  ],
   "decisions": [],
   "workflow_owner": null,
   "audit_log": [],
@@ -21,63 +256,37 @@
   "phase_configs": null,
   "agent_executions": [
     {
-      "role": "coder",
-      "phase_id": null,
-      "status": "pending",
-      "started_at": null,
-      "completed_at": null,
-      "commit": null,
-      "checkpoint_id": null,
-      "outputs": {},
-      "error": null,
-      "retry_count": 0,
-      "conflicts": []
-    },
-    {
-      "role": "tester",
-      "phase_id": null,
-      "status": "pending",
-      "started_at": null,
-      "completed_at": null,
-      "commit": null,
-      "checkpoint_id": null,
-      "outputs": {},
-      "error": null,
-      "retry_count": 0,
-      "conflicts": []
-    },
-    {
-      "role": "documenter",
-      "phase_id": null,
-      "status": "pending",
-      "started_at": null,
-      "completed_at": null,
-      "commit": null,
-      "checkpoint_id": null,
-      "outputs": {},
-      "error": null,
-      "retry_count": 0,
-      "conflicts": []
-    },
-    {
-      "role": "integrator",
-      "phase_id": null,
-      "status": "pending",
-      "started_at": null,
-      "completed_at": null,
-      "commit": null,
-      "checkpoint_id": null,
-      "outputs": {},
-      "error": null,
-      "retry_count": 0,
-      "conflicts": []
-    },
-    {
-      "role": "reviewer_agent_design",
+      "role": "architect",
       "phase_id": null,
       "status": "complete",
-      "started_at": null,
-      "completed_at": "2026-02-21T23:23:55.025592Z",
+      "started_at": "2026-02-21T23:29:00.700568Z",
+      "completed_at": "2026-02-21T23:35:23.252292Z",
+      "commit": null,
+      "checkpoint_id": null,
+      "outputs": {},
+      "error": null,
+      "retry_count": 0,
+      "conflicts": []
+    },
+    {
+      "role": "task_planner",
+      "phase_id": null,
+      "status": "complete",
+      "started_at": "2026-02-21T23:35:23.256876Z",
+      "completed_at": "2026-02-21T23:39:47.767498Z",
+      "commit": null,
+      "checkpoint_id": null,
+      "outputs": {},
+      "error": null,
+      "retry_count": 0,
+      "conflicts": []
+    },
+    {
+      "role": "risk_analyst",
+      "phase_id": null,
+      "status": "complete",
+      "started_at": "2026-02-21T23:35:23.260277Z",
+      "completed_at": "2026-02-21T23:42:07.001254Z",
       "commit": null,
       "checkpoint_id": null,
       "outputs": {},
