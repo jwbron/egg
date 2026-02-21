@@ -34,7 +34,7 @@ except ImportError:
 try:
     from ..container_spawner import ContainerSpawnError, get_container_spawner
     from ..decision_queue import get_decision_queue
-    from ..docker_client import DockerClientError
+    from ..docker_client import ContainerNotFoundError, ContainerOperationError, DockerClientError
     from ..models import (
         AgentRole,
         CycleTiming,
@@ -55,7 +55,11 @@ try:
 except ImportError:
     from container_spawner import ContainerSpawnError, get_container_spawner  # type: ignore
     from decision_queue import get_decision_queue  # type: ignore
-    from docker_client import DockerClientError  # type: ignore
+    from docker_client import (  # type: ignore
+        ContainerNotFoundError,
+        ContainerOperationError,
+        DockerClientError,
+    )
     from models import (  # type: ignore
         AgentRole,
         ComplexityTier,
@@ -3368,10 +3372,24 @@ def _spawn_and_wait(
             )
 
     docker_client = spawner.docker
-    final_info = docker_client.wait_for_container(
-        spawned.container_info.container_id,
-        timeout=timeout,
-    )
+    try:
+        final_info = docker_client.wait_for_container(
+            spawned.container_info.container_id,
+            timeout=timeout,
+        )
+    except (ContainerNotFoundError, ContainerOperationError) as e:
+        logger.warning(
+            "Container lost during wait, marking failed",
+            container_id=spawned.container_info.container_id,
+            error=str(e),
+        )
+        final_info = ContainerInfo(
+            container_id=spawned.container_info.container_id,
+            container_name=spawned.container_info.container_name,
+            status=ContainerStatus.FAILED,
+            exit_code=-1,
+            exited_at=datetime.utcnow(),
+        )
 
     container_logs = ""
     if final_info.exit_code != 0:
@@ -3395,8 +3413,8 @@ def _spawn_and_wait(
                 # Update container status
                 for ci in phase_execution.containers:
                     if ci.container_id == spawned.container_info.container_id:
-                        ci.status = ContainerStatus.EXITED
-                        ci.exited_at = datetime.utcnow()
+                        ci.status = final_info.status
+                        ci.exited_at = final_info.exited_at
                         ci.exit_code = final_info.exit_code
                         break
 

@@ -173,6 +173,22 @@ def main() -> None:
         host_repo_map=host_repo_map,
     )
 
+    # Reconcile any pipelines left in RUNNING state from a previous crash.
+    if repo_path != "not set":
+        try:
+            from docker_client import get_docker_client
+            from startup_reconciliation import reconcile_stale_containers
+            from state_store import get_state_store
+
+            recovered = reconcile_stale_containers(get_state_store(repo_path), get_docker_client())
+            if recovered:
+                logger.warning("Recovered stale pipelines on startup", count=recovered)
+        except Exception as reconcile_err:
+            logger.warning(
+                "Startup reconciliation failed",
+                error=str(reconcile_err),
+            )
+
     if debug:
         # Use Flask's built-in server for development
         app.run(host=host, port=port, debug=True)
