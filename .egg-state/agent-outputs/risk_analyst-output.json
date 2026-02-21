@@ -1,175 +1,251 @@
 {
-  "issue": 835,
+  "issue": 850,
   "phase": "plan",
   "agent": "risk_analyst",
-  "title": "Risk Assessment: Scope agent prompts to role-relevant context only",
-  "summary": "Assessment of the proposed _build_role_context() helper approach (Approach A) for replacing the one-size-fits-all pipeline.prompt embedding with role-appropriate context. This change modifies the prompt construction pipeline in a single file (orchestrator/routes/pipelines.py) and its test file. The overall risk is Low-Medium: the change is well-scoped (pure prompt content changes, no schema or data model modifications), but carries regression risk from modifying a 300-line function that affects all agent types. Six risks identified: three Medium, three Low. All are mitigable with the recommended phased approach and test-first strategy.",
+  "title": "Risk Assessment: Two-tier health check framework for pipeline failure detection",
+  "summary": "Assessment of the proposed HealthCheck Protocol + HealthCheckRunner + adapter migration (Approach A) for unifying pipeline failure detection under a common interface and adding semantic health evaluation via LLM-based agent inspection. The change introduces a new orchestrator/health_checks/ package (~10 files), adapts two existing mechanisms, adds two new Tier 1 checks, and introduces the first direct Claude API call from the orchestrator process. Overall risk is Medium. Nine risks identified: two High, four Medium, three Low. The highest risks are the introduction of a new Anthropic SDK dependency in the orchestrator (which has never called the Claude API directly) and the WAVE_COMPLETE trigger integration gap (the callback is not wired at the primary call site). All risks are mitigable. One area requires human review.",
 
   "risk_assessment": {
-    "overall_risk_level": "Low-Medium",
-    "overall_verdict": "Proceed with Approach A (_build_role_context() helper). Risks are manageable with the two-phase implementation plan. The change is purely additive in terms of code structure (new helper functions) and subtractive in terms of prompt content (less context per role). No schema changes, no data model changes, no new dependencies. The primary risk is behavioral regression — agents receiving less context than they need — which is mitigated by the 'summarize, don't omit' principle and 'For more context' pointers.",
-    "confidence": "High — based on source code analysis of _build_agent_prompt() (lines 1942-2240), _build_phase_scoped_prompt() (lines 2243-2348), _run_tier3_implement() (lines 2351-3033), _run_multi_agent_phase() (lines 3062-3149), existing test patterns in test_pipeline_prompts.py and test_tier3_dispatch.py, and the plan template format (docs/templates/plan.md)"
+    "overall_risk_level": "Medium",
+    "overall_verdict": "Proceed with Approach A (HealthCheck Protocol + HealthCheckRunner + adapter migration). The architecture is well-designed and the adapter pattern correctly avoids rewriting battle-tested code. However, two issues require attention before implementation: (1) The Tier 2 agent inspector introduces the first direct Anthropic API call from the orchestrator, which is an architectural novelty requiring dependency addition, credential access, and proxy routing resolution. (2) The WAVE_COMPLETE trigger point is not currently connected — execute_all_waves() is called without the on_wave_complete callback at the primary call site (routes/pipelines.py:3597). Both are solvable but non-trivial.",
+    "confidence": "High — based on source code analysis of cli.py:99-128 (startup), container_monitor.py:196-209 (monitor loop), multi_agent.py:509-559 (wave execution), routes/pipelines.py:3590-3610 (wave invocation and phase advancement), events.py:35-68 (EventType enum), models.py:171-278 (PhaseExecution/Pipeline), state_store.py:427-483 (optimistic locking), routes/health.py (existing health endpoints), and the complete architect output."
   },
 
   "risks": [
     {
       "id": "R-1",
-      "category": "Behavioral Regression",
-      "title": "Scoped agents lack sufficient context and produce worse outputs",
-      "description": "The core risk of this change: agents that currently see the full issue body will instead see a 1-2 sentence summary. If the summary omits information that an agent needs to make good decisions — e.g., edge cases mentioned in the issue that a tester should verify, or constraints mentioned in the issue that a documenter should reflect — agent output quality could degrade. This is especially concerning for testers in Tier 3 where phase context is narrow and the tester relies on understanding the broader intent to design meaningful tests. The issue explicitly warns about this: 'Focus, Don't Starve — an agent that lacks orientation will make poor decisions or spin trying to figure out its purpose.'",
-      "likelihood": "Medium",
+      "category": "Architectural Novelty",
+      "title": "Tier 2 introduces first direct Anthropic API call from the orchestrator process",
+      "description": "The orchestrator has NEVER directly imported or used the Anthropic Python SDK. All LLM interactions are currently delegated to spawned sandbox containers. The Tier 2 agent inspector proposes calling Claude API directly from the orchestrator via `anthropic.Anthropic().messages.create()`. This requires: (1) Adding `anthropic` as a new dependency in pyproject.toml — it is not currently listed as an orchestrator dependency. (2) Providing API credentials to the orchestrator — currently, API keys are managed by the gateway and injected into sandbox containers via environment variables; the orchestrator itself does not have `ANTHROPIC_API_KEY`. (3) Ensuring the orchestrator can reach api.anthropic.com — sandbox containers route through a filtering proxy (sandbox_template.py:124-127), but the orchestrator may not have the same proxy configuration. This is not merely adding a function call; it is establishing a new communication pattern for the orchestrator.",
+      "likelihood": "High",
       "impact": "Medium",
-      "risk_score": "Medium",
+      "risk_score": "High",
       "affected_files": [
-        "orchestrator/routes/pipelines.py:2014-2018 (_build_agent_prompt if prompt block)",
-        "orchestrator/routes/pipelines.py:2555-2579 (tester prompt construction)",
-        "orchestrator/routes/pipelines.py:2631-2642 (documenter prompt construction)",
-        "orchestrator/routes/pipelines.py:2961-2990 (integrator prompt construction)"
+        "orchestrator/health_checks/tier2/agent_inspector.py (new file — first anthropic import in orchestrator)",
+        "pyproject.toml (new dependency)",
+        "docker-compose.yml or orchestrator Dockerfile (credentials and proxy config)"
       ],
       "mitigation": {
-        "strategy": "Comprehensive 'For more context' pointers + quality-preserving summaries",
+        "strategy": "Explicit credential and connectivity validation before implementation",
         "steps": [
-          "Every scoped prompt MUST include 'For more context: gh issue view <N>' and relevant file paths — agents can self-serve additional context on demand",
-          "The _summarize_issue() helper should use issue title + first paragraph (not just title) to preserve key context",
-          "For tester prompts: include acceptance criteria verbatim (not summarized) since these are the testing contract",
-          "For documenter prompts: include task descriptions that explain what was built, not just file lists",
-          "Run a manual smoke test comparing old vs new prompts for at least one recent Tier 3 pipeline to verify sufficient context",
-          "Monitor first 2-3 pipelines after deployment for signs of agent confusion or task spinning"
+          "Before writing any Tier 2 code, verify the orchestrator's network path to api.anthropic.com — test from inside the orchestrator container",
+          "Determine how API credentials will be provided: environment variable, shared secrets volume, or gateway-proxied API calls",
+          "Add the anthropic SDK to pyproject.toml with a version pin",
+          "Wrap the entire Tier 2 check in a top-level try/except that returns HEALTHY with reason='Tier 2 unavailable' on ANY failure (ImportError, credential missing, network timeout, API error)",
+          "Add an explicit startup check in cli.py that logs whether Tier 2 is available (SDK importable + credentials present) — if not, register only Tier 1 checks",
+          "Consider an alternative: instead of direct API calls, the agent inspector could shell out to the Claude Code binary (already installed in orchestrator container) or use a lightweight HTTP request to the Anthropic API without the full SDK"
         ],
-        "residual_risk": "Low — agents can access full context via CLI commands, and the summary preserves orientation. The issue explicitly says a few hundred extra tokens is fine."
+        "residual_risk": "Low if the graceful fallback is implemented correctly. The 'never block the pipeline' principle means Tier 2 unavailability is non-fatal."
       },
       "human_review_required": true,
-      "review_reason": "Human should review sample scoped prompts for tester and documenter roles to verify they contain sufficient context for good agent performance. Compare against the current full-issue-body prompts."
+      "review_reason": "Human should decide the credential management approach: direct API key injection vs gateway-proxied API calls vs alternative LLM access pattern. This is an architectural decision not covered by existing ADRs."
     },
     {
       "id": "R-2",
-      "category": "Plan Parsing Fragility",
-      "title": "Plan filtering in _build_phase_scoped_prompt() breaks on non-standard plan formats",
-      "description": "The proposed change to _build_phase_scoped_prompt() requires parsing the plan draft to extract the overview section and filter to the current phase. The architect proposes heading-level parsing ('## for sections, ### for phases'). While the plan template (docs/templates/plan.md) defines a standard format ('## Summary', '### Phase N: [Name]'), existing plan drafts may vary — e.g., using '## Implementation Phases' vs '## Phases', or having additional sections between the summary and phases. The plan is generated by AI agents which may deviate from the template. If parsing fails, the fallback (embedding the full plan) preserves current behavior but defeats the purpose. A partial parse that silently drops content is worse — it could omit the current phase's tasks.",
-      "likelihood": "Medium",
+      "category": "Integration Gap",
+      "title": "WAVE_COMPLETE trigger not wired at the primary call site",
+      "description": "The architect's integration plan specifies WAVE_COMPLETE checks at multi_agent.py:545-546, after the on_wave_complete callback. However, the primary call site at routes/pipelines.py:3597 calls `executor.execute_all_waves(agent_prompts=agent_prompts_by_role)` WITHOUT passing an on_wave_complete callback. The callback parameter is available but unused. This means health checks at WAVE_COMPLETE would require one of: (a) modifying the call site to pass a callback that invokes the runner, (b) modifying execute_all_waves() to accept the runner directly, or (c) having the runner inject itself into the executor. Option (a) is simplest but requires threading the HealthCheckRunner and PipelineHealthContext through the routes/pipelines.py call chain, which is already deeply nested. This is not a design flaw — the architect's plan accounts for this in the integration plan — but it is more invasive than the description suggests.",
+      "likelihood": "High",
       "impact": "Medium",
-      "risk_score": "Medium",
+      "risk_score": "High",
       "affected_files": [
-        "orchestrator/routes/pipelines.py:2293-2304 (_build_phase_scoped_prompt plan embedding)",
-        "docs/templates/plan.md (plan template structure)"
+        "orchestrator/routes/pipelines.py:3597 (execute_all_waves call site)",
+        "orchestrator/multi_agent.py:509-546 (execute_all_waves method)"
       ],
       "mitigation": {
-        "strategy": "Defensive parsing with full-plan fallback and validation",
+        "strategy": "Pass health check runner via on_wave_complete callback closure",
         "steps": [
-          "Implement plan parsing with explicit fallback: if current phase heading is not found, embed the full plan with a log warning rather than silently dropping content",
-          "Match phase headings flexibly: look for '### Phase N' patterns with regex, not exact string matching, to handle minor template variations",
-          "Extract everything before the first '### Phase' heading as the 'overview' section (catches '## Summary', '## Implementation Phases', or whatever comes first)",
-          "Add unit tests with at least 3 plan formats: (a) standard template, (b) plan with extra sections, (c) plan where current phase heading is missing — verify fallback triggers",
-          "Sample 3-5 existing plan drafts from .egg-state/drafts/ to verify the parser handles real-world formats"
+          "Create a closure in the caller (routes/pipelines.py) that captures the HealthCheckRunner and invokes it on wave completion",
+          "This is the simplest approach: `on_wave_complete=lambda wave: runner.run_checks(Trigger.WAVE_COMPLETE, ctx_for_wave(wave))`",
+          "The closure captures the runner and a factory function that creates a PipelineHealthContext with the wave data",
+          "Test the callback integration with a mock runner to verify it receives the correct wave context",
+          "Document the threading pattern so future callers know to pass the callback"
         ],
-        "residual_risk": "Low — full-plan fallback preserves current behavior. Partial parses are the only danger, and validation prevents those."
+        "residual_risk": "Low — the callback mechanism already exists, it just needs to be connected. The closure pattern keeps changes localized."
       },
       "human_review_required": false,
       "review_reason": null
     },
     {
       "id": "R-3",
-      "category": "Backward Compatibility",
-      "title": "_build_agent_prompt() signature change breaks call sites or tests",
-      "description": "The architect recommends adding a 'pipeline: Pipeline | None = None' optional parameter to _build_agent_prompt() to pass the Pipeline object for role-context building. There are 4 call sites in pipelines.py (lines 2555, 2631, 2961, 3108) plus the test file test_tier3_dispatch.py (which imports and calls _build_phase_scoped_prompt). All call sites use keyword arguments. Adding an optional parameter with a default of None is backward-compatible. However, the _build_role_context() function needs the Pipeline object to access issue_number and issue title for the summary. If a call site passes prompt=pipeline.prompt but not pipeline=pipeline, _build_role_context() would lack the data to build a summary, and must fall back to the raw prompt. This creates two code paths: one with Pipeline (uses role context) and one without (falls back to current behavior). Both paths must be tested.",
-      "likelihood": "Low",
+      "category": "Concurrency",
+      "title": "Health checks in container monitor thread could block the polling cycle or cause race conditions",
+      "description": "The container monitor runs _check_all_containers() in a background thread (container_monitor.py:196-209) with a 10-second polling interval. The architect proposes running RUNTIME_TICK health checks after state changes. If a health check takes time (e.g., Tier 1 checks that query Docker or load pipeline state), it delays the next poll cycle. More critically, the container monitor thread would be loading pipeline state concurrently with the Flask request threads that advance phases and modify pipelines. While the state_store uses optimistic locking for writes, the health checks read state that could be stale or in-flight. The existing handler pattern (container_monitor.py:111-129) catches exceptions per-handler, which is good, but a slow health check blocks ALL subsequent handlers in the chain.",
+      "likelihood": "Medium",
       "impact": "Medium",
-      "risk_score": "Low-Medium",
+      "risk_score": "Medium",
       "affected_files": [
-        "orchestrator/routes/pipelines.py:1942-1955 (_build_agent_prompt signature)",
-        "orchestrator/routes/pipelines.py:2555-2566 (tester call site)",
-        "orchestrator/routes/pipelines.py:2631-2638 (documenter call site)",
-        "orchestrator/routes/pipelines.py:2961-2971 (integrator call site)",
-        "orchestrator/routes/pipelines.py:3108-3120 (_run_multi_agent_phase call site)",
-        "orchestrator/tests/test_pipeline_prompts.py (existing tests)",
-        "orchestrator/tests/test_tier3_dispatch.py (existing tests)"
+        "orchestrator/container_monitor.py:196-209 (_monitor_loop)",
+        "orchestrator/health_checks/runner.py (HealthCheckRunner)",
+        "orchestrator/state_store.py (concurrent access)"
       ],
       "mitigation": {
-        "strategy": "Update all 4 call sites atomically and add the pipeline parameter with backward-compatible default",
+        "strategy": "Time-bound health checks with explicit timeout and async-compatible design",
         "steps": [
-          "Add pipeline: Pipeline | None = None as an optional parameter with default None",
-          "In _build_agent_prompt(), when pipeline is provided, use _build_role_context() for context. When pipeline is None, fall back to existing 'if prompt:' behavior",
-          "Update all 4 call sites to pass pipeline=pipeline alongside the existing prompt=pipeline.prompt",
-          "The prompt parameter can remain for backward compatibility — _build_role_context() uses the Pipeline object preferentially",
-          "Add tests for both code paths: with pipeline object (new behavior) and without (backward-compatible fallback)",
-          "Run existing tests to verify no regressions before adding new functionality"
+          "Add a per-check timeout (e.g., 5 seconds) in the HealthCheckRunner — if a check exceeds this, return HEALTHY with reason='check timed out'",
+          "Run RUNTIME_TICK health checks ONLY for Tier 1 (which the architect already specifies) — these should be fast in-memory checks",
+          "Ensure RUNTIME_TICK checks do NOT load pipeline state from disk; instead, use the container info already available in the monitor's _container_states dict",
+          "If more complex checks are needed at RUNTIME_TICK, run them in a separate thread to avoid blocking the polling cycle",
+          "Add metrics/logging for health check execution duration to detect slow checks in production"
         ],
-        "residual_risk": "Very Low — adding an optional parameter with a default is inherently backward-compatible. All call sites have the Pipeline object available."
+        "residual_risk": "Low — Tier 1 checks at RUNTIME_TICK are inherently fast (in-memory comparisons). The timeout provides a safety net."
       },
       "human_review_required": false,
       "review_reason": null
     },
     {
       "id": "R-4",
-      "category": "Test Coverage Gap",
-      "title": "No existing tests for _build_agent_prompt() role-specific content — regressions may go undetected",
-      "description": "The architect's analysis correctly identifies that test_pipeline_prompts.py (738 lines, 12 test classes) has NO tests for _build_agent_prompt() role-specific context. Tests exist for _build_phase_scoped_prompt() in test_tier3_dispatch.py (TestPhaseScopedPrompt class), but these test the phase-scoped coder prompt, not the tester/documenter/integrator prompts. This means the current prompt content for these roles is effectively untested — both the existing behavior and the proposed changes lack a test safety net. If the refactor introduces a bug in, say, the integrator prompt, no test would catch it.",
+      "category": "Reliability",
+      "title": "HealthCheckRunner failure could block phase advancement",
+      "description": "The PHASE_COMPLETE trigger runs before phase advancement (architect's integration plan: 'Before advancing to next phase, run PHASE_COMPLETE checks. If FAIL_PIPELINE, mark phase failed instead of advancing.'). If the runner itself throws an unhandled exception (e.g., PipelineHealthContext construction fails because the worktree branch has been cleaned up, or the git subprocess hangs), phase advancement would be blocked. The architect's constraint says 'health check infrastructure failure must never block or crash the pipeline', but this depends entirely on correct exception handling in the caller. The caller sites (cli.py, multi_agent.py, routes/pipelines.py) must each wrap runner calls in try/except.",
       "likelihood": "Medium",
-      "impact": "Low",
-      "risk_score": "Low-Medium",
+      "impact": "High",
+      "risk_score": "Medium",
       "affected_files": [
-        "orchestrator/tests/test_pipeline_prompts.py (missing test classes)",
-        "orchestrator/tests/test_tier3_dispatch.py (limited to coder prompt tests)"
+        "orchestrator/routes/pipelines.py (PHASE_COMPLETE caller)",
+        "orchestrator/multi_agent.py (WAVE_COMPLETE caller)",
+        "orchestrator/cli.py (STARTUP caller)",
+        "orchestrator/health_checks/runner.py (exception handling)",
+        "orchestrator/health_checks/context.py (PipelineHealthContext construction)"
       ],
       "mitigation": {
-        "strategy": "Write tests before modifying code — test-first approach",
+        "strategy": "Defense-in-depth exception handling at both runner and caller levels",
         "steps": [
-          "Phase 1 should START by adding tests for the current _build_agent_prompt() behavior for tester, documenter, and integrator roles — this establishes a baseline",
-          "These baseline tests should assert that the current prompts contain '## Task Description' and the prompt content — they will intentionally break when the refactor changes behavior",
-          "After the refactor, update the baseline tests to assert the new behavior: summary present, full issue body absent (for scoped roles), 'For more context' pointers present",
-          "Add dedicated TestBuildRoleContext and TestSummarizeIssue test classes that test the new helpers in isolation",
-          "For plan filtering: add tests using mock plan content with known heading structure"
+          "The HealthCheckRunner.run_checks() method should wrap ALL check execution in try/except, returning an empty results list (not propagating exceptions) on failure",
+          "Each caller site (cli.py, multi_agent.py, routes/pipelines.py) should ALSO wrap the runner call in try/except as a second barrier",
+          "PipelineHealthContext lazy properties must catch exceptions from git subprocess calls and return sensible defaults (empty string for git_log, empty dict for agent_outputs)",
+          "Add a specific test that verifies: when a check raises an exception, the runner catches it, logs it, and returns results for the other checks that succeeded",
+          "Add integration tests that verify: when the runner itself fails, phase advancement proceeds normally"
         ],
-        "residual_risk": "Low — test-first approach ensures both old and new behavior are verified"
+        "residual_risk": "Low — two layers of exception handling (runner + caller) make it extremely unlikely that a health check failure blocks the pipeline."
       },
       "human_review_required": false,
       "review_reason": null
     },
     {
       "id": "R-5",
-      "category": "Issue Summary Quality",
-      "title": "_summarize_issue() produces poor summaries for edge-case issue formats",
-      "description": "The proposed _summarize_issue(title, body) helper extracts a 1-2 sentence summary from the issue title + first paragraph, truncated at ~200 chars at a sentence boundary. Edge cases: (1) issue body starts with a heading ('## Problem') rather than a paragraph — the first 'paragraph' may be just a heading with no content, (2) issue body uses bullet points instead of paragraphs — the first 'paragraph' may be a single bullet, (3) issue body is very short or empty — the summary is just the title, (4) issue title is very long (>100 chars) — combined with a paragraph, the summary exceeds the expected token budget. These are all handled gracefully by the 'summarize, don't omit' philosophy — even a mediocre summary plus the full issue pointer is better than a multi-thousand-token issue body.",
-      "likelihood": "Low",
-      "impact": "Low",
-      "risk_score": "Low",
+      "category": "False Positives",
+      "title": "Phase output check could flag DEGRADED during normal operation timing windows",
+      "description": "The phase_output check verifies that 'commits exist on the remote branch' and 'agent output files are present'. However, there are legitimate timing windows where these artifacts may not yet be available: (1) Post-agent auto-commit: when a container exits, the gateway auto-commits and pushes uncommitted work. If the phase_output check runs at WAVE_COMPLETE before the gateway's auto-commit completes, it will see no commits. (2) Agent output files: agents write to .egg-state/agent-outputs/ which may not be pushed yet. (3) The git log check depends on the remote being updated — a successful local commit that hasn't been pushed would be invisible. This is the same class of problem that caused issue-835 (work not reaching the remote), but here the timing window could create false DEGRADED signals for work that IS in progress.",
+      "likelihood": "Medium",
+      "impact": "Medium",
+      "risk_score": "Medium",
       "affected_files": [
-        "orchestrator/routes/pipelines.py (new _summarize_issue function)"
+        "orchestrator/health_checks/tier1/phase_output.py"
       ],
       "mitigation": {
-        "strategy": "Simple implementation with generous limits and explicit edge case handling",
+        "strategy": "Time-windowed tolerance and check-specific timing awareness",
         "steps": [
-          "Use issue title as the primary summary sentence — it's always present and descriptive",
-          "For the body, strip markdown headings (lines starting with #) and extract the first non-empty paragraph (split by blank lines)",
-          "If no suitable paragraph is found, use just the title — this is acceptable per the issue's guidelines",
-          "Set a generous character limit (~300 chars, not strict 200) to avoid cutting mid-concept",
-          "Unit test with: normal issue, heading-first issue, bullet-list issue, empty body, very long title"
+          "At WAVE_COMPLETE: add a grace period — don't check for remote commits immediately after wave completion. Either delay the check by 30 seconds or check local worktree state first",
+          "Distinguish between 'no commits anywhere' (FAILED) and 'commits in worktree but not on remote' (DEGRADED with specific reason)",
+          "At PHASE_COMPLETE: this is the appropriate time for strict checking since all agents have finished and auto-commits should have completed",
+          "Check BOTH local worktree state (git log on local branch) AND remote state (git log origin/branch) — divergence between them is informative",
+          "Document the expected timing behavior so operators understand why DEGRADED may appear temporarily at WAVE_COMPLETE"
         ],
-        "residual_risk": "Very Low — the worst case is a slightly suboptimal summary, which is still far better than the full issue body"
+        "residual_risk": "Low-Medium — timing windows are inherent in distributed systems. The grace period and local-vs-remote distinction reduce false positives."
       },
       "human_review_required": false,
       "review_reason": null
     },
     {
       "id": "R-6",
-      "category": "Scope Creep",
-      "title": "Changes to _build_agent_prompt() inadvertently affect plan-phase agents (architect, task_planner, risk_analyst)",
-      "description": "The issue explicitly states that architect, task_planner, and risk_analyst should continue receiving the full issue body. However, all roles flow through the same _build_agent_prompt() function. If the refactored code has a bug in the role-dispatch logic — e.g., using _build_role_context() for all roles and the role check has a typo — plan-phase agents could lose the full issue body and receive only a summary. This would cripple the quality of analysis, plan, and risk outputs. The current 'if prompt:' block is role-agnostic (it embeds the prompt for everyone), so there's no existing code path that demonstrates correct role-based filtering.",
+      "category": "Cost",
+      "title": "Tier 2 API costs could accumulate in high-pipeline-volume scenarios",
+      "description": "The architect estimates $0.02-0.10 per Tier 2 invocation. Tier 2 runs at: (1) WAVE_COMPLETE when Tier 1 flags DEGRADED, and (2) PHASE_COMPLETE always. A typical pipeline has 4 phases, each with 1-5 waves. In the worst case: 4 phases x 1 PHASE_COMPLETE check = $0.08-0.40 per pipeline in steady state. If Tier 1 frequently flags DEGRADED (which can happen during healthy operation due to R-5 timing windows), WAVE_COMPLETE Tier 2 checks add up: 4 phases x 5 waves x $0.10 = $2.00 per pipeline. With 10 concurrent pipelines, this is $20/day. No cost cap, rate limit, or per-pipeline budget is proposed.",
       "likelihood": "Low",
-      "impact": "Medium",
-      "risk_score": "Low-Medium",
+      "impact": "Low",
+      "risk_score": "Low",
       "affected_files": [
-        "orchestrator/routes/pipelines.py:2014-2018 (_build_agent_prompt if prompt block)"
+        "orchestrator/health_checks/tier2/agent_inspector.py",
+        "orchestrator/health_checks/runner.py (escalation logic)"
       ],
       "mitigation": {
-        "strategy": "Explicit allowlist for full-context roles + dedicated test",
+        "strategy": "Per-pipeline rate limit and cost logging",
         "steps": [
-          "In _build_role_context(), use an explicit allowlist constant: FULL_CONTEXT_ROLES = {'architect', 'task_planner', 'risk_analyst'}",
-          "The default behavior should be the new scoped context — only roles in the allowlist get the full body. This is fail-safe: new roles get scoped context, not full",
-          "Add a test that explicitly verifies each allowlisted role receives pipeline.prompt verbatim in the output",
-          "Add a test that explicitly verifies tester, documenter, and integrator do NOT receive pipeline.prompt verbatim"
+          "Add a per-pipeline cooldown for Tier 2 checks: e.g., at most one Tier 2 invocation per 5 minutes per pipeline, with PHASE_COMPLETE exempt from the cooldown",
+          "Log Tier 2 invocation count and estimated cost per pipeline in structured logs",
+          "Consider using claude-haiku for the initial rollout — cheaper and faster, with the option to upgrade to Sonnet once confidence in the prompts grows",
+          "Add a global rate limit (e.g., max 10 Tier 2 calls per minute across all pipelines) as a safety valve"
         ],
-        "residual_risk": "Very Low — explicit allowlist with dedicated tests prevents accidental exclusion"
+        "residual_risk": "Very Low — even without mitigations, the cost is modest compared to the sandbox container compute costs. The mitigations prevent runaway scenarios."
+      },
+      "human_review_required": false,
+      "review_reason": null
+    },
+    {
+      "id": "R-7",
+      "category": "Backward Compatibility",
+      "title": "New EventType values may break SSE consumers that don't expect them",
+      "description": "The architect proposes adding HEALTH_CHECK_STARTED, HEALTH_CHECK_COMPLETED, HEALTH_CHECK_DEGRADED, and HEALTH_CHECK_FAILED to the EventType enum (events.py:35-68). An existing HEALTH_CHECK type already exists (line 66) but is unused. SSE consumers (sse.py, unified_sse.py, status_reporter) receive all events. If any consumer has a switch/match on EventType that doesn't handle unknown types gracefully, the new event types could cause errors or dropped events. The existing Event.to_dict() serialization (events.py:80-88) uses the enum value string, so JSON consumers should handle unknown strings fine. The risk is primarily to Python consumers that match on the enum.",
+      "likelihood": "Low",
+      "impact": "Low",
+      "risk_score": "Low",
+      "affected_files": [
+        "orchestrator/events.py (new enum values)",
+        "orchestrator/sse.py (event consumer)",
+        "orchestrator/unified_sse.py (event consumer)",
+        "orchestrator/status_reporter.py (event consumer)"
+      ],
+      "mitigation": {
+        "strategy": "Audit existing EventType consumers before adding new values",
+        "steps": [
+          "Search all code that matches on EventType values — verify they use a default/else clause or only match on specific types they care about",
+          "Consider using the existing HEALTH_CHECK type as the single event type, with a 'severity' or 'status' field in the event data to distinguish started/completed/degraded/failed — this is additive (new data field) rather than breaking (new enum value)",
+          "If new event types are added, run existing SSE-related tests (test_sse.py, test_unified_sse.py, test_events.py) to verify no regressions"
+        ],
+        "residual_risk": "Very Low — StrEnum serializes to strings; JSON consumers are inherently extensible. The existing HEALTH_CHECK type can be reused."
+      },
+      "human_review_required": false,
+      "review_reason": null
+    },
+    {
+      "id": "R-8",
+      "category": "State Integrity",
+      "title": "PhaseExecution model change requires migration consideration for persisted pipeline state",
+      "description": "The architect proposes adding an optional 'health_check_results' field to PhaseExecution and a new HealthCheckResultModel to models.py. Pipeline state is persisted as JSON via the git-backed state store. Existing persisted pipelines will not have this field. Pydantic BaseModel with default values handles this gracefully (missing fields get the default), so loading existing state should work. However, the new field will appear in all future pipeline state files, increasing their size. If health_check_results accumulates results from every check at every trigger point without pruning, the state file could grow significantly over a long pipeline.",
+      "likelihood": "Low",
+      "impact": "Medium",
+      "risk_score": "Low",
+      "affected_files": [
+        "orchestrator/models.py (PhaseExecution, new HealthCheckResultModel)",
+        "orchestrator/state_store.py (increased state file size)"
+      ],
+      "mitigation": {
+        "strategy": "Default empty list + result pruning + size cap",
+        "steps": [
+          "Use `health_check_results: list[HealthCheckResultModel] = []` as the default — Pydantic handles missing field in existing JSON",
+          "Only persist non-HEALTHY results — HEALTHY checks are the common case and don't need to be stored",
+          "Cap the list to the last N results (e.g., 50) per phase, discarding oldest",
+          "Add a unit test that loads a pipeline JSON file WITHOUT the health_check_results field and verifies it deserializes correctly"
+        ],
+        "residual_risk": "Very Low — Pydantic's optional field handling makes this backward-compatible by default."
+      },
+      "human_review_required": false,
+      "review_reason": null
+    },
+    {
+      "id": "R-9",
+      "category": "Test Volume",
+      "title": "14 new files and 7 tasks represent a large implementation scope with regression risk",
+      "description": "The architect proposes 14 new files and modifications to 7 existing files across 7 tasks. This is a significant feature that touches the orchestrator's startup path (cli.py), runtime monitoring (container_monitor.py), wave execution (multi_agent.py), phase lifecycle (routes/pipelines.py), event system (events.py), and data models (models.py). While each individual change is well-scoped, the aggregate blast radius means a bug in any of the integration points could affect pipeline execution. The existing test suite has 32 tests for container_monitor and startup_reconciliation (note: the architect's output says 23, which is an undercount — actual is 14 + 18 = 32). All 32 must continue to pass unchanged.",
+      "likelihood": "Medium",
+      "impact": "Medium",
+      "risk_score": "Medium",
+      "affected_files": [
+        "All 14 new files",
+        "All 7 modified files"
+      ],
+      "mitigation": {
+        "strategy": "Incremental implementation with test gates between tasks",
+        "steps": [
+          "Implement tasks 1-3 first (types, runner, adapters) as a self-contained PR — these are purely additive and don't modify existing files except events.py",
+          "Run the full orchestrator test suite (28 test files) after each task to verify no regressions",
+          "Tasks 4-5 (new Tier 1 checks) can be implemented and tested independently — they're new files with no existing-file modifications",
+          "Task 6 (Tier 2 inspector) should be gated on resolving R-1 (API credential access)",
+          "Task 7 (wiring trigger points) is the highest-risk task — it modifies 6 existing files. This should be the final task and reviewed carefully",
+          "Verify the actual test count for container_monitor (14 tests) and startup_reconciliation (18 tests) — the architect's count of 23 is incorrect; 32 tests must pass"
+        ],
+        "residual_risk": "Low — incremental implementation with test gates between tasks limits the blast radius of any individual change."
       },
       "human_review_required": false,
       "review_reason": null
@@ -178,76 +254,118 @@
 
   "areas_requiring_human_review": [
     {
-      "area": "Sample scoped prompt review",
-      "reason": "R-1 — Human should review the actual prompt output for tester and documenter roles with the new _build_role_context() to verify agents receive sufficient context. This is a judgment call that cannot be fully automated.",
-      "when": "After Phase 1 implementation, before merging"
+      "area": "Anthropic API credential management for orchestrator",
+      "reason": "R-1 — The Tier 2 agent inspector requires the orchestrator to make direct Claude API calls, which is a new architectural pattern. Human should decide: (a) inject ANTHROPIC_API_KEY directly into the orchestrator environment, (b) proxy API calls through the gateway, (c) use an alternative approach like shelling out to claude-code, or (d) defer Tier 2 to a later iteration and ship Tier 1 first. This decision has security and infrastructure implications not covered by existing ADRs.",
+      "when": "Before task-6 implementation begins"
     }
   ],
 
   "rollback_plan": {
-    "strategy": "Feature flag via role-context dispatch, or simple revert",
-    "details": "The change is contained within a single file (orchestrator/routes/pipelines.py) and its test files. Rollback options: (1) Revert the commits — since the change is purely prompt content, no data migration or schema change is needed. (2) Add a flag in _build_role_context() that returns pipeline.prompt for all roles regardless of role (effectively disabling scoping). Option 1 is preferred since this is a clean refactor with no persistent state changes.",
+    "strategy": "Phased rollback by tier, with feature-flag disable for each integration point",
+    "details": "The implementation is structured as additive code (new health_checks/ package) with minimal modifications to existing files. Rollback can be done at multiple granularities: (1) Remove the runner invocations from cli.py, multi_agent.py, routes/pipelines.py — this disables all health checks while leaving the package in place. (2) Remove only Tier 2 registration — this disables LLM-based checks while keeping programmatic checks. (3) Full revert of all changes — since the adapters don't modify existing code, removing the health_checks/ package and reverting the integration point changes restores the original behavior. No data migration is needed since the health_check_results field defaults to empty.",
     "steps": [
-      "If agents show degraded behavior after deployment, revert the PR (git revert)",
-      "No data migration needed — prompt content changes are stateless",
-      "No downstream consumer changes — handoff data mechanism is untouched",
-      "If only one role is affected, targeted fix: change _build_role_context() to return full prompt for that specific role"
+      "If health checks cause pipeline failures: comment out runner.run_checks() calls in cli.py, multi_agent.py, routes/pipelines.py — existing behavior fully restored",
+      "If only Tier 2 causes issues: remove the agent_inspector from runner registration in the factory function — Tier 1 continues working",
+      "If state file size bloats: remove health_check_results field from PhaseExecution — Pydantic silently ignores the extra field in existing persisted state",
+      "No database migration, schema changes, or external API contract changes need reverting"
     ]
   },
 
   "implementation_recommendations": [
     {
       "id": "IR-1",
-      "recommendation": "Write baseline tests BEFORE modifying _build_agent_prompt()",
-      "rationale": "No tests exist for the current behavior of _build_agent_prompt() for non-coder roles. Adding baseline tests first ensures we can detect regressions and validates our understanding of the current behavior."
+      "recommendation": "Resolve orchestrator Anthropic API access before implementing task-6",
+      "rationale": "Tier 2 is the highest-risk component (R-1) and depends on an architectural decision about credential management. Ship Tier 1 checks first (tasks 1-5, 7) and add Tier 2 as a follow-up once the access pattern is established."
     },
     {
       "id": "IR-2",
-      "recommendation": "Use an explicit FULL_CONTEXT_ROLES allowlist constant",
-      "rationale": "Prevents accidental exclusion of plan-phase agents from the full issue body. A constant is easy to audit and update."
+      "recommendation": "Wire WAVE_COMPLETE trigger via on_wave_complete callback closure at routes/pipelines.py:3597",
+      "rationale": "The execute_all_waves() method already supports the callback (multi_agent.py:511) but the primary caller doesn't use it (routes/pipelines.py:3597). A closure capturing the runner is the least invasive integration approach."
     },
     {
       "id": "IR-3",
-      "recommendation": "Implement plan filtering with a full-plan fallback, not a silent partial parse",
-      "rationale": "If the plan heading parser cannot find the current phase, embedding the full plan (current behavior) is safe. Silently dropping content is the danger."
+      "recommendation": "Add per-check timeout (5s) and per-pipeline Tier 2 rate limit (1 call per 5 min)",
+      "rationale": "Prevents slow checks from blocking the container monitor polling cycle (R-3) and prevents cost accumulation from frequent DEGRADED escalations (R-6)."
     },
     {
       "id": "IR-4",
-      "recommendation": "Verify plan parsing against 3-5 real plan drafts from .egg-state/drafts/",
-      "rationale": "The .egg-state/drafts/ directory contains dozens of real plan files generated by prior pipelines. Testing the parser against these ensures it handles real-world format variation."
+      "recommendation": "Defense-in-depth exception handling: runner catches per-check, callers catch runner-level failures",
+      "rationale": "Two layers of exception handling ensure the 'never block the pipeline' principle (R-4) holds even if the runner itself has a bug."
     },
     {
       "id": "IR-5",
-      "recommendation": "Keep the prompt parameter in _build_agent_prompt() for backward compatibility",
-      "rationale": "Adding pipeline as a parallel optional parameter avoids breaking any code paths that don't have a Pipeline object. The function should prefer pipeline when available and fall back to the raw prompt otherwise."
+      "recommendation": "Phase output check should distinguish local-only vs remote-pushed commits and add a grace period at WAVE_COMPLETE",
+      "rationale": "Avoids false DEGRADED signals from the timing window between agent completion and gateway auto-commit (R-5)."
+    },
+    {
+      "id": "IR-6",
+      "recommendation": "Consider reusing existing HEALTH_CHECK event type with status in data payload rather than adding 4 new EventType values",
+      "rationale": "Minimizes backward compatibility risk with SSE consumers (R-7). The existing unused HEALTH_CHECK type was designed for this purpose."
+    },
+    {
+      "id": "IR-7",
+      "recommendation": "Correct the adapter test baseline: 32 existing tests (14 container_monitor + 18 startup_reconciliation), not 23",
+      "rationale": "The architect's output states 23 combined tests. Actual count is 32. All must pass unchanged after adapter implementation."
+    },
+    {
+      "id": "IR-8",
+      "recommendation": "Consider shipping Tier 1 as a standalone PR, with Tier 2 as a separate follow-up",
+      "rationale": "Tier 1 checks (tasks 1-5, 7) are deterministic, require no new external dependencies, and would have caught the issue-835 failure on their own (phase_output check). Tier 2 is valuable but carries the highest risk (R-1) and can be added once Tier 1 is proven in production."
     }
   ],
 
   "phased_delivery_assessment": {
-    "phase_1": {
-      "name": "Core helper functions and _build_agent_prompt refactor",
-      "risk_level": "Medium",
-      "rationale": "This phase modifies the _build_agent_prompt() function that affects ALL non-coder agent prompts. A bug here impacts every role. However, the change is well-defined: replace a 4-line unconditional block with a role-dispatched helper. The backward-compatible fallback (when pipeline param is not provided) limits blast radius.",
-      "key_risks": ["R-1 (behavioral regression)", "R-3 (signature change)", "R-4 (test gap)", "R-6 (scope creep)"]
-    },
-    "phase_2": {
-      "name": "Phase-scoped plan filtering and integration tests",
+    "phase_1_tier1": {
+      "name": "Core types, runner, adapters, and new Tier 1 checks (tasks 1-5)",
       "risk_level": "Low-Medium",
-      "rationale": "This phase modifies _build_phase_scoped_prompt() which only affects Tier 3 coders. The change is isolated: replace full plan embedding with filtered content. The full-plan fallback preserves current behavior if parsing fails. Only one function is modified.",
-      "key_risks": ["R-2 (plan parsing fragility)", "R-5 (summary quality)"]
+      "rationale": "Purely additive code (new health_checks/ package). Adapters don't modify existing code. New Tier 1 checks are self-contained. Only events.py modified (new enum values). No external dependencies. Would have caught issue-835.",
+      "key_risks": ["R-5 (timing false positives)", "R-7 (EventType compatibility)", "R-8 (state file growth)"]
+    },
+    "phase_2_wiring": {
+      "name": "Wire trigger points into existing code (task 7)",
+      "risk_level": "Medium",
+      "rationale": "Modifies 6 existing files including cli.py, multi_agent.py, and routes/pipelines.py. Requires wiring on_wave_complete callback (R-2). Thread-safety concerns in container_monitor (R-3). Exception handling at caller sites is critical (R-4).",
+      "key_risks": ["R-2 (WAVE_COMPLETE gap)", "R-3 (concurrency)", "R-4 (exception blocking)", "R-9 (blast radius)"]
+    },
+    "phase_3_tier2": {
+      "name": "Tier 2 agent inspector (task 6)",
+      "risk_level": "Medium-High",
+      "rationale": "Introduces first direct Anthropic API call from orchestrator. Requires resolving credential access (R-1). Cost accumulation without rate limits (R-6). Should be gated on human decision about API access pattern.",
+      "key_risks": ["R-1 (API access novelty)", "R-6 (cost accumulation)"]
     }
   },
 
   "compatibility_assessment": {
-    "schema_changes": "None — no model or data schema changes",
-    "api_changes": "None — no external API changes",
-    "configuration_changes": "None — no config file changes",
+    "schema_changes": "Optional health_check_results field on PhaseExecution — backward-compatible via Pydantic default. No database migration.",
+    "api_changes": "New GET /api/v1/pipelines/{id}/health endpoint — purely additive, no existing endpoints changed.",
+    "configuration_changes": "Possible new environment variable for ANTHROPIC_API_KEY in orchestrator (if Tier 2 uses direct API calls).",
     "migration_required": false,
-    "breaking_changes": "None — the change is internal to prompt construction"
+    "breaking_changes": "None — all changes are additive. Existing tests (32 for adapted modules) must pass unchanged."
   },
 
   "security_assessment": {
-    "risk_level": "None",
-    "details": "This change only affects the text content of agent prompts. It does not modify: authentication, authorization, file access controls, gateway enforcement, or any security boundary. The prompt content is generated server-side from trusted sources (Pipeline model fields). No user input is processed differently."
-  }
+    "risk_level": "Low",
+    "details": "Primary security consideration is Tier 2 API credential management. If ANTHROPIC_API_KEY is injected directly into the orchestrator environment, it must not be logged or exposed via health endpoints. The agent inspector prompt should not include sensitive data (API keys, tokens) from pipeline state. The on-demand health check endpoint (GET /api/v1/pipelines/{id}/health) should require the same authentication as other pipeline endpoints. Health check results persisted in pipeline state should not include raw LLM responses that might contain sensitive reasoning."
+  },
+
+  "architect_output_corrections": [
+    {
+      "item": "Test count for existing mechanisms",
+      "architect_claim": "23 tests combined for container_monitor and startup_reconciliation",
+      "actual": "32 tests combined: 14 in test_container_monitor.py + 18 in test_startup_reconciliation.py",
+      "impact": "Minor — the implementation must verify all 32 tests pass, not 23"
+    },
+    {
+      "item": "Anthropic SDK in orchestrator",
+      "architect_claim": "The orchestrator has API access through the proxy (DD-4 rationale)",
+      "actual": "The orchestrator does NOT import or use the Anthropic SDK. No evidence of API key availability in the orchestrator process. Proxy configuration (HTTP_PROXY/HTTPS_PROXY) is set for sandbox containers (sandbox_template.py:124-127), not the orchestrator itself.",
+      "impact": "Significant — Tier 2 implementation requires resolving credential access and network routing"
+    },
+    {
+      "item": "WAVE_COMPLETE callback wiring",
+      "architect_claim": "Integration at multi_agent.py:545-546 after on_wave_complete callback",
+      "actual": "The on_wave_complete callback is NOT passed at the primary call site (routes/pipelines.py:3597). The execute_all_waves() call omits the callback parameter.",
+      "impact": "Moderate — requires modifying the call site to pass a callback, which the architect's plan does mention in the modified_files list but doesn't flag as a gap"
+    }
+  ]
 }
