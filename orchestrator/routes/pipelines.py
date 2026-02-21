@@ -10,7 +10,7 @@ import sys
 import threading
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import yaml
 from docker.errors import DockerException
@@ -78,6 +78,12 @@ except ImportError:
         get_pipeline_state_lock,
         get_state_store,
     )
+
+if TYPE_CHECKING:
+    try:
+        from ..container_spawner import ContainerSpawner
+    except ImportError:
+        from container_spawner import ContainerSpawner  # type: ignore
 
 logger = get_logger("orchestrator.pipelines")
 
@@ -1443,7 +1449,7 @@ def _aggregate_review_verdicts(
 
 
 def _sync_worktree_with_remote(
-    spawner: object,
+    spawner: "ContainerSpawner",
     pipeline_id: str,
     worktree_repo_path: Path,
 ) -> None:
@@ -1455,8 +1461,9 @@ def _sync_worktree_with_remote(
     fetches those commits and resets the worktree so that all downstream code
     (contract loading, draft reading, etc.) sees the full pipeline state.
 
-    Only resets if the remote branch exists and is strictly ahead of local —
-    safe to call on every pipeline start because it is idempotent when the
+    Only resets if the remote branch exists and local has not diverged —
+    skips the reset when local is ahead of or has diverged from remote.
+    Safe to call on every pipeline start because it is idempotent when the
     local branch is already up to date.
     """
     git_base = ["git", "-c", "core.hooksPath=/dev/null", "-C", str(worktree_repo_path)]
@@ -1489,6 +1496,7 @@ def _sync_worktree_with_remote(
         result = subprocess.run(
             [*git_base, "rev-parse", "--verify", f"origin/{branch}"],
             capture_output=True,
+            text=True,
             timeout=10,
             check=False,
         )
@@ -1497,20 +1505,54 @@ def _sync_worktree_with_remote(
     except Exception:
         return
 
+    # Step 3b: Check if local has diverged from or is ahead of remote.
+    # If local has commits not on remote (e.g., auto-commit hook didn't fire),
+    # skip the reset to avoid discarding local work.
+    try:
+        result = subprocess.run(
+            [*git_base, "rev-list", "--left-right", "--count", f"HEAD...origin/{branch}"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+        if result.returncode == 0:
+            parts = result.stdout.strip().split()
+            if len(parts) == 2:
+                local_ahead = int(parts[0])
+                if local_ahead > 0:
+                    logger.info(
+                        "Local branch has commits not on remote — skipping reset",
+                        pipeline_id=pipeline_id,
+                        branch=branch,
+                        local_ahead=local_ahead,
+                    )
+                    return
+    except Exception:
+        pass  # If check fails, proceed with reset (best-effort)
+
     # Step 4: Reset local branch to remote (local changes from a crashed agent
     # should already be committed + pushed by the gateway's auto-commit hook)
     try:
-        subprocess.run(
+        result = subprocess.run(
             [*git_base, "reset", "--hard", f"origin/{branch}"],
             capture_output=True,
+            text=True,
             timeout=30,
             check=False,
         )
-        logger.info(
-            "Synced worktree with remote branch",
-            pipeline_id=pipeline_id,
-            branch=branch,
-        )
+        if result.returncode != 0:
+            logger.warning(
+                "Failed to reset worktree to remote (continuing with local state)",
+                pipeline_id=pipeline_id,
+                error=result.stderr.strip(),
+            )
+        else:
+            logger.info(
+                "Synced worktree with remote branch",
+                pipeline_id=pipeline_id,
+                branch=branch,
+            )
     except Exception as sync_err:
         logger.warning(
             "Failed to reset worktree to remote (continuing with local state)",
