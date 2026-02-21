@@ -393,7 +393,7 @@ def check_claude_update() -> str | None:
     return None
 
 
-def _hash_file(path: Path, hasher: Any) -> None:
+def hash_file(path: Path, hasher: Any) -> None:
     """Add a single file's content to the hasher."""
     try:
         with open(path, "rb") as f:
@@ -403,15 +403,15 @@ def _hash_file(path: Path, hasher: Any) -> None:
         pass
 
 
-def _hash_directory(path: Path, hasher: Any) -> None:
+def hash_directory(path: Path, hasher: Any) -> None:
     """Recursively hash all files in a directory."""
     if not path.exists():
         return
     for item in sorted(path.rglob("*")):
-        if item.is_file() and not item.name.startswith("."):
+        if item.is_file() and not item.name.startswith(".") and "__pycache__" not in item.parts:
             # Include relative path in hash to detect renames/moves
             hasher.update(str(item.relative_to(path)).encode())
-            _hash_file(item, hasher)
+            hash_file(item, hasher)
 
 
 def compute_build_hash() -> str:
@@ -451,7 +451,7 @@ def compute_build_hash() -> str:
     for path in single_files:
         if path.exists():
             hasher.update(path.name.encode())
-            _hash_file(path, hasher)
+            hash_file(path, hasher)
 
     # Directories in sandbox/
     container_dirs = [
@@ -467,23 +467,23 @@ def compute_build_hash() -> str:
         dir_path = script_dir / dir_name
         if dir_path.exists():
             hasher.update(dir_name.encode())
-            _hash_directory(dir_path, hasher)
+            hash_directory(dir_path, hasher)
 
     # .claude/hooks directory
     hooks_path = script_dir / ".claude" / "hooks"
     if hooks_path.exists():
         hasher.update(b".claude/hooks")
-        _hash_directory(hooks_path, hasher)
+        hash_directory(hooks_path, hasher)
 
     # shared/ directory from repo root
     shared_path = repo_root / "shared"
     if shared_path.exists():
         hasher.update(b"shared")
-        _hash_directory(shared_path, hasher)
+        hash_directory(shared_path, hasher)
         # Include shared pyproject.toml
         shared_pyproject = shared_path / "pyproject.toml"
         if shared_pyproject.exists():
-            _hash_file(shared_pyproject, hasher)
+            hash_file(shared_pyproject, hasher)
 
     return hasher.hexdigest()
 
