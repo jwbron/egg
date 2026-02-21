@@ -1,175 +1,190 @@
 {
-  "issue": 835,
+  "issue": 829,
   "phase": "plan",
   "agent": "risk_analyst",
-  "title": "Risk Assessment: Scope agent prompts to role-relevant context only",
-  "summary": "Assessment of the proposed _build_role_context() helper approach (Approach A) for replacing the one-size-fits-all pipeline.prompt embedding with role-appropriate context. This change modifies the prompt construction pipeline in a single file (orchestrator/routes/pipelines.py) and its test file. The overall risk is Low-Medium: the change is well-scoped (pure prompt content changes, no schema or data model modifications), but carries regression risk from modifying a 300-line function that affects all agent types. Six risks identified: three Medium, three Low. All are mitigable with the recommended phased approach and test-first strategy.",
+  "title": "Risk Assessment: Full DAG visualization for Tier 3 parallel phase execution",
+  "summary": "Assessment of the proposed Approach A (expand Implement phase into sub-phase boxes in render_pipeline_dag) for rendering Tier 3 parallel plan phase execution as a branching DAG. The change is concentrated in orchestrator/dag_visualizer.py with no model or schema changes, and downstream consumers (SSE, CLI tools, API) require zero changes. The overall risk is Low-Medium. Seven risks identified: one Medium (contract loading path discovery), four Low-Medium, and two Low. The most significant design gap is that render_pipeline_dag() currently has no way to discover the contract file path, since the Pipeline model lacks a repo_root/worktree_path field and the function signature is constrained. This must be resolved before implementation begins. All other risks are mitigable with the architect's proposed fallback-to-flat strategy and thorough unit testing.",
 
   "risk_assessment": {
     "overall_risk_level": "Low-Medium",
-    "overall_verdict": "Proceed with Approach A (_build_role_context() helper). Risks are manageable with the two-phase implementation plan. The change is purely additive in terms of code structure (new helper functions) and subtractive in terms of prompt content (less context per role). No schema changes, no data model changes, no new dependencies. The primary risk is behavioral regression — agents receiving less context than they need — which is mitigated by the 'summarize, don't omit' principle and 'For more context' pointers.",
-    "confidence": "High — based on source code analysis of _build_agent_prompt() (lines 1942-2240), _build_phase_scoped_prompt() (lines 2243-2348), _run_tier3_implement() (lines 2351-3033), _run_multi_agent_phase() (lines 3062-3149), existing test patterns in test_pipeline_prompts.py and test_tier3_dispatch.py, and the plan template format (docs/templates/plan.md)"
+    "overall_verdict": "Proceed with Approach A. The change is well-scoped: all visualization logic is in dag_visualizer.py, no model changes, no orchestrator dispatch changes, and all downstream consumers are decoupled (they consume text output). The primary risks are: (1) a design gap around contract file path discovery that must be resolved in Phase 1, and (2) the inherent complexity of multi-column ASCII text composition. Both are solvable with the approaches described below. The fallback-to-flat strategy ensures the visualizer never degrades — if anything goes wrong loading the contract or computing waves, the existing single-Implement-box rendering is used.",
+    "confidence": "High — based on source code analysis of dag_visualizer.py (665 lines, all functions), models.py (Pipeline, AgentExecution.plan_phase_id, ComplexityTier), shared/egg_contracts/dependency_graph.py (PhaseDependencyGraph.compute_waves, PhaseWave), shared/egg_contracts/loader.py (load_contract), orchestrator/sse.py (SSE refresh cycle calling render_pipeline_dag every 1s), orchestrator/routes/pipelines.py (_run_tier3_implement contract loading pattern), and orchestrator/tests/test_dag_visualizer.py (1313 lines, 13 test classes)"
   },
 
   "risks": [
     {
       "id": "R-1",
-      "category": "Behavioral Regression",
-      "title": "Scoped agents lack sufficient context and produce worse outputs",
-      "description": "The core risk of this change: agents that currently see the full issue body will instead see a 1-2 sentence summary. If the summary omits information that an agent needs to make good decisions — e.g., edge cases mentioned in the issue that a tester should verify, or constraints mentioned in the issue that a documenter should reflect — agent output quality could degrade. This is especially concerning for testers in Tier 3 where phase context is narrow and the tester relies on understanding the broader intent to design meaningful tests. The issue explicitly warns about this: 'Focus, Don't Starve — an agent that lacks orientation will make poor decisions or spin trying to figure out its purpose.'",
-      "likelihood": "Medium",
+      "category": "Design Gap",
+      "title": "Contract loading path unknown in render_pipeline_dag() context",
+      "description": "The architect's _get_phase_dependency_info() function needs to call load_contract(issue_number, repo_root) to load the contract's phase structure. However, render_pipeline_dag() only receives a Pipeline object, and the Pipeline model (models.py:235-279) has no repo_root or worktree_repo_path field. The function signature constraint (architect's constraint #6: 'The render_pipeline_dag() function signature must not change') means repo_root cannot be passed as a parameter without violating the design. The _run_tier3_implement() dispatch function (pipelines.py:2696) receives worktree_repo_path as a parameter from the dispatch flow, but the SSE code (sse.py:241) calls render_pipeline_dag(pipeline, use_ascii=use_ascii) with no path context. This is a guaranteed issue that must be resolved before implementation can begin.",
+      "likelihood": "High",
       "impact": "Medium",
       "risk_score": "Medium",
       "affected_files": [
-        "orchestrator/routes/pipelines.py:2014-2018 (_build_agent_prompt if prompt block)",
-        "orchestrator/routes/pipelines.py:2555-2579 (tester prompt construction)",
-        "orchestrator/routes/pipelines.py:2631-2642 (documenter prompt construction)",
-        "orchestrator/routes/pipelines.py:2961-2990 (integrator prompt construction)"
+        "orchestrator/dag_visualizer.py (render_pipeline_dag, _get_phase_dependency_info)",
+        "orchestrator/sse.py:241 (SSE call site)",
+        "orchestrator/models.py:235-279 (Pipeline model — missing repo_root field)"
       ],
       "mitigation": {
-        "strategy": "Comprehensive 'For more context' pointers + quality-preserving summaries",
+        "strategy": "Three options, ranked by preference",
         "steps": [
-          "Every scoped prompt MUST include 'For more context: gh issue view <N>' and relevant file paths — agents can self-serve additional context on demand",
-          "The _summarize_issue() helper should use issue title + first paragraph (not just title) to preserve key context",
-          "For tester prompts: include acceptance criteria verbatim (not summarized) since these are the testing contract",
-          "For documenter prompts: include task descriptions that explain what was built, not just file lists",
-          "Run a manual smoke test comparing old vs new prompts for at least one recent Tier 3 pipeline to verify sufficient context",
-          "Monitor first 2-3 pipelines after deployment for signs of agent confusion or task spinning"
+          "Option A (preferred): Add an optional repo_root parameter to render_pipeline_dag(). This is a minimal signature change — existing callers pass nothing and get the fallback behavior. The SSE code can derive the worktree path from the pipeline_id using the orchestrator's known worktree directory convention (the orchestrator creates worktrees in a known base directory). This is the cleanest solution since it preserves backward compatibility while enabling contract loading.",
+          "Option B: Use environment variable (EGG_REPO_PATH) in _get_phase_dependency_info(). The orchestrator process has this set. Downside: only works for single-repo deployments and doesn't handle per-pipeline worktrees correctly.",
+          "Option C: Add worktree_path to the Pipeline model. This is the most correct solution long-term but constitutes a model migration. Existing pipelines in flight would have None for the field. Since the architect explicitly excluded model changes, this option conflicts with the recommended approach.",
+          "Recommendation: Use Option A. Adding an optional parameter with a default of None is backward-compatible and lets the SSE code pass the worktree path if available, or let _get_phase_dependency_info() fall back to environment/convention-based path discovery. The constraint against signature changes should be relaxed — adding an optional parameter with a default is safe."
         ],
-        "residual_risk": "Low — agents can access full context via CLI commands, and the summary preserves orientation. The issue explicitly says a few hundred extra tokens is fine."
+        "residual_risk": "Low — with Option A, callers that don't pass repo_root get flat rendering (current behavior), while callers that do pass it get the new Tier 3 visualization."
       },
       "human_review_required": true,
-      "review_reason": "Human should review sample scoped prompts for tester and documenter roles to verify they contain sufficient context for good agent performance. Compare against the current full-issue-body prompts."
+      "review_reason": "The architect's constraint #6 ('function signature must not change') conflicts with the need to pass repo_root for contract loading. Human should decide whether to relax this constraint (Option A) or accept environment-variable-based path discovery (Option B)."
     },
     {
       "id": "R-2",
-      "category": "Plan Parsing Fragility",
-      "title": "Plan filtering in _build_phase_scoped_prompt() breaks on non-standard plan formats",
-      "description": "The proposed change to _build_phase_scoped_prompt() requires parsing the plan draft to extract the overview section and filter to the current phase. The architect proposes heading-level parsing ('## for sections, ### for phases'). While the plan template (docs/templates/plan.md) defines a standard format ('## Summary', '### Phase N: [Name]'), existing plan drafts may vary — e.g., using '## Implementation Phases' vs '## Phases', or having additional sections between the summary and phases. The plan is generated by AI agents which may deviate from the template. If parsing fails, the fallback (embedding the full plan) preserves current behavior but defeats the purpose. A partial parse that silently drops content is worse — it could omit the current phase's tasks.",
+      "category": "Performance",
+      "title": "Contract loading in the SSE hot path adds file I/O to every render cycle",
+      "description": "render_pipeline_dag() is called every 1 second by the SSE refresh cycle (sse.py:241-249) for each connected client. The DAG cache (sse.py:237) avoids redundant renders for clients with the same use_ascii preference, but each render still calls _get_phase_dependency_info() which would load_contract() — reading a JSON file from disk and parsing it, then constructing PhaseDependencyGraph and computing waves. For a typical contract (~5-20KB JSON), this adds ~1-5ms per render cycle. With N concurrent SSE clients (each pipeline gets its own refresh), this scales as O(pipelines). While the compare-before-send optimization (sse.py, comparing rendered strings) doesn't help here — the rendering itself is the expensive part, not the sending.",
       "likelihood": "Medium",
-      "impact": "Medium",
-      "risk_score": "Medium",
+      "impact": "Low-Medium",
+      "risk_score": "Low-Medium",
       "affected_files": [
-        "orchestrator/routes/pipelines.py:2293-2304 (_build_phase_scoped_prompt plan embedding)",
-        "docs/templates/plan.md (plan template structure)"
+        "orchestrator/dag_visualizer.py (_get_phase_dependency_info)",
+        "orchestrator/sse.py:231-249 (SSE refresh cycle)"
       ],
       "mitigation": {
-        "strategy": "Defensive parsing with full-plan fallback and validation",
+        "strategy": "In-memory cache with TTL or invalidation",
         "steps": [
-          "Implement plan parsing with explicit fallback: if current phase heading is not found, embed the full plan with a log warning rather than silently dropping content",
-          "Match phase headings flexibly: look for '### Phase N' patterns with regex, not exact string matching, to handle minor template variations",
-          "Extract everything before the first '### Phase' heading as the 'overview' section (catches '## Summary', '## Implementation Phases', or whatever comes first)",
-          "Add unit tests with at least 3 plan formats: (a) standard template, (b) plan with extra sections, (c) plan where current phase heading is missing — verify fallback triggers",
-          "Sample 3-5 existing plan drafts from .egg-state/drafts/ to verify the parser handles real-world formats"
+          "Cache the computed (phase_waves, phase_info) tuple keyed by (pipeline_id, contract_mtime) using functools.lru_cache or a simple dict with TTL",
+          "The contract file only changes when the plan phase rewrites it — during implementation, it's static. A 30-second TTL would be sufficient.",
+          "Alternatively, use os.stat().st_mtime to check if the file changed before re-parsing. This replaces a ~5ms JSON parse with a ~0.1ms stat call.",
+          "For the initial implementation, even without caching, 1-5ms per render is acceptable for the 1s refresh interval. Caching is an optimization that can be added if profiling shows a problem.",
+          "If caching is added, ensure it's per-pipeline (not global) to avoid cross-pipeline data leaks."
         ],
-        "residual_risk": "Low — full-plan fallback preserves current behavior. Partial parses are the only danger, and validation prevents those."
+        "residual_risk": "Very Low — even without caching, the overhead is small relative to the 1s refresh interval. With mtime-based caching, overhead is negligible."
       },
       "human_review_required": false,
       "review_reason": null
     },
     {
       "id": "R-3",
-      "category": "Backward Compatibility",
-      "title": "_build_agent_prompt() signature change breaks call sites or tests",
-      "description": "The architect recommends adding a 'pipeline: Pipeline | None = None' optional parameter to _build_agent_prompt() to pass the Pipeline object for role-context building. There are 4 call sites in pipelines.py (lines 2555, 2631, 2961, 3108) plus the test file test_tier3_dispatch.py (which imports and calls _build_phase_scoped_prompt). All call sites use keyword arguments. Adding an optional parameter with a default of None is backward-compatible. However, the _build_role_context() function needs the Pipeline object to access issue_number and issue title for the summary. If a call site passes prompt=pipeline.prompt but not pipeline=pipeline, _build_role_context() would lack the data to build a summary, and must fall back to the raw prompt. This creates two code paths: one with Pipeline (uses role context) and one without (falls back to current behavior). Both paths must be tested.",
-      "likelihood": "Low",
-      "impact": "Medium",
+      "category": "Rendering Complexity",
+      "title": "Side-by-side ASCII box composition is error-prone and hard to test visually",
+      "description": "The _render_side_by_side() function must horizontally compose multiple variable-height text boxes, handling: (1) padding shorter boxes to match the tallest, (2) inserting consistent gap spacing between columns, (3) ensuring each line has the same total width for clean vertical alignment, (4) handling boxes with different internal widths. Additionally, _render_fan_out_connector() and _render_fan_in_connector() must compute precise character positions for branching lines that align with the center of each box in the side-by-side layout. The connector math depends on box widths, gap size, and left margin — any off-by-one error produces visually broken connectors. Unicode box-drawing characters and ASCII fallback characters have different visual properties but the same character width (1), so alignment math is at least consistent.",
+      "likelihood": "Medium",
+      "impact": "Low",
       "risk_score": "Low-Medium",
       "affected_files": [
-        "orchestrator/routes/pipelines.py:1942-1955 (_build_agent_prompt signature)",
-        "orchestrator/routes/pipelines.py:2555-2566 (tester call site)",
-        "orchestrator/routes/pipelines.py:2631-2638 (documenter call site)",
-        "orchestrator/routes/pipelines.py:2961-2971 (integrator call site)",
-        "orchestrator/routes/pipelines.py:3108-3120 (_run_multi_agent_phase call site)",
-        "orchestrator/tests/test_pipeline_prompts.py (existing tests)",
-        "orchestrator/tests/test_tier3_dispatch.py (existing tests)"
+        "orchestrator/dag_visualizer.py (_render_side_by_side, _render_fan_out_connector, _render_fan_in_connector)"
       ],
       "mitigation": {
-        "strategy": "Update all 4 call sites atomically and add the pipeline parameter with backward-compatible default",
+        "strategy": "Normalize box widths + snapshot testing",
         "steps": [
-          "Add pipeline: Pipeline | None = None as an optional parameter with default None",
-          "In _build_agent_prompt(), when pipeline is provided, use _build_role_context() for context. When pipeline is None, fall back to existing 'if prompt:' behavior",
-          "Update all 4 call sites to pass pipeline=pipeline alongside the existing prompt=pipeline.prompt",
-          "The prompt parameter can remain for backward compatibility — _build_role_context() uses the Pipeline object preferentially",
-          "Add tests for both code paths: with pipeline object (new behavior) and without (backward-compatible fallback)",
-          "Run existing tests to verify no regressions before adding new functionality"
+          "Normalize all sub-phase boxes in a parallel wave to the same width (max width in the wave). This eliminates variable-width connector math and produces cleaner visual output.",
+          "Implement _render_side_by_side as a pure function that takes pre-rendered line lists and returns combined lines. Test it independently with known inputs before integrating.",
+          "Use snapshot/golden-file tests for the connector functions: render with known inputs and assert exact string output. This catches off-by-one errors immediately.",
+          "Start with 2-column rendering and verify before generalizing to N columns. Most Tier 3 pipelines have 2-3 parallel phases per wave.",
+          "Test both Unicode and ASCII modes — each has different character sets but the same alignment math."
         ],
-        "residual_risk": "Very Low — adding an optional parameter with a default is inherently backward-compatible. All call sites have the Pipeline object available."
+        "residual_risk": "Low — rendering bugs are cosmetic, not functional. The pipeline continues to work correctly even if the visualization has alignment issues. Snapshot tests catch regressions early."
       },
       "human_review_required": false,
       "review_reason": null
     },
     {
       "id": "R-4",
-      "category": "Test Coverage Gap",
-      "title": "No existing tests for _build_agent_prompt() role-specific content — regressions may go undetected",
-      "description": "The architect's analysis correctly identifies that test_pipeline_prompts.py (738 lines, 12 test classes) has NO tests for _build_agent_prompt() role-specific context. Tests exist for _build_phase_scoped_prompt() in test_tier3_dispatch.py (TestPhaseScopedPrompt class), but these test the phase-scoped coder prompt, not the tester/documenter/integrator prompts. This means the current prompt content for these roles is effectively untested — both the existing behavior and the proposed changes lack a test safety net. If the refactor introduces a bug in, say, the integrator prompt, no test would catch it.",
-      "likelihood": "Medium",
-      "impact": "Low",
+      "category": "Backward Compatibility",
+      "title": "Tier 3 detection false positive breaks Tier 1/2 visualization",
+      "description": "The Tier 3 detection logic checks (1) pipeline.complexity_tier == ComplexityTier.HIGH and (2) agents in the Implement phase have plan_phase_id set. If only condition (1) is checked (e.g., due to a bug or incomplete implementation), a HIGH-tier pipeline whose agents don't have plan_phase_id (e.g., if the plan phase ran but no Tier 3 dispatch happened due to an error) would trigger the Tier 3 rendering path with no sub-phase data, producing an empty or broken visualization. Conversely, if plan_phase_id is set on agents of a non-HIGH pipeline (shouldn't happen but data may be inconsistent), the detection could trigger unexpectedly.",
+      "likelihood": "Low",
+      "impact": "Medium",
       "risk_score": "Low-Medium",
       "affected_files": [
-        "orchestrator/tests/test_pipeline_prompts.py (missing test classes)",
-        "orchestrator/tests/test_tier3_dispatch.py (limited to coder prompt tests)"
+        "orchestrator/dag_visualizer.py (render_pipeline_dag — Tier 3 detection block)"
       ],
       "mitigation": {
-        "strategy": "Write tests before modifying code — test-first approach",
+        "strategy": "Strict dual-condition check with explicit fallback",
         "steps": [
-          "Phase 1 should START by adding tests for the current _build_agent_prompt() behavior for tester, documenter, and integrator roles — this establishes a baseline",
-          "These baseline tests should assert that the current prompts contain '## Task Description' and the prompt content — they will intentionally break when the refactor changes behavior",
-          "After the refactor, update the baseline tests to assert the new behavior: summary present, full issue body absent (for scoped roles), 'For more context' pointers present",
-          "Add dedicated TestBuildRoleContext and TestSummarizeIssue test classes that test the new helpers in isolation",
-          "For plan filtering: add tests using mock plan content with known heading structure"
+          "Both conditions MUST be true for Tier 3 rendering: complexity_tier == HIGH AND at least one agent has plan_phase_id set AND _get_phase_dependency_info() returns non-None (contract loads successfully with valid waves).",
+          "If _get_phase_dependency_info() returns None (contract missing, no phases, wave computation fails), fall back to flat rendering regardless of complexity_tier.",
+          "Add explicit unit tests for: (a) HIGH tier with plan_phase_id -> Tier 3 rendering, (b) HIGH tier without plan_phase_id -> flat rendering, (c) MID tier with plan_phase_id (shouldn't happen) -> flat rendering, (d) HIGH tier with contract load failure -> flat rendering.",
+          "The detection logic should be a single function (_is_tier3_pipeline) to centralize the check and make it testable."
         ],
-        "residual_risk": "Low — test-first approach ensures both old and new behavior are verified"
+        "residual_risk": "Very Low — triple-condition check (tier + plan_phase_id + contract available) makes false positives extremely unlikely."
       },
       "human_review_required": false,
       "review_reason": null
     },
     {
       "id": "R-5",
-      "category": "Issue Summary Quality",
-      "title": "_summarize_issue() produces poor summaries for edge-case issue formats",
-      "description": "The proposed _summarize_issue(title, body) helper extracts a 1-2 sentence summary from the issue title + first paragraph, truncated at ~200 chars at a sentence boundary. Edge cases: (1) issue body starts with a heading ('## Problem') rather than a paragraph — the first 'paragraph' may be just a heading with no content, (2) issue body uses bullet points instead of paragraphs — the first 'paragraph' may be a single bullet, (3) issue body is very short or empty — the summary is just the title, (4) issue title is very long (>100 chars) — combined with a paragraph, the summary exceeds the expected token budget. These are all handled gracefully by the 'summarize, don't omit' philosophy — even a mediocre summary plus the full issue pointer is better than a multi-thousand-token issue body.",
-      "likelihood": "Low",
-      "impact": "Low",
-      "risk_score": "Low",
+      "category": "Reliability",
+      "title": "Contract unavailability during SSE rendering across pipeline lifecycle",
+      "description": "The SSE refresh renders the DAG for pipelines in ALL phases, not just Implement. During Refine and early Plan phases, the contract file may not exist yet (it's created during plan phase). During error states, the contract may be corrupted or have no phases array. The _get_phase_dependency_info() function calls load_contract() which raises ContractNotFoundError if the file is missing (loader.py:78). If this exception propagates uncaught, it would crash render_pipeline_dag() and produce no DAG output for that SSE refresh cycle. The SSE code (sse.py:242-249) has a try/except around render_pipeline_dag that catches any exception and sets dag_cache to None, but this means NO visualization is sent, not even the flat fallback.",
+      "likelihood": "Medium",
+      "impact": "Low-Medium",
+      "risk_score": "Low-Medium",
       "affected_files": [
-        "orchestrator/routes/pipelines.py (new _summarize_issue function)"
+        "orchestrator/dag_visualizer.py (_get_phase_dependency_info)",
+        "orchestrator/sse.py:242-249 (exception handling)",
+        "shared/egg_contracts/loader.py:60-78 (load_contract)"
       ],
       "mitigation": {
-        "strategy": "Simple implementation with generous limits and explicit edge case handling",
+        "strategy": "Catch-and-fallback within _get_phase_dependency_info, never propagate exceptions",
         "steps": [
-          "Use issue title as the primary summary sentence — it's always present and descriptive",
-          "For the body, strip markdown headings (lines starting with #) and extract the first non-empty paragraph (split by blank lines)",
-          "If no suitable paragraph is found, use just the title — this is acceptable per the issue's guidelines",
-          "Set a generous character limit (~300 chars, not strict 200) to avoid cutting mid-concept",
-          "Unit test with: normal issue, heading-first issue, bullet-list issue, empty body, very long title"
+          "_get_phase_dependency_info() must wrap ALL contract loading in try/except and return None on any error (ContractNotFoundError, JSON decode errors, missing 'phases' field, PhaseDependencyGraph ValueError for cycles, etc.)",
+          "When _get_phase_dependency_info() returns None, render_pipeline_dag() falls back to the existing flat Implement box rendering — NOT to no output.",
+          "Add a log.debug() (not warning) for contract load failures during rendering, since they are expected during non-Implement phases.",
+          "Unit test: call render_pipeline_dag() with a Tier 3 Pipeline but no contract on disk — verify it produces valid output (the flat Implement box).",
+          "Ensure the exception is caught INSIDE dag_visualizer.py, not relying on the SSE caller's broad except. The SSE except should be a safety net, not the primary error handler."
         ],
-        "residual_risk": "Very Low — the worst case is a slightly suboptimal summary, which is still far better than the full issue body"
+        "residual_risk": "Very Low — with return-None-on-error, the visualizer always produces output. The SSE safety net catches anything else."
       },
       "human_review_required": false,
       "review_reason": null
     },
     {
       "id": "R-6",
-      "category": "Scope Creep",
-      "title": "Changes to _build_agent_prompt() inadvertently affect plan-phase agents (architect, task_planner, risk_analyst)",
-      "description": "The issue explicitly states that architect, task_planner, and risk_analyst should continue receiving the full issue body. However, all roles flow through the same _build_agent_prompt() function. If the refactored code has a bug in the role-dispatch logic — e.g., using _build_role_context() for all roles and the role check has a typo — plan-phase agents could lose the full issue body and receive only a summary. This would cripple the quality of analysis, plan, and risk outputs. The current 'if prompt:' block is role-agnostic (it embeds the prompt for everyone), so there's no existing code path that demonstrates correct role-based filtering.",
-      "likelihood": "Low",
-      "impact": "Medium",
-      "risk_score": "Low-Medium",
+      "category": "Test Coverage",
+      "title": "No existing test infrastructure for Tier 3 sub-phase branching — tests must be built from scratch",
+      "description": "test_dag_visualizer.py (1313 lines) has 13 test classes but no tests for Tier 3 sub-phase visualization. The existing TestWaveGrouping class tests wave-based agent ordering within a flat phase box, not multi-box branching. The test helper create_test_pipeline() creates a Pipeline with issue_number=123 — tests for contract loading need either a real contract file on disk or a mock. The PhaseDependencyGraph is in shared/egg_contracts/ which has its own test file — the visualizer tests should mock it rather than testing the graph computation. The new test classes (TestTier3DagVisualization, TestSideBySideRendering, TestFanOutFanInConnectors as proposed by the architect) need to be comprehensive since there's no existing coverage to fall back on.",
+      "likelihood": "Medium",
+      "impact": "Low",
+      "risk_score": "Low",
       "affected_files": [
-        "orchestrator/routes/pipelines.py:2014-2018 (_build_agent_prompt if prompt block)"
+        "orchestrator/tests/test_dag_visualizer.py (new test classes needed)"
       ],
       "mitigation": {
-        "strategy": "Explicit allowlist for full-context roles + dedicated test",
+        "strategy": "Mock-based testing with snapshot assertions",
         "steps": [
-          "In _build_role_context(), use an explicit allowlist constant: FULL_CONTEXT_ROLES = {'architect', 'task_planner', 'risk_analyst'}",
-          "The default behavior should be the new scoped context — only roles in the allowlist get the full body. This is fail-safe: new roles get scoped context, not full",
-          "Add a test that explicitly verifies each allowlisted role receives pipeline.prompt verbatim in the output",
-          "Add a test that explicitly verifies tester, documenter, and integrator do NOT receive pipeline.prompt verbatim"
+          "Mock _get_phase_dependency_info() to return known PhaseWave structures, avoiding filesystem dependencies in tests.",
+          "Create helper functions for building test Tier 3 pipelines: create_tier3_pipeline(phases=[('phase-1', [agents...]), ('phase-2', [agents...])]) that sets complexity_tier=HIGH and assigns plan_phase_id to agents.",
+          "Use snapshot testing (exact string comparison) for rendered DAG output. Snapshot failures are easy to review visually.",
+          "Test matrix should cover: 1 sequential phase, 2 parallel phases, 3 parallel phases, diamond pattern (seq->parallel->seq), mixed waves, all-complete status, mixed status, ASCII mode, empty agents.",
+          "Run the existing test suite FIRST to establish a baseline, then add new tests. Verify existing tests still pass after the change."
         ],
-        "residual_risk": "Very Low — explicit allowlist with dedicated tests prevents accidental exclusion"
+        "residual_risk": "Low — comprehensive test suite eliminates most regression risk. The test-first approach (add tests before modifying rendering) catches regressions immediately."
+      },
+      "human_review_required": false,
+      "review_reason": null
+    },
+    {
+      "id": "R-7",
+      "category": "Usability",
+      "title": "Terminal width overflow for pipelines with 4+ parallel sub-phases",
+      "description": "Each sub-phase box has a minimum width of ~25 characters (phase name + agent names + status symbols + box borders). With a 4-character gap between columns, 4 parallel boxes need (25*4 + 4*3 + left_margin) = ~116 characters. With 5+ parallel boxes, this exceeds the 120-column default for SSE contexts and the 80-column default for terminals. The architect proposes falling back to sequential (stacked) rendering for 4+ phases, but this fallback needs implementation and testing. Without it, rendered lines would wrap or be truncated, producing garbled output.",
+      "likelihood": "Low",
+      "impact": "Low",
+      "risk_score": "Low",
+      "affected_files": [
+        "orchestrator/dag_visualizer.py (_render_tier3_implement_section, _render_side_by_side)"
+      ],
+      "mitigation": {
+        "strategy": "Width-aware layout with graceful degradation",
+        "steps": [
+          "Compute required width before rendering side-by-side. If total_width > available_width, fall back to stacked rendering with a '(parallel)' label.",
+          "Use shutil.get_terminal_size(fallback=(120, 24)) for width detection. The fallback covers SSE contexts (not a TTY).",
+          "For the common case (2-3 parallel phases), the side-by-side layout fits comfortably in 120 columns. The 4+ case is rare — most Tier 3 plans have 2-3 independent phases per wave.",
+          "As a future enhancement, a 2-row grid layout (2 boxes per row) could handle 4-6 phases, but this is not needed for the initial implementation."
+        ],
+        "residual_risk": "Very Low — the stacked fallback preserves all information, just without the visual side-by-side structure."
       },
       "human_review_required": false,
       "review_reason": null
@@ -178,76 +193,86 @@
 
   "areas_requiring_human_review": [
     {
-      "area": "Sample scoped prompt review",
-      "reason": "R-1 — Human should review the actual prompt output for tester and documenter roles with the new _build_role_context() to verify agents receive sufficient context. This is a judgment call that cannot be fully automated.",
-      "when": "After Phase 1 implementation, before merging"
+      "area": "render_pipeline_dag() signature constraint",
+      "reason": "R-1 — The architect's constraint that 'render_pipeline_dag() function signature must not change' conflicts with the need to pass repo_root for contract loading. Human should decide whether to (a) relax this constraint by adding an optional repo_root parameter, (b) derive the path from environment variables, or (c) add repo_root to the Pipeline model. This decision affects the Phase 1 implementation approach.",
+      "when": "Before Phase 1 implementation begins"
+    },
+    {
+      "area": "Visual output review of rendered Tier 3 DAGs",
+      "reason": "R-3, R-7 — Side-by-side ASCII rendering is inherently visual. Automated tests can verify exact string output, but a human should visually inspect the rendered DAGs for common patterns (2-column, 3-column, diamond, mixed sequential/parallel) to confirm they are readable and aesthetically reasonable.",
+      "when": "After Phase 2 implementation, before merging"
     }
   ],
 
   "rollback_plan": {
-    "strategy": "Feature flag via role-context dispatch, or simple revert",
-    "details": "The change is contained within a single file (orchestrator/routes/pipelines.py) and its test files. Rollback options: (1) Revert the commits — since the change is purely prompt content, no data migration or schema change is needed. (2) Add a flag in _build_role_context() that returns pipeline.prompt for all roles regardless of role (effectively disabling scoping). Option 1 is preferred since this is a clean refactor with no persistent state changes.",
+    "strategy": "Simple revert — no schema or data changes",
+    "details": "The change is entirely within dag_visualizer.py (visualization logic) and its test file. No model changes, no schema migrations, no persisted state changes. The Pipeline model, contract format, and SSE protocol are unchanged.",
     "steps": [
-      "If agents show degraded behavior after deployment, revert the PR (git revert)",
-      "No data migration needed — prompt content changes are stateless",
-      "No downstream consumer changes — handoff data mechanism is untouched",
-      "If only one role is affected, targeted fix: change _build_role_context() to return full prompt for that specific role"
+      "If the new visualization has bugs: revert the commits to dag_visualizer.py. All downstream consumers (SSE, CLI tools, API) continue working with the flat rendering.",
+      "If only specific edge cases are broken: the fallback-to-flat logic means the Tier 3 path can be disabled by making _get_phase_dependency_info() always return None (one-line change).",
+      "No data migration needed — the contract format is unchanged and the Pipeline model is unchanged.",
+      "The rollback does not affect pipeline execution — visualization is purely cosmetic."
     ]
   },
 
   "implementation_recommendations": [
     {
       "id": "IR-1",
-      "recommendation": "Write baseline tests BEFORE modifying _build_agent_prompt()",
-      "rationale": "No tests exist for the current behavior of _build_agent_prompt() for non-coder roles. Adding baseline tests first ensures we can detect regressions and validates our understanding of the current behavior."
+      "recommendation": "Resolve the contract loading path discovery (R-1) before starting Phase 1",
+      "rationale": "This is a design decision that affects the function signature and calling convention. The implementation team should decide on Option A (add optional repo_root param) vs Option B (environment variable) upfront, since it affects how _get_phase_dependency_info() is implemented and tested."
     },
     {
       "id": "IR-2",
-      "recommendation": "Use an explicit FULL_CONTEXT_ROLES allowlist constant",
-      "rationale": "Prevents accidental exclusion of plan-phase agents from the full issue body. A constant is easy to audit and update."
+      "recommendation": "Implement _get_phase_dependency_info() defensively with return-None-on-any-error",
+      "rationale": "This function is the single point of failure for the Tier 3 path. If it raises an exception, the visualization breaks. Wrapping ALL logic in try/except with return None ensures the flat fallback always works. Log errors at debug level since contract-not-found is expected during non-Implement phases."
     },
     {
       "id": "IR-3",
-      "recommendation": "Implement plan filtering with a full-plan fallback, not a silent partial parse",
-      "rationale": "If the plan heading parser cannot find the current phase, embedding the full plan (current behavior) is safe. Silently dropping content is the danger."
+      "recommendation": "Normalize sub-phase box widths before computing connector positions",
+      "rationale": "Variable-width boxes make connector math significantly harder. If all boxes in a parallel wave are padded to the same width, the fan-out/fan-in connector positions are symmetric and trivial to compute. This simplification eliminates an entire class of alignment bugs."
     },
     {
       "id": "IR-4",
-      "recommendation": "Verify plan parsing against 3-5 real plan drafts from .egg-state/drafts/",
-      "rationale": "The .egg-state/drafts/ directory contains dozens of real plan files generated by prior pipelines. Testing the parser against these ensures it handles real-world format variation."
+      "recommendation": "Add caching to _get_phase_dependency_info() using file mtime comparison",
+      "rationale": "The SSE refresh calls render_pipeline_dag() every 1 second. Caching the parsed contract data with mtime-based invalidation reduces the per-render overhead from ~5ms (file read + JSON parse + graph computation) to ~0.1ms (stat call). This is a simple optimization that prevents performance concerns from materializing."
     },
     {
       "id": "IR-5",
-      "recommendation": "Keep the prompt parameter in _build_agent_prompt() for backward compatibility",
-      "rationale": "Adding pipeline as a parallel optional parameter avoids breaking any code paths that don't have a Pipeline object. The function should prefer pipeline when available and fall back to the raw prompt otherwise."
+      "recommendation": "Use snapshot testing for all rendered DAG outputs",
+      "rationale": "ASCII art rendering is best tested by exact string comparison. Snapshot tests (comparing rendered output against known-good baselines) catch off-by-one alignment errors, missing connectors, and width overflow issues that would be invisible to structural assertions."
+    },
+    {
+      "id": "IR-6",
+      "recommendation": "Implement Phase 1 (sequential sub-phases) and validate before adding parallel rendering",
+      "rationale": "The architect's phased approach is sound. Phase 1 (sequential sub-phases only) validates the contract loading, Tier 3 detection, and sub-phase box rendering without the complexity of side-by-side composition. This provides a working intermediate state and reduces risk."
     }
   ],
 
   "phased_delivery_assessment": {
     "phase_1": {
-      "name": "Core helper functions and _build_agent_prompt refactor",
-      "risk_level": "Medium",
-      "rationale": "This phase modifies the _build_agent_prompt() function that affects ALL non-coder agent prompts. A bug here impacts every role. However, the change is well-defined: replace a 4-line unconditional block with a role-dispatched helper. The backward-compatible fallback (when pipeline param is not provided) limits blast radius.",
-      "key_risks": ["R-1 (behavioral regression)", "R-3 (signature change)", "R-4 (test gap)", "R-6 (scope creep)"]
+      "name": "Core rendering helpers and single-column Tier 3 visualization",
+      "risk_level": "Low-Medium",
+      "rationale": "Phase 1 adds contract loading to the visualizer (new dependency) and modifies render_pipeline_dag() (shared code path). However, the Tier 3 detection with fallback-to-flat means existing pipelines are unaffected. The key risk is R-1 (contract loading path) which must be resolved first. Sequential sub-phase rendering is simpler than parallel since no side-by-side composition is needed.",
+      "key_risks": ["R-1 (contract loading path)", "R-4 (Tier 3 detection)", "R-5 (contract unavailability)", "R-6 (test coverage)"]
     },
     "phase_2": {
-      "name": "Phase-scoped plan filtering and integration tests",
+      "name": "Side-by-side parallel rendering with fan-out/fan-in connectors",
       "risk_level": "Low-Medium",
-      "rationale": "This phase modifies _build_phase_scoped_prompt() which only affects Tier 3 coders. The change is isolated: replace full plan embedding with filtered content. The full-plan fallback preserves current behavior if parsing fails. Only one function is modified.",
-      "key_risks": ["R-2 (plan parsing fragility)", "R-5 (summary quality)"]
+      "rationale": "Phase 2 adds the most complex new code (side-by-side composition, connector rendering). The risk is concentrated in visual rendering logic that doesn't affect pipeline execution. The fallback for 4+ parallel phases (R-7) needs implementation. Since Phase 1 already validates the contract loading and Tier 3 detection, Phase 2 only needs to add the parallel layout on top of a working sequential layout.",
+      "key_risks": ["R-3 (side-by-side complexity)", "R-7 (terminal width overflow)"]
     }
   },
 
   "compatibility_assessment": {
     "schema_changes": "None — no model or data schema changes",
-    "api_changes": "None — no external API changes",
+    "api_changes": "None — generate_status_report() return structure unchanged (dag field contains new text, but structure is identical)",
     "configuration_changes": "None — no config file changes",
     "migration_required": false,
-    "breaking_changes": "None — the change is internal to prompt construction"
+    "breaking_changes": "None — Tier 1/2 pipelines render identically. Tier 3 pipelines get improved visualization with flat-rendering fallback."
   },
 
   "security_assessment": {
     "risk_level": "None",
-    "details": "This change only affects the text content of agent prompts. It does not modify: authentication, authorization, file access controls, gateway enforcement, or any security boundary. The prompt content is generated server-side from trusted sources (Pipeline model fields). No user input is processed differently."
+    "details": "This change only affects ASCII text rendering of pipeline state. It does not modify authentication, authorization, file access controls, gateway enforcement, or any security boundary. The new contract loading reads from .egg-state/contracts/ which is already accessed by the orchestrator. No user input is processed differently. The PhaseDependencyGraph operates on trusted data from the contract file."
   }
 }
