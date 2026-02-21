@@ -16,15 +16,15 @@
     "max_hitl_review_cycles": 3,
     "hitl_gates": true,
     "allow_short_circuit": true,
-    "enable_parallel_phases": true
+    "enable_parallel_phases": false
   },
   "phases": {
     "refine": {
       "phase": "refine",
-      "status": "running",
+      "status": "complete",
       "started_at": "2026-02-21T23:19:03.543255",
       "work_started_at": "2026-02-21T23:19:03.556368",
-      "completed_at": null,
+      "completed_at": "2026-02-21T23:25:45.309144",
       "containers": [
         {
           "container_id": "e7ddac06bcdaf94f030438c891c742e0d142d1b09c43fea102f174539d53d2a9",
@@ -114,11 +114,11 @@
   },
   "decisions": [],
   "created_at": "2026-02-21T23:19:03.370806",
-  "updated_at": "2026-02-21T23:25:45.291480",
+  "updated_at": "2026-02-21T23:25:45.310526",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
   "complexity_tier": "mid",
   "error": null,
-  "version": 13
+  "version": 14
 }
