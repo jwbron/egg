@@ -1,0 +1,7 @@
+{
+  "reviewer": "agent-design",
+  "verdict": "approved",
+  "summary": "The analysis is well-aligned with agent-mode design principles. It proposes extending the gateway sidecar (sandbox enforcement) to enforce per-task file restrictions, which directly follows the core principle that 'the sandbox is the constraint.' The warn-then-block approach with directory-sibling expansion and the egg-contract request-file escape hatch embodies 'guide, don't cage' — preserving agent autonomy while providing observability. No anti-patterns detected: no excessive pre-fetching, no structured output for humans, no post-processing pipelines, no rigid procedures, and no prompt-level security.",
+  "feedback": "",
+  "timestamp": "2026-02-21T12:00:00Z"
+}
