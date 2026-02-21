@@ -86,7 +86,7 @@ Agents interact with contract state via the `egg-contract` CLI (`sandbox/egg_lib
 Checkpoints capture agent session context as first-class versioned data in Git. The v2 checkpoint system captures **all agent sessions** (not just commits) with rich multi-dimensional querying.
 
 **Triggers**: Checkpoints are captured on two events:
-- **Commit**: When agents push commits during implementation
+- **Commit**: When agents push to remote (one checkpoint per push, regardless of commit count)
 - **Session-end**: When agent containers terminate (completed, expired, or failed)
 
 **Captured data**:
