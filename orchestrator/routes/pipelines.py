@@ -1442,6 +1442,83 @@ def _aggregate_review_verdicts(
     return overall, combined
 
 
+def _sync_worktree_with_remote(
+    spawner: object,
+    pipeline_id: str,
+    worktree_repo_path: Path,
+) -> None:
+    """Sync a worktree with its remote branch (best-effort).
+
+    After an orchestrator restart, the local worktree branch may be behind
+    the remote: commits pushed during previous phases (contracts, drafts,
+    statefiles) exist on origin but not in the local checkout.  This function
+    fetches those commits and resets the worktree so that all downstream code
+    (contract loading, draft reading, etc.) sees the full pipeline state.
+
+    Only resets if the remote branch exists and is strictly ahead of local —
+    safe to call on every pipeline start because it is idempotent when the
+    local branch is already up to date.
+    """
+    git_base = ["git", "-c", "core.hooksPath=/dev/null", "-C", str(worktree_repo_path)]
+
+    # Step 1: Authenticated fetch via gateway (gateway holds GitHub credentials)
+    fetch_ok = spawner.gateway.fetch_worktree_branch(
+        pipeline_id=pipeline_id,
+        repo_path=str(worktree_repo_path),
+    )
+    if not fetch_ok:
+        return
+
+    # Step 2: Determine current branch
+    try:
+        result = subprocess.run(
+            [*git_base, "branch", "--show-current"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+        branch = result.stdout.strip()
+        if not branch:
+            return  # Detached HEAD — nothing to sync
+    except Exception:
+        return
+
+    # Step 3: Verify remote tracking branch exists
+    try:
+        result = subprocess.run(
+            [*git_base, "rev-parse", "--verify", f"origin/{branch}"],
+            capture_output=True,
+            timeout=10,
+            check=False,
+        )
+        if result.returncode != 0:
+            return  # Remote branch not yet published (first pipeline run)
+    except Exception:
+        return
+
+    # Step 4: Reset local branch to remote (local changes from a crashed agent
+    # should already be committed + pushed by the gateway's auto-commit hook)
+    try:
+        subprocess.run(
+            [*git_base, "reset", "--hard", f"origin/{branch}"],
+            capture_output=True,
+            timeout=30,
+            check=False,
+        )
+        logger.info(
+            "Synced worktree with remote branch",
+            pipeline_id=pipeline_id,
+            branch=branch,
+        )
+    except Exception as sync_err:
+        logger.warning(
+            "Failed to reset worktree to remote (continuing with local state)",
+            pipeline_id=pipeline_id,
+            error=str(sync_err),
+        )
+
+
 def _commit_statefiles_to_worktree(
     worktree_path: Path,
     message: str,
@@ -4114,6 +4191,15 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                 f"No repo volumes available for pipeline {pipeline_id} — "
                 f"worktree creation is required"
             )
+
+        # Sync worktree with remote before starting pipeline phases.  After an
+        # orchestrator restart, the local worktree branch may be behind origin:
+        # commits pushed by agents in previous phases (contracts, drafts,
+        # statefiles) exist on the remote but not in the local checkout.
+        # Fetching and resetting ensures downstream code (contract loading,
+        # draft reading) sees the full pipeline state from prior phases.
+        if worktree_repo_path != repo_path:
+            _sync_worktree_with_remote(spawner, pipeline_id, worktree_repo_path)
 
         # Resolve the certs named volume for gateway CA trust.
         # The docker-compose stack creates ${COMPOSE_PROJECT_NAME:-egg}-certs.

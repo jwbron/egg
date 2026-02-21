@@ -615,6 +615,66 @@ class GatewayClient:
                 except Exception:
                     pass
 
+    def fetch_worktree_branch(
+        self,
+        pipeline_id: str,
+        repo_path: str,
+    ) -> bool:
+        """Fetch latest remote state into a worktree using a temporary session.
+
+        Best-effort operation to sync remote changes into a worktree —
+        called before phase execution to ensure the worktree has all state
+        from previous phases (e.g., after orchestrator restart where the
+        local branch diverged from remote).
+
+        Args:
+            pipeline_id: Pipeline ID (used as container_id for the temp session)
+            repo_path: Path to the worktree repo directory
+
+        Returns:
+            True if fetch succeeded, False otherwise
+        """
+        temp_container_id = f"{pipeline_id}-failsafe-fetch"
+        session_token: str | None = None
+        try:
+            session = self.register_session(
+                container_id=temp_container_id,
+                container_ip="127.0.0.1",
+                mode="local",
+                pipeline_id=pipeline_id,
+            )
+            session_token = session.session_token
+
+            self._make_request(
+                "/api/v1/git/fetch",
+                method="POST",
+                data={
+                    "repo_path": repo_path,
+                    "remote": "origin",
+                    "container_id": temp_container_id,
+                },
+                bearer_token=session_token,
+            )
+
+            logger.info(
+                "Fetched remote state into worktree",
+                pipeline_id=pipeline_id,
+            )
+            return True
+        except Exception as e:
+            logger.warning(
+                "Best-effort fetch failed (continuing with local state)",
+                pipeline_id=pipeline_id,
+                error=str(e),
+            )
+            return False
+        finally:
+            if session_token:
+                try:
+                    self.delete_session(session_token)
+                except Exception:
+                    pass
+
 
 class GatewayError(Exception):
     """Error from gateway operations."""
