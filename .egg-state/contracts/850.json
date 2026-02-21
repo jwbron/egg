@@ -97,6 +97,19 @@
       "error": null,
       "retry_count": 0,
       "conflicts": []
+    },
+    {
+      "role": "task_planner",
+      "phase_id": null,
+      "status": "complete",
+      "started_at": null,
+      "completed_at": "2026-02-21T23:18:06.823466Z",
+      "commit": "6190b439",
+      "checkpoint_id": null,
+      "outputs": {},
+      "error": null,
+      "retry_count": 0,
+      "conflicts": []
     }
   ],
   "multi_agent_config": null
