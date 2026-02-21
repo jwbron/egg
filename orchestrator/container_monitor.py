@@ -293,3 +293,123 @@ def get_container_monitor() -> ContainerMonitor:
     if _container_monitor is None:
         _container_monitor = ContainerMonitor()
     return _container_monitor
+
+
+def _reconcile_container_state(store: Any, container_info: ContainerInfo) -> bool:
+    """Update pipeline state for a single container that has exited.
+
+    Scans all RUNNING pipelines for a container matching the given
+    container_info and marks the container and its agent as FAILED.
+    If any changes are made, the pipeline itself is marked FAILED.
+
+    Args:
+        store: StateStore instance
+        container_info: Info about the exited/failed container
+
+    Returns:
+        True if any pipeline state was updated
+    """
+    from models import AgentExecutionStatus, PipelineStatus
+
+    try:
+        pipeline_ids: list[str] = store.list_pipelines()
+    except Exception as e:
+        logger.warning(
+            "Runtime reconciliation: could not list pipelines",
+            error=str(e),
+        )
+        return False
+
+    for pipeline_id in pipeline_ids:
+        try:
+            pipeline = store.load_pipeline(pipeline_id)
+        except Exception:
+            continue
+
+        if pipeline.status != PipelineStatus.RUNNING:
+            continue
+
+        changed = False
+
+        for phase_execution in pipeline.phases.values():
+            if phase_execution.status != PipelineStatus.RUNNING:
+                continue
+
+            for ci in phase_execution.containers:
+                if ci.container_id == container_info.container_id and ci.status == ContainerStatus.RUNNING:
+                    logger.warning(
+                        "Runtime reconciliation: container exited, marking FAILED",
+                        pipeline_id=pipeline_id,
+                        container_id=container_info.container_id[:12],
+                    )
+                    ci.status = ContainerStatus.FAILED
+                    ci.exit_code = container_info.exit_code if container_info.exit_code is not None else -1
+                    ci.exited_at = container_info.exited_at or datetime.utcnow()
+                    changed = True
+
+            for agent in phase_execution.agents:
+                if (
+                    agent.status == AgentExecutionStatus.RUNNING
+                    and agent.container_id == container_info.container_id
+                ):
+                    logger.warning(
+                        "Runtime reconciliation: agent container exited, marking FAILED",
+                        pipeline_id=pipeline_id,
+                        agent_role=str(agent.role),
+                        container_id=container_info.container_id[:12],
+                    )
+                    agent.status = AgentExecutionStatus.FAILED
+                    agent.completed_at = datetime.utcnow()
+                    agent.error = (
+                        "Container exited unexpectedly during execution — "
+                        "detected by runtime container monitor"
+                    )
+                    changed = True
+
+        if changed:
+            pipeline.status = PipelineStatus.FAILED
+            pipeline.error = (
+                "Pipeline marked FAILED: agent container exited unexpectedly "
+                "during execution. Restart via POST /pipelines/{id}/start."
+            )
+            try:
+                store.save_pipeline(pipeline)
+                logger.warning(
+                    "Runtime reconciliation: pipeline marked FAILED",
+                    pipeline_id=pipeline_id,
+                )
+                return True
+            except Exception as e:
+                logger.error(
+                    "Runtime reconciliation: could not save pipeline",
+                    pipeline_id=pipeline_id,
+                    error=str(e),
+                )
+
+    return False
+
+
+def create_pipeline_reconciliation_handler(repo_path: str) -> EventHandler:
+    """Create handler that updates pipeline state when containers exit.
+
+    The handler is invoked by the ContainerMonitor whenever a container
+    state change is detected. For EXITED/FAILED/STOPPED events, it looks
+    up the pipeline that owns the container and marks it FAILED.
+
+    Args:
+        repo_path: Path to the repository (for StateStore access)
+
+    Returns:
+        Event handler function
+    """
+
+    def handler(event: ContainerEvent) -> None:
+        if event.event_type not in (ContainerEvent.EXITED, ContainerEvent.FAILED, ContainerEvent.STOPPED):
+            return
+
+        from state_store import get_state_store
+
+        store = get_state_store(repo_path)
+        _reconcile_container_state(store, event.container_info)
+
+    return handler

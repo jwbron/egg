@@ -510,17 +510,28 @@ class MultiAgentExecutor:
         self,
         on_wave_complete: Callable[[AgentWave], None] | None = None,
         agent_prompts: dict[AgentRole, str] | None = None,
+        max_waves: int = 5,
     ) -> list[AgentWave]:
         """Execute all waves until completion or failure.
 
         Args:
             on_wave_complete: Optional callback after each wave
             agent_prompts: Role-to-prompt mapping (required when using spawn_fn)
+            max_waves: Safety cap on number of wave iterations (default: 30)
 
         Returns:
             List of completed waves
         """
+        waves_executed = 0
         while True:
+            if waves_executed >= max_waves:
+                logger.warning(
+                    "Max waves reached, stopping execution",
+                    pipeline_id=self.pipeline.id,
+                    max_waves=max_waves,
+                )
+                break
+
             wave = self.get_next_wave()
             if not wave:
                 break
@@ -529,6 +540,7 @@ class MultiAgentExecutor:
                 wave,
                 agent_prompts=agent_prompts,
             )
+            waves_executed += 1
 
             if on_wave_complete:
                 on_wave_complete(completed)

@@ -189,6 +189,23 @@ def main() -> None:
                 error=str(reconcile_err),
             )
 
+        # Start runtime container liveness monitor
+        try:
+            from container_monitor import (
+                create_pipeline_reconciliation_handler,
+                get_container_monitor,
+            )
+
+            monitor = get_container_monitor()
+            monitor.add_handler(create_pipeline_reconciliation_handler(repo_path))
+            monitor.start()
+            logger.info("Container monitor started for runtime liveness checks")
+        except Exception as monitor_err:
+            logger.warning(
+                "Container monitor startup failed",
+                error=str(monitor_err),
+            )
+
     if debug:
         # Use Flask's built-in server for development
         app.run(host=host, port=port, debug=True)
