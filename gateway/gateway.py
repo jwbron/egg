@@ -56,8 +56,10 @@ from egg_logging import get_logger
 try:
     from .anthropic_credentials import get_credentials_manager
     from .checkpoint_handler import (
+        _get_checkpoint_repo_for_path,
         capture_and_store_checkpoint,
         capture_and_store_checkpoints_for_push,
+        get_checkpoint_handler,
     )
     from .git_client import (
         GIT_ALLOWED_COMMANDS,
@@ -114,8 +116,10 @@ try:
 except ImportError:
     from anthropic_credentials import get_credentials_manager  # type: ignore[no-redef]
     from checkpoint_handler import (  # type: ignore[no-redef, import-not-found]
+        _get_checkpoint_repo_for_path,
         capture_and_store_checkpoint,
         capture_and_store_checkpoints_for_push,
+        get_checkpoint_handler,
     )
     from git_client import (  # type: ignore[no-redef, import-not-found]
         GIT_ALLOWED_COMMANDS,
@@ -1511,6 +1515,314 @@ def git_fetch() -> tuple[Response, int] | Response:
         return make_error(f"{operation.capitalize()} failed: {e}", status_code=500)
     finally:
         cleanup_credential_helper(credential_helper_path)
+
+
+# ---------------------------------------------------------------------------
+# Checkpoint read endpoints
+# ---------------------------------------------------------------------------
+
+
+def _int_param(name: str) -> int | None:
+    """Parse an optional integer query parameter from the current request."""
+    val = request.args.get(name)
+    if val is None:
+        return None
+    try:
+        return int(val)
+    except (ValueError, TypeError):
+        return None
+
+
+@app.route("/api/v1/checkpoints", methods=["GET"])
+@require_session_auth
+def checkpoint_list() -> tuple[Response, int] | Response:
+    """
+    List checkpoint summaries with optional filters.
+
+    Query params:
+        repo_path: Repository path (required if not inferable)
+        issue: Filter by issue number
+        pr: Filter by PR number
+        branch: Filter by branch name
+        session: Filter by session ID
+        trigger: Filter by trigger type
+        status: Filter by session status
+        agent_type: Filter by agent type
+        phase: Filter by pipeline phase
+        pipeline: Filter by pipeline ID
+        repo: Filter by source repository (owner/repo)
+        limit: Maximum results (default 50)
+    """
+    from egg_contracts.checkpoint_loader import filter_checkpoints_v2
+
+    repo_path = _resolve_repo_path_for_checkpoints()
+    if not repo_path:
+        return make_error("Cannot determine repo_path")
+
+    handler = get_checkpoint_handler()
+    checkpoint_repo = _get_checkpoint_repo_for_path(repo_path)
+
+    try:
+        index = handler.fetch_and_read_index(
+            repo_path, checkpoint_repo=checkpoint_repo
+        )
+    except Exception as e:
+        logger.error("Checkpoint index fetch failed", error=str(e))
+        return make_error("Failed to fetch checkpoints", status_code=500)
+
+    if not index:
+        return make_success("No checkpoints found", {"checkpoints": []})
+
+    # Build filters from query params
+    filters: dict[str, Any] = {}
+
+    if request.args.get("issue"):
+        filters["issue_number"] = _int_param("issue")
+    if request.args.get("pr"):
+        filters["pr_number"] = _int_param("pr")
+    if request.args.get("branch"):
+        filters["branch"] = request.args["branch"]
+    if request.args.get("session"):
+        filters["session_id"] = request.args["session"]
+    if request.args.get("trigger"):
+        filters["trigger_type"] = request.args["trigger"]
+    if request.args.get("status"):
+        filters["session_status"] = request.args["status"]
+    if request.args.get("agent_type"):
+        filters["agent_type"] = request.args["agent_type"]
+    if request.args.get("phase"):
+        filters["pipeline_phase"] = request.args["phase"]
+    if request.args.get("pipeline"):
+        filters["pipeline_id"] = request.args["pipeline"]
+    if request.args.get("repo"):
+        filters["repo"] = request.args["repo"]
+
+    limit = _int_param("limit")
+    filters["limit"] = limit if limit is not None else 50
+
+    summaries = filter_checkpoints_v2(index, **filters)
+    data = [s.model_dump(mode="json") for s in summaries]
+
+    return make_success("OK", {"checkpoints": data})
+
+
+@app.route("/api/v1/checkpoints/cost", methods=["GET"])
+@require_session_auth
+def checkpoint_cost() -> tuple[Response, int] | Response:
+    """
+    Get cost breakdown for matching checkpoints.
+
+    Query params:
+        repo_path: Repository path
+        pipeline: Filter by pipeline ID
+        issue: Filter by issue number
+        pr: Filter by PR number
+        limit: Maximum checkpoints to load (default 500)
+    """
+    from egg_contracts.checkpoint_loader import filter_checkpoints_v2
+    from egg_contracts.usage import TokenCounts
+
+    repo_path = _resolve_repo_path_for_checkpoints()
+    if not repo_path:
+        return make_error("Cannot determine repo_path")
+
+    handler = get_checkpoint_handler()
+    checkpoint_repo = _get_checkpoint_repo_for_path(repo_path)
+
+    # fetch_and_read_index does ls-remote + fetch + read index in one pass.
+    # We then call ensure_ref to get a ref for read_checkpoint calls below.
+    # After the fetch in fetch_and_read_index, ensure_ref's fetch is a no-op
+    # (branch already up-to-date), so only the ls-remote is repeated.
+    try:
+        index = handler.fetch_and_read_index(
+            repo_path, checkpoint_repo=checkpoint_repo
+        )
+    except Exception as e:
+        logger.error("Checkpoint index fetch failed", error=str(e))
+        return make_error("Failed to fetch checkpoint data", status_code=500)
+
+    if not index:
+        return make_success("No checkpoints found", {
+            "checkpoint_count": 0,
+            "total_input_tokens": 0,
+            "total_output_tokens": 0,
+            "total_cost_usd": 0,
+            "breakdown": [],
+        })
+
+    try:
+        ref = handler.ensure_ref(repo_path, checkpoint_repo=checkpoint_repo)
+    except Exception as e:
+        logger.error("Checkpoint ref resolution failed", error=str(e))
+        return make_error("Failed to fetch checkpoint data", status_code=500)
+
+    if not ref:
+        return make_success("No checkpoints found", {
+            "checkpoint_count": 0,
+            "total_input_tokens": 0,
+            "total_output_tokens": 0,
+            "total_cost_usd": 0,
+            "breakdown": [],
+        })
+
+    filters: dict[str, Any] = {}
+    if request.args.get("pipeline"):
+        filters["pipeline_id"] = request.args["pipeline"]
+    if request.args.get("issue"):
+        filters["issue_number"] = _int_param("issue")
+    if request.args.get("pr"):
+        filters["pr_number"] = _int_param("pr")
+    limit = _int_param("limit")
+    filters["limit"] = limit if limit is not None else 500
+
+    summaries = filter_checkpoints_v2(index, **filters)
+    if not summaries:
+        return make_success("No checkpoints found", {
+            "checkpoint_count": 0,
+            "total_input_tokens": 0,
+            "total_output_tokens": 0,
+            "total_cost_usd": 0,
+            "breakdown": [],
+        })
+
+    rows: list[dict[str, Any]] = []
+    for s in summaries:
+        checkpoint = handler.read_checkpoint(repo_path, s.id, ref)
+        if not checkpoint or not checkpoint.token_usage:
+            continue
+
+        tu = checkpoint.token_usage
+        model = checkpoint.session.model if checkpoint.session else None
+        tokens = TokenCounts(
+            input_tokens=tu.input_tokens,
+            output_tokens=tu.output_tokens,
+            cache_read_tokens=tu.cache_read_tokens,
+            cache_creation_tokens=tu.cache_creation_tokens,
+        )
+        cost = float(tokens.calculate_cost(model=model))
+        phase = checkpoint.pipeline_phase or "(none)"
+        agent = checkpoint.agent_type.value if checkpoint.agent_type else "unknown"
+        rows.append({
+            "phase": phase,
+            "agent": agent,
+            "input_tokens": tu.input_tokens,
+            "output_tokens": tu.output_tokens,
+            "cost": cost,
+        })
+
+    if not rows:
+        return make_success("No cost data", {
+            "checkpoint_count": 0,
+            "total_input_tokens": 0,
+            "total_output_tokens": 0,
+            "total_cost_usd": 0,
+            "breakdown": [],
+        })
+
+    agg: dict[tuple[str, str], dict[str, Any]] = {}
+    for row in rows:
+        key = (row["phase"], row["agent"])
+        if key not in agg:
+            agg[key] = {"input": 0, "output": 0, "cost": 0.0, "count": 0}
+        agg[key]["input"] += row["input_tokens"]
+        agg[key]["output"] += row["output_tokens"]
+        agg[key]["cost"] += row["cost"]
+        agg[key]["count"] += 1
+
+    return make_success("OK", {
+        "checkpoint_count": len(rows),
+        "total_input_tokens": sum(v["input"] for v in agg.values()),
+        "total_output_tokens": sum(v["output"] for v in agg.values()),
+        "total_cost_usd": round(sum(v["cost"] for v in agg.values()), 4),
+        "breakdown": [
+            {
+                "phase": k[0],
+                "agent": k[1],
+                "input_tokens": v["input"],
+                "output_tokens": v["output"],
+                "cost_usd": round(v["cost"], 4),
+                "checkpoint_count": v["count"],
+            }
+            for k, v in sorted(agg.items())
+        ],
+    })
+
+
+@app.route("/api/v1/checkpoints/<identifier>", methods=["GET"])
+@require_session_auth
+def checkpoint_show(identifier: str) -> tuple[Response, int] | Response:
+    """
+    Get a full checkpoint by ID or commit SHA.
+
+    Path params:
+        identifier: Checkpoint ID (ckpt-...) or commit SHA
+
+    Query params:
+        repo_path: Repository path
+    """
+    repo_path = _resolve_repo_path_for_checkpoints()
+    if not repo_path:
+        return make_error("Cannot determine repo_path")
+
+    handler = get_checkpoint_handler()
+    checkpoint_repo = _get_checkpoint_repo_for_path(repo_path)
+
+    try:
+        ref = handler.ensure_ref(repo_path, checkpoint_repo=checkpoint_repo)
+    except Exception as e:
+        logger.error("Checkpoint ref fetch failed", error=str(e))
+        return make_error("Failed to fetch checkpoint data", status_code=500)
+
+    if not ref:
+        return make_error("Checkpoint branch not found", status_code=404)
+
+    checkpoint_id = identifier
+    if not identifier.startswith("ckpt-"):
+        # Look up by commit SHA
+        index = handler.fetch_and_read_index(
+            repo_path, checkpoint_repo=checkpoint_repo
+        )
+        if index:
+            checkpoint_id = index.get_by_commit(identifier)
+        if not checkpoint_id:
+            return make_error(
+                f"Checkpoint not found: {identifier}", status_code=404
+            )
+
+    checkpoint = handler.read_checkpoint(repo_path, checkpoint_id, ref)
+    if not checkpoint:
+        return make_error(
+            f"Checkpoint not found: {identifier}", status_code=404
+        )
+
+    return make_success("OK", {"checkpoint": checkpoint.model_dump(mode="json")})
+
+
+def _resolve_repo_path_for_checkpoints() -> str | None:
+    """Resolve repository path for checkpoint read operations.
+
+    Tries query param, then session's last_repo_path, then EGG_REPO_PATH.
+    """
+    # Explicit query param — if provided, must be valid; don't silently
+    # fall through to fallbacks when the client explicitly requested a path.
+    repo_path = request.args.get("repo_path")
+    if repo_path:
+        path_valid, _err = validate_repo_path(repo_path)
+        if path_valid and os.path.isdir(repo_path):
+            return repo_path
+        return None
+
+    # Session's last known repo path (set during push operations)
+    session = getattr(g, "session", None)
+    if session and getattr(session, "last_repo_path", None):
+        return session.last_repo_path
+
+    # Environment variable
+    env_path = os.environ.get("EGG_REPO_PATH")
+    if env_path and os.path.isdir(env_path):
+        return env_path
+
+    return None
 
 
 @app.route("/api/v1/gh/pr/create", methods=["POST"])

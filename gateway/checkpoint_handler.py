@@ -68,6 +68,7 @@ from egg_contracts.checkpoint_loader import (
 )
 from egg_contracts.checkpoints import (
     AgentType,
+    CheckpointIndexV2,
     CheckpointV2,
     FileOperation,
     SessionMetadata,
@@ -970,6 +971,173 @@ class CheckpointHandler:
 
     # Keep store_checkpoint as alias for backward compatibility
     store_checkpoint = store_checkpoint_v2
+
+    def fetch_and_read_index(
+        self,
+        repo_path: str,
+        checkpoint_repo: str | None = None,
+        github_token: str | None = None,
+    ) -> CheckpointIndexV2 | None:
+        """Fetch the checkpoint branch and read the index.
+
+        Fetches from the checkpoint repo (external or origin), then reads
+        index.json via git show. Uses authenticated fetch when a token
+        is available.
+
+        Args:
+            repo_path: Path to a local git repository (used as fetch cwd).
+            checkpoint_repo: External checkpoint repo ("owner/repo"), or
+                None to use origin.
+            github_token: Optional GitHub token; resolved automatically if
+                not provided.
+
+        Returns:
+            The parsed checkpoint index, or None if unavailable.
+        """
+        if github_token is None:
+            github_token = _resolve_github_token(repo_path)
+
+        target = (
+            f"https://github.com/{checkpoint_repo}.git"
+            if checkpoint_repo
+            else "origin"
+        )
+
+        if not self._branch_exists(
+            repo_path, target, CHECKPOINT_BRANCH, github_token=github_token
+        ):
+            return None
+
+        # Fetch the branch
+        self._run_git(
+            repo_path,
+            ["fetch", target, CHECKPOINT_BRANCH],
+            check=False,
+            github_token=github_token,
+        )
+
+        # Resolve a stable ref
+        if checkpoint_repo:
+            result = self._run_git(
+                repo_path, ["rev-parse", "FETCH_HEAD"], check=False
+            )
+            if result.returncode != 0:
+                return None
+            ref = result.stdout.strip()
+        else:
+            ref = f"origin/{CHECKPOINT_BRANCH}"
+
+        content = self._read_git_file(repo_path, ref, INDEX_FILE)
+        if content is None:
+            return None
+
+        try:
+            import json as json_mod
+
+            data = json_mod.loads(content)
+            return CheckpointIndexV2.model_validate(data)
+        except Exception:
+            return None
+
+    def read_checkpoint(
+        self,
+        repo_path: str,
+        checkpoint_id: str,
+        ref: str,
+    ) -> CheckpointV2 | None:
+        """Read a full checkpoint from a git ref.
+
+        Args:
+            repo_path: Path to the local git repository.
+            checkpoint_id: Checkpoint ID (ckpt-...).
+            ref: Git ref to read from (SHA or origin/branch).
+
+        Returns:
+            Parsed CheckpointV2, or None if not found.
+        """
+        rel_path = get_checkpoint_path(Path("checkpoints"), checkpoint_id)
+        content = self._read_git_file(repo_path, ref, str(rel_path))
+        if content is None:
+            return None
+
+        try:
+            import json as json_mod
+
+            data = json_mod.loads(content)
+            return CheckpointV2.model_validate(data)
+        except Exception:
+            return None
+
+    def ensure_ref(
+        self,
+        repo_path: str,
+        checkpoint_repo: str | None = None,
+        github_token: str | None = None,
+    ) -> str | None:
+        """Fetch the checkpoint branch and return a stable git ref.
+
+        Args:
+            repo_path: Path to a local git repository.
+            checkpoint_repo: External checkpoint repo ("owner/repo").
+            github_token: Optional GitHub token.
+
+        Returns:
+            A git ref string, or None if the branch doesn't exist.
+        """
+        if github_token is None:
+            github_token = _resolve_github_token(repo_path)
+
+        target = (
+            f"https://github.com/{checkpoint_repo}.git"
+            if checkpoint_repo
+            else "origin"
+        )
+
+        if not self._branch_exists(
+            repo_path, target, CHECKPOINT_BRANCH, github_token=github_token
+        ):
+            return None
+
+        self._run_git(
+            repo_path,
+            ["fetch", target, CHECKPOINT_BRANCH],
+            check=False,
+            github_token=github_token,
+        )
+
+        if checkpoint_repo:
+            result = self._run_git(
+                repo_path, ["rev-parse", "FETCH_HEAD"], check=False
+            )
+            if result.returncode != 0:
+                return None
+            return result.stdout.strip()
+        return f"origin/{CHECKPOINT_BRANCH}"
+
+    def _read_git_file(
+        self,
+        repo_path: str,
+        ref: str,
+        path: str,
+    ) -> str | None:
+        """Read a file from a git ref via git show.
+
+        Args:
+            repo_path: Path to the git repository.
+            ref: Git ref (SHA or branch name).
+            path: Path relative to the ref root.
+
+        Returns:
+            File contents, or None if not found.
+        """
+        result = self._run_git(
+            repo_path,
+            ["show", f"{ref}:{path}"],
+            check=False,
+        )
+        if result.returncode != 0:
+            return None
+        return result.stdout
 
     def _branch_exists(
         self,

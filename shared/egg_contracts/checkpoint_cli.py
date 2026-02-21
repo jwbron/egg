@@ -26,6 +26,7 @@ Commands:
 
 import argparse
 import json
+import logging
 import os
 import re
 import subprocess
@@ -33,6 +34,8 @@ import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 from .checkpoint_loader import (
     filter_checkpoints_v2,
@@ -52,6 +55,66 @@ CHECKPOINT_BRANCH = "egg/checkpoints/v2"
 
 # Validation pattern for checkpoint_repo values (must be "owner/repo" format)
 _REPO_PATTERN = re.compile(r"^[a-zA-Z0-9._-]+/[a-zA-Z0-9._-]+$")
+
+
+def _get_gateway_url() -> str | None:
+    """Return the gateway URL if HTTP mode should be used.
+
+    HTTP mode is enabled when GATEWAY_URL and EGG_SESSION_TOKEN are both
+    set, allowing the CLI to query checkpoint data through the gateway API
+    instead of direct git operations.
+    """
+    url = os.environ.get("GATEWAY_URL")
+    token = os.environ.get("EGG_SESSION_TOKEN")
+    if url and token:
+        return url
+    return None
+
+
+def _http_get(base_url: str, endpoint: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Make an authenticated GET request to the gateway API.
+
+    Uses urllib to avoid external dependencies. Authenticates with
+    the session token from EGG_SESSION_TOKEN.
+
+    Args:
+        base_url: Gateway base URL (e.g. http://egg-gateway:9848)
+        endpoint: API path (e.g. /api/v1/checkpoints)
+        params: Optional query parameters
+
+    Returns:
+        Parsed JSON response dict
+
+    Raises:
+        RuntimeError: On HTTP errors or connection failures
+    """
+    from urllib.error import HTTPError, URLError
+    from urllib.parse import urlencode
+    from urllib.request import Request, urlopen
+
+    url = f"{base_url}{endpoint}"
+    if params:
+        filtered = {k: str(v) for k, v in params.items() if v is not None}
+        if filtered:
+            url = f"{url}?{urlencode(filtered)}"
+
+    session_token = os.environ.get("EGG_SESSION_TOKEN", "")
+
+    try:
+        req = Request(url, method="GET")
+        req.add_header("Accept", "application/json")
+        req.add_header("Authorization", f"Bearer {session_token}")
+        with urlopen(req, timeout=120) as response:
+            return json.loads(response.read().decode())
+    except HTTPError as e:
+        try:
+            body = json.loads(e.read().decode())
+            msg = body.get("message", str(e))
+        except Exception:
+            msg = str(e)
+        raise RuntimeError(f"Gateway request failed: {msg}") from e
+    except URLError as e:
+        raise RuntimeError(f"Cannot connect to gateway at {base_url}: {e.reason}") from e
 
 
 def _validate_checkpoint_repo(checkpoint_repo: str) -> str:
@@ -423,8 +486,64 @@ def _get_checkpoint_repo_from_args(args: argparse.Namespace) -> str | None:
     return None
 
 
+def _build_list_params(args: argparse.Namespace) -> dict[str, Any]:
+    """Build query parameters for checkpoint list from CLI args."""
+    params: dict[str, Any] = {"limit": args.limit}
+    if args.issue:
+        params["issue"] = args.issue
+    if getattr(args, "pr", None):
+        params["pr"] = args.pr
+    if getattr(args, "branch", None):
+        params["branch"] = args.branch
+    if getattr(args, "session", None):
+        params["session"] = args.session
+    if getattr(args, "trigger", None):
+        params["trigger"] = args.trigger
+    if getattr(args, "status", None):
+        params["status"] = args.status
+    if getattr(args, "agent_type", None):
+        params["agent_type"] = args.agent_type
+    if getattr(args, "phase", None):
+        params["phase"] = args.phase
+    if getattr(args, "pipeline", None):
+        params["pipeline"] = args.pipeline
+    if getattr(args, "repo", None):
+        params["repo"] = args.repo
+    repo_path = args.repo_path or get_repo_path()
+    params["repo_path"] = repo_path
+    return params
+
+
+def _cmd_list_http(args: argparse.Namespace, gateway_url: str) -> int:
+    """List checkpoints via gateway HTTP API."""
+    params = _build_list_params(args)
+    result = _http_get(gateway_url, "/api/v1/checkpoints", params)
+    summaries = result.get("data", {}).get("checkpoints", [])
+
+    if not summaries:
+        print("No checkpoints found matching filters")
+        return 0
+
+    if args.json:
+        print(json.dumps(summaries, indent=2))
+    else:
+        print(f"Checkpoints ({len(summaries)} found):")
+        print()
+        for s in summaries:
+            print_checkpoint_summary(s)
+
+    return 0
+
+
 def cmd_list(args: argparse.Namespace) -> int:
     """List checkpoints with metadata."""
+    gateway_url = _get_gateway_url()
+    if gateway_url:
+        try:
+            return _cmd_list_http(args, gateway_url)
+        except RuntimeError as e:
+            logger.debug("HTTP list failed, falling back to git: %s", e)
+
     repo_path = args.repo_path or get_repo_path()
     checkpoint_repo = _get_checkpoint_repo_from_args(args)
 
@@ -469,8 +588,32 @@ def cmd_list(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_show_http(args: argparse.Namespace, gateway_url: str) -> int:
+    """Show checkpoint via gateway HTTP API."""
+    params: dict[str, Any] = {"repo_path": args.repo_path or get_repo_path()}
+    result = _http_get(gateway_url, f"/api/v1/checkpoints/{args.identifier}", params)
+
+    if not result.get("success"):
+        print(f"No checkpoint found for '{args.identifier}'")
+        return 1
+
+    data = result.get("data", {}).get("checkpoint", {})
+    if args.json:
+        print(json.dumps(data, indent=2))
+    else:
+        print_checkpoint_details(data)
+    return 0
+
+
 def cmd_show(args: argparse.Namespace) -> int:
     """Display full checkpoint details by checkpoint ID or commit SHA."""
+    gateway_url = _get_gateway_url()
+    if gateway_url:
+        try:
+            return _cmd_show_http(args, gateway_url)
+        except RuntimeError as e:
+            logger.debug("HTTP show failed, falling back to git: %s", e)
+
     repo_path = args.repo_path or get_repo_path()
     identifier = args.identifier
     checkpoint_repo = _get_checkpoint_repo_from_args(args)
@@ -504,8 +647,62 @@ def cmd_show(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_browse_http(args: argparse.Namespace, gateway_url: str) -> int:
+    """Browse checkpoints via gateway HTTP API."""
+    params: dict[str, Any] = {
+        "issue": args.issue,
+        "limit": args.limit,
+        "repo_path": args.repo_path or get_repo_path(),
+    }
+    if getattr(args, "repo", None):
+        params["repo"] = args.repo
+
+    result = _http_get(gateway_url, "/api/v1/checkpoints", params)
+    summaries = result.get("data", {}).get("checkpoints", [])
+
+    if not summaries:
+        print(f"No checkpoints found for issue #{args.issue}")
+        return 0
+
+    if args.json:
+        print(json.dumps(summaries, indent=2))
+    else:
+        print(f"Checkpoints for Issue #{args.issue} ({len(summaries)} found):")
+        print()
+
+        # Group by session
+        sessions: dict[str, list[dict[str, Any]]] = {}
+        for s in summaries:
+            sid = s.get("session_id", "unknown")
+            if sid not in sessions:
+                sessions[sid] = []
+            sessions[sid].append(s)
+
+        for sid, session_summaries in sessions.items():
+            first = session_summaries[0]
+            agent = first.get("agent_type", "unknown")
+            triggers = {
+                _format_trigger(s.get("trigger_type", "")) for s in session_summaries
+            }
+            print(
+                f"Session: {sid[:12]}... (agent: {agent}, triggers: {', '.join(sorted(triggers))})"
+            )
+            for s in session_summaries:
+                print_checkpoint_summary(s)
+            print()
+
+    return 0
+
+
 def cmd_browse(args: argparse.Namespace) -> int:
     """Filter checkpoints by issue number."""
+    gateway_url = _get_gateway_url()
+    if gateway_url:
+        try:
+            return _cmd_browse_http(args, gateway_url)
+        except RuntimeError as e:
+            logger.debug("HTTP browse failed, falling back to git: %s", e)
+
     repo_path = args.repo_path or get_repo_path()
     checkpoint_repo = _get_checkpoint_repo_from_args(args)
 
@@ -559,8 +756,134 @@ def cmd_browse(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_context_http(args: argparse.Namespace, gateway_url: str) -> int:
+    """Context summary via gateway HTTP API."""
+    params: dict[str, Any] = {
+        "limit": args.limit,
+        "repo_path": args.repo_path or get_repo_path(),
+    }
+    if getattr(args, "pipeline", None):
+        params["pipeline"] = args.pipeline
+    if getattr(args, "issue", None):
+        params["issue"] = args.issue
+    if getattr(args, "agent_type", None):
+        params["agent_type"] = args.agent_type
+    if getattr(args, "phase", None):
+        params["phase"] = args.phase
+    if getattr(args, "repo", None):
+        params["repo"] = args.repo
+
+    result = _http_get(gateway_url, "/api/v1/checkpoints", params)
+    summaries = result.get("data", {}).get("checkpoints", [])
+
+    if not summaries:
+        print("No checkpoints found matching filters")
+        return 0
+
+    if args.json:
+        # In HTTP mode with --files, fetch each full checkpoint
+        if getattr(args, "files", False):
+            enriched = []
+            for s in summaries:
+                cp_id = s.get("id", "")
+                try:
+                    cp_result = _http_get(
+                        gateway_url,
+                        f"/api/v1/checkpoints/{cp_id}",
+                        {"repo_path": params["repo_path"]},
+                    )
+                    cp_data = cp_result.get("data", {}).get("checkpoint", {})
+                    entry = dict(s)
+                    files_touched = cp_data.get("files_touched", [])
+                    if files_touched:
+                        entry["files"] = [
+                            {"path": f.get("path"), "operation": f.get("operation")}
+                            for f in files_touched
+                        ]
+                    enriched.append(entry)
+                except RuntimeError as e:
+                    logger.debug("HTTP checkpoint fetch failed: %s", e)
+                    enriched.append(s)
+            print(json.dumps(enriched, indent=2))
+        else:
+            print(json.dumps(summaries, indent=2))
+    else:
+        _print_context_summary_from_dicts(summaries, gateway_url, args)
+
+    return 0
+
+
+def _print_context_summary_from_dicts(
+    summaries: list[dict[str, Any]],
+    gateway_url: str,
+    args: argparse.Namespace,
+) -> None:
+    """Print hierarchical context summary from dict data (HTTP mode)."""
+    groups: dict[str, dict[str, list[dict[str, Any]]]] = {}
+    for s in summaries:
+        phase_key = s.get("pipeline_phase") or "(no phase)"
+        agent_key = s.get("agent_type", "unknown")
+        if phase_key not in groups:
+            groups[phase_key] = {}
+        if agent_key not in groups[phase_key]:
+            groups[phase_key][agent_key] = []
+        groups[phase_key][agent_key].append(s)
+
+    print(f"Cross-Agent Context ({len(summaries)} checkpoints)")
+    print()
+
+    for phase, agents in sorted(groups.items()):
+        print(f"Phase: {phase}")
+        for agent, cps in sorted(agents.items()):
+            total_msgs = sum(c.get("message_count", 0) for c in cps)
+            total_tools = sum(c.get("tool_call_count", 0) for c in cps)
+            total_tokens = sum(c.get("total_tokens", 0) for c in cps)
+            total_files = sum(c.get("files_touched_count", 0) for c in cps)
+            print(
+                f"  {agent} ({len(cps)} checkpoints) | "
+                f"msgs:{total_msgs} tools:{total_tools} "
+                f"tokens:{format_tokens(total_tokens)} files:{total_files}"
+            )
+            for cp in cps:
+                trigger = _format_trigger(cp.get("trigger_type", ""))
+                parts = [f"    {cp.get('id', '')} | trigger:{trigger}"]
+                if cp.get("commit_sha"):
+                    parts.append(f"commit:{cp['commit_sha'][:7]}")
+                parts.append(f"msgs:{cp.get('message_count', 0)}")
+                parts.append(f"tools:{cp.get('tool_call_count', 0)}")
+                parts.append(f"tokens:{format_tokens(cp.get('total_tokens', 0))}")
+                parts.append(f"files:{cp.get('files_touched_count', 0)}")
+                parts.append(f"@{format_timestamp(cp.get('created_at'))}")
+                print(" | ".join(parts))
+
+                if getattr(args, "files", False):
+                    repo_path = args.repo_path or get_repo_path()
+                    cp_id = cp.get("id", "")
+                    try:
+                        cp_result = _http_get(
+                            gateway_url,
+                            f"/api/v1/checkpoints/{cp_id}",
+                            {"repo_path": repo_path},
+                        )
+                        cp_data = cp_result.get("data", {}).get("checkpoint", {})
+                        for f in cp_data.get("files_touched", []):
+                            op = f.get("operation", "unknown")
+                            print(f"      {op:6s} {f.get('path', '')}")
+                    except RuntimeError as e:
+                        logger.debug("HTTP checkpoint fetch failed: %s", e)
+
+        print()
+
+
 def cmd_context(args: argparse.Namespace) -> int:
     """Show cross-agent context summary for a pipeline or issue."""
+    gateway_url = _get_gateway_url()
+    if gateway_url:
+        try:
+            return _cmd_context_http(args, gateway_url)
+        except RuntimeError as e:
+            logger.debug("HTTP context failed, falling back to git: %s", e)
+
     repo_path = args.repo_path or get_repo_path()
     checkpoint_repo = _get_checkpoint_repo_from_args(args)
 
@@ -673,8 +996,75 @@ def _print_context_summary(
         print()
 
 
+def _cmd_cost_http(args: argparse.Namespace, gateway_url: str) -> int:
+    """Cost breakdown via gateway HTTP API."""
+    params: dict[str, Any] = {
+        "limit": args.limit,
+        "repo_path": args.repo_path or get_repo_path(),
+    }
+    if getattr(args, "pipeline", None):
+        params["pipeline"] = args.pipeline
+    if getattr(args, "issue", None):
+        params["issue"] = args.issue
+    if getattr(args, "pr", None):
+        params["pr"] = args.pr
+
+    result = _http_get(gateway_url, "/api/v1/checkpoints/cost", params)
+    data = result.get("data", {})
+
+    if not data or data.get("checkpoint_count", 0) == 0:
+        print("No checkpoints with token usage data found")
+        return 0
+
+    pipeline_id = getattr(args, "pipeline", None)
+    issue = getattr(args, "issue", None)
+    pr = getattr(args, "pr", None)
+
+    if args.json:
+        data["pipeline_id"] = pipeline_id
+        data["issue_number"] = issue
+        data["pr_number"] = pr
+        print(json.dumps(data, indent=2))
+        return 0
+
+    label = pipeline_id or (f"issue #{issue}" if issue else f"PR #{pr}" if pr else "all")
+    print(f"Pipeline: {label}")
+    print(f"Checkpoints: {data.get('checkpoint_count', 0)}")
+    print()
+
+    print(f"  {'Phase':<12s}  {'Agent':<14s}  {'Input':>8s}  {'Output':>8s}  {'Cost':>8s}")
+    print(f"  {'─' * 12}  {'─' * 14}  {'─' * 8}  {'─' * 8}  {'─' * 8}")
+
+    for row in data.get("breakdown", []):
+        print(
+            f"  {row['phase']:<12s}  {row['agent']:<14s}"
+            f"  {format_tokens(row['input_tokens']):>8s}"
+            f"  {format_tokens(row['output_tokens']):>8s}"
+            f"  ${row['cost_usd']:>6.2f}"
+        )
+
+    total_input = data.get("total_input_tokens", 0)
+    total_output = data.get("total_output_tokens", 0)
+    total_cost = data.get("total_cost_usd", 0)
+
+    print(f"  {'─' * 12}  {'─' * 14}  {'─' * 8}  {'─' * 8}  {'─' * 8}")
+    print(
+        f"  {'TOTAL':<12s}  {'':<14s}  {format_tokens(total_input):>8s}"
+        f"  {format_tokens(total_output):>8s}  ${total_cost:>6.2f}"
+    )
+
+    return 0
+
+
 def cmd_cost(args: argparse.Namespace) -> int:
     """Show cost breakdown for a pipeline, issue, or PR."""
+    gateway_url = _get_gateway_url()
+    if gateway_url:
+        try:
+            return _cmd_cost_http(args, gateway_url)
+        except RuntimeError as e:
+            logger.debug("HTTP cost failed, falling back to git: %s", e)
+
     from .usage import TokenCounts
 
     repo_path = args.repo_path or get_repo_path()
