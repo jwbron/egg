@@ -4174,6 +4174,21 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                         error=str(git_err),
                     )
 
+                # Push contract statefiles to remote so agents see them
+                if pipeline.branch and worktree_repo_path != repo_path:
+                    try:
+                        spawner.gateway.push_worktree_branch(
+                            pipeline_id=pipeline_id,
+                            repo_path=str(worktree_repo_path),
+                            branch=pipeline.branch,
+                        )
+                    except Exception as push_err:
+                        logger.warning(
+                            "Failed to push statefiles after contract init (continuing)",
+                            pipeline_id=pipeline_id,
+                            error=str(push_err),
+                        )
+
                 with get_pipeline_state_lock(pipeline_id):
                     pipeline = store.load_pipeline(pipeline_id)
                     pipeline.contract_synced = True
@@ -4909,6 +4924,23 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                     phase=current_phase.value,
                     error=str(git_err),
                 )
+
+            # Push statefiles to remote so the next phase's agents
+            # don't have unpushed .egg-state/ files in their diff.
+            if pipeline.branch and worktree_repo_path != repo_path:
+                try:
+                    spawner.gateway.push_worktree_branch(
+                        pipeline_id=pipeline_id,
+                        repo_path=str(worktree_repo_path),
+                        branch=pipeline.branch,
+                    )
+                except Exception as push_err:
+                    logger.warning(
+                        "Failed to push statefiles after phase (continuing)",
+                        pipeline_id=pipeline_id,
+                        phase=current_phase.value,
+                        error=str(push_err),
+                    )
 
             # --- HITL gate: pause for human approval ---
             if pipeline.config.hitl_gates and current_phase.value in _HITL_GATE_PHASES:

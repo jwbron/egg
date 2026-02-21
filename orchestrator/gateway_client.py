@@ -556,8 +556,9 @@ class GatewayClient:
     ) -> bool:
         """Push a worktree branch to remote using a temporary session.
 
-        Best-effort operation for backing up work on pipeline failure.
-        Registers a temp session, pushes, then cleans up the session.
+        Best-effort operation used to push worktree contents to remote —
+        called after contract initialization, phase completion, or pipeline
+        failure. Registers a temp session, pushes, then cleans up the session.
 
         Args:
             pipeline_id: Pipeline ID (used as container_id for the temp session)
@@ -593,7 +594,7 @@ class GatewayClient:
             )
 
             logger.info(
-                "Pushed worktree branch on failure",
+                "Pushed worktree branch to remote",
                 pipeline_id=pipeline_id,
                 branch=branch,
             )
