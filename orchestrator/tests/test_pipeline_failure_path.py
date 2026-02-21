@@ -532,12 +532,12 @@ class TestSuccessPathPushesStatefiles:
         ):
             _run_pipeline("issue-42", Path("/repo"))
 
-        # push_worktree_branch should have been called at least once for
-        # the contract-init push (and possibly again after phase completion).
+        # push_worktree_branch should be called exactly twice:
+        # once after contract initialization and once after phase completion.
         calls = mock_gateway.push_worktree_branch.call_args_list
-        assert len(calls) >= 1, (
-            f"Expected push_worktree_branch to be called after contract init, "
-            f"got {len(calls)} calls"
+        assert len(calls) == 2, (
+            f"Expected push_worktree_branch to be called twice "
+            f"(contract init + phase completion), got {len(calls)} calls"
         )
         # Verify arguments match for every call
         for call in calls:
