@@ -38,7 +38,7 @@ This differs from agent worktrees (managed by the gateway for agent isolation). 
 
 **Startup reconciliation:**
 
-On orchestrator restart, orphaned container state is automatically recovered. For each pipeline showing `status=RUNNING`, any agent/container whose container ID is absent from the live Docker container set is marked `FAILED`. If at least one stale entry is found, the pipeline itself is marked `FAILED` with an error message instructing operators to restart via `POST /pipelines/{id}/start`.
+On orchestrator restart, orphaned container state is automatically recovered. For each pipeline showing `status=RUNNING`, the reconciliation process scans **all phases** within the pipeline (including completed phases) for stale containers. Any agent/container whose container ID is absent from the live Docker container set is marked `FAILED`. Completed phases are included because reviewer agents often run inside phases whose status has already transitioned to `COMPLETE`. If at least one stale entry is found, the pipeline itself is marked `FAILED` with an error message instructing operators to restart via `POST /pipelines/{id}/start`.
 
 This prevents pipelines from being stuck in a `RUNNING` state indefinitely after a crash. Operators (or CI systems) can detect the `FAILED` status and restart the pipeline using the existing restart endpoint, which preserves worktrees and phase state while re-spawning containers.
 
@@ -48,7 +48,7 @@ See `orchestrator/state_store.py` and `orchestrator/startup_reconciliation.py` f
 
 A background `ContainerMonitor` thread runs continuously after orchestrator startup to detect container failures during execution. The monitor periodically checks container status and invokes registered handlers when state changes occur (container exits, fails, or becomes unhealthy).
 
-A pipeline reconciliation handler detects when agent containers exit or fail during runtime and updates pipeline state accordingly. When a container running an agent exits with a non-zero code, the handler marks the container as `FAILED`, marks the owning agent as `FAILED` with an error message, and transitions the entire pipeline to `FAILED` status. Containers that exit with code 0 (graceful exit) emit a `STOPPED` event and do not trigger failure reconciliation. This complements startup reconciliation by catching failures that occur during execution rather than only on orchestrator restart.
+A pipeline reconciliation handler detects when agent containers exit or fail during runtime and updates pipeline state accordingly. The handler scans **all phases** within each `RUNNING` pipeline (including completed phases) to find the exited container, as reviewer agents may continue running after their phase has transitioned to `COMPLETE`. When a container running an agent exits with a non-zero code, the handler marks the container as `FAILED`, marks the owning agent as `FAILED` with an error message, and transitions the entire pipeline to `FAILED` status. Containers that exit with code 0 (graceful exit) emit a `STOPPED` event and do not trigger failure reconciliation. This complements startup reconciliation by catching failures that occur during execution rather than only on orchestrator restart.
 
 The monitor uses per-pipeline locking and optimistic version checks to prevent race conditions with concurrent state writers (e.g., agent signal handlers).
 
