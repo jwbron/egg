@@ -87,6 +87,22 @@ class TestSyncWorktreeWithRemote:
             # Should NOT proceed to step 4 (reset)
             assert mock_run.call_count == 3
 
+    def test_skips_reset_when_local_diverged(self):
+        """If local has diverged from remote (ahead AND behind), skip the reset."""
+        spawner = _make_spawner()
+        with patch("routes.pipelines.subprocess.run") as mock_run:
+            mock_run.side_effect = [
+                # Step 2: branch name
+                _make_subprocess_result(stdout="egg/issue-42\n"),
+                # Step 3: rev-parse succeeds
+                _make_subprocess_result(returncode=0),
+                # Step 3b: local is 2 ahead, 3 behind (diverged)
+                _make_subprocess_result(stdout="2\t3\n"),
+            ]
+            _sync_worktree_with_remote(spawner, "pipe-1", Path("/tmp/repo"))
+            # Should NOT proceed to step 4 (reset) — local_ahead > 0
+            assert mock_run.call_count == 3
+
     def test_successful_reset(self):
         """Happy path: fetch, detect branch, verify remote, reset."""
         spawner = _make_spawner()
