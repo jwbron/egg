@@ -310,3 +310,4 @@ class TestReconcileStaleContainers:
         assert pipeline.status == PipelineStatus.FAILED
         agent = phase.agents[0]
         assert agent.status == AgentExecutionStatus.FAILED
+        assert agent.completed_at is not None
