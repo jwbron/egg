@@ -26,6 +26,7 @@ Commands:
 
 import argparse
 import json
+import logging
 import os
 import re
 import subprocess
@@ -33,6 +34,8 @@ import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 from .checkpoint_loader import (
     filter_checkpoints_v2,
@@ -538,8 +541,8 @@ def cmd_list(args: argparse.Namespace) -> int:
     if gateway_url:
         try:
             return _cmd_list_http(args, gateway_url)
-        except RuntimeError:
-            pass  # Fall through to git path
+        except RuntimeError as e:
+            logger.debug("HTTP list failed, falling back to git: %s", e)
 
     repo_path = args.repo_path or get_repo_path()
     checkpoint_repo = _get_checkpoint_repo_from_args(args)
@@ -608,8 +611,8 @@ def cmd_show(args: argparse.Namespace) -> int:
     if gateway_url:
         try:
             return _cmd_show_http(args, gateway_url)
-        except RuntimeError:
-            pass  # Fall through to git path
+        except RuntimeError as e:
+            logger.debug("HTTP show failed, falling back to git: %s", e)
 
     repo_path = args.repo_path or get_repo_path()
     identifier = args.identifier
@@ -697,8 +700,8 @@ def cmd_browse(args: argparse.Namespace) -> int:
     if gateway_url:
         try:
             return _cmd_browse_http(args, gateway_url)
-        except RuntimeError:
-            pass  # Fall through to git path
+        except RuntimeError as e:
+            logger.debug("HTTP browse failed, falling back to git: %s", e)
 
     repo_path = args.repo_path or get_repo_path()
     checkpoint_repo = _get_checkpoint_repo_from_args(args)
@@ -798,7 +801,8 @@ def _cmd_context_http(args: argparse.Namespace, gateway_url: str) -> int:
                             for f in files_touched
                         ]
                     enriched.append(entry)
-                except RuntimeError:
+                except RuntimeError as e:
+                    logger.debug("HTTP checkpoint fetch failed: %s", e)
                     enriched.append(s)
             print(json.dumps(enriched, indent=2))
         else:
@@ -865,8 +869,8 @@ def _print_context_summary_from_dicts(
                         for f in cp_data.get("files_touched", []):
                             op = f.get("operation", "unknown")
                             print(f"      {op:6s} {f.get('path', '')}")
-                    except RuntimeError:
-                        pass
+                    except RuntimeError as e:
+                        logger.debug("HTTP checkpoint fetch failed: %s", e)
 
         print()
 
@@ -877,8 +881,8 @@ def cmd_context(args: argparse.Namespace) -> int:
     if gateway_url:
         try:
             return _cmd_context_http(args, gateway_url)
-        except RuntimeError:
-            pass  # Fall through to git path
+        except RuntimeError as e:
+            logger.debug("HTTP context failed, falling back to git: %s", e)
 
     repo_path = args.repo_path or get_repo_path()
     checkpoint_repo = _get_checkpoint_repo_from_args(args)
@@ -998,11 +1002,11 @@ def _cmd_cost_http(args: argparse.Namespace, gateway_url: str) -> int:
         "limit": args.limit,
         "repo_path": args.repo_path or get_repo_path(),
     }
-    if args.pipeline:
+    if getattr(args, "pipeline", None):
         params["pipeline"] = args.pipeline
-    if args.issue:
+    if getattr(args, "issue", None):
         params["issue"] = args.issue
-    if args.pr:
+    if getattr(args, "pr", None):
         params["pr"] = args.pr
 
     result = _http_get(gateway_url, "/api/v1/checkpoints/cost", params)
@@ -1058,8 +1062,8 @@ def cmd_cost(args: argparse.Namespace) -> int:
     if gateway_url:
         try:
             return _cmd_cost_http(args, gateway_url)
-        except RuntimeError:
-            pass  # Fall through to git path
+        except RuntimeError as e:
+            logger.debug("HTTP cost failed, falling back to git: %s", e)
 
     from .usage import TokenCounts
 

@@ -1522,6 +1522,17 @@ def git_fetch() -> tuple[Response, int] | Response:
 # ---------------------------------------------------------------------------
 
 
+def _int_param(name: str) -> int | None:
+    """Parse an optional integer query parameter from the current request."""
+    val = request.args.get(name)
+    if val is None:
+        return None
+    try:
+        return int(val)
+    except (ValueError, TypeError):
+        return None
+
+
 @app.route("/api/v1/checkpoints", methods=["GET"])
 @require_session_auth
 def checkpoint_list() -> tuple[Response, int] | Response:
@@ -1557,22 +1568,13 @@ def checkpoint_list() -> tuple[Response, int] | Response:
         )
     except Exception as e:
         logger.error("Checkpoint index fetch failed", error=str(e))
-        return make_error(f"Failed to fetch checkpoints: {e}", status_code=500)
+        return make_error("Failed to fetch checkpoints", status_code=500)
 
     if not index:
         return make_success("No checkpoints found", {"checkpoints": []})
 
     # Build filters from query params
     filters: dict[str, Any] = {}
-
-    def _int_param(name: str) -> int | None:
-        val = request.args.get(name)
-        if val is None:
-            return None
-        try:
-            return int(val)
-        except (ValueError, TypeError):
-            return None
 
     if request.args.get("issue"):
         filters["issue_number"] = _int_param("issue")
@@ -1627,24 +1629,18 @@ def checkpoint_cost() -> tuple[Response, int] | Response:
     handler = get_checkpoint_handler()
     checkpoint_repo = _get_checkpoint_repo_for_path(repo_path)
 
+    # fetch_and_read_index does ls-remote + fetch + read index in one pass.
+    # We then call ensure_ref to get a ref for read_checkpoint calls below.
+    # After the fetch in fetch_and_read_index, ensure_ref's fetch is a no-op
+    # (branch already up-to-date), so only the ls-remote is repeated.
     try:
-        ref = handler.ensure_ref(repo_path, checkpoint_repo=checkpoint_repo)
+        index = handler.fetch_and_read_index(
+            repo_path, checkpoint_repo=checkpoint_repo
+        )
     except Exception as e:
-        logger.error("Checkpoint ref fetch failed", error=str(e))
-        return make_error(f"Failed to fetch checkpoints: {e}", status_code=500)
+        logger.error("Checkpoint index fetch failed", error=str(e))
+        return make_error("Failed to fetch checkpoint data", status_code=500)
 
-    if not ref:
-        return make_success("No checkpoints found", {
-            "checkpoint_count": 0,
-            "total_input_tokens": 0,
-            "total_output_tokens": 0,
-            "total_cost_usd": 0,
-            "breakdown": [],
-        })
-
-    index = handler.fetch_and_read_index(
-        repo_path, checkpoint_repo=checkpoint_repo
-    )
     if not index:
         return make_success("No checkpoints found", {
             "checkpoint_count": 0,
@@ -1654,14 +1650,20 @@ def checkpoint_cost() -> tuple[Response, int] | Response:
             "breakdown": [],
         })
 
-    def _int_param(name: str) -> int | None:
-        val = request.args.get(name)
-        if val is None:
-            return None
-        try:
-            return int(val)
-        except (ValueError, TypeError):
-            return None
+    try:
+        ref = handler.ensure_ref(repo_path, checkpoint_repo=checkpoint_repo)
+    except Exception as e:
+        logger.error("Checkpoint ref resolution failed", error=str(e))
+        return make_error("Failed to fetch checkpoint data", status_code=500)
+
+    if not ref:
+        return make_success("No checkpoints found", {
+            "checkpoint_count": 0,
+            "total_input_tokens": 0,
+            "total_output_tokens": 0,
+            "total_cost_usd": 0,
+            "breakdown": [],
+        })
 
     filters: dict[str, Any] = {}
     if request.args.get("pipeline"):
@@ -1769,7 +1771,7 @@ def checkpoint_show(identifier: str) -> tuple[Response, int] | Response:
         ref = handler.ensure_ref(repo_path, checkpoint_repo=checkpoint_repo)
     except Exception as e:
         logger.error("Checkpoint ref fetch failed", error=str(e))
-        return make_error(f"Failed to fetch checkpoints: {e}", status_code=500)
+        return make_error("Failed to fetch checkpoint data", status_code=500)
 
     if not ref:
         return make_error("Checkpoint branch not found", status_code=404)
@@ -1803,8 +1805,10 @@ def _resolve_repo_path_for_checkpoints() -> str | None:
     """
     # Explicit query param
     repo_path = request.args.get("repo_path")
-    if repo_path and os.path.isdir(repo_path):
-        return repo_path
+    if repo_path:
+        path_valid, _err = validate_repo_path(repo_path)
+        if path_valid and os.path.isdir(repo_path):
+            return repo_path
 
     # Session's last known repo path (set during push operations)
     session = getattr(g, "session", None)
