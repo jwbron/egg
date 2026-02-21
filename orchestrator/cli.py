@@ -134,7 +134,7 @@ def cmd_serve(args: argparse.Namespace) -> int:
         # Use waitress for production
         from waitress import serve
 
-        serve(app, host=host, port=port)
+        serve(app, host=host, port=port, threads=16)
 
     return 0
 
