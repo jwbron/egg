@@ -144,6 +144,7 @@ All endpoints are prefixed with `/api/v1`.
 | `GET` | `/health` | Service health |
 | `GET` | `/ready` | Readiness check |
 | `GET` | `/live` | Liveness check |
+| `GET` | `/pipelines/{id}/health` | On-demand pipeline health check (runs all Tier 1 + Tier 2 checks) |
 
 ### Metrics
 
@@ -181,6 +182,16 @@ orchestrator/
 ├── docker_client.py        # Docker client wrapper
 ├── sandbox_template.py     # Sandbox container configuration templates
 ├── events.py               # Event emission and tracking
+├── health_checks/          # Two-tier health check framework (see health_checks/README.md)
+│   ├── types.py            # HealthCheck protocol, HealthResult, enums
+│   ├── context.py          # PipelineHealthContext with lazy properties
+│   ├── runner.py           # HealthCheckRunner — trigger dispatch and tier escalation
+│   ├── tier1/              # Programmatic checks (fast, deterministic)
+│   │   ├── container_liveness.py   # Verify RUNNING containers exist in Docker
+│   │   ├── startup_state.py        # Post-startup reconciliation verification
+│   │   ├── phase_output.py         # Detect missing artifacts (commits, plans)
+│   │   └── state_consistency.py    # Cross-reference orchestrator state vs Docker vs contract
+│   └── tier2/              # Semantic checks (placeholder for phase 2)
 ├── sse.py                  # Server-Sent Events for real-time status
 ├── unified_sse.py          # Unified SSE stream for multiple pipelines
 ├── dag_visualizer.py       # Pipeline DAG visualization
@@ -200,8 +211,52 @@ orchestrator/
 │   ├── phases.py           # Phase management endpoints
 │   ├── pipelines.py        # Pipeline CRUD endpoints
 │   └── signals.py          # Sandbox signal callback endpoints
-└── tests/                  # Unit and integration tests (25+ files)
+└── tests/                  # Unit and integration tests (30+ files, including health check tests)
 ```
+
+## Health Check Framework
+
+The orchestrator includes a two-tier health check framework for proactive pipeline failure detection. See [`health_checks/README.md`](health_checks/README.md) for full details.
+
+### Overview
+
+Health checks run at key lifecycle points to catch infrastructure and semantic failures before they cascade. The framework uses a common `HealthCheck` protocol so new checks can be added without modifying the runner or integration points.
+
+**Tier 1 (Programmatic)** — Fast, deterministic checks that verify structural invariants:
+
+| Check | Purpose | Triggers |
+|-------|---------|----------|
+| `ContainerLivenessCheck` | Verify RUNNING containers exist in Docker | All |
+| `StartupStateCheck` | Post-startup reconciliation verification | STARTUP, ON_DEMAND |
+| `PhaseOutputPresenceCheck` | Detect missing artifacts (commits, plans) | WAVE_COMPLETE, PHASE_COMPLETE, ON_DEMAND |
+| `StateConsistencyCheck` | Cross-reference orchestrator state vs Docker vs contract | RUNTIME_TICK, WAVE_COMPLETE, PHASE_COMPLETE, ON_DEMAND |
+
+**Tier 2 (Semantic)** — LLM-based checks that evaluate whether agents made meaningful progress (planned for phase 2).
+
+### Lifecycle Triggers
+
+| Trigger | When | Tier 1 | Tier 2 |
+|---------|------|--------|--------|
+| `STARTUP` | Orchestrator boot | Always | No |
+| `RUNTIME_TICK` | Container state change | Always | No |
+| `WAVE_COMPLETE` | After each agent wave | Always | If Tier 1 DEGRADED |
+| `PHASE_COMPLETE` | Before phase advance | Always | Always |
+| `ON_DEMAND` | `GET /pipelines/{id}/health` | Always | Always |
+
+### Event Types
+
+Health check results are emitted via the EventBus:
+
+| Event | Description |
+|-------|-------------|
+| `system.health_check.started` | Runner begins check execution |
+| `system.health_check.completed` | Individual check or aggregate completion |
+| `system.health_check.degraded` | Check returned DEGRADED status |
+| `system.health_check.failed` | Check returned FAILED status |
+
+### Phase-Advance Gating
+
+When health checks run at `PHASE_COMPLETE`, a `FAIL_PIPELINE` action blocks the phase transition (returns 409 Conflict). This prevents advancing past a broken state.
 
 ## Configuration
 

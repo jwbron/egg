@@ -58,6 +58,27 @@ The monitor uses per-pipeline locking and optimistic version checks to prevent r
 
 See `orchestrator/container_monitor.py` for implementation details.
 
+**Health check framework:**
+
+A two-tier health check framework provides structured, extensible failure detection across the pipeline lifecycle. All checks implement a common `HealthCheck` protocol and produce `HealthResult` values with a status (`HEALTHY`/`DEGRADED`/`FAILED`), reasoning, and a suggested action (`CONTINUE`/`FAIL_PIPELINE`/`ALERT`).
+
+**Tier 1 (Programmatic)** checks are fast and deterministic. They run on every lifecycle trigger and cover structural invariants: container liveness, startup state, phase output presence, and state consistency. Container liveness and startup state checks are adapters over existing `ContainerMonitor` and `reconcile_stale_containers` logic. The phase output check detects the issue-835 pattern where agents complete successfully but produce no artifacts (e.g., no commits on the remote branch after an implement phase). The state consistency check cross-references orchestrator state against Docker reality and contract data.
+
+**Tier 2 (Semantic)** checks are LLM-powered and evaluate whether agents made meaningful progress (planned for phase 2). They run conditionally — at `WAVE_COMPLETE` only when Tier 1 reports `DEGRADED`, and always at `PHASE_COMPLETE` and `ON_DEMAND`.
+
+**Lifecycle integration:**
+- `STARTUP`: Runs after startup reconciliation on all RUNNING pipelines (non-blocking)
+- `RUNTIME_TICK`: Triggered by container state changes via `ContainerMonitor` (non-blocking)
+- `WAVE_COMPLETE`: Runs after each agent wave in `multi_agent.py`; `FAIL_PIPELINE` breaks wave execution
+- `PHASE_COMPLETE`: Runs before phase advance in `routes/phases.py`; `FAIL_PIPELINE` blocks the transition (409 Conflict)
+- `ON_DEMAND`: Available via `GET /api/v1/pipelines/{id}/health`
+
+`PipelineHealthContext` provides checks with a read-only snapshot of pipeline state. Constructor parameters are cheap (already-loaded objects); expensive operations like git commands and Docker queries use lazy properties that compute on first access and cache the result.
+
+All check results are emitted to the EventBus as `system.health_check.*` events for observability. Results can also be persisted on `PhaseExecution` records via the `HealthCheckResultModel`.
+
+See `orchestrator/health_checks/README.md` for the full framework reference, including how to add new checks.
+
 ## Network Mode
 
 Pipelines can specify an explicit network mode that controls internet access for spawned containers:
@@ -348,6 +369,7 @@ Fixed IPs:
 - `POST /pipelines/{id}/deployment-check/start` - Start devserver for deployment validation
 - `GET /pipelines/{id}/deployment-check/status` - Poll devserver status
 - `POST /pipelines/{id}/deployment-check/teardown` - Tear down devserver
+- `GET /pipelines/{id}/health` - On-demand pipeline health check (all tiers)
 
 **CLI Access:**
 The `egg-orch` CLI (`sandbox/bin/egg-orch`) provides command-line access to all orchestrator API endpoints. Available in sandbox containers for agent use, or can be run from the host with appropriate environment variables. See the [README CLI Reference](../../README.md#egg-orch-cli) for command details.
