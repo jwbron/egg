@@ -2,6 +2,13 @@
 
 Checkpoints capture agent session context (transcripts, tool calls, files touched, token usage) as versioned JSON on the `egg/checkpoints/v2` git branch. In multi-agent pipelines, checkpoints enable agents to discover what other agents did, what files they touched, and how many tokens they used.
 
+## Global Options
+
+All `egg-checkpoint` commands support these top-level options:
+
+- `--repo-path PATH` — Repository path (defaults to `EGG_REPO_PATH` or current directory)
+- `--checkpoint-repo OWNER/REPO` — External checkpoint repository in `owner/repo` format. Overrides auto-detection from repository settings. Use this when querying checkpoints from a different repository than the current one.
+
 ## When to Use Checkpoints
 
 - **Reviewing another agent's work**: See what a coder agent did before writing tests
