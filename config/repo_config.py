@@ -343,6 +343,52 @@ def get_checkpoint_repo(repo: str) -> str | None:
     return cast(str | None, get_repo_setting(repo, "checkpoint_repo", None))
 
 
+def get_all_checkpoint_repos() -> set[str]:
+    """Get the set of all configured checkpoint repositories.
+
+    Scans all repo_settings entries and collects every checkpoint_repo value.
+    Used by the gateway to exempt checkpoint repos from private mode policy.
+
+    Returns:
+        Set of checkpoint repo names in "owner/repo" format, lowercased.
+        Returns empty set if config cannot be loaded or has no checkpoint repos.
+    """
+    try:
+        config = _load_config()
+    except Exception:
+        return set()
+
+    repo_settings = config.get("repo_settings", {})
+    if not isinstance(repo_settings, dict):
+        return set()
+
+    result: set[str] = set()
+    for settings in repo_settings.values():
+        if isinstance(settings, dict):
+            checkpoint_repo = settings.get("checkpoint_repo")
+            if checkpoint_repo and isinstance(checkpoint_repo, str):
+                result.add(checkpoint_repo.lower())
+    return result
+
+
+def is_checkpoint_repo(owner: str, repo: str) -> bool:
+    """Check if a repository is configured as a checkpoint destination.
+
+    Args:
+        owner: Repository owner (e.g. "jwbron")
+        repo: Repository name (e.g. "egg-checkpoints")
+
+    Returns:
+        True if owner/repo is a configured checkpoint_repo.
+        False on any config error (fail-closed).
+    """
+    try:
+        full_name = f"{owner}/{repo}".lower()
+        return full_name in get_all_checkpoint_repos()
+    except Exception:
+        return False
+
+
 def get_repo_checks(repo: str) -> list[dict[str, str]]:
     """Get configured check commands for a repository.
 
