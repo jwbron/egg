@@ -89,6 +89,10 @@ class ContainerMonitor:
         self._thread: threading.Thread | None = None
         self._lock = threading.Lock()
 
+        # Optional health check runner integration (set via set_health_check_runner)
+        self._health_check_runner: Any = None
+        self._health_check_repo_path: str | None = None
+
     def add_handler(self, handler: EventHandler) -> None:
         """Add an event handler.
 
@@ -128,6 +132,44 @@ class ContainerMonitor:
                     error=str(e),
                 )
 
+    def set_health_check_runner(self, runner: Any, repo_path: str) -> None:
+        """Set optional health check runner for RUNTIME_TICK integration.
+
+        Args:
+            runner: HealthCheckRunner instance
+            repo_path: Path to repository for context construction
+        """
+        self._health_check_runner = runner
+        self._health_check_repo_path = repo_path
+
+    def _run_health_checks_on_change(self) -> None:
+        """Run RUNTIME_TICK health checks when container state changes."""
+        if self._health_check_runner is None or self._health_check_repo_path is None:
+            return
+        try:
+            from health_checks.context import PipelineHealthContext
+            from health_checks.types import HealthTrigger
+            from state_store import get_state_store
+
+            store = get_state_store(self._health_check_repo_path)
+            for pid in store.list_pipelines():
+                try:
+                    pipeline = store.load_pipeline(pid)
+                    if pipeline.status.value != "running":
+                        continue
+                    ctx = PipelineHealthContext(
+                        pipeline=pipeline,
+                        repo_path=Path(self._health_check_repo_path),
+                        trigger=HealthTrigger.RUNTIME_TICK.value,
+                        docker_client=self.docker_client,
+                        state_store=store,
+                    )
+                    self._health_check_runner.run(ctx, HealthTrigger.RUNTIME_TICK)
+                except Exception:
+                    pass
+        except Exception as exc:
+            logger.debug("RUNTIME_TICK health check failed", error=str(exc))
+
     def _check_container(self, container: ContainerInfo) -> None:
         """Check a single container and emit events for changes.
 
@@ -140,6 +182,9 @@ class ContainerMonitor:
 
         if old_status != new_status:
             self._container_states[container_id] = new_status
+
+            # Run RUNTIME_TICK health checks on state change
+            self._run_health_checks_on_change()
 
             # Emit appropriate event
             if new_status == ContainerStatus.RUNNING:

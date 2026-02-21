@@ -127,6 +127,75 @@ def cmd_serve(args: argparse.Namespace) -> int:
                 error=str(monitor_err),
             )
 
+        # --- Health check framework initialization ---
+        try:
+            from health_checks.runner import HealthCheckRunner
+            from health_checks.tier1 import (
+                ContainerLivenessCheck,
+                PhaseOutputPresenceCheck,
+                StartupStateCheck,
+                StateConsistencyCheck,
+            )
+
+            runner = HealthCheckRunner()
+            runner.register(ContainerLivenessCheck())
+            runner.register(StartupStateCheck())
+            runner.register(PhaseOutputPresenceCheck())
+            runner.register(StateConsistencyCheck())
+
+            # Store runner on app for access by routes and other modules
+            app.config["HEALTH_CHECK_RUNNER"] = runner
+
+            # Connect runner to container monitor for RUNTIME_TICK integration
+            try:
+                monitor = get_container_monitor()
+                monitor.set_health_check_runner(runner, repo_path)
+            except Exception:
+                pass
+
+            # Run STARTUP health checks on all running pipelines
+            from health_checks.context import PipelineHealthContext
+            from health_checks.types import HealthTrigger
+            from state_store import get_state_store as _get_store
+
+            startup_store = _get_store(repo_path)
+            for pid in startup_store.list_pipelines():
+                try:
+                    pipeline = startup_store.load_pipeline(pid)
+                    if pipeline.status.value == "running":
+                        try:
+                            from docker_client import get_docker_client as _get_dc
+                            dc = _get_dc()
+                        except Exception:
+                            dc = None
+                        ctx = PipelineHealthContext(
+                            pipeline=pipeline,
+                            repo_path=Path(repo_path),
+                            trigger=HealthTrigger.STARTUP.value,
+                            docker_client=dc,
+                            state_store=startup_store,
+                        )
+                        results = runner.run(ctx, HealthTrigger.STARTUP)
+                        if results:
+                            logger.info(
+                                "Startup health check completed",
+                                pipeline_id=pid,
+                                result_count=len(results),
+                            )
+                except Exception as hc_err:
+                    logger.debug(
+                        "Startup health check failed for pipeline",
+                        pipeline_id=pid,
+                        error=str(hc_err),
+                    )
+
+            logger.info("Health check framework initialized")
+        except Exception as hc_init_err:
+            logger.warning(
+                "Health check framework initialization failed",
+                error=str(hc_init_err),
+            )
+
     if debug:
         # Use Flask's built-in server for development
         app.run(host=host, port=port, debug=True)

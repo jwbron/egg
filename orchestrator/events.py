@@ -64,6 +64,10 @@ class EventType(StrEnum):
 
     # System events
     HEALTH_CHECK = "system.health_check"
+    HEALTH_CHECK_STARTED = "system.health_check.started"
+    HEALTH_CHECK_COMPLETED = "system.health_check.completed"
+    HEALTH_CHECK_DEGRADED = "system.health_check.degraded"
+    HEALTH_CHECK_FAILED = "system.health_check.failed"
     ERROR = "system.error"
 
 

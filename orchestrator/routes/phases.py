@@ -248,6 +248,39 @@ def advance_phase(pipeline_id: str) -> tuple[Response, int]:
                     f"(status: {current_execution.status.value})"
                 )
 
+        # Run PHASE_COMPLETE health checks before advancing
+        try:
+            from flask import current_app
+
+            hc_runner = current_app.config.get("HEALTH_CHECK_RUNNER")
+            if hc_runner is not None:
+                from health_checks.context import PipelineHealthContext
+                from health_checks.runner import worst_action
+                from health_checks.types import HealthAction, HealthTrigger
+
+                ctx = PipelineHealthContext(
+                    pipeline=pipeline,
+                    repo_path=Path(get_repo_path()),
+                    trigger=HealthTrigger.PHASE_COMPLETE.value,
+                )
+                hc_results = hc_runner.run(ctx, HealthTrigger.PHASE_COMPLETE)
+                if worst_action(hc_results) == HealthAction.FAIL_PIPELINE:
+                    return make_error_response(
+                        "Health checks indicate pipeline should fail before advancing phase",
+                        status_code=409,
+                        details={
+                            "health_results": [r.to_dict() for r in hc_results],
+                        },
+                    )
+        except ImportError:
+            pass
+        except Exception as hc_err:
+            logger.debug(
+                "PHASE_COMPLETE health check failed",
+                pipeline_id=pipeline_id,
+                error=str(hc_err),
+            )
+
         # Mark previous phase as complete
         prev_execution = pipeline.get_phase_execution(previous_phase)
         prev_execution.status = PipelineStatus.COMPLETE
