@@ -1803,12 +1803,14 @@ def _resolve_repo_path_for_checkpoints() -> str | None:
 
     Tries query param, then session's last_repo_path, then EGG_REPO_PATH.
     """
-    # Explicit query param
+    # Explicit query param — if provided, must be valid; don't silently
+    # fall through to fallbacks when the client explicitly requested a path.
     repo_path = request.args.get("repo_path")
     if repo_path:
         path_valid, _err = validate_repo_path(repo_path)
         if path_valid and os.path.isdir(repo_path):
             return repo_path
+        return None
 
     # Session's last known repo path (set during push operations)
     session = getattr(g, "session", None)

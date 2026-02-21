@@ -1016,9 +1016,9 @@ def _cmd_cost_http(args: argparse.Namespace, gateway_url: str) -> int:
         print("No checkpoints with token usage data found")
         return 0
 
-    pipeline_id = args.pipeline
-    issue = args.issue
-    pr = args.pr
+    pipeline_id = getattr(args, "pipeline", None)
+    issue = getattr(args, "issue", None)
+    pr = getattr(args, "pr", None)
 
     if args.json:
         data["pipeline_id"] = pipeline_id
