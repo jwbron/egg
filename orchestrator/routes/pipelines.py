@@ -2516,6 +2516,7 @@ def _run_tier3_implement(
                 store=store,
                 certs_volume=certs_volume,
                 branch=pipeline.branch,
+                plan_phase_id=phase_id,
             )
 
             phase_logs.append(
@@ -2588,6 +2589,7 @@ def _run_tier3_implement(
                 store=store,
                 certs_volume=certs_volume,
                 branch=pipeline.branch,
+                plan_phase_id=phase_id,
             )
 
             phase_logs.append(
@@ -2646,6 +2648,7 @@ def _run_tier3_implement(
                 store=store,
                 certs_volume=certs_volume,
                 branch=pipeline.branch,
+                plan_phase_id=phase_id,
             )
 
             phase_logs.append(
@@ -2714,6 +2717,7 @@ def _run_tier3_implement(
                     store=store,
                     certs_volume=certs_volume,
                     branch=pipeline.branch,
+                    plan_phase_id=phase_id,
                 )
                 if check_exit != 0:
                     logger.warning(
@@ -2797,6 +2801,7 @@ def _run_tier3_implement(
                         store=store,
                         certs_volume=certs_volume,
                         branch=pipeline.branch,
+                        plan_phase_id=phase_id,
                     )
                     _reviewer_exits[rtype] = r_exit
                     _reviewer_logs_map[rtype] = r_logs
@@ -3263,6 +3268,7 @@ def _spawn_and_wait(
     certs_volume: str | None = None,
     branch: str | None = None,
     complexity_tier: str | None = None,
+    plan_phase_id: str | None = None,
 ) -> tuple[int, str]:
     """Spawn a container, wait for it to exit, clean up, return (exit_code, logs).
 
@@ -3327,6 +3333,7 @@ def _spawn_and_wait(
                     status=AgentExecutionStatus.RUNNING,
                     container_id=spawned.container_info.container_id,
                     started_at=datetime.utcnow(),
+                    plan_phase_id=plan_phase_id,
                 )
                 phase_execution.agents.append(agent_execution)
 

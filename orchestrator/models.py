@@ -135,6 +135,10 @@ class AgentExecution(BaseModel):
     conflicts: list[str] = Field(
         default_factory=list, description="Files with unresolved merge conflicts"
     )
+    plan_phase_id: str | None = Field(
+        default=None,
+        description="Plan sub-phase ID for Tier 3 pipelines (e.g. 'phase-1')",
+    )
 
 
 class HITLDecision(BaseModel):
