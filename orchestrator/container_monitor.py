@@ -404,6 +404,7 @@ def _reconcile_container_state(store: Any, container_info: ContainerInfo) -> boo
                         pipeline_id=pipeline_id,
                         error=str(e),
                     )
+                    return False
 
     return False
 
