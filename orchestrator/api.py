@@ -7,19 +7,13 @@ Provides REST endpoints for SDLC pipeline orchestration, including:
 - Container lifecycle management
 - HITL decision queue
 - Health checks
-
-Usage:
-    python api.py [--host HOST] [--port PORT] [--debug]
 """
 
-import argparse
-import os
 import sys
 import time
 from pathlib import Path
 
 from flask import Flask, Response, g, jsonify, request
-from waitress import serve
 
 # Add shared directory to path for egg_logging
 _shared_path = Path(__file__).parent.parent / "shared"
@@ -142,77 +136,3 @@ def index() -> tuple[Response, int]:
             },
         }
     ), 200
-
-
-def main() -> None:
-    """Run the orchestrator API server."""
-    parser = argparse.ArgumentParser(description="egg-orchestrator REST API")
-    parser.add_argument("--host", default="0.0.0.0", help="Host to bind to")
-    parser.add_argument("--port", type=int, default=9849, help="Port to listen on")
-    parser.add_argument("--debug", action="store_true", help="Enable debug mode")
-
-    args = parser.parse_args()
-
-    # Override from environment
-    host = os.environ.get("ORCHESTRATOR_HOST", args.host)
-    port = int(os.environ.get("ORCHESTRATOR_PORT", args.port))
-    debug = os.environ.get("ORCHESTRATOR_DEBUG", "").lower() == "true" or args.debug
-
-    logger.info(
-        "Starting egg-orchestrator",
-        host=host,
-        port=port,
-        debug=debug,
-    )
-
-    repo_path = os.environ.get("EGG_REPO_PATH", "not set")
-    host_repo_map = os.environ.get("EGG_HOST_REPO_MAP", "not set")
-    logger.info(
-        "Configuration",
-        repo_path=repo_path,
-        host_repo_map=host_repo_map,
-    )
-
-    # Reconcile any pipelines left in RUNNING state from a previous crash.
-    if repo_path != "not set":
-        try:
-            from docker_client import get_docker_client
-            from startup_reconciliation import reconcile_stale_containers
-            from state_store import get_state_store
-
-            recovered = reconcile_stale_containers(get_state_store(repo_path), get_docker_client())
-            if recovered:
-                logger.warning("Recovered stale pipelines on startup", count=recovered)
-        except Exception as reconcile_err:
-            logger.warning(
-                "Startup reconciliation failed",
-                error=str(reconcile_err),
-            )
-
-        # Start runtime container liveness monitor
-        try:
-            from container_monitor import (
-                create_pipeline_reconciliation_handler,
-                get_container_monitor,
-            )
-
-            monitor = get_container_monitor()
-            monitor.add_handler(create_pipeline_reconciliation_handler(repo_path))
-            monitor.start()
-            logger.info("Container monitor started for runtime liveness checks")
-        except Exception as monitor_err:
-            logger.warning(
-                "Container monitor startup failed",
-                error=str(monitor_err),
-            )
-
-    if debug:
-        # Use Flask's built-in server for development
-        app.run(host=host, port=port, debug=True)
-    else:
-        # Use waitress for production
-        serve(app, host=host, port=port, threads=16)
-
-
-if __name__ == "__main__":
-    main()
