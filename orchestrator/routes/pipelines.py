@@ -1091,6 +1091,189 @@ def _read_phase_draft(
     return content
 
 
+def _summarize_issue(prompt: str | None, issue_number: int | None = None) -> str:
+    """Extract a 1-2 sentence summary from the issue title and first paragraph.
+
+    Used to give execution agents (tester, documenter, integrator) a brief
+    orientation without embedding the full issue body. Analysis agents
+    (architect, task_planner, risk_analyst) still receive the full issue.
+
+    Extracts the first markdown heading (or first non-empty line) as the title,
+    then the first paragraph as supporting context.
+    """
+    if not prompt:
+        return f"Working on issue #{issue_number}." if issue_number else ""
+
+    lines = prompt.strip().splitlines()
+
+    # Extract title: first markdown heading, or first non-empty line
+    title = ""
+    body_start = 0
+    for i, line in enumerate(lines):
+        s = line.strip()
+        if not s:
+            continue
+        if s.startswith("#"):
+            title = s.lstrip("# ").strip()
+        else:
+            title = s
+        body_start = i + 1
+        break
+
+    # Extract first paragraph after title (up to ~300 chars)
+    first_para_lines: list[str] = []
+    for line in lines[body_start:]:
+        s = line.strip()
+        if not s:
+            if first_para_lines:
+                break
+            continue
+        first_para_lines.append(s)
+
+    first_para = " ".join(first_para_lines)
+    if len(first_para) > 300:
+        first_para = first_para[:297] + "..."
+
+    # Build summary
+    issue_ref = f" (issue #{issue_number})" if issue_number else ""
+    summary = f"**Background**: {title}{issue_ref}"
+    if first_para:
+        summary += f"\n\n{first_para}"
+
+    return summary
+
+
+def _extract_plan_overview(plan_text: str) -> str:
+    """Extract the plan overview section (before individual phase details).
+
+    Returns the summary/overview portion of the plan, stopping before
+    individual phase task listings (### Phase N: ...) and the yaml-tasks
+    appendix. This gives the coder high-level context without the full plan.
+    """
+    lines = plan_text.splitlines()
+    overview_lines: list[str] = []
+
+    for line in lines:
+        stripped = line.strip()
+        # Stop at individual phase headings
+        if stripped.startswith("### Phase ") or stripped.startswith("### phase-"):
+            break
+        # Stop at the yaml-tasks appendix
+        if "yaml-tasks" in stripped:
+            break
+        # Stop at structured task appendix
+        if stripped.startswith("## Structured Task Appendix"):
+            break
+        # Stop at issue-to-task mapping (detailed reference section)
+        if stripped.startswith("## Issue-to-Task Mapping"):
+            break
+        overview_lines.append(line)
+
+    # Trim trailing blank lines
+    while overview_lines and not overview_lines[-1].strip():
+        overview_lines.pop()
+
+    return "\n".join(overview_lines)
+
+
+def _build_role_context(
+    role_value: str,
+    prompt: str | None,
+    issue_number: int | None = None,
+    phase_obj=None,
+    all_phases=None,
+) -> str:
+    """Build role-appropriate context to replace raw issue body embedding.
+
+    Analysis roles (architect, task_planner, risk_analyst) receive the full
+    issue body since they need it for problem understanding and planning.
+
+    Execution roles (tester, documenter, integrator) receive a brief summary
+    with structured task information and pointers to full context.
+
+    Args:
+        role_value: Agent role string
+        prompt: Original task prompt (full issue body)
+        issue_number: GitHub issue number
+        phase_obj: Current plan phase object (Tier 3 context)
+        all_phases: All contract phases (Tier 3 context)
+
+    Returns:
+        Role-appropriate context string to embed in the agent prompt
+    """
+    # Analysis roles need the full issue body for problem understanding
+    if role_value in ("architect", "task_planner", "risk_analyst"):
+        if prompt:
+            return f"## Task Description\n\n{prompt}\n"
+        return ""
+
+    lines: list[str] = []
+
+    # Brief summary for execution roles
+    summary = _summarize_issue(prompt, issue_number)
+    if summary:
+        lines.append(f"## Background\n\n{summary}\n")
+
+    # Phase-specific context (Tier 3)
+    if phase_obj is not None:
+        lines.append(f"## Phase Scope: {phase_obj.name} ({phase_obj.id})\n")
+
+        if role_value == "tester":
+            lines.append(
+                f"Focus your testing on code changed in plan phase `{phase_obj.id}`. "
+                "The following tasks were implemented in this phase:\n"
+            )
+        elif role_value == "documenter":
+            lines.append(
+                f"Focus your documentation on changes from plan phase `{phase_obj.id}`. "
+                "The following tasks were implemented in this phase:\n"
+            )
+        else:
+            lines.append("The following tasks were implemented in this phase:\n")
+
+        for task in phase_obj.tasks:
+            lines.append(f"- **{task.id}**: {task.description}")
+            if getattr(task, "acceptance_criteria", None):
+                lines.append(f"  - Acceptance: {task.acceptance_criteria}")
+            if getattr(task, "files_affected", None):
+                lines.append(f"  - Files: {', '.join(task.files_affected)}")
+        lines.append("")
+
+    # All-phases summary for integrator
+    if all_phases and role_value == "integrator":
+        lines.append("## Implementation Summary\n")
+        for phase in all_phases:
+            status = getattr(phase, "status", "unknown")
+            task_count = len(phase.tasks) if phase.tasks else 0
+            files: set[str] = set()
+            for t in phase.tasks or []:
+                files.update(getattr(t, "files_affected", None) or [])
+            files_str = f" — files: {', '.join(sorted(files))}" if files else ""
+            lines.append(
+                f"- **{phase.id}** ({phase.name}): {task_count} tasks [{status}]{files_str}"
+            )
+        lines.append("")
+    elif all_phases and phase_obj is not None and role_value in ("tester", "documenter"):
+        # Brief orientation about other phases for context
+        other_phases = [p for p in all_phases if p.id != phase_obj.id]
+        if other_phases:
+            lines.append("### Other Phases (for orientation)\n")
+            for phase in other_phases:
+                status = getattr(phase, "status", "unknown")
+                lines.append(f"- {phase.id}: {phase.name} [{status}]")
+            lines.append("")
+
+    # Context pointers — agents can get more detail on demand
+    lines.append("## For More Context\n")
+    if issue_number:
+        lines.append(f"- Full issue: `gh issue view {issue_number}`")
+    lines.append("- Changed files: `git diff HEAD~10..HEAD` or check handoff data")
+    lines.append("- Coder output: check `EGG_HANDOFF_DATA` environment variable")
+    lines.append("")
+
+    return "\n".join(lines)
+
+
 def _render_contract_tasks(
     repo_path: str,
     pipeline_id: str,
@@ -1956,12 +2139,19 @@ def _build_agent_prompt(
     review_cycle: int = 0,
     repo_path: str | None = None,
     short_circuit: bool = False,
+    phase_obj=None,
+    all_phases=None,
 ) -> str:
     """Build a role-specific prompt for multi-agent execution.
 
     For the CODER role, delegates to the existing _build_phase_prompt().
     Other roles (TESTER, DOCUMENTER, INTEGRATOR, ARCHITECT, etc.) get
     role-specific instructions.
+
+    Execution roles (tester, documenter, integrator) receive a summarized
+    background with structured task information instead of the full issue
+    body. Analysis roles (architect, task_planner, risk_analyst) receive
+    the full issue body.
 
     Note: Handoff data from prior waves is passed via the EGG_HANDOFF_DATA
     environment variable (set in _execute_wave_with_spawn_fn), not via
@@ -1979,6 +2169,9 @@ def _build_agent_prompt(
         review_feedback: Feedback from prior review cycle
         review_cycle: Current review cycle number
         repo_path: Filesystem path to repository (for user override lookup)
+        short_circuit: Whether short-circuit mode is enabled
+        phase_obj: Current plan phase object (Tier 3 context, optional)
+        all_phases: All contract phases (Tier 3 context, optional)
 
     Returns:
         Complete prompt string for the agent
@@ -2015,11 +2208,19 @@ def _build_agent_prompt(
         lines.append(f"Issue: #{issue_number}")
     lines.append("")
 
-    # Include the original task prompt so agents know what they're working on
-    if prompt:
-        lines.append("## Task Description\n")
-        lines.append(prompt)
-        lines.append("")
+    # Include role-appropriate context instead of the raw issue body.
+    # Analysis roles (architect, task_planner, risk_analyst) receive the full
+    # issue body. Execution roles (tester, documenter, integrator) receive a
+    # brief summary with structured task information and context pointers.
+    role_context = _build_role_context(
+        role_value=role_value,
+        prompt=prompt,
+        issue_number=issue_number,
+        phase_obj=phase_obj,
+        all_phases=all_phases,
+    )
+    if role_context:
+        lines.append(role_context)
 
     # Review feedback from prior cycles
     if review_feedback:
@@ -2252,11 +2453,14 @@ def _build_phase_scoped_prompt(
     worktree_repo_path: Path,
     review_feedback: str | None = None,
     review_cycle: int = 0,
+    all_phases=None,
 ) -> str:
     """Build a coder prompt scoped to a single plan phase's tasks.
 
     Filters tasks and files_affected to the current plan phase, preventing
-    cross-phase context leakage.
+    cross-phase context leakage. Embeds the plan overview (goals, approach,
+    constraints) rather than the full plan, with other phases shown as
+    one-line summaries for orientation.
 
     Args:
         phase_obj: Contract Phase model with id, name, tasks
@@ -2266,6 +2470,7 @@ def _build_phase_scoped_prompt(
         worktree_repo_path: Path to worktree repo
         review_feedback: Optional review feedback for revision cycles
         review_cycle: Current review cycle number
+        all_phases: All contract phases (for one-line summaries of other phases)
 
     Returns:
         Phase-scoped prompt string
@@ -2294,7 +2499,8 @@ def _build_phase_scoped_prompt(
         lines.append(review_feedback)
         lines.append("")
 
-    # Embed plan draft
+    # Embed plan overview (not the full plan) on first cycle
+    draft_rel = None
     if review_cycle == 0:
         draft_text = _read_phase_draft(
             worktree_repo_path,
@@ -2303,9 +2509,29 @@ def _build_phase_scoped_prompt(
             issue_number=pipeline.issue_number,
             pipeline_id=pipeline_id,
         )
+        draft_rel = _get_draft_path(
+            "plan", pipeline_mode, pipeline.issue_number, pipeline_id
+        )
         if draft_text:
-            lines.append("## Plan\n")
-            lines.append(f"```markdown\n{draft_text}\n```\n")
+            overview = _extract_plan_overview(draft_text)
+            if overview:
+                lines.append("## Plan Overview\n")
+                lines.append(f"```markdown\n{overview}\n```\n")
+            if draft_rel:
+                lines.append(f"For full plan details: `cat {draft_rel}`\n")
+
+    # One-line summaries of other phases for orientation
+    if all_phases:
+        other_phases = [p for p in all_phases if p.id != phase_obj.id]
+        if other_phases:
+            lines.append("### Other Phases (for orientation)\n")
+            for phase in other_phases:
+                status = getattr(phase, "status", "unknown")
+                task_count = len(phase.tasks) if phase.tasks else 0
+                lines.append(
+                    f"- {phase.id}: {phase.name} — {task_count} tasks [{status}]"
+                )
+            lines.append("")
 
     # Phase-specific task checklist
     lines.append(f"## Your Scope: {phase_obj.name}\n")
@@ -2507,6 +2733,7 @@ def _run_tier3_implement(
                 worktree_repo_path=worktree_repo_path,
                 review_feedback=prior_feedback,
                 review_cycle=retry,
+                all_phases=contract.phases,
             )
 
             if cancel_event.is_set():
@@ -2567,20 +2794,9 @@ def _run_tier3_implement(
                 branch=pipeline.branch,
                 repo_path=str(worktree_repo_path),
                 short_circuit=pipeline.short_circuit,
+                phase_obj=phase_obj,
+                all_phases=contract.phases,
             )
-            # Append phase-scoping instructions for Tier 3
-            phase_scope_lines = [
-                "",
-                f"## Phase Scope: {phase_obj.name} ({phase_id})\n",
-                f"Focus your testing on code changed in plan phase `{phase_id}`. ",
-                "The following tasks were implemented in this phase:\n",
-            ]
-            for task in phase_obj.tasks:
-                phase_scope_lines.append(f"- **{task.id}**: {task.description}")
-                if task.files_affected:
-                    phase_scope_lines.append(f"  Files: {', '.join(task.files_affected)}")
-            phase_scope_lines.append("")
-            tester_prompt += "\n".join(phase_scope_lines)
 
             if cancel_event.is_set():
                 phase_logs.append(f"--- tester ({phase_id}, retry={retry}) cancelled ---")
@@ -2643,6 +2859,8 @@ def _run_tier3_implement(
                 branch=pipeline.branch,
                 repo_path=str(worktree_repo_path),
                 short_circuit=pipeline.short_circuit,
+                phase_obj=phase_obj,
+                all_phases=contract.phases,
             )
 
             documenter_exit, documenter_logs = _spawn_and_wait(
@@ -2973,6 +3191,7 @@ def _run_tier3_implement(
         branch=pipeline.branch,
         repo_path=str(worktree_repo_path),
         short_circuit=pipeline.short_circuit,
+        all_phases=contract.phases,
     )
     # Append Tier 3-specific integrator instructions
     tier3_integrator_lines = [

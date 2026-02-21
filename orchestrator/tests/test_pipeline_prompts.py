@@ -15,15 +15,20 @@ sys.modules.setdefault("docker.errors", _docker_mock.errors)
 sys.modules.setdefault("docker.types", _docker_mock.types)
 
 from routes.pipelines import (
+    _build_agent_prompt,
     _build_autofix_prompt,
     _build_check_and_fix_prompt,
     _build_checker_prompt,
     _build_phase_prompt,
+    _build_phase_scoped_prompt,
+    _build_role_context,
+    _extract_plan_overview,
     _get_agent_design_criteria,
     _get_code_review_criteria,
     _get_contract_review_criteria,
     _read_shared_criteria,
     _render_contract_tasks,
+    _summarize_issue,
 )
 
 
@@ -735,3 +740,428 @@ class TestRenderContractTasks:
 
             result = _render_contract_tasks(tmpdir, "pid-1", "local")
             assert result is None
+
+
+class TestSummarizeIssue:
+    """Tests for _summarize_issue() helper."""
+
+    def test_none_prompt_with_issue_number(self):
+        """Returns generic message when prompt is None but issue number given."""
+        result = _summarize_issue(None, issue_number=42)
+        assert "42" in result
+
+    def test_none_prompt_no_issue_number(self):
+        """Returns empty string when both prompt and issue_number are None."""
+        result = _summarize_issue(None)
+        assert result == ""
+
+    def test_extracts_heading_title(self):
+        """Extracts title from first markdown heading."""
+        prompt = "## Add dark mode\n\nUsers want a dark theme."
+        result = _summarize_issue(prompt, issue_number=10)
+        assert "Add dark mode" in result
+        assert "10" in result
+
+    def test_extracts_first_paragraph(self):
+        """Includes first paragraph as context."""
+        prompt = "# Feature\n\nThis is the first paragraph.\n\nSecond paragraph."
+        result = _summarize_issue(prompt)
+        assert "first paragraph" in result
+        assert "Second paragraph" not in result
+
+    def test_truncates_long_paragraph(self):
+        """Truncates very long first paragraphs."""
+        prompt = "# Title\n\n" + "x" * 500
+        result = _summarize_issue(prompt)
+        assert len(result) < 500
+        assert "..." in result
+
+    def test_non_heading_first_line(self):
+        """Uses first non-empty line as title if no heading."""
+        prompt = "Fix the authentication bug\n\nDetails here."
+        result = _summarize_issue(prompt)
+        assert "Fix the authentication bug" in result
+
+    def test_empty_prompt(self):
+        """Handles empty string prompt."""
+        result = _summarize_issue("")
+        assert result == ""
+
+
+class TestExtractPlanOverview:
+    """Tests for _extract_plan_overview() helper."""
+
+    def test_extracts_overview_before_phases(self):
+        """Returns content before ### Phase headings."""
+        plan = (
+            "# Plan: Add auth\n\n"
+            "## Summary\n\n"
+            "Add authentication to the API.\n\n"
+            "## Implementation Phases\n\n"
+            "### Phase 1: Core auth\n\n"
+            "**Tasks**:\n- Add JWT support\n"
+        )
+        result = _extract_plan_overview(plan)
+        assert "Add authentication" in result
+        assert "Implementation Phases" in result
+        assert "Add JWT support" not in result
+
+    def test_stops_at_yaml_tasks(self):
+        """Stops before yaml-tasks appendix."""
+        plan = "# Plan\n\n## Summary\n\nOverview.\n\n```yaml\n# yaml-tasks\nphases:\n```"
+        result = _extract_plan_overview(plan)
+        assert "Overview" in result
+        assert "yaml-tasks" not in result
+
+    def test_stops_at_structured_task_appendix(self):
+        """Stops before Structured Task Appendix heading."""
+        plan = "# Plan\n\n## Summary\n\nOverview.\n\n## Structured Task Appendix\n\nYAML here."
+        result = _extract_plan_overview(plan)
+        assert "Overview" in result
+        assert "YAML here" not in result
+
+    def test_returns_full_text_when_no_phases(self):
+        """Returns full text if no phase headings found."""
+        plan = "# Plan\n\nSimple overview with no phases."
+        result = _extract_plan_overview(plan)
+        assert "Simple overview" in result
+
+    def test_trims_trailing_blank_lines(self):
+        """Trailing blank lines are removed."""
+        plan = "# Plan\n\nOverview.\n\n\n\n### Phase 1: Core\n"
+        result = _extract_plan_overview(plan)
+        assert not result.endswith("\n\n")
+
+
+class TestBuildRoleContext:
+    """Tests for _build_role_context() helper."""
+
+    def _make_phase(self, phase_id="phase-1", name="Core changes", tasks=None):
+        """Create a mock phase object."""
+        phase = MagicMock()
+        phase.id = phase_id
+        phase.name = name
+        phase.tasks = tasks or []
+        phase.status = "in_progress"
+        return phase
+
+    def _make_task(self, task_id="task-1", desc="Fix bug", files=None, acceptance=None):
+        """Create a mock task object."""
+        task = MagicMock()
+        task.id = task_id
+        task.description = desc
+        task.files_affected = files or []
+        task.acceptance_criteria = acceptance or "Tests pass"
+        return task
+
+    def test_architect_gets_full_prompt(self):
+        """Architect receives the full issue body."""
+        result = _build_role_context("architect", "Full issue body here", issue_number=1)
+        assert "## Task Description" in result
+        assert "Full issue body here" in result
+
+    def test_task_planner_gets_full_prompt(self):
+        """Task planner receives the full issue body."""
+        result = _build_role_context("task_planner", "Full body", issue_number=1)
+        assert "## Task Description" in result
+        assert "Full body" in result
+
+    def test_risk_analyst_gets_full_prompt(self):
+        """Risk analyst receives the full issue body."""
+        result = _build_role_context("risk_analyst", "Full body", issue_number=1)
+        assert "## Task Description" in result
+
+    def test_tester_gets_summary_not_full_body(self):
+        """Tester receives a summary, not the full issue body."""
+        long_prompt = "# Feature\n\n" + "Detail " * 200
+        result = _build_role_context("tester", long_prompt, issue_number=42)
+        assert "## Background" in result
+        assert "## Task Description" not in result
+        assert "## For More Context" in result
+        assert "gh issue view 42" in result
+
+    def test_documenter_gets_summary_not_full_body(self):
+        """Documenter receives a summary, not the full issue body."""
+        result = _build_role_context("documenter", "# Big feature\n\nLots of detail.", issue_number=5)
+        assert "## Background" in result
+        assert "## Task Description" not in result
+        assert "## For More Context" in result
+
+    def test_integrator_gets_summary_not_full_body(self):
+        """Integrator receives a summary, not the full issue body."""
+        result = _build_role_context("integrator", "# Feature\n\nDetail.", issue_number=10)
+        assert "## Background" in result
+        assert "## Task Description" not in result
+
+    def test_tester_with_phase_obj_includes_tasks(self):
+        """Tester with phase_obj includes phase-scoped task details."""
+        task = self._make_task("TASK-1-1", "Add validation", ["models.py"], "Tests pass")
+        phase = self._make_phase("phase-1", "Schema", [task])
+        result = _build_role_context(
+            "tester", "# Issue\n\nBody.", issue_number=1, phase_obj=phase
+        )
+        assert "Phase Scope" in result
+        assert "TASK-1-1" in result
+        assert "Add validation" in result
+        assert "models.py" in result
+        assert "Focus your testing" in result
+
+    def test_documenter_with_phase_obj_includes_tasks(self):
+        """Documenter with phase_obj includes phase-scoped task details."""
+        task = self._make_task("TASK-2-1", "Update docs", ["README.md"])
+        phase = self._make_phase("phase-2", "Docs", [task])
+        result = _build_role_context(
+            "documenter", "# Issue\n\nBody.", issue_number=1, phase_obj=phase
+        )
+        assert "Phase Scope" in result
+        assert "TASK-2-1" in result
+        assert "Focus your documentation" in result
+
+    def test_integrator_with_all_phases_includes_summary(self):
+        """Integrator with all_phases includes implementation summary."""
+        phases = [
+            self._make_phase("phase-1", "Core", [self._make_task()]),
+            self._make_phase("phase-2", "Tests", [self._make_task("t2", "Test")]),
+        ]
+        result = _build_role_context(
+            "integrator", "# Issue\n\nBody.", issue_number=1, all_phases=phases
+        )
+        assert "## Implementation Summary" in result
+        assert "phase-1" in result
+        assert "phase-2" in result
+
+    def test_tester_with_all_phases_shows_other_phases(self):
+        """Tester sees other phases listed for orientation."""
+        task = self._make_task()
+        phase1 = self._make_phase("phase-1", "Core", [task])
+        phase2 = self._make_phase("phase-2", "Tests", [])
+        result = _build_role_context(
+            "tester", "# Issue", issue_number=1,
+            phase_obj=phase1, all_phases=[phase1, phase2],
+        )
+        assert "Other Phases" in result
+        assert "phase-2" in result
+
+    def test_context_pointers_always_present_for_execution_roles(self):
+        """All execution roles get 'For More Context' pointers."""
+        for role in ("tester", "documenter", "integrator"):
+            result = _build_role_context(role, "# Issue\n\nBody.", issue_number=1)
+            assert "## For More Context" in result
+            assert "gh issue view 1" in result
+
+    def test_no_prompt_for_execution_role(self):
+        """Execution role with no prompt still gets context pointers."""
+        result = _build_role_context("tester", None, issue_number=5)
+        assert "## For More Context" in result
+        assert "5" in result
+
+
+class TestBuildAgentPromptRoleContext:
+    """Tests for role-specific context in _build_agent_prompt()."""
+
+    def test_tester_prompt_has_background_not_task_description(self):
+        """Tester prompt uses Background section, not Task Description."""
+        result = _build_agent_prompt(
+            role_value="tester",
+            phase="implement",
+            pipeline_id="pid-1",
+            pipeline_mode="issue",
+            prompt="# Big Feature\n\nLots of detail about the feature.",
+            issue_number=42,
+        )
+        assert "## Background" in result
+        assert "## Task Description" not in result
+        assert "## For More Context" in result
+        assert "TESTER" in result
+
+    def test_documenter_prompt_has_background_not_task_description(self):
+        """Documenter prompt uses Background section, not Task Description."""
+        result = _build_agent_prompt(
+            role_value="documenter",
+            phase="implement",
+            pipeline_id="pid-1",
+            pipeline_mode="issue",
+            prompt="# Feature\n\nDetail.",
+            issue_number=10,
+        )
+        assert "## Background" in result
+        assert "## Task Description" not in result
+        assert "DOCUMENTER" in result
+
+    def test_integrator_prompt_has_background_not_task_description(self):
+        """Integrator prompt uses Background section, not Task Description."""
+        result = _build_agent_prompt(
+            role_value="integrator",
+            phase="implement",
+            pipeline_id="pid-1",
+            pipeline_mode="issue",
+            prompt="# Feature\n\nDetail.",
+            issue_number=10,
+        )
+        assert "## Background" in result
+        assert "## Task Description" not in result
+
+    def test_architect_prompt_retains_full_task_description(self):
+        """Architect still gets full Task Description."""
+        result = _build_agent_prompt(
+            role_value="architect",
+            phase="plan",
+            pipeline_id="pid-1",
+            pipeline_mode="issue",
+            prompt="# Feature\n\nFull detail needed for analysis.",
+            issue_number=10,
+        )
+        assert "## Task Description" in result
+        assert "Full detail needed for analysis" in result
+
+    def test_task_planner_prompt_retains_full_task_description(self):
+        """Task planner still gets full Task Description."""
+        result = _build_agent_prompt(
+            role_value="task_planner",
+            phase="plan",
+            pipeline_id="pid-1",
+            pipeline_mode="issue",
+            prompt="# Feature\n\nFull detail.",
+            issue_number=10,
+        )
+        assert "## Task Description" in result
+
+    def test_tester_with_phase_obj_includes_phase_scope(self):
+        """Tester with phase_obj includes phase-scoped task context."""
+        phase = MagicMock()
+        phase.id = "phase-1"
+        phase.name = "Auth changes"
+        task = MagicMock()
+        task.id = "TASK-1-1"
+        task.description = "Add JWT validation"
+        task.acceptance_criteria = "Token verified"
+        task.files_affected = ["auth.py"]
+        phase.tasks = [task]
+
+        result = _build_agent_prompt(
+            role_value="tester",
+            phase="implement",
+            pipeline_id="pid-1",
+            pipeline_mode="issue",
+            prompt="# Auth feature\n\nAdd authentication.",
+            issue_number=42,
+            phase_obj=phase,
+        )
+        assert "Phase Scope" in result
+        assert "TASK-1-1" in result
+        assert "Add JWT validation" in result
+        assert "auth.py" in result
+
+    def test_every_prompt_has_context_section(self):
+        """All role prompts include the Context metadata section."""
+        for role in ("tester", "documenter", "integrator", "architect"):
+            result = _build_agent_prompt(
+                role_value=role,
+                phase="implement",
+                pipeline_id="pid-1",
+                pipeline_mode="issue",
+                prompt="# Issue",
+                issue_number=1,
+                repo="owner/repo",
+                branch="egg/test",
+            )
+            assert "## Context" in result
+            assert "Pipeline ID: pid-1" in result
+            assert f"Agent Role: {role}" in result
+
+
+class TestBuildPhaseScopedPromptOverview:
+    """Tests for plan overview in _build_phase_scoped_prompt()."""
+
+    def _make_phase(self, phase_id="phase-1", name="Core", tasks=None, status="pending"):
+        """Create a mock phase object."""
+        phase = MagicMock()
+        phase.id = phase_id
+        phase.name = name
+        phase.tasks = tasks or []
+        phase.status = status
+        return phase
+
+    def _make_task(self, task_id="task-1", desc="Fix bug", files=None):
+        """Create a mock task."""
+        task = MagicMock()
+        task.id = task_id
+        task.description = desc
+        task.status = "pending"
+        task.acceptance_criteria = "Tests pass"
+        task.files_affected = files or []
+        return task
+
+    def test_plan_overview_not_full_plan(self, tmp_path):
+        """Phase-scoped prompt embeds plan overview, not the full plan."""
+        # Lazy import to avoid circular — Pipeline model is in orchestrator/models.py
+        from models import Pipeline
+
+        drafts = tmp_path / ".egg-state" / "drafts"
+        drafts.mkdir(parents=True)
+        (drafts / "42-plan.md").write_text(
+            "# Plan: Auth\n\n## Summary\n\nAdd auth to API.\n\n"
+            "## Implementation Phases\n\n"
+            "### Phase 1: JWT support\n\n**Tasks**:\n- Add JWT\n\n"
+            "### Phase 2: Middleware\n\n**Tasks**:\n- Add middleware\n",
+            encoding="utf-8",
+        )
+
+        phase = self._make_phase("phase-1", "JWT support", [self._make_task()])
+        pipeline = Pipeline(id="test-1", issue_number=42, repo="owner/repo", branch="egg/test")
+
+        result = _build_phase_scoped_prompt(
+            phase_obj=phase,
+            pipeline_id="test-1",
+            pipeline_mode="issue",
+            pipeline=pipeline,
+            worktree_repo_path=tmp_path,
+        )
+
+        assert "## Plan Overview" in result
+        assert "Add auth to API" in result
+        # Should NOT contain individual phase task details from the plan text
+        assert "Add middleware" not in result
+
+    def test_other_phases_listed_for_orientation(self, tmp_path):
+        """Other phases appear as one-line summaries."""
+        from models import Pipeline
+
+        phase1 = self._make_phase("phase-1", "Core", [self._make_task()])
+        phase2 = self._make_phase("phase-2", "Tests", status="complete")
+        pipeline = Pipeline(id="test-1", issue_number=42, repo="owner/repo", branch="egg/test")
+
+        result = _build_phase_scoped_prompt(
+            phase_obj=phase1,
+            pipeline_id="test-1",
+            pipeline_mode="issue",
+            pipeline=pipeline,
+            worktree_repo_path=tmp_path,
+            all_phases=[phase1, phase2],
+        )
+
+        assert "Other Phases" in result
+        assert "phase-2" in result
+        assert "Tests" in result
+
+    def test_full_plan_pointer_present(self, tmp_path):
+        """Prompt includes pointer to full plan file."""
+        from models import Pipeline
+
+        drafts = tmp_path / ".egg-state" / "drafts"
+        drafts.mkdir(parents=True)
+        (drafts / "42-plan.md").write_text("# Plan\n\n## Summary\n\nOverview.\n")
+
+        phase = self._make_phase()
+        pipeline = Pipeline(id="test-1", issue_number=42, repo="owner/repo", branch="egg/test")
+
+        result = _build_phase_scoped_prompt(
+            phase_obj=phase,
+            pipeline_id="test-1",
+            pipeline_mode="issue",
+            pipeline=pipeline,
+            worktree_repo_path=tmp_path,
+        )
+
+        assert "For full plan details" in result
+        assert "42-plan.md" in result
