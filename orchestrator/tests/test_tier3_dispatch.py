@@ -57,9 +57,9 @@ class TestComplexityTierModel:
         assert config.enable_parallel_phases is True
 
     def test_pipeline_config_default_parallel_phases(self):
-        """PipelineConfig defaults enable_parallel_phases to False."""
+        """PipelineConfig defaults enable_parallel_phases to True."""
         config = PipelineConfig()
-        assert config.enable_parallel_phases is False
+        assert config.enable_parallel_phases is True
 
 
 class TestHighComplexitySignalDetection:

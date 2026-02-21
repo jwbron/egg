@@ -251,30 +251,53 @@ def _render_phase_box(
     # Build optional agent info lines, grouped by execution wave.
     # Agents that ran multiple times are collapsed into a single entry
     # with a run count (e.g. "✓ checker ×2").
+    # For Tier 3, agents with a plan_phase_id are grouped by sub-phase
+    # first, then by wave within each sub-phase.  Agents without a
+    # plan_phase_id (e.g. reviewer_contract, integrator) are rendered
+    # after all sub-phase groups.
     agent_lines: list[str] = []
     if agents:
-        deduped_agents, run_counts = _deduplicate_agents(agents)
-        wave_groups = _compute_wave_order(phase, deduped_agents)
         mult = "x" if use_ascii else "\u00d7"
 
-        for wave in wave_groups:
-            entries = []
-            for agent in wave:
-                agent_symbol = _get_agent_status_symbol(agent.status, use_ascii)
-                count = run_counts.get(agent.role.value, 1)
-                if count > 1:
-                    entries.append(f"{agent_symbol} {agent.role.value} {mult}{count}")
+        def _render_wave_group(group_agents: list) -> None:
+            deduped, run_counts = _deduplicate_agents(group_agents)
+            wave_groups = _compute_wave_order(phase, deduped)
+            for wave in wave_groups:
+                entries = []
+                for agent in wave:
+                    agent_symbol = _get_agent_status_symbol(agent.status, use_ascii)
+                    count = run_counts.get(agent.role.value, 1)
+                    if count > 1:
+                        entries.append(f"{agent_symbol} {agent.role.value} {mult}{count}")
+                    else:
+                        entries.append(f"{agent_symbol} {agent.role.value}")
+                # Wrap within wave if 4+ agents (3 per line)
+                if len(entries) <= 3:
+                    agent_lines.append("   " + "  ".join(entries))
                 else:
-                    entries.append(f"{agent_symbol} {agent.role.value}")
+                    per_line = 3
+                    for i in range(0, len(entries), per_line):
+                        chunk = entries[i : i + per_line]
+                        agent_lines.append("   " + "  ".join(chunk))
 
-            # Wrap within wave if 4+ agents (3 per line)
-            if len(entries) <= 3:
-                agent_lines.append("   " + "  ".join(entries))
+        # Partition into sub-phase buckets (preserving insertion order)
+        sub_phase_buckets: dict[str, list] = {}
+        top_level_agents: list = []
+        for agent in agents:
+            pid = getattr(agent, "plan_phase_id", None)
+            if pid:
+                sub_phase_buckets.setdefault(pid, []).append(agent)
             else:
-                per_line = 3
-                for i in range(0, len(entries), per_line):
-                    chunk = entries[i : i + per_line]
-                    agent_lines.append("   " + "  ".join(chunk))
+                top_level_agents.append(agent)
+
+        if sub_phase_buckets:
+            for pid, bucket in sub_phase_buckets.items():
+                agent_lines.append(f"   {pid}:")
+                _render_wave_group(bucket)
+            if top_level_agents:
+                _render_wave_group(top_level_agents)
+        else:
+            _render_wave_group(agents)
 
     # Build duration line
     if duration and total_duration and total_duration != duration:

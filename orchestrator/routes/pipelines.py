@@ -13,7 +13,6 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-
 from docker.errors import DockerException
 from flask import Blueprint, Response, jsonify, request, stream_with_context
 
@@ -1247,7 +1246,11 @@ def _build_review_prompt(
     draft_path = _get_draft_path(phase, pipeline_mode, issue_number, pipeline_id)
 
     verdict_path = _verdict_path_for_type(
-        phase, reviewer_type, pipeline_mode, issue_number, pipeline_id,
+        phase,
+        reviewer_type,
+        pipeline_mode,
+        issue_number,
+        pipeline_id,
         plan_phase_id=plan_phase_id,
     )
 
@@ -1375,7 +1378,11 @@ def _read_review_verdict(
     for graceful degradation).
     """
     verdict_rel = _verdict_path_for_type(
-        phase, reviewer_type, pipeline_mode, issue_number, pipeline_id,
+        phase,
+        reviewer_type,
+        pipeline_mode,
+        issue_number,
+        pipeline_id,
         plan_phase_id=plan_phase_id,
     )
     verdict_file = repo_path / verdict_rel
@@ -2356,8 +2363,11 @@ def _run_tier3_implement(
     """Run Tier 3 phase-level dispatch for the implement phase.
 
     Loops through plan phases in dependency order, running a full
-    coder -> tester -> agentic review cycle for each phase's tasks.
-    If a reviewer rejects, the coder retries within that phase.
+    coder -> tester -> documenter -> checker -> code reviewer cycle for
+    each phase's tasks. If the code reviewer rejects, the coder retries
+    within that phase. Contract review runs once in the outer pipeline
+    loop after all phases complete. After all phases, an integrator runs
+    once.
 
     Args:
         pipeline_id: Pipeline ID
@@ -2436,11 +2446,16 @@ def _run_tier3_implement(
     )
 
     def _run_single_phase_cycle(phase_id: str) -> tuple[int, list[str]]:
-        """Run a single phase implementation cycle (coder -> tester -> review).
+        """Run a single phase implementation cycle.
+
+        Runs coder -> tester -> documenter -> checker -> code reviewer for
+        each plan phase, retrying on rejection.
 
         Checks ``cancel_event`` before each container spawn so that parallel
         phases can abort early when a sibling phase fails.
         """
+        from concurrent.futures import ThreadPoolExecutor
+
         phase_logs: list[str] = []
         phase_obj = phase_map.get(phase_id)
         if phase_obj is None:
@@ -2458,43 +2473,38 @@ def _run_tier3_implement(
             phase_name=phase_obj.name,
         )
 
-        # Run coder for this phase
-        for retry in range(max_retries + 1):
-            review_feedback_text = None
-            if retry > 0:
-                review_feedback_text = _read_last_review_feedback(
-                    worktree_repo_path,
-                    pipeline_id,
-                    pipeline_mode,
-                    pipeline.issue_number,
-                    plan_phase_id=phase_id,
-                )
+        phase_env = {**sandbox_env, "EGG_PLAN_PHASE_ID": phase_id}
+        prior_feedback: str | None = None  # Combined reviewer feedback from prior cycle
+        last_reviewed_commit: str | None = None  # HEAD before the previous cycle's coder
 
+        for retry in range(max_retries + 1):
+            # Capture HEAD before coder runs so reviewers on the next
+            # retry can diff against this commit (delta reviews).
+            cycle_head: str | None = None
+            try:
+                _head_result = subprocess.run(
+                    ["git", "rev-parse", "HEAD"],
+                    capture_output=True,
+                    text=True,
+                    cwd=str(worktree_repo_path),
+                    timeout=10,
+                )
+                if _head_result.returncode == 0:
+                    cycle_head = _head_result.stdout.strip()
+            except Exception:
+                pass
+
+            # --- CODER ---
             coder_prompt = _build_phase_scoped_prompt(
                 phase_obj=phase_obj,
                 pipeline_id=pipeline_id,
                 pipeline_mode=pipeline_mode,
                 pipeline=pipeline,
                 worktree_repo_path=worktree_repo_path,
-                review_feedback=review_feedback_text,
+                review_feedback=prior_feedback,
                 review_cycle=retry,
             )
 
-            sandbox_command = [
-                "claude",
-                "--dangerously-skip-permissions",
-                "--print",
-                "--verbose",
-                "--output-format",
-                "stream-json",
-                "--model",
-                "opus",
-                "--max-turns",
-                "200",
-                coder_prompt,
-            ]
-
-            # Check if a sibling phase signalled cancellation
             if cancel_event.is_set():
                 phase_logs.append(f"--- coder ({phase_id}, retry={retry}) cancelled ---")
                 return 1, phase_logs
@@ -2508,11 +2518,24 @@ def _run_tier3_implement(
                 gateway_mode=gateway_mode,
                 repos=repos,
                 phase="implement",
-                sandbox_env={**sandbox_env, "EGG_PLAN_PHASE_ID": phase_id},
-                sandbox_command=sandbox_command,
+                sandbox_env=phase_env,
+                sandbox_command=[
+                    "claude",
+                    "--dangerously-skip-permissions",
+                    "--print",
+                    "--verbose",
+                    "--output-format",
+                    "stream-json",
+                    "--model",
+                    "opus",
+                    "--max-turns",
+                    "200",
+                    coder_prompt,
+                ],
                 store=store,
                 certs_volume=certs_volume,
                 branch=pipeline.branch,
+                plan_phase_id=phase_id,
             )
 
             phase_logs.append(
@@ -2528,7 +2551,7 @@ def _run_tier3_implement(
                 )
                 return 1, phase_logs
 
-            # Run tester — add phase scope so it focuses on the current phase's tests
+            # --- TESTER ---
             tester_prompt = _build_agent_prompt(
                 role_value="tester",
                 phase="implement",
@@ -2555,20 +2578,6 @@ def _run_tier3_implement(
             phase_scope_lines.append("")
             tester_prompt += "\n".join(phase_scope_lines)
 
-            tester_command = [
-                "claude",
-                "--dangerously-skip-permissions",
-                "--print",
-                "--verbose",
-                "--output-format",
-                "stream-json",
-                "--model",
-                "opus",
-                "--max-turns",
-                "200",
-                tester_prompt,
-            ]
-
             if cancel_event.is_set():
                 phase_logs.append(f"--- tester ({phase_id}, retry={retry}) cancelled ---")
                 return 1, phase_logs
@@ -2582,11 +2591,24 @@ def _run_tier3_implement(
                 gateway_mode=gateway_mode,
                 repos=repos,
                 phase="implement",
-                sandbox_env={**sandbox_env, "EGG_PLAN_PHASE_ID": phase_id},
-                sandbox_command=tester_command,
+                sandbox_env=phase_env,
+                sandbox_command=[
+                    "claude",
+                    "--dangerously-skip-permissions",
+                    "--print",
+                    "--verbose",
+                    "--output-format",
+                    "stream-json",
+                    "--model",
+                    "opus",
+                    "--max-turns",
+                    "200",
+                    tester_prompt,
+                ],
                 store=store,
                 certs_volume=certs_volume,
                 branch=pipeline.branch,
+                plan_phase_id=phase_id,
             )
 
             phase_logs.append(
@@ -2601,69 +2623,247 @@ def _run_tier3_implement(
                     exit_code=tester_exit,
                 )
 
-            # Run agentic code review
-            review_prompt = _build_review_prompt(
+            # --- DOCUMENTER ---
+            if cancel_event.is_set():
+                phase_logs.append(f"--- documenter ({phase_id}, retry={retry}) cancelled ---")
+                return 1, phase_logs
+
+            documenter_prompt = _build_agent_prompt(
+                role_value="documenter",
                 phase="implement",
                 pipeline_id=pipeline_id,
                 pipeline_mode=pipeline_mode,
-                reviewer_type="code",
+                prompt=pipeline.prompt,
                 issue_number=pipeline.issue_number,
-                review_cycle=retry + 1,
+                repo=pipeline.repo,
+                branch=pipeline.branch,
                 repo_path=str(worktree_repo_path),
-                plan_phase_id=phase_id,
+                short_circuit=pipeline.short_circuit,
             )
 
-            review_command = [
-                "claude",
-                "--dangerously-skip-permissions",
-                "--print",
-                "--verbose",
-                "--output-format",
-                "stream-json",
-                "--model",
-                "opus",
-                "--max-turns",
-                "200",
-                review_prompt,
-            ]
-
-            if cancel_event.is_set():
-                phase_logs.append(f"--- reviewer ({phase_id}, retry={retry}) cancelled ---")
-                return 1, phase_logs
-
-            review_exit, review_logs = _spawn_and_wait(
+            documenter_exit, documenter_logs = _spawn_and_wait(
                 spawner=spawner,
                 pipeline_id=pipeline_id,
-                agent_role=AgentRole.REVIEWER_CODE,
+                agent_role=AgentRole.DOCUMENTER,
                 issue_number=pipeline.issue_number,
                 repo_volumes=repo_volumes,
                 gateway_mode=gateway_mode,
                 repos=repos,
                 phase="implement",
-                sandbox_env={**sandbox_env, "EGG_PLAN_PHASE_ID": phase_id},
-                sandbox_command=review_command,
+                sandbox_env=phase_env,
+                sandbox_command=[
+                    "claude",
+                    "--dangerously-skip-permissions",
+                    "--print",
+                    "--verbose",
+                    "--output-format",
+                    "stream-json",
+                    "--model",
+                    "opus",
+                    "--max-turns",
+                    "200",
+                    documenter_prompt,
+                ],
                 store=store,
                 certs_volume=certs_volume,
                 branch=pipeline.branch,
-            )
-
-            phase_logs.append(
-                f"--- reviewer_code ({phase_id}, retry={retry}, exit={review_exit}) ---\n{review_logs}"
-            )
-
-            verdict = _read_review_verdict(
-                worktree_repo_path,
-                "implement",
-                "code",
-                pipeline_mode,
-                pipeline.issue_number,
-                pipeline_id,
                 plan_phase_id=phase_id,
             )
 
-            if verdict and verdict.verdict == "approved":
+            phase_logs.append(
+                f"--- documenter ({phase_id}, retry={retry}, exit={documenter_exit}) ---\n{documenter_logs}"
+            )
+
+            if documenter_exit != 0:
+                logger.warning(
+                    "Documenter failed for plan phase",
+                    pipeline_id=pipeline_id,
+                    phase_id=phase_id,
+                    exit_code=documenter_exit,
+                )
+
+            # --- CHECKER + AUTOFIXER ---
+            if cancel_event.is_set():
+                phase_logs.append(f"--- checker ({phase_id}, retry={retry}) cancelled ---")
+                return 1, phase_logs
+
+            repo_checks: list[dict] | None = None
+            if pipeline.repo:
+                try:
+                    all_repo_checks = json.loads(os.environ.get("EGG_REPO_CHECKS", "{}"))
+                except json.JSONDecodeError:
+                    all_repo_checks = {}
+                repo_lower = pipeline.repo.lower()
+                for cfg_repo, cfg_checks in all_repo_checks.items():
+                    if cfg_repo.lower() == repo_lower:
+                        if isinstance(cfg_checks, list):
+                            repo_checks = validate_checks(cfg_checks) or None
+                        break
+
+            check_fix_prompt = _build_check_and_fix_prompt(
+                pipeline_id,
+                pipeline_mode,
+                repo=pipeline.repo,
+                repo_checks=repo_checks,
+                repo_path=str(worktree_repo_path),
+            )
+
+            try:
+                check_exit, _ = _spawn_and_wait(
+                    spawner=spawner,
+                    pipeline_id=pipeline_id,
+                    agent_role=AgentRole.CHECKER,
+                    issue_number=pipeline.issue_number,
+                    repo_volumes=repo_volumes,
+                    gateway_mode=gateway_mode,
+                    repos=repos,
+                    phase="implement",
+                    sandbox_env={**phase_env, "EGG_AGENT_ROLE": "checker"},
+                    sandbox_command=[
+                        "claude",
+                        "--dangerously-skip-permissions",
+                        "--print",
+                        "--verbose",
+                        "--output-format",
+                        "stream-json",
+                        "--model",
+                        "opus",
+                        "--max-turns",
+                        "100",
+                        check_fix_prompt,
+                    ],
+                    timeout=2700,
+                    store=store,
+                    certs_volume=certs_volume,
+                    branch=pipeline.branch,
+                    plan_phase_id=phase_id,
+                )
+                if check_exit != 0:
+                    logger.warning(
+                        "Checker+autofixer exited non-zero",
+                        pipeline_id=pipeline_id,
+                        phase_id=phase_id,
+                        exit_code=check_exit,
+                    )
+            except ContainerSpawnError as e:
+                logger.warning(
+                    "Checker+autofixer failed to spawn, skipping checks",
+                    pipeline_id=pipeline_id,
+                    phase_id=phase_id,
+                    error=str(e),
+                )
+
+            # --- CODE REVIEWER ---
+            if cancel_event.is_set():
+                phase_logs.append(f"--- reviewers ({phase_id}, retry={retry}) cancelled ---")
+                return 1, phase_logs
+
+            reviewer_types = ["code"]
+            reviewer_exits: dict[str, int] = {}
+            reviewer_logs_map: dict[str, str] = {}
+
+            def _spawn_one_reviewer(  # type: ignore[no-untyped-def]
+                rtype: str,
+                *,
+                _retry=retry,
+                _prior_feedback=prior_feedback,
+                _last_reviewed_commit=last_reviewed_commit,
+                _reviewer_exits=reviewer_exits,
+                _reviewer_logs_map=reviewer_logs_map,
+            ) -> None:
+                review_prompt = _build_review_prompt(
+                    phase="implement",
+                    pipeline_id=pipeline_id,
+                    pipeline_mode=pipeline_mode,
+                    reviewer_type=rtype,
+                    issue_number=pipeline.issue_number,
+                    review_cycle=_retry + 1,
+                    prior_feedback=_prior_feedback,
+                    repo_path=str(worktree_repo_path),
+                    last_reviewed_commit=_last_reviewed_commit,
+                    plan_phase_id=phase_id,
+                )
+                try:
+                    r_role = AgentRole(f"reviewer_{rtype}")
+                except ValueError:
+                    logger.warning(
+                        "Unknown reviewer role, skipping",
+                        pipeline_id=pipeline_id,
+                        reviewer=rtype,
+                    )
+                    _reviewer_exits[rtype] = 0
+                    _reviewer_logs_map[rtype] = ""
+                    return
+                try:
+                    r_exit, r_logs = _spawn_and_wait(
+                        spawner=spawner,
+                        pipeline_id=pipeline_id,
+                        agent_role=r_role,
+                        issue_number=pipeline.issue_number,
+                        repo_volumes=repo_volumes,
+                        gateway_mode=gateway_mode,
+                        repos=repos,
+                        phase="implement",
+                        sandbox_env={**phase_env, "EGG_AGENT_ROLE": f"reviewer_{rtype}"},
+                        sandbox_command=[
+                            "claude",
+                            "--dangerously-skip-permissions",
+                            "--print",
+                            "--verbose",
+                            "--output-format",
+                            "stream-json",
+                            "--model",
+                            "opus",
+                            "--max-turns",
+                            "50",
+                            review_prompt,
+                        ],
+                        timeout=1800,
+                        store=store,
+                        certs_volume=certs_volume,
+                        branch=pipeline.branch,
+                        plan_phase_id=phase_id,
+                    )
+                    _reviewer_exits[rtype] = r_exit
+                    _reviewer_logs_map[rtype] = r_logs
+                except Exception as e:
+                    logger.warning(
+                        "Reviewer failed to spawn, skipping",
+                        pipeline_id=pipeline_id,
+                        reviewer=rtype,
+                        error=str(e),
+                    )
+                    _reviewer_exits[rtype] = 0
+                    _reviewer_logs_map[rtype] = ""
+
+            with ThreadPoolExecutor(max_workers=len(reviewer_types)) as rev_pool:
+                futures = [rev_pool.submit(_spawn_one_reviewer, rt) for rt in reviewer_types]
+                for f in futures:
+                    f.result()
+
+            for rtype in reviewer_types:
+                phase_logs.append(
+                    f"--- reviewer_{rtype} ({phase_id}, retry={retry}, exit={reviewer_exits.get(rtype, -1)}) ---\n{reviewer_logs_map.get(rtype, '')}"
+                )
+
+            all_verdicts: dict[str, ReviewVerdict | None] = {
+                rtype: _read_review_verdict(
+                    worktree_repo_path,
+                    "implement",
+                    rtype,
+                    pipeline_mode,
+                    pipeline.issue_number,
+                    pipeline_id,
+                    plan_phase_id=phase_id,
+                )
+                for rtype in reviewer_types
+            }
+
+            overall_verdict, combined_feedback = _aggregate_review_verdicts(all_verdicts)
+
+            if overall_verdict == "approved":
                 logger.info(
-                    "Phase approved by reviewer",
+                    "Phase approved by all reviewers",
                     pipeline_id=pipeline_id,
                     phase_id=phase_id,
                     retry=retry,
@@ -2676,6 +2876,8 @@ def _run_tier3_implement(
                     phase_id=phase_id,
                     retry=retry,
                 )
+                prior_feedback = combined_feedback
+                last_reviewed_commit = cycle_head
                 continue
             else:
                 logger.warning(
@@ -2844,7 +3046,12 @@ def _read_last_review_feedback(
         Review feedback string, or None if not found
     """
     verdict = _read_review_verdict(
-        repo_path, "implement", "code", pipeline_mode, issue_number, pipeline_id,
+        repo_path,
+        "implement",
+        "code",
+        pipeline_mode,
+        issue_number,
+        pipeline_id,
         plan_phase_id=plan_phase_id,
     )
     if verdict and verdict.feedback:
@@ -3083,6 +3290,7 @@ def _spawn_and_wait(
     certs_volume: str | None = None,
     branch: str | None = None,
     complexity_tier: str | None = None,
+    plan_phase_id: str | None = None,
 ) -> tuple[int, str]:
     """Spawn a container, wait for it to exit, clean up, return (exit_code, logs).
 
@@ -3147,6 +3355,7 @@ def _spawn_and_wait(
                     status=AgentExecutionStatus.RUNNING,
                     container_id=spawned.container_info.container_id,
                     started_at=datetime.utcnow(),
+                    plan_phase_id=plan_phase_id,
                 )
                 phase_execution.agents.append(agent_execution)
 
@@ -4292,7 +4501,8 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                     break
 
                 # 2. Combined check-and-fix (implement phase only)
-                if current_phase.value == "implement":
+                # Tier 3 already runs checker per-phase, so skip here.
+                if current_phase.value == "implement" and not use_tier3:
                     # Look up configured check commands for this repo
                     repo_checks: list[dict] | None = None
                     if pipeline.repo:
@@ -4370,16 +4580,16 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                 # 3. Spawn reviewers and read verdicts (reviewed phases)
                 # Reviewers always run as a separate step after workers +
                 # checker, for both multi-agent and single-agent paths.
-                # Exception: Tier 3 already runs per-phase reviewers inside
-                # _run_tier3_implement(), so skip the outer reviewer loop to
-                # avoid redundant review and potential full-pipeline retry.
-                if use_tier3:
-                    break  # Per-phase reviews already handled; advance phase
+                # For Tier 3, reviewer_code already ran per-phase inside
+                # _run_tier3_implement(), so only run reviewer_contract here
+                # to give it a full-pipeline retry loop.
                 from egg_contracts.agent_roles import (
                     _PHASE_REVIEWERS as _phase_reviewer_roles,
                 )
 
                 reviewer_roles = _phase_reviewer_roles.get(current_phase.value, [])
+                if use_tier3:
+                    reviewer_roles = [r for r in reviewer_roles if r != AgentRole.REVIEWER_CODE]
                 if not reviewer_roles:
                     break  # No reviewers for this phase — advance
 

@@ -135,6 +135,10 @@ class AgentExecution(BaseModel):
     conflicts: list[str] = Field(
         default_factory=list, description="Files with unresolved merge conflicts"
     )
+    plan_phase_id: str | None = Field(
+        default=None,
+        description="Plan sub-phase ID for Tier 3 pipelines (e.g. 'phase-1')",
+    )
 
 
 class HITLDecision(BaseModel):
@@ -223,7 +227,7 @@ class PipelineConfig(BaseModel):
         default=True, description="Allow refine agent to skip plan phase for low-complexity tasks"
     )
     enable_parallel_phases: bool = Field(
-        default=False,
+        default=True,
         description="Enable parallel phase execution for independent plan phases (Tier 3 only)",
     )
 
