@@ -14,6 +14,7 @@ from egg_lib.sdlc_cli import (
     parse_sse_stream,
     render_event_info,
     render_header,
+    watch_pipeline,
 )
 
 # ---------------------------------------------------------------------------
@@ -231,3 +232,141 @@ class TestResolveRepoDir:
         monkeypatch.setenv("HOME", str(tmp_path))
         result = _resolve_repo_dir("nonexistent")
         assert result is None
+
+
+# ---------------------------------------------------------------------------
+# watch_pipeline – pre_refine routing tests (task-3-4)
+# ---------------------------------------------------------------------------
+
+
+class TestWatchPipelinePreRefineRouting:
+    """Tests that watch_pipeline routes pre_refine decisions to handle_pre_refine."""
+
+    def _make_sse_events(self, events):
+        """Create a mock SSE stream that yields the given events."""
+        return iter(events)
+
+    def _make_client(self, decisions=None):
+        """Create a mock OrchClient."""
+        client = MagicMock()
+        # stream_pipeline returns (conn, response); we mock parse_sse_stream instead
+        client.stream_pipeline.return_value = (MagicMock(), MagicMock())
+        client.list_decisions.return_value = decisions or []
+        return client
+
+    @patch("egg_lib.sdlc_cli.handle_pre_refine", return_value="resolved")
+    @patch("egg_lib.sdlc_cli.handle_hitl_checkpoint")
+    @patch("egg_lib.sdlc_cli.display_visualization")
+    @patch("egg_lib.sdlc_cli.parse_sse_stream")
+    def test_pre_refine_routes_to_handle_pre_refine(
+        self, mock_parse, mock_display, mock_hitl, mock_pre_refine
+    ):
+        """When decision question indicates pre_refine, handle_pre_refine is called."""
+        # First connection: awaiting_human → pre_refine decision → resolved → break
+        # Second connection: done event
+        mock_parse.side_effect = [
+            iter([
+                ("status", {"status": "awaiting_human", "pending_decisions": 1}),
+            ]),
+            iter([
+                ("done", {"reason": "completed"}),
+            ]),
+        ]
+
+        client = self._make_client(decisions=[{
+            "id": "d1",
+            "question": "Approve the pre-refine requirements?",
+            "context": "Some context",
+        }])
+
+        result = watch_pipeline(client, "issue-42", pipeline_mode="issue", issue_number=42)
+
+        assert result == "complete"
+        mock_pre_refine.assert_called_once_with(
+            client,
+            "issue-42",
+            {"id": "d1", "question": "Approve the pre-refine requirements?", "context": "Some context"},
+            pipeline_mode="issue",
+            issue_number=42,
+        )
+        mock_hitl.assert_not_called()
+
+    @patch("egg_lib.sdlc_cli.handle_pre_refine")
+    @patch("egg_lib.sdlc_cli.handle_hitl_checkpoint", return_value="resolved")
+    @patch("egg_lib.sdlc_cli.display_visualization")
+    @patch("egg_lib.sdlc_cli.parse_sse_stream")
+    def test_refine_routes_to_handle_hitl_checkpoint(
+        self, mock_parse, mock_display, mock_hitl, mock_pre_refine
+    ):
+        """When decision question indicates refine (not pre_refine), handle_hitl_checkpoint is called."""
+        mock_parse.side_effect = [
+            iter([
+                ("status", {"status": "awaiting_human", "pending_decisions": 1}),
+            ]),
+            iter([
+                ("done", {"reason": "completed"}),
+            ]),
+        ]
+
+        client = self._make_client(decisions=[{
+            "id": "d1",
+            "question": "Approve the refine analysis?",
+            "context": "Analysis content",
+        }])
+
+        result = watch_pipeline(client, "issue-42", pipeline_mode="issue", issue_number=42)
+
+        assert result == "complete"
+        mock_hitl.assert_called_once()
+        mock_pre_refine.assert_not_called()
+
+    @patch("egg_lib.sdlc_cli.handle_pre_refine", return_value="cancelled")
+    @patch("egg_lib.sdlc_cli.display_visualization")
+    @patch("egg_lib.sdlc_cli.parse_sse_stream")
+    def test_pre_refine_cancelled_returns_cancelled(
+        self, mock_parse, mock_display, mock_pre_refine
+    ):
+        """When handle_pre_refine returns 'cancelled', watch_pipeline returns 'cancelled'."""
+        mock_parse.return_value = iter([
+            ("status", {"status": "awaiting_human", "pending_decisions": 1}),
+        ])
+
+        client = self._make_client(decisions=[{
+            "id": "d1",
+            "question": "Approve the pre-refine requirements?",
+            "context": "",
+        }])
+
+        result = watch_pipeline(client, "issue-42", pipeline_mode="issue", issue_number=42)
+
+        assert result == "cancelled"
+
+    @patch("egg_lib.sdlc_cli.handle_pre_refine")
+    @patch("egg_lib.sdlc_cli.handle_hitl_checkpoint", return_value="resolved")
+    @patch("egg_lib.sdlc_cli.display_visualization")
+    @patch("egg_lib.sdlc_cli.parse_sse_stream")
+    def test_requirements_gathering_keyword_routes_to_pre_refine(
+        self, mock_parse, mock_display, mock_hitl, mock_pre_refine
+    ):
+        """'requirements gathering' in question also routes to handle_pre_refine."""
+        mock_pre_refine.return_value = "resolved"
+        mock_parse.side_effect = [
+            iter([
+                ("status", {"status": "awaiting_human", "pending_decisions": 1}),
+            ]),
+            iter([
+                ("done", {"reason": "completed"}),
+            ]),
+        ]
+
+        client = self._make_client(decisions=[{
+            "id": "d1",
+            "question": "Ready for requirements gathering?",
+            "context": "",
+        }])
+
+        result = watch_pipeline(client, "issue-42", pipeline_mode="issue", issue_number=42)
+
+        assert result == "complete"
+        mock_pre_refine.assert_called_once()
+        mock_hitl.assert_not_called()
