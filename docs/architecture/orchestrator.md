@@ -106,6 +106,8 @@ The orchestrator calls `ensure_egg_state_dirs()` before spawning containers to c
 
 **Host path translation:** The gateway returns worktree paths relative to the Docker host (e.g., `/home/jwies/.egg-worktrees/...`), but the orchestrator container only mounts these via `/home/egg/...`. The `_host_to_local_volumes()` helper in `container_spawner.py` uses the `HOST_HOME` env var to translate host paths to orchestrator-accessible local paths for `is_dir()` checks and `ensure_egg_state_dirs()`. Docker mount sources still use the original host paths unchanged.
 
+**Worktree state synchronization:** The orchestrator pushes worktree contents (including `.egg-state/` files) to the remote branch at key pipeline checkpoints — after contract initialization, after phase completion, and on pipeline failure. This ensures agents always see the latest statefiles without working on unpushed changes. Pushes use `GatewayClient.push_worktree_branch()` with a temporary session token and are logged as warnings on failure (non-blocking). See `orchestrator/routes/pipelines.py` for the push call sites.
+
 This architecture ensures the orchestrator reads artifacts from the correct isolated workspace rather than the main repository, preventing cross-contamination between pipelines.
 
 **Per-phase worktrees (Tier 3):**

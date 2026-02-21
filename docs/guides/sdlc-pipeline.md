@@ -759,6 +759,20 @@ The local orchestrator's decision queue (`orchestrator/decision_queue.py`):
 4. Updates contract with resolution
 5. Resumes pipeline from paused state
 
+## Worktree State Synchronization
+
+The orchestrator pushes worktree state (including `.egg-state/` files) to the remote branch at key pipeline checkpoints. This ensures agents always see the latest contract, drafts, and review verdicts without working on stale data.
+
+**Push points:**
+
+1. **After contract initialization** — Pushes initial contract and analysis/plan drafts so the first agents in the next phase see them
+2. **After phase completion** — Pushes statefiles (drafts, reviews, check results, contract updates) so the next phase's agents don't have unpushed `.egg-state/` files in their diff
+3. **On pipeline failure** — Best-effort failsafe push to preserve in-progress work
+
+All pushes use `GatewayClient.push_worktree_branch()`, which registers a temporary session token, pushes the branch, and cleans up the session. Failures are logged as warnings and don't block pipeline progress.
+
+**Implementation**: See `orchestrator/routes/pipelines.py:_run_pipeline()` and `orchestrator/gateway_client.py:push_worktree_branch()` for the push logic.
+
 ## Failure Handling
 
 ### Pipeline Failure Recovery
@@ -774,8 +788,6 @@ When a pipeline phase fails (container exit code non-zero), the orchestrator:
 - `egg-sdlc` CLI detects failed pipelines and automatically restarts from the failed phase (preserving worktrees)
 - Orchestrator API `POST /api/v1/pipelines/{id}/start` resets the failed phase to pending and resumes execution
 - Worktrees remain intact across restarts, so agents can continue from their last commit
-
-**Implementation**: See `orchestrator/routes/pipelines.py:_run_pipeline()` and `orchestrator/gateway_client.py:push_worktree_branch()` for the failure path logic.
 
 ### External Failure Handling
 
