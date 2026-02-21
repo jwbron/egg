@@ -552,6 +552,8 @@ Phase 2 Network Lockdown and Private Repo Mode are **independent but complementa
 - **Private Repo Mode alone:** egg can install packages and search web. Cannot interact with public repos.
 - **Both enabled:** Maximum security. egg is restricted to private repos and can only reach Anthropic/GitHub APIs.
 
+**Checkpoint repository exemption:** Repositories configured as checkpoint destinations (via `checkpoint_repo` in `repositories.yaml`) and checkpoint branch operations (the `egg/checkpoints/v2` branch) are always accessible regardless of private mode settings. The gateway treats checkpoint operations as infrastructure, not user-initiated network access. This ensures agent session data can be persisted even when private mode blocks access to public repos.
+
 **Recommendation for autonomous operation:** Enable both Phase 2 and Private Repo Mode for unsupervised `--dangerously-skip-permissions` sessions. This provides the strongest security guarantees.
 
 ```bash
