@@ -318,7 +318,7 @@ GET /api/v1/repos/visibility
 
 ### Checkpoint Operations
 
-The checkpoint API provides read access to agent session checkpoints stored on the `egg/checkpoints/v2` branch. These endpoints enable checkpoint access in the sandbox when checkpoints are stored in an external repository.
+The checkpoint API provides read access to agent session checkpoints stored on the `egg/checkpoints/v2` branch. These endpoints enable checkpoint access in the sandbox when checkpoints are stored in an external repository. The `repo_path` query parameter is inferred from the environment if omitted.
 
 ```
 GET /api/v1/checkpoints
@@ -331,7 +331,7 @@ GET /api/v1/checkpoints
 GET /api/v1/checkpoints/cost
   Query: ?repo_path=<path>&pipeline=<id>&issue=<n>&pr=<n>&limit=<n>
   Policy: session_auth
-  Description: Get cost breakdown (token usage and USD) for matching checkpoints
+  Description: Get cost breakdown (token usage and USD) for matching checkpoints (default limit: 500)
   Response: {checkpoint_count, total_input_tokens, total_output_tokens, total_cost_usd, breakdown[]}
 
 GET /api/v1/checkpoints/<identifier>
