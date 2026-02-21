@@ -444,7 +444,7 @@ gateway/
 
 4. **Token source**: In-memory token refresh via `token_refresher.py`. Tokens are refreshed automatically 15 minutes before expiry. The gateway supports an optional reviewer token (separate GitHub App) for posting approve/request-changes reviews on bot-authored PRs—GitHub blocks self-approval, so a second identity is required for full review capabilities.
 
-5. **Dual network modes**: Squid proxy controls outbound access. Private mode restricts to Anthropic API only; public mode allows all traffic. Checkpoint operations (repositories configured via `checkpoint_repo` and pushes to `egg/checkpoints/*` branches) are exempt from private mode restrictions and always allowed.
+5. **Dual network modes**: Squid proxy controls outbound access. Private mode restricts to Anthropic API only; public mode allows all traffic. Checkpoint operations (repositories configured via `checkpoint_repo` and pushes to the `egg/checkpoints/v2` branch) are exempt from private mode restrictions and always allowed.
 
 6. **Role-based contract mutations**: Contract field ownership is tied to roles (implementer, reviewer, human). Role is determined from workflow context via session metadata, not request body, preventing privilege escalation. The `egg_contracts` shared library provides Pydantic models and validation.
 
