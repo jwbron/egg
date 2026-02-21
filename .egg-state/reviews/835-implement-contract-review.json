@@ -1,0 +1,7 @@
+{
+  "reviewer": "contract",
+  "verdict": "approved",
+  "summary": "All 9 acceptance criteria from issue #835 are verified. The implementation adds _summarize_issue(), _extract_plan_overview(), and _build_role_context() helpers to orchestrator/routes/pipelines.py, correctly scoping agent prompts by role. Execution roles (tester, documenter, integrator) receive a 1-2 sentence background summary with structured task information and context pointers instead of the raw issue body. Analysis roles (architect, task_planner, risk_analyst) retain the full issue body. Phase-scoped coder prompts embed the plan overview (not the full plan) with one-line summaries of other phases. The old inline tester phase-scoping code in _run_tier3_implement is replaced by passing phase_obj/all_phases through _build_agent_prompt. 133 prompt tests pass, covering all new functions and edge cases. Documentation updated in orchestrator architecture, agent development guide, and SDLC pipeline guide. Non-orchestrator file changes are formatting-only (lint fixes).",
+  "feedback": "",
+  "timestamp": "2026-02-21T20:30:00Z"
+}
