@@ -5,7 +5,7 @@
   "branch": "egg/issue-850",
   "mode": "issue",
   "prompt": null,
-  "status": "failed",
+  "status": "running",
   "current_phase": "plan",
   "config": {
     "auto_create_pr": true,
@@ -113,176 +113,13 @@
     },
     "plan": {
       "phase": "plan",
-      "status": "running",
-      "started_at": "2026-02-21T20:10:18.573311",
-      "work_started_at": "2026-02-21T20:39:15.047595",
+      "status": "pending",
+      "started_at": null,
+      "work_started_at": null,
       "completed_at": null,
-      "containers": [
-        {
-          "container_id": "c21b14234bfaf388511d17895cb238557e2c9a5fc5161b09d1da45eb031d2010",
-          "container_name": "egg-sandbox-egg-issue-850-architect",
-          "status": "exited",
-          "started_at": "2026-02-21T20:10:19.303918",
-          "exited_at": "2026-02-21T20:22:52.824742",
-          "exit_code": 0,
-          "agent_role": "architect",
-          "session_token": null
-        },
-        {
-          "container_id": "b730939e5897117149c8fa74b59da14fd97568e40ecc0c74604e329c46ddf234",
-          "container_name": "egg-sandbox-egg-issue-850-task_planner",
-          "status": "exited",
-          "started_at": "2026-02-21T20:23:03.238711",
-          "exited_at": "2026-02-21T20:29:29.572992",
-          "exit_code": 0,
-          "agent_role": "task_planner",
-          "session_token": null
-        },
-        {
-          "container_id": "fa2a710821afc21f3c561dc2bf7511eb78b713cb3db8bbb0fe9f4cb9c095f4e8",
-          "container_name": "egg-sandbox-egg-issue-850-risk_analyst",
-          "status": "exited",
-          "started_at": "2026-02-21T20:23:03.253988",
-          "exited_at": "2026-02-21T20:35:39.946344",
-          "exit_code": 0,
-          "agent_role": "risk_analyst",
-          "session_token": null
-        },
-        {
-          "container_id": "88422b4ab673e4f23fcde4a17a38c6f48096af11079d94da584ff25a1a4d4753",
-          "container_name": "egg-sandbox-egg-issue-850-reviewer_plan",
-          "status": "exited",
-          "started_at": "2026-02-21T20:35:52.339442",
-          "exited_at": "2026-02-21T20:39:04.478480",
-          "exit_code": 0,
-          "agent_role": "reviewer_plan",
-          "session_token": null
-        },
-        {
-          "container_id": "b5637404fc9c452be2e68170b454c2af18b1099b7384d975b06ec8c21adb7c53",
-          "container_name": "egg-sandbox-egg-issue-850-architect",
-          "status": "exited",
-          "started_at": "2026-02-21T20:39:15.301509",
-          "exited_at": "2026-02-21T20:49:37.560409",
-          "exit_code": 0,
-          "agent_role": "architect",
-          "session_token": null
-        },
-        {
-          "container_id": "82903ca73eef16ed3049e086cf5172fcf907eccf16b99dae76fb666b52e42177",
-          "container_name": "egg-sandbox-egg-issue-850-task_planner",
-          "status": "failed",
-          "started_at": "2026-02-21T20:49:44.613964",
-          "exited_at": "2026-02-21T21:06:41.017224",
-          "exit_code": -1,
-          "agent_role": "task_planner",
-          "session_token": null
-        },
-        {
-          "container_id": "72447855bdd496ce1ec906deb7ea43ff43ec501195b46e11856359302b3e89b8",
-          "container_name": "egg-sandbox-egg-issue-850-risk_analyst",
-          "status": "failed",
-          "started_at": "2026-02-21T20:49:44.624367",
-          "exited_at": "2026-02-21T21:06:41.017254",
-          "exit_code": -1,
-          "agent_role": "risk_analyst",
-          "session_token": null
-        }
-      ],
-      "agents": [
-        {
-          "role": "architect",
-          "status": "complete",
-          "container_id": "c21b14234bfaf388511d17895cb238557e2c9a5fc5161b09d1da45eb031d2010",
-          "started_at": "2026-02-21T20:10:19.303922",
-          "completed_at": "2026-02-21T20:22:52.825464",
-          "commit": null,
-          "outputs": {},
-          "error": null,
-          "retry_count": 0,
-          "conflicts": [],
-          "plan_phase_id": null
-        },
-        {
-          "role": "task_planner",
-          "status": "complete",
-          "container_id": "b730939e5897117149c8fa74b59da14fd97568e40ecc0c74604e329c46ddf234",
-          "started_at": "2026-02-21T20:23:03.238716",
-          "completed_at": "2026-02-21T20:29:29.576949",
-          "commit": null,
-          "outputs": {},
-          "error": null,
-          "retry_count": 0,
-          "conflicts": [],
-          "plan_phase_id": null
-        },
-        {
-          "role": "risk_analyst",
-          "status": "complete",
-          "container_id": "fa2a710821afc21f3c561dc2bf7511eb78b713cb3db8bbb0fe9f4cb9c095f4e8",
-          "started_at": "2026-02-21T20:23:03.253994",
-          "completed_at": "2026-02-21T20:35:39.947498",
-          "commit": null,
-          "outputs": {},
-          "error": null,
-          "retry_count": 0,
-          "conflicts": [],
-          "plan_phase_id": null
-        },
-        {
-          "role": "reviewer_plan",
-          "status": "complete",
-          "container_id": "88422b4ab673e4f23fcde4a17a38c6f48096af11079d94da584ff25a1a4d4753",
-          "started_at": "2026-02-21T20:35:52.339447",
-          "completed_at": "2026-02-21T20:39:04.480513",
-          "commit": null,
-          "outputs": {},
-          "error": null,
-          "retry_count": 0,
-          "conflicts": [],
-          "plan_phase_id": null
-        },
-        {
-          "role": "architect",
-          "status": "complete",
-          "container_id": "b5637404fc9c452be2e68170b454c2af18b1099b7384d975b06ec8c21adb7c53",
-          "started_at": "2026-02-21T20:39:15.301513",
-          "completed_at": "2026-02-21T20:49:37.561523",
-          "commit": null,
-          "outputs": {},
-          "error": null,
-          "retry_count": 0,
-          "conflicts": [],
-          "plan_phase_id": null
-        },
-        {
-          "role": "task_planner",
-          "status": "failed",
-          "container_id": "82903ca73eef16ed3049e086cf5172fcf907eccf16b99dae76fb666b52e42177",
-          "started_at": "2026-02-21T20:49:44.613968",
-          "completed_at": "2026-02-21T21:06:41.017281",
-          "commit": null,
-          "outputs": {},
-          "error": "Container not found at orchestrator startup — likely lost during a previous crash",
-          "retry_count": 0,
-          "conflicts": [],
-          "plan_phase_id": null
-        },
-        {
-          "role": "risk_analyst",
-          "status": "failed",
-          "container_id": "72447855bdd496ce1ec906deb7ea43ff43ec501195b46e11856359302b3e89b8",
-          "started_at": "2026-02-21T20:49:44.624372",
-          "completed_at": "2026-02-21T21:06:41.017307",
-          "commit": null,
-          "outputs": {},
-          "error": "Container not found at orchestrator startup — likely lost during a previous crash",
-          "retry_count": 0,
-          "conflicts": [],
-          "plan_phase_id": null
-        }
-      ],
-      "review_cycles": 1,
+      "containers": [],
+      "agents": [],
+      "review_cycles": 0,
       "hitl_review_cycles": 0,
       "cycle_timings": [
         {
@@ -317,12 +154,12 @@
       "resolution": "Approved"
     }
   ],
-  "created_at": "2026-02-21T19:57:08.463358",
-  "updated_at": "2026-02-21T21:06:41.017372",
+  "created_at": "2026-02-21T21:06:45.118920",
+  "updated_at": "2026-02-21T21:06:45.118997",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
   "complexity_tier": "high",
-  "error": "Pipeline marked FAILED at orchestrator startup: one or more agent containers were not found. Restart via POST /pipelines/{id}/start.",
-  "version": 36
+  "error": null,
+  "version": 37
 }
