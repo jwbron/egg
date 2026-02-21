@@ -85,7 +85,7 @@ The pipeline adapts its execution strategy to task complexity:
 | **Tier 2** | Medium (single features) | Full pipeline, single coder in waves |
 | **Tier 3** | High (multi-phase features) | Parallel implement cycles per plan phase |
 
-Tier 3 decomposes large features into independent plan phases that run as parallel implement cycles (coder → tester → agentic review), each scoped to its own file boundaries and sub-branch. An integrator merges the results and runs the full test suite.
+Tier 3 decomposes large features into independent plan phases that run as parallel implement cycles (coder → tester → documenter → checker → code reviewer), each scoped to its own file boundaries. After all phases complete, an integrator merges the results and runs the full test suite.
 
 ### Two Modes
 

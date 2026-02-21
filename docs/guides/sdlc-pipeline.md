@@ -343,12 +343,14 @@ Plan produces phases with dependency ordering:
 Each implement cycle (per phase):
   1. Coder: implements tasks scoped to this phase
   2. Tester: writes/runs tests for this phase's changes
-  3. Agentic Review: REVIEWER_CODE checks this phase's diff
-     - If rejected → coder retries within this phase
+  3. Documenter: updates documentation for this phase's changes
+  4. Checker: runs linters and auto-fixers on this phase's code
+  5. Code Reviewer: checks this phase's diff for security and correctness
+     - If revision needed → coder retries within this phase
      - If approved → phase marked complete
 
 After all phases complete:
-  4. Integrator: runs full test suite, fixes integration issues
+  6. Integrator: runs full test suite, fixes integration issues
 ```
 
 **Phase dependency graph**: The `PhaseDependencyGraph` class (`shared/egg_contracts/dependency_graph.py`) computes execution waves from the plan's phase dependencies. Independent phases are grouped into the same wave for parallel execution. Dependencies are declared in the contract's `Phase.dependencies` field (e.g., `["phase-1", "phase-2"]`).
