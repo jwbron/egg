@@ -8,7 +8,212 @@
   "pipeline_id": null,
   "current_phase": "refine",
   "acceptance_criteria": [],
-  "phases": [],
+  "phases": [
+    {
+      "id": "phase-1",
+      "name": "Core Framework + Tier 1 Checks",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-1-1",
+          "description": "Define core types and interfaces \u2014 HealthCheck protocol, HealthResult dataclass, HealthStatus/Tier/Trigger/Action enums, PipelineHealthContext with lazy properties",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "All types importable from orchestrator/health_checks/; PipelineHealthContext lazy properties only execute expensive operations (git, file reads) when accessed; unit tests pass",
+          "files_affected": [
+            "orchestrator/health_checks/__init__.py",
+            "orchestrator/health_checks/types.py",
+            "orchestrator/health_checks/context.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-2",
+          "description": "Implement HealthCheckRunner with trigger dispatch, Tier escalation logic, and EventBus integration; add new EventType values to events.py",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Runner registers checks and dispatches by trigger; Tier 1 runs before Tier 2; WAVE_COMPLETE escalates to Tier 2 only when DEGRADED; PHASE_COMPLETE always runs both; events emitted for each result; new EventType values added; unit tests pass",
+          "files_affected": [
+            "orchestrator/health_checks/runner.py",
+            "orchestrator/events.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-3",
+          "description": "Create ContainerLivenessCheck and StartupStateCheck adapter classes wrapping existing ContainerMonitor and reconcile_stale_containers without modifying their code",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Both conform to HealthCheck protocol; delegate to existing code; existing 23 tests pass unchanged; adapter tests verify correct HealthResult generation",
+          "files_affected": [
+            "orchestrator/health_checks/tier1/__init__.py",
+            "orchestrator/health_checks/tier1/container_liveness.py",
+            "orchestrator/health_checks/tier1/startup_state.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-4",
+          "description": "Implement PhaseOutputPresenceCheck \u2014 verify commits on remote, agent output files, contract fields based on phase type",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Implement phase checks for commits on remote; plan phase checks for architect-output.json; returns DEGRADED when agents succeed but artifacts missing; HEALTHY when all present; unit tests with mocked git/filesystem",
+          "files_affected": [
+            "orchestrator/health_checks/tier1/phase_output.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-5",
+          "description": "Implement StateConsistencyCheck \u2014 cross-reference orchestrator state vs Docker reality vs contract",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Detects RUNNING agents with missing containers (FAILED); detects COMPLETE agents with PENDING contract tasks (DEGRADED); unit tests with mocked Docker client and state store",
+          "files_affected": [
+            "orchestrator/health_checks/tier1/state_consistency.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-6",
+          "description": "Wire HealthCheckRunner into lifecycle hooks \u2014 cli.py (STARTUP), container_monitor.py (RUNTIME_TICK), multi_agent.py (WAVE_COMPLETE), routes/pipelines.py (PHASE_COMPLETE); add on-demand endpoint and HealthCheckResultModel to models.py",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "STARTUP checks run after existing reconciliation; RUNTIME_TICK runs on state changes; WAVE_COMPLETE runs after each wave with FAIL_PIPELINE break; PHASE_COMPLETE runs before advancement; GET /api/v1/pipelines/{id}/health works; integration tests verify trigger->check->event flow",
+          "files_affected": [
+            "orchestrator/cli.py",
+            "orchestrator/container_monitor.py",
+            "orchestrator/multi_agent.py",
+            "orchestrator/routes/pipelines.py",
+            "orchestrator/routes/health.py",
+            "orchestrator/models.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-7",
+          "description": "Write comprehensive unit tests for core types, runner, and all Tier 1 checks",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "All tests pass; each check has healthy/degraded/failed test cases; runner trigger filtering and escalation tested; mock patterns follow test_container_monitor.py conventions",
+          "files_affected": [
+            "orchestrator/tests/test_health_check_types.py",
+            "orchestrator/tests/test_health_check_tier1.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        }
+      ],
+      "dependencies": [],
+      "review_feedback": []
+    },
+    {
+      "id": "phase-2",
+      "name": "Tier 2 Agent Inspector + Observability",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-2-1",
+          "description": "Implement Tier 2 context assembly \u2014 enrich PipelineHealthContext with git log/diff, agent output files, contract state; only populate for Tier 2 triggers",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Context factory populates git_log, git_diff_stat, agent_outputs, contract when tier=AGENT; capped at ~4000 tokens by truncating diffs; unit tests verify lazy loading",
+          "files_affected": [
+            "orchestrator/health_checks/tier2/__init__.py",
+            "orchestrator/health_checks/context.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-2-2",
+          "description": "Implement AgentInspectorCheck \u2014 structured prompt to Claude API (claude-sonnet-4-20250514), JSON verdict parsing, timeout/retry handling, graceful degradation",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Produces structured HEALTHY/DEGRADED/FAILED verdict; returns ALERT action (not FAIL_PIPELINE); handles API timeout/failure gracefully (returns HEALTHY with warning); context capped; mock API tests cover all scenarios",
+          "files_affected": [
+            "orchestrator/health_checks/tier2/agent_inspector.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-2-3",
+          "description": "Wire Tier 2 escalation into HealthCheckRunner \u2014 run Tier 2 when Tier 1 flags DEGRADED at WAVE_COMPLETE or unconditionally at PHASE_COMPLETE; surface full result payloads via HEALTH_CHECK events for SSE",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Tier 2 runs only when escalation conditions met; events contain full payload (status, tier, check name, reasoning, action); SSE clients receive them; integration tests pass",
+          "files_affected": [
+            "orchestrator/health_checks/runner.py",
+            "orchestrator/routes/pipelines.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-2-4",
+          "description": "Write comprehensive unit tests for Tier 2 \u2014 context assembly, prompt construction, verdict parsing, escalation logic, event emission, edge cases",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "All tests pass; API mocked at SDK/httpx level; covers healthy, degraded, failed, API timeout, malformed response, empty outputs",
+          "files_affected": [
+            "orchestrator/tests/test_health_check_tier2.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        }
+      ],
+      "dependencies": [],
+      "review_feedback": []
+    }
+  ],
   "decisions": [],
   "workflow_owner": null,
   "audit_log": [],
@@ -21,76 +226,11 @@
   "phase_configs": null,
   "agent_executions": [
     {
-      "role": "coder",
-      "phase_id": null,
-      "status": "pending",
-      "started_at": null,
-      "completed_at": null,
-      "commit": null,
-      "checkpoint_id": null,
-      "outputs": {},
-      "error": null,
-      "retry_count": 0,
-      "conflicts": []
-    },
-    {
-      "role": "tester",
-      "phase_id": null,
-      "status": "pending",
-      "started_at": null,
-      "completed_at": null,
-      "commit": null,
-      "checkpoint_id": null,
-      "outputs": {},
-      "error": null,
-      "retry_count": 0,
-      "conflicts": []
-    },
-    {
-      "role": "documenter",
-      "phase_id": null,
-      "status": "pending",
-      "started_at": null,
-      "completed_at": null,
-      "commit": null,
-      "checkpoint_id": null,
-      "outputs": {},
-      "error": null,
-      "retry_count": 0,
-      "conflicts": []
-    },
-    {
-      "role": "integrator",
-      "phase_id": null,
-      "status": "pending",
-      "started_at": null,
-      "completed_at": null,
-      "commit": null,
-      "checkpoint_id": null,
-      "outputs": {},
-      "error": null,
-      "retry_count": 0,
-      "conflicts": []
-    },
-    {
       "role": "architect",
       "phase_id": null,
       "status": "complete",
-      "started_at": null,
-      "completed_at": "2026-02-21T23:08:57.383749Z",
-      "commit": "c8731d80",
-      "checkpoint_id": null,
-      "outputs": {},
-      "error": null,
-      "retry_count": 0,
-      "conflicts": []
-    },
-    {
-      "role": "risk_analyst",
-      "phase_id": null,
-      "status": "complete",
-      "started_at": null,
-      "completed_at": "2026-02-21T23:16:30.688831Z",
+      "started_at": "2026-02-21T22:58:59.003974Z",
+      "completed_at": "2026-02-21T23:09:03.680635Z",
       "commit": null,
       "checkpoint_id": null,
       "outputs": {},
@@ -102,9 +242,22 @@
       "role": "task_planner",
       "phase_id": null,
       "status": "complete",
-      "started_at": null,
-      "completed_at": "2026-02-21T23:18:06.823466Z",
-      "commit": "6190b439",
+      "started_at": "2026-02-21T23:09:03.687578Z",
+      "completed_at": "2026-02-21T23:18:14.631932Z",
+      "commit": null,
+      "checkpoint_id": null,
+      "outputs": {},
+      "error": null,
+      "retry_count": 0,
+      "conflicts": []
+    },
+    {
+      "role": "risk_analyst",
+      "phase_id": null,
+      "status": "complete",
+      "started_at": "2026-02-21T23:09:03.689670Z",
+      "completed_at": "2026-02-21T23:16:37.162616Z",
+      "commit": null,
       "checkpoint_id": null,
       "outputs": {},
       "error": null,
