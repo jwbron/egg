@@ -10,8 +10,6 @@ sys.path.insert(0, str(sandbox_path))
 
 from egg_lib.docker import (
     _create_network,
-    _hash_directory,
-    _hash_file,
     build_image,
     check_claude_update,
     check_docker,
@@ -22,6 +20,8 @@ from egg_lib.docker import (
     get_image_build_hash,
     get_installed_claude_version,
     get_latest_claude_version,
+    hash_directory,
+    hash_file,
     image_exists,
     set_force_rebuild,
     should_rebuild_image,
@@ -211,31 +211,31 @@ class TestCheckClaudeUpdate:
 
 
 class TestHashFile:
-    """Tests for _hash_file."""
+    """Tests for hash_file."""
 
     def test_hashes_content(self, tmp_path):
         """Adds file content to hasher."""
         f = tmp_path / "test.txt"
         f.write_text("hello")
         h = hashlib.sha256()
-        _hash_file(f, h)
+        hash_file(f, h)
         assert h.hexdigest() != hashlib.sha256().hexdigest()
 
     def test_handles_missing_file(self, tmp_path):
         """Handles missing file gracefully."""
         h = hashlib.sha256()
-        _hash_file(tmp_path / "nonexistent.txt", h)
+        hash_file(tmp_path / "nonexistent.txt", h)
         assert h.hexdigest() == hashlib.sha256().hexdigest()
 
 
 class TestHashDirectory:
-    """Tests for _hash_directory."""
+    """Tests for hash_directory."""
 
     def test_hashes_directory(self, tmp_path):
         """Hashes files in directory."""
         (tmp_path / "a.py").write_text("code")
         h = hashlib.sha256()
-        _hash_directory(tmp_path, h)
+        hash_directory(tmp_path, h)
         assert h.hexdigest() != hashlib.sha256().hexdigest()
 
 

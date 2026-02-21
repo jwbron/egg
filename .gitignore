@@ -42,6 +42,7 @@ secrets.yaml
 # Docker
 .docker/
 docker-compose.override.yml
+.compose-build-hash
 
 # OS
 .DS_Store

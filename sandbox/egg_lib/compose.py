@@ -11,6 +11,7 @@ Usage:
     egg --compose --build # Rebuild images before starting
 """
 
+import hashlib
 import json
 import os
 import re
@@ -19,6 +20,7 @@ import time
 from pathlib import Path
 
 from .context import get_context
+from .docker import hash_directory, hash_file
 from .output import error, info, success, warn
 
 
@@ -523,6 +525,102 @@ def _get_mtime(path: Path) -> float:
         return 0.0
 
 
+# =============================================================================
+# Source-hash based rebuild detection for compose services
+# =============================================================================
+
+# File where the compose build hash is stored (next to docker-compose.yml)
+_COMPOSE_HASH_FILE = ".compose-build-hash"
+
+
+def _compute_compose_hash(repo_root: Path) -> str:
+    """Compute a SHA256 hash of all source files that affect compose service images.
+
+    Covers the gateway and orchestrator build contexts plus shared modules
+    that are copied into those images at build time.
+
+    Args:
+        repo_root: Root of the egg repository (contains gateway/, orchestrator/, etc.)
+
+    Returns:
+        Hex-encoded SHA256 hash string
+    """
+    hasher = hashlib.sha256()
+
+    # docker-compose.yml itself
+    compose_yml = repo_root / "docker-compose.yml"
+    if compose_yml.exists():
+        hasher.update(b"docker-compose.yml")
+        hash_file(compose_yml, hasher)
+
+    # Gateway build context
+    gateway_dir = repo_root / "gateway"
+    if gateway_dir.exists():
+        hasher.update(b"gateway")
+        hash_directory(gateway_dir, hasher)
+
+    # Orchestrator build context
+    orchestrator_dir = repo_root / "orchestrator"
+    if orchestrator_dir.exists():
+        hasher.update(b"orchestrator")
+        hash_directory(orchestrator_dir, hasher)
+
+    # Shared modules (copied into both images)
+    shared_dir = repo_root / "shared"
+    if shared_dir.exists():
+        hasher.update(b"shared")
+        hash_directory(shared_dir, hasher)
+
+    # config/repo_config.py (used by gateway)
+    repo_config = repo_root / "config" / "repo_config.py"
+    if repo_config.exists():
+        hasher.update(b"config/repo_config.py")
+        hash_file(repo_config, hasher)
+
+    return hasher.hexdigest()
+
+
+def _get_stored_compose_hash(repo_root: Path) -> str | None:
+    """Read the previously stored compose build hash from disk.
+
+    Args:
+        repo_root: Root of the egg repository
+
+    Returns:
+        Hash string, or None if no hash is stored
+    """
+    hash_file_path = repo_root / _COMPOSE_HASH_FILE
+    try:
+        return hash_file_path.read_text().strip()
+    except OSError:
+        return None
+
+
+def _store_compose_hash(repo_root: Path, hash_value: str) -> None:
+    """Write the compose build hash to disk.
+
+    Args:
+        repo_root: Root of the egg repository
+        hash_value: Hash string to store
+    """
+    hash_file_path = repo_root / _COMPOSE_HASH_FILE
+    hash_file_path.write_text(hash_value + "\n")
+
+
+def _compose_source_changed(repo_root: Path) -> bool:
+    """Check whether compose service source files have changed since last build.
+
+    Args:
+        repo_root: Root of the egg repository
+
+    Returns:
+        True if sources changed (or no hash stored yet), False otherwise
+    """
+    current_hash = _compute_compose_hash(repo_root)
+    stored_hash = _get_stored_compose_hash(repo_root)
+    return current_hash != stored_hash
+
+
 def ensure_compose_services(build: bool = True) -> bool:
     """Start gateway + orchestrator via Docker Compose.
 
@@ -589,8 +687,12 @@ def ensure_compose_services(build: bool = True) -> bool:
         or _get_mtime(override_path) != override_mtime_before
     )
 
-    # Fast path: services healthy, config unchanged — skip compose_up entirely
-    if already_healthy and not config_changed:
+    # Detect whether compose service source files changed (gateway/, orchestrator/, etc.)
+    repo_root = compose_file.parent
+    source_changed = _compose_source_changed(repo_root)
+
+    # Fast path: services healthy, config unchanged, sources unchanged
+    if already_healthy and not config_changed and not source_changed:
         success("Gateway is healthy")
         # Quick orchestrator check — gateway confirmed healthy but orchestrator
         # was not directly probed, so allow a couple of attempts.
@@ -637,6 +739,9 @@ def ensure_compose_services(build: bool = True) -> bool:
         success("Orchestrator is healthy")
     else:
         warn("Orchestrator not healthy — continuing without it")
+
+    # Store compose source hash so the next invocation can skip rebuild
+    _store_compose_hash(repo_root, _compute_compose_hash(repo_root))
 
     return True
 
