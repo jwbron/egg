@@ -4,7 +4,7 @@ Checkpoint handler for the gateway sidecar.
 Captures agent session context on git push operations and session termination,
 storing checkpoints in a dedicated branch (egg/checkpoints/v2). Supports two
 trigger types:
-- COMMIT: Created per-commit on git push (one checkpoint per commit)
+- COMMIT: Created on git push (one checkpoint per push)
 - SESSION_END: Created when a session terminates (graceful, expired, or crashed)
 
 Architecture Overview:
@@ -24,9 +24,13 @@ Architecture Overview:
 Checkpoint Flow (push):
     1. gateway.py receives git push, forwards to GitHub
     2. On success, calls capture_and_store_checkpoints_for_push()
-    3. Enumerates commits in push via get_commits_in_push()
-    4. For each commit, captures v2 checkpoint with trigger_type=COMMIT
-    5. Stores checkpoint in egg/checkpoints/v2 branch (async)
+    3. Captures one v2 checkpoint for the push tip (new_sha) with trigger_type=COMMIT
+    4. Stores checkpoint in egg/checkpoints/v2 branch (async)
+
+    Note: One checkpoint is created per push regardless of how many commits it
+    contains. Batched multi-commit pushes would produce identical checkpoint
+    content (the transcript buffer state at push time), so per-commit creation
+    would only generate duplicates.
 
 Checkpoint Flow (session end):
     1. Session deletion/expiry/crash triggers capture_session_end_checkpoint()
@@ -257,80 +261,6 @@ def _resolve_github_token(repo_path: str) -> str | None:
         return None
 
 
-def get_commits_in_push(
-    repo_path: str,
-    old_sha: str,
-    new_sha: str,
-) -> list[str]:
-    """
-    Get the list of commits in a push, in chronological order (oldest first).
-
-    Uses `git rev-list --reverse` to enumerate all commits between old_sha
-    and new_sha. This enables per-commit checkpoint creation for multi-commit
-    pushes.
-
-    Args:
-        repo_path: Path to the repository
-        old_sha: The SHA before the push (remote ref before update)
-        new_sha: The SHA after the push (new tip of the branch)
-
-    Returns:
-        List of commit SHAs in chronological order (oldest to newest).
-        Returns [new_sha] if old_sha is the null SHA (new branch) or
-        if rev-list fails.
-
-    Note:
-        For force pushes where old_sha is not an ancestor of new_sha, git rev-list
-        returns empty output since there's no path from old to new. In this case,
-        only the tip commit (new_sha) is returned. This is intentional: force pushes
-        represent a history rewrite, so we create a single checkpoint for the new
-        tip rather than attempting to enumerate the rewritten history.
-    """
-    # Handle new branch case - old_sha is null SHA (all zeros)
-    null_sha = "0" * 40
-    if old_sha == null_sha or not old_sha:
-        return [new_sha]
-
-    try:
-        result = subprocess.run(
-            ["git", "rev-list", "--reverse", f"{old_sha}..{new_sha}"],
-            cwd=repo_path,
-            capture_output=True,
-            text=True,
-            timeout=30,
-            check=False,
-        )
-
-        if result.returncode == 0 and result.stdout.strip():
-            commits = result.stdout.strip().split("\n")
-            return [c for c in commits if c]
-
-        logger.debug(
-            "git rev-list returned empty or failed, falling back to tip commit",
-            old_sha=old_sha[:7],
-            new_sha=new_sha[:7],
-            returncode=result.returncode,
-            stderr=result.stderr[:200] if result.stderr else "",
-        )
-        return [new_sha]
-
-    except subprocess.TimeoutExpired:
-        logger.warning(
-            "git rev-list timed out, falling back to tip commit",
-            old_sha=old_sha[:7],
-            new_sha=new_sha[:7],
-        )
-        return [new_sha]
-    except Exception as e:
-        logger.warning(
-            "git rev-list failed, falling back to tip commit",
-            error=str(e),
-            old_sha=old_sha[:7],
-            new_sha=new_sha[:7],
-        )
-        return [new_sha]
-
-
 class CheckpointError(Exception):
     """Error during checkpoint capture."""
 
@@ -342,7 +272,7 @@ class CheckpointHandler:
     Handles checkpoint capture and storage for agent sessions.
 
     Supports two checkpoint types:
-    - COMMIT: Created per-commit on git push
+    - COMMIT: Created on git push (one checkpoint per push)
     - SESSION_END: Created when a session terminates
     """
 
@@ -997,15 +927,9 @@ class CheckpointHandler:
         if github_token is None:
             github_token = _resolve_github_token(repo_path)
 
-        target = (
-            f"https://github.com/{checkpoint_repo}.git"
-            if checkpoint_repo
-            else "origin"
-        )
+        target = f"https://github.com/{checkpoint_repo}.git" if checkpoint_repo else "origin"
 
-        if not self._branch_exists(
-            repo_path, target, CHECKPOINT_BRANCH, github_token=github_token
-        ):
+        if not self._branch_exists(repo_path, target, CHECKPOINT_BRANCH, github_token=github_token):
             return None
 
         # Fetch the branch
@@ -1018,9 +942,7 @@ class CheckpointHandler:
 
         # Resolve a stable ref
         if checkpoint_repo:
-            result = self._run_git(
-                repo_path, ["rev-parse", "FETCH_HEAD"], check=False
-            )
+            result = self._run_git(repo_path, ["rev-parse", "FETCH_HEAD"], check=False)
             if result.returncode != 0:
                 return None
             ref = result.stdout.strip()
@@ -1087,15 +1009,9 @@ class CheckpointHandler:
         if github_token is None:
             github_token = _resolve_github_token(repo_path)
 
-        target = (
-            f"https://github.com/{checkpoint_repo}.git"
-            if checkpoint_repo
-            else "origin"
-        )
+        target = f"https://github.com/{checkpoint_repo}.git" if checkpoint_repo else "origin"
 
-        if not self._branch_exists(
-            repo_path, target, CHECKPOINT_BRANCH, github_token=github_token
-        ):
+        if not self._branch_exists(repo_path, target, CHECKPOINT_BRANCH, github_token=github_token):
             return None
 
         self._run_git(
@@ -1106,9 +1022,7 @@ class CheckpointHandler:
         )
 
         if checkpoint_repo:
-            result = self._run_git(
-                repo_path, ["rev-parse", "FETCH_HEAD"], check=False
-            )
+            result = self._run_git(repo_path, ["rev-parse", "FETCH_HEAD"], check=False)
             if result.returncode != 0:
                 return None
             return result.stdout.strip()
@@ -1299,7 +1213,6 @@ def capture_and_store_checkpoint(
 
 def capture_and_store_checkpoints_for_push(
     repo_path: str,
-    old_sha: str,
     new_sha: str,
     branch: str,
     session: Session | None = None,
@@ -1310,10 +1223,13 @@ def capture_and_store_checkpoints_for_push(
     checkpoint_repo: str | None = None,
 ) -> list[CheckpointV2]:
     """
-    Capture and store v2 checkpoints for all commits in a push.
+    Capture and store a v2 checkpoint for a push.
 
-    Creates one checkpoint per commit with trigger_type=COMMIT. The push_sha
-    field on each checkpoint points to the tip commit (new_sha).
+    Creates exactly one checkpoint per push for the tip commit (new_sha) with
+    trigger_type=COMMIT. When an agent batches multiple commits into a single
+    push, only one checkpoint is created — the transcript buffer reflects the
+    state at push time, not the state at each individual commit, so creating
+    per-commit checkpoints would just produce identical duplicates.
 
     Args:
         checkpoint_repo: Optional "owner/repo" for a separate checkpoint
@@ -1323,81 +1239,30 @@ def capture_and_store_checkpoints_for_push(
     if not CHECKPOINT_ENABLED:
         return []
 
-    commits = get_commits_in_push(repo_path, old_sha, new_sha)
-
-    if not commits:
-        logger.debug("No commits found in push", old_sha=old_sha[:7], new_sha=new_sha[:7])
-        return []
-
     logger.info(
-        "Creating per-commit checkpoints for push",
-        commit_count=len(commits),
+        "Creating checkpoint for push",
         push_sha=new_sha[:7],
         branch=branch,
     )
 
-    checkpoints: list[CheckpointV2] = []
-    handler = get_checkpoint_handler(github_token)
+    checkpoint = capture_and_store_checkpoint(
+        repo_path=repo_path,
+        commit_sha=new_sha,
+        branch=branch,
+        session=session,
+        issue_number=issue_number,
+        pipeline_phase=pipeline_phase,
+        push_sha=new_sha,
+        github_token=github_token,
+        async_store=async_store,
+        checkpoint_repo=checkpoint_repo,
+    )
 
-    for commit_sha in commits:
-        try:
-            checkpoint = handler.capture_checkpoint(
-                repo_path=repo_path,
-                commit_sha=commit_sha,
-                branch=branch,
-                session=session,
-                issue_number=issue_number,
-                pipeline_phase=pipeline_phase,
-                push_sha=new_sha,
-            )
-
-            if checkpoint:
-                checkpoints.append(checkpoint)
-        except Exception as e:
-            logger.warning(
-                "Failed to capture checkpoint for commit",
-                commit_sha=commit_sha[:7],
-                error=str(e),
-            )
-
-    if not checkpoints:
-        logger.debug("No checkpoints captured for push", push_sha=new_sha[:7])
+    if checkpoint is None:
+        logger.debug("No checkpoint captured for push", push_sha=new_sha[:7])
         return []
 
-    if async_store:
-
-        def _store_all_with_error_handling() -> None:
-            for cp in checkpoints:
-                try:
-                    handler.store_checkpoint_v2(
-                        cp,
-                        repo_path,
-                        checkpoint_repo=checkpoint_repo,
-                        github_token=github_token,
-                    )
-                except Exception as e:
-                    logger.error(
-                        "Async checkpoint storage failed",
-                        error=str(e),
-                        checkpoint_id=cp.id,
-                        commit_sha=cp.commit_sha[:7] if cp.commit_sha else "none",
-                    )
-
-        thread = threading.Thread(
-            target=_store_all_with_error_handling,
-            daemon=True,
-        )
-        thread.start()
-    else:
-        for cp in checkpoints:
-            handler.store_checkpoint_v2(
-                cp,
-                repo_path,
-                checkpoint_repo=checkpoint_repo,
-                github_token=github_token,
-            )
-
-    return checkpoints
+    return [checkpoint]
 
 
 def _get_checkpoint_repo_for_path(repo_path: str) -> str | None:

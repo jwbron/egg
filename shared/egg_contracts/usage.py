@@ -127,9 +127,9 @@ class TokenCounts(BaseModel):
             cache_write_cost_per_mtok = pricing["cache_write"]
 
         mtok = Decimal("1000000")
-        # Regular input (non-cached)
-        regular_input = self.input_tokens - self.cache_read_tokens
-        cost = Decimal(regular_input) / mtok * input_cost_per_mtok
+        # input_tokens from the Anthropic API is already the non-cached count;
+        # cache_read_tokens is a separate additive category, not a subset.
+        cost = Decimal(self.input_tokens) / mtok * input_cost_per_mtok
         cost += Decimal(self.output_tokens) / mtok * output_cost_per_mtok
         cost += Decimal(self.cache_read_tokens) / mtok * cache_read_cost_per_mtok
         cost += Decimal(self.cache_creation_tokens) / mtok * cache_write_cost_per_mtok
