@@ -5,21 +5,25 @@
   "branch": "egg/issue-530",
   "mode": "issue",
   "prompt": null,
-  "status": "running",
+  "status": "failed",
   "current_phase": "implement",
   "config": {
     "auto_create_pr": true,
     "multi_agent": true,
     "parallel_agents": true,
+    "max_parallel_agents": 10,
     "max_review_cycles": 3,
-    "decision_timeout": 3600,
-    "hitl_gates": true
+    "max_hitl_review_cycles": 3,
+    "hitl_gates": true,
+    "allow_short_circuit": true,
+    "enable_parallel_phases": true
   },
   "phases": {
     "refine": {
       "phase": "refine",
       "status": "complete",
       "started_at": "2026-02-13T17:53:51.952536",
+      "work_started_at": null,
       "completed_at": "2026-02-13T18:02:09.811799",
       "containers": [
         {
@@ -63,7 +67,9 @@
           "commit": null,
           "outputs": {},
           "error": null,
-          "retry_count": 0
+          "retry_count": 0,
+          "conflicts": [],
+          "plan_phase_id": null
         },
         {
           "role": "reviewer",
@@ -74,7 +80,9 @@
           "commit": null,
           "outputs": {},
           "error": null,
-          "retry_count": 0
+          "retry_count": 0,
+          "conflicts": [],
+          "plan_phase_id": null
         },
         {
           "role": "reviewer",
@@ -85,10 +93,14 @@
           "commit": null,
           "outputs": {},
           "error": null,
-          "retry_count": 0
+          "retry_count": 0,
+          "conflicts": [],
+          "plan_phase_id": null
         }
       ],
       "review_cycles": 0,
+      "hitl_review_cycles": 0,
+      "cycle_timings": [],
       "artifacts": {},
       "error": null
     },
@@ -96,6 +108,7 @@
       "phase": "plan",
       "status": "complete",
       "started_at": "2026-02-13T18:19:50.754588",
+      "work_started_at": null,
       "completed_at": "2026-02-13T18:28:43.469743",
       "containers": [
         {
@@ -139,7 +152,9 @@
           "commit": null,
           "outputs": {},
           "error": null,
-          "retry_count": 0
+          "retry_count": 0,
+          "conflicts": [],
+          "plan_phase_id": null
         },
         {
           "role": "reviewer",
@@ -150,7 +165,9 @@
           "commit": null,
           "outputs": {},
           "error": null,
-          "retry_count": 0
+          "retry_count": 0,
+          "conflicts": [],
+          "plan_phase_id": null
         },
         {
           "role": "reviewer",
@@ -161,10 +178,14 @@
           "commit": null,
           "outputs": {},
           "error": null,
-          "retry_count": 0
+          "retry_count": 0,
+          "conflicts": [],
+          "plan_phase_id": null
         }
       ],
       "review_cycles": 0,
+      "hitl_review_cycles": 0,
+      "cycle_timings": [],
       "artifacts": {},
       "error": null
     },
@@ -172,6 +193,7 @@
       "phase": "implement",
       "status": "running",
       "started_at": "2026-02-13T18:41:29.229635",
+      "work_started_at": null,
       "completed_at": null,
       "containers": [
         {
@@ -277,10 +299,10 @@
         {
           "container_id": "4d88e872f1bbca105135c7d92074b65c9972e8c8f8f3eb2eb3ec3390bf6ff809",
           "container_name": "egg-sandbox-egg-issue-530-coder",
-          "status": "running",
+          "status": "failed",
           "started_at": "2026-02-13T19:18:33.559038",
-          "exited_at": null,
-          "exit_code": null,
+          "exited_at": "2026-02-21T19:53:07.902329",
+          "exit_code": -1,
           "agent_role": "coder",
           "session_token": null
         }
@@ -295,7 +317,9 @@
           "commit": null,
           "outputs": {},
           "error": null,
-          "retry_count": 0
+          "retry_count": 0,
+          "conflicts": [],
+          "plan_phase_id": null
         },
         {
           "role": "checker",
@@ -306,7 +330,9 @@
           "commit": null,
           "outputs": {},
           "error": null,
-          "retry_count": 0
+          "retry_count": 0,
+          "conflicts": [],
+          "plan_phase_id": null
         },
         {
           "role": "coder",
@@ -317,7 +343,9 @@
           "commit": null,
           "outputs": {},
           "error": null,
-          "retry_count": 0
+          "retry_count": 0,
+          "conflicts": [],
+          "plan_phase_id": null
         },
         {
           "role": "checker",
@@ -328,7 +356,9 @@
           "commit": null,
           "outputs": {},
           "error": null,
-          "retry_count": 0
+          "retry_count": 0,
+          "conflicts": [],
+          "plan_phase_id": null
         },
         {
           "role": "coder",
@@ -339,7 +369,9 @@
           "commit": null,
           "outputs": {},
           "error": null,
-          "retry_count": 0
+          "retry_count": 0,
+          "conflicts": [],
+          "plan_phase_id": null
         },
         {
           "role": "checker",
@@ -350,7 +382,9 @@
           "commit": null,
           "outputs": {},
           "error": null,
-          "retry_count": 0
+          "retry_count": 0,
+          "conflicts": [],
+          "plan_phase_id": null
         },
         {
           "role": "reviewer",
@@ -361,7 +395,9 @@
           "commit": null,
           "outputs": {},
           "error": null,
-          "retry_count": 0
+          "retry_count": 0,
+          "conflicts": [],
+          "plan_phase_id": null
         },
         {
           "role": "reviewer",
@@ -372,7 +408,9 @@
           "commit": null,
           "outputs": {},
           "error": null,
-          "retry_count": 0
+          "retry_count": 0,
+          "conflicts": [],
+          "plan_phase_id": null
         },
         {
           "role": "reviewer",
@@ -383,7 +421,9 @@
           "commit": null,
           "outputs": {},
           "error": null,
-          "retry_count": 0
+          "retry_count": 0,
+          "conflicts": [],
+          "plan_phase_id": null
         },
         {
           "role": "reviewer",
@@ -394,21 +434,27 @@
           "commit": null,
           "outputs": {},
           "error": null,
-          "retry_count": 0
+          "retry_count": 0,
+          "conflicts": [],
+          "plan_phase_id": null
         },
         {
           "role": "coder",
-          "status": "running",
+          "status": "failed",
           "container_id": "4d88e872f1bbca105135c7d92074b65c9972e8c8f8f3eb2eb3ec3390bf6ff809",
           "started_at": "2026-02-13T19:18:33.559042",
-          "completed_at": null,
+          "completed_at": "2026-02-21T19:53:07.902373",
           "commit": null,
           "outputs": {},
-          "error": null,
-          "retry_count": 0
+          "error": "Container not found at orchestrator startup — likely lost during a previous crash",
+          "retry_count": 0,
+          "conflicts": [],
+          "plan_phase_id": null
         }
       ],
       "review_cycles": 1,
+      "hitl_review_cycles": 0,
+      "cycle_timings": [],
       "artifacts": {},
       "error": null
     }
@@ -424,8 +470,7 @@
       "status": "resolved",
       "created_at": "2026-02-13T18:02:09.848521",
       "resolved_at": "2026-02-13T18:19:48.136168",
-      "resolution": "approve",
-      "timeout_seconds": 3600
+      "resolution": "approve"
     },
     {
       "id": "decision-2",
@@ -437,14 +482,15 @@
       "status": "resolved",
       "created_at": "2026-02-13T18:28:43.488353",
       "resolved_at": "2026-02-13T18:41:26.765563",
-      "resolution": "approve",
-      "timeout_seconds": 3600
+      "resolution": "approve"
     }
   ],
   "created_at": "2026-02-13T17:53:48.267710",
-  "updated_at": "2026-02-13T19:18:33.559103",
+  "updated_at": "2026-02-21T19:53:07.902446",
   "contract_synced": true,
-  "sdlc_token_gated": false,
-  "error": null,
-  "version": 53
+  "network_mode": null,
+  "short_circuit": false,
+  "complexity_tier": "mid",
+  "error": "Pipeline marked FAILED at orchestrator startup: one or more agent containers were not found. Restart via POST /pipelines/{id}/start.",
+  "version": 54
 }
