@@ -44,6 +44,16 @@ This prevents pipelines from being stuck in a `RUNNING` state indefinitely after
 
 See `orchestrator/state_store.py` and `orchestrator/startup_reconciliation.py` for implementation details.
 
+**Runtime container monitoring:**
+
+A background `ContainerMonitor` thread runs continuously after orchestrator startup to detect container failures during execution. The monitor periodically checks container status and invokes registered handlers when state changes occur (container exits, fails, or becomes unhealthy).
+
+A pipeline reconciliation handler detects when agent containers exit or fail during runtime and updates pipeline state accordingly. When a container running an agent exits with a non-zero code, the handler marks the container as `FAILED`, marks the owning agent as `FAILED` with an error message, and transitions the entire pipeline to `FAILED` status. This complements startup reconciliation by catching failures that occur during execution rather than only on orchestrator restart.
+
+The monitor uses per-pipeline locking and optimistic version checks to prevent race conditions with concurrent state writers (e.g., agent signal handlers).
+
+See `orchestrator/container_monitor.py` for implementation details.
+
 ## Network Mode
 
 Pipelines can specify an explicit network mode that controls internet access for spawned containers:
@@ -166,6 +176,10 @@ The orchestrator coordinates specialized agent roles across pipeline phases. Eac
 ### Reviewer Execution
 
 Reviewers always run as a separate step after all workers (and checkers, if applicable) complete. They spawn in parallel with a configurable concurrency limit (`max_parallel_agents`). In implement phase, reviewers run after the integrator completes. In plan phase, reviewers run after the task planner and risk analyst complete. In refine phase, reviewers run after the refiner completes.
+
+### Wave Cycle Safety
+
+The multi-agent executor enforces a safety cap (`max_waves=5`) on the number of wave iterations per phase. This prevents unbounded wave cycles when the dispatcher repeatedly returns agents as runnable (e.g., reviewer→coder reset loops within a single review cycle). When the cap is reached, the orchestrator logs a warning and stops wave execution. This limit applies to each phase execution independently.
 
 ## Deployment Modes
 
