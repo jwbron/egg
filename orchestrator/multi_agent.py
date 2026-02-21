@@ -517,7 +517,7 @@ class MultiAgentExecutor:
         Args:
             on_wave_complete: Optional callback after each wave
             agent_prompts: Role-to-prompt mapping (required when using spawn_fn)
-            max_waves: Safety cap on number of wave iterations (default: 30)
+            max_waves: Safety cap on number of wave iterations (default: 5)
 
         Returns:
             List of completed waves

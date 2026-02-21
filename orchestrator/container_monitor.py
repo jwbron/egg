@@ -302,6 +302,13 @@ def _reconcile_container_state(store: Any, container_info: ContainerInfo) -> boo
     container_info and marks the container and its agent as FAILED.
     If any changes are made, the pipeline itself is marked FAILED.
 
+    Uses per-pipeline locking (via ``get_pipeline_state_lock``) and
+    optimistic version checks (``expected_version``) to prevent race
+    conditions with concurrent state writers (e.g. agent signal handlers).
+
+    A container belongs to exactly one pipeline, so the function returns
+    after updating the first matching pipeline.
+
     Args:
         store: StateStore instance
         container_info: Info about the exited/failed container
@@ -310,6 +317,7 @@ def _reconcile_container_state(store: Any, container_info: ContainerInfo) -> boo
         True if any pipeline state was updated
     """
     from models import AgentExecutionStatus, PipelineStatus
+    from state_store import VersionConflictError, get_pipeline_state_lock
 
     try:
         pipeline_ids: list[str] = store.list_pipelines()
@@ -321,70 +329,81 @@ def _reconcile_container_state(store: Any, container_info: ContainerInfo) -> boo
         return False
 
     for pipeline_id in pipeline_ids:
-        try:
-            pipeline = store.load_pipeline(pipeline_id)
-        except Exception:
-            continue
-
-        if pipeline.status != PipelineStatus.RUNNING:
-            continue
-
-        changed = False
-
-        for phase_execution in pipeline.phases.values():
-            if phase_execution.status != PipelineStatus.RUNNING:
+        with get_pipeline_state_lock(pipeline_id):
+            try:
+                pipeline = store.load_pipeline(pipeline_id)
+            except Exception:
                 continue
 
-            for ci in phase_execution.containers:
-                if ci.container_id == container_info.container_id and ci.status == ContainerStatus.RUNNING:
-                    logger.warning(
-                        "Runtime reconciliation: container exited, marking FAILED",
-                        pipeline_id=pipeline_id,
-                        container_id=container_info.container_id[:12],
-                    )
-                    ci.status = ContainerStatus.FAILED
-                    ci.exit_code = container_info.exit_code if container_info.exit_code is not None else -1
-                    ci.exited_at = container_info.exited_at or datetime.utcnow()
-                    changed = True
+            if pipeline.status != PipelineStatus.RUNNING:
+                continue
 
-            for agent in phase_execution.agents:
-                if (
-                    agent.status == AgentExecutionStatus.RUNNING
-                    and agent.container_id == container_info.container_id
-                ):
-                    logger.warning(
-                        "Runtime reconciliation: agent container exited, marking FAILED",
-                        pipeline_id=pipeline_id,
-                        agent_role=str(agent.role),
-                        container_id=container_info.container_id[:12],
-                    )
-                    agent.status = AgentExecutionStatus.FAILED
-                    agent.completed_at = datetime.utcnow()
-                    agent.error = (
-                        "Container exited unexpectedly during execution — "
-                        "detected by runtime container monitor"
-                    )
-                    changed = True
+            changed = False
 
-        if changed:
-            pipeline.status = PipelineStatus.FAILED
-            pipeline.error = (
-                "Pipeline marked FAILED: agent container exited unexpectedly "
-                "during execution. Restart via POST /pipelines/{id}/start."
-            )
-            try:
-                store.save_pipeline(pipeline)
-                logger.warning(
-                    "Runtime reconciliation: pipeline marked FAILED",
-                    pipeline_id=pipeline_id,
+            for phase_execution in pipeline.phases.values():
+                if phase_execution.status != PipelineStatus.RUNNING:
+                    continue
+
+                for ci in phase_execution.containers:
+                    if ci.container_id == container_info.container_id and ci.status == ContainerStatus.RUNNING:
+                        logger.warning(
+                            "Runtime reconciliation: container exited, marking FAILED",
+                            pipeline_id=pipeline_id,
+                            container_id=container_info.container_id[:12],
+                        )
+                        ci.status = ContainerStatus.FAILED
+                        ci.exit_code = container_info.exit_code if container_info.exit_code is not None else -1
+                        ci.exited_at = container_info.exited_at or datetime.utcnow()
+                        changed = True
+
+                for agent in phase_execution.agents:
+                    if (
+                        agent.status == AgentExecutionStatus.RUNNING
+                        and agent.container_id == container_info.container_id
+                    ):
+                        logger.warning(
+                            "Runtime reconciliation: agent container exited, marking FAILED",
+                            pipeline_id=pipeline_id,
+                            agent_role=str(agent.role),
+                            container_id=container_info.container_id[:12],
+                        )
+                        agent.status = AgentExecutionStatus.FAILED
+                        agent.completed_at = datetime.utcnow()
+                        agent.error = (
+                            "Container exited unexpectedly during execution — "
+                            "detected by runtime container monitor"
+                        )
+                        changed = True
+
+            if changed:
+                pipeline.status = PipelineStatus.FAILED
+                pipeline.error = (
+                    "Pipeline marked FAILED: agent container exited unexpectedly "
+                    "during execution. Restart via POST /pipelines/{id}/start."
                 )
-                return True
-            except Exception as e:
-                logger.error(
-                    "Runtime reconciliation: could not save pipeline",
-                    pipeline_id=pipeline_id,
-                    error=str(e),
-                )
+                try:
+                    store.save_pipeline(
+                        pipeline,
+                        expected_version=pipeline.version,
+                    )
+                    logger.warning(
+                        "Runtime reconciliation: pipeline marked FAILED",
+                        pipeline_id=pipeline_id,
+                    )
+                    return True
+                except VersionConflictError:
+                    logger.warning(
+                        "Runtime reconciliation: version conflict, skipping "
+                        "(concurrent writer updated pipeline)",
+                        pipeline_id=pipeline_id,
+                    )
+                    return False
+                except Exception as e:
+                    logger.error(
+                        "Runtime reconciliation: could not save pipeline",
+                        pipeline_id=pipeline_id,
+                        error=str(e),
+                    )
 
     return False
 
@@ -393,8 +412,9 @@ def create_pipeline_reconciliation_handler(repo_path: str) -> EventHandler:
     """Create handler that updates pipeline state when containers exit.
 
     The handler is invoked by the ContainerMonitor whenever a container
-    state change is detected. For EXITED/FAILED/STOPPED events, it looks
-    up the pipeline that owns the container and marks it FAILED.
+    state change is detected. Only FAILED events (non-zero exit) trigger
+    reconciliation — STOPPED (exit code 0) represents a graceful exit
+    and should not mark pipelines as failed.
 
     Args:
         repo_path: Path to the repository (for StateStore access)
@@ -404,7 +424,7 @@ def create_pipeline_reconciliation_handler(repo_path: str) -> EventHandler:
     """
 
     def handler(event: ContainerEvent) -> None:
-        if event.event_type not in (ContainerEvent.EXITED, ContainerEvent.FAILED, ContainerEvent.STOPPED):
+        if event.event_type != ContainerEvent.FAILED:
             return
 
         from state_store import get_state_store

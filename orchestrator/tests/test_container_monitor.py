@@ -112,7 +112,9 @@ class TestReconcileContainerState:
         assert result is True
         assert pipeline.status == PipelineStatus.FAILED
         assert pipeline.error is not None
-        store.save_pipeline.assert_called_once_with(pipeline)
+        store.save_pipeline.assert_called_once_with(
+            pipeline, expected_version=pipeline.version,
+        )
 
     def test_marks_agent_failed_when_container_exits(self):
         """The agent whose container exited is marked FAILED with an error."""
@@ -191,6 +193,37 @@ class TestReconcileContainerState:
 
         assert result is False
 
+    @patch("state_store.get_pipeline_state_lock")
+    def test_acquires_pipeline_lock(self, mock_get_lock):
+        """Reconciliation acquires the per-pipeline lock during load-modify-save."""
+        container_id = "dead_container_xyz"
+        pipeline = _make_pipeline_with_running_agent(container_id)
+        store = _make_store(pipeline)
+        exited_info = _make_container_info(container_id)
+
+        mock_lock = MagicMock()
+        mock_get_lock.return_value = mock_lock
+
+        _reconcile_container_state(store, exited_info)
+
+        mock_get_lock.assert_called_once_with(pipeline.id)
+        mock_lock.__enter__.assert_called_once()
+        mock_lock.__exit__.assert_called_once()
+
+    def test_handles_version_conflict(self):
+        """Returns False on VersionConflictError (concurrent writer won)."""
+        from state_store import VersionConflictError
+
+        container_id = "dead_container_xyz"
+        pipeline = _make_pipeline_with_running_agent(container_id)
+        store = _make_store(pipeline)
+        store.save_pipeline.side_effect = VersionConflictError("conflict")
+        exited_info = _make_container_info(container_id)
+
+        result = _reconcile_container_state(store, exited_info)
+
+        assert result is False
+
 
 # ---------------------------------------------------------------------------
 # Tests: create_pipeline_reconciliation_handler
@@ -201,25 +234,8 @@ class TestCreatePipelineReconciliationHandler:
     """Tests for the handler factory function."""
 
     @patch("state_store.get_state_store")
-    def test_handler_calls_reconcile_on_exited_event(self, mock_get_store):
-        """Handler processes EXITED events."""
-        container_id = "dead_container"
-        pipeline = _make_pipeline_with_running_agent(container_id)
-        store = _make_store(pipeline)
-        mock_get_store.return_value = store
-
-        handler = create_pipeline_reconciliation_handler("/repo")
-        event = ContainerEvent(
-            ContainerEvent.EXITED,
-            _make_container_info(container_id),
-        )
-        handler(event)
-
-        assert pipeline.status == PipelineStatus.FAILED
-
-    @patch("state_store.get_state_store")
     def test_handler_calls_reconcile_on_failed_event(self, mock_get_store):
-        """Handler processes FAILED events."""
+        """Handler processes FAILED events (non-zero exit)."""
         container_id = "dead_container"
         pipeline = _make_pipeline_with_running_agent(container_id)
         store = _make_store(pipeline)
@@ -240,6 +256,30 @@ class TestCreatePipelineReconciliationHandler:
         handler = create_pipeline_reconciliation_handler("/repo")
         event = ContainerEvent(
             ContainerEvent.STARTED,
+            _make_container_info("some_id"),
+        )
+        handler(event)
+
+        mock_get_store.assert_not_called()
+
+    @patch("state_store.get_state_store")
+    def test_handler_ignores_stopped_event(self, mock_get_store):
+        """Handler does NOT process STOPPED events (graceful exit code 0)."""
+        handler = create_pipeline_reconciliation_handler("/repo")
+        event = ContainerEvent(
+            ContainerEvent.STOPPED,
+            _make_container_info("some_id", exit_code=0),
+        )
+        handler(event)
+
+        mock_get_store.assert_not_called()
+
+    @patch("state_store.get_state_store")
+    def test_handler_ignores_exited_event(self, mock_get_store):
+        """Handler does NOT process EXITED events (never emitted by monitor)."""
+        handler = create_pipeline_reconciliation_handler("/repo")
+        event = ContainerEvent(
+            ContainerEvent.EXITED,
             _make_container_info("some_id"),
         )
         handler(event)
