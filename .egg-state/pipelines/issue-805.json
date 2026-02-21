@@ -5,7 +5,7 @@
   "branch": "egg/issue-805",
   "mode": "issue",
   "prompt": null,
-  "status": "failed",
+  "status": "running",
   "current_phase": "implement",
   "config": {
     "auto_create_pr": true,
@@ -393,12 +393,12 @@
       "resolution": "Approved"
     }
   ],
-  "created_at": "2026-02-21T19:54:50.533598",
-  "updated_at": "2026-02-21T21:22:20.292893",
+  "created_at": "2026-02-21T21:22:24.736119",
+  "updated_at": "2026-02-21T21:22:24.736332",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
   "complexity_tier": "high",
-  "error": "reviewer_code container exited (code 0) before signaling completion — manually recovered",
-  "version": 49
+  "error": null,
+  "version": 50
 }
