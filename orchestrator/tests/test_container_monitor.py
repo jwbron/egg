@@ -225,6 +225,29 @@ class TestReconcileContainerState:
 
         assert result is False
 
+    def test_reconciles_running_container_in_completed_phase(self):
+        """A RUNNING agent in a COMPLETE phase with an exited container is marked FAILED.
+
+        Reviewers run inside phases already marked complete. The reconciler
+        must still scan completed phases for exited containers.
+        """
+        container_id = "reviewer_dead_xyz"
+        pipeline = _make_pipeline_with_running_agent(container_id)
+        # Phase is complete, but reviewer container is still RUNNING
+        phase = pipeline.get_phase_execution(PipelinePhase.IMPLEMENT)
+        phase.status = PipelineStatus.COMPLETE
+
+        store = _make_store(pipeline)
+        exited_info = _make_container_info(container_id)
+
+        result = _reconcile_container_state(store, exited_info)
+
+        assert result is True
+        assert pipeline.status == PipelineStatus.FAILED
+        agent = phase.agents[0]
+        assert agent.status == AgentExecutionStatus.FAILED
+        assert agent.completed_at is not None
+
 
 # ---------------------------------------------------------------------------
 # Tests: create_pipeline_reconciliation_handler

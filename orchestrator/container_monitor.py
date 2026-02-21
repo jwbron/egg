@@ -298,8 +298,11 @@ def get_container_monitor() -> ContainerMonitor:
 def _reconcile_container_state(store: Any, container_info: ContainerInfo) -> bool:
     """Update pipeline state for a single container that has exited.
 
-    Scans all RUNNING pipelines for a container matching the given
-    container_info and marks the container and its agent as FAILED.
+    Scans all RUNNING pipelines — and all phases within them, including
+    completed phases — for a container matching the given container_info
+    and marks the container and its agent as FAILED.  Completed phases
+    are included because reviewer agents run inside phases whose status
+    has already transitioned to COMPLETE.
     If any changes are made, the pipeline itself is marked FAILED.
 
     Uses per-pipeline locking (via ``get_pipeline_state_lock``) and

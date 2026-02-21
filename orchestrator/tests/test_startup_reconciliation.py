@@ -288,3 +288,25 @@ class TestReconcileStaleContainers:
         dead_agent = next(a for a in phase.agents if a.container_id == dead_id)
         assert live_agent.status == AgentExecutionStatus.RUNNING
         assert dead_agent.status == AgentExecutionStatus.FAILED
+
+    def test_reconciles_running_container_in_completed_phase(self):
+        """A RUNNING agent in a COMPLETE phase with a dead container is marked FAILED.
+
+        Reviewers run inside phases already marked complete. The reconciler
+        must still scan completed phases for stale containers.
+        """
+        container_id = "reviewer_dead_xyz"
+        pipeline = _make_pipeline_with_running_agent(container_id)
+        # Phase is complete, but reviewer container is still RUNNING
+        phase = pipeline.get_phase_execution(PipelinePhase.IMPLEMENT)
+        phase.status = PipelineStatus.COMPLETE
+
+        store = _make_store(pipeline)
+        docker_client = _make_docker_client([])  # container gone
+
+        result = reconcile_stale_containers(store, docker_client)
+
+        assert result == 1
+        assert pipeline.status == PipelineStatus.FAILED
+        agent = phase.agents[0]
+        assert agent.status == AgentExecutionStatus.FAILED
