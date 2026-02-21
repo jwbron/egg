@@ -4,12 +4,12 @@
     {
       "name": "lint",
       "passed": true,
-      "output": "All checks passed! 398 files already formatted."
+      "output": "All checks passed!\n415 files already formatted"
     },
     {
       "name": "test",
       "passed": true,
-      "output": "3678 passed, 80 skipped, 3 warnings in 26.08s"
+      "output": "3729 passed, 80 skipped, 3 warnings in 26.52s"
     }
   ]
 }
