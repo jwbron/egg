@@ -175,7 +175,7 @@ class TestContextGitLog:
             )
             with patch("subprocess.run") as mock_run:
                 mock_run.return_value = MagicMock(stdout="log output\n", returncode=0)
-                ctx.git_log
+                _ = ctx.git_log
                 # Verify git was run in the repo subdirectory
                 call_kwargs = mock_run.call_args
                 assert str(repo_dir) == call_kwargs.kwargs.get("cwd", call_kwargs[1].get("cwd"))

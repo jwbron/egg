@@ -49,10 +49,12 @@ class StartupStateCheck:
 
     name: str = "startup_state"
     tier: HealthTier = HealthTier.PROGRAMMATIC
-    triggers: frozenset[HealthTrigger] = frozenset({
-        HealthTrigger.STARTUP,
-        HealthTrigger.ON_DEMAND,
-    })
+    triggers: frozenset[HealthTrigger] = frozenset(
+        {
+            HealthTrigger.STARTUP,
+            HealthTrigger.ON_DEMAND,
+        }
+    )
 
     def run(self, context: PipelineHealthContext) -> HealthResult:
         """Check for stale containers in the pipeline."""

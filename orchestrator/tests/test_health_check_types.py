@@ -1,6 +1,5 @@
 """Tests for health check core types, runner, and context."""
 
-import json
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -72,7 +71,9 @@ class _AlwaysHealthyCheck:
 
     name = "always_healthy"
     tier = HealthTier.PROGRAMMATIC
-    triggers = frozenset({HealthTrigger.ON_DEMAND, HealthTrigger.WAVE_COMPLETE, HealthTrigger.PHASE_COMPLETE})
+    triggers = frozenset(
+        {HealthTrigger.ON_DEMAND, HealthTrigger.WAVE_COMPLETE, HealthTrigger.PHASE_COMPLETE}
+    )
 
     def run(self, context: PipelineHealthContext) -> HealthResult:
         return HealthResult(
@@ -88,7 +89,9 @@ class _AlwaysDegradedCheck:
 
     name = "always_degraded"
     tier = HealthTier.PROGRAMMATIC
-    triggers = frozenset({HealthTrigger.ON_DEMAND, HealthTrigger.WAVE_COMPLETE, HealthTrigger.PHASE_COMPLETE})
+    triggers = frozenset(
+        {HealthTrigger.ON_DEMAND, HealthTrigger.WAVE_COMPLETE, HealthTrigger.PHASE_COMPLETE}
+    )
 
     def run(self, context: PipelineHealthContext) -> HealthResult:
         return HealthResult(
@@ -105,7 +108,9 @@ class _AlwaysFailedCheck:
 
     name = "always_failed"
     tier = HealthTier.PROGRAMMATIC
-    triggers = frozenset({HealthTrigger.ON_DEMAND, HealthTrigger.WAVE_COMPLETE, HealthTrigger.PHASE_COMPLETE})
+    triggers = frozenset(
+        {HealthTrigger.ON_DEMAND, HealthTrigger.WAVE_COMPLETE, HealthTrigger.PHASE_COMPLETE}
+    )
 
     def run(self, context: PipelineHealthContext) -> HealthResult:
         return HealthResult(
@@ -133,7 +138,9 @@ class _Tier2Check:
 
     name = "mock_tier2"
     tier = HealthTier.AGENT
-    triggers = frozenset({HealthTrigger.WAVE_COMPLETE, HealthTrigger.PHASE_COMPLETE, HealthTrigger.ON_DEMAND})
+    triggers = frozenset(
+        {HealthTrigger.WAVE_COMPLETE, HealthTrigger.PHASE_COMPLETE, HealthTrigger.ON_DEMAND}
+    )
 
     def run(self, context: PipelineHealthContext) -> HealthResult:
         return HealthResult(
@@ -189,7 +196,7 @@ class TestHealthResult:
         )
         try:
             result.status = HealthStatus.FAILED  # type: ignore[misc]
-            assert False, "Should have raised"
+            raise AssertionError("Should have raised")
         except AttributeError:
             pass
 
@@ -445,14 +452,29 @@ class TestHealthCheckRunner:
 class TestWorstAction:
     def test_all_continue(self):
         results = [
-            HealthResult(status=HealthStatus.HEALTHY, check_name="a", tier=HealthTier.PROGRAMMATIC, reasoning="OK"),
-            HealthResult(status=HealthStatus.HEALTHY, check_name="b", tier=HealthTier.PROGRAMMATIC, reasoning="OK"),
+            HealthResult(
+                status=HealthStatus.HEALTHY,
+                check_name="a",
+                tier=HealthTier.PROGRAMMATIC,
+                reasoning="OK",
+            ),
+            HealthResult(
+                status=HealthStatus.HEALTHY,
+                check_name="b",
+                tier=HealthTier.PROGRAMMATIC,
+                reasoning="OK",
+            ),
         ]
         assert worst_action(results) == HealthAction.CONTINUE
 
     def test_alert_present(self):
         results = [
-            HealthResult(status=HealthStatus.HEALTHY, check_name="a", tier=HealthTier.PROGRAMMATIC, reasoning="OK"),
+            HealthResult(
+                status=HealthStatus.HEALTHY,
+                check_name="a",
+                tier=HealthTier.PROGRAMMATIC,
+                reasoning="OK",
+            ),
             HealthResult(
                 status=HealthStatus.DEGRADED,
                 check_name="b",

@@ -48,13 +48,15 @@ class ContainerLivenessCheck:
 
     name: str = "container_liveness"
     tier: HealthTier = HealthTier.PROGRAMMATIC
-    triggers: frozenset[HealthTrigger] = frozenset({
-        HealthTrigger.STARTUP,
-        HealthTrigger.RUNTIME_TICK,
-        HealthTrigger.WAVE_COMPLETE,
-        HealthTrigger.PHASE_COMPLETE,
-        HealthTrigger.ON_DEMAND,
-    })
+    triggers: frozenset[HealthTrigger] = frozenset(
+        {
+            HealthTrigger.STARTUP,
+            HealthTrigger.RUNTIME_TICK,
+            HealthTrigger.WAVE_COMPLETE,
+            HealthTrigger.PHASE_COMPLETE,
+            HealthTrigger.ON_DEMAND,
+        }
+    )
 
     def run(self, context: PipelineHealthContext) -> HealthResult:
         """Check container liveness for the current pipeline."""

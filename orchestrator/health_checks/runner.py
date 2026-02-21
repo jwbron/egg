@@ -82,7 +82,9 @@ class HealthCheckRunner:
         """
         self._emit_started(context, trigger)
 
-        tier1 = [c for c in self._checks if c.tier == HealthTier.PROGRAMMATIC and trigger in c.triggers]
+        tier1 = [
+            c for c in self._checks if c.tier == HealthTier.PROGRAMMATIC and trigger in c.triggers
+        ]
         tier2 = [c for c in self._checks if c.tier == HealthTier.AGENT and trigger in c.triggers]
 
         results: list[HealthResult] = []
@@ -155,6 +157,7 @@ class HealthCheckRunner:
         """Import and return the singleton EventBus (lazy to avoid circular imports)."""
         try:
             from events import get_event_bus
+
             return get_event_bus()
         except ImportError:
             return None
@@ -165,6 +168,7 @@ class HealthCheckRunner:
             return
         try:
             from events import EventType
+
             bus.emit(
                 EventType.HEALTH_CHECK_STARTED,
                 context.pipeline_id,
@@ -232,6 +236,7 @@ class HealthCheckRunner:
 # ------------------------------------------------------------------
 # Helper: aggregate worst action from results
 # ------------------------------------------------------------------
+
 
 def worst_action(results: list[HealthResult]) -> HealthAction:
     """Return the most severe action from a list of results.

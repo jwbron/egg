@@ -81,9 +81,7 @@ class PipelineHealthContext:
     def git_diff_stat(self) -> str:
         """Diff stat against origin/main."""
         if self._git_diff_stat is None:
-            self._git_diff_stat = self._run_git(
-                "diff", "--stat", "origin/main...HEAD"
-            )
+            self._git_diff_stat = self._run_git("diff", "--stat", "origin/main...HEAD")
         return self._git_diff_stat
 
     @property

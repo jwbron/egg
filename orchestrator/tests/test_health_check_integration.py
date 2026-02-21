@@ -2,7 +2,6 @@
 
 import json
 import sys
-from datetime import datetime
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -30,7 +29,6 @@ from health_checks.types import (
     HealthTrigger,
 )
 from models import Pipeline, PipelinePhase, PipelineStatus
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -542,7 +540,14 @@ class TestEndToEndRunnerWithTier1Checks:
         pipeline = _make_pipeline()
         phase = pipeline.get_phase_execution(PipelinePhase.IMPLEMENT)
         phase.status = PipelineStatus.RUNNING
-        from models import AgentExecution, AgentExecutionStatus, AgentRole, ContainerInfo, ContainerStatus
+        from models import (
+            AgentExecution,
+            AgentExecutionStatus,
+            AgentRole,
+            ContainerInfo,
+            ContainerStatus,
+        )
+
         phase.containers.append(
             ContainerInfo(
                 container_id="c1",

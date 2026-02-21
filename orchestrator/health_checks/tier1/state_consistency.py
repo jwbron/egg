@@ -42,12 +42,14 @@ class StateConsistencyCheck:
 
     name: str = "state_consistency"
     tier: HealthTier = HealthTier.PROGRAMMATIC
-    triggers: frozenset[HealthTrigger] = frozenset({
-        HealthTrigger.RUNTIME_TICK,
-        HealthTrigger.WAVE_COMPLETE,
-        HealthTrigger.PHASE_COMPLETE,
-        HealthTrigger.ON_DEMAND,
-    })
+    triggers: frozenset[HealthTrigger] = frozenset(
+        {
+            HealthTrigger.RUNTIME_TICK,
+            HealthTrigger.WAVE_COMPLETE,
+            HealthTrigger.PHASE_COMPLETE,
+            HealthTrigger.ON_DEMAND,
+        }
+    )
 
     def run(self, context: PipelineHealthContext) -> HealthResult:
         """Run state consistency checks."""
@@ -80,9 +82,7 @@ class StateConsistencyCheck:
 
         # --- Check 2: Container status vs agent status mismatch ---
         for phase_exec in pipeline.phases.values():
-            container_map = {
-                ci.container_id: ci for ci in phase_exec.containers
-            }
+            container_map = {ci.container_id: ci for ci in phase_exec.containers}
             for agent in phase_exec.agents:
                 if not agent.container_id or agent.container_id not in container_map:
                     continue
@@ -93,8 +93,7 @@ class StateConsistencyCheck:
                     and agent.status == AgentExecutionStatus.RUNNING
                 ):
                     issues.append(
-                        f"Agent {agent.role} is RUNNING but its container "
-                        f"is {ci.status.value}."
+                        f"Agent {agent.role} is RUNNING but its container is {ci.status.value}."
                     )
                     severity = HealthStatus.FAILED
 
@@ -120,7 +119,9 @@ class StateConsistencyCheck:
                 reasoning="Pipeline state is consistent with Docker and contract.",
             )
 
-        action = HealthAction.FAIL_PIPELINE if severity == HealthStatus.FAILED else HealthAction.ALERT
+        action = (
+            HealthAction.FAIL_PIPELINE if severity == HealthStatus.FAILED else HealthAction.ALERT
+        )
         return HealthResult(
             status=severity,
             check_name=self.name,
@@ -164,8 +165,7 @@ class StateConsistencyCheck:
         tasks = contract.get("tasks", [])
         if isinstance(tasks, list):
             pending_tasks = [
-                t for t in tasks
-                if isinstance(t, dict) and t.get("status") == "pending"
+                t for t in tasks if isinstance(t, dict) and t.get("status") == "pending"
             ]
             if pending_tasks and len(complete_agents) > 0:
                 return (

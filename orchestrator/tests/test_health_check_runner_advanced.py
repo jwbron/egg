@@ -2,7 +2,7 @@
 
 import sys
 from pathlib import Path
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock, patch
 
 _orchestrator_path = Path(__file__).parent.parent
 if str(_orchestrator_path) not in sys.path:
@@ -20,7 +20,6 @@ from health_checks.context import PipelineHealthContext
 from health_checks.runner import HealthCheckRunner, worst_action
 from health_checks.types import (
     HealthAction,
-    HealthCheck,
     HealthResult,
     HealthStatus,
     HealthTier,
@@ -57,11 +56,15 @@ def _make_context() -> PipelineHealthContext:
 class _HealthyCheck:
     name = "healthy"
     tier = HealthTier.PROGRAMMATIC
-    triggers = frozenset({
-        HealthTrigger.ON_DEMAND, HealthTrigger.WAVE_COMPLETE,
-        HealthTrigger.PHASE_COMPLETE, HealthTrigger.STARTUP,
-        HealthTrigger.RUNTIME_TICK,
-    })
+    triggers = frozenset(
+        {
+            HealthTrigger.ON_DEMAND,
+            HealthTrigger.WAVE_COMPLETE,
+            HealthTrigger.PHASE_COMPLETE,
+            HealthTrigger.STARTUP,
+            HealthTrigger.RUNTIME_TICK,
+        }
+    )
 
     def run(self, ctx):
         return HealthResult(
@@ -75,10 +78,13 @@ class _HealthyCheck:
 class _DegradedCheck:
     name = "degraded"
     tier = HealthTier.PROGRAMMATIC
-    triggers = frozenset({
-        HealthTrigger.ON_DEMAND, HealthTrigger.WAVE_COMPLETE,
-        HealthTrigger.PHASE_COMPLETE,
-    })
+    triggers = frozenset(
+        {
+            HealthTrigger.ON_DEMAND,
+            HealthTrigger.WAVE_COMPLETE,
+            HealthTrigger.PHASE_COMPLETE,
+        }
+    )
 
     def run(self, ctx):
         return HealthResult(
@@ -93,10 +99,13 @@ class _DegradedCheck:
 class _FailedCheck:
     name = "failed"
     tier = HealthTier.PROGRAMMATIC
-    triggers = frozenset({
-        HealthTrigger.ON_DEMAND, HealthTrigger.WAVE_COMPLETE,
-        HealthTrigger.PHASE_COMPLETE,
-    })
+    triggers = frozenset(
+        {
+            HealthTrigger.ON_DEMAND,
+            HealthTrigger.WAVE_COMPLETE,
+            HealthTrigger.PHASE_COMPLETE,
+        }
+    )
 
     def run(self, ctx):
         return HealthResult(
@@ -111,10 +120,14 @@ class _FailedCheck:
 class _Tier2HealthyCheck:
     name = "tier2_healthy"
     tier = HealthTier.AGENT
-    triggers = frozenset({
-        HealthTrigger.ON_DEMAND, HealthTrigger.WAVE_COMPLETE,
-        HealthTrigger.PHASE_COMPLETE, HealthTrigger.STARTUP,
-    })
+    triggers = frozenset(
+        {
+            HealthTrigger.ON_DEMAND,
+            HealthTrigger.WAVE_COMPLETE,
+            HealthTrigger.PHASE_COMPLETE,
+            HealthTrigger.STARTUP,
+        }
+    )
 
     def run(self, ctx):
         return HealthResult(
@@ -128,10 +141,13 @@ class _Tier2HealthyCheck:
 class _Tier2DegradedCheck:
     name = "tier2_degraded"
     tier = HealthTier.AGENT
-    triggers = frozenset({
-        HealthTrigger.ON_DEMAND, HealthTrigger.WAVE_COMPLETE,
-        HealthTrigger.PHASE_COMPLETE,
-    })
+    triggers = frozenset(
+        {
+            HealthTrigger.ON_DEMAND,
+            HealthTrigger.WAVE_COMPLETE,
+            HealthTrigger.PHASE_COMPLETE,
+        }
+    )
 
     def run(self, ctx):
         return HealthResult(
@@ -177,14 +193,10 @@ class TestRunnerRegistration:
 
 class TestEscalationLogic:
     def test_phase_complete_always_escalates(self):
-        assert HealthCheckRunner._should_escalate_to_tier2(
-            HealthTrigger.PHASE_COMPLETE, []
-        ) is True
+        assert HealthCheckRunner._should_escalate_to_tier2(HealthTrigger.PHASE_COMPLETE, []) is True
 
     def test_on_demand_always_escalates(self):
-        assert HealthCheckRunner._should_escalate_to_tier2(
-            HealthTrigger.ON_DEMAND, []
-        ) is True
+        assert HealthCheckRunner._should_escalate_to_tier2(HealthTrigger.ON_DEMAND, []) is True
 
     def test_wave_complete_escalates_on_degraded(self):
         results = [
@@ -195,9 +207,10 @@ class TestEscalationLogic:
                 reasoning="degraded",
             )
         ]
-        assert HealthCheckRunner._should_escalate_to_tier2(
-            HealthTrigger.WAVE_COMPLETE, results
-        ) is True
+        assert (
+            HealthCheckRunner._should_escalate_to_tier2(HealthTrigger.WAVE_COMPLETE, results)
+            is True
+        )
 
     def test_wave_complete_no_escalation_on_healthy(self):
         results = [
@@ -208,9 +221,10 @@ class TestEscalationLogic:
                 reasoning="ok",
             )
         ]
-        assert HealthCheckRunner._should_escalate_to_tier2(
-            HealthTrigger.WAVE_COMPLETE, results
-        ) is False
+        assert (
+            HealthCheckRunner._should_escalate_to_tier2(HealthTrigger.WAVE_COMPLETE, results)
+            is False
+        )
 
     def test_wave_complete_no_escalation_on_failed_only(self):
         """FAILED without DEGRADED should NOT escalate on WAVE_COMPLETE."""
@@ -222,9 +236,10 @@ class TestEscalationLogic:
                 reasoning="failed",
             )
         ]
-        assert HealthCheckRunner._should_escalate_to_tier2(
-            HealthTrigger.WAVE_COMPLETE, results
-        ) is False
+        assert (
+            HealthCheckRunner._should_escalate_to_tier2(HealthTrigger.WAVE_COMPLETE, results)
+            is False
+        )
 
     def test_startup_never_escalates(self):
         results = [
@@ -235,9 +250,7 @@ class TestEscalationLogic:
                 reasoning="degraded",
             )
         ]
-        assert HealthCheckRunner._should_escalate_to_tier2(
-            HealthTrigger.STARTUP, results
-        ) is False
+        assert HealthCheckRunner._should_escalate_to_tier2(HealthTrigger.STARTUP, results) is False
 
     def test_runtime_tick_never_escalates(self):
         results = [
@@ -248,9 +261,10 @@ class TestEscalationLogic:
                 reasoning="failed",
             )
         ]
-        assert HealthCheckRunner._should_escalate_to_tier2(
-            HealthTrigger.RUNTIME_TICK, results
-        ) is False
+        assert (
+            HealthCheckRunner._should_escalate_to_tier2(HealthTrigger.RUNTIME_TICK, results)
+            is False
+        )
 
     def test_wave_complete_escalates_with_mixed_results(self):
         """DEGRADED among other results should trigger escalation."""
@@ -268,15 +282,14 @@ class TestEscalationLogic:
                 reasoning="degraded",
             ),
         ]
-        assert HealthCheckRunner._should_escalate_to_tier2(
-            HealthTrigger.WAVE_COMPLETE, results
-        ) is True
+        assert (
+            HealthCheckRunner._should_escalate_to_tier2(HealthTrigger.WAVE_COMPLETE, results)
+            is True
+        )
 
     def test_phase_complete_escalates_with_empty_results(self):
         """PHASE_COMPLETE escalates even with no Tier 1 results."""
-        assert HealthCheckRunner._should_escalate_to_tier2(
-            HealthTrigger.PHASE_COMPLETE, []
-        ) is True
+        assert HealthCheckRunner._should_escalate_to_tier2(HealthTrigger.PHASE_COMPLETE, []) is True
 
 
 # ===========================================================================
@@ -362,6 +375,7 @@ class TestRunnerExecution:
     @patch("health_checks.runner.HealthCheckRunner._get_event_bus", return_value=None)
     def test_exception_in_check_returns_healthy(self, _):
         """A check that raises should produce HEALTHY with error reasoning."""
+
         class Exploding:
             name = "exploding"
             tier = HealthTier.PROGRAMMATIC
@@ -413,6 +427,7 @@ class TestEventEmission:
         # First emit should be HEALTH_CHECK_STARTED
         first_call = mock_bus.emit.call_args_list[0]
         from events import EventType
+
         assert first_call.args[0] == EventType.HEALTH_CHECK_STARTED
 
     def test_completed_event_emitted(self):
@@ -428,8 +443,13 @@ class TestEventEmission:
         # Last emit should be HEALTH_CHECK_COMPLETED with aggregate data
         last_call = mock_bus.emit.call_args_list[-1]
         from events import EventType
+
         assert last_call.args[0] == EventType.HEALTH_CHECK_COMPLETED
-        data = last_call.kwargs.get("data") or last_call.args[2] if len(last_call.args) > 2 else last_call.kwargs.get("data")
+        data = (
+            last_call.kwargs.get("data") or last_call.args[2]
+            if len(last_call.args) > 2
+            else last_call.kwargs.get("data")
+        )
         assert "aggregate_status" in data
         assert "check_count" in data
 
@@ -444,6 +464,7 @@ class TestEventEmission:
             runner.run(ctx, HealthTrigger.ON_DEMAND)
 
         from events import EventType
+
         emitted_types = [c.args[0] for c in mock_bus.emit.call_args_list]
         assert EventType.HEALTH_CHECK_FAILED in emitted_types
 
@@ -458,6 +479,7 @@ class TestEventEmission:
             runner.run(ctx, HealthTrigger.ON_DEMAND)
 
         from events import EventType
+
         emitted_types = [c.args[0] for c in mock_bus.emit.call_args_list]
         assert EventType.HEALTH_CHECK_DEGRADED in emitted_types
 
@@ -472,6 +494,7 @@ class TestEventEmission:
             runner.run(ctx, HealthTrigger.ON_DEMAND)
 
         from events import EventType
+
         emitted_types = [c.args[0] for c in mock_bus.emit.call_args_list]
         assert EventType.HEALTH_CHECK_DEGRADED not in emitted_types
         assert EventType.HEALTH_CHECK_FAILED not in emitted_types
@@ -504,13 +527,17 @@ class TestEventEmission:
 
         # Find the completion event
         from events import EventType
+
         completion_calls = [
-            c for c in mock_bus.emit.call_args_list
-            if c.args[0] == EventType.HEALTH_CHECK_COMPLETED
+            c for c in mock_bus.emit.call_args_list if c.args[0] == EventType.HEALTH_CHECK_COMPLETED
         ]
         assert len(completion_calls) >= 1
         last = completion_calls[-1]
-        data = last.kwargs.get("data") or last.args[2] if len(last.args) > 2 else last.kwargs.get("data")
+        data = (
+            last.kwargs.get("data") or last.args[2]
+            if len(last.args) > 2
+            else last.kwargs.get("data")
+        )
         assert data["aggregate_status"] == "failed"
 
     def test_no_event_bus_graceful(self):

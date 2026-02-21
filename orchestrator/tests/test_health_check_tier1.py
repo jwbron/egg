@@ -29,8 +29,6 @@ from health_checks.types import (
     HealthAction,
     HealthCheck,
     HealthStatus,
-    HealthTier,
-    HealthTrigger,
 )
 from models import (
     AgentExecution,
@@ -272,7 +270,8 @@ class TestPhaseOutputPresenceCheck:
 
     def test_plan_phase_healthy_when_plan_exists(self):
         pipeline = _make_pipeline_with_completed_agent(
-            commit=None, phase=PipelinePhase.PLAN,
+            commit=None,
+            phase=PipelinePhase.PLAN,
         )
         with tempfile.TemporaryDirectory() as tmpdir:
             # Create a plan artifact
@@ -290,7 +289,8 @@ class TestPhaseOutputPresenceCheck:
 
     def test_plan_phase_degraded_when_no_plan(self):
         pipeline = _make_pipeline_with_completed_agent(
-            commit=None, phase=PipelinePhase.PLAN,
+            commit=None,
+            phase=PipelinePhase.PLAN,
         )
         with tempfile.TemporaryDirectory() as tmpdir:
             # No .egg-state directory
@@ -305,7 +305,8 @@ class TestPhaseOutputPresenceCheck:
     def test_refine_phase_always_healthy(self):
         """REFINE phase has no artifact requirements."""
         pipeline = _make_pipeline_with_completed_agent(
-            commit=None, phase=PipelinePhase.REFINE,
+            commit=None,
+            phase=PipelinePhase.REFINE,
         )
         ctx = _make_context(pipeline)
         result = PhaseOutputPresenceCheck().run(ctx)

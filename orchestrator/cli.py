@@ -165,6 +165,7 @@ def cmd_serve(args: argparse.Namespace) -> int:
                     if pipeline.status.value == "running":
                         try:
                             from docker_client import get_docker_client as _get_dc
+
                             dc = _get_dc()
                         except Exception:
                             dc = None

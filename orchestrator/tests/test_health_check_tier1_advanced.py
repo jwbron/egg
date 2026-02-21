@@ -42,7 +42,6 @@ from models import (
     PipelineStatus,
 )
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -145,12 +144,20 @@ class TestContainerLivenessEdgeCases:
         """Two containers expected, one alive, one missing."""
         pipeline = _make_pipeline()
         _add_agent_and_container(
-            pipeline, PipelinePhase.IMPLEMENT, AgentRole.CODER,
-            AgentExecutionStatus.RUNNING, ContainerStatus.RUNNING, "c1",
+            pipeline,
+            PipelinePhase.IMPLEMENT,
+            AgentRole.CODER,
+            AgentExecutionStatus.RUNNING,
+            ContainerStatus.RUNNING,
+            "c1",
         )
         _add_agent_and_container(
-            pipeline, PipelinePhase.IMPLEMENT, AgentRole.TESTER,
-            AgentExecutionStatus.RUNNING, ContainerStatus.RUNNING, "c2",
+            pipeline,
+            PipelinePhase.IMPLEMENT,
+            AgentRole.TESTER,
+            AgentExecutionStatus.RUNNING,
+            ContainerStatus.RUNNING,
+            "c2",
         )
         mock_docker = _mock_docker_with_ids("c1")  # c2 missing
         ctx = _make_context(pipeline, docker_client=mock_docker)
@@ -166,8 +173,12 @@ class TestContainerLivenessEdgeCases:
         """Container with EXITED status should NOT be in expected_running."""
         pipeline = _make_pipeline()
         _add_agent_and_container(
-            pipeline, PipelinePhase.IMPLEMENT, AgentRole.CODER,
-            AgentExecutionStatus.COMPLETE, ContainerStatus.EXITED, "c1",
+            pipeline,
+            PipelinePhase.IMPLEMENT,
+            AgentRole.CODER,
+            AgentExecutionStatus.COMPLETE,
+            ContainerStatus.EXITED,
+            "c1",
         )
         mock_docker = _mock_docker_with_ids()  # No live containers
         ctx = _make_context(pipeline, docker_client=mock_docker)
@@ -179,12 +190,20 @@ class TestContainerLivenessEdgeCases:
         """Containers from multiple phases should all be checked."""
         pipeline = _make_pipeline()
         _add_agent_and_container(
-            pipeline, PipelinePhase.IMPLEMENT, AgentRole.CODER,
-            AgentExecutionStatus.RUNNING, ContainerStatus.RUNNING, "c1",
+            pipeline,
+            PipelinePhase.IMPLEMENT,
+            AgentRole.CODER,
+            AgentExecutionStatus.RUNNING,
+            ContainerStatus.RUNNING,
+            "c1",
         )
         _add_agent_and_container(
-            pipeline, PipelinePhase.PLAN, AgentRole.ARCHITECT,
-            AgentExecutionStatus.RUNNING, ContainerStatus.RUNNING, "c2",
+            pipeline,
+            PipelinePhase.PLAN,
+            AgentRole.ARCHITECT,
+            AgentExecutionStatus.RUNNING,
+            ContainerStatus.RUNNING,
+            "c2",
         )
         mock_docker = _mock_docker_with_ids("c1", "c2")
         ctx = _make_context(pipeline, docker_client=mock_docker)
@@ -266,12 +285,20 @@ class TestStartupStateEdgeCases:
         """Both stale containers and stale agents should be in details."""
         pipeline = _make_pipeline()
         _add_agent_and_container(
-            pipeline, PipelinePhase.IMPLEMENT, AgentRole.CODER,
-            AgentExecutionStatus.RUNNING, ContainerStatus.RUNNING, "c1",
+            pipeline,
+            PipelinePhase.IMPLEMENT,
+            AgentRole.CODER,
+            AgentExecutionStatus.RUNNING,
+            ContainerStatus.RUNNING,
+            "c1",
         )
         _add_agent_and_container(
-            pipeline, PipelinePhase.IMPLEMENT, AgentRole.TESTER,
-            AgentExecutionStatus.RUNNING, ContainerStatus.RUNNING, "c2",
+            pipeline,
+            PipelinePhase.IMPLEMENT,
+            AgentRole.TESTER,
+            AgentExecutionStatus.RUNNING,
+            ContainerStatus.RUNNING,
+            "c2",
         )
         mock_docker = _mock_docker_with_ids()  # None alive
         ctx = _make_context(pipeline, docker_client=mock_docker)
@@ -284,12 +311,20 @@ class TestStartupStateEdgeCases:
         """Stale items from multiple phases are detected."""
         pipeline = _make_pipeline()
         _add_agent_and_container(
-            pipeline, PipelinePhase.IMPLEMENT, AgentRole.CODER,
-            AgentExecutionStatus.RUNNING, ContainerStatus.RUNNING, "c1",
+            pipeline,
+            PipelinePhase.IMPLEMENT,
+            AgentRole.CODER,
+            AgentExecutionStatus.RUNNING,
+            ContainerStatus.RUNNING,
+            "c1",
         )
         _add_agent_and_container(
-            pipeline, PipelinePhase.PLAN, AgentRole.ARCHITECT,
-            AgentExecutionStatus.RUNNING, ContainerStatus.RUNNING, "c2",
+            pipeline,
+            PipelinePhase.PLAN,
+            AgentRole.ARCHITECT,
+            AgentExecutionStatus.RUNNING,
+            ContainerStatus.RUNNING,
+            "c2",
         )
         mock_docker = _mock_docker_with_ids()  # None alive
         ctx = _make_context(pipeline, docker_client=mock_docker)
@@ -324,13 +359,21 @@ class TestPhaseOutputEdgeCases:
         """Some agents with commits, some without — should be HEALTHY."""
         pipeline = _make_pipeline()
         _add_agent_and_container(
-            pipeline, PipelinePhase.IMPLEMENT, AgentRole.CODER,
-            AgentExecutionStatus.COMPLETE, ContainerStatus.EXITED, "c1",
+            pipeline,
+            PipelinePhase.IMPLEMENT,
+            AgentRole.CODER,
+            AgentExecutionStatus.COMPLETE,
+            ContainerStatus.EXITED,
+            "c1",
             commit="abc123",
         )
         _add_agent_and_container(
-            pipeline, PipelinePhase.IMPLEMENT, AgentRole.TESTER,
-            AgentExecutionStatus.COMPLETE, ContainerStatus.EXITED, "c2",
+            pipeline,
+            PipelinePhase.IMPLEMENT,
+            AgentRole.TESTER,
+            AgentExecutionStatus.COMPLETE,
+            ContainerStatus.EXITED,
+            "c2",
             commit=None,
         )
         ctx = _make_context(pipeline)
@@ -342,8 +385,12 @@ class TestPhaseOutputEdgeCases:
         """Empty string commit should be treated as no commit."""
         pipeline = _make_pipeline()
         _add_agent_and_container(
-            pipeline, PipelinePhase.IMPLEMENT, AgentRole.CODER,
-            AgentExecutionStatus.COMPLETE, ContainerStatus.EXITED, "c1",
+            pipeline,
+            PipelinePhase.IMPLEMENT,
+            AgentRole.CODER,
+            AgentExecutionStatus.COMPLETE,
+            ContainerStatus.EXITED,
+            "c1",
             commit="",
         )
         ctx = _make_context(pipeline)
@@ -356,8 +403,12 @@ class TestPhaseOutputEdgeCases:
         """If git rev-list fails, should still report DEGRADED."""
         pipeline = _make_pipeline()
         _add_agent_and_container(
-            pipeline, PipelinePhase.IMPLEMENT, AgentRole.CODER,
-            AgentExecutionStatus.COMPLETE, ContainerStatus.EXITED, "c1",
+            pipeline,
+            PipelinePhase.IMPLEMENT,
+            AgentRole.CODER,
+            AgentExecutionStatus.COMPLETE,
+            ContainerStatus.EXITED,
+            "c1",
             commit=None,
         )
         ctx = _make_context(pipeline)
@@ -441,13 +492,21 @@ class TestPhaseOutputEdgeCases:
         """DEGRADED result should include completed_agent_count and agents_with_commits."""
         pipeline = _make_pipeline()
         _add_agent_and_container(
-            pipeline, PipelinePhase.IMPLEMENT, AgentRole.CODER,
-            AgentExecutionStatus.COMPLETE, ContainerStatus.EXITED, "c1",
+            pipeline,
+            PipelinePhase.IMPLEMENT,
+            AgentRole.CODER,
+            AgentExecutionStatus.COMPLETE,
+            ContainerStatus.EXITED,
+            "c1",
             commit=None,
         )
         _add_agent_and_container(
-            pipeline, PipelinePhase.IMPLEMENT, AgentRole.TESTER,
-            AgentExecutionStatus.COMPLETE, ContainerStatus.EXITED, "c2",
+            pipeline,
+            PipelinePhase.IMPLEMENT,
+            AgentRole.TESTER,
+            AgentExecutionStatus.COMPLETE,
+            ContainerStatus.EXITED,
+            "c2",
             commit=None,
         )
         ctx = _make_context(pipeline)
@@ -461,12 +520,20 @@ class TestPhaseOutputEdgeCases:
         """Only COMPLETE agents should trigger artifact check."""
         pipeline = _make_pipeline()
         _add_agent_and_container(
-            pipeline, PipelinePhase.IMPLEMENT, AgentRole.CODER,
-            AgentExecutionStatus.RUNNING, ContainerStatus.RUNNING, "c1",
+            pipeline,
+            PipelinePhase.IMPLEMENT,
+            AgentRole.CODER,
+            AgentExecutionStatus.RUNNING,
+            ContainerStatus.RUNNING,
+            "c1",
         )
         _add_agent_and_container(
-            pipeline, PipelinePhase.IMPLEMENT, AgentRole.TESTER,
-            AgentExecutionStatus.RUNNING, ContainerStatus.RUNNING, "c2",
+            pipeline,
+            PipelinePhase.IMPLEMENT,
+            AgentRole.TESTER,
+            AgentExecutionStatus.RUNNING,
+            ContainerStatus.RUNNING,
+            "c2",
         )
         ctx = _make_context(pipeline)
         result = PhaseOutputPresenceCheck().run(ctx)
@@ -543,8 +610,12 @@ class TestStateConsistencyEdgeCases:
         """EXITED container with RUNNING agent should be FAILED."""
         pipeline = _make_pipeline()
         _add_agent_and_container(
-            pipeline, PipelinePhase.IMPLEMENT, AgentRole.CODER,
-            AgentExecutionStatus.RUNNING, ContainerStatus.EXITED, "c1",
+            pipeline,
+            PipelinePhase.IMPLEMENT,
+            AgentRole.CODER,
+            AgentExecutionStatus.RUNNING,
+            ContainerStatus.EXITED,
+            "c1",
         )
         mock_docker = _mock_docker_with_ids()
         ctx = _make_context(pipeline, docker_client=mock_docker)
@@ -557,19 +628,25 @@ class TestStateConsistencyEdgeCases:
         pipeline = _make_pipeline()
         # Add RUNNING agent with missing container (FAILED)
         _add_agent_and_container(
-            pipeline, PipelinePhase.IMPLEMENT, AgentRole.CODER,
-            AgentExecutionStatus.RUNNING, ContainerStatus.RUNNING, "c1",
+            pipeline,
+            PipelinePhase.IMPLEMENT,
+            AgentRole.CODER,
+            AgentExecutionStatus.RUNNING,
+            ContainerStatus.RUNNING,
+            "c1",
         )
         # Add COMPLETE agent (for contract check — DEGRADED)
         _add_agent_and_container(
-            pipeline, PipelinePhase.IMPLEMENT, AgentRole.TESTER,
-            AgentExecutionStatus.COMPLETE, ContainerStatus.EXITED, "c2",
+            pipeline,
+            PipelinePhase.IMPLEMENT,
+            AgentRole.TESTER,
+            AgentExecutionStatus.COMPLETE,
+            ContainerStatus.EXITED,
+            "c2",
         )
         mock_docker = _mock_docker_with_ids()  # c1 missing
         ctx = _make_context(pipeline, docker_client=mock_docker)
-        contract_data = {
-            "tasks": [{"id": "t1", "status": "pending"}]
-        }
+        contract_data = {"tasks": [{"id": "t1", "status": "pending"}]}
         ctx._agent_outputs = {"contract.json": json.dumps(contract_data)}
         result = StateConsistencyCheck().run(ctx)
         assert result.status == HealthStatus.FAILED
@@ -580,8 +657,12 @@ class TestStateConsistencyEdgeCases:
         """All contract tasks complete should not trigger DEGRADED."""
         pipeline = _make_pipeline()
         _add_agent_and_container(
-            pipeline, PipelinePhase.IMPLEMENT, AgentRole.CODER,
-            AgentExecutionStatus.COMPLETE, ContainerStatus.EXITED, "c1",
+            pipeline,
+            PipelinePhase.IMPLEMENT,
+            AgentRole.CODER,
+            AgentExecutionStatus.COMPLETE,
+            ContainerStatus.EXITED,
+            "c1",
         )
         mock_docker = _mock_docker_with_ids()
         ctx = _make_context(pipeline, docker_client=mock_docker)
@@ -599,8 +680,12 @@ class TestStateConsistencyEdgeCases:
         """Malformed JSON contract should not crash the check."""
         pipeline = _make_pipeline()
         _add_agent_and_container(
-            pipeline, PipelinePhase.IMPLEMENT, AgentRole.CODER,
-            AgentExecutionStatus.COMPLETE, ContainerStatus.EXITED, "c1",
+            pipeline,
+            PipelinePhase.IMPLEMENT,
+            AgentRole.CODER,
+            AgentExecutionStatus.COMPLETE,
+            ContainerStatus.EXITED,
+            "c1",
         )
         mock_docker = _mock_docker_with_ids()
         ctx = _make_context(pipeline, docker_client=mock_docker)
@@ -612,8 +697,12 @@ class TestStateConsistencyEdgeCases:
         """Contract with non-list tasks should not crash."""
         pipeline = _make_pipeline()
         _add_agent_and_container(
-            pipeline, PipelinePhase.IMPLEMENT, AgentRole.CODER,
-            AgentExecutionStatus.COMPLETE, ContainerStatus.EXITED, "c1",
+            pipeline,
+            PipelinePhase.IMPLEMENT,
+            AgentRole.CODER,
+            AgentExecutionStatus.COMPLETE,
+            ContainerStatus.EXITED,
+            "c1",
         )
         mock_docker = _mock_docker_with_ids()
         ctx = _make_context(pipeline, docker_client=mock_docker)
@@ -626,8 +715,12 @@ class TestStateConsistencyEdgeCases:
         """Contract with non-dict task entries should be handled."""
         pipeline = _make_pipeline()
         _add_agent_and_container(
-            pipeline, PipelinePhase.IMPLEMENT, AgentRole.CODER,
-            AgentExecutionStatus.COMPLETE, ContainerStatus.EXITED, "c1",
+            pipeline,
+            PipelinePhase.IMPLEMENT,
+            AgentRole.CODER,
+            AgentExecutionStatus.COMPLETE,
+            ContainerStatus.EXITED,
+            "c1",
         )
         mock_docker = _mock_docker_with_ids()
         ctx = _make_context(pipeline, docker_client=mock_docker)
@@ -640,8 +733,12 @@ class TestStateConsistencyEdgeCases:
         """Contract should be found by filename containing 'contract'."""
         pipeline = _make_pipeline()
         _add_agent_and_container(
-            pipeline, PipelinePhase.IMPLEMENT, AgentRole.CODER,
-            AgentExecutionStatus.COMPLETE, ContainerStatus.EXITED, "c1",
+            pipeline,
+            PipelinePhase.IMPLEMENT,
+            AgentRole.CODER,
+            AgentExecutionStatus.COMPLETE,
+            ContainerStatus.EXITED,
+            "c1",
         )
         mock_docker = _mock_docker_with_ids()
         ctx = _make_context(pipeline, docker_client=mock_docker)
@@ -655,8 +752,12 @@ class TestStateConsistencyEdgeCases:
         """When only DEGRADED issues exist (contract), action should be ALERT."""
         pipeline = _make_pipeline()
         _add_agent_and_container(
-            pipeline, PipelinePhase.IMPLEMENT, AgentRole.CODER,
-            AgentExecutionStatus.COMPLETE, ContainerStatus.EXITED, "c1",
+            pipeline,
+            PipelinePhase.IMPLEMENT,
+            AgentRole.CODER,
+            AgentExecutionStatus.COMPLETE,
+            ContainerStatus.EXITED,
+            "c1",
         )
         mock_docker = _mock_docker_with_ids()
         ctx = _make_context(pipeline, docker_client=mock_docker)
@@ -670,8 +771,12 @@ class TestStateConsistencyEdgeCases:
         """Fully consistent pipeline with matching agents, containers, and contract."""
         pipeline = _make_pipeline()
         _add_agent_and_container(
-            pipeline, PipelinePhase.IMPLEMENT, AgentRole.CODER,
-            AgentExecutionStatus.RUNNING, ContainerStatus.RUNNING, "c1",
+            pipeline,
+            PipelinePhase.IMPLEMENT,
+            AgentRole.CODER,
+            AgentExecutionStatus.RUNNING,
+            ContainerStatus.RUNNING,
+            "c1",
         )
         mock_docker = _mock_docker_with_ids("c1")
         ctx = _make_context(pipeline, docker_client=mock_docker)

@@ -51,11 +51,13 @@ class PhaseOutputPresenceCheck:
 
     name: str = "phase_output_presence"
     tier: HealthTier = HealthTier.PROGRAMMATIC
-    triggers: frozenset[HealthTrigger] = frozenset({
-        HealthTrigger.WAVE_COMPLETE,
-        HealthTrigger.PHASE_COMPLETE,
-        HealthTrigger.ON_DEMAND,
-    })
+    triggers: frozenset[HealthTrigger] = frozenset(
+        {
+            HealthTrigger.WAVE_COMPLETE,
+            HealthTrigger.PHASE_COMPLETE,
+            HealthTrigger.ON_DEMAND,
+        }
+    )
 
     def run(self, context: PipelineHealthContext) -> HealthResult:
         """Check for phase output artifacts."""
@@ -73,8 +75,7 @@ class PhaseOutputPresenceCheck:
 
         # Check if any agents completed successfully
         completed_agents = [
-            a for a in phase_exec.agents
-            if a.status == AgentExecutionStatus.COMPLETE
+            a for a in phase_exec.agents if a.status == AgentExecutionStatus.COMPLETE
         ]
         if not completed_agents:
             return HealthResult(
@@ -111,9 +112,7 @@ class PhaseOutputPresenceCheck:
                 status=HealthStatus.HEALTHY,
                 check_name=self.name,
                 tier=self.tier,
-                reasoning=(
-                    f"{len(agents_with_commits)} agent(s) reported commits."
-                ),
+                reasoning=(f"{len(agents_with_commits)} agent(s) reported commits."),
             )
 
         # No agent reported a commit — check git for new commits on branch
@@ -151,11 +150,9 @@ class PhaseOutputPresenceCheck:
 
         if drafts_dir and drafts_dir.is_dir():
             plan_files = [
-                f for f in drafts_dir.iterdir()
-                if f.is_file() and (
-                    "plan" in f.name.lower()
-                    or "architect" in f.name.lower()
-                )
+                f
+                for f in drafts_dir.iterdir()
+                if f.is_file() and ("plan" in f.name.lower() or "architect" in f.name.lower())
             ]
             if plan_files:
                 return HealthResult(

@@ -97,12 +97,14 @@ def pipeline_health_check(pipeline_id: str) -> tuple[Response, int]:
     """
     runner = current_app.config.get("HEALTH_CHECK_RUNNER")
     if runner is None:
-        return jsonify({
-            "pipeline_id": pipeline_id,
-            "status": "unknown",
-            "message": "Health check runner not initialized",
-            "timestamp": datetime.utcnow().isoformat() + "Z",
-        }), 503
+        return jsonify(
+            {
+                "pipeline_id": pipeline_id,
+                "status": "unknown",
+                "message": "Health check runner not initialized",
+                "timestamp": datetime.utcnow().isoformat() + "Z",
+            }
+        ), 503
 
     try:
         from state_store import PipelineNotFoundError, get_state_store
@@ -111,13 +113,17 @@ def pipeline_health_check(pipeline_id: str) -> tuple[Response, int]:
         store = get_state_store(repo_path)
         pipeline = store.load_pipeline(pipeline_id)
     except PipelineNotFoundError:
-        return jsonify({
-            "error": f"Pipeline {pipeline_id} not found",
-        }), 404
+        return jsonify(
+            {
+                "error": f"Pipeline {pipeline_id} not found",
+            }
+        ), 404
     except Exception as e:
-        return jsonify({
-            "error": f"Failed to load pipeline: {e}",
-        }), 500
+        return jsonify(
+            {
+                "error": f"Failed to load pipeline: {e}",
+            }
+        ), 500
 
     try:
         from health_checks.context import PipelineHealthContext
@@ -140,14 +146,18 @@ def pipeline_health_check(pipeline_id: str) -> tuple[Response, int]:
             if r.status.value == "degraded":
                 aggregate_status = "degraded"
 
-        return jsonify({
-            "pipeline_id": pipeline_id,
-            "status": aggregate_status,
-            "results": [r.to_dict() for r in results],
-            "timestamp": datetime.utcnow().isoformat() + "Z",
-        }), 200
+        return jsonify(
+            {
+                "pipeline_id": pipeline_id,
+                "status": aggregate_status,
+                "results": [r.to_dict() for r in results],
+                "timestamp": datetime.utcnow().isoformat() + "Z",
+            }
+        ), 200
 
     except Exception as e:
-        return jsonify({
-            "error": f"Health check execution failed: {e}",
-        }), 500
+        return jsonify(
+            {
+                "error": f"Health check execution failed: {e}",
+            }
+        ), 500
