@@ -511,6 +511,9 @@ def _build_list_params(args: argparse.Namespace) -> dict[str, Any]:
         params["repo"] = args.repo
     repo_path = args.repo_path or get_repo_path()
     params["repo_path"] = repo_path
+    checkpoint_repo = _get_checkpoint_repo_from_args(args)
+    if checkpoint_repo:
+        params["checkpoint_repo"] = checkpoint_repo
     return params
 
 
@@ -591,6 +594,9 @@ def cmd_list(args: argparse.Namespace) -> int:
 def _cmd_show_http(args: argparse.Namespace, gateway_url: str) -> int:
     """Show checkpoint via gateway HTTP API."""
     params: dict[str, Any] = {"repo_path": args.repo_path or get_repo_path()}
+    checkpoint_repo = _get_checkpoint_repo_from_args(args)
+    if checkpoint_repo:
+        params["checkpoint_repo"] = checkpoint_repo
     result = _http_get(gateway_url, f"/api/v1/checkpoints/{args.identifier}", params)
 
     if not result.get("success"):
@@ -656,6 +662,9 @@ def _cmd_browse_http(args: argparse.Namespace, gateway_url: str) -> int:
     }
     if getattr(args, "repo", None):
         params["repo"] = args.repo
+    checkpoint_repo = _get_checkpoint_repo_from_args(args)
+    if checkpoint_repo:
+        params["checkpoint_repo"] = checkpoint_repo
 
     result = _http_get(gateway_url, "/api/v1/checkpoints", params)
     summaries = result.get("data", {}).get("checkpoints", [])
@@ -772,6 +781,9 @@ def _cmd_context_http(args: argparse.Namespace, gateway_url: str) -> int:
         params["phase"] = args.phase
     if getattr(args, "repo", None):
         params["repo"] = args.repo
+    checkpoint_repo = _get_checkpoint_repo_from_args(args)
+    if checkpoint_repo:
+        params["checkpoint_repo"] = checkpoint_repo
 
     result = _http_get(gateway_url, "/api/v1/checkpoints", params)
     summaries = result.get("data", {}).get("checkpoints", [])
@@ -1008,6 +1020,9 @@ def _cmd_cost_http(args: argparse.Namespace, gateway_url: str) -> int:
         params["issue"] = args.issue
     if getattr(args, "pr", None):
         params["pr"] = args.pr
+    checkpoint_repo = _get_checkpoint_repo_from_args(args)
+    if checkpoint_repo:
+        params["checkpoint_repo"] = checkpoint_repo
 
     result = _http_get(gateway_url, "/api/v1/checkpoints/cost", params)
     data = result.get("data", {})
