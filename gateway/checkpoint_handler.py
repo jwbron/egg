@@ -261,80 +261,6 @@ def _resolve_github_token(repo_path: str) -> str | None:
         return None
 
 
-def get_commits_in_push(
-    repo_path: str,
-    old_sha: str,
-    new_sha: str,
-) -> list[str]:
-    """
-    Get the list of commits in a push, in chronological order (oldest first).
-
-    Uses `git rev-list --reverse` to enumerate all commits between old_sha
-    and new_sha. This enables per-commit checkpoint creation for multi-commit
-    pushes.
-
-    Args:
-        repo_path: Path to the repository
-        old_sha: The SHA before the push (remote ref before update)
-        new_sha: The SHA after the push (new tip of the branch)
-
-    Returns:
-        List of commit SHAs in chronological order (oldest to newest).
-        Returns [new_sha] if old_sha is the null SHA (new branch) or
-        if rev-list fails.
-
-    Note:
-        For force pushes where old_sha is not an ancestor of new_sha, git rev-list
-        returns empty output since there's no path from old to new. In this case,
-        only the tip commit (new_sha) is returned. This is intentional: force pushes
-        represent a history rewrite, so we create a single checkpoint for the new
-        tip rather than attempting to enumerate the rewritten history.
-    """
-    # Handle new branch case - old_sha is null SHA (all zeros)
-    null_sha = "0" * 40
-    if old_sha == null_sha or not old_sha:
-        return [new_sha]
-
-    try:
-        result = subprocess.run(
-            ["git", "rev-list", "--reverse", f"{old_sha}..{new_sha}"],
-            cwd=repo_path,
-            capture_output=True,
-            text=True,
-            timeout=30,
-            check=False,
-        )
-
-        if result.returncode == 0 and result.stdout.strip():
-            commits = result.stdout.strip().split("\n")
-            return [c for c in commits if c]
-
-        logger.debug(
-            "git rev-list returned empty or failed, falling back to tip commit",
-            old_sha=old_sha[:7],
-            new_sha=new_sha[:7],
-            returncode=result.returncode,
-            stderr=result.stderr[:200] if result.stderr else "",
-        )
-        return [new_sha]
-
-    except subprocess.TimeoutExpired:
-        logger.warning(
-            "git rev-list timed out, falling back to tip commit",
-            old_sha=old_sha[:7],
-            new_sha=new_sha[:7],
-        )
-        return [new_sha]
-    except Exception as e:
-        logger.warning(
-            "git rev-list failed, falling back to tip commit",
-            error=str(e),
-            old_sha=old_sha[:7],
-            new_sha=new_sha[:7],
-        )
-        return [new_sha]
-
-
 class CheckpointError(Exception):
     """Error during checkpoint capture."""
 
@@ -1287,7 +1213,6 @@ def capture_and_store_checkpoint(
 
 def capture_and_store_checkpoints_for_push(
     repo_path: str,
-    old_sha: str,
     new_sha: str,
     branch: str,
     session: Session | None = None,

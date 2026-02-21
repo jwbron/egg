@@ -939,10 +939,9 @@ def git_push() -> tuple[Response, int] | Response:
                         session.last_branch = branch
 
                     if old_ref_sha:
-                        # Use per-commit checkpoint creation
+                        # Create single checkpoint for the push tip
                         capture_and_store_checkpoints_for_push(
                             repo_path=exec_path,
-                            old_sha=old_ref_sha,
                             new_sha=new_sha,
                             branch=branch,
                             session=session,

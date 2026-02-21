@@ -1,4 +1,4 @@
-"""Tests for checkpoint_handler module - per-commit and session-end checkpoint creation."""
+"""Tests for checkpoint_handler module - checkpoint creation and session-end."""
 
 import subprocess
 from datetime import UTC, datetime, timedelta
@@ -10,132 +10,8 @@ from checkpoint_handler import (
     _resolve_agent_type,
     _resolve_github_token,
     capture_session_end_checkpoint,
-    get_commits_in_push,
 )
 from session_manager import Session, _hash_token
-
-
-class TestGetCommitsInPush:
-    """Tests for get_commits_in_push function."""
-
-    def test_new_branch_returns_single_commit(self):
-        """Test that pushing a new branch returns only the tip commit."""
-        null_sha = "0" * 40
-        new_sha = "abc123def456789012345678901234567890abcd"
-
-        commits = get_commits_in_push("/some/repo", null_sha, new_sha)
-        assert commits == [new_sha]
-
-    def test_empty_old_sha_returns_single_commit(self):
-        """Test that empty old_sha is treated like null SHA."""
-        new_sha = "abc123def456789012345678901234567890abcd"
-
-        commits = get_commits_in_push("/some/repo", "", new_sha)
-        assert commits == [new_sha]
-
-    @patch("checkpoint_handler.subprocess.run")
-    def test_single_commit_push(self, mock_run):
-        """Test pushing a single commit."""
-        old_sha = "1111111111111111111111111111111111111111"
-        new_sha = "2222222222222222222222222222222222222222"
-
-        # Mock git rev-list returning single commit
-        mock_run.return_value = MagicMock(
-            returncode=0,
-            stdout=f"{new_sha}\n",
-        )
-
-        commits = get_commits_in_push("/repo", old_sha, new_sha)
-
-        assert len(commits) == 1
-        assert commits[0] == new_sha
-
-        # Verify git rev-list was called correctly
-        mock_run.assert_called_once()
-        args = mock_run.call_args
-        assert "rev-list" in args[0][0]
-        assert "--reverse" in args[0][0]
-        assert f"{old_sha}..{new_sha}" in args[0][0]
-
-    @patch("checkpoint_handler.subprocess.run")
-    def test_multi_commit_push(self, mock_run):
-        """Test pushing multiple commits returns them in chronological order."""
-        old_sha = "0000000000000000000000000000000000000000"
-        commit1 = "1111111111111111111111111111111111111111"
-        commit2 = "2222222222222222222222222222222222222222"
-        commit3 = "3333333333333333333333333333333333333333"
-        new_sha = commit3
-
-        # Mock git rev-list returning multiple commits (oldest first due to --reverse)
-        mock_run.return_value = MagicMock(
-            returncode=0,
-            stdout=f"{commit1}\n{commit2}\n{commit3}\n",
-        )
-
-        # For new branch (old_sha is null), we don't call rev-list
-        # Let's use a non-null old_sha
-        old_sha = "0000000000000000000000000000000000000001"
-
-        commits = get_commits_in_push("/repo", old_sha, new_sha)
-
-        assert len(commits) == 3
-        # Chronological order (oldest first)
-        assert commits == [commit1, commit2, commit3]
-
-    @patch("checkpoint_handler.subprocess.run")
-    def test_rev_list_failure_falls_back_to_new_sha(self, mock_run):
-        """Test that git rev-list failure falls back to new_sha."""
-        old_sha = "1111111111111111111111111111111111111111"
-        new_sha = "2222222222222222222222222222222222222222"
-
-        # Mock git rev-list failing
-        mock_run.return_value = MagicMock(
-            returncode=1,
-            stdout="",
-            stderr="error: some git error",
-        )
-
-        commits = get_commits_in_push("/repo", old_sha, new_sha)
-        assert commits == [new_sha]
-
-    @patch("checkpoint_handler.subprocess.run")
-    def test_rev_list_empty_falls_back_to_new_sha(self, mock_run):
-        """Test that empty rev-list output falls back to new_sha."""
-        old_sha = "1111111111111111111111111111111111111111"
-        new_sha = "2222222222222222222222222222222222222222"
-
-        # Mock git rev-list returning empty
-        mock_run.return_value = MagicMock(
-            returncode=0,
-            stdout="",
-        )
-
-        commits = get_commits_in_push("/repo", old_sha, new_sha)
-        assert commits == [new_sha]
-
-    @patch("checkpoint_handler.subprocess.run")
-    def test_rev_list_timeout_falls_back_to_new_sha(self, mock_run):
-        """Test that git rev-list timeout falls back to new_sha."""
-        old_sha = "1111111111111111111111111111111111111111"
-        new_sha = "2222222222222222222222222222222222222222"
-
-        # Mock git rev-list timing out
-        mock_run.side_effect = subprocess.TimeoutExpired(cmd="git", timeout=30)
-
-        commits = get_commits_in_push("/repo", old_sha, new_sha)
-        assert commits == [new_sha]
-
-    @patch("checkpoint_handler.subprocess.run")
-    def test_rev_list_exception_falls_back_to_new_sha(self, mock_run):
-        """Test that any exception falls back to new_sha."""
-        old_sha = "1111111111111111111111111111111111111111"
-        new_sha = "2222222222222222222222222222222222222222"
-
-        # Mock git rev-list raising an exception
-        mock_run.side_effect = Exception("Unexpected error")
-
-        commits = get_commits_in_push("/repo", old_sha, new_sha)
-        assert commits == [new_sha]
 
 
 class TestCaptureAndStoreCheckpointsForPush:
@@ -151,7 +27,6 @@ class TestCaptureAndStoreCheckpointsForPush:
         try:
             result = checkpoint_handler.capture_and_store_checkpoints_for_push(
                 repo_path="/repo",
-                old_sha="0" * 40,
                 new_sha="abc123",
                 branch="main",
             )
@@ -182,7 +57,6 @@ class TestCaptureAndStoreCheckpointsForPush:
 
         checkpoints = checkpoint_handler.capture_and_store_checkpoints_for_push(
             repo_path="/repo",
-            old_sha="1111111111111111111111111111111111111111",
             new_sha=new_sha,
             branch="main",
             async_store=False,
@@ -217,10 +91,8 @@ class TestCaptureAndStoreCheckpointsForPush:
 
         import checkpoint_handler
 
-        # old_sha differs by many commits — still only one checkpoint created
         checkpoints = checkpoint_handler.capture_and_store_checkpoints_for_push(
             repo_path="/repo",
-            old_sha="1111111111111111111111111111111111111111",
             new_sha=new_sha,
             branch="main",
             async_store=False,
@@ -251,7 +123,6 @@ class TestCaptureAndStoreCheckpointsForPush:
 
         checkpoint_handler.capture_and_store_checkpoints_for_push(
             repo_path="/repo",
-            old_sha="0" * 40,
             new_sha=new_sha,
             branch="main",
             async_store=True,
@@ -269,7 +140,6 @@ class TestCaptureAndStoreCheckpointsForPush:
 
         checkpoints = checkpoint_handler.capture_and_store_checkpoints_for_push(
             repo_path="/repo",
-            old_sha="0" * 40,
             new_sha="2222222222222222222222222222222222222222",
             branch="main",
             async_store=False,
