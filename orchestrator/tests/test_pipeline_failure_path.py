@@ -457,11 +457,95 @@ class TestSuccessPathPushesStatefiles:
         assert pipeline.status == PipelineStatus.COMPLETE
 
         # push_worktree_branch should have been called after phase completion
-        mock_gateway.push_worktree_branch.assert_called_with(
+        mock_gateway.push_worktree_branch.assert_called_once_with(
             pipeline_id="issue-42",
             repo_path=str(worktree_dir),
             branch="egg/issue-42",
         )
+
+    @patch("routes.pipelines._commit_statefiles_to_worktree")
+    @patch(_COMMON_PATCHES[7])
+    @patch(_COMMON_PATCHES[6])
+    @patch(_COMMON_PATCHES[5])
+    @patch(_COMMON_PATCHES[4])
+    @patch(_COMMON_PATCHES[3])
+    @patch(_COMMON_PATCHES[2])
+    @patch(_COMMON_PATCHES[1])
+    @patch(_COMMON_PATCHES[0])
+    def test_push_after_contract_init(
+        self,
+        mock_emit,
+        mock_get_spawner,
+        mock_get_store,
+        mock_spawn_wait,
+        mock_state_lock,
+        mock_build_prompt,
+        mock_read_draft,
+        mock_report,
+        mock_commit_statefiles,
+    ):
+        """When contract_synced is False, push_worktree_branch should be called
+        after contract initialization to push .egg-state/ files to the remote."""
+        from routes.pipelines import WORKTREE_BASE_DIR, _run_pipeline
+
+        # Use PR phase (terminal) so the pipeline completes after one iteration
+        pipeline = Pipeline(
+            id="issue-42",
+            issue_number=42,
+            repo="owner/repo",
+            branch="egg/issue-42",
+            mode="issue",
+            status=PipelineStatus.RUNNING,
+            current_phase=PipelinePhase.PR,
+        )
+        pipeline.contract_synced = False  # Triggers contract initialization
+        execution = pipeline.get_phase_execution(PipelinePhase.PR)
+        execution.status = PipelineStatus.RUNNING
+        execution.started_at = datetime.utcnow()
+
+        mock_store, mock_gateway = _setup_mocks(
+            mock_report,
+            mock_read_draft,
+            mock_build_prompt,
+            mock_state_lock,
+            mock_spawn_wait,
+            mock_get_store,
+            mock_get_spawner,
+            mock_emit,
+            pipeline,
+        )
+
+        # Phase succeeds (exit code 0)
+        mock_spawn_wait.return_value = (0, "success")
+
+        worktree_dir = WORKTREE_BASE_DIR / "issue-42" / "repo"
+        mock_gateway.create_worktrees.return_value = MagicMock(
+            success=True,
+            worktrees={"repo": str(worktree_dir)},
+            errors=[],
+        )
+
+        with (
+            patch.dict(os.environ, {"EGG_HOST_REPO_MAP": '{"repo": "/host/repo"}'}, clear=False),
+            patch("pathlib.Path.exists", return_value=True),
+            patch("egg_contracts.loader.create_contract"),
+        ):
+            _run_pipeline("issue-42", Path("/repo"))
+
+        # push_worktree_branch should have been called at least once for
+        # the contract-init push (and possibly again after phase completion).
+        calls = mock_gateway.push_worktree_branch.call_args_list
+        assert len(calls) >= 1, (
+            f"Expected push_worktree_branch to be called after contract init, "
+            f"got {len(calls)} calls"
+        )
+        # Verify arguments match for every call
+        for call in calls:
+            assert call.kwargs == {
+                "pipeline_id": "issue-42",
+                "repo_path": str(worktree_dir),
+                "branch": "egg/issue-42",
+            }
 
     @patch("routes.pipelines._commit_statefiles_to_worktree")
     @patch(_COMMON_PATCHES[7])
