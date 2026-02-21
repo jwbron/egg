@@ -854,8 +854,8 @@ def git_push() -> tuple[Response, int] | Response:
     if auth_mode == "user":
         logger.debug("User mode push", repo=repo)
 
-    # Get the remote ref SHA before push (for per-commit checkpoint creation)
-    # This allows us to enumerate all commits being pushed
+    # Get the remote ref SHA before push (for per-push checkpoint creation)
+    # This allows us to identify the range of commits being pushed
     old_ref_sha: str | None = None
     try:
         # Use ls-remote to get the current remote ref
@@ -912,7 +912,7 @@ def git_push() -> tuple[Response, int] | Response:
                 },
             )
 
-            # Capture per-commit checkpoints after successful push (async, non-blocking)
+            # Capture per-push checkpoint after successful push (async, non-blocking)
             # Get the HEAD commit SHA (new_sha) from the worktree
             try:
                 head_result = subprocess.run(
