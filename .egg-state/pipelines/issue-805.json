@@ -5,7 +5,7 @@
   "branch": "egg/issue-805",
   "mode": "issue",
   "prompt": null,
-  "status": "failed",
+  "status": "running",
   "current_phase": "implement",
   "config": {
     "auto_create_pr": true,
@@ -405,12 +405,12 @@
       "resolution": "Approved"
     }
   ],
-  "created_at": "2026-02-21T21:24:29.156507",
-  "updated_at": "2026-02-21T21:24:29.216834",
+  "created_at": "2026-02-21T21:25:46.927490",
+  "updated_at": "2026-02-21T21:25:46.929574",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
   "complexity_tier": "high",
-  "error": "Contract for 805 not found at /home/egg/.egg-worktrees/issue-805/egg/.egg-state/contracts/805.json",
-  "version": 55
+  "error": null,
+  "version": 56
 }
