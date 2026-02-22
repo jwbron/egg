@@ -542,10 +542,10 @@ class TestAgentsOrphanedPhaseId:
 
         # Auth should contain the coder
         assert "Auth" in result
-        # Tester should still appear (in its own sub-phase box since nonexistent
-        # is in agents_by_phase but not in waves, so it won't be rendered in
-        # any wave — it's effectively orphaned)
         assert "coder" in result
+        # Orphaned tester should be rendered in the top-level Pipeline agents box
+        assert "tester" in result
+        assert "Pipeline agents" in result
 
 
 # ---------------------------------------------------------------------------
@@ -758,6 +758,38 @@ class TestFanConnectorsAsymmetric:
         assert len(result) == 3
         # Should have 4 vertical stems
         assert result[2].count("│") == 4
+
+    def test_fan_out_three_equal_width_cross_junction(self):
+        """Fan-out with 3 equal-width boxes uses cross junction at center."""
+        result = _render_fan_out([20, 20, 20], spacing=2)
+        assert len(result) == 3
+        # Center coincides with middle branch — should use cross junction
+        assert "┼" in result[1]
+
+    def test_fan_in_three_equal_width_cross_junction(self):
+        """Fan-in with 3 equal-width boxes uses cross junction at center."""
+        result = _render_fan_in([20, 20, 20], spacing=2)
+        assert len(result) == 3
+        assert "┼" in result[1]
+
+    def test_fan_out_stem_aligned_with_bar_center(self):
+        """Fan-out stem position matches bar center for asymmetric widths."""
+        result = _render_fan_out([10, 30], spacing=2)
+        # The stem (line 1) should be at the same position as the
+        # junction character in the bar (line 2)
+        stem_pos = result[0].index("│")
+        # Find the junction character (┴) in the bar
+        bar = result[1]
+        junction_pos = bar.index("┴")
+        assert stem_pos == junction_pos
+
+    def test_fan_in_stem_aligned_with_bar_center(self):
+        """Fan-in stem position matches bar center for asymmetric widths."""
+        result = _render_fan_in([10, 30], spacing=2)
+        stem_pos = result[2].index("│")
+        bar = result[1]
+        junction_pos = bar.index("┬")
+        assert stem_pos == junction_pos
 
     def test_fan_out_empty_returns_empty(self):
         """Empty list returns empty."""

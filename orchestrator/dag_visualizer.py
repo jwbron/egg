@@ -521,10 +521,10 @@ def _render_fan_out(
     # Characters
     v_line = "|" if use_ascii else "│"
     h_line = "-" if use_ascii else "─"
-    tee_down = "+" if use_ascii else "┴"
+    stem_junction = "+" if use_ascii else "┴"  # ┴ opens upward: connects stem from above
     corner_l = "+" if use_ascii else "┌"
     corner_r = "+" if use_ascii else "┐"
-    tee_up = "+" if use_ascii else "┬"
+    branch_tee = "+" if use_ascii else "┬"  # ┬ opens downward: branch drops to box below
 
     # Total width of all boxes + spacing
     total_width = sum(box_widths) + spacing * (len(box_widths) - 1)
@@ -536,24 +536,28 @@ def _render_fan_out(
         centers.append(offset + w // 2)
         offset += w + spacing
 
-    # Line 1: single vertical stem centered
-    center = total_width // 2
-    line1 = " " * center + v_line
-
-    # Line 2: horizontal bar with tee-down at center, corners at edges
+    # Compute bar extents and center once for consistent alignment
     left_edge = centers[0]
     right_edge = centers[-1]
+    bar_center = (left_edge + right_edge) // 2
+
+    # Line 1: single vertical stem at bar_center
+    line1 = " " * bar_center + v_line
+
+    # Line 2: horizontal bar with junction at center, corners at edges
     bar = [" "] * total_width
     for i in range(left_edge, right_edge + 1):
         bar[i] = h_line
     bar[left_edge] = corner_l
     bar[right_edge] = corner_r
-    # Place tee-down at center of bar
-    bar_center = (left_edge + right_edge) // 2
-    bar[bar_center] = tee_down
-    # Place tee-up at intermediate branch points
+    # Place intermediate branch tees first
     for c in centers[1:-1]:
-        bar[c] = tee_up
+        bar[c] = branch_tee
+    # Place center junction last so it wins if it coincides with a branch
+    if bar_center in centers[1:-1]:
+        bar[bar_center] = "+" if use_ascii else "┼"
+    else:
+        bar[bar_center] = stem_junction
 
     line2 = "".join(bar)
 
@@ -592,10 +596,10 @@ def _render_fan_in(
     # Characters
     v_line = "|" if use_ascii else "│"
     h_line = "-" if use_ascii else "─"
-    tee_up = "+" if use_ascii else "┬"
+    stem_junction = "+" if use_ascii else "┬"  # ┬ opens downward: connects stem below
     corner_l = "+" if use_ascii else "└"
     corner_r = "+" if use_ascii else "┘"
-    tee_down = "+" if use_ascii else "┴"
+    branch_tee = "+" if use_ascii else "┴"  # ┴ opens upward: branch arrives from box above
 
     # Total width of all boxes + spacing
     total_width = sum(box_widths) + spacing * (len(box_widths) - 1)
@@ -607,32 +611,36 @@ def _render_fan_in(
         centers.append(offset + w // 2)
         offset += w + spacing
 
+    # Compute bar extents and center once for consistent alignment
+    left_edge = centers[0]
+    right_edge = centers[-1]
+    bar_center = (left_edge + right_edge) // 2
+
     # Line 1: vertical stems at each branch center
     stems = [" "] * total_width
     for c in centers:
         stems[c] = v_line
     line1 = "".join(stems)
 
-    # Line 2: horizontal bar with tee-up at center, corners at edges
-    left_edge = centers[0]
-    right_edge = centers[-1]
+    # Line 2: horizontal bar with junction at center, corners at edges
     bar = [" "] * total_width
     for i in range(left_edge, right_edge + 1):
         bar[i] = h_line
     bar[left_edge] = corner_l
     bar[right_edge] = corner_r
-    # Place tee-up at center of bar
-    bar_center = (left_edge + right_edge) // 2
-    bar[bar_center] = tee_up
-    # Place tee-down at intermediate branch points
+    # Place intermediate branch tees first
     for c in centers[1:-1]:
-        bar[c] = tee_down
+        bar[c] = branch_tee
+    # Place center junction last so it wins if it coincides with a branch
+    if bar_center in centers[1:-1]:
+        bar[bar_center] = "+" if use_ascii else "┼"
+    else:
+        bar[bar_center] = stem_junction
 
     line2 = "".join(bar)
 
-    # Line 3: single vertical stem centered
-    center = total_width // 2
-    line3 = " " * center + v_line
+    # Line 3: single vertical stem at bar_center
+    line3 = " " * bar_center + v_line
 
     return [line1, line2, line3]
 
@@ -667,11 +675,19 @@ def _render_tier3_implement(
     agents_by_phase: dict[str, list[AgentExecution]] = {}
     top_level_agents: list[AgentExecution] = []
 
+    # Collect all phase IDs present in waves for orphan detection
+    wave_phase_ids: set[str] = set()
+    for wave in waves:
+        wave_phase_ids.update(wave)
+
     if phase_exec and phase_exec.agents:
         for agent in phase_exec.agents:
             pid = agent.plan_phase_id
-            if pid:
+            if pid and pid in wave_phase_ids:
                 agents_by_phase.setdefault(pid, []).append(agent)
+            elif pid:
+                # Orphaned: plan_phase_id doesn't match any wave entry
+                top_level_agents.append(agent)
             else:
                 top_level_agents.append(agent)
 
