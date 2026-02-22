@@ -46,7 +46,6 @@ jobs:
       - name: Validate and parse version tag
         id: version
         run: |
-          # shellcheck disable=SC2129
           TAG=""
           IS_RELEASE="false"
           IS_PRERELEASE="false"
@@ -75,17 +74,20 @@ jobs:
             MINOR="${BASH_REMATCH[2]}"
             PRERELEASE="${BASH_REMATCH[4]}"
 
-            echo "major_tag=v${MAJOR}" >> "$GITHUB_OUTPUT"
-            echo "minor_tag=v${MAJOR}.${MINOR}" >> "$GITHUB_OUTPUT"
-
             if [[ -n "$PRERELEASE" ]]; then
               IS_PRERELEASE="true"
             fi
           fi
 
-          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
-          echo "is_release=$IS_RELEASE" >> "$GITHUB_OUTPUT"
-          echo "is_prerelease=$IS_PRERELEASE" >> "$GITHUB_OUTPUT"
+          {
+            if [[ "$IS_RELEASE" == "true" ]]; then
+              echo "major_tag=v${MAJOR}"
+              echo "minor_tag=v${MAJOR}.${MINOR}"
+            fi
+            echo "tag=$TAG"
+            echo "is_release=$IS_RELEASE"
+            echo "is_prerelease=$IS_PRERELEASE"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Generate image tags
         id: tags
