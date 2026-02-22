@@ -74,6 +74,10 @@ on:
         description: 'GitHub username of the bot (e.g., my-bot)'
         required: true
         type: string
+      branch_prefix:
+        description: 'Branch prefix for bot branches (e.g., egg)'
+        required: true
+        type: string
       config_file:
         description: 'Path to check-fixers.yml config (relative to repo root)'
         required: false
@@ -262,6 +266,7 @@ jobs:
           FAILED_RUN_ID: ${{ env.FAILED_RUN_ID }}
           FAILED_JOBS: ${{ steps.failed-jobs.outputs.jobs }}
           AUTOFIX_STATE: ${{ steps.state.outputs.state }}
+          CONFIG_FILE: ${{ inputs.config_file }}
 
       # Check if max retries reached — escalate
       - name: Check max retries and escalate
@@ -281,13 +286,19 @@ jobs:
             TABLE="${TABLE}"$'\n'"| ${FAILED_WORKFLOW} / ${job} | ${attempts}/${max} | [View](${RUN_URL}) |"
           done < <(echo "$ESCALATION" | jq -c '.[]')
 
+          # Add context if LLM fixer is still running for other checks
+          STILL_RUNNING=""
+          if [[ "${{ steps.plan.outputs.needs-llm }}" == "true" ]]; then
+            STILL_RUNNING=$'\n'"_Other failing checks are still being addressed by the autofixer._"$'\n'
+          fi
+
           BODY="<!-- egg-status-comment -->
           ## Autofix: Human Input Needed
 
           The following checks could not be fixed automatically after multiple attempts:
 
           ${TABLE}
-
+          ${STILL_RUNNING}
           Please investigate manually or push a fix.
 
           — Authored by egg"
@@ -312,10 +323,12 @@ jobs:
         if: steps.skip-check.outputs.skip != 'true' && steps.plan.outputs.has-non-llm-fixes == 'true'
         id: non-llm
         run: |
-          NON_LLM_FIXES='${{ steps.plan.outputs.non-llm-fixes }}'
           echo "Running non-LLM fixes..."
 
           # Execute each fix command
+          # SECURITY: Commands come from check-fixers.yml in the trusted main checkout.
+          # The `eval` is safe because the config is not user-controlled — it's read from
+          # the main branch by the prompt builder step (which also runs from main).
           echo "$NON_LLM_FIXES" | jq -c '.[]' | while IFS= read -r fix; do
             job=$(echo "$fix" | jq -r '.job')
             command=$(echo "$fix" | jq -r '.command')
@@ -333,6 +346,8 @@ jobs:
             echo "changes=true" >> "$GITHUB_OUTPUT"
             echo "Non-LLM fixes produced changes"
           fi
+        env:
+          NON_LLM_FIXES: ${{ steps.plan.outputs.non-llm-fixes }}
 
       - name: Commit and push non-LLM fixes
         if: steps.skip-check.outputs.skip != 'true' && steps.non-llm.outputs.changes == 'true'
@@ -340,7 +355,7 @@ jobs:
         run: |
           git config user.name "egg"
           git config user.email "egg@localhost"
-          git add -A
+          git add -u
           git commit -m "Fix checks: apply automated formatting fixes"
           git push
           echo "pushed=true" >> "$GITHUB_OUTPUT"
@@ -348,21 +363,19 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
 
-      # Update state after non-LLM fixes
+      # Update state after non-LLM fixes (only increment jobs that were attempted)
       - name: Update state after non-LLM fixes
         if: steps.skip-check.outputs.skip != 'true' && steps.non-llm-push.outputs.pushed == 'true'
         run: |
-          # Increment attempt counts for all failed jobs
-          FAILED_JOBS='${{ steps.failed-jobs.outputs.jobs }}'
-          CURRENT_STATE='${{ steps.state.outputs.state }}'
           COMMENT_ID='${{ steps.state.outputs.comment-id }}'
 
+          # Data passed via env vars to avoid shell interpolation injection
           NEW_STATE=$(python3 -c "
-          import json
-          state = json.loads('${CURRENT_STATE}') if '${CURRENT_STATE}' else {}
-          failed = json.loads('${FAILED_JOBS}')
-          workflow = '${FAILED_WORKFLOW}'
-          for job in failed:
+          import json, os
+          state = json.loads(os.environ['CURRENT_STATE']) if os.environ.get('CURRENT_STATE') else {}
+          attempted = json.loads(os.environ['ATTEMPTED_JOBS'])
+          workflow = os.environ['FAILED_WORKFLOW']
+          for job in attempted:
               key = f'{workflow}/{job}'
               state[key] = state.get(key, 0) + 1
           print(json.dumps(state, indent=2))
@@ -395,6 +408,9 @@ jobs:
           gh api "repos/${{ github.repository }}/issues/${{ env.PR_NUMBER }}/comments" -f body="$RESULT_BODY"
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+          ATTEMPTED_JOBS: ${{ steps.plan.outputs.non-llm-jobs }}
+          CURRENT_STATE: ${{ steps.state.outputs.state }}
+          FAILED_WORKFLOW: ${{ env.FAILED_WORKFLOW }}
 
       # If non-LLM fixes were pushed, exit here — CI will re-run
       - name: Exit after non-LLM fixes
@@ -402,13 +418,25 @@ jobs:
         run: |
           echo "Non-LLM fixes pushed. Exiting — CI will re-run and re-trigger if still failing."
 
+      # Fall through to LLM fixer if non-LLM fixes ran but produced no changes
+      - name: Check non-LLM fallthrough
+        if: >-
+          steps.skip-check.outputs.skip != 'true'
+          && steps.plan.outputs.has-non-llm-fixes == 'true'
+          && steps.non-llm.outputs.changes == 'false'
+        id: non-llm-fallthrough
+        run: |
+          echo "Non-LLM fixes produced no changes, falling through to LLM fixer"
+          echo "fallthrough=true" >> "$GITHUB_OUTPUT"
+
       # Run LLM fixer (when non-LLM didn't apply or didn't resolve).
       # needs-llm is true when at least one check still needs LLM fixing
       # (checks that exceeded max retries are excluded from the prompt).
+      # Also runs when non-LLM fixes produced no changes (fallthrough).
       - name: Checkout PR branch for LLM fixer
         if: >-
           steps.skip-check.outputs.skip != 'true'
-          && steps.plan.outputs.needs-llm == 'true'
+          && (steps.plan.outputs.needs-llm == 'true' || steps.non-llm-fallthrough.outputs.fallthrough == 'true')
           && steps.non-llm-push.outputs.pushed != 'true'
         uses: actions/checkout@v4
         with:
@@ -419,7 +447,7 @@ jobs:
       - name: Run egg check fixer
         if: >-
           steps.skip-check.outputs.skip != 'true'
-          && steps.plan.outputs.needs-llm == 'true'
+          && (steps.plan.outputs.needs-llm == 'true' || steps.non-llm-fallthrough.outputs.fallthrough == 'true')
           && steps.non-llm-push.outputs.pushed != 'true'
         id: egg
         uses: jwbron/egg/action@main
@@ -435,24 +463,23 @@ jobs:
           checkpoint-repo: ${{ vars.EGG_CHECKPOINT_REPO || '' }}
           timeout: ${{ inputs.timeout }}
 
-      # Update state after LLM fixer
+      # Update state after LLM fixer (only increment jobs that were attempted by LLM)
       - name: Update state after LLM fixer
         if: >-
           always() && !cancelled()
           && steps.skip-check.outputs.skip != 'true'
-          && steps.plan.outputs.needs-llm == 'true'
+          && (steps.plan.outputs.needs-llm == 'true' || steps.non-llm-fallthrough.outputs.fallthrough == 'true')
           && steps.non-llm-push.outputs.pushed != 'true'
         run: |
-          FAILED_JOBS='${{ steps.failed-jobs.outputs.jobs }}'
-          CURRENT_STATE='${{ steps.state.outputs.state }}'
           COMMENT_ID='${{ steps.state.outputs.comment-id }}'
 
+          # Data passed via env vars to avoid shell interpolation injection
           NEW_STATE=$(python3 -c "
-          import json
-          state = json.loads('${CURRENT_STATE}') if '${CURRENT_STATE}' else {}
-          failed = json.loads('${FAILED_JOBS}')
-          workflow = '${FAILED_WORKFLOW}'
-          for job in failed:
+          import json, os
+          state = json.loads(os.environ['CURRENT_STATE']) if os.environ.get('CURRENT_STATE') else {}
+          attempted = json.loads(os.environ['ATTEMPTED_JOBS'])
+          workflow = os.environ['FAILED_WORKFLOW']
+          for job in attempted:
               key = f'{workflow}/{job}'
               state[key] = state.get(key, 0) + 1
           print(json.dumps(state, indent=2))
@@ -476,6 +503,10 @@ jobs:
           fi
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+          # When non-LLM fallthrough occurs, LLM handles all jobs (including ones that had non-LLM fixes)
+          ATTEMPTED_JOBS: ${{ steps.non-llm-fallthrough.outputs.fallthrough == 'true' && steps.failed-jobs.outputs.jobs || steps.plan.outputs.llm-jobs }}
+          CURRENT_STATE: ${{ steps.state.outputs.state }}
+          FAILED_WORKFLOW: ${{ env.FAILED_WORKFLOW }}
 
       # Post result comment
       - name: Post result comment

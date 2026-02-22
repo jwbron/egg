@@ -15,6 +15,7 @@
 #   FAILED_RUN_ID      — Run ID of the failed workflow
 #   FAILED_JOBS        — JSON array of failed job names (from caller)
 #   AUTOFIX_STATE      — JSON object of retry counts (from caller)
+#   CONFIG_FILE        — Path to check-fixers.yml (from caller, optional)
 #   RUNNER_TEMP        — Temp directory for prompt file
 #
 # Output (via $GITHUB_OUTPUT):
@@ -25,6 +26,8 @@
 #   needs-llm            — true/false
 #   max-retries-reached  — true/false (escalation needed)
 #   escalation-details   — JSON array of {job, attempts, max} for exceeded checks
+#   non-llm-jobs         — JSON array of job names attempted by non-LLM fixes
+#   llm-jobs             — JSON array of job names attempted by LLM fixer
 
 set -euo pipefail
 
@@ -38,8 +41,10 @@ REPO_ROOT="${SCRIPT_DIR}/.."
 load_config() {
     local config_file=""
 
-    # Repo override takes priority (read from trusted main checkout)
-    if [[ -f ".egg/check-fixers.yml" ]]; then
+    # Use CONFIG_FILE from environment if set, otherwise discover
+    if [[ -n "${CONFIG_FILE:-}" && -f "${CONFIG_FILE}" ]]; then
+        config_file="${CONFIG_FILE}"
+    elif [[ -f ".egg/check-fixers.yml" ]]; then
         config_file=".egg/check-fixers.yml"
     elif [[ -f "${REPO_ROOT}/shared/check-fixers.yml" ]]; then
         config_file="${REPO_ROOT}/shared/check-fixers.yml"
@@ -62,48 +67,18 @@ get_job_config() {
     local field="$3"
     local config_file="$4"
 
+    CFG_PATH="$config_file" CFG_WORKFLOW="$workflow" CFG_JOB="$job" CFG_FIELD="$field" \
     python3 -c "
-import yaml, sys
-with open('$config_file') as f:
+import yaml, sys, os
+with open(os.environ['CFG_PATH']) as f:
     cfg = yaml.safe_load(f) or {}
 defaults = cfg.get('defaults', {})
 workflows = cfg.get('workflows', {})
-wf = workflows.get('$workflow', {})
-job_cfg = wf.get('$job', {})
-val = job_cfg.get('$field', defaults.get('$field', ''))
+wf = workflows.get(os.environ['CFG_WORKFLOW'], {})
+job_cfg = wf.get(os.environ['CFG_JOB'], {})
+val = job_cfg.get(os.environ['CFG_FIELD'], defaults.get(os.environ['CFG_FIELD'], ''))
 print(val if val else '')
 " 2>/dev/null || echo ""
-}
-
-# ---------------------------------------------------------------------------
-# Fetch autofixer rules (same logic as build-autofixer-prompt.sh)
-# ---------------------------------------------------------------------------
-
-fetch_autofixer_rules() {
-    local rules_file=".egg/autofixer-rules.md"
-    local shared_file="${REPO_ROOT}/shared/prompts/autofixer-rules.md"
-
-    if [[ -f "$rules_file" ]]; then
-        cat "$rules_file"
-    elif [[ -f "$shared_file" ]]; then
-        cat "$shared_file"
-    else
-        cat <<'EOF'
-## Default Autofixer Rules
-
-**Auto-fixable (commit fixes directly):**
-- Lint errors (formatting, import order, code style)
-- Type errors with clear fixes
-- Simple test failures with obvious fixes
-- Missing or outdated dependencies in lock files
-
-**Report only (post comment explaining what's needed):**
-- Complex logic errors requiring design decisions
-- Security issues requiring architectural changes
-- Test failures from unclear requirements
-- Build failures from missing environment config
-EOF
-    fi
 }
 
 # ---------------------------------------------------------------------------
@@ -112,7 +87,9 @@ EOF
 
 build_prompt() {
     local config_file=""
-    if [[ -f ".egg/check-fixers.yml" ]]; then
+    if [[ -n "${CONFIG_FILE:-}" && -f "${CONFIG_FILE}" ]]; then
+        config_file="${CONFIG_FILE}"
+    elif [[ -f ".egg/check-fixers.yml" ]]; then
         config_file=".egg/check-fixers.yml"
     elif [[ -f "${REPO_ROOT}/shared/check-fixers.yml" ]]; then
         config_file="${REPO_ROOT}/shared/check-fixers.yml"
@@ -138,15 +115,21 @@ build_prompt() {
     local failed_job_list=""
 
     if [[ -n "$config_file" ]]; then
-        # Use Python to process all job configs at once
+        # Use Python to process all job configs at once.
+        # Data is passed via environment variables (not shell interpolation)
+        # to prevent code injection from crafted JSON payloads.
         local result
-        result=$(python3 -c "
-import yaml, json, sys
+        result=$(CONFIG_PATH="$config_file" \
+            WORKFLOW_NAME="${FAILED_WORKFLOW}" \
+            JOBS_JSON="${failed_jobs_json}" \
+            STATE_JSON="${autofix_state_json}" \
+            python3 -c "
+import yaml, json, sys, os
 
-config_file = '$config_file'
-workflow = '${FAILED_WORKFLOW}'
-failed_jobs = json.loads('${failed_jobs_json}')
-state = json.loads('${autofix_state_json}')
+config_file = os.environ['CONFIG_PATH']
+workflow = os.environ['WORKFLOW_NAME']
+failed_jobs = json.loads(os.environ['JOBS_JSON'])
+state = json.loads(os.environ['STATE_JSON'])
 
 with open(config_file) as f:
     cfg = yaml.safe_load(f) or {}
@@ -196,6 +179,7 @@ result = {
     'escalation': escalation,
     'model': model,
     'jobs_for_llm': jobs_for_llm,
+    'non_llm_jobs': [f['job'] for f in non_llm_fixes],
 }
 print(json.dumps(result))
 " 2>/dev/null || echo '{"non_llm_fixes":[],"needs_llm":true,"has_non_llm":false,"max_retries_reached":false,"escalation":[],"model":"sonnet","jobs_for_llm":[]}')
@@ -207,11 +191,16 @@ print(json.dumps(result))
         escalation_details=$(echo "$result" | python3 -c "import json,sys; print(json.dumps(json.load(sys.stdin)['escalation']))")
         model=$(echo "$result" | python3 -c "import json,sys; print(json.load(sys.stdin)['model'])")
         failed_job_list=$(echo "$result" | python3 -c "import json,sys; print('\n'.join(json.load(sys.stdin)['jobs_for_llm']))")
+        local non_llm_jobs llm_jobs
+        non_llm_jobs=$(echo "$result" | python3 -c "import json,sys; print(json.dumps(json.load(sys.stdin)['non_llm_jobs']))")
+        llm_jobs=$(echo "$result" | python3 -c "import json,sys; print(json.dumps(json.load(sys.stdin)['jobs_for_llm']))")
     else
         # No config file — all jobs need LLM, default model
         needs_llm="true"
         model="sonnet"
         failed_job_list=$(echo "$failed_jobs_json" | python3 -c "import json,sys; print('\n'.join(json.load(sys.stdin)))")
+        local non_llm_jobs="[]"
+        local llm_jobs="$failed_jobs_json"
     fi
 
     # Build the failed checks section for the prompt
@@ -224,18 +213,17 @@ print(json.dumps(result))
         done <<< "$failed_job_list"
     fi
 
-    # Load autofixer rules
-    local autofixer_rules
-    autofixer_rules=$(fetch_autofixer_rules)
-
-    # Load conventions
+    # Load conventions (per-check fixer specific)
     local conventions_file="${SCRIPT_DIR}/autofixer-conventions.md"
     local conventions=""
     if [[ -f "$conventions_file" ]]; then
         conventions=$(cat "$conventions_file")
     fi
 
-    # Build the focused prompt
+    # Build the focused prompt.
+    # NOTE: We intentionally do NOT include shared/prompts/autofixer-rules.md here
+    # because it instructs the agent to run checks locally, which conflicts with the
+    # per-check CI-driven model. The conventions file contains the relevant rules.
     local run_log_cmd=""
     if [[ -n "${FAILED_RUN_ID:-}" ]]; then
         run_log_cmd="gh run view ${FAILED_RUN_ID} --log-failed"
@@ -261,9 +249,18 @@ Fix only the issues listed above. Do not fix unrelated code.
 If you cannot fix an issue without human guidance, post a PR comment explaining
 what's needed and why.
 
-## Autofixer Rules
+## Auto-fixable vs Report-only
 
-${autofixer_rules}
+**Auto-fixable (commit fixes directly):**
+- Lint errors (formatting, import order, code style)
+- Type errors with clear fixes
+- Simple test failures with obvious fixes
+- Missing or outdated dependencies in lock files
+
+**Report only (explain what's needed):**
+- Complex logic errors requiring design decisions
+- Security issues requiring architectural changes
+- Failures that require understanding business requirements to resolve correctly
 
 ## Conventions
 
@@ -285,6 +282,8 @@ ${conventions:-Use git commit and git push to push fixes. Sign comments with: --
         echo "needs-llm=${needs_llm}"
         echo "max-retries-reached=${max_retries_reached}"
         echo "escalation-details=${escalation_details}"
+        echo "non-llm-jobs=${non_llm_jobs}"
+        echo "llm-jobs=${llm_jobs}"
     } >> "${GITHUB_OUTPUT:-/dev/null}"
 
     echo "Check fixer prompt built: ${#prompt} chars, model=${model}, has_non_llm=${has_non_llm}, needs_llm=${needs_llm}"

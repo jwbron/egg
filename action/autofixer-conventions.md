@@ -1,8 +1,9 @@
 # Autofixer Conventions (GitHub Actions)
 
-Operational conventions specific to the GitHub Actions autofixer.
-General autofixer rules (workflow, decision framework, etc.) are in
-`shared/prompts/autofixer-rules.md`.
+Operational conventions specific to the per-check GitHub Actions autofixer.
+These conventions replace `shared/prompts/autofixer-rules.md` for the per-check
+fixer context (the shared rules instruct running checks locally, which conflicts
+with the CI-driven model below).
 
 ## Per-Check Fixer Model
 
