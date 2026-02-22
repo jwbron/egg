@@ -127,6 +127,11 @@ class TestNoqaSuppression:
         violations = _write_and_check(tmp_path, code)
         assert len(violations) == 0
 
+    def test_noqa_on_preceding_line_suppresses(self, tmp_path):
+        code = '# noqa: EGG201 - docstring example\nmodel = "claude-sonnet-4-20250514"\n'
+        violations = _write_and_check(tmp_path, code)
+        assert len(violations) == 0
+
     def test_wrong_noqa_code_does_not_suppress(self, tmp_path):
         code = 'model = "claude-sonnet-4"  # noqa: EGG200 - wrong code\n'
         violations = _write_and_check(tmp_path, code)
@@ -150,6 +155,16 @@ class TestCleanCode:
         url = "https://api.example.com"
         name = "claude code"
         cmd = "claude --print"
+        """
+        violations = _write_and_check(tmp_path, code)
+        assert len(violations) == 0
+
+    def test_bare_family_names_not_flagged(self, tmp_path):
+        """Bare claude-sonnet/opus/haiku (no version) are not model IDs."""
+        code = """\
+        text = "claude-sonnet"
+        text2 = "claude-opus"
+        text3 = "claude-haiku"
         """
         violations = _write_and_check(tmp_path, code)
         assert len(violations) == 0
@@ -197,6 +212,34 @@ class TestSuggestAlias:
 
     def test_suggest_haiku(self):
         assert check_model_versions._suggest_alias("haiku") == "haiku"
+
+
+class TestHasPythonShebang:
+    """Tests for _has_python_shebang."""
+
+    def test_python3_shebang(self, tmp_path):
+        f = tmp_path / "script"
+        f.write_text("#!/usr/bin/env python3\nprint('hello')\n")
+        assert check_model_versions._has_python_shebang(f) is True
+
+    def test_python_shebang(self, tmp_path):
+        f = tmp_path / "script"
+        f.write_text("#!/usr/bin/python\nprint('hello')\n")
+        assert check_model_versions._has_python_shebang(f) is True
+
+    def test_bash_shebang(self, tmp_path):
+        f = tmp_path / "script"
+        f.write_text("#!/bin/bash\necho hello\n")
+        assert check_model_versions._has_python_shebang(f) is False
+
+    def test_no_shebang(self, tmp_path):
+        f = tmp_path / "script"
+        f.write_text("print('hello')\n")
+        assert check_model_versions._has_python_shebang(f) is False
+
+    def test_nonexistent_file(self, tmp_path):
+        f = tmp_path / "missing"
+        assert check_model_versions._has_python_shebang(f) is False
 
 
 class TestMultipleViolations:

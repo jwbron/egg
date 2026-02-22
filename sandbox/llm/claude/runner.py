@@ -238,7 +238,8 @@ async def run_agent_async(
     on_output: Callable[[str], None] | None = None,
     model: str | None = None,
 ) -> AgentResult:
-    """Run agent via Claude Code CLI in headless mode.  # noqa: EGG201 - docstring example
+    # noqa: EGG201 - docstring example
+    """Run agent via Claude Code CLI in headless mode.
 
     Args:
         prompt: The prompt to send to Claude

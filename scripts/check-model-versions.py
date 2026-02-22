@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""  # noqa: EGG201 - linter script references model IDs in examples
-Lint check: Enforce Claude model alias form.
+# noqa: EGG201 - linter script references model IDs in examples
+"""Lint check: Enforce Claude model alias form.
 
 Model references should use short aliases (``sonnet``, ``opus``, ``haiku``)
 rather than full model identifiers (``claude-sonnet-4``,
@@ -45,9 +45,10 @@ NOQA_CODE = "EGG201"
 #   claude-3-5-sonnet-20241022 → should be "sonnet"
 # Does NOT match non-model references like "claude code" or "claude --print"
 _MODEL_ID_RE = re.compile(
-    r"\bclaude-(?:(\d+-\d+-|)(\d+-|))"     # optional version prefix (3-5-, 3-)
-    r"(sonnet|opus|haiku)"                   # model family
-    r"(?:-[\d]+(?:-[\d]+)?)?(?:-\d{8})?\b"   # optional version/date suffix
+    r"\bclaude-(?=[\w-]*\d)"                   # lookahead: at least one digit somewhere
+    r"(?:(\d+-\d+-|)(\d+-|))"                  # optional version prefix (3-5-, 3-)
+    r"(sonnet|opus|haiku)"                      # model family
+    r"(?:-[\d]+(?:-[\d]+)?)?(?:-\d{8})?\b"      # optional version/date suffix
 )
 
 # Map full model ID families to their short alias
@@ -92,10 +93,12 @@ class ModelAliasVisitor(ast.NodeVisitor):
         self.violations: list[tuple[int, str]] = []
 
     def _has_noqa(self, lineno: int) -> bool:
-        """Check if a line has a noqa: EGG201 comment."""
-        if 1 <= lineno <= len(self.source_lines):
-            line = self.source_lines[lineno - 1]
-            return f"noqa: {NOQA_CODE}" in line
+        """Check if a line (or preceding line) has a noqa: EGG201 comment."""
+        for check_line in (lineno, lineno - 1):
+            if 1 <= check_line <= len(self.source_lines):
+                line = self.source_lines[check_line - 1]
+                if f"noqa: {NOQA_CODE}" in line:
+                    return True
         return False
 
     def visit_Constant(self, node: ast.Constant) -> None:

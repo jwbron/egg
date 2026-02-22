@@ -1,5 +1,5 @@
-"""  # noqa: EGG201 - docstring examples use full model IDs
-Transcript buffer for capturing Anthropic API request/response pairs.
+# noqa: EGG201 - docstring examples use full model IDs
+"""Transcript buffer for capturing Anthropic API request/response pairs.
 
 This module provides a per-session buffer for storing API traffic at the gateway
 proxy layer. The buffer is written to /tmp/egg-transcripts/{container_id}.jsonl

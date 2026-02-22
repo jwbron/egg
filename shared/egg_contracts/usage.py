@@ -50,7 +50,8 @@ DEFAULT_CACHE_WRITE_COST_PER_MTOK = MODEL_PRICING["opus"]["cache_write"]
 
 
 def get_model_pricing(model: str | None) -> dict[str, Decimal]:
-    """Look up pricing for a model alias or full model ID.  # noqa: EGG201 - docstring example
+    # noqa: EGG201 - docstring example
+    """Look up pricing for a model alias or full model ID.
 
     Resolves full model IDs (e.g. 'claude-opus-4-5-20251101') to their
     base alias ('opus'). Falls back to opus pricing for unknown models.
