@@ -91,6 +91,10 @@ logger = get_logger("orchestrator.pipelines")
 # Must match the gateway's WORKTREE_BASE_DIR and docker-compose volume mounts.
 WORKTREE_BASE_DIR = Path("/home/egg/.egg-worktrees")
 
+# Sentinel header used in tester gap summaries. Checked in prompt-building
+# functions to adapt language when tester findings are present.
+TESTER_FINDINGS_HEADER = "### tester findings"
+
 # Network constants for sandbox container URLs
 try:
     from egg_config import (
@@ -1659,7 +1663,7 @@ def _read_tester_gaps(repo_path: Path) -> str | None:
     if not sections:
         return None
 
-    return "### tester findings\n" + "\n".join(sections)
+    return f"{TESTER_FINDINGS_HEADER}\n" + "\n".join(sections)
 
 
 def _aggregate_review_verdicts(
@@ -1892,11 +1896,12 @@ def _build_phase_prompt(
     # --- Prior review feedback (revision cycles) ---
     if review_cycle > 0 and review_feedback:
         lines.append(f"## Prior Review Feedback (Cycle {review_cycle})\n")
-        has_tester_findings = "### tester findings" in review_feedback
+        has_tester_findings = TESTER_FINDINGS_HEADER in review_feedback
         if has_tester_findings:
             lines.append(
                 "The reviewer and tester found issues with your previous work. "
-                "Address the feedback below.\n"
+                "Address the feedback below and revise your draft **in-place** "
+                "(overwrite the same file).\n"
             )
         else:
             lines.append(
@@ -2160,7 +2165,7 @@ def _build_phase_prompt(
 
             lines.append("## Revision Instructions\n")
             if review_feedback:
-                has_tester_findings = "### tester findings" in review_feedback
+                has_tester_findings = TESTER_FINDINGS_HEADER in review_feedback
                 if has_tester_findings:
                     lines.extend(
                         [
@@ -5089,7 +5094,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                 # 2.5 Read tester gap findings (multi-agent phases include a tester).
                 # Only read when the phase succeeded — a failed phase may
                 # have left stale output from a previous cycle on disk.
-                if use_multi_agent:
+                if use_multi_agent and not phase_failed:
                     tester_gap_summary = _read_tester_gaps(worktree_repo_path)
                     if tester_gap_summary:
                         logger.info(
