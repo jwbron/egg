@@ -1841,9 +1841,12 @@ def checkpoint_show(identifier: str) -> tuple[Response, int] | Response:
 def _resolve_checkpoint_repo(repo_path: str) -> str | None:
     """Resolve checkpoint_repo from query param or auto-detection.
 
-    Accepts an explicit ``checkpoint_repo`` query parameter in
-    ``owner/repo`` format.  Falls back to auto-detection via
-    ``_get_checkpoint_repo_for_path`` when no explicit value is given.
+    Resolution order:
+    1. Explicit ``checkpoint_repo`` query parameter (owner/repo format).
+    2. Auto-detection from ``repo_path`` (git remote → config lookup).
+    3. ``source_repo`` query parameter looked up in config. This is the
+       fallback for sandbox containers where ``repositories.yaml`` is not
+       available and the sandbox repo path may not exist on the gateway.
     """
     explicit = request.args.get("checkpoint_repo")
     if explicit:
@@ -1854,23 +1857,91 @@ def _resolve_checkpoint_repo(repo_path: str) -> str | None:
             "Invalid checkpoint_repo format, falling back to auto-detection",
             checkpoint_repo=explicit,
         )
+
+    # Try path-based auto-detection (works when repo_path is a local git repo)
+    result = _get_checkpoint_repo_for_path(repo_path)
+    if result:
+        return result
+
+    # Fallback: use source_repo query param for config lookup.
+    # The sandbox CLI sends this when it can determine the source repo
+    # from git remote but cannot resolve checkpoint_repo locally
+    # (repositories.yaml is only mounted on the gateway).
+    source_repo = request.args.get("source_repo")
+    if source_repo and re.match(r"^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$", source_repo):
+        try:
+            from config.repo_config import get_checkpoint_repo
+
+            cp_repo = get_checkpoint_repo(source_repo)
+            if cp_repo:
+                logger.debug(
+                    "Resolved checkpoint_repo from source_repo param",
+                    source_repo=source_repo,
+                    checkpoint_repo=cp_repo,
+                )
+                return cp_repo
+        except Exception as e:
+            logger.debug(
+                "Config lookup for source_repo failed",
+                source_repo=source_repo,
+                error=str(e),
+            )
+
+    return None
+
+
+_CHECKPOINT_SCRATCH_DIR = "/tmp/egg-checkpoint-scratch"
+
+
+def _ensure_checkpoint_scratch_repo() -> str | None:
+    """Create or return a bare git repo for checkpoint fetch operations.
+
+    When the sandbox's repo path doesn't exist on the gateway filesystem,
+    we still need a valid git directory as cwd for ``git fetch`` and
+    ``git ls-remote`` commands.  This creates a minimal bare repo that
+    serves as that working directory.
+
+    Returns:
+        Path to the scratch repo, or None on failure.
+    """
+    if os.path.isdir(os.path.join(_CHECKPOINT_SCRATCH_DIR, "objects")):
+        return _CHECKPOINT_SCRATCH_DIR
+    try:
+        os.makedirs(_CHECKPOINT_SCRATCH_DIR, exist_ok=True)
+        subprocess.run(
+            ["git", "init", "--bare", _CHECKPOINT_SCRATCH_DIR],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=True,
+        )
+        logger.debug("Created checkpoint scratch repo", path=_CHECKPOINT_SCRATCH_DIR)
+        return _CHECKPOINT_SCRATCH_DIR
+    except Exception as e:
+        logger.warning("Failed to create checkpoint scratch repo", error=str(e))
         return None
-    return _get_checkpoint_repo_for_path(repo_path)
 
 
 def _resolve_repo_path_for_checkpoints() -> str | None:
     """Resolve repository path for checkpoint read operations.
 
-    Tries query param, then session's last_repo_path, then EGG_REPO_PATH.
+    Tries query param, then session's last_repo_path, then EGG_REPO_PATH,
+    then a checkpoint scratch repo.  The scratch repo fallback handles
+    sandbox → gateway requests where the sandbox's filesystem is not
+    mounted on the gateway container.
     """
-    # Explicit query param — if provided, must be valid; don't silently
-    # fall through to fallbacks when the client explicitly requested a path.
+    # Explicit query param — if provided AND exists locally, use it.
     repo_path = request.args.get("repo_path")
     if repo_path:
         path_valid, _err = validate_repo_path(repo_path)
         if path_valid and os.path.isdir(repo_path):
             return repo_path
-        return None
+        # Path is valid format but doesn't exist on this container.
+        # This is expected when the CLI runs in a sandbox whose filesystem
+        # is not mounted on the gateway.  Fall through to other sources
+        # instead of returning None.
+        if not path_valid:
+            return None
 
     # Session's last known repo path (set during push operations)
     session = getattr(g, "session", None)
@@ -1882,7 +1953,10 @@ def _resolve_repo_path_for_checkpoints() -> str | None:
     if env_path and os.path.isdir(env_path):
         return env_path
 
-    return None
+    # Last resort: create a bare scratch repo for checkpoint fetching.
+    # This allows the gateway to serve checkpoint queries even without
+    # a local copy of the source repo.
+    return _ensure_checkpoint_scratch_repo()
 
 
 @app.route("/api/v1/gh/pr/create", methods=["POST"])

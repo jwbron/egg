@@ -461,6 +461,32 @@ def print_checkpoint_details(checkpoint: CheckpointV2 | dict[str, Any]) -> None:
             print(f"  {op}: {count}")
 
 
+def _get_source_repo(repo_path: str | None = None) -> str | None:
+    """Extract source repo name (owner/repo) from git remote URL.
+
+    This works in the sandbox even when repositories.yaml is not
+    available — it only needs a local git repo with a remote.
+
+    Args:
+        repo_path: Optional repo path override.
+
+    Returns:
+        Source repo in "owner/repo" format, or None.
+    """
+    repo_path = repo_path or get_repo_path()
+    try:
+        result = run_git(["remote", "get-url", "origin"], cwd=repo_path, check=False)
+        if result.returncode != 0 or not result.stdout.strip():
+            return None
+        remote_url = result.stdout.strip()
+        match = re.search(r"github\.com[:/]([^/]+)/([^/]+?)(?:\.git)?$", remote_url)
+        if match:
+            return f"{match.group(1)}/{match.group(2)}"
+    except Exception:
+        pass
+    return None
+
+
 def _get_checkpoint_repo_from_args(args: argparse.Namespace) -> str | None:
     """Get checkpoint_repo from CLI args or repo config."""
     checkpoint_repo: str | None = getattr(args, "checkpoint_repo", None)
@@ -469,21 +495,38 @@ def _get_checkpoint_repo_from_args(args: argparse.Namespace) -> str | None:
     # Try to auto-detect from repo config by reading the git remote URL
     # and looking up checkpoint_repo in repositories.yaml.
     repo_path = args.repo_path or get_repo_path()
+    source_repo = _get_source_repo(repo_path)
+    if not source_repo:
+        return None
     try:
-        result = run_git(["remote", "get-url", "origin"], cwd=repo_path, check=False)
-        if result.returncode != 0 or not result.stdout.strip():
-            return None
-        remote_url = result.stdout.strip()
-        match = re.search(r"github\.com[:/]([^/]+)/([^/]+?)(?:\.git)?$", remote_url)
-        if not match:
-            return None
-        repo = f"{match.group(1)}/{match.group(2)}"
         from config.repo_config import get_checkpoint_repo  # type: ignore[import-not-found]
 
-        return get_checkpoint_repo(repo)
+        return get_checkpoint_repo(source_repo)
     except Exception:
         pass
     return None
+
+
+def _add_checkpoint_resolution_params(
+    params: dict[str, Any], args: argparse.Namespace
+) -> None:
+    """Add checkpoint_repo and source_repo params for gateway resolution.
+
+    When checkpoint_repo can be resolved locally (e.g. repositories.yaml
+    is available), it is passed directly.  Otherwise, source_repo is
+    passed so the gateway can perform the config lookup on its side.
+    """
+    checkpoint_repo = _get_checkpoint_repo_from_args(args)
+    if checkpoint_repo:
+        params["checkpoint_repo"] = checkpoint_repo
+    else:
+        # Can't resolve checkpoint_repo locally (e.g. sandbox without
+        # repositories.yaml). Pass source_repo so the gateway can
+        # look it up in its own config.
+        repo_path = params.get("repo_path") or args.repo_path or get_repo_path()
+        source_repo = _get_source_repo(repo_path)
+        if source_repo:
+            params["source_repo"] = source_repo
 
 
 def _build_list_params(args: argparse.Namespace) -> dict[str, Any]:
@@ -511,9 +554,7 @@ def _build_list_params(args: argparse.Namespace) -> dict[str, Any]:
         params["repo"] = args.repo
     repo_path = args.repo_path or get_repo_path()
     params["repo_path"] = repo_path
-    checkpoint_repo = _get_checkpoint_repo_from_args(args)
-    if checkpoint_repo:
-        params["checkpoint_repo"] = checkpoint_repo
+    _add_checkpoint_resolution_params(params, args)
     return params
 
 
@@ -594,9 +635,7 @@ def cmd_list(args: argparse.Namespace) -> int:
 def _cmd_show_http(args: argparse.Namespace, gateway_url: str) -> int:
     """Show checkpoint via gateway HTTP API."""
     params: dict[str, Any] = {"repo_path": args.repo_path or get_repo_path()}
-    checkpoint_repo = _get_checkpoint_repo_from_args(args)
-    if checkpoint_repo:
-        params["checkpoint_repo"] = checkpoint_repo
+    _add_checkpoint_resolution_params(params, args)
     result = _http_get(gateway_url, f"/api/v1/checkpoints/{args.identifier}", params)
 
     if not result.get("success"):
@@ -662,9 +701,7 @@ def _cmd_browse_http(args: argparse.Namespace, gateway_url: str) -> int:
     }
     if getattr(args, "repo", None):
         params["repo"] = args.repo
-    checkpoint_repo = _get_checkpoint_repo_from_args(args)
-    if checkpoint_repo:
-        params["checkpoint_repo"] = checkpoint_repo
+    _add_checkpoint_resolution_params(params, args)
 
     result = _http_get(gateway_url, "/api/v1/checkpoints", params)
     summaries = result.get("data", {}).get("checkpoints", [])
@@ -779,9 +816,7 @@ def _cmd_context_http(args: argparse.Namespace, gateway_url: str) -> int:
         params["phase"] = args.phase
     if getattr(args, "repo", None):
         params["repo"] = args.repo
-    checkpoint_repo = _get_checkpoint_repo_from_args(args)
-    if checkpoint_repo:
-        params["checkpoint_repo"] = checkpoint_repo
+    _add_checkpoint_resolution_params(params, args)
 
     result = _http_get(gateway_url, "/api/v1/checkpoints", params)
     summaries = result.get("data", {}).get("checkpoints", [])
@@ -800,6 +835,8 @@ def _cmd_context_http(args: argparse.Namespace, gateway_url: str) -> int:
                     show_params: dict[str, Any] = {"repo_path": params["repo_path"]}
                     if params.get("checkpoint_repo"):
                         show_params["checkpoint_repo"] = params["checkpoint_repo"]
+                    elif params.get("source_repo"):
+                        show_params["source_repo"] = params["source_repo"]
                     cp_result = _http_get(
                         gateway_url,
                         f"/api/v1/checkpoints/{cp_id}",
@@ -826,6 +863,7 @@ def _cmd_context_http(args: argparse.Namespace, gateway_url: str) -> int:
             gateway_url,
             args,
             checkpoint_repo=params.get("checkpoint_repo"),
+            source_repo=params.get("source_repo"),
         )
 
     return 0
@@ -836,6 +874,7 @@ def _print_context_summary_from_dicts(
     gateway_url: str,
     args: argparse.Namespace,
     checkpoint_repo: str | None = None,
+    source_repo: str | None = None,
 ) -> None:
     """Print hierarchical context summary from dict data (HTTP mode)."""
     groups: dict[str, dict[str, list[dict[str, Any]]]] = {}
@@ -882,6 +921,8 @@ def _print_context_summary_from_dicts(
                         show_params: dict[str, Any] = {"repo_path": repo_path}
                         if checkpoint_repo:
                             show_params["checkpoint_repo"] = checkpoint_repo
+                        elif source_repo:
+                            show_params["source_repo"] = source_repo
                         cp_result = _http_get(
                             gateway_url,
                             f"/api/v1/checkpoints/{cp_id}",
@@ -1030,9 +1071,7 @@ def _cmd_cost_http(args: argparse.Namespace, gateway_url: str) -> int:
         params["issue"] = args.issue
     if getattr(args, "pr", None):
         params["pr"] = args.pr
-    checkpoint_repo = _get_checkpoint_repo_from_args(args)
-    if checkpoint_repo:
-        params["checkpoint_repo"] = checkpoint_repo
+    _add_checkpoint_resolution_params(params, args)
 
     result = _http_get(gateway_url, "/api/v1/checkpoints/cost", params)
     data = result.get("data", {})

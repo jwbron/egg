@@ -1,12 +1,15 @@
 """Tests for checkpoint CLI HTTP mode (gateway direct)."""
 
 import argparse
+import subprocess
 from unittest.mock import MagicMock, patch
 
 import pytest
 from egg_contracts.checkpoint_cli import (
+    _add_checkpoint_resolution_params,
     _build_list_params,
     _get_gateway_url,
+    _get_source_repo,
     _http_get,
     cmd_cost,
     cmd_list,
@@ -327,3 +330,106 @@ class TestCmdCostHttpFallback:
         result = cmd_cost(args)
         assert result == 0
         mock_http.assert_called_once()
+
+
+class TestGetSourceRepo:
+    """Tests for _get_source_repo() helper."""
+
+    @patch("egg_contracts.checkpoint_cli.run_git")
+    def test_extracts_from_https_remote(self, mock_git):
+        mock_git.return_value = subprocess.CompletedProcess(
+            args=[], returncode=0, stdout="https://github.com/jwbron/egg.git\n", stderr=""
+        )
+        assert _get_source_repo("/repo") == "jwbron/egg"
+
+    @patch("egg_contracts.checkpoint_cli.run_git")
+    def test_extracts_from_ssh_remote(self, mock_git):
+        mock_git.return_value = subprocess.CompletedProcess(
+            args=[], returncode=0, stdout="git@github.com:jwbron/egg.git\n", stderr=""
+        )
+        assert _get_source_repo("/repo") == "jwbron/egg"
+
+    @patch("egg_contracts.checkpoint_cli.run_git")
+    def test_returns_none_when_git_fails(self, mock_git):
+        mock_git.return_value = subprocess.CompletedProcess(
+            args=[], returncode=1, stdout="", stderr="fatal: not a git repo"
+        )
+        assert _get_source_repo("/repo") is None
+
+    @patch("egg_contracts.checkpoint_cli.run_git")
+    def test_returns_none_for_non_github_url(self, mock_git):
+        mock_git.return_value = subprocess.CompletedProcess(
+            args=[], returncode=0, stdout="https://gitlab.com/org/repo.git\n", stderr=""
+        )
+        assert _get_source_repo("/repo") is None
+
+    @patch("egg_contracts.checkpoint_cli.run_git", side_effect=Exception("timeout"))
+    def test_returns_none_on_exception(self, mock_git):
+        assert _get_source_repo("/repo") is None
+
+
+class TestAddCheckpointResolutionParams:
+    """Tests for _add_checkpoint_resolution_params() source_repo fallback."""
+
+    @patch("egg_contracts.checkpoint_cli._get_checkpoint_repo_from_args")
+    def test_passes_checkpoint_repo_when_available(self, mock_get_ckpt):
+        mock_get_ckpt.return_value = "org/checkpoints"
+        args = argparse.Namespace(repo_path="/repo", checkpoint_repo="org/checkpoints")
+        params: dict = {"repo_path": "/repo"}
+        _add_checkpoint_resolution_params(params, args)
+        assert params["checkpoint_repo"] == "org/checkpoints"
+        assert "source_repo" not in params
+
+    @patch("egg_contracts.checkpoint_cli._get_source_repo")
+    @patch("egg_contracts.checkpoint_cli._get_checkpoint_repo_from_args")
+    def test_passes_source_repo_when_checkpoint_repo_unavailable(
+        self, mock_get_ckpt, mock_get_src
+    ):
+        mock_get_ckpt.return_value = None
+        mock_get_src.return_value = "jwbron/egg"
+        args = argparse.Namespace(repo_path="/repo", checkpoint_repo=None)
+        params: dict = {"repo_path": "/repo"}
+        _add_checkpoint_resolution_params(params, args)
+        assert "checkpoint_repo" not in params
+        assert params["source_repo"] == "jwbron/egg"
+
+    @patch("egg_contracts.checkpoint_cli._get_source_repo")
+    @patch("egg_contracts.checkpoint_cli._get_checkpoint_repo_from_args")
+    def test_passes_neither_when_both_unavailable(self, mock_get_ckpt, mock_get_src):
+        mock_get_ckpt.return_value = None
+        mock_get_src.return_value = None
+        args = argparse.Namespace(repo_path="/repo", checkpoint_repo=None)
+        params: dict = {"repo_path": "/repo"}
+        _add_checkpoint_resolution_params(params, args)
+        assert "checkpoint_repo" not in params
+        assert "source_repo" not in params
+
+
+class TestBuildListParamsSourceRepo:
+    """Tests that _build_list_params includes source_repo for gateway resolution."""
+
+    @patch("egg_contracts.checkpoint_cli._get_source_repo")
+    @patch("egg_contracts.checkpoint_cli._get_checkpoint_repo_from_args")
+    def test_includes_source_repo_when_checkpoint_repo_unavailable(
+        self, mock_get_ckpt, mock_get_src
+    ):
+        mock_get_ckpt.return_value = None
+        mock_get_src.return_value = "jwbron/egg"
+        args = argparse.Namespace(
+            limit=50,
+            issue=None,
+            pr=None,
+            branch=None,
+            session=None,
+            trigger=None,
+            status=None,
+            agent_type=None,
+            phase=None,
+            pipeline=None,
+            repo=None,
+            repo_path="/repo",
+            checkpoint_repo=None,
+        )
+        params = _build_list_params(args)
+        assert "checkpoint_repo" not in params
+        assert params["source_repo"] == "jwbron/egg"
