@@ -219,6 +219,8 @@ Only runs on PRs that modify agent-related files:
 - `action/**` — Action code and prompt builders
 - `.github/workflows/**` — Workflow definitions
 - `sandbox/**/*.md` — Sandbox documentation
+- `sandbox/bin/**` — Sandbox CLI tools
+- `shared/prompts/**` — Shared prompt criteria
 - `docs/guides/agent-mode-design.md` — The design guide itself
 - `docs/guides/sdlc-pipeline.md` — SDLC pipeline operational guide
 - `docs/architecture/**` — Architecture documentation
@@ -235,6 +237,9 @@ handles correctness, security, and style. Design Review focuses exclusively on:
 | Post-processing pipelines | Scripts that parse agent output to take actions the agent could take directly |
 | Rigid procedures | Micromanaging step-by-step procedures when objectives would suffice |
 | Prompt-level security | Using instructions for constraints that should be sandbox-enforced |
+| Direct LLM API calls outside sandbox | Calling the Anthropic API from orchestrator, gateway, or shared code instead of delegating to sandbox containers (enforced by EGG200 linter) |
+| Direct API calls bypassing Claude Code | Using raw HTTP calls to the Anthropic API instead of `claude --print` (Claude Code headless mode), which provides tool access and consistent configuration |
+| Hardcoded model identifiers | Using full model IDs like `claude-sonnet-4-20250514` instead of short aliases (`sonnet`, `opus`, `haiku`) which auto-adopt the latest version (enforced by EGG201 linter) |
 
 ### Review Philosophy
 
