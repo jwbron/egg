@@ -79,6 +79,11 @@ from gateway_client import (
 )
 from models import AgentRole, ContainerInfo
 
+try:
+    from dind_manager import DindManager
+except ImportError:
+    DindManager = None  # type: ignore[assignment,misc]
+
 logger = get_logger("orchestrator.spawner")
 
 
@@ -139,6 +144,7 @@ class ContainerSpawner:
         """
         self._docker = docker_client
         self._gateway = gateway_client
+        self._dind_managers: dict[str, "DindManager"] = {}  # pipeline_id -> DindManager
 
     @property
     def docker(self) -> DockerClient:
@@ -205,6 +211,7 @@ class ContainerSpawner:
         certs_volume: str | None = None,
         branch: str | None = None,
         complexity_tier: str | None = None,
+        integration_test_enabled: bool = False,
     ) -> SpawnedContainer:
         """Spawn a container for an agent.
 
@@ -227,6 +234,9 @@ class ContainerSpawner:
             phase: SDLC pipeline phase for gateway session
             command: Command to execute in the container
             certs_volume: Docker named volume for gateway CA certs
+            integration_test_enabled: When True and agent_role is TESTER,
+                provision a DinD sidecar and inject DOCKER_HOST into the
+                tester's environment.
 
         Returns:
             SpawnedContainer with container and session info
@@ -336,6 +346,38 @@ class ContainerSpawner:
 
         # Build network config from mode
         net_config = self._build_network_config(mode)
+
+        # Optionally provision a DinD sidecar for integration testing
+        dind_manager = None
+        if integration_test_enabled and agent_role == AgentRole.TESTER and DindManager is not None:
+            dind_manager = DindManager(
+                pipeline_id=pipeline_id,
+                docker_client=self.docker.client,
+            )
+            try:
+                dind_status = dind_manager.start(network_name=net_config.network_name)
+                if dind_status.daemon_url:
+                    if extra_env is None:
+                        extra_env = {}
+                    extra_env["DOCKER_HOST"] = dind_status.daemon_url
+                    logger.info(
+                        "DinD sidecar provisioned for tester",
+                        pipeline_id=pipeline_id,
+                        daemon_url=dind_status.daemon_url,
+                    )
+                else:
+                    logger.warning(
+                        "DinD sidecar started but no daemon URL available",
+                        pipeline_id=pipeline_id,
+                    )
+            except Exception as e:
+                logger.error(
+                    "Failed to provision DinD sidecar",
+                    pipeline_id=pipeline_id,
+                    error=str(e),
+                )
+                dind_manager.teardown()
+                dind_manager = None
 
         session_info = None
         container = None
@@ -452,6 +494,10 @@ class ContainerSpawner:
                 has_session=session_info is not None,
             )
 
+            # Track DinD manager for cleanup when container stops
+            if dind_manager is not None:
+                self._dind_managers[pipeline_id] = dind_manager
+
             return SpawnedContainer(
                 container_info=container,
                 session_info=session_info,
@@ -461,6 +507,9 @@ class ContainerSpawner:
             )
 
         except DockerClientError as e:
+            # Clean up DinD sidecar if we provisioned one
+            if dind_manager is not None:
+                dind_manager.teardown()
             # Clean up gateway session if we registered one
             if session_info:
                 try:
@@ -583,6 +632,18 @@ class ContainerSpawner:
                 logger.warning(
                     "Failed to remove container during cleanup",
                     container_id=container.container_id[:12],
+                    error=str(e),
+                )
+
+        # Clean up DinD sidecar if one was provisioned for this pipeline
+        dind = self._dind_managers.pop(pipeline_id, None)
+        if dind is not None:
+            try:
+                dind.teardown()
+            except Exception as e:
+                logger.warning(
+                    "Failed to clean up DinD sidecar during pipeline cleanup",
+                    pipeline_id=pipeline_id,
                     error=str(e),
                 )
 

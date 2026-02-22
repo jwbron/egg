@@ -101,6 +101,7 @@ class MultiAgentExecutor:
         dispatcher: PipelineDispatcher | None = None,
         spawn_fn: SpawnFn | None = None,
         max_parallel_agents: int = 10,
+        integration_test_enabled: bool = False,
     ):
         """Initialize executor.
 
@@ -112,12 +113,16 @@ class MultiAgentExecutor:
                 agents are spawned via this function instead of Docker.
                 Signature: (role, prompt, extra_env) -> (exit_code, logs)
             max_parallel_agents: Maximum agents to run concurrently in a wave
+            integration_test_enabled: When True, tester agents receive
+                EGG_INTEGRATION_TEST_ENABLED=true in their environment,
+                signaling the container spawner to provision a DinD sidecar.
         """
         self.pipeline = pipeline
         self.repo_path = repo_path
         self.dispatcher = dispatcher or create_dispatcher(pipeline, repo_path)
         self.spawn_fn = spawn_fn
         self.max_parallel_agents = max_parallel_agents
+        self.integration_test_enabled = integration_test_enabled
 
         if spawn_fn is None:
             self.docker_client = get_docker_client()
@@ -160,13 +165,17 @@ class MultiAgentExecutor:
                 handoff_data = self.dispatcher.get_handoff_data(role)
 
                 # Create sandbox config
+                sandbox_extra_env: dict[str, str] = {
+                    "EGG_HANDOFF_DATA": str(handoff_data),
+                }
+                if self.integration_test_enabled and role == AgentRole.TESTER:
+                    sandbox_extra_env["EGG_INTEGRATION_TEST_ENABLED"] = "true"
+
                 config = create_sandbox_config(
                     pipeline_id=self.pipeline.id,
                     agent_role=role,
                     issue_number=self.pipeline.issue_number,
-                    extra_env={
-                        "EGG_HANDOFF_DATA": str(handoff_data),
-                    },
+                    extra_env=sandbox_extra_env,
                 )
 
                 # Build docker config
@@ -354,6 +363,11 @@ class MultiAgentExecutor:
                         "EGG_HANDOFF_DATA": json.dumps(handoff_data) if handoff_data else "{}",
                         "EGG_WAVE_NUMBER": str(wave.wave_number),
                     }
+
+                    # Signal the container spawner to provision a DinD sidecar
+                    # for tester agents when integration testing is enabled.
+                    if self.integration_test_enabled and role == AgentRole.TESTER:
+                        extra_env["EGG_INTEGRATION_TEST_ENABLED"] = "true"
 
                     prompt = agent_prompts.get(role, "")
 

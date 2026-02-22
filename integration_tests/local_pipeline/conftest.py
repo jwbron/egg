@@ -96,10 +96,34 @@ class LocalPipelineStack:
 from .helpers import wait_for_pipeline_terminal  # noqa: E402, F401
 
 
+def _is_dind_mode() -> bool:
+    """Check if running with a DinD daemon (DOCKER_HOST set externally)."""
+    return bool(os.environ.get("DOCKER_HOST", ""))
+
+
+def _docker_cmd() -> list[str]:
+    """Return the base docker command, respecting DOCKER_HOST if set."""
+    docker_host = os.environ.get("DOCKER_HOST", "")
+    if docker_host:
+        return ["docker", "-H", docker_host]
+    return ["docker"]
+
+
+def _image_exists(image_name: str) -> bool:
+    """Check if a Docker image already exists (e.g. pre-loaded in DinD)."""
+    result = subprocess.run(
+        [*_docker_cmd(), "image", "inspect", image_name],
+        capture_output=True,
+        timeout=10,
+        check=False,
+    )
+    return result.returncode == 0
+
+
 def _cleanup_orphaned_containers() -> None:
     """Remove any leftover egg-sandbox containers from previous test runs."""
     result = subprocess.run(
-        ["docker", "ps", "-a", "--filter", "name=egg-sandbox-egg-", "--format", "{{.Names}}"],
+        [*_docker_cmd(), "ps", "-a", "--filter", "name=egg-sandbox-egg-", "--format", "{{.Names}}"],
         capture_output=True,
         text=True,
         timeout=10,
@@ -108,7 +132,7 @@ def _cleanup_orphaned_containers() -> None:
     for name in result.stdout.strip().splitlines():
         if name:
             subprocess.run(
-                ["docker", "rm", "-f", name],
+                [*_docker_cmd(), "rm", "-f", name],
                 capture_output=True,
                 timeout=10,
                 check=False,
@@ -236,20 +260,23 @@ def local_pipeline_stack() -> Generator[LocalPipelineStack, None, None]:
         # that might cause name conflicts
         _cleanup_orphaned_containers()
 
-        # Build mock-sandbox image first
-        subprocess.run(
-            [
-                "docker",
-                "build",
-                "-t",
-                "mock-sandbox:latest",
-                str(MOCK_SANDBOX_DIR),
-            ],
-            capture_output=True,
-            text=True,
-            timeout=120,
-            check=True,
-        )
+        # Build mock-sandbox image (skip if already exists, e.g. pre-loaded in DinD)
+        if _image_exists("mock-sandbox:latest"):
+            pass  # Image already available (CI pre-build or DinD pre-load)
+        else:
+            subprocess.run(
+                [
+                    *_docker_cmd(),
+                    "build",
+                    "-t",
+                    "mock-sandbox:latest",
+                    str(MOCK_SANDBOX_DIR),
+                ],
+                capture_output=True,
+                text=True,
+                timeout=120,
+                check=True,
+            )
 
         # Build and start the compose stack
         result = subprocess.run(
