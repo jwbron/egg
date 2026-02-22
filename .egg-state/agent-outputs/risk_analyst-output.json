@@ -1,278 +1,471 @@
 {
-  "issue": 829,
+  "issue": 732,
   "phase": "plan",
   "agent": "risk_analyst",
-  "title": "Risk Assessment: Full DAG visualization for Tier 3 parallel phase execution",
-  "summary": "Assessment of the proposed Approach A (expand Implement phase into sub-phase boxes in render_pipeline_dag) for rendering Tier 3 parallel plan phase execution as a branching DAG. The change is concentrated in orchestrator/dag_visualizer.py with no model or schema changes, and downstream consumers (SSE, CLI tools, API) require zero changes. The overall risk is Low-Medium. Seven risks identified: one Medium (contract loading path discovery), four Low-Medium, and two Low. The most significant design gap is that render_pipeline_dag() currently has no way to discover the contract file path, since the Pipeline model lacks a repo_root/worktree_path field and the function signature is constrained. This must be resolved before implementation begins. All other risks are mitigable with the architect's proposed fallback-to-flat strategy and thorough unit testing.",
+  "title": "Risk Assessment: Parallel Phase-Level Dispatch for Implement Phase",
+  "summary": "Assessment of the hybrid approach (Approach C) for adding Tier 3 dispatch to the SDLC pipeline. The recommended approach carries manageable risk when delivered in two stages. The highest risks center on the composite execution key migration (silent data loss during deserialization), integrator privilege escalation interacting with readonly mount enforcement (#800), and the sheer scope of changes touching 12+ files across 4 packages. Six risks are rated High, five Medium, and two Low. All are mitigable with the staged approach but require careful implementation ordering and comprehensive backward compatibility testing.",
 
   "risk_assessment": {
-    "overall_risk_level": "Low-Medium",
-    "overall_verdict": "Proceed with Approach A. The change is well-scoped: all visualization logic is in dag_visualizer.py, no model changes, no orchestrator dispatch changes, and all downstream consumers are decoupled (they consume text output). The primary risks are: (1) a design gap around contract file path discovery that must be resolved in Phase 1, and (2) the inherent complexity of multi-column ASCII text composition. Both are solvable with the approaches described below. The fallback-to-flat strategy ensures the visualizer never degrades — if anything goes wrong loading the contract or computing waves, the existing single-Implement-box rendering is used.",
-    "confidence": "High — based on source code analysis of dag_visualizer.py (665 lines, all functions), models.py (Pipeline, AgentExecution.plan_phase_id, ComplexityTier), shared/egg_contracts/dependency_graph.py (PhaseDependencyGraph.compute_waves, PhaseWave), shared/egg_contracts/loader.py (load_contract), orchestrator/sse.py (SSE refresh cycle calling render_pipeline_dag every 1s), orchestrator/routes/pipelines.py (_run_tier3_implement contract loading pattern), and orchestrator/tests/test_dag_visualizer.py (1313 lines, 13 test classes)"
+    "overall_risk_level": "Medium-High",
+    "overall_verdict": "Proceed with Approach C (hybrid staged delivery). Risks are manageable but require strict implementation ordering, comprehensive backward compatibility testing, and human review of integrator privilege escalation and schema migration.",
+    "confidence": "High — based on source code analysis of all 12 affected files, contract schema, gateway enforcement layers, test infrastructure, and recent commit history"
   },
 
   "risks": [
     {
       "id": "R-1",
-      "category": "Design Gap",
-      "title": "Contract loading path unknown in render_pipeline_dag() context",
-      "description": "The architect's _get_phase_dependency_info() function needs to call load_contract(issue_number, repo_root) to load the contract's phase structure. However, render_pipeline_dag() only receives a Pipeline object, and the Pipeline model (models.py:235-279) has no repo_root or worktree_repo_path field. The function signature constraint (architect's constraint #6: 'The render_pipeline_dag() function signature must not change') means repo_root cannot be passed as a parameter without violating the design. The _run_tier3_implement() dispatch function (pipelines.py:2696) receives worktree_repo_path as a parameter from the dispatch flow, but the SSE code (sse.py:241) calls render_pipeline_dag(pipeline, use_ascii=use_ascii) with no path context. This is a guaranteed issue that must be resolved before implementation can begin.",
+      "category": "Data Integrity",
+      "title": "Silent data loss during composite key migration",
+      "description": "OrchestrationState.from_contract() at orchestration.py:76-83 converts agent_executions list to dict[AgentRole, AgentExecutionModel]. If Tier 3 produces multiple CODER executions (one per phase), the dict conversion silently overwrites earlier entries — only the last CODER execution survives. No error is raised. This affects all downstream state queries: can_agent_run(), get_runnable_agents(), get_next_wave().",
       "likelihood": "High",
-      "impact": "Medium",
-      "risk_score": "Medium",
+      "impact": "Critical",
+      "risk_score": "High",
       "affected_files": [
-        "orchestrator/dag_visualizer.py (render_pipeline_dag, _get_phase_dependency_info)",
-        "orchestrator/sse.py:241 (SSE call site)",
-        "orchestrator/models.py:235-279 (Pipeline model — missing repo_root field)"
+        "shared/egg_contracts/orchestration.py:76-83",
+        "shared/egg_contracts/models.py:493-507"
       ],
       "mitigation": {
-        "strategy": "Three options, ranked by preference",
+        "strategy": "Add validation before migration, then migrate atomically",
         "steps": [
-          "Option A (preferred): Add an optional repo_root parameter to render_pipeline_dag(). This is a minimal signature change — existing callers pass nothing and get the fallback behavior. The SSE code can derive the worktree path from the pipeline_id using the orchestrator's known worktree directory convention (the orchestrator creates worktrees in a known base directory). This is the cleanest solution since it preserves backward compatibility while enabling contract loading.",
-          "Option B: Use environment variable (EGG_REPO_PATH) in _get_phase_dependency_info(). The orchestrator process has this set. Downside: only works for single-repo deployments and doesn't handle per-pipeline worktrees correctly.",
-          "Option C: Add worktree_path to the Pipeline model. This is the most correct solution long-term but constitutes a model migration. Existing pipelines in flight would have None for the field. Since the architect explicitly excluded model changes, this option conflicts with the recommended approach.",
-          "Recommendation: Use Option A. Adding an optional parameter with a default of None is backward-compatible and lets the SSE code pass the worktree path if available, or let _get_phase_dependency_info() fall back to environment/convention-based path discovery. The constraint against signature changes should be relaxed — adding an optional parameter with a default is safe."
+          "Add a validator in models.py that raises on duplicate (role, phase_id) pairs in agent_executions — catches corruption before it propagates",
+          "Change OrchestrationState.executions to dict[tuple[str | None, AgentRole], AgentExecutionModel] with (phase_id, role) composite key",
+          "When phase_id is None (Tier 2), behavior must match current role-only keying — test this explicitly",
+          "Add deserialization tests with 0, 1, and multiple CODER entries across phases"
         ],
-        "residual_risk": "Low — with Option A, callers that don't pass repo_root get flat rendering (current behavior), while callers that do pass it get the new Tier 3 visualization."
+        "residual_risk": "Low — once composite key is in place, data loss path is eliminated"
       },
       "human_review_required": true,
-      "review_reason": "The architect's constraint #6 ('function signature must not change') conflicts with the need to pass repo_root for contract loading. Human should decide whether to relax this constraint (Option A) or accept environment-variable-based path discovery (Option B)."
+      "review_reason": "Schema change affects all contract consumers. Need to verify no external tools read agent_executions assuming role uniqueness."
     },
     {
       "id": "R-2",
-      "category": "Performance",
-      "title": "Contract loading in the SSE hot path adds file I/O to every render cycle",
-      "description": "render_pipeline_dag() is called every 1 second by the SSE refresh cycle (sse.py:241-249) for each connected client. The DAG cache (sse.py:237) avoids redundant renders for clients with the same use_ascii preference, but each render still calls _get_phase_dependency_info() which would load_contract() — reading a JSON file from disk and parsing it, then constructing PhaseDependencyGraph and computing waves. For a typical contract (~5-20KB JSON), this adds ~1-5ms per render cycle. With N concurrent SSE clients (each pipeline gets its own refresh), this scales as O(pipelines). While the compare-before-send optimization (sse.py, comparing rendered strings) doesn't help here — the rendering itself is the expensive part, not the sending.",
-      "likelihood": "Medium",
-      "impact": "Low-Medium",
-      "risk_score": "Low-Medium",
+      "category": "Security",
+      "title": "Integrator privilege escalation conflicts with readonly mount enforcement",
+      "description": "PR #800 (merged Feb 16) enforces readonly mounts for .egg-state/contracts/, .egg-state/drafts/, .egg-state/pipelines/, and .egg-state/reviews/ during the implement phase. The architect's proposal (TD-4) gives integrator write access to src/, tests/, docs/ in Tier 3. The integrator runs during the implement phase. If the integrator also needs to update contract state (e.g., mark phases complete, record merge results), the readonly mount blocks direct file writes. Two gateway enforcement layers must agree: phase_filter.py (layer 1 — phase-based file restrictions) and agent_restrictions.py (layer 2 — role-based file restrictions).",
+      "likelihood": "High",
+      "impact": "High",
+      "risk_score": "High",
       "affected_files": [
-        "orchestrator/dag_visualizer.py (_get_phase_dependency_info)",
-        "orchestrator/sse.py:231-249 (SSE refresh cycle)"
+        "gateway/phase_filter.py:480-525",
+        "gateway/agent_restrictions.py:296-321",
+        "shared/egg_contracts/agent_roles.py:289-318"
       ],
       "mitigation": {
-        "strategy": "In-memory cache with TTL or invalidation",
+        "strategy": "Source code write access via role config; contract updates via orchestrator API",
         "steps": [
-          "Cache the computed (phase_waves, phase_info) tuple keyed by (pipeline_id, contract_mtime) using functools.lru_cache or a simple dict with TTL",
-          "The contract file only changes when the plan phase rewrites it — during implementation, it's static. A 30-second TTL would be sufficient.",
-          "Alternatively, use os.stat().st_mtime to check if the file changed before re-parsing. This replaces a ~5ms JSON parse with a ~0.1ms stat call.",
-          "For the initial implementation, even without caching, 1-5ms per render is acceptable for the 1s refresh interval. Caching is an optimization that can be added if profiling shows a problem.",
-          "If caching is added, ensure it's per-pipeline (not global) to avoid cross-pipeline data leaks."
+          "Integrator source write access (src/, tests/, docs/) should be controlled via agent_roles.py conditional on complexity_tier — this is a role restriction change, not a phase mount change",
+          "Contract state updates should go through the orchestrator HTTP API (existing pattern: dispatcher.contract_orchestrator.apply_to_contract()), NOT direct file writes — this preserves readonly mount security",
+          "Do NOT change the implement phase readonly mounts — the mount strategy from #800 is a security boundary worth preserving",
+          "Add integration tests that verify integrator can write source but NOT contract files during Tier 3 implement"
         ],
-        "residual_risk": "Very Low — even without caching, the overhead is small relative to the 1s refresh interval. With mtime-based caching, overhead is negligible."
+        "residual_risk": "Medium — integrator with source write access is a privilege escalation; defense in depth (agentic review + human review) mitigates but does not eliminate"
       },
-      "human_review_required": false,
-      "review_reason": null
+      "human_review_required": true,
+      "review_reason": "Privilege escalation for integrator role. Need security review of what the integrator can do with unrestricted src/ write access. Consider: could an adversarial integrator output exfiltrate data or inject malicious code that survives human review?"
     },
     {
       "id": "R-3",
-      "category": "Rendering Complexity",
-      "title": "Side-by-side ASCII box composition is error-prone and hard to test visually",
-      "description": "The _render_side_by_side() function must horizontally compose multiple variable-height text boxes, handling: (1) padding shorter boxes to match the tallest, (2) inserting consistent gap spacing between columns, (3) ensuring each line has the same total width for clean vertical alignment, (4) handling boxes with different internal widths. Additionally, _render_fan_out_connector() and _render_fan_in_connector() must compute precise character positions for branching lines that align with the center of each box in the side-by-side layout. The connector math depends on box widths, gap size, and left margin — any off-by-one error produces visually broken connectors. Unicode box-drawing characters and ASCII fallback characters have different visual properties but the same character width (1), so alignment math is at least consistent.",
+      "category": "Backward Compatibility",
+      "title": "Contract schema migration breaks existing pipelines",
+      "description": "The contract schema (.egg/schemas/contract.schema.json) uses additionalProperties: false at multiple levels. Adding dependencies to Phase and phase_id to AgentExecutionModel requires a schema version bump. Existing contracts (732 stored in .egg-state/contracts/) will fail validation against the new schema unless migration is handled. The agentExecution role enum is restricted to ['coder', 'tester', 'documenter', 'integrator'] — adding reviewer roles for per-phase agentic review would require enum expansion.",
       "likelihood": "Medium",
-      "impact": "Low",
-      "risk_score": "Low-Medium",
+      "impact": "High",
+      "risk_score": "High",
       "affected_files": [
-        "orchestrator/dag_visualizer.py (_render_side_by_side, _render_fan_out_connector, _render_fan_in_connector)"
+        ".egg/schemas/contract.schema.json",
+        "shared/egg_contracts/models.py:334-365",
+        "shared/egg_contracts/models.py:400-563"
       ],
       "mitigation": {
-        "strategy": "Normalize box widths + snapshot testing",
+        "strategy": "Additive schema changes with defaults, schema version migration",
         "steps": [
-          "Normalize all sub-phase boxes in a parallel wave to the same width (max width in the wave). This eliminates variable-width connector math and produces cleaner visual output.",
-          "Implement _render_side_by_side as a pure function that takes pre-rendered line lists and returns combined lines. Test it independently with known inputs before integrating.",
-          "Use snapshot/golden-file tests for the connector functions: render with known inputs and assert exact string output. This catches off-by-one errors immediately.",
-          "Start with 2-column rendering and verify before generalizing to N columns. Most Tier 3 pipelines have 2-3 parallel phases per wave.",
-          "Test both Unicode and ASCII modes — each has different character sets but the same alignment math."
+          "New fields (dependencies, phase_id) must have defaults ([] and null respectively) so old contracts deserialize without error",
+          "Bump schemaVersion to 1.1 with a migration function that adds defaults to 1.0 contracts",
+          "Add schema validation test that loads every existing contract in .egg-state/contracts/ against the new schema",
+          "Keep additionalProperties: false — add fields explicitly rather than relaxing the constraint",
+          "Reviewer roles (reviewer_code, reviewer_contract) need to be added to the role enum if per-phase agentic review tracks execution state in the contract"
         ],
-        "residual_risk": "Low — rendering bugs are cosmetic, not functional. The pipeline continues to work correctly even if the visualization has alignment issues. Snapshot tests catch regressions early."
+        "residual_risk": "Low — with proper defaults and migration, backward compatibility is maintainable"
       },
-      "human_review_required": false,
-      "review_reason": null
+      "human_review_required": true,
+      "review_reason": "Schema changes affect all pipeline consumers. Verify no external tools parse contracts with strict schema validation."
     },
     {
       "id": "R-4",
-      "category": "Backward Compatibility",
-      "title": "Tier 3 detection false positive breaks Tier 1/2 visualization",
-      "description": "The Tier 3 detection logic checks (1) pipeline.complexity_tier == ComplexityTier.HIGH and (2) agents in the Implement phase have plan_phase_id set. If only condition (1) is checked (e.g., due to a bug or incomplete implementation), a HIGH-tier pipeline whose agents don't have plan_phase_id (e.g., if the plan phase ran but no Tier 3 dispatch happened due to an error) would trigger the Tier 3 rendering path with no sub-phase data, producing an empty or broken visualization. Conversely, if plan_phase_id is set on agents of a non-HIGH pipeline (shouldn't happen but data may be inconsistent), the detection could trigger unexpectedly.",
-      "likelihood": "Low",
-      "impact": "Medium",
-      "risk_score": "Low-Medium",
+      "category": "Correctness",
+      "title": "DependencyGraph cannot model phase-to-phase dependencies",
+      "description": "DependencyGraph (dependency_graph.py) uses AgentRole as the sole node type. Wave computation (lines 227-262) produces dict[AgentRole, int] — inherently single-instance-per-role. Tier 3 needs two dependency models: (1) within a phase cycle (coder -> tester -> reviewer, same as Tier 2), and (2) between plan phases (phase-4 depends on phase-1). The current graph cannot represent the second model. Building PhaseDependencyGraph requires a separate class since the node type is fundamentally different (phase ID string vs AgentRole enum).",
+      "likelihood": "Medium",
+      "impact": "High",
+      "risk_score": "High",
       "affected_files": [
-        "orchestrator/dag_visualizer.py (render_pipeline_dag — Tier 3 detection block)"
+        "shared/egg_contracts/dependency_graph.py:29-48",
+        "shared/egg_contracts/dependency_graph.py:227-262",
+        "shared/egg_contracts/orchestration.py:384-396"
       ],
       "mitigation": {
-        "strategy": "Strict dual-condition check with explicit fallback",
+        "strategy": "New PhaseDependencyGraph class alongside existing DependencyGraph",
         "steps": [
-          "Both conditions MUST be true for Tier 3 rendering: complexity_tier == HIGH AND at least one agent has plan_phase_id set AND _get_phase_dependency_info() returns non-None (contract loads successfully with valid waves).",
-          "If _get_phase_dependency_info() returns None (contract missing, no phases, wave computation fails), fall back to flat rendering regardless of complexity_tier.",
-          "Add explicit unit tests for: (a) HIGH tier with plan_phase_id -> Tier 3 rendering, (b) HIGH tier without plan_phase_id -> flat rendering, (c) MID tier with plan_phase_id (shouldn't happen) -> flat rendering, (d) HIGH tier with contract load failure -> flat rendering.",
-          "The detection logic should be a single function (_is_tier3_pipeline) to centralize the check and make it testable."
+          "Create PhaseDependencyGraph with string phase IDs as nodes — do NOT modify existing DependencyGraph",
+          "Reuse topological sort and wave computation algorithms but with generic node type",
+          "Consider making a generic DependencyGraph[T] base class to share logic, but only if it doesn't complicate the existing code — premature generalization is a risk",
+          "Phase dependencies come from Phase.dependencies field (already parsed by plan_parser.py:88-96, just not persisted)",
+          "Integration test: graph with 3 independent + 1 dependent phase produces correct wave ordering"
         ],
-        "residual_risk": "Very Low — triple-condition check (tier + plan_phase_id + contract available) makes false positives extremely unlikely."
+        "residual_risk": "Low — new class has no coupling to existing graph"
       },
       "human_review_required": false,
       "review_reason": null
     },
     {
       "id": "R-5",
-      "category": "Reliability",
-      "title": "Contract unavailability during SSE rendering across pipeline lifecycle",
-      "description": "The SSE refresh renders the DAG for pipelines in ALL phases, not just Implement. During Refine and early Plan phases, the contract file may not exist yet (it's created during plan phase). During error states, the contract may be corrupted or have no phases array. The _get_phase_dependency_info() function calls load_contract() which raises ContractNotFoundError if the file is missing (loader.py:78). If this exception propagates uncaught, it would crash render_pipeline_dag() and produce no DAG output for that SSE refresh cycle. The SSE code (sse.py:242-249) has a try/except around render_pipeline_dag that catches any exception and sets dag_cache to None, but this means NO visualization is sent, not even the flat fallback.",
-      "likelihood": "Medium",
-      "impact": "Low-Medium",
-      "risk_score": "Low-Medium",
+      "category": "Correctness",
+      "title": "MultiAgentExecutor state tracking collides on role-keyed dictionaries",
+      "description": "MultiAgentExecutor (multi_agent.py) uses AgentRole as key in multiple dictionaries: AgentWave.containers (dict[AgentRole, ContainerInfo]), AgentWave.results (dict[AgentRole, AgentExecution]), and environment variables (EGG_AGENT_ROLE without phase context). If Tier 3 runs CODER for phase-1 and CODER for phase-2 sequentially, the wave-level state must track which phase each execution belongs to. Missing phase context in environment variables means the spawned agent cannot identify which phase's tasks to work on.",
+      "likelihood": "High",
+      "impact": "High",
+      "risk_score": "High",
       "affected_files": [
-        "orchestrator/dag_visualizer.py (_get_phase_dependency_info)",
-        "orchestrator/sse.py:242-249 (exception handling)",
-        "shared/egg_contracts/loader.py:60-78 (load_contract)"
+        "orchestrator/multi_agent.py:46-77",
+        "orchestrator/multi_agent.py:353-356",
+        "orchestrator/multi_agent.py:228-279"
       ],
       "mitigation": {
-        "strategy": "Catch-and-fallback within _get_phase_dependency_info, never propagate exceptions",
+        "strategy": "Add phase context to wave execution and environment variables",
         "steps": [
-          "_get_phase_dependency_info() must wrap ALL contract loading in try/except and return None on any error (ContractNotFoundError, JSON decode errors, missing 'phases' field, PhaseDependencyGraph ValueError for cycles, etc.)",
-          "When _get_phase_dependency_info() returns None, render_pipeline_dag() falls back to the existing flat Implement box rendering — NOT to no output.",
-          "Add a log.debug() (not warning) for contract load failures during rendering, since they are expected during non-Implement phases.",
-          "Unit test: call render_pipeline_dag() with a Tier 3 Pipeline but no contract on disk — verify it produces valid output (the flat Implement box).",
-          "Ensure the exception is caught INSIDE dag_visualizer.py, not relying on the SSE caller's broad except. The SSE except should be a safety net, not the primary error handler."
+          "For Stage 1 (sequential): each implement cycle runs a fresh set of waves for one phase. The MultiAgentExecutor is instantiated per phase cycle, so role collision doesn't occur within a single cycle — but result recording must include phase_id",
+          "Add EGG_PHASE_ID and EGG_PHASE_NUMBER to extra_env at line 353-356 so spawned agents know their scope",
+          "Update dispatcher.complete_agent() and dispatcher.fail_agent() to accept phase_id",
+          "For Stage 2 (parallel): separate MultiAgentExecutor instances per phase avoid state collision entirely — but orchestrator must coordinate across executors",
+          "Ensure the threading.Lock at line 129 doesn't become a bottleneck when running multiple sequential phase cycles"
         ],
-        "residual_risk": "Very Low — with return-None-on-error, the visualizer always produces output. The SSE safety net catches anything else."
+        "residual_risk": "Medium — sequential cycling (Stage 1) avoids most collision but parallel (Stage 2) reintroduces it at the orchestrator level"
       },
       "human_review_required": false,
       "review_reason": null
     },
     {
       "id": "R-6",
-      "category": "Test Coverage",
-      "title": "No existing test infrastructure for Tier 3 sub-phase branching — tests must be built from scratch",
-      "description": "test_dag_visualizer.py (1313 lines) has 13 test classes but no tests for Tier 3 sub-phase visualization. The existing TestWaveGrouping class tests wave-based agent ordering within a flat phase box, not multi-box branching. The test helper create_test_pipeline() creates a Pipeline with issue_number=123 — tests for contract loading need either a real contract file on disk or a mock. The PhaseDependencyGraph is in shared/egg_contracts/ which has its own test file — the visualizer tests should mock it rather than testing the graph computation. The new test classes (TestTier3DagVisualization, TestSideBySideRendering, TestFanOutFanInConnectors as proposed by the architect) need to be comprehensive since there's no existing coverage to fall back on.",
+      "category": "Complexity",
+      "title": "orchestrator/routes/pipelines.py is 4500 LOC and bears most of the change burden",
+      "description": "pipelines.py is the largest and most complex file in the orchestrator at 4,495 lines. It handles pipeline creation, state management, agent spawning, decision queues, result collection, complexity detection, and phase prompt building. The Tier 3 changes add: _run_tier3_implement(), _check_high_complexity_signal(), per-phase prompt building with task filtering, and per-phase review cycling with retry. This file is already a maintenance risk and adding ~200-300 LOC of complex orchestration logic increases cognitive load and merge conflict surface.",
       "likelihood": "Medium",
-      "impact": "Low",
-      "risk_score": "Low",
+      "impact": "Medium",
+      "risk_score": "Medium",
       "affected_files": [
-        "orchestrator/tests/test_dag_visualizer.py (new test classes needed)"
+        "orchestrator/routes/pipelines.py"
       ],
       "mitigation": {
-        "strategy": "Mock-based testing with snapshot assertions",
+        "strategy": "Encapsulate Tier 3 logic in a separate module",
         "steps": [
-          "Mock _get_phase_dependency_info() to return known PhaseWave structures, avoiding filesystem dependencies in tests.",
-          "Create helper functions for building test Tier 3 pipelines: create_tier3_pipeline(phases=[('phase-1', [agents...]), ('phase-2', [agents...])]) that sets complexity_tier=HIGH and assigns plan_phase_id to agents.",
-          "Use snapshot testing (exact string comparison) for rendered DAG output. Snapshot failures are easy to review visually.",
-          "Test matrix should cover: 1 sequential phase, 2 parallel phases, 3 parallel phases, diamond pattern (seq->parallel->seq), mixed waves, all-complete status, mixed status, ASCII mode, empty agents.",
-          "Run the existing test suite FIRST to establish a baseline, then add new tests. Verify existing tests still pass after the change."
+          "Extract _run_tier3_implement() and related helpers to a new orchestrator/tier3_dispatch.py module",
+          "Keep pipelines.py as the routing/entry point — it dispatches to tier3_dispatch based on complexity_tier",
+          "This reduces merge conflict surface and keeps the PR reviewable",
+          "If extraction is out of scope, at minimum group all Tier 3 functions together at the end of pipelines.py with a clear section comment"
         ],
-        "residual_risk": "Low — comprehensive test suite eliminates most regression risk. The test-first approach (add tests before modifying rendering) catches regressions immediately."
+        "residual_risk": "Low — extraction is a clean refactor with no behavioral change"
       },
       "human_review_required": false,
       "review_reason": null
     },
     {
       "id": "R-7",
-      "category": "Usability",
-      "title": "Terminal width overflow for pipelines with 4+ parallel sub-phases",
-      "description": "Each sub-phase box has a minimum width of ~25 characters (phase name + agent names + status symbols + box borders). With a 4-character gap between columns, 4 parallel boxes need (25*4 + 4*3 + left_margin) = ~116 characters. With 5+ parallel boxes, this exceeds the 120-column default for SSE contexts and the 80-column default for terminals. The architect proposes falling back to sequential (stacked) rendering for 4+ phases, but this fallback needs implementation and testing. Without it, rendered lines would wrap or be truncated, producing garbled output.",
-      "likelihood": "Low",
-      "impact": "Low",
-      "risk_score": "Low",
+      "category": "Correctness",
+      "title": "Per-phase prompt isolation may leak cross-phase context",
+      "description": "Each phase's coder should only see its own tasks and files_affected. The current _build_agent_prompt() in pipelines.py constructs prompts from the full contract. If filtering is incorrect, a coder could receive tasks from another phase, leading to out-of-scope changes, file conflicts, or wasted work. This is especially dangerous in Stage 2 (parallel) where two coders editing the same file would cause merge conflicts.",
+      "likelihood": "Medium",
+      "impact": "Medium",
+      "risk_score": "Medium",
       "affected_files": [
-        "orchestrator/dag_visualizer.py (_render_tier3_implement_section, _render_side_by_side)"
+        "orchestrator/routes/pipelines.py"
       ],
       "mitigation": {
-        "strategy": "Width-aware layout with graceful degradation",
+        "strategy": "Explicit phase filtering with validation",
         "steps": [
-          "Compute required width before rendering side-by-side. If total_width > available_width, fall back to stacked rendering with a '(parallel)' label.",
-          "Use shutil.get_terminal_size(fallback=(120, 24)) for width detection. The fallback covers SSE contexts (not a TTY).",
-          "For the common case (2-3 parallel phases), the side-by-side layout fits comfortably in 120 columns. The 4+ case is rare — most Tier 3 plans have 2-3 independent phases per wave.",
-          "As a future enhancement, a 2-row grid layout (2 boxes per row) could handle 4-6 phases, but this is not needed for the initial implementation."
+          "Build phase-filtered prompt function that accepts phase_id and only includes tasks where task.phase_id matches",
+          "Include a defensive check: if any task references a file in another phase's files_affected, log a warning",
+          "Add test: generate prompts for phase-1 and phase-2, verify no task/file overlap",
+          "In Stage 2, add pre-flight validation that files_affected across parallel phases are disjoint — abort if overlap detected"
         ],
-        "residual_risk": "Very Low — the stacked fallback preserves all information, just without the visual side-by-side structure."
+        "residual_risk": "Low — with validation, leakage is caught before execution"
       },
       "human_review_required": false,
       "review_reason": null
+    },
+    {
+      "id": "R-8",
+      "category": "Performance",
+      "title": "Token cost multiplier is underestimated for retry scenarios",
+      "description": "The issue estimates Tier 3 at 2-2.5x the token cost of Tier 2. This assumes each phase cycle succeeds on the first attempt. If agentic review rejects a phase (triggering coder retry), the cost for that phase triples: original coder + tester + reviewer + retry coder + retry tester + retry reviewer. With 3 phases and max_review_cycles=3, worst case is 3 * (3 * (coder + tester + 2 reviewers)) = 36 agent runs, or 6x the Tier 2 cost. The integrator adds another agent on top.",
+      "likelihood": "Low",
+      "impact": "Medium",
+      "risk_score": "Medium",
+      "affected_files": [],
+      "mitigation": {
+        "strategy": "Cost caps and circuit breakers",
+        "steps": [
+          "Implement per-pipeline token budget with enforcement — abort Tier 3 if budget exceeded",
+          "Default max_review_cycles to 2 (not 3) for Tier 3 phases to limit retry cost",
+          "Add cost tracking per phase cycle — report per-phase costs in integrator output",
+          "Consider: if >50% of phases fail agentic review, escalate to human review instead of retrying — the plan may be flawed"
+        ],
+        "residual_risk": "Low — with budget caps, cost is bounded"
+      },
+      "human_review_required": false,
+      "review_reason": null
+    },
+    {
+      "id": "R-9",
+      "category": "Correctness",
+      "title": "Phase dependency graph cycles or missing phases cause deadlock",
+      "description": "If the plan contains circular dependencies (phase-1 depends on phase-2, phase-2 depends on phase-1) or references non-existent phases, the PhaseDependencyGraph could deadlock (infinite loop waiting for unresolvable dependencies) or error at runtime. The plan parser currently doesn't validate dependency consistency.",
+      "likelihood": "Low",
+      "impact": "High",
+      "risk_score": "Medium",
+      "affected_files": [
+        "shared/egg_contracts/dependency_graph.py",
+        "shared/egg_contracts/plan_parser.py:88-96"
+      ],
+      "mitigation": {
+        "strategy": "Validate dependency graph at plan parsing time",
+        "steps": [
+          "Add cycle detection in PhaseDependencyGraph construction (topological sort already handles this — make the error message clear)",
+          "Validate that all dependency references resolve to existing phase IDs",
+          "Reject plans with invalid dependency graphs during the plan phase, before implement begins",
+          "Add test: circular dependency plan is rejected with descriptive error"
+        ],
+        "residual_risk": "Negligible — standard DAG validation"
+      },
+      "human_review_required": false,
+      "review_reason": null
+    },
+    {
+      "id": "R-10",
+      "category": "Reliability",
+      "title": "Sub-branch merge conflicts despite files_affected boundaries (Stage 2)",
+      "description": "In Stage 2 (parallel dispatch), each phase pushes to egg/<feature>/phase-N. The integrator merges sub-branches. Even with files_affected partitioning, shared files (package.json, __init__.py, imports, test fixtures) can cause merge conflicts. files_affected is declared by the plan but not enforced — a coder may modify files outside its declared scope. The gateway's branch prefix check (startswith('egg/')) already supports sub-branches, but worktree lifecycle management is new.",
+      "likelihood": "Medium",
+      "impact": "Medium",
+      "risk_score": "Medium",
+      "affected_files": [
+        "gateway/worktree_manager.py",
+        "gateway/policy.py:301-303"
+      ],
+      "mitigation": {
+        "strategy": "Enforce file boundaries at commit time; design integrator for conflict resolution",
+        "steps": [
+          "In Stage 2, add gateway enforcement: coder commit in phase-N can only modify files in that phase's files_affected list (reject commits that modify out-of-scope files)",
+          "Integrator prompt should explicitly include conflict resolution instructions and expect merge conflicts",
+          "Add test: two coders modify same file in different phases — integrator resolves or escalates",
+          "Consider: shared files (package.json, __init__.py) should be assigned to a single phase or to the integrator"
+        ],
+        "residual_risk": "Medium — merge conflicts are inherent in parallel work; integrator handles them but at token cost"
+      },
+      "human_review_required": false,
+      "review_reason": null
+    },
+    {
+      "id": "R-11",
+      "category": "Compatibility",
+      "title": "Tier 1 and Tier 2 regression risk from shared code changes",
+      "description": "The composite key migration, schema changes, and orchestration state refactoring touch code paths used by all three tiers. Tier 1 (short-circuit, PR #734) and Tier 2 (standard multi-agent) must continue working unchanged. The risk is that changes intended for Tier 3 introduce subtle regressions: e.g., get_agent_execution() returning wrong results when phase_id is None, or wave computation producing incorrect ordering when only one instance of each role exists.",
+      "likelihood": "Medium",
+      "impact": "High",
+      "risk_score": "High",
+      "affected_files": [
+        "shared/egg_contracts/orchestration.py",
+        "shared/egg_contracts/models.py",
+        "orchestrator/multi_agent.py",
+        "orchestrator/routes/pipelines.py"
+      ],
+      "mitigation": {
+        "strategy": "Backward compatibility test suite run before and after every change",
+        "steps": [
+          "Before starting implementation, capture baseline test results for Tier 1 and Tier 2",
+          "Write explicit regression tests: Tier 1 short-circuit flow end-to-end, Tier 2 standard multi-agent flow end-to-end",
+          "Every PR in the Stage 1 delivery must pass these regression tests",
+          "The composite key change must be tested with phase_id=None to verify Tier 2 behavior is identical",
+          "Use test_short_circuit.py (350 lines) as the quality bar for regression test coverage"
+        ],
+        "residual_risk": "Low — with comprehensive regression tests, regressions are caught at CI"
+      },
+      "human_review_required": false,
+      "review_reason": null
+    },
+    {
+      "id": "R-12",
+      "category": "Scope",
+      "title": "12+ file change scope increases merge conflict risk with concurrent development",
+      "description": "The full implementation (Stages 1+2) touches 12+ files across 4 packages (shared/egg_contracts, orchestrator, gateway, .egg). While no active feature branches currently conflict, this repo sees frequent changes (4 commits in 2 days to key files). A multi-day implementation has significant merge conflict exposure, especially on pipelines.py (4500 LOC).",
+      "likelihood": "Medium",
+      "impact": "Low",
+      "risk_score": "Low",
+      "affected_files": [],
+      "mitigation": {
+        "strategy": "Small, frequent, independently mergeable PRs",
+        "steps": [
+          "Stage 1 should be split into multiple PRs matching the architect's phase decomposition",
+          "Phase 1 (schema/model) can merge independently — no behavioral change",
+          "Phase 2 (complexity assessment) can merge independently — adds detection without acting on it",
+          "Phases 3-5 (composite keys, phase DAG, cycling) are coupled and should be one PR",
+          "Phase 6 (integrator write access) should be a separate PR for security review",
+          "Rebase frequently against main to avoid large merge conflicts"
+        ],
+        "residual_risk": "Low — staged delivery naturally reduces conflict surface"
+      },
+      "human_review_required": false,
+      "review_reason": null
+    },
+    {
+      "id": "R-13",
+      "category": "Reliability",
+      "title": "Partial phase failure leaves pipeline in inconsistent state",
+      "description": "If a Tier 3 pipeline completes phases 1-2 but phase 3's coder fails after exhausting retries, the pipeline must decide: abort the entire feature (wasting completed phases' work), proceed to integrator with partial results, or escalate to human. The current pipeline model assumes all-or-nothing completion. Partial success tracking and recovery is not designed.",
+      "likelihood": "Medium",
+      "impact": "Medium",
+      "risk_score": "Medium",
+      "affected_files": [
+        "orchestrator/routes/pipelines.py",
+        "shared/egg_contracts/orchestration.py"
+      ],
+      "mitigation": {
+        "strategy": "Design partial completion policy before implementation",
+        "steps": [
+          "Define policy: if a phase fails after max retries, mark it failed and continue with remaining phases — integrator handles the gap",
+          "Add phase-level status to contract: each phase has status (pending/running/complete/failed/skipped)",
+          "Integrator receives list of completed vs failed phases — its prompt includes instructions for failed phases (stub, document limitation, or fix)",
+          "If >50% of phases fail, abort pipeline and escalate to human",
+          "Add test: 2/3 phases succeed, 1 fails — integrator produces valid output from partial results"
+        ],
+        "residual_risk": "Medium — partial success is inherently complex; policy decision needed"
+      },
+      "human_review_required": true,
+      "review_reason": "Partial failure policy is a product decision, not purely technical. Need human input on: should we proceed with partial results or abort?"
     }
   ],
 
   "areas_requiring_human_review": [
     {
-      "area": "render_pipeline_dag() signature constraint",
-      "reason": "R-1 — The architect's constraint that 'render_pipeline_dag() function signature must not change' conflicts with the need to pass repo_root for contract loading. Human should decide whether to (a) relax this constraint by adding an optional repo_root parameter, (b) derive the path from environment variables, or (c) add repo_root to the Pipeline model. This decision affects the Phase 1 implementation approach.",
-      "when": "Before Phase 1 implementation begins"
+      "area": "Integrator privilege escalation (R-2)",
+      "reason": "Granting write access to src/, tests/, docs/ for the integrator in Tier 3 is a security boundary change. While defense in depth (agentic review + human review) mitigates risk, the integrator could theoretically introduce malicious code or overwrite reviewed changes. Need explicit human approval for the permission model.",
+      "decision_needed": "Confirm integrator write scope: unrestricted src/tests/docs (as proposed) vs scoped to files modified by phase coders vs unrestricted with mandatory diff review"
     },
     {
-      "area": "Visual output review of rendered Tier 3 DAGs",
-      "reason": "R-3, R-7 — Side-by-side ASCII rendering is inherently visual. Automated tests can verify exact string output, but a human should visually inspect the rendered DAGs for common patterns (2-column, 3-column, diamond, mixed sequential/parallel) to confirm they are readable and aesthetically reasonable.",
-      "when": "After Phase 2 implementation, before merging"
+      "area": "Contract schema migration strategy (R-3)",
+      "reason": "Schema changes affect all contract consumers. Need to verify: (1) no external tools parse contracts with strict validation, (2) migration strategy (version bump + defaults) is acceptable, (3) reviewer roles should be added to the role enum.",
+      "decision_needed": "Approve schema migration approach: additive fields with defaults + version bump to 1.1"
+    },
+    {
+      "area": "Partial phase failure policy (R-13)",
+      "reason": "What happens when some phases succeed and others fail? This is a product/UX decision that affects user trust and pipeline reliability.",
+      "decision_needed": "Choose policy: abort on any failure / continue with partial results / escalate to human after N failures"
+    },
+    {
+      "area": "Composite key migration rollout (R-1, R-11)",
+      "reason": "The composite (phase_id, role) key change is the single highest-risk modification. It touches the foundational state model used by all orchestration logic. Incorrect implementation causes silent data loss.",
+      "decision_needed": "Confirm implementation ordering: Phase 1 (schema) must merge and stabilize before Phase 3 (composite keys) begins"
     }
   ],
 
   "rollback_plan": {
-    "strategy": "Simple revert — no schema or data changes",
-    "details": "The change is entirely within dag_visualizer.py (visualization logic) and its test file. No model changes, no schema migrations, no persisted state changes. The Pipeline model, contract format, and SSE protocol are unchanged.",
-    "steps": [
-      "If the new visualization has bugs: revert the commits to dag_visualizer.py. All downstream consumers (SSE, CLI tools, API) continue working with the flat rendering.",
-      "If only specific edge cases are broken: the fallback-to-flat logic means the Tier 3 path can be disabled by making _get_phase_dependency_info() always return None (one-line change).",
-      "No data migration needed — the contract format is unchanged and the Pipeline model is unchanged.",
-      "The rollback does not affect pipeline execution — visualization is purely cosmetic."
+    "strategy": "Feature-flag gated rollback with contract compatibility",
+    "details": [
+      {
+        "stage": "Stage 1 rollback",
+        "mechanism": "The 3-tier complexity assessment is the entry point. Setting PipelineConfig.enable_tier3 to False (or removing the config) causes all pipelines to use Tier 2 dispatch regardless of complexity signal. Composite key tracking still works (phase_id=None behaves as Tier 2). No contract migration reversal needed since new fields have defaults.",
+        "data_impact": "None — contracts with phase_id=None are indistinguishable from pre-Tier-3 contracts",
+        "recovery_time": "Config change + restart"
+      },
+      {
+        "stage": "Stage 2 rollback",
+        "mechanism": "PipelineConfig.enable_parallel_phases defaults to False. Reverting to False restores sequential cycling (Stage 1 behavior). Sub-branches created during parallel dispatch persist on the remote but are not used. Worktree cleanup runs on pipeline completion regardless.",
+        "data_impact": "Orphaned sub-branches on remote — cleanup with script or manual deletion",
+        "recovery_time": "Config change + restart"
+      },
+      {
+        "stage": "Full rollback (remove Tier 3 entirely)",
+        "mechanism": "Revert the complexity assessment change so refine never signals Tier 3. All other code paths are unreachable. Phase_id fields in contracts remain but are ignored (None). Schema remains at 1.1 but is backward compatible.",
+        "data_impact": "None — all changes are additive and dormant when not triggered",
+        "recovery_time": "Code revert + deploy"
+      }
     ]
   },
 
-  "implementation_recommendations": [
+  "implementation_ordering_recommendations": [
     {
-      "id": "IR-1",
-      "recommendation": "Resolve the contract loading path discovery (R-1) before starting Phase 1",
-      "rationale": "This is a design decision that affects the function signature and calling convention. The implementation team should decide on Option A (add optional repo_root param) vs Option B (environment variable) upfront, since it affects how _get_phase_dependency_info() is implemented and tested."
+      "recommendation": "Implement Phase 1 (schema/models) and Phase 3 (composite keys) together, test exhaustively, then merge before touching orchestration logic",
+      "rationale": "The composite key is the foundation. If it's wrong, everything built on top is wrong. Getting the data model right first — with backward compatibility tests against all 50+ existing contracts — eliminates the highest-risk unknown early."
     },
     {
-      "id": "IR-2",
-      "recommendation": "Implement _get_phase_dependency_info() defensively with return-None-on-any-error",
-      "rationale": "This function is the single point of failure for the Tier 3 path. If it raises an exception, the visualization breaks. Wrapping ALL logic in try/except with return None ensures the flat fallback always works. Log errors at debug level since contract-not-found is expected during non-Implement phases."
+      "recommendation": "Implement Phase 6 (integrator write access) as a separate, independently reviewable PR",
+      "rationale": "Privilege escalation deserves focused security review. Mixing it with orchestration changes dilutes reviewer attention."
     },
     {
-      "id": "IR-3",
-      "recommendation": "Normalize sub-phase box widths before computing connector positions",
-      "rationale": "Variable-width boxes make connector math significantly harder. If all boxes in a parallel wave are padded to the same width, the fan-out/fan-in connector positions are symmetric and trivial to compute. This simplification eliminates an entire class of alignment bugs."
+      "recommendation": "Do NOT implement Stage 2 (parallel dispatch) until Stage 1 has been used in production for at least 2-3 real pipelines",
+      "rationale": "Sequential cycling validates the foundation (composite keys, phase DAG, per-phase review, integrator write access) without concurrent execution complexity. Production validation catches issues that tests miss."
     },
     {
-      "id": "IR-4",
-      "recommendation": "Add caching to _get_phase_dependency_info() using file mtime comparison",
-      "rationale": "The SSE refresh calls render_pipeline_dag() every 1 second. Caching the parsed contract data with mtime-based invalidation reduces the per-render overhead from ~5ms (file read + JSON parse + graph computation) to ~0.1ms (stat call). This is a simple optimization that prevents performance concerns from materializing."
-    },
-    {
-      "id": "IR-5",
-      "recommendation": "Use snapshot testing for all rendered DAG outputs",
-      "rationale": "ASCII art rendering is best tested by exact string comparison. Snapshot tests (comparing rendered output against known-good baselines) catch off-by-one alignment errors, missing connectors, and width overflow issues that would be invisible to structural assertions."
-    },
-    {
-      "id": "IR-6",
-      "recommendation": "Implement Phase 1 (sequential sub-phases) and validate before adding parallel rendering",
-      "rationale": "The architect's phased approach is sound. Phase 1 (sequential sub-phases only) validates the contract loading, Tier 3 detection, and sub-phase box rendering without the complexity of side-by-side composition. This provides a working intermediate state and reduces risk."
+      "recommendation": "Extract Tier 3 orchestration logic from pipelines.py into a dedicated module",
+      "rationale": "pipelines.py at 4500 LOC is already at the maintenance risk threshold. Adding 200-300 LOC of Tier 3 logic makes it worse. A tier3_dispatch.py module keeps the change isolated and reviewable."
     }
   ],
 
-  "phased_delivery_assessment": {
-    "phase_1": {
-      "name": "Core rendering helpers and single-column Tier 3 visualization",
-      "risk_level": "Low-Medium",
-      "rationale": "Phase 1 adds contract loading to the visualizer (new dependency) and modifies render_pipeline_dag() (shared code path). However, the Tier 3 detection with fallback-to-flat means existing pipelines are unaffected. The key risk is R-1 (contract loading path) which must be resolved first. Sequential sub-phase rendering is simpler than parallel since no side-by-side composition is needed.",
-      "key_risks": ["R-1 (contract loading path)", "R-4 (Tier 3 detection)", "R-5 (contract unavailability)", "R-6 (test coverage)"]
+  "test_strategy_recommendations": [
+    {
+      "area": "Backward compatibility",
+      "tests_needed": [
+        "Load all 50+ existing contracts from .egg-state/contracts/ against new schema — all must pass",
+        "Tier 1 short-circuit end-to-end flow unchanged (baseline from test_short_circuit.py)",
+        "Tier 2 standard multi-agent flow unchanged (coder -> tester -> documenter -> integrator)",
+        "OrchestrationState.from_contract() with phase_id=None produces identical behavior to current code"
+      ]
     },
-    "phase_2": {
-      "name": "Side-by-side parallel rendering with fan-out/fan-in connectors",
-      "risk_level": "Low-Medium",
-      "rationale": "Phase 2 adds the most complex new code (side-by-side composition, connector rendering). The risk is concentrated in visual rendering logic that doesn't affect pipeline execution. The fallback for 4+ parallel phases (R-7) needs implementation. Since Phase 1 already validates the contract loading and Tier 3 detection, Phase 2 only needs to add the parallel layout on top of a working sequential layout.",
-      "key_risks": ["R-3 (side-by-side complexity)", "R-7 (terminal width overflow)"]
+    {
+      "area": "Composite key correctness",
+      "tests_needed": [
+        "Create 3 CODER executions with different phase_ids — all 3 survive serialization/deserialization",
+        "get_agent_execution(role='coder', phase_id='phase-2') returns correct execution",
+        "can_agent_run() with phase-scoped dependencies returns correct result",
+        "Duplicate (phase_id, role) pair raises validation error"
+      ]
+    },
+    {
+      "area": "Phase cycling",
+      "tests_needed": [
+        "Sequential cycling: 3 phases execute in dependency order",
+        "Per-phase review: rejection triggers coder retry within same phase",
+        "Phase failure: one phase fails, others complete, integrator receives partial results",
+        "Prompt isolation: phase-1 coder prompt contains only phase-1 tasks"
+      ]
+    },
+    {
+      "area": "Integrator write access",
+      "tests_needed": [
+        "Tier 3 integrator can write to src/ — gateway allows",
+        "Tier 2 integrator cannot write to src/ — gateway blocks",
+        "Tier 3 integrator cannot write to .egg-state/contracts/ — readonly mount enforced"
+      ]
     }
-  },
+  ],
 
-  "compatibility_assessment": {
-    "schema_changes": "None — no model or data schema changes",
-    "api_changes": "None — generate_status_report() return structure unchanged (dag field contains new text, but structure is identical)",
-    "configuration_changes": "None — no config file changes",
-    "migration_required": false,
-    "breaking_changes": "None — Tier 1/2 pipelines render identically. Tier 3 pipelines get improved visualization with flat-rendering fallback."
-  },
-
-  "security_assessment": {
-    "risk_level": "None",
-    "details": "This change only affects ASCII text rendering of pipeline state. It does not modify authentication, authorization, file access controls, gateway enforcement, or any security boundary. The new contract loading reads from .egg-state/contracts/ which is already accessed by the orchestrator. No user input is processed differently. The PhaseDependencyGraph operates on trusted data from the contract file."
+  "architect_assessment_review": {
+    "agreement": [
+      "Approach C (hybrid staged delivery) is the correct choice — reduces risk significantly vs Approach A",
+      "Composite (phase_id, role) key is the right abstraction — alternatives (nested structure, separate store) are more disruptive",
+      "Gateway prefix check already supports sub-branches — no policy change needed (confirmed by code analysis)",
+      "Sequential-first validates the foundation before adding parallelism complexity",
+      "No new PipelinePhase.INTEGRATE needed — internal cycling within IMPLEMENT is simpler"
+    ],
+    "concerns": [
+      "Architect underestimates R-1 severity: silent data loss on deserialization is not 'Medium likelihood, High impact' — it's High likelihood because the dict conversion code has zero safety checks. First Tier 3 pipeline with >1 phase will trigger it if composite keys aren't implemented first.",
+      "Architect's R-3 (integrator write access) is correctly identified but doesn't account for the #800 readonly mount enforcement. The mitigation needs to be more specific about using the orchestrator API for contract updates.",
+      "Missing risk: partial phase failure policy is not addressed. The architect's plan assumes all phases succeed.",
+      "The 7-phase Stage 1 plan has strong dependencies (phase-5 depends on phases 2, 3, and 4). This creates a critical path that is essentially sequential despite the dependency graph suggesting some parallelism."
+    ],
+    "additional_risks_identified": [
+      "R-9 (dependency graph cycles) — not in architect's analysis",
+      "R-13 (partial phase failure) — not in architect's analysis",
+      "R-6 (pipelines.py complexity) — architect notes it as 'largest file, most complex changes' but doesn't propose extraction"
+    ]
   }
 }

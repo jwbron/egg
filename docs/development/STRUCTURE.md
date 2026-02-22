@@ -100,6 +100,17 @@ orchestrator/
 ├── status_reporter.py      # Real-time status reporter for collaborators
 ├── unified_sse.py          # Unified SSE stream for all pipelines
 ├── webhooks.py             # GitHub webhook handlers
+├── health_checks/          # Two-tier health check framework (see health_checks/README.md)
+│   ├── types.py            # HealthCheck protocol, HealthResult, enums
+│   ├── context.py          # PipelineHealthContext with lazy properties
+│   ├── runner.py           # HealthCheckRunner — trigger dispatch and tier escalation
+│   ├── tier1/              # Programmatic checks (fast, deterministic)
+│   │   ├── container_liveness.py   # Verify RUNNING containers exist in Docker
+│   │   ├── startup_state.py        # Post-startup reconciliation verification
+│   │   ├── phase_output.py         # Detect missing artifacts (commits, plans)
+│   │   └── state_consistency.py    # Cross-reference orchestrator state vs Docker vs contract
+│   └── tier2/              # Semantic checks (LLM-powered)
+│       └── agent_inspector.py   # Claude-powered agent progress analysis
 ├── routes/                 # API route handlers
 │   ├── checks.py           # Deployment validation check endpoints
 │   ├── containers.py       # Container management endpoints
@@ -112,7 +123,7 @@ orchestrator/
 ├── Dockerfile              # Orchestrator container image
 ├── entrypoint.sh           # Container entry point
 ├── requirements.txt        # Python dependencies
-└── tests/                  # Orchestrator tests
+└── tests/                  # Orchestrator tests (30+ files, including health check tests)
 ```
 
 ## Sandbox Structure

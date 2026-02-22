@@ -105,7 +105,7 @@ jobs:
       bot_username: ${{ vars.EGG_BOT_USERNAME }}
       branch_prefix: ${{ vars.EGG_BRANCH_PREFIX }}
       authorized_users: "user1,user2"  # Comma-separated list
-      max_feedback_rounds: 3
+      max_feedback_rounds: 5
     secrets:
       BOT_APP_ID: ${{ secrets.BOT_APP_ID }}
       BOT_APP_PRIVATE_KEY: ${{ secrets.BOT_APP_PRIVATE_KEY }}

@@ -150,7 +150,7 @@ Without it, the system falls back to posting reviews as comments (self-review mo
    - Review requires action (filtered at job level to prevent runner allocation):
      - Non-approval reviews (request-changes, comment) always trigger
      - Approvals trigger only if they include `<!-- has-suggestions -->` marker
-   - Iteration count is below the limit (default: 3 rounds)
+   - Iteration count is below the limit (default: 5 rounds)
 
 3. **Wait for all reviewers** — For review-triggered runs, polls GitHub check runs for all `egg-reviewer-*` jobs
    to complete before proceeding. This prevents race conditions when multiple reviewers
@@ -179,7 +179,7 @@ Without it, the system falls back to posting reviews as comments (self-review mo
 
 ### Iteration Limiting
 
-To prevent infinite feedback loops, the workflow limits rounds to 3 by default:
+To prevent infinite feedback loops, the workflow limits rounds to 5 by default:
 - Counts previous feedback-addressing runs via `<!-- egg-feedback-addressing -->` markers
 - When limit is reached, posts a comment requesting human review
 - Manual `workflow_dispatch` triggers bypass the limit for debugging

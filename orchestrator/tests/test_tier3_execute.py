@@ -178,6 +178,119 @@ class TestRunTier3ImplementSequential:
         # Only one spawn call (the failed coder)
         assert mock_spawn.call_count == 1
 
+    @patch("egg_contracts.loader.save_contract")
+    @patch("egg_contracts.loader.load_contract_from_branch")
+    @patch("egg_contracts.loader.contract_exists")
+    @patch("pipelines._spawn_and_wait")
+    @patch("pipelines._read_review_verdict")
+    @patch("pipelines._read_last_review_feedback")
+    @patch("pipelines._read_phase_draft")
+    def test_missing_contract_restored_from_branch(
+        self,
+        mock_read_draft,
+        mock_read_feedback,
+        mock_read_verdict,
+        mock_spawn,
+        mock_contract_exists,
+        mock_load_from_branch,
+        mock_save_contract,
+        tmp_path: Path,
+    ):
+        """Missing contract is restored from the worktree branch via git show."""
+        from egg_contracts.models import Contract
+
+        mock_contract_exists.return_value = False
+        mock_spawn.return_value = (0, "agent logs")
+        mock_read_verdict.return_value = ReviewVerdict(verdict="approved")
+        mock_read_feedback.return_value = None
+        mock_read_draft.return_value = "# Plan"
+
+        # Simulate load_contract_from_branch returning a contract with phases,
+        # then write it to disk so load_contract finds it.
+        contract_data = {
+            "schemaVersion": "1.0",
+            "issue": {"number": 42, "title": "test", "url": "http://test"},
+            "phases": [
+                {
+                    "id": "phase-1",
+                    "name": "Phase 1",
+                    "status": "pending",
+                    "tasks": [
+                        {"id": "task-1-1", "description": "Task 1", "status": "pending"}
+                    ],
+                    "dependencies": [],
+                }
+            ],
+        }
+        restored_contract = Contract.model_validate(contract_data)
+        mock_load_from_branch.return_value = restored_contract
+
+        def save_side_effect(contract, repo_root=None):
+            contract_dir = tmp_path / ".egg-state" / "contracts"
+            contract_dir.mkdir(parents=True, exist_ok=True)
+            (contract_dir / "42.json").write_text(
+                contract.model_dump_json(), encoding="utf-8"
+            )
+            return contract_dir / "42.json"
+
+        mock_save_contract.side_effect = save_side_effect
+
+        pipeline = self._make_pipeline()
+
+        exit_code, logs = self._run(
+            pipeline_id="test-pipeline",
+            pipeline=pipeline,
+            spawner=MagicMock(),
+            repo_volumes={},
+            gateway_mode="public",
+            repos=["owner/repo"],
+            sandbox_env={},
+            store=MagicMock(),
+            certs_volume=None,
+            worktree_repo_path=tmp_path,
+        )
+
+        assert exit_code == 0
+        mock_contract_exists.assert_called_once_with(42, tmp_path)
+        mock_load_from_branch.assert_called_once_with(
+            42, tmp_path, branch="egg/test-pipeline/work"
+        )
+        mock_save_contract.assert_called_once()
+        # Should proceed with Tier 3 (1 phase * 5 agents + integrator = 6)
+        assert mock_spawn.call_count == 6
+
+    @patch("egg_contracts.loader.load_contract_from_branch")
+    @patch("egg_contracts.loader.contract_exists")
+    def test_missing_contract_branch_restore_fails_raises(
+        self,
+        mock_contract_exists,
+        mock_load_from_branch,
+        tmp_path: Path,
+    ):
+        """When contract cannot be restored from branch, the error propagates."""
+        from egg_contracts.loader import ContractNotFoundError
+
+        mock_contract_exists.return_value = False
+        mock_load_from_branch.side_effect = ContractNotFoundError(
+            42, tmp_path / ".egg-state/contracts/42.json"
+        )
+
+        pipeline = self._make_pipeline()
+
+        with pytest.raises(ContractNotFoundError):
+            self._run(
+                pipeline_id="test-pipeline",
+                pipeline=pipeline,
+                spawner=MagicMock(),
+                repo_volumes={},
+                gateway_mode="public",
+                repos=["owner/repo"],
+                sandbox_env={},
+                store=MagicMock(),
+                certs_volume=None,
+                worktree_repo_path=tmp_path,
+            )
+
     @patch("pipelines._run_multi_agent_phase")
     def test_no_phases_falls_back(self, mock_multi_agent, tmp_path: Path):
         """No plan phases falls back to standard multi-agent."""

@@ -89,6 +89,10 @@ class ContainerMonitor:
         self._thread: threading.Thread | None = None
         self._lock = threading.Lock()
 
+        # Optional health check runner integration (set via set_health_check_runner)
+        self._health_check_runner: Any = None
+        self._health_check_repo_path: str | None = None
+
     def add_handler(self, handler: EventHandler) -> None:
         """Add an event handler.
 
@@ -127,6 +131,57 @@ class ContainerMonitor:
                     container_id=event.container_info.container_id[:12],
                     error=str(e),
                 )
+
+    def set_health_check_runner(self, runner: Any, repo_path: str) -> None:
+        """Connect a HealthCheckRunner for RUNTIME_TICK integration.
+
+        When set, health checks run automatically after each container
+        state-change poll cycle via ``_run_runtime_tick_checks()``.
+
+        Args:
+            runner: HealthCheckRunner instance (from cli.py startup).
+            repo_path: Path to repository root for context construction.
+        """
+        self._health_check_runner = runner
+        self._health_check_repo_path = repo_path
+
+    def _run_runtime_tick_checks(self) -> None:
+        """Run RUNTIME_TICK health checks after container state changes.
+
+        Called at the end of each monitor poll cycle.  Iterates over all
+        RUNNING pipelines and runs Tier 1 checks (Tier 2 never runs on
+        RUNTIME_TICK).  Errors are non-fatal: logged at debug level so
+        the monitor continues operating even if health checks fail.
+        """
+        if self._health_check_runner is None or self._health_check_repo_path is None:
+            return
+        try:
+            from health_checks.context import PipelineHealthContext
+            from health_checks.types import HealthTrigger
+            from state_store import get_state_store
+
+            store = get_state_store(self._health_check_repo_path)
+            for pid in store.list_pipelines():
+                try:
+                    pipeline = store.load_pipeline(pid)
+                    if pipeline.status.value != "running":
+                        continue  # Only check active pipelines
+                    ctx = PipelineHealthContext(
+                        pipeline=pipeline,
+                        repo_path=Path(self._health_check_repo_path),
+                        trigger=HealthTrigger.RUNTIME_TICK.value,
+                        docker_client=self.docker_client,
+                        state_store=store,
+                    )
+                    self._health_check_runner.run(ctx, HealthTrigger.RUNTIME_TICK)
+                except Exception as per_pipeline_err:
+                    logger.debug(
+                        "RUNTIME_TICK health check failed for pipeline",
+                        pipeline_id=pid,
+                        error=str(per_pipeline_err),
+                    )
+        except Exception as exc:
+            logger.debug("RUNTIME_TICK health check failed", error=str(exc))
 
     def _check_container(self, container: ContainerInfo) -> None:
         """Check a single container and emit events for changes.
@@ -175,6 +230,9 @@ class ContainerMonitor:
                 del self._container_states[container_id]
                 # Can't emit event without ContainerInfo - just log
                 logger.info("Container removed", container_id=container_id[:12])
+
+            # Run RUNTIME_TICK health checks once per poll cycle
+            self._run_runtime_tick_checks()
 
         except Exception as e:
             logger.error("Container check failed", error=str(e))

@@ -454,7 +454,7 @@ class GatewayClient:
         repos: list[str],
         uid: int | None = None,
         gid: int | None = None,
-        base_branch: str = "HEAD",
+        base_branch: str | None = None,
     ) -> WorktreeResult:
         """Create isolated worktrees for a container.
 
@@ -467,7 +467,8 @@ class GatewayClient:
             repos: List of repository names (or owner/repo format)
             uid: User ID for worktree ownership
             gid: Group ID for worktree ownership
-            base_branch: Branch to base worktrees on (default: HEAD)
+            base_branch: Branch to base worktrees on. When None, the gateway
+                resolves the remote default branch per-repo (e.g., origin/main).
 
         Returns:
             WorktreeResult with host paths for each repo
@@ -478,8 +479,9 @@ class GatewayClient:
         request_data: dict[str, Any] = {
             "container_id": container_id,
             "repos": repos,
-            "base_branch": base_branch,
         }
+        if base_branch is not None:
+            request_data["base_branch"] = base_branch
         if uid is not None:
             request_data["uid"] = uid
         if gid is not None:

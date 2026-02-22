@@ -1,7 +1,0 @@
-{
-  "reviewer": "agent-design",
-  "verdict": "approved",
-  "summary": "The analysis is well-aligned with agent-mode design principles. It correctly identifies the core anti-pattern (pre-fetching full issue body/plan into every agent prompt regardless of role) and proposes a solution that provides lightweight orientation context while preserving on-demand access to full details via CLI pointers. No agent-design concerns.",
-  "feedback": "",
-  "timestamp": "2026-02-21T12:00:00Z"
-}

@@ -1,395 +1,544 @@
 {
-  "issue": 829,
+  "issue": 732,
   "phase": "plan",
   "agent": "architect",
-  "title": "Full DAG visualization for Tier 3 parallel phase execution",
-  "summary": "Architecture analysis for extending the pipeline DAG visualizer to render Tier 3 parallel plan phase execution as a true branching graph. The current visualizer renders a flat linear sequence (Refine -> Plan -> Implement -> PR) with Tier 3 sub-phases grouped by plan_phase_id inside the Implement box. This produces non-deterministic ordering for parallel phases and no branching structure. The recommended approach expands the Implement phase into its constituent sub-phases as first-class boxes in the DAG, connected with fan-out/fan-in connectors, while keeping the data model unchanged.",
+  "title": "Support parallel phase-level dispatch for implement phase",
+  "summary": "Architecture analysis for adding Tier 3 (high-complexity) dispatch to the SDLC pipeline. This tier runs independent plan phases as parallel implement cycles (coder -> tester -> agentic review), with dependent phases running sequentially. An integrator with write access merges sub-branches and fixes integration issues before human review. The recommended approach is a hybrid strategy: deliver sequential phase cycling first (foundation), then add parallel dispatch as an opt-in feature.",
 
   "problem_statement": {
-    "description": "The current DAG visualizer in dag_visualizer.py renders a fixed 4-phase linear DAG (Refine -> Plan -> Implement -> PR). For Tier 3 (high-complexity) pipelines, the Implement phase runs multiple plan sub-phases, some in parallel, but this structure is invisible in the visualization. The current workaround groups agents by plan_phase_id inside the Implement box (lines 283-298 of dag_visualizer.py), producing a flat listing like 'phase-1: coder, tester... phase-2: coder, tester...' with two problems: (1) parallel sub-phases are shown in lock-acquisition order rather than sorted deterministically, and (2) there is no branching structure showing fan-out/fan-in for parallel phases.",
+    "description": "The SDLC pipeline supports two dispatch tiers: Tier 1 (short-circuit for low complexity) and Tier 2 (single coder with wave-based multi-agent for mid complexity). Large features with multiple independent phases are forced through a single coder processing all tasks sequentially, creating serial bottlenecks, late integration failures, unbounded reviewer scope, and no early-abort capability.",
     "goals": [
-      "Render Tier 3 sub-phases as individual boxes in the DAG, each showing its own agent sequence and status",
-      "Display parallel sub-phases side-by-side with fan-out connectors from Plan and fan-in connectors to the post-phase section (reviewer_contract + integrator)",
-      "Display sequential sub-phases in single-column layout",
-      "Sort parallel sub-phases deterministically by phase ID, not lock acquisition order",
-      "Show per-sub-phase status symbols, agent waves, and timing",
-      "Show the reviewer_contract + integrator section as a separate box between sub-phases and PR",
-      "Maintain backward compatibility for Tier 1/2 pipelines (no sub-phases) and the compact/progress views",
-      "Update the SSE streaming and CLI tools (egg-pipeline-watch, egg-status) to render the new layout"
+      "Extend complexity assessment from 2 tiers (low/not-low) to 3 tiers (low/mid/high)",
+      "Run independent plan phases as parallel implement cycles with per-phase agentic review",
+      "Enable early abort when a phase's agentic review finds a design flaw",
+      "Bound reviewer scope to one phase's changes at a time",
+      "Give the integrator write access to merge sub-branches and fix integration issues",
+      "Track per-phase-per-role execution status in the contract",
+      "Isolate parallel phases via sub-branches to prevent merge conflicts"
     ]
   },
 
   "current_architecture": {
-    "dag_visualizer": {
-      "location": "orchestrator/dag_visualizer.py (665 lines)",
-      "mechanism": "render_pipeline_dag() iterates PHASE_ORDER = [REFINE, PLAN, IMPLEMENT, PR], calling _render_phase_box() for each. Boxes are connected by vertical arrows. For Tier 3, _render_phase_box lines 283-300 partition agents by plan_phase_id into sub_phase_buckets and render them as labeled groups inside the Implement box.",
-      "key_issue": "The Implement box is treated as a single monolithic phase. There is no concept of expanding it into multiple boxes with branching connectors. The sub_phase_buckets dict uses insertion order which is non-deterministic for parallel phases."
+    "complexity_assessment": {
+      "location": "orchestrator/routes/pipelines.py:1549-1567",
+      "mechanism": "Refine agent assesses complexity as low/medium/high. Low signals short_circuit: true in YAML metadata. Medium and high both flow to the plan phase — no Tier 3 differentiation exists.",
+      "signal_detection": "_check_short_circuit_signal() reads the last YAML block in the analysis draft for short_circuit: true",
+      "config_gate": "PipelineConfig.allow_short_circuit (default: True)"
+    },
+    "multi_agent_orchestration": {
+      "location": "orchestrator/multi_agent.py, shared/egg_contracts/orchestrator.py",
+      "mechanism": "MultiAgentExecutor runs agents in wave-based parallel execution. Waves are computed from role-level dependencies via DependencyGraph. Default implement wave order: CODER -> TESTER+DOCUMENTER -> INTEGRATOR.",
+      "key_limitation": "DependencyGraph nodes are AgentRole enum values, not (phase_id, role) composites. Only one execution slot exists per role."
+    },
+    "execution_state": {
+      "location": "shared/egg_contracts/orchestration.py, shared/egg_contracts/models.py",
+      "mechanism": "OrchestrationState.executions is dict[AgentRole, AgentExecutionModel]. The contract's agent_executions is a flat list of AgentExecutionModel keyed by role.",
+      "key_limitation": "Running the same role twice (e.g., CODER for Phase 1 and CODER for Phase 2) would overwrite state. No phase_id dimension exists."
     },
     "dependency_graph": {
-      "location": "shared/egg_contracts/dependency_graph.py (536 lines)",
-      "mechanism": "PhaseDependencyGraph.compute_waves() returns list[PhaseWave], each containing phase_ids that can run concurrently. PhaseWave.is_parallel() returns True if multiple phases share a wave. Phases within a wave are sorted by bisect.insort in topological_sort() (line 482), giving deterministic alphabetical ordering.",
-      "key_insight": "The wave computation already exists and produces exactly the grouping needed for visualization. The visualizer just needs to consume it."
+      "location": "shared/egg_contracts/dependency_graph.py",
+      "mechanism": "DependencyNode contains role, dependencies[], dependents[]. compute_waves() returns list[list[AgentRole]] for parallel execution. Topological sort ensures correct ordering.",
+      "key_limitation": "Graph operates on AgentRole, not (phase_id, role). Cannot represent 'CODER for phase-1 depends on nothing' vs 'CODER for phase-4 depends on phase-1 completion'."
     },
-    "pipeline_state": {
-      "location": "orchestrator/models.py (279 lines)",
-      "mechanism": "Pipeline.phases is a dict[str, PhaseExecution]. PhaseExecution.agents is a list[AgentExecution]. Each AgentExecution has a plan_phase_id field for Tier 3 sub-phase tagging. Pipeline.complexity_tier indicates LOW/MID/HIGH.",
-      "key_insight": "All the data needed to render sub-phase boxes already exists in the pipeline state. Agents tagged with plan_phase_id can be grouped by sub-phase, and the PhaseDependencyGraph provides the branching structure."
+    "plan_phase_dependencies": {
+      "location": "shared/egg_contracts/plan_parser.py:88-96, 427-428",
+      "mechanism": "ParsedPhase has a dependencies field that is populated from the YAML plan. However, to_contract_phase() at line 98-105 discards this field — the contract Phase model has no dependencies field.",
+      "gap": "Phase dependencies are parsed but not persisted in the contract schema."
     },
-    "contract_model": {
-      "location": "shared/egg_contracts/models.py (lines 143-161)",
-      "mechanism": "Phase model has id (e.g., 'phase-1'), name, status, tasks, and dependencies (list of phase IDs). The contract's phases list defines the complete dependency graph.",
-      "key_insight": "Phase names and dependency info from the contract are needed for display labels and DAG structure."
+    "branch_management": {
+      "location": "gateway/policy.py:129-147, gateway/worktree_manager.py",
+      "mechanism": "Branch ownership validated via egg- or egg/ prefix using startswith(). Worktrees created per pipeline with branch pattern egg/{container_id}/work.",
+      "sub_branch_support": "The prefix check (startswith('egg/')) already supports nested paths like egg/feature/phase-1. No gateway policy changes are needed for sub-branch naming — only worktree lifecycle management needs extension."
     },
-    "tier3_dispatch": {
-      "location": "orchestrator/routes/pipelines.py (lines 2708-3290)",
-      "mechanism": "_run_tier3_implement() loads the contract, builds PhaseDependencyGraph, computes waves, then executes phases either sequentially or in parallel waves using ThreadPoolExecutor. Each phase runs a full coder -> tester -> documenter -> checker -> reviewer cycle. After all phases, reviewer_contract and integrator run as top-level agents (no plan_phase_id).",
-      "key_insight": "The dispatch already uses the same wave structure we need for visualization. The contract is available in .egg-state/contracts/ and can be loaded by the visualizer."
+    "integrator_role": {
+      "location": "shared/egg_contracts/agent_roles.py:289-318",
+      "mechanism": "INTEGRATOR_ROLE has blocked_write for src/, lib/, docs/, tests/, test/. Can only write to .egg-state/agent-outputs/.",
+      "key_limitation": "Read-only for production code. Tier 3 requires write access for merging sub-branches and fixing integration issues."
     },
-    "sse_streaming": {
-      "location": "orchestrator/sse.py (447 lines)",
-      "mechanism": "SSEClientManager subscribes to EventBus, fans out to connected clients. Refresh cycle (1s) re-renders the full DAG and sends it if changed. The rendered DAG is a text string.",
-      "key_insight": "No structural changes needed to SSE. The refresh cycle already re-renders the full DAG text. A wider DAG will just be a wider string."
-    },
-    "cli_tools": {
-      "egg_pipeline_watch": {
-        "location": "sandbox/bin/egg-pipeline-watch (445 lines)",
-        "mechanism": "Connects to per-pipeline SSE endpoint. Receives rendered DAG text. Uses ANSI cursor control for in-place terminal updates.",
-        "key_insight": "The tool renders whatever DAG text it receives. No changes needed to the streaming logic, only to dag_visualizer.py output."
-      },
-      "egg_status": {
-        "location": "bin/egg-status (388 lines)",
-        "mechanism": "Multi-pipeline dashboard. Uses compact mode by default. Full DAG mode is optional via --verbose.",
-        "key_insight": "Compact mode is unchanged. Full DAG mode uses the same render_pipeline_dag() output."
-      }
-    },
-    "test_coverage": {
-      "location": "orchestrator/tests/test_dag_visualizer.py (1313 lines)",
-      "classes": [
-        "TestFormatDuration — duration formatting helpers",
-        "TestStatusSymbol — status symbol mapping",
-        "TestAgentStatusSymbol — agent status symbols",
-        "TestRenderPipelineDag — full DAG rendering with various states",
-        "TestRenderCompactStatus — compact single-line rendering",
-        "TestRenderProgressBar — progress bar rendering",
-        "TestRenderPhaseDetail — per-phase detail view",
-        "TestGenerateStatusReport — status report generation",
-        "TestWaveGrouping — wave-based agent grouping (implement, plan, refine)",
-        "TestCycleTimingDisplay — per-cycle and total timing",
-        "TestDeduplicateAgents — agent deduplication",
-        "TestNonGraphAgentOrdering — non-graph agent placement",
-        "TestRunCountDisplay — run count display"
-      ],
-      "gap": "No tests exist for Tier 3 sub-phase branching visualization since it doesn't exist yet. The test for plan_phase_id grouping inside the Implement box is only indirect (via the sub_phase_buckets logic)."
-    }
-  },
-
-  "implementation_approaches": [
-    {
-      "id": "A",
-      "name": "Expand Implement phase into sub-phase boxes in render_pipeline_dag (recommended)",
-      "description": "Modify render_pipeline_dag() to detect Tier 3 pipelines (complexity_tier == HIGH and agents have plan_phase_id). When detected, instead of rendering a single Implement box, render: (1) the Plan box with a fan-out connector, (2) sub-phase boxes arranged by wave (parallel phases side-by-side, sequential phases stacked), (3) fan-in connector to a 'Review + Integrate' box for top-level agents (reviewer_contract, integrator), (4) the PR box. Use PhaseDependencyGraph to determine wave structure. Each sub-phase box uses the existing _render_phase_box rendering with its subset of agents. Add new helper functions: _render_tier3_section() for the multi-column layout, _render_fan_out() and _render_fan_in() for branching connectors, _render_side_by_side_boxes() for parallel phase boxes.",
-      "pros": [
-        "Changes are concentrated in dag_visualizer.py — the primary file for visualization",
-        "Reuses existing _render_phase_box for sub-phase rendering — consistent look and feel",
-        "Leverages PhaseDependencyGraph.compute_waves() which already provides the exact grouping needed",
-        "SSE, CLI tools, and API endpoints require no changes — they already consume text output from render_pipeline_dag()",
-        "Tier 1/2 pipelines are completely unaffected — the expansion only triggers for Tier 3",
-        "Deterministic ordering comes naturally from PhaseDependencyGraph.topological_sort() which uses bisect.insort",
-        "The phase name and status can be derived from the contract and agent statuses"
-      ],
-      "cons": [
-        "Side-by-side ASCII box rendering requires careful width management and padding",
-        "Loading the contract from dag_visualizer creates a new dependency (currently it only reads Pipeline model)",
-        "Terminal width constraints may limit how many parallel phases can be shown side-by-side"
-      ],
-      "risk_level": "low-medium"
-    },
-    {
-      "id": "B",
-      "name": "Embed phase wave structure in Pipeline model, render from model alone",
-      "description": "Add a new field to Pipeline model (e.g., phase_waves: list[PhaseWaveInfo]) populated by the orchestrator during Tier 3 dispatch. The visualizer reads this field directly without needing to load the contract. PhaseWaveInfo contains wave_number, phase_ids, phase_names, and is_parallel. The visualizer uses this data to render the branching DAG.",
-      "pros": [
-        "No contract loading in the visualizer — all data is in the Pipeline model",
-        "Cleaner separation of concerns — orchestrator computes structure, visualizer renders it",
-        "PhaseWaveInfo can include derived data (phase names, overall phase status) for easier rendering"
-      ],
-      "cons": [
-        "Requires a model migration — adding a new field to Pipeline model",
-        "Duplicates information already available in the contract",
-        "Existing pipelines in flight would not have the new field — needs backward-compatible handling",
-        "The orchestrator would need to persist wave info during dispatch, adding logic to _run_tier3_implement"
-      ],
-      "risk_level": "medium"
-    },
-    {
-      "id": "C",
-      "name": "Separate Tier 3 DAG renderer",
-      "description": "Create a new function render_tier3_dag() that produces a completely separate visualization for Tier 3 pipelines. render_pipeline_dag() detects Tier 3 and delegates to this function. The Tier 3 renderer builds the entire DAG from scratch using contract data, with no dependency on the linear phase rendering.",
-      "pros": [
-        "Complete freedom to design the Tier 3 layout without constraints from the linear renderer",
-        "No risk of breaking existing visualization — linear renderer is untouched",
-        "Easier to test independently"
-      ],
-      "cons": [
-        "Significant code duplication — header, phase box rendering, status symbols, timing all need to be reimplemented or extracted",
-        "Maintenance burden — two parallel rendering paths that must stay in sync",
-        "Over-engineering — the linear renderer already does most of what's needed"
-      ],
-      "risk_level": "medium"
-    }
-  ],
-
-  "recommended_approach": {
-    "id": "A",
-    "name": "Expand Implement phase into sub-phase boxes in render_pipeline_dag",
-    "justification": [
-      "Minimal blast radius — changes are concentrated in dag_visualizer.py with no model changes and no orchestrator changes",
-      "All downstream consumers (SSE, CLI tools, API) require zero changes since they already consume text output",
-      "Reuses existing infrastructure: _render_phase_box for sub-phase boxes, PhaseDependencyGraph for wave structure, _compute_wave_order for agent grouping within sub-phases",
-      "The contract loading dependency is manageable — the contract file is available in .egg-state/contracts/ which the orchestrator already manages, and the visualizer runs in the same filesystem context",
-      "Deterministic ordering is solved by using PhaseDependencyGraph.topological_sort() instead of dict insertion order",
-      "Backward compatibility is trivial — the expansion only triggers when Tier 3 agents with plan_phase_id are detected"
-    ]
-  },
-
-  "technical_design": {
-    "new_functions": {
-      "_render_sub_phase_box": {
-        "signature": "_render_sub_phase_box(phase_id: str, phase_name: str, status: PipelineStatus, agents: list[AgentExecution], duration: str, total_duration: str, review_cycles: int, is_current: bool, use_ascii: bool) -> list[str]",
-        "behavior": "Renders a single sub-phase box similar to _render_phase_box but with a shorter label format showing the phase ID and name. Box width is constrained to fit in multi-column layouts. Each box shows its agents grouped by wave, status symbol, and timing.",
-        "location": "orchestrator/dag_visualizer.py (new, near _render_phase_box)"
-      },
-      "_render_side_by_side": {
-        "signature": "_render_side_by_side(box_groups: list[list[str]], gap: int, left_margin: int, use_ascii: bool) -> list[str]",
-        "behavior": "Takes multiple box line-lists and renders them side-by-side. Pads shorter boxes with empty lines. Inserts a gap (spaces) between columns. Handles boxes of different heights by padding to the tallest. Returns combined lines. The left_margin parameter provides consistent indentation.",
-        "location": "orchestrator/dag_visualizer.py (new helper)",
-        "key_detail": "Each box's lines are already generated by _render_sub_phase_box(). This function only handles horizontal composition."
-      },
-      "_render_fan_out_connector": {
-        "signature": "_render_fan_out_connector(num_branches: int, box_widths: list[int], gap: int, left_margin: int, use_ascii: bool) -> list[str]",
-        "behavior": "Renders the branching connector from a single point to N parallel boxes. Uses Unicode box-drawing characters (or ASCII fallback). Structure: vertical line from parent, horizontal line spanning all branches, vertical lines dropping to each branch. Example for 2 branches: '|' -> '+-+-+' -> '| |'.",
-        "location": "orchestrator/dag_visualizer.py (new helper)"
-      },
-      "_render_fan_in_connector": {
-        "signature": "_render_fan_in_connector(num_branches: int, box_widths: list[int], gap: int, left_margin: int, use_ascii: bool) -> list[str]",
-        "behavior": "Inverse of fan-out: renders vertical lines from each branch merging into a single point. Uses same character set as fan-out.",
-        "location": "orchestrator/dag_visualizer.py (new helper)"
-      },
-      "_render_tier3_implement_section": {
-        "signature": "_render_tier3_implement_section(pipeline: Pipeline, phase_waves: list[PhaseWave], phase_info: dict[str, dict], is_current: bool, use_ascii: bool) -> list[str]",
-        "behavior": "Main orchestrating function for the Tier 3 section. Iterates over phase_waves. For each wave: if is_parallel(), renders boxes side-by-side with fan-out/fan-in connectors; otherwise renders a single-column box. Then renders the top-level agents box (reviewer_contract, integrator). Returns all lines. The phase_info dict maps phase_id to {name, status, agents, duration, etc.}.",
-        "location": "orchestrator/dag_visualizer.py (new helper)"
-      },
-      "_get_phase_dependency_info": {
-        "signature": "_get_phase_dependency_info(pipeline: Pipeline) -> tuple[list[PhaseWave], dict[str, dict]] | None",
-        "behavior": "Loads the contract for the pipeline's issue_number, builds PhaseDependencyGraph, computes waves. Extracts per-phase info by partitioning the Implement phase's agents by plan_phase_id. Computes per-sub-phase status from agent statuses (all complete -> complete, any running -> running, any failed -> failed, else pending). Returns None if pipeline is not Tier 3 or contract cannot be loaded. Falls back gracefully.",
-        "location": "orchestrator/dag_visualizer.py (new helper)",
-        "contract_loading": "Uses egg_contracts.load_contract(issue_number, repo_path). The repo_path can be derived from environment or passed as a parameter. If contract loading fails, returns None to trigger fallback to the existing flat rendering."
-      }
-    },
-    "modified_functions": {
-      "render_pipeline_dag": {
-        "location": "orchestrator/dag_visualizer.py:362-436",
-        "change": "After rendering the Plan box and its arrow, check if the pipeline is Tier 3 with sub-phase data. If yes, call _render_tier3_implement_section() instead of _render_phase_box(IMPLEMENT). Then render the arrow and PR box. If Tier 3 detection fails or returns None, fall back to the existing single Implement box rendering.",
-        "detection": "Tier 3 is detected by checking: (1) pipeline.complexity_tier == ComplexityTier.HIGH, and (2) the Implement phase has agents with plan_phase_id set. Both conditions must be true.",
-        "fallback": "If PhaseDependencyGraph cannot be built (contract not found, import error, etc.), fall back to existing rendering. This ensures the visualizer never crashes."
-      },
-      "_render_phase_box": {
-        "location": "orchestrator/dag_visualizer.py:222-351",
-        "change": "No changes needed. Sub-phase boxes use _render_sub_phase_box (a slimmed-down variant). The existing _render_phase_box continues to work for Refine, Plan, PR, and non-Tier-3 Implement.",
-        "alternative": "Could add a 'compact' parameter to _render_phase_box to reuse it for sub-phases. But a separate function is cleaner since sub-phase boxes have different label format and width constraints."
-      },
-      "render_compact_status": {
-        "location": "orchestrator/dag_visualizer.py:538-565",
-        "change": "Minor enhancement: for Tier 3 pipelines, could show sub-phase progress in the compact line. Example: 'Refine -> Plan -> [Implement: 2/3] -> PR'. This is optional and can be deferred.",
-        "note": "The compact view is inherently a summary — detailed sub-phase info belongs in the full DAG view."
-      },
-      "render_progress_bar": {
-        "location": "orchestrator/dag_visualizer.py:568-604",
-        "change": "For Tier 3 pipelines, could weight the Implement phase by sub-phase completion. Example: if 2 of 3 sub-phases are complete, the Implement phase contributes 2/3 instead of 0.5. This is optional and can be deferred.",
-        "note": "More accurate progress for Tier 3 but not required for the core visualization change."
-      },
-      "generate_status_report": {
-        "location": "orchestrator/dag_visualizer.py:607-665",
-        "change": "No changes needed. The DAG visualization in the report is just the text output from render_pipeline_dag(), which will now include the expanded Tier 3 layout."
-      }
-    },
-    "sub_phase_status_derivation": {
-      "description": "Each sub-phase's status must be derived from its agents. The pipeline state does not store per-sub-phase status directly — only the overall Implement phase status and per-agent statuses.",
-      "algorithm": "For agents with matching plan_phase_id: (1) if any agent has status FAILED -> sub-phase FAILED, (2) if any agent has status RUNNING -> sub-phase RUNNING, (3) if all agents have status COMPLETE -> sub-phase COMPLETE, (4) otherwise -> sub-phase PENDING. This mirrors how the orchestrator determines overall phase status.",
-      "phase_name": "Derived from the contract's Phase.name field. If contract is unavailable, fall back to the phase_id (e.g., 'phase-1')."
-    },
-    "layout_algorithm": {
-      "description": "The side-by-side rendering algorithm must handle variable-height boxes and arbitrary numbers of parallel phases.",
-      "approach": "For each parallel wave: (1) render each sub-phase box independently, (2) compute maximum height across all boxes, (3) pad shorter boxes with empty lines, (4) horizontally compose with gap spacing, (5) add fan-out connector above and fan-in connector below.",
-      "width_management": "Each sub-phase box has a fixed minimum width (e.g., 25 chars) and a maximum width based on terminal width / number of columns. If too many parallel phases to fit, fall back to sequential rendering with a note.",
-      "terminal_width": "Use shutil.get_terminal_size() for width detection. Default to 80 columns. For SSE streaming (not a terminal), default to 120 columns.",
-      "example_output": "For a diamond pattern (phase-1 -> [phase-2, phase-3] -> phase-4):\n\n    ╔═══════════════╗\n    │ ✓ Plan        │\n    ╚═══════════════╝\n          │\n       ┌──┴──┐\n       │     │\n  ╔═════════╗ ╔═════════╗\n  │phase-1  │ │phase-2  │\n  │✓ coder  │ │▶ coder  │\n  │✓ tester │ │○ tester │\n  ╚═════════╝ ╚═════════╝\n       │     │\n       └──┬──┘\n          │\n    ╔═══════════════╗\n    │ Review + Int  │\n    ╚═══════════════╝\n          │\n    ╔═══════════════╗\n    │ ○ PR          │\n    ╚═══════════════╝"
-    },
-    "connector_characters": {
-      "unicode": {
-        "horizontal": "─",
-        "vertical": "│",
-        "top_left": "┌",
-        "top_right": "┐",
-        "bottom_left": "└",
-        "bottom_right": "┘",
-        "tee_down": "┬",
-        "tee_up": "┴",
-        "cross": "┼"
-      },
-      "ascii": {
-        "horizontal": "-",
-        "vertical": "|",
-        "top_left": "+",
-        "top_right": "+",
-        "bottom_left": "+",
-        "bottom_right": "+",
-        "tee_down": "+",
-        "tee_up": "+",
-        "cross": "+"
-      }
+    "phase_transitions": {
+      "location": "orchestrator/routes/phases.py:50-63",
+      "mechanism": "REFINE -> [PLAN, IMPLEMENT], PLAN -> [IMPLEMENT], IMPLEMENT -> [PR]. No INTEGRATE phase exists.",
+      "consideration": "Issue suggests either a new INTEGRATE phase or internal cycling within IMPLEMENT."
     }
   },
 
   "key_files": [
     {
-      "path": "orchestrator/dag_visualizer.py",
-      "relevance": "Primary file — all visualization changes happen here",
-      "functions_affected": [
-        "render_pipeline_dag (lines 362-436) — detect Tier 3 and delegate to tier3 section renderer",
-        "New: _render_sub_phase_box — render a single sub-phase box",
-        "New: _render_side_by_side — horizontally compose multiple box renders",
-        "New: _render_fan_out_connector — branching connector from one to many",
-        "New: _render_fan_in_connector — merging connector from many to one",
-        "New: _render_tier3_implement_section — orchestrate full Tier 3 section",
-        "New: _get_phase_dependency_info — load contract and compute wave structure"
-      ]
-    },
-    {
-      "path": "orchestrator/tests/test_dag_visualizer.py",
-      "relevance": "Test file — needs new test classes for Tier 3 visualization",
-      "changes": "Add TestTier3DagVisualization class with tests for: single-column sequential sub-phases, multi-column parallel sub-phases, diamond pattern (fan-out + fan-in), mixed sequential and parallel waves, sub-phase status derivation, deterministic ordering, fallback to flat rendering when contract unavailable, ASCII mode, top-level agent box (reviewer_contract + integrator). Add TestSideBySideRendering for the horizontal composition helper. Add TestFanOutFanInConnectors for connector rendering."
-    },
-    {
       "path": "shared/egg_contracts/dependency_graph.py",
-      "relevance": "Read-only dependency — PhaseDependencyGraph and PhaseWave classes are consumed by the visualizer",
-      "changes": "None — existing API is sufficient"
+      "role": "DAG computation for agent execution waves",
+      "changes_needed": "Add PhaseDependencyGraph class that operates on phase IDs instead of AgentRole. Compute phase waves from Phase.dependencies for determining implement cycle ordering.",
+      "risk": "High — foundation of parallel execution ordering"
+    },
+    {
+      "path": "shared/egg_contracts/agent_roles.py",
+      "role": "Role definitions including dependencies and file access patterns",
+      "changes_needed": "Modify INTEGRATOR_ROLE to support configurable write access for Tier 3. Add phase_id tracking to AgentExecution.",
+      "risk": "Medium — must maintain backward compatibility for Tier 2"
+    },
+    {
+      "path": "shared/egg_contracts/orchestration.py",
+      "role": "Orchestration state management, dependency checking",
+      "changes_needed": "Extend OrchestrationState.executions to support (phase_id, role) composite keys. Update can_agent_run() and get_runnable_agents() for phase-scoped dependency checking.",
+      "risk": "High — central state management module"
+    },
+    {
+      "path": "shared/egg_contracts/orchestrator.py",
+      "role": "Dispatch logic and agent lifecycle management",
+      "changes_needed": "Add phase-aware dispatch decisions. Support per-phase implement cycling (coder -> tester -> agentic review -> next phase or retry).",
+      "risk": "High — dispatch is the core orchestration logic"
     },
     {
       "path": "shared/egg_contracts/models.py",
-      "relevance": "Read-only dependency — Phase model provides id, name, dependencies, status",
-      "changes": "None — existing model is sufficient"
+      "role": "Pydantic contract models including Phase, AgentExecutionModel, Contract",
+      "changes_needed": "Add dependencies field to Phase model. Add phase_id field to AgentExecutionModel. Both optional for backward compat.",
+      "risk": "High — schema change requires backward compatibility"
+    },
+    {
+      "path": "shared/egg_contracts/plan_parser.py",
+      "role": "Plan document parsing, extracts phases/tasks from YAML",
+      "changes_needed": "Preserve ParsedPhase.dependencies when converting to contract Phase via to_contract_phase().",
+      "risk": "Low — straightforward field propagation"
+    },
+    {
+      "path": "orchestrator/multi_agent.py",
+      "role": "MultiAgentExecutor — wave spawning and parallel execution",
+      "changes_needed": "Support phase-level orchestration: run N implement cycles. Each cycle spawns coder -> tester -> agentic reviewers for a single phase's tasks.",
+      "risk": "High — significant behavioral change to execution flow"
+    },
+    {
+      "path": "orchestrator/dispatch.py",
+      "role": "PipelineDispatcher — wraps contract orchestrator for pipeline integration",
+      "changes_needed": "Add per-phase dispatching, phase-scoped handoff data, and phase cycling logic.",
+      "risk": "Medium — wrapper layer, follows orchestrator.py changes"
+    },
+    {
+      "path": "orchestrator/routes/pipelines.py",
+      "role": "Pipeline routes: phase transitions, agent prompts, complexity detection",
+      "changes_needed": "Extend complexity assessment to 3 tiers. Add _run_tier3_implement() for phase cycling. Update implement phase prompt for phase-scoped context.",
+      "risk": "High — largest file, most complex changes"
     },
     {
       "path": "orchestrator/models.py",
-      "relevance": "Read-only dependency — Pipeline model provides complexity_tier, phases, agents with plan_phase_id",
-      "changes": "None — existing model is sufficient"
+      "role": "Pipeline and PipelineConfig models (orchestrator-side)",
+      "changes_needed": "Add complexity_tier field to Pipeline. Extend PipelineConfig for Tier 3 settings.",
+      "risk": "Low — additive model changes"
     },
     {
-      "path": "orchestrator/status_reporter.py",
-      "relevance": "Downstream consumer — calls render_pipeline_dag(), render_compact_status(), render_progress_bar()",
-      "changes": "None — already consumes text output from dag_visualizer functions"
+      "path": "gateway/worktree_manager.py",
+      "role": "Worktree lifecycle management",
+      "changes_needed": "Support per-phase worktrees for parallel execution (Stage 2 only).",
+      "risk": "Medium — filesystem lifecycle complexity"
     },
     {
-      "path": "orchestrator/sse.py",
-      "relevance": "Downstream consumer — calls render_pipeline_dag() for SSE refresh",
-      "changes": "None — already consumes text output"
+      "path": ".egg/schemas/contract.schema.json",
+      "role": "JSON schema for contract validation",
+      "changes_needed": "Add dependencies to Phase, phase_id to AgentExecutionModel.",
+      "risk": "Medium — schema migration affects all contracts"
+    }
+  ],
+
+  "approaches": [
+    {
+      "id": "A",
+      "name": "Full Tier 3 in one pass (parallel + sub-branches)",
+      "description": "Implement complete Tier 3 dispatch: phase-level dependency graph, parallel implement cycles on sub-branches, integrator with write access merging sub-branches, per-phase agentic review with retry.",
+      "pros": [
+        "True parallelism with branch-level isolation prevents merge conflicts",
+        "Bounded agentic review scope per phase",
+        "Early abort saves tokens when a phase review finds flaws",
+        "Delivers the full vision from the issue in one delivery"
+      ],
+      "cons": [
+        "Largest implementation scope — 12+ files across 4 packages",
+        "Per-phase worktree management adds lifecycle complexity",
+        "Composite key change is pervasive across orchestration stack",
+        "Testing parallel phase execution requires complex integration tests",
+        "High risk of regressions to Tier 1 and Tier 2"
+      ],
+      "estimated_complexity": "High",
+      "files_affected": 12
     },
     {
-      "path": "sandbox/bin/egg-pipeline-watch",
-      "relevance": "CLI tool — receives rendered DAG text via SSE",
-      "changes": "None — already renders whatever text it receives. Wider DAGs will require horizontal scrolling in narrow terminals, but this is acceptable."
+      "id": "B",
+      "name": "Sequential phase cycling only (no parallelism)",
+      "description": "Run implement cycles sequentially — one per plan phase — on the same branch. Each cycle spawns coder -> tester -> agentic review. No sub-branches, no gateway changes.",
+      "pros": [
+        "No gateway or worktree changes needed",
+        "No merge conflicts (sequential execution on single branch)",
+        "Per-phase agentic review, early abort, and prompt isolation all work",
+        "Simpler integrator: validates rather than merges branches"
+      ],
+      "cons": [
+        "No parallelism — no wall-clock time savings for independent phases",
+        "Still requires composite execution tracking (phase_id, role)",
+        "Does not meet the issue's full vision for Tier 3"
+      ],
+      "estimated_complexity": "Medium",
+      "files_affected": 9
     },
     {
-      "path": "bin/egg-status",
-      "relevance": "CLI tool — unified dashboard",
-      "changes": "None — compact mode unchanged, full DAG mode consumes text output"
+      "id": "C",
+      "name": "Hybrid — sequential foundation with optional parallelism (recommended)",
+      "description": "Stage 1: sequential phase cycling with composite execution tracking, per-phase agentic review, 3-tier complexity assessment, integrator write access. Stage 2: sub-branch isolation, per-phase worktrees, parallel dispatch behind a feature flag.",
+      "pros": [
+        "Incremental delivery — each stage is independently valuable and testable",
+        "Stage 1 provides 80% of value (per-phase review, early abort, bounded scope)",
+        "Stage 2 adds parallelism without rearchitecting the foundation",
+        "Feature flag allows gradual rollout and rollback",
+        "Composite execution tracking built once, used by both modes"
+      ],
+      "cons": [
+        "Two delivery stages means more review cycles",
+        "Sequential-first may seem incomplete vs the issue's parallel vision",
+        "Both stages still require the composite key change"
+      ],
+      "estimated_complexity": "Medium-High (Stage 1: Medium, Stage 2: Medium)",
+      "files_affected": 12
+    }
+  ],
+
+  "recommended_approach": {
+    "id": "C",
+    "name": "Hybrid — sequential foundation with optional parallelism",
+    "justification": [
+      "The refine analysis recommended Option C and both refine reviewers approved. Sequential phase cycling provides most of the value: per-phase agentic review, early abort, bounded reviewer scope, and prompt isolation. Parallelism primarily saves wall-clock time.",
+      "The composite execution tracking change (phase_id, role) is the riskiest part. Delivering it with sequential cycling first ensures stability before adding parallel dispatch and sub-branch management.",
+      "Gateway branch prefix checks already support nested paths (egg/feature/phase-1 passes startswith('egg/') check), so Stage 2 gateway changes are smaller than initially expected — the main work is worktree lifecycle management.",
+      "All 9 acceptance criteria from the issue are satisfiable: 3-tier complexity, per-phase implement cycles, coder -> tester -> agentic review with retry, integrator with write access, (phase_id, role) tracking, and sub-branch isolation (Stage 2)."
+    ]
+  },
+
+  "implementation_plan": {
+    "stage_1": {
+      "name": "Sequential phase cycling with composite execution tracking",
+      "description": "Build the orchestration foundation for Tier 3: 3-tier complexity assessment, sequential per-phase implement cycles, composite (phase_id, role) execution tracking, per-phase agentic review with retry, and integrator write access.",
+      "phases": [
+        {
+          "id": 1,
+          "name": "Contract schema and model extensions",
+          "description": "Extend the data model with phase dependencies, composite execution keys, and complexity tier fields. This is the foundation all other changes build on.",
+          "key_changes": [
+            "Add dependencies: list[str] field to Phase model (default: [] for backward compat)",
+            "Add phase_id: str | None field to AgentExecutionModel (None for Tier 2 compat)",
+            "Add complexity_tier: str field to Pipeline model with values low/mid/high",
+            "Update contract.schema.json with new fields",
+            "Update ParsedPhase.to_contract_phase() in plan_parser.py to propagate dependencies",
+            "Add dependencies field to YAML plan template"
+          ],
+          "files": [
+            "shared/egg_contracts/models.py",
+            "shared/egg_contracts/plan_parser.py",
+            ".egg/schemas/contract.schema.json",
+            "orchestrator/models.py",
+            "docs/templates/plan.md"
+          ],
+          "dependencies": []
+        },
+        {
+          "id": 2,
+          "name": "3-tier complexity assessment",
+          "description": "Extend refine phase complexity detection from binary to 3 tiers. Add Tier 3 signal detection.",
+          "key_changes": [
+            "Update refine prompt to signal complexity_tier: high alongside parallel_phases: true",
+            "Add _check_high_complexity_signal() in pipelines.py",
+            "Set pipeline.complexity_tier from detected signal (default: mid)",
+            "Tier 1 (low): short-circuit as before. Tier 2 (mid): standard waves. Tier 3 (high): phase cycling."
+          ],
+          "files": [
+            "orchestrator/routes/pipelines.py",
+            "orchestrator/models.py"
+          ],
+          "dependencies": ["phase-1"]
+        },
+        {
+          "id": 3,
+          "name": "Composite execution tracking",
+          "description": "Extend orchestration state to support (phase_id, role) composite keys.",
+          "key_changes": [
+            "Introduce PhaseExecutionKey type or extend OrchestrationState for (phase_id, role) keying",
+            "Update OrchestrationState.from_contract() to deserialize phase_id from AgentExecutionModel",
+            "Update can_agent_run() for phase-scoped dependency checking",
+            "Update get_runnable_agents() for phase-aware filtering",
+            "Backward compat: when phase_id is None, behavior matches current Tier 2"
+          ],
+          "files": [
+            "shared/egg_contracts/orchestration.py",
+            "shared/egg_contracts/orchestrator.py"
+          ],
+          "dependencies": ["phase-1"]
+        },
+        {
+          "id": 4,
+          "name": "Phase-level dependency graph",
+          "description": "Build a phase-level DAG that determines execution order for plan phases.",
+          "key_changes": [
+            "Add PhaseDependencyGraph class operating on phase IDs from Phase.dependencies",
+            "Compute phase waves: independent phases in same wave, dependent phases in later waves",
+            "Integrate with orchestrator to determine phase ordering for sequential cycling",
+            "For Stage 2, same graph determines parallel grouping"
+          ],
+          "files": [
+            "shared/egg_contracts/dependency_graph.py",
+            "shared/egg_contracts/orchestration.py"
+          ],
+          "dependencies": ["phase-1", "phase-3"]
+        },
+        {
+          "id": 5,
+          "name": "Sequential phase cycling in implement phase",
+          "description": "Modify implement phase to run N cycles (one per plan phase) sequentially. Each cycle: coder -> tester -> agentic review, with retry on rejection.",
+          "key_changes": [
+            "Add _run_tier3_implement() in pipelines.py that loops through phases in dependency order",
+            "Each iteration calls _run_multi_agent_phase() with phase-scoped task context",
+            "Per-phase agentic review dispatches REVIEWER_CODE + REVIEWER_CONTRACT after each cycle",
+            "Retry logic: reviewer rejection triggers coder retry within that phase (no human gate)",
+            "Phase-scoped prompts: each coder sees only its phase's tasks and files",
+            "Update _build_agent_prompt() to accept phase_id for task filtering"
+          ],
+          "files": [
+            "orchestrator/routes/pipelines.py",
+            "orchestrator/multi_agent.py",
+            "orchestrator/dispatch.py"
+          ],
+          "dependencies": ["phase-2", "phase-3", "phase-4"]
+        },
+        {
+          "id": 6,
+          "name": "Integrator write access for Tier 3",
+          "description": "Give the integrator conditional write access to source, tests, and docs in Tier 3 mode.",
+          "key_changes": [
+            "Create dynamic integrator file access based on complexity_tier",
+            "In Tier 3: integrator can write src/, tests/, docs/ to fix integration issues",
+            "In Tier 2: integrator remains read-only (backward compat)",
+            "Gateway phase_filter updated to allow integrator writes in Tier 3",
+            "Integrator prompt updated: run full test suite, fix integration issues, report"
+          ],
+          "files": [
+            "shared/egg_contracts/agent_roles.py",
+            "gateway/phase_filter.py",
+            "gateway/agent_restrictions.py"
+          ],
+          "dependencies": ["phase-1"]
+        },
+        {
+          "id": 7,
+          "name": "Tests for Stage 1",
+          "description": "Comprehensive test coverage for all Stage 1 changes.",
+          "key_changes": [
+            "Unit tests for 3-tier complexity detection and signal parsing",
+            "Unit tests for composite execution tracking (phase_id, role)",
+            "Unit tests for phase dependency graph computation",
+            "Integration tests for sequential phase cycling flow",
+            "Backward compat tests: Tier 1 and Tier 2 unchanged",
+            "Plan parser tests: dependencies field preserved"
+          ],
+          "files": [
+            "shared/egg_contracts/tests/",
+            "orchestrator/tests/"
+          ],
+          "dependencies": ["phase-5", "phase-6"]
+        }
+      ]
+    },
+    "stage_2": {
+      "name": "Parallel dispatch with sub-branch isolation",
+      "description": "Add parallel execution of independent phases on sub-branches, gated behind a feature flag. Integrator merges sub-branches before human review.",
+      "phases": [
+        {
+          "id": 8,
+          "name": "Per-phase worktree management",
+          "description": "Extend gateway WorktreeManager for per-phase worktrees.",
+          "key_changes": [
+            "Add create_phase_worktree() for sub-worktrees from pipeline worktree",
+            "Branch naming: egg/<feature>/phase-N (passes existing prefix check)",
+            "Worktree path: .egg-worktrees/{pipeline_id}/phase-{N}/{repo_name}",
+            "Lifecycle: cleanup phase worktrees after integrator merges"
+          ],
+          "files": ["gateway/worktree_manager.py"],
+          "dependencies": ["phase-7"]
+        },
+        {
+          "id": 9,
+          "name": "Parallel phase dispatch",
+          "description": "Concurrent execution of independent plan phases on sub-branches.",
+          "key_changes": [
+            "Use PhaseDependencyGraph to identify independent phase groups",
+            "Spawn parallel implement cycles for phases in same wave",
+            "Each coder pushes to egg/<feature>/phase-N",
+            "Gated behind PipelineConfig.enable_parallel_phases (default: False)"
+          ],
+          "files": ["orchestrator/routes/pipelines.py", "orchestrator/multi_agent.py"],
+          "dependencies": ["phase-8"]
+        },
+        {
+          "id": 10,
+          "name": "Integrator sub-branch merging",
+          "description": "Integrator merges phase sub-branches and resolves conflicts.",
+          "key_changes": [
+            "Integrator receives list of sub-branches to merge",
+            "Sequential merge of phase branches into main feature branch",
+            "Conflict resolution as part of integrator's fixup diff",
+            "Full test suite after merge, report integration issues"
+          ],
+          "files": ["orchestrator/routes/pipelines.py", "shared/egg_contracts/agent_roles.py"],
+          "dependencies": ["phase-9"]
+        },
+        {
+          "id": 11,
+          "name": "Tests for Stage 2",
+          "description": "Test coverage for parallel dispatch and sub-branch merging.",
+          "key_changes": [
+            "Integration tests for parallel phase execution",
+            "Tests for sub-branch creation, merge, cleanup",
+            "Merge conflict scenario tests",
+            "End-to-end: 3 independent + 1 dependent phase pipeline"
+          ],
+          "files": ["orchestrator/tests/", "gateway/tests/"],
+          "dependencies": ["phase-10"]
+        }
+      ]
+    }
+  },
+
+  "technical_decisions": [
+    {
+      "id": "TD-1",
+      "decision": "Use composite key (phase_id, AgentRole) for execution tracking",
+      "rationale": "The contract's agent_executions list must support multiple CODER instances (one per phase). A composite key is the minimal change. phase_id is optional (None for Tier 2) for backward compatibility.",
+      "alternatives_considered": [
+        "Nested structure (phases -> executions) — rejected: too disruptive to contract consumers",
+        "Separate execution store per phase — rejected: fragments state management"
+      ]
     },
     {
-      "path": "shared/egg_contracts/__init__.py",
-      "relevance": "Contract loading — load_contract() function used by _get_phase_dependency_info",
-      "changes": "None — existing load_contract API is sufficient"
+      "id": "TD-2",
+      "decision": "Store phase dependencies in the Phase model as dependencies: list[str]",
+      "rationale": "The Phase model is the natural home. PhaseDependencyGraph is computed at runtime from this data. The plan parser already parses dependencies — just need to propagate them.",
+      "alternatives_considered": [
+        "Separate phase_graph field — rejected: duplicates information in phases",
+        "Dynamic computation from files_affected — rejected: imprecise and unreliable"
+      ]
+    },
+    {
+      "id": "TD-3",
+      "decision": "Tier 3 signaled by refine agent with same HITL override model as Tier 1",
+      "rationale": "The refine agent already assesses complexity. Adding a third tier follows the same pattern. Human can override during HITL review. Requiring explicit approval for every Tier 3 task adds friction without proportional benefit.",
+      "alternatives_considered": [
+        "Always require human approval for Tier 3 — rejected: unnecessary friction",
+        "Auto-select from plan phase count — rejected: phase count alone doesn't indicate complexity"
+      ]
+    },
+    {
+      "id": "TD-4",
+      "decision": "Integrator gets conditional write access in Tier 3 only",
+      "rationale": "Privilege escalation scoped to Tier 3 limits blast radius. In Tier 2, integrator remains read-only. Integrator runs after all phase-level agentic reviews and before human review, providing defense in depth.",
+      "alternatives_considered": [
+        "Unconditional write access — rejected: breaks least privilege for Tier 2",
+        "New INTEGRATOR_TIER3 role — rejected: role proliferation"
+      ]
+    },
+    {
+      "id": "TD-5",
+      "decision": "Sequential first, parallel second (hybrid delivery)",
+      "rationale": "Sequential cycling validates the orchestration foundation (composite keys, phase DAG, per-phase review) without concurrent execution complexity. Foundation is the risky part; parallelism is optimization.",
+      "alternatives_considered": [
+        "Full parallel from start — rejected: too much risk in one delivery",
+        "Only sequential — rejected: doesn't meet the issue's Tier 3 vision"
+      ]
+    },
+    {
+      "id": "TD-6",
+      "decision": "No new PipelinePhase.INTEGRATE — implement phase manages cycling internally",
+      "rationale": "A new pipeline phase would require updating transitions, prompts, HITL gates, and phase_filter restrictions across the system. The implement phase can manage cycle-then-integrate internally. The integrator already runs as the final wave.",
+      "alternatives_considered": [
+        "New INTEGRATE phase — rejected: too many cross-cutting changes for modest benefit"
+      ]
+    },
+    {
+      "id": "TD-7",
+      "decision": "Gateway prefix check already supports sub-branches — no policy change needed",
+      "rationale": "gateway/policy.py _is_bot_branch() uses startswith(('egg-', 'egg/')) which matches egg/feature/phase-1. Confirmed by code analysis. Only worktree lifecycle management needs extension in Stage 2.",
+      "alternatives_considered": [
+        "Add explicit sub-branch pattern — rejected: unnecessary given existing prefix logic"
+      ]
+    }
+  ],
+
+  "risks": [
+    {
+      "id": "R-1",
+      "description": "Composite key migration breaks existing pipeline state",
+      "likelihood": "Medium",
+      "impact": "High",
+      "mitigation": "phase_id defaults to None on AgentExecutionModel. OrchestrationState falls back to role-only keying when phase_id is None. Explicit backward-compat tests required."
+    },
+    {
+      "id": "R-2",
+      "description": "Per-phase prompts leak cross-phase context to coders",
+      "likelihood": "Low",
+      "impact": "Medium",
+      "mitigation": "Build phase-filtered prompt function that only includes current phase's tasks and files_affected. Test that coder prompts don't reference other phases."
+    },
+    {
+      "id": "R-3",
+      "description": "Integrator write access introduces security risk",
+      "likelihood": "Low",
+      "impact": "Medium",
+      "mitigation": "Conditional on Tier 3 mode. Integrator runs after all agentic reviews and before human review. Defense in depth."
+    },
+    {
+      "id": "R-4",
+      "description": "Sub-branch merge conflicts despite files_affected boundaries (Stage 2)",
+      "likelihood": "Medium",
+      "impact": "Medium",
+      "mitigation": "Sub-branch isolation is primary mechanism. files_affected is safety net. Integrator explicitly tasked with conflict resolution. Conflict detection in integrator prompt."
+    },
+    {
+      "id": "R-5",
+      "description": "Change scope across 12+ files increases merge conflict risk with other PRs",
+      "likelihood": "Medium",
+      "impact": "Medium",
+      "mitigation": "Staged delivery (Stage 1 then Stage 2). Each stage independently mergeable. Coordinate with in-flight orchestration work."
+    },
+    {
+      "id": "R-6",
+      "description": "Token cost underestimated due to agentic review retries per phase",
+      "likelihood": "Low",
+      "impact": "Low",
+      "mitigation": "Each phase has max_review_cycles (default: 3). If exhausted, escalates to human review. Total budget bounded: phases * (agents_per_cycle + retry_budget)."
     }
   ],
 
   "constraints": [
-    "Tier 1 and Tier 2 pipelines must render identically to today — no visual changes for non-Tier-3 pipelines",
-    "If the contract cannot be loaded (e.g., missing, corrupted, wrong format), the visualizer must fall back gracefully to the existing flat Implement box rendering",
-    "The visualizer must never crash — all new code paths must have error handling with fallback",
-    "Sub-phase boxes must be sorted by phase ID (phase-1, phase-2, ...) for deterministic ordering, matching PhaseDependencyGraph.topological_sort()",
-    "ASCII mode must be supported for all new rendering (connectors, boxes, etc.)",
-    "The render_pipeline_dag() function signature must not change — it takes (pipeline, use_ascii, include_header) and returns a string",
-    "generate_status_report() return structure must not change — the 'dag' field just contains the new text",
-    "No changes to Pipeline model, PhaseExecution model, or AgentExecution model — the visualization derives structure from existing data plus the contract",
-    "The visualizer runs in the orchestrator process — it has filesystem access to .egg-state/contracts/",
-    "Terminal width for side-by-side rendering should default to 120 columns for non-TTY (SSE) contexts",
-    "Top-level agents (reviewer_contract, integrator) that have no plan_phase_id must be rendered in a separate box below all sub-phases, not inside any sub-phase box"
+    "Contract schema changes must be backward-compatible with existing contracts",
+    "Tier 1 (short-circuit) and Tier 2 (standard multi-agent) must continue working unchanged",
+    "Gateway branch prefix check already supports sub-branches (no policy change needed)",
+    "Per-phase worktrees (Stage 2) must not break single-worktree-per-pipeline model",
+    "Integrator write access conditional on Tier 3 only",
+    "Plan template and parser must support dependencies field in YAML plan",
+    "Per-phase review cycles must not require human approval — only agentic review gates"
   ],
 
-  "dependencies": [
-    "PhaseDependencyGraph (shared/egg_contracts/dependency_graph.py) — compute_waves() and PhaseWave for branching structure",
-    "load_contract() (shared/egg_contracts/__init__.py) — load contract for phase names and dependencies",
-    "Phase model (shared/egg_contracts/models.py) — phase id, name, dependencies, status",
-    "Pipeline model (orchestrator/models.py) — complexity_tier, phases dict, agents with plan_phase_id",
-    "AgentExecution model (orchestrator/models.py) — plan_phase_id field for sub-phase grouping",
-    "shutil.get_terminal_size() — terminal width detection for layout decisions"
-  ],
-
-  "risk_assessment": [
-    {
-      "risk": "Side-by-side ASCII rendering is complex and error-prone",
-      "likelihood": "medium",
-      "impact": "low",
-      "mitigation": "Implement the _render_side_by_side helper as a pure function with comprehensive unit tests. Use simple padding logic (pad to max height, join with spaces). Handle edge cases: single column (no side-by-side needed), empty boxes, very wide boxes (truncate or wrap)."
+  "open_questions_resolved": {
+    "Q1_integrator_write_scope": {
+      "question": "Should the integrator's write access be unrestricted, scoped to modified files, or unrestricted with separate review?",
+      "recommendation": "Unrestricted within src/, tests/, docs/. The integrator needs to fix integration issues that span beyond individual coders' changed files. Scoping to changed_files is too restrictive for merge conflict resolution. Agentic review of integrator changes is already planned.",
+      "decision": "TD-4"
     },
-    {
-      "risk": "Contract loading adds a filesystem dependency to the visualizer",
-      "likelihood": "low",
-      "impact": "low",
-      "mitigation": "Wrap contract loading in try/except with fallback to flat rendering. The contract file is always present during pipeline execution (written by plan phase). Cache the loaded contract in-memory per pipeline_id to avoid repeated file reads on refresh."
+    "Q2_phase_dependency_storage": {
+      "question": "Should phase dependencies be in Phase model, separate field, or computed dynamically?",
+      "recommendation": "Phase model with dependencies: list[str]. Simplest, most natural location.",
+      "decision": "TD-2"
     },
-    {
-      "risk": "Wide DAGs overflow terminal width for many parallel phases",
-      "likelihood": "low",
-      "impact": "low",
-      "mitigation": "For 4+ parallel phases, fall back to sequential (stacked) rendering with a '(parallel)' label. Or use a 2-row grid layout. Most Tier 3 pipelines have 2-3 parallel phases per wave."
+    "Q3_tier_selection_authority": {
+      "question": "Should Tier 3 require explicit human approval?",
+      "recommendation": "Same model as Tier 1 — refine agent signals, human overrides during HITL.",
+      "decision": "TD-3"
     },
-    {
-      "risk": "SSE refresh performance degradation with more complex rendering",
-      "likelihood": "low",
-      "impact": "low",
-      "mitigation": "The existing refresh cycle already compares rendered strings to skip redundant sends. The additional rendering cost is O(num_phases) which is bounded (typically < 10 phases)."
-    },
-    {
-      "risk": "Connector character alignment breaks with different box widths",
-      "likelihood": "medium",
-      "impact": "low",
-      "mitigation": "Normalize all sub-phase boxes in a parallel wave to the same width (max width in the wave). This simplifies connector math and produces clean visual alignment."
+    "Q4_delivery_sequencing": {
+      "question": "Sequential-first or full parallel in one pass?",
+      "recommendation": "Sequential-first (hybrid). Foundation validated before adding parallelism.",
+      "decision": "TD-5"
     }
-  ],
-
-  "estimated_complexity": "mid",
-  "estimated_phases": 2,
-  "phase_outline": [
-    {
-      "id": 1,
-      "name": "Core rendering helpers and single-column Tier 3 visualization",
-      "description": "Implement _render_sub_phase_box, _get_phase_dependency_info, and _render_tier3_implement_section for sequential (non-parallel) sub-phases. Modify render_pipeline_dag to detect Tier 3 and delegate. Fix deterministic ordering by using PhaseDependencyGraph. Add tests for sequential sub-phase rendering, status derivation, deterministic ordering, and fallback behavior.",
-      "key_files": [
-        "orchestrator/dag_visualizer.py",
-        "orchestrator/tests/test_dag_visualizer.py"
-      ]
-    },
-    {
-      "id": 2,
-      "name": "Side-by-side parallel rendering with fan-out/fan-in connectors",
-      "description": "Implement _render_side_by_side, _render_fan_out_connector, _render_fan_in_connector. Update _render_tier3_implement_section to use these for parallel waves. Handle width constraints and fallback for many parallel phases. Add tests for parallel rendering, connector alignment, mixed sequential/parallel waves, ASCII mode, and terminal width handling. Optionally enhance compact view and progress bar for Tier 3.",
-      "key_files": [
-        "orchestrator/dag_visualizer.py",
-        "orchestrator/tests/test_dag_visualizer.py"
-      ],
-      "dependencies": ["phase-1"]
-    }
-  ]
+  }
 }

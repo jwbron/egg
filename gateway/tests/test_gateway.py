@@ -3323,6 +3323,98 @@ class TestSessionCreateWithPhase:
         data = json.loads(response.data)
         assert "invalid" in data["message"].lower()
 
+    def test_session_create_pipeline_resolves_default_branch(
+        self, client, launcher_auth_headers, tmp_path
+    ):
+        """Session create with pipeline_id resolves the remote default branch.
+
+        When a pipeline_id is provided, session_create should call
+        resolve_default_branch() and pass the result to create_worktree instead
+        of using HEAD.  See #860.
+        """
+        from session_manager import SessionManager
+
+        manager = SessionManager(persistence_file=tmp_path / "sessions.json")
+
+        with (
+            patch.object(gateway, "get_session_manager", return_value=manager),
+            patch.object(gateway, "get_repo_visibility", return_value="private"),
+            patch.object(gateway, "get_worktree_manager") as mock_worktree,
+        ):
+            mock_wt_manager = mock_worktree.return_value
+            mock_wt_manager.resolve_default_branch.return_value = "origin/main"
+            mock_worktree_info = MagicMock()
+            mock_worktree_info.worktree_path = "/path/to/worktree"
+            mock_worktree_info.branch = "egg/test-branch"
+            mock_wt_manager.create_worktree.return_value = mock_worktree_info
+
+            response = client.post(
+                "/api/v1/sessions/create",
+                headers=launcher_auth_headers,
+                data=json.dumps(
+                    {
+                        "container_id": "test-container",
+                        "container_ip": "172.18.0.5",
+                        "mode": "private",
+                        "repos": ["owner/repo"],
+                        "pipeline_id": "issue-860",
+                    }
+                ),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 200
+            data = json.loads(response.data)
+            assert data["success"] is True
+
+            # Verify resolve_default_branch was called for the repo
+            mock_wt_manager.resolve_default_branch.assert_called_once_with("repo")
+            # Verify create_worktree received the resolved branch, not HEAD
+            call_kwargs = mock_wt_manager.create_worktree.call_args
+            assert call_kwargs.kwargs.get("base_branch") or call_kwargs[1].get("base_branch")
+            base = call_kwargs.kwargs.get("base_branch") or call_kwargs[1].get("base_branch")
+            assert base == "origin/main"
+
+    def test_session_create_no_pipeline_uses_head(
+        self, client, launcher_auth_headers, tmp_path
+    ):
+        """Session create without pipeline_id uses HEAD as base branch."""
+        from session_manager import SessionManager
+
+        manager = SessionManager(persistence_file=tmp_path / "sessions.json")
+
+        with (
+            patch.object(gateway, "get_session_manager", return_value=manager),
+            patch.object(gateway, "get_repo_visibility", return_value="private"),
+            patch.object(gateway, "get_worktree_manager") as mock_worktree,
+        ):
+            mock_wt_manager = mock_worktree.return_value
+            mock_worktree_info = MagicMock()
+            mock_worktree_info.worktree_path = "/path/to/worktree"
+            mock_wt_manager.create_worktree.return_value = mock_worktree_info
+
+            response = client.post(
+                "/api/v1/sessions/create",
+                headers=launcher_auth_headers,
+                data=json.dumps(
+                    {
+                        "container_id": "test-container",
+                        "container_ip": "172.18.0.5",
+                        "mode": "private",
+                        "repos": ["owner/repo"],
+                    }
+                ),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 200
+            # resolve_default_branch should NOT be called without pipeline_id
+            mock_wt_manager.resolve_default_branch.assert_not_called()
+            # create_worktree should receive HEAD
+            call_kwargs = mock_wt_manager.create_worktree.call_args
+            base = call_kwargs.kwargs.get("base_branch") or call_kwargs[1].get("base_branch")
+            assert base == "HEAD"
+
     def test_session_create_rejects_empty_pipeline_id(self, client, launcher_auth_headers):
         """Session create rejects empty string pipeline_id.
 
@@ -3349,6 +3441,77 @@ class TestSessionCreateWithPhase:
         data = json.loads(response.data)
         assert "pipeline_id" in data["message"].lower()
         assert "non-empty" in data["message"].lower()
+
+
+class TestWorktreeCreateEndpointResolution:
+    """Tests for worktree_create endpoint's resolve_default_branch logic."""
+
+    def test_worktree_create_resolves_branch_when_no_base_branch(
+        self, client, launcher_auth_headers
+    ):
+        """When base_branch is absent from the request, the endpoint resolves
+        the remote default branch via resolve_default_branch().  See #860."""
+        with patch.object(gateway, "get_worktree_manager") as mock_worktree:
+            mock_wt_manager = mock_worktree.return_value
+            mock_wt_manager.resolve_default_branch.return_value = "origin/main"
+            mock_worktree_info = MagicMock()
+            mock_worktree_info.worktree_path = "/path/to/worktree"
+            mock_wt_manager.create_worktree.return_value = mock_worktree_info
+
+            response = client.post(
+                "/api/v1/worktree/create",
+                headers=launcher_auth_headers,
+                data=json.dumps(
+                    {
+                        "container_id": "test-container",
+                        "repos": ["owner/repo"],
+                    }
+                ),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 200
+            data = json.loads(response.data)
+            assert data["success"] is True
+
+            # resolve_default_branch should have been called for the repo
+            mock_wt_manager.resolve_default_branch.assert_called_once_with("repo")
+            # create_worktree should have received the resolved branch
+            call_kwargs = mock_wt_manager.create_worktree.call_args
+            base = call_kwargs.kwargs.get("base_branch") or call_kwargs[1].get("base_branch")
+            assert base == "origin/main"
+
+    def test_worktree_create_uses_explicit_base_branch(
+        self, client, launcher_auth_headers
+    ):
+        """When base_branch is explicitly provided, the endpoint uses it
+        without calling resolve_default_branch()."""
+        with patch.object(gateway, "get_worktree_manager") as mock_worktree:
+            mock_wt_manager = mock_worktree.return_value
+            mock_worktree_info = MagicMock()
+            mock_worktree_info.worktree_path = "/path/to/worktree"
+            mock_wt_manager.create_worktree.return_value = mock_worktree_info
+
+            response = client.post(
+                "/api/v1/worktree/create",
+                headers=launcher_auth_headers,
+                data=json.dumps(
+                    {
+                        "container_id": "test-container",
+                        "repos": ["owner/repo"],
+                        "base_branch": "origin/develop",
+                    }
+                ),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 200
+            # resolve_default_branch should NOT be called when base_branch is explicit
+            mock_wt_manager.resolve_default_branch.assert_not_called()
+            # create_worktree should have received the explicit branch
+            call_kwargs = mock_wt_manager.create_worktree.call_args
+            base = call_kwargs.kwargs.get("base_branch") or call_kwargs[1].get("base_branch")
+            assert base == "origin/develop"
 
 
 class TestLocalModeBlocking:

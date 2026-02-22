@@ -293,7 +293,7 @@ def _get_user_git_config(config_file: Path) -> tuple[str | None, str | None]:
 def create_worktrees(
     container_id: str,
     repos: list[str],
-    base_branch: str = "HEAD",
+    base_branch: str | None = None,
     uid: int | None = None,
     gid: int | None = None,
 ) -> tuple[bool, dict[str, str], list[str]]:
@@ -302,7 +302,8 @@ def create_worktrees(
     Args:
         container_id: Container identifier
         repos: List of repository names (or owner/repo format)
-        base_branch: Branch to base worktrees on
+        base_branch: Branch to base worktrees on. When None, the gateway
+            resolves the remote default branch per-repo (e.g., origin/main).
         uid: User ID to set worktree ownership to (for container user)
         gid: Group ID to set worktree ownership to (for container user)
 
@@ -314,8 +315,9 @@ def create_worktrees(
     request_data: dict[str, Any] = {
         "container_id": container_id,
         "repos": repos,
-        "base_branch": base_branch,
     }
+    if base_branch is not None:
+        request_data["base_branch"] = base_branch
     if uid is not None:
         request_data["uid"] = uid
     if gid is not None:

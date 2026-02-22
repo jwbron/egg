@@ -127,6 +127,90 @@ def cmd_serve(args: argparse.Namespace) -> int:
                 error=str(monitor_err),
             )
 
+        # --- Health check framework initialization ---
+        # Register all Tier 1 (programmatic) health checks and run the
+        # STARTUP trigger against every RUNNING pipeline.  The runner is
+        # stored on app.config so the on-demand endpoint (routes/health.py)
+        # and phase-advance gating (routes/phases.py) can access it.
+        # See orchestrator/health_checks/README.md for the full framework.
+        try:
+            from health_checks.runner import HealthCheckRunner
+            from health_checks.tier1 import (
+                ContainerLivenessCheck,
+                PhaseOutputPresenceCheck,
+                StartupStateCheck,
+                StateConsistencyCheck,
+            )
+            from health_checks.tier2 import AgentInspectorCheck
+
+            runner = HealthCheckRunner()
+            # Tier 1 (programmatic)
+            runner.register(ContainerLivenessCheck())  # Docker containers alive?
+            runner.register(StartupStateCheck())  # Post-reconciliation clean?
+            runner.register(PhaseOutputPresenceCheck())  # Agents produced artifacts?
+            runner.register(StateConsistencyCheck())  # State vs Docker vs contract?
+            # Tier 2 (semantic — runs on escalation per DD-6)
+            runner.register(AgentInspectorCheck())  # Claude-powered agent analysis
+
+            # Store runner on app for access by routes and other modules
+            app.config["HEALTH_CHECK_RUNNER"] = runner
+
+            # Wire runner into container monitor so RUNTIME_TICK checks fire
+            # automatically when container state changes are detected.
+            try:
+                monitor = get_container_monitor()
+                monitor.set_health_check_runner(runner, repo_path)
+            except Exception:
+                pass  # Monitor may not be available; health checks still work on-demand
+
+            # Run STARTUP health checks on all RUNNING pipelines to catch
+            # any inconsistencies left over from a previous crash/restart.
+            from health_checks.context import PipelineHealthContext
+            from health_checks.types import HealthTrigger
+            from state_store import get_state_store as _get_store
+
+            startup_store = _get_store(repo_path)
+            for pid in startup_store.list_pipelines():
+                try:
+                    pipeline = startup_store.load_pipeline(pid)
+                    if pipeline.status.value == "running":
+                        try:
+                            from docker_client import get_docker_client as _get_dc
+
+                            dc = _get_dc()
+                        except Exception:
+                            dc = None
+                        ctx = PipelineHealthContext(
+                            pipeline=pipeline,
+                            repo_path=Path(repo_path),
+                            trigger=HealthTrigger.STARTUP.value,
+                            docker_client=dc,
+                            state_store=startup_store,
+                        )
+                        results = runner.run(ctx, HealthTrigger.STARTUP)
+                        if results:
+                            logger.info(
+                                "Startup health check completed",
+                                pipeline_id=pid,
+                                result_count=len(results),
+                            )
+                except Exception as hc_err:
+                    # Per-pipeline errors are non-fatal; log and continue
+                    logger.debug(
+                        "Startup health check failed for pipeline",
+                        pipeline_id=pid,
+                        error=str(hc_err),
+                    )
+
+            logger.info("Health check framework initialized")
+        except Exception as hc_init_err:
+            # Framework init failure is non-fatal — the orchestrator still
+            # operates, but health checks are unavailable (503 on the endpoint).
+            logger.warning(
+                "Health check framework initialization failed",
+                error=str(hc_init_err),
+            )
+
     if debug:
         # Use Flask's built-in server for development
         app.run(host=host, port=port, debug=True)

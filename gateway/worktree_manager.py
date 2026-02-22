@@ -131,6 +131,67 @@ class WorktreeManager:
         self._repo_locks: dict[str, threading.Lock] = {}  # per-repo locks for git ops
         self._repo_locks_guard = threading.Lock()  # protects _repo_locks dict
 
+    def resolve_default_branch(self, repo_name: str) -> str:
+        """
+        Resolve the remote's default branch for a repository.
+
+        Tries in order:
+        1. origin/HEAD symbolic ref (most reliable when configured)
+        2. origin/main
+        3. origin/master
+        4. HEAD (fallback)
+
+        Args:
+            repo_name: Name of the repository
+
+        Returns:
+            The resolved branch reference (e.g., "origin/main")
+        """
+        main_repo = self.repos_base / repo_name
+        if not main_repo.exists():
+            return "HEAD"
+
+        # Try origin/HEAD first (configured by git clone or git remote set-head)
+        result = subprocess.run(
+            git_cmd("symbolic-ref", "refs/remotes/origin/HEAD", "--short"),
+            cwd=main_repo,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            return result.stdout.strip()
+
+        # Try origin/main
+        result = subprocess.run(
+            git_cmd("rev-parse", "--verify", "origin/main"),
+            cwd=main_repo,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if result.returncode == 0:
+            return "origin/main"
+
+        # Try origin/master
+        result = subprocess.run(
+            git_cmd("rev-parse", "--verify", "origin/master"),
+            cwd=main_repo,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if result.returncode == 0:
+            return "origin/master"
+
+        # Fallback to HEAD — this may re-introduce the push rejection from #860
+        # for pipeline sessions, so log at error level.
+        logger.error(
+            "Could not resolve remote default branch, falling back to HEAD",
+            repo=repo_name,
+        )
+        return "HEAD"
+
     def create_worktree(
         self,
         repo_name: str,

@@ -791,5 +791,108 @@ class TestRunGitWorktreeAddRetry:
         # on what git does, but the cleanup ran)
 
 
+class TestResolveDefaultBranch:
+    """Tests for WorktreeManager.resolve_default_branch."""
+
+    @pytest.fixture
+    def manager_with_repo(self, tmp_path):
+        """Create a manager with a real git repo."""
+        import subprocess
+
+        repos_base = tmp_path / "repos"
+        repos_base.mkdir()
+        repo_dir = repos_base / "test-repo"
+        repo_dir.mkdir()
+        result = subprocess.run(["git", "init"], cwd=repo_dir, capture_output=True, text=True)
+        if result.returncode != 0:
+            pytest.skip(f"git init not available: {result.stderr.strip()}")
+        git_env = {
+            **__import__("os").environ,
+            "GIT_AUTHOR_NAME": "test",
+            "GIT_AUTHOR_EMAIL": "t@t",
+            "GIT_COMMITTER_NAME": "test",
+            "GIT_COMMITTER_EMAIL": "t@t",
+        }
+        subprocess.run(
+            ["git", "commit", "--allow-empty", "-m", "init"],
+            cwd=repo_dir,
+            capture_output=True,
+            check=True,
+            env=git_env,
+        )
+
+        worktree_base = tmp_path / "worktrees"
+        manager = WorktreeManager(worktree_base=worktree_base, repos_base=repos_base)
+        return manager, repo_dir, git_env
+
+    def test_nonexistent_repo_returns_head(self, tmp_path):
+        """Returns HEAD when repo doesn't exist."""
+        manager = WorktreeManager(
+            worktree_base=tmp_path / "worktrees",
+            repos_base=tmp_path / "repos",
+        )
+        assert manager.resolve_default_branch("nonexistent") == "HEAD"
+
+    def test_repo_without_remote_returns_head(self, manager_with_repo):
+        """Returns HEAD when no remote is configured (no origin/main or origin/master)."""
+        manager, repo_dir, _ = manager_with_repo
+        # Local repo with no remote — origin/main and origin/master don't exist
+        result = manager.resolve_default_branch("test-repo")
+        assert result == "HEAD"
+
+    def test_repo_with_origin_main(self, manager_with_repo):
+        """Returns origin/main when the remote has a main branch."""
+        import subprocess
+
+        manager, repo_dir, git_env = manager_with_repo
+
+        # Create a bare remote with main branch
+        bare_dir = repo_dir.parent / "bare-remote.git"
+        subprocess.run(
+            ["git", "clone", "--bare", str(repo_dir), str(bare_dir)],
+            capture_output=True,
+            check=True,
+            env=git_env,
+        )
+        # Add the bare repo as origin remote
+        subprocess.run(
+            ["git", "remote", "add", "origin", str(bare_dir)],
+            cwd=repo_dir,
+            capture_output=True,
+            check=True,
+            env=git_env,
+        )
+        # Fetch so origin/main (or origin/master) exists locally
+        subprocess.run(
+            ["git", "fetch", "origin"],
+            cwd=repo_dir,
+            capture_output=True,
+            check=True,
+            env=git_env,
+        )
+
+        result = manager.resolve_default_branch("test-repo")
+        # Should return origin/main or origin/master depending on git defaults
+        assert result in ("origin/main", "origin/master")
+
+    def test_uses_origin_head_when_configured(self, tmp_path):
+        """Returns origin/HEAD target when symbolic-ref is configured."""
+        import subprocess
+
+        completed = subprocess.CompletedProcess(
+            args=[], returncode=0, stdout="origin/main\n", stderr=""
+        )
+        manager = WorktreeManager(
+            worktree_base=tmp_path / "worktrees",
+            repos_base=tmp_path / "repos",
+        )
+        (tmp_path / "repos").mkdir()
+        (tmp_path / "repos" / "test-repo").mkdir()
+
+        with patch("worktree_manager.subprocess.run", return_value=completed):
+            result = manager.resolve_default_branch("test-repo")
+        assert result == "origin/main"
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

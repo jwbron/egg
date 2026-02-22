@@ -1,94 +1,92 @@
 {
   "status": "pass",
   "phase": "implement",
-  "pipeline_id": "issue-829",
-  "issue": 829,
-  "branch": "egg/issue-829",
-  "summary": "All changes for Tier 3 DAG visualization integrate cleanly, including all three code review fixes. 216 DAG visualizer tests pass across 3 test files. Full orchestrator suite: 899 passed, 3 pre-existing failures in test_docker_client.py. Lint and formatting pass clean. No regressions introduced.",
+  "pipeline_id": "issue-850",
+  "issue": 850,
+  "summary": "Two-tier health check framework integration verified across both implementation phases. All tests pass, all cross-phase interfaces are correct, no regressions detected.",
   "test_results": {
-    "dag_visualizer_tests": {
-      "status": "pass",
-      "passed": 216,
+    "health_check_tests": {
+      "passed": 419,
       "failed": 0,
-      "duration_seconds": 0.55,
-      "files": [
-        "orchestrator/tests/test_dag_visualizer.py",
-        "orchestrator/tests/test_dag_visualizer_extended.py",
-        "orchestrator/tests/test_dag_visualizer_review_fixes.py"
-      ],
-      "details": "216 tests across 3 files. Covers: status derivation, sub-phase box rendering, side-by-side layout, fan-out/fan-in connectors, Tier 3 implement rendering, model field validation, status reports, compact status, progress bars, orphaned phase agents, CANCELLED status, connector asymmetry, wrapping, phase details, complete/failed pipelines, stem alignment, tee character overwrite with cross junctions, and full DAG end-to-end scenarios."
+      "skipped": 0,
+      "description": "All health check framework tests (types, tier1, tier2, context, runner, integration, lifecycle, tester coverage)"
     },
-    "orchestrator_full_suite": {
-      "status": "pass_with_pre_existing_failures",
-      "passed": 899,
+    "orchestrator_tests": {
+      "passed": 1169,
       "failed": 3,
-      "duration_seconds": 20.11,
-      "details": "899 passed. 3 pre-existing failures in test_docker_client.py (TestDockerClientConnection.test_is_connected_false, TestContainerCreation.test_create_container_image_not_found, TestContainerOperations.test_start_container_not_found). All due to Docker mock exception handling issues unrelated to this PR. Verified pre-existing: tests can't even import without Docker library on baseline."
+      "skipped": 0,
+      "description": "Full orchestrator test suite. 3 failures are pre-existing in test_docker_client.py (unchanged files, same failures on origin/main)"
     },
-    "lint": {
-      "status": "pass",
-      "details": "ruff check and ruff format --check both pass clean on all changed files."
-    }
-  },
-  "review_fixes_verification": {
-    "issue_1_orphaned_agents": {
-      "status": "fixed_and_verified",
-      "description": "Agents with plan_phase_id not in any wave were silently dropped from visualization.",
-      "fix_location": "dag_visualizer.py:711-725",
-      "fix_approach": "Build wave_phase_ids set from all waves. Agents with pid not in set are routed to top_level_agents instead of agents_by_phase.",
-      "test_coverage": "5 tests in TestOrphanedAgentsVisibility (review_fixes), 1 test in TestAgentsOrphanedPhaseId (extended). All assert orphaned agents appear in rendered output.",
-      "vacuous_test_fixed": "test_dag_visualizer_extended.py:547 now asserts 'tester' in result (was previously missing, test passed vacuously)."
+    "gateway_tests": {
+      "passed": 1523,
+      "failed": 0,
+      "skipped": 3,
+      "description": "Full gateway test suite - no regressions"
     },
-    "issue_2_stem_misalignment": {
-      "status": "fixed_and_verified",
-      "fix_location": "dag_visualizer.py:550-556 (fan-out), dag_visualizer.py:632-662 (fan-in)",
-      "fix_approach": "Stem position uses bar_center = (centers[0] + centers[-1]) // 2 instead of total_width // 2. Same calculation for both stem line and bar junction character.",
-      "test_coverage": "8 tests in TestStemAlignment (review_fixes), 2 tests in TestFanConnectorsAsymmetric (extended). Tests verify exact column positions and assert stem != total_width // 2 for asymmetric widths."
+    "shared_tests": {
+      "passed": 84,
+      "failed": 0,
+      "skipped": 0,
+      "description": "Full shared module test suite - no regressions"
     },
-    "issue_3_tee_overwrite": {
-      "status": "fixed_and_verified",
-      "fix_location": "dag_visualizer.py:564-571 (fan-out), dag_visualizer.py:649-657 (fan-in)",
-      "fix_approach": "Place intermediate branch tees first, then place center junction last. When bar_center coincides with an intermediate branch center, use cross junction (U+253C / +) instead of overwriting.",
-      "test_coverage": "9 tests in TestTeeOverwriteCrossJunction (review_fixes), 2 tests in TestFanConnectorsAsymmetric (extended). Tests verify cross junction for 3 and 5 equal-width boxes, no cross for 2 or 4 boxes."
-    },
-    "minor_plan_phase_names_guard": {
-      "status": "fixed_and_verified",
-      "fix_location": "pipelines.py:2782-2784",
-      "fix_approach": "plan_phase_names assignment moved inside 'if phase_waves is not None' guard, preventing orphaned metadata when dependency graph has cycles.",
-      "test_coverage": "Verified by code review. Comment at line 2780-2781 documents the rationale."
+    "root_tests": {
+      "passed": 3744,
+      "failed": 0,
+      "skipped": 80,
+      "description": "Full root test suite including all components - no regressions"
     }
   },
   "integration_checks": {
-    "backward_compatibility": {
+    "types_interface": {
       "status": "pass",
-      "details": "Tier 1/2 pipelines unaffected. When plan_phase_waves is None (default), render_pipeline_dag routes to standard rendering path. All pre-existing DAG visualizer tests pass unchanged. New model fields default to None."
+      "detail": "Tier 2 agent inspector correctly imports and uses HealthCheck, HealthResult, HealthStatus, HealthAction, HealthTier, HealthTrigger from types.py"
     },
-    "cross_file_consistency": {
+    "context_usage": {
       "status": "pass",
-      "details": "Model fields (plan_phase_waves, plan_phase_names, plan_phase_id) consistently used across models.py, dag_visualizer.py, and routes/pipelines.py. All Optional with None defaults."
+      "detail": "Agent inspector correctly uses PipelineHealthContext and all lazy-loaded methods (git_log, git_diff_stat, agent_outputs, contract, live_container_ids)"
     },
-    "ascii_unicode_parity": {
+    "runner_escalation": {
       "status": "pass",
-      "details": "All rendering functions support both ASCII and Unicode output modes. Cross junction uses '+' in ASCII mode, consistent with other junction characters."
+      "detail": "Runner correctly handles Tier 1 then Tier 2 with escalation logic: WAVE_COMPLETE escalates on DEGRADED, PHASE_COMPLETE/ON_DEMAND always escalate, STARTUP/RUNTIME_TICK never escalate"
+    },
+    "routes_integration": {
+      "status": "pass",
+      "detail": "routes/health.py uses runner for ON_DEMAND checks. routes/phases.py gates phase advance on PHASE_COMPLETE checks with FAIL_PIPELINE blocking"
+    },
+    "init_exports": {
+      "status": "pass",
+      "detail": "All __init__.py files in health_checks/, tier1/, tier2/ export needed symbols correctly"
+    },
+    "multi_agent_integration": {
+      "status": "pass",
+      "detail": "multi_agent.py correctly calls health checks on wave completion with WAVE_COMPLETE trigger, breaks on FAIL_PIPELINE action"
+    },
+    "container_monitor_integration": {
+      "status": "pass",
+      "detail": "container_monitor.py integrates via set_health_check_runner, fires RUNTIME_TICK checks on container state changes"
+    },
+    "events_integration": {
+      "status": "pass",
+      "detail": "events.py defines all health check event types (STARTED, COMPLETED, DEGRADED, FAILED) that runner emits"
+    },
+    "cli_initialization": {
+      "status": "pass",
+      "detail": "cli.py registers all checks (4 Tier 1 + 1 Tier 2), stores runner on app.config, wires into container monitor, runs STARTUP checks"
     }
   },
-  "regressions": [],
-  "issues_found": [],
+  "lint_results": {
+    "ruff_check": "pass",
+    "ruff_format": "pass",
+    "description": "All source and test files pass ruff check and format verification"
+  },
   "pre_existing_issues": [
     {
-      "severity": "low",
-      "description": "3 tests in orchestrator/tests/test_docker_client.py fail due to Docker mock exception handling issues. Present on main branch, not introduced by this PR.",
-      "location": "orchestrator/tests/test_docker_client.py"
+      "file": "orchestrator/tests/test_docker_client.py",
+      "description": "3 test failures in test_docker_client.py (TestDockerClientConnection::test_is_connected_false, TestContainerCreation::test_create_container_image_not_found, TestContainerOperations::test_start_container_not_found). These are pre-existing on origin/main and unrelated to issue #850 changes."
     }
   ],
-  "commits_on_branch": [
-    "3b122c1e - Add DAG visualization for Tier 3 parallel phases (coder)",
-    "42dc6849 - Document Tier 3 DAG visualization (documenter)",
-    "ef1562f6 - Add extended tests and conftest for DAG visualizer (tester)",
-    "d70f2b28 - Fix lint issues in extended test file (integrator)",
-    "61450b26 - Fix ruff formatting and update check results (coder)",
-    "35c4467c - Fix review feedback: orphaned agents, stem alignment, tee overwrite (coder)",
-    "82811dda - Document review fixes: docstrings, inline comments, test docs (documenter)",
-    "b1424950 - Add tests for code review fixes (tester)"
-  ]
+  "files_changed": 36,
+  "lines_added_approx": 10802,
+  "integration_fixes_needed": 0,
+  "verdict": "All cross-phase integration points verified clean. No fixes required. The two-tier health check framework (phase-1: core + Tier 1, phase-2: Tier 2 agent inspector) is correctly integrated with the orchestrator lifecycle."
 }
