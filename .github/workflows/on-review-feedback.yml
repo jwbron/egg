@@ -114,6 +114,7 @@ jobs:
       - name: Resolve inputs with defaults
         id: resolve
         run: |
+          # shellcheck disable=SC2129
           # Use inputs if called as reusable workflow, otherwise use repository variables
           if [[ "${{ github.event_name }}" == "workflow_call" ]]; then
             echo "bot_username=${{ inputs.bot_username }}" >> "$GITHUB_OUTPUT"

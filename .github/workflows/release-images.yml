@@ -46,6 +46,7 @@ jobs:
       - name: Validate and parse version tag
         id: version
         run: |
+          # shellcheck disable=SC2129
           TAG=""
           IS_RELEASE="false"
           IS_PRERELEASE="false"
