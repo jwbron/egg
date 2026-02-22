@@ -94,7 +94,7 @@ All LLM calls should go through `claude --print` (Claude Code headless mode), no
 - The agent can use tools (file reading, shell commands, GitHub CLI) rather than being limited to a single prompt/response
 - Centralized configuration (model selection, permissions, timeouts)
 
-**Enforced by:** `EGG200` linter (no direct Anthropic API imports/calls in orchestrator/gateway/shared) and `EGG201` linter (model alias form).
+**Enforced by:** `EGG200` linter (no direct Anthropic API imports/calls in orchestrator/gateway/shared).
 
 ### Use model aliases, not pinned identifiers
 

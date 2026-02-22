@@ -21,7 +21,7 @@ Flag these **clear** anti-patterns:
 4. **Rigid procedures**: Micromanaging step-by-step procedures when objectives would suffice
 5. **Prompt-level security**: Using instructions for constraints that should be sandbox-enforced
 6. **Direct LLM API calls outside sandbox**: Calling the Anthropic API (via `httpx`, `requests`, or the Anthropic SDK) from orchestrator, gateway, or shared code instead of delegating to sandbox containers (enforced by `EGG200` linter)
-7. **Direct API calls bypassing Claude Code**: Using raw HTTP calls to the Anthropic API instead of `claude --print` (Claude Code headless mode), which provides tool access and consistent configuration
+7. **Direct API calls bypassing Claude Code**: Using raw HTTP calls to the Anthropic API instead of `claude --print` (Claude Code headless mode), which provides tool access and consistent configuration. Unlike item 6 (which is scoped to infra code), this applies everywhere including sandbox code.
 8. **Hardcoded model identifiers**: Using full model IDs like `claude-sonnet-4-20250514` instead of short aliases (`sonnet`, `opus`, `haiku`) which auto-adopt the latest version (enforced by `EGG201` linter)
 
 ## What to Skip
