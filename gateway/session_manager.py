@@ -39,7 +39,7 @@ logger = get_logger("gateway.session-manager")
 def _cleanup_transcript_buffer(container_id: str) -> None:
     """Clean up transcript buffer for a container when session ends."""
     try:
-        from transcript_buffer import cleanup_transcript_buffer  # type: ignore[import-not-found]
+        from transcript_buffer import cleanup_transcript_buffer  # type: ignore[import-untyped]
 
         cleanup_transcript_buffer(container_id)
         logger.debug("Transcript buffer cleaned up", container_id=container_id)
@@ -87,7 +87,7 @@ def _capture_and_cleanup_session(
     # Phase filtering ensures blocked files are restored, not committed.
     if session.last_repo_path and session.pipeline_id:
         try:
-            from post_agent_commit import auto_commit_worktree  # type: ignore[import-not-found]
+            from post_agent_commit import auto_commit_worktree  # type: ignore[import-untyped]
 
             # Build gateway URL for push-via-gateway support.
             gateway_url = None
@@ -123,7 +123,7 @@ def _capture_and_cleanup_session(
             )
 
     try:
-        from checkpoint_handler import (  # type: ignore[import-not-found]
+        from checkpoint_handler import (  # type: ignore[import-untyped]
             SESSION_END_CAPTURE_TIMEOUT,
             capture_session_end_checkpoint,
         )

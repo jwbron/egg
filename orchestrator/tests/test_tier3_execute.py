@@ -30,6 +30,11 @@ if "docker" not in sys.modules:
     docker_mock = ModuleType("docker")
     docker_errors_mock = ModuleType("docker.errors")
     docker_errors_mock.DockerException = type("DockerException", (Exception,), {})  # type: ignore[attr-defined]
+    docker_errors_mock.APIError = type("APIError", (docker_errors_mock.DockerException,), {})  # type: ignore[attr-defined]
+    docker_errors_mock.ImageNotFound = type(
+        "ImageNotFound", (docker_errors_mock.DockerException,), {}
+    )  # type: ignore[attr-defined]
+    docker_errors_mock.NotFound = type("NotFound", (docker_errors_mock.DockerException,), {})  # type: ignore[attr-defined]
     docker_mock.errors = docker_errors_mock  # type: ignore[attr-defined]
     sys.modules["docker"] = docker_mock
     sys.modules["docker.errors"] = docker_errors_mock

@@ -294,7 +294,7 @@ Contract files follow the schema at `.egg/schemas/contract.schema.json`. The wor
 
 **Workflow:** [`.github/workflows/on-check-failure.yml`](../../.github/workflows/on-check-failure.yml)
 
-Triggers when `Lint` or `Test` workflows fail on a PR, or via `workflow_dispatch`.
+Triggers when `Lint`, `Test`, or `Integration Tests` workflows fail on a PR, or via `workflow_dispatch`.
 
 ### How It Works
 

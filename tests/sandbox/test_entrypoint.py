@@ -940,8 +940,9 @@ class TestOrchestratorMode:
 class TestRunInteractiveSubprocess:
     """Tests for run_interactive using subprocess.Popen() with stderr capture."""
 
+    @patch("entrypoint._chdir_to_single_repo")
     @patch("subprocess.Popen")
-    def test_run_interactive_captures_stderr(self, mock_popen, monkeypatch, tmp_path):
+    def test_run_interactive_captures_stderr(self, mock_popen, _mock_chdir, monkeypatch):
         """run_interactive captures stderr to log file while passing through."""
         mock_process = MagicMock()
         mock_process.returncode = 0
@@ -952,20 +953,18 @@ class TestRunInteractiveSubprocess:
         monkeypatch.setenv("RUNTIME_GID", "1000")
 
         config = entrypoint.Config()
-        config._repos_dir = Path("/tmp/test-repos")
         logger = entrypoint.Logger(quiet=True)
 
-        with patch.object(Path, "exists", return_value=True):
-            with patch("os.chdir"):
-                exit_code = entrypoint.run_interactive(config, logger)
+        exit_code = entrypoint.run_interactive(config, logger)
 
         assert exit_code == 0
         # Verify Popen was called with stderr=PIPE for capture
         call_kwargs = mock_popen.call_args[1]
         assert call_kwargs["stderr"] == subprocess.PIPE
 
+    @patch("entrypoint._chdir_to_single_repo")
     @patch("subprocess.Popen")
-    def test_run_interactive_returns_exit_code(self, mock_popen, monkeypatch):
+    def test_run_interactive_returns_exit_code(self, mock_popen, _mock_chdir, monkeypatch):
         """run_interactive returns subprocess exit code."""
         mock_process = MagicMock()
         mock_process.returncode = 42
@@ -976,12 +975,9 @@ class TestRunInteractiveSubprocess:
         monkeypatch.setenv("RUNTIME_GID", "1000")
 
         config = entrypoint.Config()
-        config._repos_dir = Path("/tmp/test-repos")
         logger = entrypoint.Logger(quiet=True)
 
-        with patch.object(Path, "exists", return_value=True):
-            with patch("os.chdir"):
-                exit_code = entrypoint.run_interactive(config, logger)
+        exit_code = entrypoint.run_interactive(config, logger)
 
         assert exit_code == 42
 
@@ -989,8 +985,9 @@ class TestRunInteractiveSubprocess:
 class TestRunExecSubprocess:
     """Tests for run_exec using subprocess.Popen() with stderr capture."""
 
+    @patch("entrypoint._chdir_to_single_repo")
     @patch("subprocess.Popen")
-    def test_run_exec_captures_stderr(self, mock_popen, monkeypatch):
+    def test_run_exec_captures_stderr(self, mock_popen, _mock_chdir, monkeypatch):
         """run_exec captures stderr to log file while passing through."""
         mock_process = MagicMock()
         mock_process.returncode = 0
@@ -1009,8 +1006,9 @@ class TestRunExecSubprocess:
         call_kwargs = mock_popen.call_args[1]
         assert call_kwargs["stderr"] == subprocess.PIPE
 
+    @patch("entrypoint._chdir_to_single_repo")
     @patch("subprocess.Popen")
-    def test_run_exec_returns_exit_code(self, mock_popen, monkeypatch):
+    def test_run_exec_returns_exit_code(self, mock_popen, _mock_chdir, monkeypatch):
         """run_exec returns subprocess exit code."""
         mock_process = MagicMock()
         mock_process.returncode = 1

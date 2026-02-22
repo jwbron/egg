@@ -116,13 +116,13 @@ try:
     from .worktree_manager import WorktreeManager, get_active_docker_containers, startup_cleanup
 except ImportError:
     from anthropic_credentials import get_credentials_manager  # type: ignore[no-redef]
-    from checkpoint_handler import (  # type: ignore[no-redef, import-not-found]
+    from checkpoint_handler import (  # type: ignore[no-redef, import-untyped]
         _get_checkpoint_repo_for_path,
         capture_and_store_checkpoint,
         capture_and_store_checkpoints_for_push,
         get_checkpoint_handler,
     )
-    from git_client import (  # type: ignore[no-redef, import-not-found]
+    from git_client import (  # type: ignore[no-redef, import-untyped]
         GIT_ALLOWED_COMMANDS,
         cleanup_credential_helper,
         create_credential_helper,
@@ -137,7 +137,7 @@ except ImportError:
         validate_git_args,
         validate_repo_path,
     )
-    from github_client import (  # type: ignore[no-redef, import-not-found]
+    from github_client import (  # type: ignore[no-redef, import-untyped]
         BLOCKED_GH_COMMANDS,
         GH_COMMANDS_BLOCKED_IN_PRIVATE_MODE,
         READONLY_GH_COMMANDS,
@@ -147,14 +147,14 @@ except ImportError:
         resolve_gh_api_template_variables,
         validate_gh_api_path,
     )
-    from phase_filter import (  # type: ignore[no-redef, import-not-found]
+    from phase_filter import (  # type: ignore[no-redef, import-untyped]
         OperationType,
         check_agent_restrictions,
         check_file_restrictions,
         check_phase_file_restrictions,
         filter_operation,
     )
-    from policy import (  # type: ignore[no-redef, import-not-found]
+    from policy import (  # type: ignore[no-redef, import-untyped]
         extract_branch_from_refspec,
         extract_repo_from_remote,
         get_policy_engine,
@@ -162,18 +162,18 @@ except ImportError:
     from private_repo_policy import (  # type: ignore[no-redef]
         check_private_repo_access,
     )
-    from rate_limiter import (  # type: ignore[no-redef, import-not-found]
+    from rate_limiter import (  # type: ignore[no-redef, import-untyped]
         check_heartbeat_rate_limit,
         record_failed_lookup,
     )
-    from repo_parser import parse_owner_repo  # type: ignore[no-redef, import-not-found]
+    from repo_parser import parse_owner_repo  # type: ignore[no-redef, import-untyped]
     from repo_visibility import get_repo_visibility  # type: ignore[no-redef]
-    from session_manager import (  # type: ignore[no-redef, import-not-found]
+    from session_manager import (  # type: ignore[no-redef, import-untyped]
         get_session_manager,
         validate_session_for_request,
     )
-    from transcript_buffer import get_transcript_buffer  # type: ignore[no-redef, import-not-found]
-    from worktree_manager import (  # type: ignore[no-redef, import-not-found]
+    from transcript_buffer import get_transcript_buffer  # type: ignore[no-redef, import-untyped]
+    from worktree_manager import (  # type: ignore[no-redef, import-untyped]
         WorktreeManager,
         get_active_docker_containers,
         startup_cleanup,
@@ -196,7 +196,7 @@ try:
 
     app.register_blueprint(contract_bp)
 except ImportError:
-    from contract_api import contract_bp  # type: ignore[import-not-found, no-redef]
+    from contract_api import contract_bp  # type: ignore[import-untyped, no-redef]
 
     app.register_blueprint(contract_bp)
 
@@ -206,7 +206,7 @@ try:
 
     app.register_blueprint(phase_bp)
 except ImportError:
-    from phase_api import phase_bp  # type: ignore[import-not-found, no-redef]
+    from phase_api import phase_bp  # type: ignore[import-untyped, no-redef]
 
     app.register_blueprint(phase_bp)
 
@@ -279,7 +279,7 @@ def translate_to_host_path(container_path: str) -> str:
 try:
     from .auth import require_session_auth
 except ImportError:
-    from auth import require_session_auth  # type: ignore[no-redef, import-not-found]
+    from auth import require_session_auth  # type: ignore[no-redef, import-untyped]
 
 
 # Launcher secret for session management and worktree operations
@@ -1167,6 +1167,7 @@ def git_execute() -> tuple[Response, int] | Response:
     session = getattr(g, "session", None)
     is_pipeline = session is not None and getattr(session, "pipeline_id", None) is not None
     if is_pipeline and is_worktree and is_branch_switching_operation(operation, validated_args):
+        assert session is not None  # guaranteed by is_pipeline check above
         audit_log(
             "git_execute_blocked",
             operation,
@@ -1876,8 +1877,7 @@ def _resolve_repo_path_for_checkpoints() -> str | None:
     # Session's last known repo path (set during push operations)
     session = getattr(g, "session", None)
     if session and getattr(session, "last_repo_path", None):
-        repo: str = session.last_repo_path
-        return repo
+        return str(session.last_repo_path)
 
     # Environment variable
     env_path = os.environ.get("EGG_REPO_PATH")

@@ -100,12 +100,14 @@ class ParsedPhase:
         # Normalize dependencies to phase-N format
         normalized_deps: list[str] = []
         if self.dependencies:
-            raw_deps_str = self.dependencies
+            raw_deps: str | list[str] = self.dependencies
             # Handle both list and string formats
-            dep_list: list[str] = []
-            if isinstance(raw_deps_str, str):
-                dep_list = [d.strip() for d in raw_deps_str.split(",") if d.strip()]
-            if dep_list:
+            dep_list: list[str]
+            if isinstance(raw_deps, str):
+                dep_list = [d.strip() for d in raw_deps.split(",") if d.strip()]
+            else:
+                dep_list = raw_deps
+            if isinstance(dep_list, list):
                 for dep in dep_list:
                     dep_str = str(dep).strip()
                     if dep_str.startswith("phase-"):

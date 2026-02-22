@@ -78,7 +78,7 @@ def _http_get(base_url: str, endpoint: str, params: dict[str, Any] | None = None
     the session token from EGG_SESSION_TOKEN.
 
     Args:
-        base_url: Gateway base URL (e.g. http://egg-gateway:9848)
+        base_url: Gateway base URL (e.g. http://egg-gateway:<port>)
         endpoint: API path (e.g. /api/v1/checkpoints)
         params: Optional query parameters
 

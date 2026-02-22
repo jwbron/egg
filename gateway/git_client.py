@@ -30,7 +30,7 @@ from repo_config import get_auth_mode
 try:
     from .github_client import get_github_client
 except ImportError:
-    from github_client import get_github_client  # type: ignore[no-redef, import-not-found]
+    from github_client import get_github_client  # type: ignore[no-redef, import-untyped]
 
 
 logger = get_logger("gateway.git-client")

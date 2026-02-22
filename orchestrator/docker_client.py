@@ -176,11 +176,11 @@ class DockerClient:
         if labels:
             container_labels.update(labels)
 
-        try:
-            # Check if image exists
-            if not self.get_image(image):
-                raise ImageNotFoundError(f"Image {image} not found")
+        # Check if image exists before attempting creation
+        if not self.get_image(image):
+            raise ImageNotFoundError(f"Image {image} not found")
 
+        try:
             container = self.client.containers.create(
                 image=image,
                 name=container_name,

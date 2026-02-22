@@ -47,7 +47,7 @@ except ImportError:
     _DEFAULT_EXTERNAL_NETWORK = "egg-external"
     EGG_CONTAINER_IP = "172.32.0.10"
     GATEWAY_CONTAINER_NAME = "egg-gateway"
-    GATEWAY_PORT = 9848
+    GATEWAY_PORT = 9848  # noqa: EGG002
     GATEWAY_ISOLATED_IP = "172.32.0.2"
     GATEWAY_EXTERNAL_IP = "172.33.0.2"
 

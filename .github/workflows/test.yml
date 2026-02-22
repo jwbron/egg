@@ -34,10 +34,7 @@ jobs:
 
       - name: Run unit tests
         run: |
-          PYTHONPATH=shared:gateway:orchestrator .venv/bin/pytest tests/ gateway/tests/ orchestrator/tests/ -v \
-            --cov=gateway --cov=shared --cov=sandbox \
-            --cov-report=term-missing \
-            --cov-fail-under=80
+          make test PYTEST_ARGS="--cov=gateway --cov=shared --cov=sandbox --cov-report=term-missing --cov-fail-under=80"
 
   security:
     name: Security Scan
@@ -56,8 +53,8 @@ jobs:
       - name: Install dependencies
         run: uv sync --extra dev
 
-      - name: Run bandit
-        run: .venv/bin/bandit -r gateway shared sandbox orchestrator -ll -c pyproject.toml
+      - name: Run security scan
+        run: make security
 
   aggregate:
     name: Aggregate Test Results
