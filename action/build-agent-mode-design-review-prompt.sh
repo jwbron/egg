@@ -49,6 +49,9 @@ Flag these **clear** anti-patterns:
 3. **Post-processing pipelines**: Scripts that parse agent output to take actions the agent could take directly
 4. **Rigid procedures**: Micromanaging step-by-step procedures when objectives would suffice
 5. **Prompt-level security**: Using instructions for constraints that should be sandbox-enforced
+6. **Direct LLM API calls outside sandbox**: Calling the Anthropic API from orchestrator, gateway, or shared code instead of delegating to sandbox containers (enforced by EGG200 linter)
+7. **Direct API calls bypassing Claude Code**: Using raw HTTP calls to the Anthropic API instead of claude --print (Claude Code headless mode)
+8. **Hardcoded model identifiers**: Using full model IDs like claude-sonnet-4-20250514 instead of short aliases (sonnet, opus, haiku) (enforced by EGG201 linter)
 
 ## What to Skip
 

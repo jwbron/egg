@@ -10,6 +10,8 @@ Guidelines for designing agent workflows in egg: when to let the agent operate f
 
 If a task needs constraints beyond what the sandbox enforces, that's a signal to improve the sandbox—not to add prompt-level restrictions.
 
+This principle extends to LLM calls themselves: the orchestrator, gateway, and shared modules must never call the Anthropic API directly. LLM calls are delegated to sandbox containers, maintaining the security boundary between infrastructure code (which has Docker and pipeline credentials) and the LLM (which processes untrusted prompts). This boundary is enforced by the `EGG200` linter.
+
 ## Default to Agent Mode
 
 For most tasks, the right approach is: give egg a clear objective in natural language and let it use its tools.
@@ -80,6 +82,25 @@ category as security/correctness/quality/standards.
 The agent can fetch more context if it needs it. Don't try to anticipate everything it might want to know. Provide the task and let it investigate.
 
 If the agent decides something isn't worth commenting on, or needs a different approach than expected, that's usually fine. The security boundary prevents harm; within that boundary, let the agent make decisions.
+
+## Architectural Conventions
+
+These conventions extend the core principle ("the sandbox is the constraint") with enforced boundaries:
+
+### Use Claude Code headless mode, not direct API calls
+
+All LLM calls should go through `claude --print` (Claude Code headless mode), not through direct `httpx.post()` or Anthropic SDK calls. This ensures:
+- Consistent tool access across all agent invocations
+- The agent can use tools (file reading, shell commands, GitHub CLI) rather than being limited to a single prompt/response
+- Centralized configuration (model selection, permissions, timeouts)
+
+**Enforced by:** `EGG200` linter (no direct Anthropic API imports/calls in orchestrator/gateway/shared) and `EGG201` linter (model alias form).
+
+### Use model aliases, not pinned identifiers
+
+Reference models by short alias (`sonnet`, `opus`, `haiku`) rather than full identifiers (`claude-sonnet-4-20250514`). This ensures automatic adoption of the latest model version without code changes.
+
+**Enforced by:** `EGG201` linter. Suppress with `# noqa: EGG201` where a full identifier is genuinely required (e.g., docstring examples, raw API health checks).
 
 ## Applying These Guidelines
 
@@ -185,6 +206,47 @@ Review PR #123 and post your review comments directly on GitHub.
 
 The agent can call the GitHub API itself. No parsing needed.
 
+### Anti-pattern 3: Direct LLM API calls outside the sandbox
+
+**Wrong approach:**
+```python
+# In orchestrator code — calling the API directly
+import httpx
+
+resp = httpx.post(
+    "https://api.anthropic.com/v1/messages",
+    headers={"x-api-key": os.environ["ANTHROPIC_API_KEY"]},
+    json={"model": "claude-sonnet-4-20250514", "messages": [...]}
+)
+verdict = resp.json()
+```
+
+**Right approach:**
+```python
+# Delegate to a sandbox container running claude --print
+spawner.spawn_agent_container(
+    pipeline_id=f"{pipeline_id}-inspect",
+    agent_role=AgentRole.INSPECTOR,
+    command=["claude", "--print", "--max-turns", "1", ...],
+)
+```
+
+The orchestrator has Docker and pipeline credentials. Exposing it to LLM prompt injection is a security risk. Delegate LLM calls to sandbox containers where the security boundary is enforced.
+
+### Anti-pattern 4: Pinned model identifiers
+
+**Wrong approach:**
+```python
+model = "claude-sonnet-4-20250514"
+```
+
+**Right approach:**
+```python
+model = "sonnet"
+```
+
+Pinned identifiers prevent automatic adoption of new model versions and create maintenance burden. Use aliases and let the platform resolve the latest version.
+
 ### Good pattern: Shared infrastructure
 
 Reusable modules for common operations are good engineering, not anti-patterns:
@@ -269,6 +331,9 @@ When designing a new agent workflow, ask:
 - [ ] Do my constraints go beyond what the sandbox enforces?
 - [ ] Would this design work if the agent needs more context than I anticipated?
 - [ ] Am I preserving useful existing functionality while removing unnecessary complexity?
+- [ ] Am I calling the Anthropic API directly from orchestrator/gateway/shared code? (Delegate to sandbox)
+- [ ] Am I using `httpx`/`requests` to call the API instead of `claude --print`?
+- [ ] Am I using pinned model identifiers instead of aliases (`sonnet`, `opus`, `haiku`)?
 
 "Yes" to any of these is a signal to reconsider, but use judgment. Some context is helpful; the question is whether you're constraining vs. informing.
 
@@ -277,6 +342,8 @@ When designing a new agent workflow, ask:
 - [Issue #161](https://github.com/jwbron/egg/issues/161) — Rewrite auto-reviews (concrete instance)
 - [Issue #134](https://github.com/jwbron/egg/issues/134) — AI-powered code review design
 - [Issue #153](https://github.com/jwbron/egg/issues/153) — Self-improvement cycle
+- [PR #868](https://github.com/jwbron/egg/pull/868) — Delegate agent inspector LLM calls to sandbox (EGG200 linter)
+- [PR #873](https://github.com/jwbron/egg/pull/873) — Enforce Claude Code pathway and model aliases (EGG201 linter)
 
 ---
 
