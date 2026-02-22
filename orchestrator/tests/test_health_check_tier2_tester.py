@@ -11,7 +11,6 @@ Covers gaps in the coder-authored test_health_check_tier2.py:
 - Runner: multiple Tier 2 checks, Tier 2 exception in _run_single
 """
 
-import json
 import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch

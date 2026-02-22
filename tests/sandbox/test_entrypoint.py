@@ -940,8 +940,9 @@ class TestOrchestratorMode:
 class TestRunInteractiveSubprocess:
     """Tests for run_interactive using subprocess.Popen() with stderr capture."""
 
+    @patch("entrypoint._chdir_to_single_repo")
     @patch("subprocess.Popen")
-    def test_run_interactive_captures_stderr(self, mock_popen, monkeypatch, tmp_path):
+    def test_run_interactive_captures_stderr(self, mock_popen, _mock_chdir, monkeypatch):
         """run_interactive captures stderr to log file while passing through."""
         mock_process = MagicMock()
         mock_process.returncode = 0
@@ -952,20 +953,18 @@ class TestRunInteractiveSubprocess:
         monkeypatch.setenv("RUNTIME_GID", "1000")
 
         config = entrypoint.Config()
-        config._repos_dir = Path("/tmp/test-repos")
         logger = entrypoint.Logger(quiet=True)
 
-        with patch.object(Path, "exists", return_value=True):
-            with patch("os.chdir"):
-                exit_code = entrypoint.run_interactive(config, logger)
+        exit_code = entrypoint.run_interactive(config, logger)
 
         assert exit_code == 0
         # Verify Popen was called with stderr=PIPE for capture
         call_kwargs = mock_popen.call_args[1]
         assert call_kwargs["stderr"] == subprocess.PIPE
 
+    @patch("entrypoint._chdir_to_single_repo")
     @patch("subprocess.Popen")
-    def test_run_interactive_returns_exit_code(self, mock_popen, monkeypatch):
+    def test_run_interactive_returns_exit_code(self, mock_popen, _mock_chdir, monkeypatch):
         """run_interactive returns subprocess exit code."""
         mock_process = MagicMock()
         mock_process.returncode = 42
@@ -976,12 +975,9 @@ class TestRunInteractiveSubprocess:
         monkeypatch.setenv("RUNTIME_GID", "1000")
 
         config = entrypoint.Config()
-        config._repos_dir = Path("/tmp/test-repos")
         logger = entrypoint.Logger(quiet=True)
 
-        with patch.object(Path, "exists", return_value=True):
-            with patch("os.chdir"):
-                exit_code = entrypoint.run_interactive(config, logger)
+        exit_code = entrypoint.run_interactive(config, logger)
 
         assert exit_code == 42
 
@@ -989,8 +985,9 @@ class TestRunInteractiveSubprocess:
 class TestRunExecSubprocess:
     """Tests for run_exec using subprocess.Popen() with stderr capture."""
 
+    @patch("entrypoint._chdir_to_single_repo")
     @patch("subprocess.Popen")
-    def test_run_exec_captures_stderr(self, mock_popen, monkeypatch):
+    def test_run_exec_captures_stderr(self, mock_popen, _mock_chdir, monkeypatch):
         """run_exec captures stderr to log file while passing through."""
         mock_process = MagicMock()
         mock_process.returncode = 0
@@ -1009,8 +1006,9 @@ class TestRunExecSubprocess:
         call_kwargs = mock_popen.call_args[1]
         assert call_kwargs["stderr"] == subprocess.PIPE
 
+    @patch("entrypoint._chdir_to_single_repo")
     @patch("subprocess.Popen")
-    def test_run_exec_returns_exit_code(self, mock_popen, monkeypatch):
+    def test_run_exec_returns_exit_code(self, mock_popen, _mock_chdir, monkeypatch):
         """run_exec returns subprocess exit code."""
         mock_process = MagicMock()
         mock_process.returncode = 1
@@ -1026,6 +1024,96 @@ class TestRunExecSubprocess:
         exit_code = entrypoint.run_exec(config, logger, ["false"])
 
         assert exit_code == 1
+
+
+class TestChdirToSingleRepo:
+    """Tests for _chdir_to_single_repo helper."""
+
+    def test_single_repo_enters_subdirectory(self, tmp_path, monkeypatch):
+        """With exactly one git repo, chdir into it and set EGG_REPO_PATH."""
+        repos_dir = tmp_path / "repos"
+        repos_dir.mkdir()
+        repo = repos_dir / "my-project"
+        repo.mkdir()
+        (repo / ".git").mkdir()
+
+        monkeypatch.chdir(tmp_path)  # restore CWD on teardown
+        monkeypatch.setenv("RUNTIME_UID", "1000")
+        monkeypatch.setenv("RUNTIME_GID", "1000")
+        monkeypatch.delenv("EGG_REPO_PATH", raising=False)
+
+        config = entrypoint.Config()
+        monkeypatch.setattr(type(config), "repos_dir", property(lambda self: repos_dir))
+
+        entrypoint._chdir_to_single_repo(config)
+
+        assert Path.cwd() == repo
+        assert os.environ["EGG_REPO_PATH"] == str(repo)
+
+    def test_multiple_repos_stays_in_repos_dir(self, tmp_path, monkeypatch):
+        """With multiple git repos, stay in repos_dir without setting EGG_REPO_PATH."""
+        repos_dir = tmp_path / "repos"
+        repos_dir.mkdir()
+        for name in ("repo-a", "repo-b"):
+            repo = repos_dir / name
+            repo.mkdir()
+            (repo / ".git").mkdir()
+
+        monkeypatch.chdir(tmp_path)  # restore CWD on teardown
+        monkeypatch.setenv("RUNTIME_UID", "1000")
+        monkeypatch.setenv("RUNTIME_GID", "1000")
+        monkeypatch.delenv("EGG_REPO_PATH", raising=False)
+
+        config = entrypoint.Config()
+        monkeypatch.setattr(type(config), "repos_dir", property(lambda self: repos_dir))
+
+        entrypoint._chdir_to_single_repo(config)
+
+        assert Path.cwd() == repos_dir
+        assert "EGG_REPO_PATH" not in os.environ
+
+    def test_no_repos_dir_falls_back_to_home(self, tmp_path, monkeypatch):
+        """When repos_dir doesn't exist, fall back to user home."""
+        nonexistent = tmp_path / "no-such-dir"
+        home = tmp_path / "home"
+        home.mkdir()
+
+        monkeypatch.chdir(tmp_path)  # restore CWD on teardown
+        monkeypatch.setenv("RUNTIME_UID", "1000")
+        monkeypatch.setenv("RUNTIME_GID", "1000")
+
+        config = entrypoint.Config()
+        monkeypatch.setattr(type(config), "repos_dir", property(lambda self: nonexistent))
+        monkeypatch.setattr(type(config), "user_home", property(lambda self: home))
+
+        entrypoint._chdir_to_single_repo(config)
+
+        assert Path.cwd() == home
+
+    def test_non_git_dirs_ignored(self, tmp_path, monkeypatch):
+        """Directories without .git are not counted as repos."""
+        repos_dir = tmp_path / "repos"
+        repos_dir.mkdir()
+        # One real git repo
+        repo = repos_dir / "real-repo"
+        repo.mkdir()
+        (repo / ".git").mkdir()
+        # One plain directory (no .git)
+        plain = repos_dir / "plain-dir"
+        plain.mkdir()
+
+        monkeypatch.chdir(tmp_path)  # restore CWD on teardown
+        monkeypatch.setenv("RUNTIME_UID", "1000")
+        monkeypatch.setenv("RUNTIME_GID", "1000")
+        monkeypatch.delenv("EGG_REPO_PATH", raising=False)
+
+        config = entrypoint.Config()
+        monkeypatch.setattr(type(config), "repos_dir", property(lambda self: repos_dir))
+
+        entrypoint._chdir_to_single_repo(config)
+
+        assert Path.cwd() == repo
+        assert os.environ["EGG_REPO_PATH"] == str(repo)
 
 
 class TestSignalOrchestratorCompletion:

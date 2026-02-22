@@ -455,7 +455,7 @@ gateway/
 ## Testing
 
 ```bash
-# Run gateway tests (via act, CI parity)
+# Run gateway tests (same checks as GitHub Actions)
 make test
 
 # Run gateway tests directly

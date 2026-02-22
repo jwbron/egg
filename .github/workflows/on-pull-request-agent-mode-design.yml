@@ -8,6 +8,8 @@ on:
       - 'action/**'
       - '.github/workflows/**'
       - 'sandbox/**/*.md'
+      - 'sandbox/bin/**'
+      - 'shared/prompts/**'
       - 'docs/guides/agent-mode-design.md'
       - 'docs/guides/sdlc-pipeline.md'
       - 'docs/architecture/**'

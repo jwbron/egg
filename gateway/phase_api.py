@@ -27,14 +27,14 @@ try:
         get_next_phase,
     )
 except ImportError:
-    from auth import require_session_auth  # type: ignore[no-redef, import-not-found]
-    from phase_filter import (  # type: ignore[no-redef, import-not-found]
+    from auth import require_session_auth  # type: ignore[no-redef, import-untyped]
+    from phase_filter import (  # type: ignore[no-redef, import-untyped]
         OperationType,
         PipelinePhase,
         filter_operation,
         get_phase_filter,
     )
-    from phase_transition import (  # type: ignore[no-redef, import-not-found]
+    from phase_transition import (  # type: ignore[no-redef, import-untyped]
         TransitionRole,
         can_transition_to,
         get_next_phase,

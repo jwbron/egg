@@ -45,10 +45,10 @@ NOQA_CODE = "EGG201"
 #   claude-3-5-sonnet-20241022 → should be "sonnet"
 # Does NOT match non-model references like "claude code" or "claude --print"
 _MODEL_ID_RE = re.compile(
-    r"\bclaude-(?=[\w-]*\d)"                   # lookahead: at least one digit somewhere
-    r"(?:(\d+-\d+-|)(\d+-|))"                  # optional version prefix (3-5-, 3-)
-    r"(sonnet|opus|haiku)"                      # model family
-    r"(?:-[\d]+(?:-[\d]+)?)?(?:-\d{8})?\b"      # optional version/date suffix
+    r"\bclaude-(?=[\w-]*\d)"  # lookahead: at least one digit somewhere
+    r"(?:(\d+-\d+-|)(\d+-|))"  # optional version prefix (3-5-, 3-)
+    r"(sonnet|opus|haiku)"  # model family
+    r"(?:-[\d]+(?:-[\d]+)?)?(?:-\d{8})?\b"  # optional version/date suffix
 )
 
 # Map full model ID families to their short alias
@@ -118,7 +118,7 @@ class ModelAliasVisitor(ast.NodeVisitor):
             self.violations.append(
                 (
                     node.lineno,
-                    f"Use model alias: {model_id} → use \"{alias}\" instead",
+                    f'Use model alias: {model_id} → use "{alias}" instead',
                 )
             )
         self.generic_visit(node)
@@ -202,7 +202,7 @@ def main() -> int:
             print()
 
         print("How to fix:")
-        print('  1. Replace the model identifier with its alias:')
+        print("  1. Replace the model identifier with its alias:")
         print('     "claude-sonnet-4-20250514" → "sonnet"')  # noqa: EGG201 - help text example
         print('     "claude-opus-4"            → "opus"')  # noqa: EGG201 - help text example
         print('     "claude-haiku-4-5"         → "haiku"')  # noqa: EGG201 - help text example

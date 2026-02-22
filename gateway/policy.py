@@ -37,7 +37,7 @@ from egg_logging import get_logger
 try:
     from .github_client import GitHubClient, get_github_client
 except ImportError:
-    from github_client import (  # type: ignore[no-redef, import-not-found]
+    from github_client import (  # type: ignore[no-redef, import-untyped]
         GitHubClient,
         get_github_client,
     )

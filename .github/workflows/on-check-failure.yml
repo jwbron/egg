@@ -5,7 +5,7 @@ name: "egg: Autofix Check Failures"
 # allowing us to identify the PR and check details.
 on:
   workflow_run:
-    workflows: ["Lint", "Test"]
+    workflows: ["Lint", "Test", "Integration Tests"]
     types: [completed]
   workflow_dispatch:
     inputs:

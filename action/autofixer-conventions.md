@@ -1,6 +1,8 @@
-# Autofixer Conventions
+# Autofixer Conventions (GitHub Actions)
 
-Guidelines for how to investigate and fix check failures.
+Operational conventions specific to the GitHub Actions autofixer.
+General autofixer rules (workflow, decision framework, etc.) are in
+`shared/prompts/autofixer-rules.md`.
 
 ## Per-Check Fixer Model
 
@@ -65,6 +67,9 @@ git push
 If fixes don't resolve the issue, the fixer will be re-invoked with updated
 failure context.
 
+**Why single push matters:** Each push triggers CI. Fixing one issue at a time
+causes the workflow to run repeatedly, wasting CI resources and time.
+
 ## Reporting Unfixable Issues
 
 When you can't auto-fix an issue, post a comment explaining:
@@ -84,20 +89,6 @@ gh pr comment 123 --body "## Check Failure: <Check Name>
 
 — Authored by egg"
 ```
-
-## Decision Framework
-
-**Auto-fix when:**
-- The fix is mechanical (formatting, import order, type annotations)
-- There's one obvious correct solution
-- The change is low-risk and easily reversible
-
-**Report instead when:**
-- Multiple valid approaches exist
-- The fix requires understanding business requirements
-- The change could break other functionality
-- Security implications need human review
-- You're uncertain about the right approach
 
 ## Signature
 
