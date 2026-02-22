@@ -1967,7 +1967,7 @@ class TestTesterGapFindingPrompts:
         assert "Prior Review Feedback" not in result
 
     def test_phase_prompt_revision_does_not_mention_tester(self):
-        """Non-Tier-3 phase prompt revision uses reviewer-only language (no tester runs)."""
+        """Non-Tier-3 phase prompt uses reviewer-only language (tester gap feedback not yet wired)."""
         result = _build_phase_prompt(
             phase="implement",
             pipeline_id="test-pid",
@@ -1982,7 +1982,7 @@ class TestTesterGapFindingPrompts:
         assert "tester-output.json" not in result
 
     def test_phase_prompt_revision_no_feedback_does_not_mention_tester(self):
-        """Non-Tier-3 phase prompt revision without feedback has no tester references."""
+        """Non-Tier-3 phase prompt without feedback has no tester references (gap feedback not yet wired)."""
         result = _build_phase_prompt(
             phase="implement",
             pipeline_id="test-pid",

@@ -3310,13 +3310,12 @@ def _run_tier3_implement(
                     phase_id=phase_id,
                     retry=retry,
                 )
-                prior_feedback = combined_feedback
-                if tester_gap_summary:
-                    prior_feedback = (
-                        f"{combined_feedback}\n\n{tester_gap_summary}"
-                        if combined_feedback
-                        else tester_gap_summary
-                    )
+                if tester_gap_summary and combined_feedback:
+                    prior_feedback = f"{combined_feedback}\n\n{tester_gap_summary}"
+                elif tester_gap_summary:
+                    prior_feedback = tester_gap_summary
+                else:
+                    prior_feedback = combined_feedback
                 last_reviewed_commit = cycle_head
                 continue
             else:
