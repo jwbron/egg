@@ -91,6 +91,10 @@ logger = get_logger("orchestrator.pipelines")
 # Must match the gateway's WORKTREE_BASE_DIR and docker-compose volume mounts.
 WORKTREE_BASE_DIR = Path("/home/egg/.egg-worktrees")
 
+# Sentinel header used in tester gap summaries. Checked in prompt-building
+# functions to adapt language when tester findings are present.
+TESTER_FINDINGS_HEADER = "### tester findings"
+
 # Network constants for sandbox container URLs
 try:
     from egg_config import (
@@ -1602,6 +1606,66 @@ def _read_review_verdict(
         return None
 
 
+def _read_tester_gaps(repo_path: Path) -> str | None:
+    """Read tester output and extract gap findings for feedback to the coder.
+
+    Reads `.egg-state/agent-outputs/tester-output.json` and formats any
+    test failures and gaps found into a summary string.
+
+    Falls back to scanning the `summary` field for failure keywords when
+    `gaps_found` is not present (backwards compat with old tester outputs).
+
+    Returns:
+        Formatted gap summary string, or None if no gaps found.
+    """
+    tester_output_file = repo_path / ".egg-state" / "agent-outputs" / "tester-output.json"
+
+    if not tester_output_file.exists():
+        return None
+
+    try:
+        raw = tester_output_file.read_text()
+        data = json.loads(raw)
+    except (json.JSONDecodeError, OSError) as e:
+        logger.warning(
+            "Failed to parse tester output file",
+            path=str(tester_output_file),
+            error=str(e),
+        )
+        return None
+
+    if not isinstance(data, dict):
+        return None
+
+    sections: list[str] = []
+
+    tests_failed = data.get("tests_failed", 0)
+    if tests_failed:
+        sections.append(f"- **{tests_failed}** test(s) failed")
+
+    gaps_found = data.get("gaps_found")
+    if gaps_found and isinstance(gaps_found, list):
+        # Cap at 10 gaps to avoid prompt bloat
+        capped = gaps_found[:10]
+        for gap in capped:
+            gap_str = str(gap)[:200]
+            sections.append(f"- {gap_str}")
+        if len(gaps_found) > 10:
+            sections.append(f"- ... and {len(gaps_found) - 10} more gaps")
+    elif not tests_failed:
+        # Backwards compat: scan summary for failure keywords
+        summary = data.get("summary", "")
+        if isinstance(summary, str) and any(
+            kw in summary.lower() for kw in ("fail", "gap", "missing", "error", "deficien")
+        ):
+            sections.append(f"- Tester summary: {summary}")
+
+    if not sections:
+        return None
+
+    return f"{TESTER_FINDINGS_HEADER}\n" + "\n".join(sections)
+
+
 def _aggregate_review_verdicts(
     verdicts: dict[str, ReviewVerdict | None],
 ) -> tuple[str, str]:
@@ -1832,11 +1896,19 @@ def _build_phase_prompt(
     # --- Prior review feedback (revision cycles) ---
     if review_cycle > 0 and review_feedback:
         lines.append(f"## Prior Review Feedback (Cycle {review_cycle})\n")
-        lines.append(
-            "The reviewer found issues with your previous draft. "
-            "Address the feedback below and revise your draft **in-place** "
-            "(overwrite the same file).\n"
-        )
+        has_tester_findings = TESTER_FINDINGS_HEADER in review_feedback
+        if has_tester_findings:
+            lines.append(
+                "The reviewer and tester found issues with your previous work. "
+                "Address the feedback below and revise your draft **in-place** "
+                "(overwrite the same file).\n"
+            )
+        else:
+            lines.append(
+                "The reviewer found issues with your previous draft. "
+                "Address the feedback below and revise your draft **in-place** "
+                "(overwrite the same file).\n"
+            )
         lines.append(review_feedback)
         lines.append("")
 
@@ -2093,18 +2165,35 @@ def _build_phase_prompt(
 
             lines.append("## Revision Instructions\n")
             if review_feedback:
-                lines.extend(
-                    [
-                        "The reviewer found issues with your implementation. "
-                        "Focus on addressing the specific feedback above.\n",
-                        "1. Review the feedback in the **Prior Review Feedback** section above",
-                        "2. Check `git diff` to understand the current state of changes",
-                        "3. Fix the specific issues raised by the reviewer",
-                        "4. Run tests to verify your fixes",
-                        "5. Commit with descriptive messages",
-                        "",
-                    ]
-                )
+                has_tester_findings = TESTER_FINDINGS_HEADER in review_feedback
+                if has_tester_findings:
+                    lines.extend(
+                        [
+                            "The reviewer and tester found issues with your implementation. "
+                            "Focus on addressing the specific feedback above.\n",
+                            "1. Review the feedback in the **Prior Review Feedback** section above",
+                            "2. Check `git diff` to understand the current state of changes",
+                            "3. Check `.egg-state/agent-outputs/tester-output.json` "
+                            "for test failures and gaps",
+                            "4. Fix the specific issues raised",
+                            "5. Run tests to verify your fixes",
+                            "6. Commit with descriptive messages",
+                            "",
+                        ]
+                    )
+                else:
+                    lines.extend(
+                        [
+                            "The reviewer found issues with your implementation. "
+                            "Focus on addressing the specific feedback above.\n",
+                            "1. Review the feedback in the **Prior Review Feedback** section above",
+                            "2. Check `git diff` to understand the current state of changes",
+                            "3. Fix the specific issues raised by the reviewer",
+                            "4. Run tests to verify your fixes",
+                            "5. Commit with descriptive messages",
+                            "",
+                        ]
+                    )
             else:
                 lines.extend(
                     [
@@ -2353,18 +2442,20 @@ def _build_agent_prompt(
     if role_value == "tester":
         lines.extend(
             [
-                "Write and run tests for the changes made by the CODER agent:",
+                "Validate the changes and find gaps in the CODER agent's implementation:",
                 "",
                 "1. Review the changed files (available in handoff data or via git diff)",
-                "2. Write or update tests covering the new/changed code",
-                "3. Run all tests to ensure they pass",
-                "4. Report test coverage for the new code",
-                "5. Commit test files with descriptive messages",
+                "2. Identify gaps: missing error handling, boundary conditions, uncovered branches",
+                "3. Write or update tests targeting identified gaps and new/changed code",
+                "4. Run all tests and record which pass and which fail",
+                "5. Document gaps found in your handoff output (`gaps_found` field)",
+                "6. Commit test files with descriptive messages",
                 "",
-                "Focus on:",
-                "- Unit tests for new functions and methods",
-                "- Edge cases and error handling",
-                "- Integration tests where appropriate",
+                "Gap-finding focus:",
+                "- Missing error handling and input validation",
+                "- Boundary conditions and edge cases",
+                "- Uncovered code paths and branches",
+                "- Integration gaps between components",
                 "",
             ]
         )
@@ -2612,7 +2703,7 @@ def _build_phase_scoped_prompt(
     if review_cycle > 0 and review_feedback:
         lines.append(f"## Prior Review Feedback (Cycle {review_cycle})\n")
         lines.append(
-            "The reviewer found issues with your previous work for this phase. "
+            "The reviewer and tester found issues with your previous work for this phase. "
             "Address the feedback below.\n"
         )
         lines.append(review_feedback)
@@ -2670,6 +2761,17 @@ def _build_phase_scoped_prompt(
     lines.append("2. Run tests to verify correctness")
     lines.append("3. Commit with descriptive messages")
     lines.append("")
+
+    # Revision-specific checklist (only when feedback is actually present)
+    if review_cycle > 0 and review_feedback:
+        lines.append("### Revision Checklist\n")
+        lines.append("- [ ] Review the feedback in **Prior Review Feedback** above")
+        lines.append(
+            "- [ ] Check `.egg-state/agent-outputs/tester-output.json` for test failures and gaps"
+        )
+        lines.append("- [ ] Fix the specific issues raised")
+        lines.append("- [ ] Run tests to verify fixes")
+        lines.append("")
 
     # Contract CLI
     lines.append("Use the contract CLI to track progress:")
@@ -2869,7 +2971,12 @@ def _run_tier3_implement(
         prior_feedback: str | None = None  # Combined reviewer feedback from prior cycle
         last_reviewed_commit: str | None = None  # HEAD before the previous cycle's coder
 
+        tester_gap_summary: str | None = None  # Current cycle's tester gap findings
+
         for retry in range(max_retries + 1):
+            # Reset tester gaps each cycle so stale findings don't accumulate
+            tester_gap_summary = None
+
             # Capture HEAD before coder runs so reviewers on the next
             # retry can diff against this commit (delta reviews).
             cycle_head: str | None = None
@@ -3000,6 +3107,25 @@ def _run_tier3_implement(
             if tester_exit != 0:
                 logger.warning(
                     "Tester failed for plan phase",
+                    pipeline_id=pipeline_id,
+                    phase_id=phase_id,
+                    exit_code=tester_exit,
+                )
+
+            # Read tester gap findings for potential feedback to coder.
+            # Only read when tester succeeded — a failed tester may have left
+            # stale output from a previous cycle on disk.
+            if tester_exit == 0:
+                tester_gap_summary = _read_tester_gaps(worktree_repo_path)
+                if tester_gap_summary:
+                    logger.info(
+                        "Tester found gaps",
+                        pipeline_id=pipeline_id,
+                        phase_id=phase_id,
+                    )
+            else:
+                logger.info(
+                    "Skipping tester gap read due to non-zero exit",
                     pipeline_id=pipeline_id,
                     phase_id=phase_id,
                     exit_code=tester_exit,
@@ -3260,7 +3386,12 @@ def _run_tier3_implement(
                     phase_id=phase_id,
                     retry=retry,
                 )
-                prior_feedback = combined_feedback
+                if tester_gap_summary and combined_feedback:
+                    prior_feedback = f"{combined_feedback}\n\n{tester_gap_summary}"
+                elif tester_gap_summary:
+                    prior_feedback = tester_gap_summary
+                else:
+                    prior_feedback = combined_feedback
                 last_reviewed_commit = cycle_head
                 continue
             else:
@@ -4685,9 +4816,13 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
             phase_failed = False
             review_feedback: str | None = hitl_revision_feedback
             hitl_revision_feedback = None
+            tester_gap_summary: str | None = None
 
             # --- Inner review cycle ---
             while True:
+                # Reset tester gaps each cycle so stale findings don't accumulate
+                tester_gap_summary = None
+
                 # Reload to get latest review_cycles count
                 with get_pipeline_state_lock(pipeline_id):
                     pipeline = store.load_pipeline(pipeline_id)
@@ -5006,6 +5141,18 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                             error=str(e),
                         )
 
+                # 2.5 Read tester gap findings (multi-agent phases include a tester).
+                # Only read when the phase succeeded — a failed phase may
+                # have left stale output from a previous cycle on disk.
+                if use_multi_agent and not phase_failed:
+                    tester_gap_summary = _read_tester_gaps(worktree_repo_path)
+                    if tester_gap_summary:
+                        logger.info(
+                            "Tester found gaps",
+                            pipeline_id=pipeline_id,
+                            phase=current_phase.value,
+                        )
+
                 # 3. Spawn reviewers and read verdicts (reviewed phases)
                 # Reviewers always run as a separate step after workers +
                 # checker, for both multi-agent and single-agent paths.
@@ -5182,8 +5329,14 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                             store.save_pipeline(pipeline)
                     break
 
-                # Store feedback and loop — close current cycle timing
-                review_feedback = combined_feedback
+                # Store feedback and loop — merge tester gaps with reviewer
+                # feedback so the coder sees both on the next cycle.
+                if tester_gap_summary and combined_feedback:
+                    review_feedback = f"{combined_feedback}\n\n{tester_gap_summary}"
+                elif tester_gap_summary:
+                    review_feedback = tester_gap_summary
+                else:
+                    review_feedback = combined_feedback
                 with get_pipeline_state_lock(pipeline_id):
                     pipeline = store.load_pipeline(pipeline_id)
                     phase_execution = pipeline.get_phase_execution(current_phase)
