@@ -76,6 +76,8 @@ class AgentRole(StrEnum):
     RISK_ANALYST = "risk_analyst"
     # Refine-phase roles
     REFINER = "refiner"
+    # Health check roles
+    INSPECTOR = "inspector"
     # Reviewer roles (specific subtypes)
     REVIEWER_CODE = "reviewer_code"
     REVIEWER_CONTRACT = "reviewer_contract"

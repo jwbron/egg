@@ -1,9 +1,11 @@
 """
-AgentInspectorCheck — Tier 2 semantic health check using Claude API.
+AgentInspectorCheck — Tier 2 semantic health check via sandbox container.
 
-Sends a structured prompt with pipeline context (git log, diff stats,
-agent outputs, contract state) to the Claude API and parses a JSON
-verdict.  Gracefully degrades to HEALTHY on API errors.
+Serializes pipeline context and delegates LLM analysis to a short-lived
+sandbox container running ``egg-health-inspect``.  The orchestrator never
+calls the Anthropic API directly — that happens inside the sandbox.
+
+Gracefully degrades to HEALTHY on container errors.
 """
 
 from __future__ import annotations
@@ -11,6 +13,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -28,7 +31,6 @@ except ImportError:
         return logging.getLogger(name)
 
 
-import httpx
 from health_checks.context import PipelineHealthContext
 from health_checks.types import (
     HealthAction,
@@ -40,33 +42,8 @@ from health_checks.types import (
 
 logger = get_logger("orchestrator.health_checks.tier2.agent_inspector")
 
-# Default model for agent inspection
-_DEFAULT_MODEL = "claude-sonnet-4-20250514"
-# API timeout in seconds
-_API_TIMEOUT = 30
-# Max retries on transient failures
-_MAX_RETRIES = 1
-
-# System prompt for the inspector
-_SYSTEM_PROMPT = """\
-You are a pipeline health inspector. Analyze the provided context about a \
-software engineering agent's work and produce a health verdict.
-
-Respond ONLY with a JSON object (no markdown fencing, no extra text):
-{
-  "status": "HEALTHY" | "DEGRADED" | "FAILED",
-  "reasoning": "<one-paragraph explanation>"
-}
-
-Rules:
-- HEALTHY: Agent is making reasonable progress; commits present; no red flags.
-- DEGRADED: Minor concerns — e.g. no recent commits, stale output, contract \
-tasks still pending after a long time. Use this when there's risk but not \
-certainty of failure.
-- FAILED: Clear signs of stuck agent — e.g. repeated errors in outputs, \
-no commits and no drafts, contradictory state.
-- Be concise. One paragraph for reasoning.
-"""
+# Timeout for the inspector container (seconds)
+_CONTAINER_TIMEOUT = 60
 
 
 def _build_user_prompt(context: PipelineHealthContext) -> str:
@@ -160,79 +137,144 @@ def _parse_verdict(text: str) -> tuple[HealthStatus, str]:
     return status, reasoning
 
 
-def _call_claude_api(
-    user_prompt: str,
-    *,
-    api_key: str | None = None,
-    base_url: str | None = None,
-    model: str | None = None,
+def _serialize_context(context: PipelineHealthContext) -> dict[str, Any]:
+    """Serialize PipelineHealthContext into a JSON-safe dict for the inspector."""
+    # Build contract summary (filtered keys)
+    contract = context.contract
+    contract_summary: dict[str, Any] = {}
+    if contract:
+        for key in ("current_phase", "acceptance_criteria", "decisions", "agent_executions"):
+            if key in contract:
+                contract_summary[key] = contract[key]
+
+    return {
+        "pipeline_id": context.pipeline_id,
+        "current_phase": context.current_phase.value,
+        "branch": context.branch or "unknown",
+        "trigger": context.trigger,
+        "git_log": context.git_log,
+        "git_diff_stat": context.git_diff_stat,
+        "agent_outputs": context.agent_outputs,
+        "contract_summary": contract_summary,
+    }
+
+
+def _run_inspector_container(
+    context_payload: dict[str, Any],
+    pipeline_id: str,
 ) -> str:
-    """Call the Anthropic Messages API via httpx.
+    """Spawn a sandbox container to run the inspector script.
 
-    Returns the text content of the first response block.
-    Raises on HTTP or timeout errors (caller handles graceful degradation).
+    Returns the raw response text from the container's stdout.
+    Raises on container spawn/wait/parse failures (caller handles graceful degradation).
     """
-    key = api_key or os.environ.get("ANTHROPIC_API_KEY", "")
-    url = (base_url or os.environ.get("ANTHROPIC_BASE_URL", "https://api.anthropic.com")).rstrip(
-        "/"
-    )
-    mdl = model or os.environ.get("HEALTH_CHECK_MODEL", _DEFAULT_MODEL)
+    from container_spawner import ContainerSpawner, ContainerSpawnError
+    from docker_client import DockerClient, DockerClientError, get_docker_client
+    from models import AgentRole
 
-    headers = {
-        "x-api-key": key,
-        "anthropic-version": "2023-06-01",
-        "content-type": "application/json",
-    }
+    # Write context to a temp file that will be mounted into the container
+    context_json = json.dumps(context_payload, default=str)
 
-    payload = {
-        "model": mdl,
-        "max_tokens": 512,
-        "system": _SYSTEM_PROMPT,
-        "messages": [{"role": "user", "content": user_prompt}],
-    }
+    # Use the docker client and spawner
+    docker: DockerClient = get_docker_client()
+    spawner = ContainerSpawner(docker_client=docker)
 
-    last_exc: Exception | None = None
-    for attempt in range(_MAX_RETRIES + 1):
+    # Write context to temp file
+    with tempfile.NamedTemporaryFile(
+        mode="w",
+        suffix=".json",
+        prefix="inspector-ctx-",
+        delete=False,
+    ) as f:
+        f.write(context_json)
+        context_file = f.name
+
+    try:
+        # Spawn the inspector container
+        spawned = spawner.spawn_agent_container(
+            pipeline_id=pipeline_id,
+            agent_role=AgentRole.INSPECTOR,
+            mode=os.environ.get("EGG_NETWORK_MODE", "public"),
+            extra_env={
+                "EGG_INSPECTOR_CONTEXT_PATH": "/tmp/inspector-context.json",
+            },
+            command=["python3", "/home/egg/sandbox/bin/egg-health-inspect"],
+            wait_for_gateway=False,
+            repo_volumes={},
+        )
+
+        container_id = spawned.container_info.container_id
+
         try:
-            resp = httpx.post(
-                f"{url}/v1/messages",
-                headers=headers,
-                json=payload,
-                timeout=_API_TIMEOUT,
+            # Wait for the container to exit
+            exit_info = docker.wait_for_container(
+                container_id,
+                timeout=_CONTAINER_TIMEOUT,
             )
-            resp.raise_for_status()
-            body = resp.json()
-            # Extract text from first content block
-            content_blocks = body.get("content", [])
-            if content_blocks and isinstance(content_blocks, list):
-                return str(content_blocks[0].get("text", ""))
-            return ""
-        except (httpx.TimeoutException, httpx.HTTPStatusError) as exc:
-            last_exc = exc
-            if attempt < _MAX_RETRIES:
-                logger.warning(
-                    "Claude API attempt failed, retrying",
-                    attempt=attempt + 1,
-                    error=str(exc),
-                )
-                continue
-            raise
-        except Exception:
-            raise
 
-    # Should not reach here, but satisfy type checker
-    if last_exc:
-        raise last_exc
-    return ""
+            # Get the container logs (stdout contains the JSON verdict)
+            logs = docker.get_container_logs(container_id, tail=50)
+
+            if exit_info.exit_code != 0:
+                raise RuntimeError(
+                    f"Inspector container exited with code {exit_info.exit_code}: "
+                    f"{logs[-500:] if logs else '(no logs)'}"
+                )
+
+            return logs
+
+        finally:
+            # Clean up the container
+            try:
+                spawner.remove_agent_container(
+                    container_id,
+                    force=True,
+                    cleanup_session=True,
+                )
+            except (DockerClientError, ContainerSpawnError):
+                pass  # Best effort cleanup
+
+    finally:
+        # Clean up temp file
+        try:
+            os.unlink(context_file)
+        except OSError:
+            pass
+
+
+def _parse_container_output(logs: str) -> str:
+    """Extract the raw_response from container stdout JSON.
+
+    The container outputs a JSON object like {"raw_response": "..."}.
+    We extract the raw_response field for verdict parsing.
+    """
+    # Container logs may have timestamps prefixed — find the JSON line
+    for line in reversed(logs.strip().splitlines()):
+        # Strip Docker timestamp prefix if present (format: 2024-01-01T00:00:00.000000000Z ...)
+        stripped = line.strip()
+        if " " in stripped and stripped[0].isdigit():
+            # Try stripping timestamp prefix
+            _, _, after = stripped.partition(" ")
+            if after.startswith("{"):
+                stripped = after
+
+        if stripped.startswith("{"):
+            try:
+                data = json.loads(stripped)
+                return str(data.get("raw_response", ""))
+            except (json.JSONDecodeError, ValueError):
+                continue
+
+    raise ValueError(f"No valid JSON found in container output: {logs[-300:]}")
 
 
 class AgentInspectorCheck:
-    """Tier 2 health check that uses Claude to semantically inspect agent state.
+    """Tier 2 health check that delegates LLM analysis to a sandbox container.
 
-    Sends pipeline context (git log, diff stats, agent outputs, contract)
-    to the Claude API and interprets the structured verdict.
+    Serializes pipeline context and spawns a short-lived container running
+    ``egg-health-inspect``, which calls the Claude API from inside the sandbox.
 
-    On API failure, gracefully degrades to HEALTHY with a warning —
+    On container failure, gracefully degrades to HEALTHY with a warning —
     Tier 2 failures should never block the pipeline.
     """
 
@@ -247,10 +289,21 @@ class AgentInspectorCheck:
     )
 
     def run(self, context: PipelineHealthContext) -> HealthResult:
-        """Execute the agent inspection check."""
+        """Execute the agent inspection check via sandbox container."""
         try:
-            user_prompt = _build_user_prompt(context)
-            response_text = _call_claude_api(user_prompt)
+            # Serialize context for the inspector container
+            context_payload = _serialize_context(context)
+
+            # Spawn container and get response
+            logs = _run_inspector_container(
+                context_payload=context_payload,
+                pipeline_id=context.pipeline_id,
+            )
+
+            # Parse container output to get raw Claude response
+            response_text = _parse_container_output(logs)
+
+            # Parse the verdict from Claude's response
             status, reasoning = _parse_verdict(response_text)
 
             logger.info(
@@ -271,9 +324,9 @@ class AgentInspectorCheck:
             )
 
         except Exception as exc:
-            # Graceful degradation: API failure should not block pipeline
+            # Graceful degradation: container failure should not block pipeline
             logger.warning(
-                "Agent inspector API call failed, degrading gracefully",
+                "Agent inspector container failed, degrading gracefully",
                 error=str(exc),
                 pipeline=context.pipeline_id,
             )

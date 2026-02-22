@@ -86,7 +86,7 @@ def validate_config() -> None:
                 ]
             if not domains:
                 errors.append(
-                    "Allowed domains file is empty (no domains configured)\n"
+                    "Allowed domains file is empty (no domains configured)\n"  # noqa: EGG200 - validation message, not an API call
                     "  At minimum, api.anthropic.com is required for private mode"
                 )
         except Exception as e:

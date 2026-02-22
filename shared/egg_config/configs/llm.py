@@ -84,7 +84,7 @@ class LLMConfig(BaseConfig):
             import json
             import urllib.request
 
-            base_url = self.anthropic_base_url or "https://api.anthropic.com"
+            base_url = self.anthropic_base_url or "https://api.anthropic.com"  # noqa: EGG200 - config default for sandbox use
             start = time.time()
 
             # Use a minimal messages request to verify API key
@@ -164,7 +164,7 @@ class LLMConfig(BaseConfig):
         config = cls()
 
         # Load API key from environment
-        config.anthropic_api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+        config.anthropic_api_key = os.environ.get("ANTHROPIC_API_KEY", "")  # noqa: EGG200 - config loader for sandbox containers
 
         # Optional settings
         config.anthropic_base_url = os.environ.get("ANTHROPIC_BASE_URL", "")

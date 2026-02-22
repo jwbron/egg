@@ -1,0 +1,172 @@
+#!/usr/bin/env python3
+"""
+Health inspector script — runs inside the sandbox container.
+
+Reads pipeline context JSON (from file path in EGG_INSPECTOR_CONTEXT_PATH or
+stdin), calls the Claude API to produce a health verdict, and outputs a JSON
+verdict to stdout.
+
+Exit codes:
+    0 — verdict produced successfully
+    1 — error (context missing, API failure, etc.)
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import sys
+
+import httpx
+
+# Default model for agent inspection
+_DEFAULT_MODEL = "claude-sonnet-4-20250514"
+# API timeout in seconds
+_API_TIMEOUT = 30
+# Max retries on transient failures
+_MAX_RETRIES = 1
+
+# System prompt for the inspector
+_SYSTEM_PROMPT = """\
+You are a pipeline health inspector. Analyze the provided context about a \
+software engineering agent's work and produce a health verdict.
+
+Respond ONLY with a JSON object (no markdown fencing, no extra text):
+{
+  "status": "HEALTHY" | "DEGRADED" | "FAILED",
+  "reasoning": "<one-paragraph explanation>"
+}
+
+Rules:
+- HEALTHY: Agent is making reasonable progress; commits present; no red flags.
+- DEGRADED: Minor concerns — e.g. no recent commits, stale output, contract \
+tasks still pending after a long time. Use this when there's risk but not \
+certainty of failure.
+- FAILED: Clear signs of stuck agent — e.g. repeated errors in outputs, \
+no commits and no drafts, contradictory state.
+- Be concise. One paragraph for reasoning.
+"""
+
+
+def _read_context() -> dict:
+    """Read inspector context from file or stdin."""
+    context_path = os.environ.get("EGG_INSPECTOR_CONTEXT_PATH")
+    if context_path:
+        with open(context_path) as f:
+            return json.load(f)
+    else:
+        return json.load(sys.stdin)
+
+
+def _call_claude_api(user_prompt: str) -> str:
+    """Call the Anthropic Messages API and return text response."""
+    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+    base_url = os.environ.get("ANTHROPIC_BASE_URL", "https://api.anthropic.com").rstrip("/")
+    model = os.environ.get("HEALTH_CHECK_MODEL", _DEFAULT_MODEL)
+
+    headers = {
+        "x-api-key": api_key,
+        "anthropic-version": "2023-06-01",
+        "content-type": "application/json",
+    }
+
+    payload = {
+        "model": model,
+        "max_tokens": 512,
+        "system": _SYSTEM_PROMPT,
+        "messages": [{"role": "user", "content": user_prompt}],
+    }
+
+    last_exc: Exception | None = None
+    for attempt in range(_MAX_RETRIES + 1):
+        try:
+            resp = httpx.post(
+                f"{base_url}/v1/messages",
+                headers=headers,
+                json=payload,
+                timeout=_API_TIMEOUT,
+            )
+            resp.raise_for_status()
+            body = resp.json()
+            content_blocks = body.get("content", [])
+            if content_blocks and isinstance(content_blocks, list):
+                return str(content_blocks[0].get("text", ""))
+            return ""
+        except (httpx.TimeoutException, httpx.HTTPStatusError) as exc:
+            last_exc = exc
+            if attempt < _MAX_RETRIES:
+                print(
+                    f"API attempt {attempt + 1} failed: {exc}",
+                    file=sys.stderr,
+                )
+                continue
+            raise
+        except Exception:
+            raise
+
+    if last_exc:
+        raise last_exc
+    return ""
+
+
+def main() -> int:
+    """Read context, call Claude API, output verdict JSON."""
+    try:
+        context = _read_context()
+    except Exception as exc:
+        print(f"Failed to read context: {exc}", file=sys.stderr)
+        return 1
+
+    # Build user prompt from context fields
+    parts: list[str] = []
+    parts.append(f"Pipeline: {context.get('pipeline_id', 'unknown')}")
+    parts.append(f"Phase: {context.get('current_phase', 'unknown')}")
+    parts.append(f"Branch: {context.get('branch', 'unknown')}")
+    parts.append(f"Trigger: {context.get('trigger', 'unknown')}")
+    parts.append("")
+
+    if context.get("git_log"):
+        parts.append("## Recent Commits")
+        parts.append(context["git_log"])
+        parts.append("")
+
+    if context.get("git_diff_stat"):
+        parts.append("## Diff Stats (vs main)")
+        parts.append(context["git_diff_stat"])
+        parts.append("")
+
+    if context.get("agent_outputs"):
+        parts.append("## Agent Output Files")
+        for name, content in context["agent_outputs"].items():
+            parts.append(f"### {name}")
+            parts.append(str(content)[:2000])
+            parts.append("")
+    else:
+        parts.append("## Agent Output Files")
+        parts.append("(none found)")
+        parts.append("")
+
+    if context.get("contract_summary"):
+        parts.append("## Contract State")
+        parts.append(json.dumps(context["contract_summary"], indent=2, default=str)[:3000])
+        parts.append("")
+
+    user_prompt = "\n".join(parts)
+
+    try:
+        response_text = _call_claude_api(user_prompt)
+    except Exception as exc:
+        print(f"API call failed: {exc}", file=sys.stderr)
+        return 1
+
+    # Output verdict to stdout
+    json.dump(
+        {"raw_response": response_text},
+        sys.stdout,
+    )
+    print()  # trailing newline
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

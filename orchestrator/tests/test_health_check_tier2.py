@@ -4,9 +4,10 @@ Covers:
 - Context assembly: contract loading, truncation, lazy evaluation
 - Prompt construction: all fields present, caps respected
 - Verdict parsing: valid JSON, malformed JSON, missing fields, code fences
-- AgentInspectorCheck: healthy/degraded/failed verdicts, API timeout,
-  API errors, graceful degradation, event emission
+- AgentInspectorCheck: healthy/degraded/failed verdicts, container timeout,
+  container errors, graceful degradation, event emission
 - Escalation logic: runner integration with Tier 2
+- Container delegation: _serialize_context, _parse_container_output
 """
 
 import json
@@ -32,8 +33,9 @@ from health_checks.runner import HealthCheckRunner
 from health_checks.tier2.agent_inspector import (
     AgentInspectorCheck,
     _build_user_prompt,
-    _call_claude_api,
+    _parse_container_output,
     _parse_verdict,
+    _serialize_context,
 )
 from health_checks.types import (
     HealthAction,
@@ -84,23 +86,6 @@ def _make_context(
         repo_path=repo_path,
         trigger=trigger,
     )
-
-
-def _mock_httpx_response(status_code: int = 200, json_body: dict | None = None):
-    """Create a mock httpx Response."""
-    resp = MagicMock()
-    resp.status_code = status_code
-    resp.raise_for_status = MagicMock()
-    if status_code >= 400:
-        import httpx
-
-        resp.raise_for_status.side_effect = httpx.HTTPStatusError(
-            f"HTTP {status_code}",
-            request=MagicMock(),
-            response=resp,
-        )
-    resp.json.return_value = json_body or {}
-    return resp
 
 
 # ===========================================================================
@@ -459,134 +444,126 @@ class TestParseVerdict:
 
 
 # ===========================================================================
-# 4. Claude API Call Tests
+# 4. Container Output Parsing Tests
 # ===========================================================================
 
 
-class TestCallClaudeApi:
-    """Tests for _call_claude_api with mocked httpx."""
+class TestParseContainerOutput:
+    """Tests for _parse_container_output."""
 
-    @patch("health_checks.tier2.agent_inspector.httpx")
-    def test_successful_api_call(self, mock_httpx):
-        """Successful API call returns text content."""
-        mock_resp = _mock_httpx_response(
-            200,
-            {"content": [{"type": "text", "text": '{"status": "HEALTHY", "reasoning": "OK"}'}]},
-        )
-        mock_httpx.post.return_value = mock_resp
-
-        result = _call_claude_api("test prompt", api_key="sk-ant-test123")
+    def test_simple_json_output(self):
+        """Parses plain JSON output from container."""
+        logs = '{"raw_response": "{\\"status\\": \\"HEALTHY\\", \\"reasoning\\": \\"OK\\"}"}\n'
+        result = _parse_container_output(logs)
         assert '"HEALTHY"' in result
-        mock_httpx.post.assert_called_once()
 
-    @patch("health_checks.tier2.agent_inspector.httpx")
-    def test_api_sends_correct_headers(self, mock_httpx):
-        """API call sends correct Anthropic headers."""
-        mock_resp = _mock_httpx_response(200, {"content": [{"type": "text", "text": "ok"}]})
-        mock_httpx.post.return_value = mock_resp
+    def test_json_with_docker_timestamp(self):
+        """Parses JSON with Docker timestamp prefix."""
+        logs = '2024-01-01T00:00:00.000000000Z {"raw_response": "verdict text"}\n'
+        result = _parse_container_output(logs)
+        assert result == "verdict text"
 
-        _call_claude_api("test", api_key="sk-ant-key", base_url="https://custom.api.com")
+    def test_multiline_logs_finds_json(self):
+        """Finds JSON line among other log output."""
+        logs = (
+            "2024-01-01T00:00:00Z Starting inspector...\n"
+            "2024-01-01T00:00:01Z Processing context\n"
+            '2024-01-01T00:00:02Z {"raw_response": "the verdict"}\n'
+        )
+        result = _parse_container_output(logs)
+        assert result == "the verdict"
 
-        call_args = mock_httpx.post.call_args
-        assert call_args[0][0] == "https://custom.api.com/v1/messages"
-        headers = call_args[1]["headers"]
-        assert headers["x-api-key"] == "sk-ant-key"
-        assert headers["anthropic-version"] == "2023-06-01"
-
-    @patch("health_checks.tier2.agent_inspector.httpx")
-    def test_api_sends_correct_model(self, mock_httpx):
-        """API call uses specified model."""
-        mock_resp = _mock_httpx_response(200, {"content": [{"type": "text", "text": "ok"}]})
-        mock_httpx.post.return_value = mock_resp
-
-        _call_claude_api("test", api_key="sk-ant-key", model="claude-sonnet-4-20250514")
-
-        payload = mock_httpx.post.call_args[1]["json"]
-        assert payload["model"] == "claude-sonnet-4-20250514"
-
-    @patch("health_checks.tier2.agent_inspector.httpx")
-    def test_api_timeout_raises(self, mock_httpx):
-        """Timeout exception propagates after retries."""
-        import httpx
+    def test_no_json_raises_value_error(self):
+        """Raises ValueError when no JSON found."""
         import pytest
 
-        mock_httpx.TimeoutException = httpx.TimeoutException
-        mock_httpx.HTTPStatusError = httpx.HTTPStatusError
-        mock_httpx.post.side_effect = httpx.TimeoutException("Connection timed out")
+        logs = "Just some log lines\nNo JSON here\n"
+        with pytest.raises(ValueError, match="No valid JSON found"):
+            _parse_container_output(logs)
 
-        with pytest.raises(httpx.TimeoutException):
-            _call_claude_api("test", api_key="sk-ant-key")
-        # Should have retried once (2 calls total)
-        assert mock_httpx.post.call_count == 2
-
-    @patch("health_checks.tier2.agent_inspector.httpx")
-    def test_api_http_error_raises(self, mock_httpx):
-        """HTTP 500 errors propagate after retries."""
-        import httpx
-        import pytest
-
-        mock_httpx.TimeoutException = httpx.TimeoutException
-        mock_httpx.HTTPStatusError = httpx.HTTPStatusError
-
-        mock_resp = _mock_httpx_response(500)
-        mock_httpx.post.return_value = mock_resp
-
-        with pytest.raises(httpx.HTTPStatusError):
-            _call_claude_api("test", api_key="sk-ant-key")
-        # Should have retried once (2 calls total)
-        assert mock_httpx.post.call_count == 2
-
-    @patch("health_checks.tier2.agent_inspector.httpx")
-    def test_api_empty_content_blocks(self, mock_httpx):
-        """Empty content blocks return empty string."""
-        mock_resp = _mock_httpx_response(200, {"content": []})
-        mock_httpx.post.return_value = mock_resp
-
-        result = _call_claude_api("test", api_key="sk-ant-key")
+    def test_empty_raw_response(self):
+        """Returns empty string for empty raw_response."""
+        logs = '{"raw_response": ""}\n'
+        result = _parse_container_output(logs)
         assert result == ""
 
-    @patch("health_checks.tier2.agent_inspector.httpx")
-    def test_api_uses_env_vars(self, mock_httpx):
-        """Falls back to env vars for config."""
-        mock_resp = _mock_httpx_response(200, {"content": [{"type": "text", "text": "ok"}]})
-        mock_httpx.post.return_value = mock_resp
 
-        with patch.dict(
-            "os.environ",
-            {
-                "ANTHROPIC_API_KEY": "sk-ant-env-key",
-                "ANTHROPIC_BASE_URL": "https://env.api.com",
-                "HEALTH_CHECK_MODEL": "claude-3-haiku-20240307",
-            },
-        ):
-            _call_claude_api("test")
+# ===========================================================================
+# 5. Context Serialization Tests
+# ===========================================================================
 
-        call_args = mock_httpx.post.call_args
-        assert call_args[0][0] == "https://env.api.com/v1/messages"
-        assert call_args[1]["headers"]["x-api-key"] == "sk-ant-env-key"
-        assert call_args[1]["json"]["model"] == "claude-3-haiku-20240307"
 
-    @patch("health_checks.tier2.agent_inspector.httpx")
-    def test_retry_then_success(self, mock_httpx):
-        """First attempt fails, retry succeeds."""
-        import httpx
+class TestSerializeContext:
+    """Tests for _serialize_context."""
 
-        mock_httpx.TimeoutException = httpx.TimeoutException
-        mock_httpx.HTTPStatusError = httpx.HTTPStatusError
+    def test_basic_fields(self, tmp_path):
+        """Serialized context includes all basic fields."""
+        ctx = _make_context(repo_path=tmp_path)
+        payload = _serialize_context(ctx)
 
-        success_resp = _mock_httpx_response(200, {"content": [{"type": "text", "text": "success"}]})
-        mock_httpx.post.side_effect = [
-            httpx.TimeoutException("timeout"),
-            success_resp,
-        ]
+        assert payload["pipeline_id"] == "issue-99"
+        assert payload["current_phase"] == "implement"
+        assert payload["branch"] == "egg/issue-99"
+        assert payload["trigger"] == "phase_complete"
 
-        result = _call_claude_api("test", api_key="sk-ant-key")
-        assert result == "success"
-        assert mock_httpx.post.call_count == 2
+    def test_contract_summary_filters_keys(self, tmp_path):
+        """Only specific contract keys appear in the serialized summary."""
+        state_dir = tmp_path / ".egg-state" / "contracts"
+        state_dir.mkdir(parents=True)
+        contract = {
+            "current_phase": "implement",
+            "acceptance_criteria": ["Tests pass"],
+            "decisions": [],
+            "agent_executions": [],
+            "schema_version": "1.0",
+            "internal_stuff": "excluded",
+        }
+        (state_dir / "99.json").write_text(json.dumps(contract))
+
+        pipeline = Pipeline(
+            id="issue-99",
+            issue_number=99,
+            repo=None,
+            branch="egg/issue-99",
+            mode="issue",
+            status=PipelineStatus.RUNNING,
+            current_phase=PipelinePhase.IMPLEMENT,
+        )
+        ctx = PipelineHealthContext(
+            pipeline=pipeline,
+            repo_path=tmp_path,
+            trigger="phase_complete",
+        )
+        payload = _serialize_context(ctx)
+        summary = payload["contract_summary"]
+
+        assert "current_phase" in summary
+        assert "acceptance_criteria" in summary
+        assert "schema_version" not in summary
+        assert "internal_stuff" not in summary
+
+    def test_branch_none_becomes_unknown(self, tmp_path):
+        """None branch is serialized as 'unknown'."""
+        pipeline = Pipeline(
+            id="test",
+            issue_number=1,
+            repo=None,
+            branch=None,
+            mode="issue",
+            status=PipelineStatus.RUNNING,
+            current_phase=PipelinePhase.IMPLEMENT,
+        )
+        ctx = PipelineHealthContext(
+            pipeline=pipeline,
+            repo_path=tmp_path,
+            trigger="on_demand",
+        )
+        payload = _serialize_context(ctx)
+        assert payload["branch"] == "unknown"
 
 
 # ===========================================================================
-# 5. AgentInspectorCheck Integration Tests
+# 6. AgentInspectorCheck Integration Tests (container delegation)
 # ===========================================================================
 
 
@@ -603,9 +580,9 @@ class TestAgentInspectorCheck:
         assert HealthTrigger.PHASE_COMPLETE in check.triggers
         assert HealthTrigger.ON_DEMAND in check.triggers
 
-    @patch("health_checks.tier2.agent_inspector._call_claude_api")
-    def test_healthy_verdict_returns_healthy(self, mock_api, tmp_path):
-        mock_api.return_value = '{"status": "HEALTHY", "reasoning": "Everything looks fine."}'
+    @patch("health_checks.tier2.agent_inspector._run_inspector_container")
+    def test_healthy_verdict_returns_healthy(self, mock_run, tmp_path):
+        mock_run.return_value = '{"raw_response": "{\\"status\\": \\"HEALTHY\\", \\"reasoning\\": \\"Everything looks fine.\\"}"}\n'
 
         check = AgentInspectorCheck()
         ctx = _make_context(repo_path=tmp_path)
@@ -617,9 +594,9 @@ class TestAgentInspectorCheck:
         assert result.action == HealthAction.CONTINUE
         assert "Everything looks fine" in result.reasoning
 
-    @patch("health_checks.tier2.agent_inspector._call_claude_api")
-    def test_degraded_verdict_returns_alert(self, mock_api, tmp_path):
-        mock_api.return_value = '{"status": "DEGRADED", "reasoning": "Stale output files."}'
+    @patch("health_checks.tier2.agent_inspector._run_inspector_container")
+    def test_degraded_verdict_returns_alert(self, mock_run, tmp_path):
+        mock_run.return_value = '{"raw_response": "{\\"status\\": \\"DEGRADED\\", \\"reasoning\\": \\"Stale output files.\\"}"}\n'
 
         check = AgentInspectorCheck()
         result = check.run(_make_context(repo_path=tmp_path))
@@ -628,10 +605,10 @@ class TestAgentInspectorCheck:
         assert result.action == HealthAction.ALERT
         assert "Stale output" in result.reasoning
 
-    @patch("health_checks.tier2.agent_inspector._call_claude_api")
-    def test_failed_verdict_returns_alert_not_fail_pipeline(self, mock_api, tmp_path):
+    @patch("health_checks.tier2.agent_inspector._run_inspector_container")
+    def test_failed_verdict_returns_alert_not_fail_pipeline(self, mock_run, tmp_path):
         """FAILED verdict returns ALERT action (not FAIL_PIPELINE per design)."""
-        mock_api.return_value = '{"status": "FAILED", "reasoning": "Agent is stuck."}'
+        mock_run.return_value = '{"raw_response": "{\\"status\\": \\"FAILED\\", \\"reasoning\\": \\"Agent is stuck.\\"}"}\n'
 
         check = AgentInspectorCheck()
         result = check.run(_make_context(repo_path=tmp_path))
@@ -640,12 +617,10 @@ class TestAgentInspectorCheck:
         assert result.action == HealthAction.ALERT  # NOT FAIL_PIPELINE
         assert "stuck" in result.reasoning
 
-    @patch("health_checks.tier2.agent_inspector._call_claude_api")
-    def test_api_timeout_graceful_degradation(self, mock_api, tmp_path):
-        """API timeout results in HEALTHY with warning (graceful degradation)."""
-        import httpx
-
-        mock_api.side_effect = httpx.TimeoutException("Connection timed out")
+    @patch("health_checks.tier2.agent_inspector._run_inspector_container")
+    def test_container_timeout_graceful_degradation(self, mock_run, tmp_path):
+        """Container timeout results in HEALTHY with warning (graceful degradation)."""
+        mock_run.side_effect = RuntimeError("Wait failed: timeout")
 
         check = AgentInspectorCheck()
         result = check.run(_make_context(repo_path=tmp_path))
@@ -655,16 +630,10 @@ class TestAgentInspectorCheck:
         assert "unavailable" in result.reasoning
         assert result.details.get("graceful_degradation") is True
 
-    @patch("health_checks.tier2.agent_inspector._call_claude_api")
-    def test_api_http_error_graceful_degradation(self, mock_api, tmp_path):
-        """HTTP error results in HEALTHY with warning."""
-        import httpx
-
-        mock_api.side_effect = httpx.HTTPStatusError(
-            "500 Internal Server Error",
-            request=MagicMock(),
-            response=MagicMock(status_code=500),
-        )
+    @patch("health_checks.tier2.agent_inspector._run_inspector_container")
+    def test_container_spawn_error_graceful_degradation(self, mock_run, tmp_path):
+        """Container spawn error results in HEALTHY with warning."""
+        mock_run.side_effect = Exception("Failed to spawn container: gateway unhealthy")
 
         check = AgentInspectorCheck()
         result = check.run(_make_context(repo_path=tmp_path))
@@ -674,32 +643,34 @@ class TestAgentInspectorCheck:
         assert "unavailable" in result.reasoning
         assert "error" in result.details
 
-    @patch("health_checks.tier2.agent_inspector._call_claude_api")
-    def test_malformed_response_graceful_healthy(self, mock_api, tmp_path):
-        """Malformed API response defaults to HEALTHY."""
-        mock_api.return_value = "This is not JSON at all"
+    @patch("health_checks.tier2.agent_inspector._run_inspector_container")
+    def test_malformed_container_output_graceful(self, mock_run, tmp_path):
+        """Malformed container output triggers graceful degradation."""
+        mock_run.return_value = "Not JSON at all\nJust garbage\n"
+
+        check = AgentInspectorCheck()
+        result = check.run(_make_context(repo_path=tmp_path))
+
+        # _parse_container_output raises ValueError → caught by outer except
+        assert result.status == HealthStatus.HEALTHY
+        assert result.details.get("graceful_degradation") is True
+
+    @patch("health_checks.tier2.agent_inspector._run_inspector_container")
+    def test_container_nonzero_exit_graceful(self, mock_run, tmp_path):
+        """Container exiting non-zero triggers graceful degradation."""
+        mock_run.side_effect = RuntimeError("Inspector container exited with code 1")
 
         check = AgentInspectorCheck()
         result = check.run(_make_context(repo_path=tmp_path))
 
         assert result.status == HealthStatus.HEALTHY
-        assert "Could not parse" in result.reasoning
+        assert result.details.get("graceful_degradation") is True
 
-    @patch("health_checks.tier2.agent_inspector._call_claude_api")
-    def test_empty_response_graceful_healthy(self, mock_api, tmp_path):
-        """Empty API response defaults to HEALTHY."""
-        mock_api.return_value = ""
-
-        check = AgentInspectorCheck()
-        result = check.run(_make_context(repo_path=tmp_path))
-
-        assert result.status == HealthStatus.HEALTHY
-
-    @patch("health_checks.tier2.agent_inspector._call_claude_api")
-    def test_result_includes_raw_response(self, mock_api, tmp_path):
+    @patch("health_checks.tier2.agent_inspector._run_inspector_container")
+    def test_result_includes_raw_response(self, mock_run, tmp_path):
         """Result details include raw_response for debugging."""
         raw = '{"status": "HEALTHY", "reasoning": "OK"}'
-        mock_api.return_value = raw
+        mock_run.return_value = '{"raw_response": ' + json.dumps(raw) + "}\n"
 
         check = AgentInspectorCheck()
         result = check.run(_make_context(repo_path=tmp_path))
@@ -707,10 +678,12 @@ class TestAgentInspectorCheck:
         assert "raw_response" in result.details
         assert result.details["raw_response"] == raw
 
-    @patch("health_checks.tier2.agent_inspector._call_claude_api")
-    def test_result_serializes_to_dict(self, mock_api, tmp_path):
+    @patch("health_checks.tier2.agent_inspector._run_inspector_container")
+    def test_result_serializes_to_dict(self, mock_run, tmp_path):
         """Result to_dict() contains all required fields for SSE."""
-        mock_api.return_value = '{"status": "DEGRADED", "reasoning": "Concern."}'
+        mock_run.return_value = (
+            '{"raw_response": "{\\"status\\": \\"DEGRADED\\", \\"reasoning\\": \\"Concern.\\"}"}\n'
+        )
 
         check = AgentInspectorCheck()
         result = check.run(_make_context(repo_path=tmp_path))
@@ -723,10 +696,10 @@ class TestAgentInspectorCheck:
         assert d["action"] == "alert"
         assert "timestamp" in d
 
-    @patch("health_checks.tier2.agent_inspector._call_claude_api")
-    def test_generic_exception_graceful_degradation(self, mock_api, tmp_path):
+    @patch("health_checks.tier2.agent_inspector._run_inspector_container")
+    def test_generic_exception_graceful_degradation(self, mock_run, tmp_path):
         """Any unexpected exception results in HEALTHY with warning."""
-        mock_api.side_effect = RuntimeError("Unexpected error")
+        mock_run.side_effect = RuntimeError("Unexpected error")
 
         check = AgentInspectorCheck()
         result = check.run(_make_context(repo_path=tmp_path))
@@ -738,7 +711,7 @@ class TestAgentInspectorCheck:
 
 
 # ===========================================================================
-# 6. Escalation Logic Tests (Runner + Tier 2)
+# 7. Escalation Logic Tests (Runner + Tier 2)
 # ===========================================================================
 
 
@@ -950,17 +923,19 @@ class TestEscalationLogic:
 
 
 # ===========================================================================
-# 7. Event Emission Tests
+# 8. Event Emission Tests
 # ===========================================================================
 
 
 class TestEventEmission:
     """Tests that Tier 2 results are emitted to EventBus for SSE."""
 
-    @patch("health_checks.tier2.agent_inspector._call_claude_api")
-    def test_tier2_events_emitted(self, mock_api, tmp_path):
+    @patch("health_checks.tier2.agent_inspector._run_inspector_container")
+    def test_tier2_events_emitted(self, mock_run, tmp_path):
         """Tier 2 check results are emitted via EventBus."""
-        mock_api.return_value = '{"status": "DEGRADED", "reasoning": "Concern."}'
+        mock_run.return_value = (
+            '{"raw_response": "{\\"status\\": \\"DEGRADED\\", \\"reasoning\\": \\"Concern.\\"}"}\n'
+        )
 
         runner = HealthCheckRunner()
         runner.register(_AlwaysHealthyTier1())
@@ -997,10 +972,12 @@ class TestEventEmission:
         assert "reasoning" in payload
         assert payload["action"] == "alert"
 
-    @patch("health_checks.tier2.agent_inspector._call_claude_api")
-    def test_aggregate_event_includes_tier2(self, mock_api, tmp_path):
+    @patch("health_checks.tier2.agent_inspector._run_inspector_container")
+    def test_aggregate_event_includes_tier2(self, mock_run, tmp_path):
         """Aggregate COMPLETED event includes Tier 2 results."""
-        mock_api.return_value = '{"status": "HEALTHY", "reasoning": "OK."}'
+        mock_run.return_value = (
+            '{"raw_response": "{\\"status\\": \\"HEALTHY\\", \\"reasoning\\": \\"OK.\\"}"}\n'
+        )
 
         runner = HealthCheckRunner()
         runner.register(_AlwaysHealthyTier1())
@@ -1031,17 +1008,17 @@ class TestEventEmission:
 
 
 # ===========================================================================
-# 8. Edge Cases
+# 9. Edge Cases
 # ===========================================================================
 
 
 class TestEdgeCases:
     """Edge case tests for Tier 2 health checks."""
 
-    @patch("health_checks.tier2.agent_inspector._call_claude_api")
-    def test_no_api_key_graceful_degradation(self, mock_api, tmp_path):
-        """Missing API key still triggers graceful degradation."""
-        mock_api.side_effect = Exception("No API key configured")
+    @patch("health_checks.tier2.agent_inspector._run_inspector_container")
+    def test_container_failure_graceful_degradation(self, mock_run, tmp_path):
+        """Container failure still triggers graceful degradation."""
+        mock_run.side_effect = Exception("Container spawn failed")
 
         check = AgentInspectorCheck()
         result = check.run(_make_context(repo_path=tmp_path))
@@ -1069,12 +1046,12 @@ class TestEdgeCases:
         assert ctx.agent_outputs == {}
         assert ctx.contract == {}
 
-    @patch("health_checks.tier2.agent_inspector._call_claude_api")
-    def test_concurrent_safety_multiple_runs(self, mock_api, tmp_path):
+    @patch("health_checks.tier2.agent_inspector._run_inspector_container")
+    def test_concurrent_safety_multiple_runs(self, mock_run, tmp_path):
         """Multiple runs of the check don't share state unsafely."""
-        mock_api.side_effect = [
-            '{"status": "HEALTHY", "reasoning": "Run 1 OK."}',
-            '{"status": "DEGRADED", "reasoning": "Run 2 concern."}',
+        mock_run.side_effect = [
+            '{"raw_response": "{\\"status\\": \\"HEALTHY\\", \\"reasoning\\": \\"Run 1 OK.\\"}"}\n',
+            '{"raw_response": "{\\"status\\": \\"DEGRADED\\", \\"reasoning\\": \\"Run 2 concern.\\"}"}\n',
         ]
 
         check = AgentInspectorCheck()
@@ -1085,11 +1062,11 @@ class TestEdgeCases:
         assert r2.status == HealthStatus.DEGRADED
         assert r1 is not r2
 
-    @patch("health_checks.tier2.agent_inspector._call_claude_api")
-    def test_raw_response_truncated_in_details(self, mock_api, tmp_path):
+    @patch("health_checks.tier2.agent_inspector._run_inspector_container")
+    def test_raw_response_truncated_in_details(self, mock_run, tmp_path):
         """Raw response in details is capped at 500 chars."""
-        long_response = '{"status": "HEALTHY", "reasoning": "' + "x" * 1000 + '"}'
-        mock_api.return_value = long_response
+        long_verdict = '{"status": "HEALTHY", "reasoning": "' + "x" * 1000 + '"}'
+        mock_run.return_value = '{"raw_response": ' + json.dumps(long_verdict) + "}\n"
 
         check = AgentInspectorCheck()
         result = check.run(_make_context(repo_path=tmp_path))

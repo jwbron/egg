@@ -3679,7 +3679,7 @@ def get_anthropic_client() -> httpx.Client:
     global _anthropic_client
     if _anthropic_client is None:
         _anthropic_client = httpx.Client(
-            base_url="https://api.anthropic.com",
+            base_url="https://api.anthropic.com",  # noqa: EGG200 - gateway proxy client, not direct LLM call
             timeout=httpx.Timeout(120.0, connect=10.0),
             limits=httpx.Limits(max_connections=100, max_keepalive_connections=20),
         )

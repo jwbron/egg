@@ -6,8 +6,7 @@ Covers gaps in the coder-authored test_health_check_tier2.py:
   per-file cap, git_log/git_diff_stat laziness, _run_git repo resolution
 - Prompt construction: trigger field, contract key filtering, contract cap,
   branch=None
-- API call: non-retryable exceptions, trailing-slash URL, system prompt in
-  payload, max_tokens, default model
+- Container delegation: container output parsing, context serialization
 - Event emission: per-status event types, bus=None no-op, runner catches
   Tier 2 exceptions
 - Route integration: pipeline health check endpoint invokes Tier 2
@@ -15,7 +14,6 @@ Covers gaps in the coder-authored test_health_check_tier2.py:
 """
 
 import json
-import os
 import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -40,8 +38,9 @@ from health_checks.runner import HealthCheckRunner, worst_action
 from health_checks.tier2.agent_inspector import (
     AgentInspectorCheck,
     _build_user_prompt,
-    _call_claude_api,
+    _parse_container_output,
     _parse_verdict,
+    _serialize_context,
 )
 from health_checks.types import (
     HealthAction,
@@ -535,133 +534,100 @@ class TestParseVerdictExtended:
 
 
 # ===========================================================================
-# 6. API Call — extended coverage
+# 6. Container Output Parsing — extended coverage
 # ===========================================================================
 
 
-class TestCallClaudeApiExtended:
-    """Extended tests for _call_claude_api."""
+class TestParseContainerOutputExtended:
+    """Extended tests for _parse_container_output."""
 
-    @patch("health_checks.tier2.agent_inspector.httpx")
-    def test_non_retryable_exception_raises_immediately(self, mock_httpx):
-        """Generic Exception (not Timeout/HTTPStatusError) raises without retry."""
-        mock_httpx.post.side_effect = ValueError("Unexpected error")
-        # Need to set these so the except clause can match properly
-        import httpx
+    def test_json_without_timestamp(self):
+        """Parses JSON without any timestamp prefix."""
+        logs = '{"raw_response": "test verdict"}\n'
+        result = _parse_container_output(logs)
+        assert result == "test verdict"
 
-        mock_httpx.TimeoutException = httpx.TimeoutException
-        mock_httpx.HTTPStatusError = httpx.HTTPStatusError
+    def test_multiple_json_lines_picks_last(self):
+        """When multiple JSON lines, picks the last one (most recent)."""
+        logs = '{"raw_response": "first"}\n{"raw_response": "second"}\n'
+        result = _parse_container_output(logs)
+        assert result == "second"
 
-        with pytest.raises(ValueError, match="Unexpected error"):
-            _call_claude_api("test", api_key="sk-ant-key")
-        # Only 1 attempt — no retry for non-transient errors
-        assert mock_httpx.post.call_count == 1
+    def test_missing_raw_response_returns_empty(self):
+        """Missing raw_response key returns empty string."""
+        logs = '{"other_key": "value"}\n'
+        result = _parse_container_output(logs)
+        assert result == ""
 
-    @patch("health_checks.tier2.agent_inspector.httpx")
-    def test_base_url_trailing_slash_stripped(self, mock_httpx):
-        """Trailing slash in base_url is stripped before appending path."""
-        mock_resp = MagicMock()
-        mock_resp.status_code = 200
-        mock_resp.raise_for_status = MagicMock()
-        mock_resp.json.return_value = {"content": [{"type": "text", "text": "ok"}]}
-        mock_httpx.post.return_value = mock_resp
+    def test_invalid_json_lines_skipped(self):
+        """Invalid JSON lines are skipped, valid one is found."""
+        logs = 'Some log output\n{broken json\n{"raw_response": "found it"}\n'
+        result = _parse_container_output(logs)
+        assert result == "found it"
 
-        _call_claude_api("test", api_key="key", base_url="https://api.example.com/")
+    def test_empty_logs_raises(self):
+        """Empty logs raise ValueError."""
+        with pytest.raises(ValueError, match="No valid JSON found"):
+            _parse_container_output("")
 
-        url_called = mock_httpx.post.call_args[0][0]
-        assert url_called == "https://api.example.com/v1/messages"
-        assert "//" not in url_called.replace("https://", "")
-
-    @patch("health_checks.tier2.agent_inspector.httpx")
-    def test_payload_includes_system_prompt(self, mock_httpx):
-        """API payload includes the system prompt."""
-        mock_resp = MagicMock()
-        mock_resp.status_code = 200
-        mock_resp.raise_for_status = MagicMock()
-        mock_resp.json.return_value = {"content": [{"type": "text", "text": "ok"}]}
-        mock_httpx.post.return_value = mock_resp
-
-        _call_claude_api("test prompt", api_key="key")
-
-        payload = mock_httpx.post.call_args[1]["json"]
-        assert "system" in payload
-        assert "pipeline health inspector" in payload["system"]
-
-    @patch("health_checks.tier2.agent_inspector.httpx")
-    def test_payload_max_tokens_is_512(self, mock_httpx):
-        """API payload requests max_tokens=512."""
-        mock_resp = MagicMock()
-        mock_resp.status_code = 200
-        mock_resp.raise_for_status = MagicMock()
-        mock_resp.json.return_value = {"content": [{"type": "text", "text": "ok"}]}
-        mock_httpx.post.return_value = mock_resp
-
-        _call_claude_api("test", api_key="key")
-
-        payload = mock_httpx.post.call_args[1]["json"]
-        assert payload["max_tokens"] == 512
-
-    @patch("health_checks.tier2.agent_inspector.httpx")
-    def test_default_model_is_claude_sonnet(self, mock_httpx):
-        """Default model is claude-sonnet-4-20250514 when no env var set."""
-        mock_resp = MagicMock()
-        mock_resp.status_code = 200
-        mock_resp.raise_for_status = MagicMock()
-        mock_resp.json.return_value = {"content": [{"type": "text", "text": "ok"}]}
-        mock_httpx.post.return_value = mock_resp
-
-        # Ensure env vars are cleared
-        env = {k: v for k, v in os.environ.items() if k != "HEALTH_CHECK_MODEL"}
-        with patch.dict("os.environ", env, clear=True):
-            _call_claude_api("test", api_key="key")
-
-        payload = mock_httpx.post.call_args[1]["json"]
-        assert payload["model"] == "claude-sonnet-4-20250514"
-
-    @patch("health_checks.tier2.agent_inspector.httpx")
-    def test_timeout_value_is_30_seconds(self, mock_httpx):
-        """API call uses 30-second timeout."""
-        mock_resp = MagicMock()
-        mock_resp.status_code = 200
-        mock_resp.raise_for_status = MagicMock()
-        mock_resp.json.return_value = {"content": [{"type": "text", "text": "ok"}]}
-        mock_httpx.post.return_value = mock_resp
-
-        _call_claude_api("test", api_key="key")
-
-        call_kwargs = mock_httpx.post.call_args[1]
-        assert call_kwargs["timeout"] == 30
-
-    @patch("health_checks.tier2.agent_inspector.httpx")
-    def test_user_prompt_forwarded_to_api(self, mock_httpx):
-        """User prompt is included in the messages array."""
-        mock_resp = MagicMock()
-        mock_resp.status_code = 200
-        mock_resp.raise_for_status = MagicMock()
-        mock_resp.json.return_value = {"content": [{"type": "text", "text": "ok"}]}
-        mock_httpx.post.return_value = mock_resp
-
-        _call_claude_api("Analyze this pipeline", api_key="key")
-
-        payload = mock_httpx.post.call_args[1]["json"]
-        messages = payload["messages"]
-        assert len(messages) == 1
-        assert messages[0]["role"] == "user"
-        assert messages[0]["content"] == "Analyze this pipeline"
+    def test_only_whitespace_raises(self):
+        """Whitespace-only logs raise ValueError."""
+        with pytest.raises(ValueError, match="No valid JSON found"):
+            _parse_container_output("   \n  \n  ")
 
 
 # ===========================================================================
-# 7. AgentInspectorCheck — extended coverage
+# 7. Context Serialization — extended coverage
+# ===========================================================================
+
+
+class TestSerializeContextExtended:
+    """Extended tests for _serialize_context."""
+
+    def test_git_log_included(self, tmp_path):
+        """Serialized context includes git log."""
+        ctx = _ctx(repo_path=tmp_path)
+        with patch.object(ctx, "_run_git", return_value="abc1234 commit msg"):
+            _ = ctx.git_log
+        payload = _serialize_context(ctx)
+        assert "abc1234 commit msg" in payload["git_log"]
+
+    def test_empty_contract_gives_empty_summary(self, tmp_path):
+        """Empty contract produces empty contract_summary."""
+        ctx = _ctx(repo_path=tmp_path)
+        payload = _serialize_context(ctx)
+        assert payload["contract_summary"] == {}
+
+    def test_agent_outputs_included(self, tmp_path):
+        """Agent outputs are included in serialized context."""
+        drafts = tmp_path / ".egg-state" / "drafts"
+        drafts.mkdir(parents=True)
+        (drafts / "plan.md").write_text("plan content")
+
+        pipeline = _pipeline(repo=None)
+        ctx = PipelineHealthContext(
+            pipeline=pipeline,
+            repo_path=tmp_path,
+            trigger="phase_complete",
+        )
+        payload = _serialize_context(ctx)
+        assert "plan.md" in payload["agent_outputs"]
+
+
+# ===========================================================================
+# 8. AgentInspectorCheck — extended coverage
 # ===========================================================================
 
 
 class TestAgentInspectorCheckExtended:
     """Extended tests for AgentInspectorCheck.run()."""
 
-    @patch("health_checks.tier2.agent_inspector._call_claude_api")
-    def test_prompt_built_from_context(self, mock_api, tmp_path):
-        """Verifies _build_user_prompt is called with the context."""
-        mock_api.return_value = '{"status": "HEALTHY", "reasoning": "OK"}'
+    @patch("health_checks.tier2.agent_inspector._run_inspector_container")
+    def test_prompt_serialization_called(self, mock_run, tmp_path):
+        """Verifies _serialize_context is called with the context."""
+        mock_run.return_value = (
+            '{"raw_response": "{\\"status\\": \\"HEALTHY\\", \\"reasoning\\": \\"OK\\"}"}\n'
+        )
 
         check = AgentInspectorCheck()
         pipeline = _pipeline(repo=None)
@@ -672,16 +638,16 @@ class TestAgentInspectorCheckExtended:
         )
 
         with patch(
-            "health_checks.tier2.agent_inspector._build_user_prompt",
-            wraps=_build_user_prompt,
-        ) as mock_build:
+            "health_checks.tier2.agent_inspector._serialize_context",
+            wraps=_serialize_context,
+        ) as mock_serialize:
             check.run(ctx)
-            mock_build.assert_called_once_with(ctx)
+            mock_serialize.assert_called_once_with(ctx)
 
-    @patch("health_checks.tier2.agent_inspector._call_claude_api")
-    def test_connection_error_graceful_degradation(self, mock_api, tmp_path):
+    @patch("health_checks.tier2.agent_inspector._run_inspector_container")
+    def test_connection_error_graceful_degradation(self, mock_run, tmp_path):
         """ConnectionError results in graceful degradation."""
-        mock_api.side_effect = ConnectionError("Connection refused")
+        mock_run.side_effect = ConnectionError("Connection refused")
 
         check = AgentInspectorCheck()
         result = check.run(_ctx(repo_path=tmp_path))
@@ -691,34 +657,23 @@ class TestAgentInspectorCheckExtended:
         assert result.details.get("graceful_degradation") is True
         assert "ConnectionError" in result.reasoning
 
-    @patch("health_checks.tier2.agent_inspector._call_claude_api")
-    def test_keyboard_interrupt_graceful_degradation(self, mock_api, tmp_path):
-        """Even KeyboardInterrupt-derived errors degrade gracefully."""
-        mock_api.side_effect = Exception("Simulated interrupt")
-
-        check = AgentInspectorCheck()
-        result = check.run(_ctx(repo_path=tmp_path))
-
-        assert result.status == HealthStatus.HEALTHY
-        assert result.details.get("graceful_degradation") is True
-
-    @patch("health_checks.tier2.agent_inspector._call_claude_api")
-    def test_check_name_and_tier_in_every_result(self, mock_api, tmp_path):
+    @patch("health_checks.tier2.agent_inspector._run_inspector_container")
+    def test_check_name_and_tier_in_every_result(self, mock_run, tmp_path):
         """Every result has correct check_name and tier regardless of outcome."""
         scenarios = [
-            '{"status": "HEALTHY", "reasoning": "OK"}',
-            '{"status": "DEGRADED", "reasoning": "Concern"}',
-            '{"status": "FAILED", "reasoning": "Bad"}',
+            '{"raw_response": "{\\"status\\": \\"HEALTHY\\", \\"reasoning\\": \\"OK\\"}"}\n',
+            '{"raw_response": "{\\"status\\": \\"DEGRADED\\", \\"reasoning\\": \\"Concern\\"}"}\n',
+            '{"raw_response": "{\\"status\\": \\"FAILED\\", \\"reasoning\\": \\"Bad\\"}"}\n',
         ]
         for response in scenarios:
-            mock_api.return_value = response
+            mock_run.return_value = response
             check = AgentInspectorCheck()
             result = check.run(_ctx(repo_path=tmp_path))
             assert result.check_name == "agent_inspector"
             assert result.tier == HealthTier.AGENT
 
-    @patch("health_checks.tier2.agent_inspector._call_claude_api")
-    def test_triggers_include_required_set(self, mock_api):
+    @patch("health_checks.tier2.agent_inspector._run_inspector_container")
+    def test_triggers_include_required_set(self, mock_run):
         """Check triggers match the design spec."""
         check = AgentInspectorCheck()
         assert HealthTrigger.WAVE_COMPLETE in check.triggers
@@ -730,7 +685,7 @@ class TestAgentInspectorCheckExtended:
 
 
 # ===========================================================================
-# 8. Runner — Tier 2 exception handling and multiple Tier 2 checks
+# 9. Runner — Tier 2 exception handling and multiple Tier 2 checks
 # ===========================================================================
 
 
@@ -815,20 +770,18 @@ class TestRunnerTier2Extended:
         assert "failed internally" in tier2_result.reasoning
         assert tier2_result.action == HealthAction.ALERT
 
-    def test_multiple_tier2_checks_all_run(self, tmp_path):
+    @patch("health_checks.tier2.agent_inspector._run_inspector_container")
+    def test_multiple_tier2_checks_all_run(self, mock_run, tmp_path):
         """Multiple Tier 2 checks all execute when escalation triggers."""
+        mock_run.return_value = '{"raw_response": "{\\"status\\": \\"HEALTHY\\", \\"reasoning\\": \\"Inspector OK\\"}"}\n'
+
         runner = HealthCheckRunner()
         runner.register(_HealthyTier1())
         runner.register(AgentInspectorCheck())
         runner.register(_SecondTier2())
 
         ctx = _ctx(repo_path=tmp_path, trigger="phase_complete")
-
-        with patch(
-            "health_checks.tier2.agent_inspector._call_claude_api",
-            return_value='{"status": "HEALTHY", "reasoning": "Inspector OK"}',
-        ):
-            results = runner.run(ctx, HealthTrigger.PHASE_COMPLETE)
+        results = runner.run(ctx, HealthTrigger.PHASE_COMPLETE)
 
         # 1 Tier 1 + 2 Tier 2 checks
         assert len(results) == 3
@@ -902,17 +855,17 @@ class TestRunnerTier2Extended:
 
 
 # ===========================================================================
-# 9. Event Emission — per-status event types and bus=None
+# 10. Event Emission — per-status event types and bus=None
 # ===========================================================================
 
 
 class TestEventEmissionExtended:
     """Extended event emission tests."""
 
-    @patch("health_checks.tier2.agent_inspector._call_claude_api")
-    def test_failed_verdict_emits_health_check_failed_event(self, mock_api, tmp_path):
+    @patch("health_checks.tier2.agent_inspector._run_inspector_container")
+    def test_failed_verdict_emits_health_check_failed_event(self, mock_run, tmp_path):
         """FAILED verdict emits HEALTH_CHECK_FAILED event type."""
-        mock_api.return_value = '{"status": "FAILED", "reasoning": "Agent stuck."}'
+        mock_run.return_value = '{"raw_response": "{\\"status\\": \\"FAILED\\", \\"reasoning\\": \\"Agent stuck.\\"}"}\n'
 
         runner = HealthCheckRunner()
         runner.register(_HealthyTier1())
@@ -938,10 +891,12 @@ class TestEventEmissionExtended:
         ]
         assert len(tier2_events) == 1
 
-    @patch("health_checks.tier2.agent_inspector._call_claude_api")
-    def test_healthy_verdict_emits_health_check_completed_event(self, mock_api, tmp_path):
+    @patch("health_checks.tier2.agent_inspector._run_inspector_container")
+    def test_healthy_verdict_emits_health_check_completed_event(self, mock_run, tmp_path):
         """HEALTHY verdict emits HEALTH_CHECK_COMPLETED event type for per-check."""
-        mock_api.return_value = '{"status": "HEALTHY", "reasoning": "OK."}'
+        mock_run.return_value = (
+            '{"raw_response": "{\\"status\\": \\"HEALTHY\\", \\"reasoning\\": \\"OK.\\"}"}\n'
+        )
 
         runner = HealthCheckRunner()
         runner.register(_HealthyTier1())
@@ -972,10 +927,12 @@ class TestEventEmissionExtended:
         names = {kw["data"]["check_name"] for _, kw in completed_events}
         assert "agent_inspector" in names
 
-    @patch("health_checks.tier2.agent_inspector._call_claude_api")
-    def test_degraded_verdict_emits_health_check_degraded_event(self, mock_api, tmp_path):
+    @patch("health_checks.tier2.agent_inspector._run_inspector_container")
+    def test_degraded_verdict_emits_health_check_degraded_event(self, mock_run, tmp_path):
         """DEGRADED verdict emits HEALTH_CHECK_DEGRADED event type."""
-        mock_api.return_value = '{"status": "DEGRADED", "reasoning": "Stale."}'
+        mock_run.return_value = (
+            '{"raw_response": "{\\"status\\": \\"DEGRADED\\", \\"reasoning\\": \\"Stale.\\"}"}\n'
+        )
 
         runner = HealthCheckRunner()
         runner.register(_HealthyTier1())
@@ -1012,10 +969,10 @@ class TestEventEmissionExtended:
         assert len(results) == 1
         assert results[0].status == HealthStatus.HEALTHY
 
-    @patch("health_checks.tier2.agent_inspector._call_claude_api")
-    def test_event_payload_has_required_sse_fields(self, mock_api, tmp_path):
+    @patch("health_checks.tier2.agent_inspector._run_inspector_container")
+    def test_event_payload_has_required_sse_fields(self, mock_run, tmp_path):
         """Event payload includes all fields needed for SSE clients."""
-        mock_api.return_value = '{"status": "DEGRADED", "reasoning": "No commits."}'
+        mock_run.return_value = '{"raw_response": "{\\"status\\": \\"DEGRADED\\", \\"reasoning\\": \\"No commits.\\"}"}\n'
 
         runner = HealthCheckRunner()
         runner.register(_HealthyTier1())
@@ -1045,7 +1002,7 @@ class TestEventEmissionExtended:
 
 
 # ===========================================================================
-# 10. Escalation Logic — additional scenarios
+# 11. Escalation Logic — additional scenarios
 # ===========================================================================
 
 
@@ -1190,7 +1147,7 @@ class TestEscalationLogicExtended:
 
 
 # ===========================================================================
-# 11. Context — constructor and cheap accessors
+# 12. Context — constructor and cheap accessors
 # ===========================================================================
 
 
@@ -1241,7 +1198,7 @@ class TestContextCheapAccessors:
 
 
 # ===========================================================================
-# 12. HealthResult.to_dict completeness
+# 13. HealthResult.to_dict completeness
 # ===========================================================================
 
 
@@ -1300,17 +1257,19 @@ class TestHealthResultSerialization:
 
 
 # ===========================================================================
-# 13. Integration: HealthCheckRunner with real AgentInspectorCheck
+# 14. Integration: HealthCheckRunner with real AgentInspectorCheck
 # ===========================================================================
 
 
 class TestRunnerWithRealInspector:
     """Integration tests with the actual AgentInspectorCheck."""
 
-    @patch("health_checks.tier2.agent_inspector._call_claude_api")
-    def test_full_run_phase_complete(self, mock_api, tmp_path):
+    @patch("health_checks.tier2.agent_inspector._run_inspector_container")
+    def test_full_run_phase_complete(self, mock_run, tmp_path):
         """Full PHASE_COMPLETE run with healthy Tier 1 + real AgentInspectorCheck."""
-        mock_api.return_value = '{"status": "HEALTHY", "reasoning": "All good."}'
+        mock_run.return_value = (
+            '{"raw_response": "{\\"status\\": \\"HEALTHY\\", \\"reasoning\\": \\"All good.\\"}"}\n'
+        )
 
         runner = HealthCheckRunner()
         runner.register(_HealthyTier1())
@@ -1325,10 +1284,10 @@ class TestRunnerWithRealInspector:
         assert results[1].check_name == "agent_inspector"
         assert results[1].status == HealthStatus.HEALTHY
 
-    @patch("health_checks.tier2.agent_inspector._call_claude_api")
-    def test_full_run_wave_complete_degraded_triggers_inspector(self, mock_api, tmp_path):
+    @patch("health_checks.tier2.agent_inspector._run_inspector_container")
+    def test_full_run_wave_complete_degraded_triggers_inspector(self, mock_run, tmp_path):
         """WAVE_COMPLETE with degraded Tier 1 triggers the real AgentInspectorCheck."""
-        mock_api.return_value = '{"status": "DEGRADED", "reasoning": "Inspector concern."}'
+        mock_run.return_value = '{"raw_response": "{\\"status\\": \\"DEGRADED\\", \\"reasoning\\": \\"Inspector concern.\\"}"}\n'
 
         runner = HealthCheckRunner()
         runner.register(_DegradedTier1())
@@ -1343,12 +1302,10 @@ class TestRunnerWithRealInspector:
         assert inspector_result.status == HealthStatus.DEGRADED
         assert inspector_result.action == HealthAction.ALERT
 
-    @patch("health_checks.tier2.agent_inspector._call_claude_api")
-    def test_full_run_api_failure_still_returns_results(self, mock_api, tmp_path):
-        """API failure during run still returns a result (graceful degradation)."""
-        import httpx
-
-        mock_api.side_effect = httpx.TimeoutException("timeout")
+    @patch("health_checks.tier2.agent_inspector._run_inspector_container")
+    def test_full_run_container_failure_still_returns_results(self, mock_run, tmp_path):
+        """Container failure during run still returns a result (graceful degradation)."""
+        mock_run.side_effect = RuntimeError("Container spawn failed")
 
         runner = HealthCheckRunner()
         runner.register(_HealthyTier1())
@@ -1362,10 +1319,10 @@ class TestRunnerWithRealInspector:
         assert inspector_result.status == HealthStatus.HEALTHY  # graceful degradation
         assert "unavailable" in inspector_result.reasoning
 
-    @patch("health_checks.tier2.agent_inspector._call_claude_api")
-    def test_full_run_on_demand(self, mock_api, tmp_path):
+    @patch("health_checks.tier2.agent_inspector._run_inspector_container")
+    def test_full_run_on_demand(self, mock_run, tmp_path):
         """ON_DEMAND always runs Tier 2 with real AgentInspectorCheck."""
-        mock_api.return_value = '{"status": "HEALTHY", "reasoning": "On-demand check OK."}'
+        mock_run.return_value = '{"raw_response": "{\\"status\\": \\"HEALTHY\\", \\"reasoning\\": \\"On-demand check OK.\\"}"}\n'
 
         runner = HealthCheckRunner()
         runner.register(_HealthyTier1())
