@@ -84,6 +84,7 @@ orchestrator/
 ├── dag_visualizer.py       # ASCII DAG visualization for pipeline status (incl. Tier 3 sub-phase rendering)
 ├── decision_queue.py       # HITL decision queue
 ├── devserver.py            # Devserver lifecycle manager for deployment validation (DinD)
+├── dind_manager.py         # DinD sidecar lifecycle for integration testing
 ├── dispatch.py             # Agent dispatch logic
 ├── docker_client.py        # Docker API client
 ├── events.py               # Event bus for pipeline events
@@ -230,6 +231,7 @@ integration_tests/
 │   ├── helpers.py                 # Shared API helper functions for tests
 │   ├── mock-sandbox/              # Mock sandbox for testing
 │   ├── test_api_validation.py     # API input validation tests
+│   ├── test_dind_integration.py   # DinD sidecar lifecycle integration tests
 │   ├── test_concurrent_pipelines.py  # Concurrent pipeline execution tests
 │   ├── test_error_recovery.py     # Error recovery scenario tests
 │   ├── test_hitl_edge_cases.py    # HITL decision edge case tests

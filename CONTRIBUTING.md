@@ -79,6 +79,7 @@ The pre-commit hooks will automatically check and fix most style issues.
 - **Gateway tests**: `gateway/tests/` - Gateway-specific tests
 - **Orchestrator tests**: `orchestrator/tests/` - Orchestrator-specific tests
 - **Integration tests**: `integration_tests/` - Tests requiring Docker/containers
+- **Local pipeline tests**: `integration_tests/local_pipeline/` - Full gateway + orchestrator stack tests
 
 Coverage requirements:
 - Minimum 80% overall coverage
@@ -91,7 +92,12 @@ make test
 
 # Specific test file (native, faster)
 .venv/bin/pytest tests/test_python_syntax.py -v
+
+# Integration tests (requires Docker)
+make test-integration
 ```
+
+See [docs/guides/testing.md](docs/guides/testing.md) for the full testing guide, including CI pipeline details and DinD self-testing.
 
 ## Pull Request Process
 

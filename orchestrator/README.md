@@ -178,6 +178,7 @@ orchestrator/
 ├── decision_queue.py       # HITL decision queue management
 ├── handoffs.py             # Agent-to-agent data handoff mechanism
 ├── devserver.py            # Docker-in-Docker devserver management
+├── dind_manager.py         # DinD sidecar lifecycle for integration testing
 ├── gateway_client.py       # Gateway API client for session management
 ├── docker_client.py        # Docker client wrapper
 ├── sandbox_template.py     # Sandbox container configuration templates
@@ -298,6 +299,12 @@ Defined in `shared/egg_config/constants.py`:
 .venv/bin/pytest orchestrator/tests/test_multi_agent.py -v
 ```
 
+## DinD Integration Testing
+
+The orchestrator can provision a Docker-in-Docker (DinD) sidecar for the tester agent, enabling full-stack integration tests from within the SDLC pipeline without granting Docker socket access to sandboxes. See the [Testing Guide](../docs/guides/testing.md#dind-self-testing-sdlc-pipeline) for architecture details and troubleshooting.
+
+Key files: `dind_manager.py` (lifecycle), `container_spawner.py` (provisioning), `multi_agent.py` (flag propagation).
+
 ## Related Documentation
 
 - [Orchestrator Architecture](../docs/architecture/orchestrator.md) — Deployment modes, state persistence, multi-agent roles, devserver management
@@ -305,4 +312,5 @@ Defined in `shared/egg_config/constants.py`:
 - [Sandbox README](../sandbox/README.md) — Agent execution environment
 - [Shared README](../shared/README.md) — Shared packages (egg_contracts, egg_container, egg_config)
 - [SDLC Pipeline Guide](../docs/guides/sdlc-pipeline.md) — End-to-end pipeline usage
+- [Testing Guide](../docs/guides/testing.md) — Test tiers, CI pipeline, and DinD self-testing
 - [Architecture Overview](../docs/architecture/README.md) — System design

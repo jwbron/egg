@@ -34,11 +34,18 @@ ruff check . && ruff format --check . && mypy gateway shared sandbox
 
 ```bash
 make test-integration
-# or directly:
+```
+
+This runs `pytest integration_tests -v -m integration --timeout=300`. The test
+fixtures handle Docker image builds and compose stack setup automatically via
+`conftest.py`.
+
+To build images manually before running (useful for debugging):
+
+```bash
 docker build -t egg-gateway -f gateway/Dockerfile .
 docker build -t egg-orchestrator -f orchestrator/Dockerfile .
 docker build -t mock-sandbox -f integration_tests/local_pipeline/mock-sandbox/Dockerfile integration_tests/local_pipeline/mock-sandbox
-PYTHONPATH=shared pytest integration_tests -v -m "integration or security" --timeout=300
 ```
 
 Clean up after integration tests:
