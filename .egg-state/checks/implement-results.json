@@ -4,12 +4,12 @@
     {
       "name": "lint",
       "passed": true,
-      "output": "ruff check: All checks passed!\nruff format: 434 files already formatted (10 files were auto-formatted before re-check: gateway/tests/test_gateway.py, orchestrator/dind_manager.py, orchestrator/tests/test_container_spawner_dind.py, orchestrator/tests/test_dind_manager.py, orchestrator/tests/test_dind_manager_gaps.py, orchestrator/tests/test_multi_agent_dind.py, orchestrator/tests/test_pipeline_prompts.py, orchestrator/tests/test_tier3_execute.py, scripts/check-model-versions.py, shared/egg_contracts/checkpoints.py)"
+      "output": "ruff check: All checks passed!\nruff format: 435 files already formatted\n\nNote: make lint requires 'act' which is not available in sandbox. Ran ruff check and ruff format directly. 2 auto-fixed issues (unused imports in orchestrator/tests/test_tester_gaps.py) + 1 file reformatted."
     },
     {
       "name": "test",
       "passed": true,
-      "output": "================ 3786 passed, 80 skipped, 3 warnings in 26.95s ================="
+      "output": "PYTHONPATH=shared:orchestrator/src pytest tests/ -q\n3789 passed, 80 skipped, 3 warnings in 26.49s\n\nNote: make test requires 'act' which is not available in sandbox. Ran pytest directly with appropriate PYTHONPATH."
     }
   ]
 }

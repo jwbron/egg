@@ -13,7 +13,7 @@ import sys
 import threading
 from datetime import datetime, timedelta
 from pathlib import Path
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -35,7 +35,7 @@ from container_spawner import (  # noqa: E402
     ContainerSpawner,
     ContainerSpawnError,
 )
-from docker_client import ContainerNotFoundError, ContainerOperationError  # noqa: E402
+from docker_client import ContainerOperationError  # noqa: E402
 from gateway_client import GatewayError, GatewayHealth, SessionInfo  # noqa: E402
 from models import (  # noqa: E402
     AgentRole,
@@ -74,9 +74,7 @@ def mock_docker_client():
 def mock_gateway_client():
     """Create a mock Gateway client with default behaviors."""
     mock = MagicMock()
-    mock.check_health.return_value = GatewayHealth(
-        healthy=True, status="healthy", version="0.1.0"
-    )
+    mock.check_health.return_value = GatewayHealth(healthy=True, status="healthy", version="0.1.0")
     mock.register_session.return_value = SessionInfo(
         session_token="test-token-12345",
         container_id="abc123def456",
@@ -672,9 +670,7 @@ class TestCIWorkflowConfiguration:
         """lint.yml has a concurrency group."""
         import yaml
 
-        workflow_path = (
-            Path(__file__).parent.parent.parent / ".github" / "workflows" / "lint.yml"
-        )
+        workflow_path = Path(__file__).parent.parent.parent / ".github" / "workflows" / "lint.yml"
         if not workflow_path.exists():
             pytest.skip("lint.yml not found")
 
@@ -687,9 +683,7 @@ class TestCIWorkflowConfiguration:
         """test.yml has a concurrency group."""
         import yaml
 
-        workflow_path = (
-            Path(__file__).parent.parent.parent / ".github" / "workflows" / "test.yml"
-        )
+        workflow_path = Path(__file__).parent.parent.parent / ".github" / "workflows" / "test.yml"
         if not workflow_path.exists():
             pytest.skip("test.yml not found")
 
@@ -713,7 +707,9 @@ class TestCIWorkflowConfiguration:
             pytest.skip("on-check-failure.yml not found")
 
         content = yaml.safe_load(workflow_path.read_text())
-        workflows_watched = content.get(True, content.get("on", {})).get("workflow_run", {}).get("workflows", [])
+        workflows_watched = (
+            content.get(True, content.get("on", {})).get("workflow_run", {}).get("workflows", [])
+        )
 
         assert "Integration Tests" not in workflows_watched, (
             "on-check-failure.yml should NOT watch 'Integration Tests' — "
