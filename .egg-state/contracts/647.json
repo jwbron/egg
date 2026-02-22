@@ -8,7 +8,212 @@
   "pipeline_id": null,
   "current_phase": "refine",
   "acceptance_criteria": [],
-  "phases": [],
+  "phases": [
+    {
+      "id": "phase-1",
+      "name": "CI workflow changes",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-1-1",
+          "description": "Add pull_request trigger (opened, synchronize, reopened) to lint.yml alongside existing workflow_call and workflow_dispatch triggers",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "lint.yml has pull_request trigger; workflow name remains \"Lint\"; workflow_call outputs still work; actionlint passes on the modified file",
+          "files_affected": [
+            ".github/workflows/lint.yml"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-2",
+          "description": "Add pull_request trigger (opened, synchronize, reopened) to test.yml alongside existing workflow_call and workflow_dispatch triggers",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "test.yml has pull_request trigger; workflow name remains \"Test\"; workflow_call outputs still work; actionlint passes on the modified file",
+          "files_affected": [
+            ".github/workflows/test.yml"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-3",
+          "description": "Fix test-integration.yml: add pull_request trigger, add build steps for egg-orchestrator (orchestrator/Dockerfile) and mock-sandbox (integration_tests/local_pipeline/mock-sandbox/Dockerfile), add cleanup step for integration_tests/local_pipeline/docker-compose.yml stack",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "test-integration.yml triggers on PRs; builds egg-gateway, egg-orchestrator, and mock-sandbox images before running pytest; cleanup tears down both compose stacks (gateway-only and local_pipeline); workflow name remains \"Integration Tests\"; actionlint passes",
+          "files_affected": [
+            ".github/workflows/test-integration.yml"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-4",
+          "description": "Add 'Integration Tests' to the workflows list in on-check-failure.yml (line 8) so integration test failures also trigger the autofix bot",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "on-check-failure.yml watches for [\"Lint\", \"Test\", \"Integration Tests\"] workflow completions; actionlint passes",
+          "files_affected": [
+            ".github/workflows/on-check-failure.yml"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        }
+      ],
+      "dependencies": [],
+      "review_feedback": []
+    },
+    {
+      "id": "phase-2",
+      "name": "DinD manager and orchestrator integration",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-2-1",
+          "description": "Create orchestrator/dind_manager.py with DindManager class that manages docker:27-dind-rootless sidecar lifecycle: spawn with --privileged, wait for daemon health via TCP, pre-load images via docker save/load, attach to tester network, cleanup on completion. Follow DevserverManager architectural pattern.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "DindManager can start a DinD container, wait for health, pre-load images, return the daemon URL, and clean up. Resource limits enforced (CPU, memory, timeout). Comprehensive error handling for startup failures.",
+          "files_affected": [
+            "orchestrator/dind_manager.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-2-2",
+          "description": "Add unit tests for DindManager covering initialization, health check polling, image pre-load command construction, and cleanup paths (success and failure)",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Tests pass; cover both happy path and error scenarios (daemon startup failure, image load failure, timeout); mock Docker client interactions",
+          "files_affected": [
+            "orchestrator/tests/test_dind_manager.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-2-3",
+          "description": "Extend container_spawner.py spawn_container() to optionally provision a DinD sidecar when spawning a tester agent with integration_test_enabled=True. Inject DOCKER_HOST=tcp://<dind-ip>:2375 into tester environment. Manage DinD lifecycle alongside tester container (start before, stop after).",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Tester container spawned with DinD receives DOCKER_HOST env var pointing to running DinD daemon. DinD is torn down when tester container stops. Non-tester containers and testers without integration_test_enabled are unaffected.",
+          "files_affected": [
+            "orchestrator/container_spawner.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-2-4",
+          "description": "Update multi_agent.py to pass integration_test_enabled flag when spawning tester agent during the check phase, based on pipeline configuration or the presence of integration tests in the repository",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Tester agent in check phase receives integration_test_enabled=True when appropriate. Other phases and roles are unaffected.",
+          "files_affected": [
+            "orchestrator/multi_agent.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-2-5",
+          "description": "Make integration_tests/local_pipeline/conftest.py DinD-aware: detect DOCKER_HOST env, skip mock-sandbox build when image already exists, adjust compose commands to use the DinD daemon",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Conftest fixture works in both direct Docker mode (CI and local) and DinD mode (SDLC pipeline). Image existence check prevents redundant builds. Compose stack starts against the correct Docker daemon.",
+          "files_affected": [
+            "integration_tests/local_pipeline/conftest.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-2-6",
+          "description": "Add integration tests for DinD lifecycle (sidecar start, health, image pre-load, tester execution, teardown) in a new test file",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Tests verify end-to-end DinD workflow; DinD container starts and becomes healthy; pre-loaded images are usable; cleanup removes DinD container",
+          "files_affected": [
+            "integration_tests/local_pipeline/test_dind_integration.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        }
+      ],
+      "dependencies": [],
+      "review_feedback": []
+    },
+    {
+      "id": "phase-3",
+      "name": "Documentation",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-3-1",
+          "description": "Create docs/guides/testing.md documenting: how to run integration tests locally (make test-integration), CI workflow behavior (which workflows run on PRs, how autofix works), DinD architecture for SDLC self-testing, and troubleshooting common failures",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Guide covers local testing, CI pipeline, and DinD architecture. Cross-references relevant workflow files and orchestrator modules.",
+          "files_affected": [
+            "docs/guides/testing.md"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        }
+      ],
+      "dependencies": [],
+      "review_feedback": []
+    }
+  ],
   "decisions": [],
   "workflow_owner": null,
   "audit_log": [],
@@ -21,77 +226,12 @@
   "phase_configs": null,
   "agent_executions": [
     {
-      "role": "coder",
-      "phase_id": null,
-      "status": "pending",
-      "started_at": null,
-      "completed_at": null,
-      "commit": null,
-      "checkpoint_id": null,
-      "outputs": {},
-      "error": null,
-      "retry_count": 0,
-      "conflicts": []
-    },
-    {
-      "role": "tester",
-      "phase_id": null,
-      "status": "pending",
-      "started_at": null,
-      "completed_at": null,
-      "commit": null,
-      "checkpoint_id": null,
-      "outputs": {},
-      "error": null,
-      "retry_count": 0,
-      "conflicts": []
-    },
-    {
-      "role": "documenter",
-      "phase_id": null,
-      "status": "pending",
-      "started_at": null,
-      "completed_at": null,
-      "commit": null,
-      "checkpoint_id": null,
-      "outputs": {},
-      "error": null,
-      "retry_count": 0,
-      "conflicts": []
-    },
-    {
-      "role": "integrator",
-      "phase_id": null,
-      "status": "pending",
-      "started_at": null,
-      "completed_at": null,
-      "commit": null,
-      "checkpoint_id": null,
-      "outputs": {},
-      "error": null,
-      "retry_count": 0,
-      "conflicts": []
-    },
-    {
-      "role": "reviewer_agent_design",
-      "phase_id": null,
-      "status": "complete",
-      "started_at": null,
-      "completed_at": "2026-02-22T09:04:34.861160Z",
-      "commit": null,
-      "checkpoint_id": null,
-      "outputs": {},
-      "error": null,
-      "retry_count": 0,
-      "conflicts": []
-    },
-    {
       "role": "architect",
       "phase_id": null,
       "status": "complete",
-      "started_at": null,
-      "completed_at": "2026-02-22T09:23:07.916861Z",
-      "commit": "5d13363e3",
+      "started_at": "2026-02-22T09:12:21.602765Z",
+      "completed_at": "2026-02-22T09:23:16.257043Z",
+      "commit": null,
       "checkpoint_id": null,
       "outputs": {},
       "error": null,
@@ -102,9 +242,9 @@
       "role": "task_planner",
       "phase_id": null,
       "status": "complete",
-      "started_at": null,
-      "completed_at": "2026-02-22T09:29:18.028471Z",
-      "commit": "3968db179",
+      "started_at": "2026-02-22T09:23:16.261982Z",
+      "completed_at": "2026-02-22T09:29:26.793794Z",
+      "commit": null,
       "checkpoint_id": null,
       "outputs": {},
       "error": null,
@@ -115,9 +255,9 @@
       "role": "risk_analyst",
       "phase_id": null,
       "status": "complete",
-      "started_at": null,
-      "completed_at": "2026-02-22T09:32:05.686013Z",
-      "commit": "476576c38",
+      "started_at": "2026-02-22T09:23:16.263560Z",
+      "completed_at": "2026-02-22T09:32:13.571148Z",
+      "commit": null,
       "checkpoint_id": null,
       "outputs": {},
       "error": null,
