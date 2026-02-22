@@ -88,7 +88,7 @@ jobs:
       bot_username: ${{ vars.EGG_BOT_USERNAME }}
       branch_prefix: ${{ vars.EGG_BRANCH_PREFIX }}
       # action_ref: jwbron/egg/action@main  # Cannot be passed dynamically; hardcoded in reusable workflow
-      timeout: "20"
+      timeout: "60"
     secrets:
       BOT_APP_ID: ${{ secrets.BOT_APP_ID }}
       BOT_APP_PRIVATE_KEY: ${{ secrets.BOT_APP_PRIVATE_KEY }}
