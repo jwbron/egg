@@ -734,13 +734,13 @@ def _render_tier3_implement(
     spacing = 2
     max_side_by_side = 4  # wrap onto additional rows beyond this
 
-    for wave_idx, wave_phase_ids in enumerate(waves):
-        if not wave_phase_ids:
+    for wave_idx, wave_phases in enumerate(waves):
+        if not wave_phases:
             continue
 
         # Build sub-phase boxes for this wave
         wave_boxes: list[list[str]] = []
-        for pid in wave_phase_ids:
+        for pid in wave_phases:
             phase_agents = agents_by_phase.get(pid, [])
             box = _render_subphase_box(
                 phase_id=pid,
@@ -750,7 +750,7 @@ def _render_tier3_implement(
             )
             wave_boxes.append(box)
 
-        if len(wave_phase_ids) == 1:
+        if len(wave_phases) == 1:
             # Single phase in wave — render centered with indent
             for line in wave_boxes[0]:
                 lines.append(f"    {line}")
