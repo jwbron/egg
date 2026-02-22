@@ -2,9 +2,9 @@
 """
 Health inspector script — runs inside the sandbox container.
 
-Reads pipeline context JSON (from file path in EGG_INSPECTOR_CONTEXT_PATH or
-stdin), calls the Claude API to produce a health verdict, and outputs a JSON
-verdict to stdout.
+Reads pipeline context JSON from the EGG_INSPECTOR_CONTEXT env var (preferred),
+a file path in EGG_INSPECTOR_CONTEXT_PATH, or stdin.  Calls the Claude API to
+produce a health verdict and outputs a JSON verdict to stdout.
 
 Exit codes:
     0 — verdict produced successfully
@@ -49,13 +49,18 @@ no commits and no drafts, contradictory state.
 
 
 def _read_context() -> dict:
-    """Read inspector context from file or stdin."""
+    """Read inspector context from env var, file, or stdin."""
+    # Preferred: context passed directly via env var (avoids file mounting)
+    context_env = os.environ.get("EGG_INSPECTOR_CONTEXT")
+    if context_env:
+        return json.loads(context_env)
+    # Fallback: file path
     context_path = os.environ.get("EGG_INSPECTOR_CONTEXT_PATH")
     if context_path:
         with open(context_path) as f:
             return json.load(f)
-    else:
-        return json.load(sys.stdin)
+    # Last resort: stdin
+    return json.load(sys.stdin)
 
 
 def _call_claude_api(user_prompt: str) -> str:

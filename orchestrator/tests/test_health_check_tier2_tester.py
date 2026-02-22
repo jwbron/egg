@@ -4,8 +4,6 @@ Covers gaps in the coder-authored test_health_check_tier2.py:
 
 - Context assembly: multi-subdir agent_outputs, file extension filtering,
   per-file cap, git_log/git_diff_stat laziness, _run_git repo resolution
-- Prompt construction: trigger field, contract key filtering, contract cap,
-  branch=None
 - Container delegation: container output parsing, context serialization
 - Event emission: per-status event types, bus=None no-op, runner catches
   Tier 2 exceptions
@@ -37,7 +35,6 @@ from health_checks.context import PipelineHealthContext
 from health_checks.runner import HealthCheckRunner, worst_action
 from health_checks.tier2.agent_inspector import (
     AgentInspectorCheck,
-    _build_user_prompt,
     _parse_container_output,
     _parse_verdict,
     _serialize_context,
@@ -364,121 +361,7 @@ class TestContextLiveContainers:
 
 
 # ===========================================================================
-# 4. Prompt Construction — extended coverage
-# ===========================================================================
-
-
-class TestBuildUserPromptExtended:
-    """Extended tests for _build_user_prompt covering gaps."""
-
-    def test_trigger_field_in_prompt(self, tmp_path):
-        """Prompt includes the trigger value."""
-        ctx = _ctx(repo_path=tmp_path, trigger="wave_complete")
-        prompt = _build_user_prompt(ctx)
-        assert "wave_complete" in prompt
-
-    def test_branch_none_shows_unknown(self, tmp_path):
-        """When pipeline.branch is None, prompt shows 'unknown'."""
-        pipeline = _pipeline(branch=None)
-        ctx = _ctx(pipeline=pipeline, repo_path=tmp_path)
-        prompt = _build_user_prompt(ctx)
-        assert "unknown" in prompt
-
-    def test_contract_key_filtering(self, tmp_path):
-        """Only specific contract keys appear in the Contract State section."""
-        state_dir = tmp_path / ".egg-state" / "contracts"
-        state_dir.mkdir(parents=True)
-        contract = {
-            "current_phase": "implement",
-            "acceptance_criteria": ["Tests pass"],
-            "decisions": [{"q": "Which DB?"}],
-            "agent_executions": [{"role": "coder"}],
-            "schema_version": "1.0",
-            "internal_secret": "should-not-appear",
-        }
-        (state_dir / "42.json").write_text(json.dumps(contract))
-
-        pipeline = _pipeline(repo=None)
-        ctx = PipelineHealthContext(
-            pipeline=pipeline,
-            repo_path=tmp_path,
-            trigger="phase_complete",
-        )
-        prompt = _build_user_prompt(ctx)
-
-        # Extract just the Contract State section (after "## Contract State")
-        contract_idx = prompt.index("## Contract State")
-        contract_section = prompt[contract_idx:]
-
-        # Included keys in Contract State section
-        assert "current_phase" in contract_section
-        assert "acceptance_criteria" in contract_section
-        assert "decisions" in contract_section
-        assert "agent_executions" in contract_section
-        # Excluded keys should NOT be in the Contract State section
-        # (they may appear in Agent Output Files which shows raw file content)
-        assert "internal_secret" not in contract_section
-        assert "schema_version" not in contract_section
-
-    def test_contract_content_capped_at_3000_in_prompt(self, tmp_path):
-        """Contract JSON in prompt is capped at 3000 chars."""
-        state_dir = tmp_path / ".egg-state" / "contracts"
-        state_dir.mkdir(parents=True)
-        # Build a contract with a very large acceptance_criteria field
-        big_contract = {
-            "current_phase": "implement",
-            "acceptance_criteria": ["x" * 5000],
-        }
-        (state_dir / "42.json").write_text(json.dumps(big_contract))
-
-        pipeline = _pipeline(repo=None)
-        ctx = PipelineHealthContext(
-            pipeline=pipeline,
-            repo_path=tmp_path,
-            trigger="phase_complete",
-        )
-        prompt = _build_user_prompt(ctx)
-
-        # The contract section should be present but capped
-        assert "Contract State" in prompt
-        # Find the JSON blob in the prompt — it should be <= 3000 chars
-        idx = prompt.index("## Contract State")
-        contract_section = prompt[idx:]
-        # The serialized JSON portion shouldn't exceed 3000 chars of the contract
-        # (plus section headers). Verify no single "x" run exceeds ~3000.
-        x_runs = [line for line in contract_section.split("\n") if "xxxxx" in line]
-        for line in x_runs:
-            assert len(line) <= 3001
-
-    def test_prompt_sections_order(self, tmp_path):
-        """Prompt has sections in correct order: metadata, commits, diff, outputs, contract."""
-        state_dir = tmp_path / ".egg-state" / "drafts"
-        state_dir.mkdir(parents=True)
-        (state_dir / "plan.md").write_text("plan content")
-
-        pipeline = _pipeline(repo=None)
-        ctx = PipelineHealthContext(
-            pipeline=pipeline,
-            repo_path=tmp_path,
-            trigger="phase_complete",
-        )
-        with patch.object(ctx, "_run_git", return_value="abc log"):
-            _ = ctx.git_log
-            _ = ctx.git_diff_stat
-
-        prompt = _build_user_prompt(ctx)
-
-        # Sections should appear in order
-        assert (
-            prompt.index("Pipeline:") < prompt.index("## Recent Commits")
-            or "## Recent Commits" not in prompt
-        )
-        if "## Agent Output Files" in prompt:
-            assert prompt.index("## Agent Output Files") > 0
-
-
-# ===========================================================================
-# 5. Verdict Parsing — extended coverage
+# 4. Verdict Parsing — extended coverage
 # ===========================================================================
 
 
@@ -534,7 +417,7 @@ class TestParseVerdictExtended:
 
 
 # ===========================================================================
-# 6. Container Output Parsing — extended coverage
+# 5. Container Output Parsing — extended coverage
 # ===========================================================================
 
 
@@ -577,7 +460,7 @@ class TestParseContainerOutputExtended:
 
 
 # ===========================================================================
-# 7. Context Serialization — extended coverage
+# 6. Context Serialization — extended coverage
 # ===========================================================================
 
 
@@ -615,7 +498,7 @@ class TestSerializeContextExtended:
 
 
 # ===========================================================================
-# 8. AgentInspectorCheck — extended coverage
+# 7. AgentInspectorCheck — extended coverage
 # ===========================================================================
 
 
@@ -685,7 +568,7 @@ class TestAgentInspectorCheckExtended:
 
 
 # ===========================================================================
-# 9. Runner — Tier 2 exception handling and multiple Tier 2 checks
+# 8. Runner — Tier 2 exception handling and multiple Tier 2 checks
 # ===========================================================================
 
 
@@ -855,7 +738,7 @@ class TestRunnerTier2Extended:
 
 
 # ===========================================================================
-# 10. Event Emission — per-status event types and bus=None
+# 9. Event Emission — per-status event types and bus=None
 # ===========================================================================
 
 
@@ -1002,7 +885,7 @@ class TestEventEmissionExtended:
 
 
 # ===========================================================================
-# 11. Escalation Logic — additional scenarios
+# 10. Escalation Logic — additional scenarios
 # ===========================================================================
 
 
@@ -1147,7 +1030,7 @@ class TestEscalationLogicExtended:
 
 
 # ===========================================================================
-# 12. Context — constructor and cheap accessors
+# 11. Context — constructor and cheap accessors
 # ===========================================================================
 
 
@@ -1198,7 +1081,7 @@ class TestContextCheapAccessors:
 
 
 # ===========================================================================
-# 13. HealthResult.to_dict completeness
+# 12. HealthResult.to_dict completeness
 # ===========================================================================
 
 
@@ -1257,7 +1140,7 @@ class TestHealthResultSerialization:
 
 
 # ===========================================================================
-# 14. Integration: HealthCheckRunner with real AgentInspectorCheck
+# 13. Integration: HealthCheckRunner with real AgentInspectorCheck
 # ===========================================================================
 
 

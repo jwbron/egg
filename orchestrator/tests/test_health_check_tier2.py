@@ -2,7 +2,6 @@
 
 Covers:
 - Context assembly: contract loading, truncation, lazy evaluation
-- Prompt construction: all fields present, caps respected
 - Verdict parsing: valid JSON, malformed JSON, missing fields, code fences
 - AgentInspectorCheck: healthy/degraded/failed verdicts, container timeout,
   container errors, graceful degradation, event emission
@@ -32,7 +31,6 @@ from health_checks.context import _TIER2_CHAR_CAP, PipelineHealthContext, _trunc
 from health_checks.runner import HealthCheckRunner
 from health_checks.tier2.agent_inspector import (
     AgentInspectorCheck,
-    _build_user_prompt,
     _parse_container_output,
     _parse_verdict,
     _serialize_context,
@@ -258,120 +256,7 @@ class TestContextAgentOutputs:
 
 
 # ===========================================================================
-# 2. Prompt Construction Tests
-# ===========================================================================
-
-
-class TestBuildUserPrompt:
-    """Tests for _build_user_prompt."""
-
-    def test_includes_pipeline_metadata(self, tmp_path):
-        ctx = _make_context(repo_path=tmp_path)
-        prompt = _build_user_prompt(ctx)
-        assert "issue-99" in prompt
-        assert "implement" in prompt
-        assert "egg/issue-99" in prompt
-
-    def test_includes_git_log(self, tmp_path):
-        ctx = _make_context(repo_path=tmp_path)
-        with patch.object(ctx, "_run_git", return_value="abc1234 Add feature"):
-            # Force lazy loading
-            _ = ctx.git_log
-        prompt = _build_user_prompt(ctx)
-        assert "abc1234 Add feature" in prompt
-
-    def test_includes_diff_stat(self, tmp_path):
-        ctx = _make_context(repo_path=tmp_path)
-        with patch.object(ctx, "_run_git", return_value="file.py | 5 ++---"):
-            # Force lazy loading for diff stat
-            _ = ctx.git_diff_stat
-        prompt = _build_user_prompt(ctx)
-        assert "file.py" in prompt
-
-    def test_includes_agent_outputs(self, tmp_path):
-        state_dir = tmp_path / ".egg-state" / "drafts"
-        state_dir.mkdir(parents=True)
-        (state_dir / "plan.md").write_text("# Implementation Plan\nStep 1: Do things")
-
-        pipeline = Pipeline(
-            id="issue-99",
-            issue_number=99,
-            repo=None,
-            branch="egg/issue-99",
-            mode="issue",
-            status=PipelineStatus.RUNNING,
-            current_phase=PipelinePhase.IMPLEMENT,
-        )
-        ctx = PipelineHealthContext(
-            pipeline=pipeline,
-            repo_path=tmp_path,
-            trigger="phase_complete",
-        )
-        prompt = _build_user_prompt(ctx)
-        assert "plan.md" in prompt
-        assert "Implementation Plan" in prompt
-
-    def test_includes_contract_state(self, tmp_path):
-        state_dir = tmp_path / ".egg-state" / "contracts"
-        state_dir.mkdir(parents=True)
-        contract = {
-            "current_phase": "implement",
-            "acceptance_criteria": ["All tests pass"],
-            "agent_executions": [{"role": "coder", "status": "complete"}],
-        }
-        (state_dir / "99.json").write_text(json.dumps(contract))
-
-        pipeline = Pipeline(
-            id="issue-99",
-            issue_number=99,
-            repo=None,
-            branch="egg/issue-99",
-            mode="issue",
-            status=PipelineStatus.RUNNING,
-            current_phase=PipelinePhase.IMPLEMENT,
-        )
-        ctx = PipelineHealthContext(
-            pipeline=pipeline,
-            repo_path=tmp_path,
-            trigger="phase_complete",
-        )
-        prompt = _build_user_prompt(ctx)
-        assert "Contract State" in prompt
-        assert "implement" in prompt
-
-    def test_empty_outputs_shows_none_found(self, tmp_path):
-        ctx = _make_context(repo_path=tmp_path)
-        prompt = _build_user_prompt(ctx)
-        assert "(none found)" in prompt
-
-    def test_output_content_capped_in_prompt(self, tmp_path):
-        state_dir = tmp_path / ".egg-state" / "drafts"
-        state_dir.mkdir(parents=True)
-        (state_dir / "huge.md").write_text("x" * 5000)
-
-        pipeline = Pipeline(
-            id="issue-99",
-            issue_number=99,
-            repo=None,
-            branch="egg/issue-99",
-            mode="issue",
-            status=PipelineStatus.RUNNING,
-            current_phase=PipelinePhase.IMPLEMENT,
-        )
-        ctx = PipelineHealthContext(
-            pipeline=pipeline,
-            repo_path=tmp_path,
-            trigger="phase_complete",
-        )
-        prompt = _build_user_prompt(ctx)
-        # Content in prompt should be capped at 2000 chars per output
-        lines_with_x = [line for line in prompt.split("\n") if "x" * 100 in line]
-        for line in lines_with_x:
-            assert len(line) <= 2001  # some tolerance
-
-
-# ===========================================================================
-# 3. Verdict Parsing Tests
+# 2. Verdict Parsing Tests
 # ===========================================================================
 
 

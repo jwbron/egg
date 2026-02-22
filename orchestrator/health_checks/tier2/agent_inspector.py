@@ -13,7 +13,6 @@ from __future__ import annotations
 import json
 import os
 import sys
-import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -44,59 +43,6 @@ logger = get_logger("orchestrator.health_checks.tier2.agent_inspector")
 
 # Timeout for the inspector container (seconds)
 _CONTAINER_TIMEOUT = 60
-
-
-def _build_user_prompt(context: PipelineHealthContext) -> str:
-    """Assemble the user prompt from pipeline context fields."""
-    parts: list[str] = []
-
-    parts.append(f"Pipeline: {context.pipeline_id}")
-    parts.append(f"Phase: {context.current_phase.value}")
-    parts.append(f"Branch: {context.branch or 'unknown'}")
-    parts.append(f"Trigger: {context.trigger}")
-    parts.append("")
-
-    # Git log
-    git_log = context.git_log
-    if git_log:
-        parts.append("## Recent Commits")
-        parts.append(git_log)
-        parts.append("")
-
-    # Git diff stat
-    diff_stat = context.git_diff_stat
-    if diff_stat:
-        parts.append("## Diff Stats (vs main)")
-        parts.append(diff_stat)
-        parts.append("")
-
-    # Agent outputs (summarize keys + truncated content)
-    outputs = context.agent_outputs
-    if outputs:
-        parts.append("## Agent Output Files")
-        for name, content in outputs.items():
-            parts.append(f"### {name}")
-            # Cap individual output in the prompt to keep total manageable
-            parts.append(content[:2000])
-            parts.append("")
-    else:
-        parts.append("## Agent Output Files")
-        parts.append("(none found)")
-        parts.append("")
-
-    # Contract state
-    contract = context.contract
-    if contract:
-        parts.append("## Contract State")
-        # Serialize key fields, not the entire blob
-        summary: dict[str, Any] = {}
-        for key in ("current_phase", "acceptance_criteria", "decisions", "agent_executions"):
-            if key in contract:
-                summary[key] = contract[key]
-        parts.append(json.dumps(summary, indent=2, default=str)[:3000])
-        parts.append("")
-
-    return "\n".join(parts)
 
 
 def _parse_verdict(text: str) -> tuple[HealthStatus, str]:
@@ -165,88 +111,85 @@ def _run_inspector_container(
 ) -> str:
     """Spawn a sandbox container to run the inspector script.
 
+    Context is passed via the EGG_INSPECTOR_CONTEXT env var (JSON string)
+    to avoid file-mount complexity.  Context payloads are small enough
+    for environment variables.
+
     Returns the raw response text from the container's stdout.
     Raises on container spawn/wait/parse failures (caller handles graceful degradation).
     """
+    import uuid
+
     from container_spawner import ContainerSpawner, ContainerSpawnError
     from docker_client import DockerClient, DockerClientError, get_docker_client
     from models import AgentRole
 
-    # Write context to a temp file that will be mounted into the container
     context_json = json.dumps(context_payload, default=str)
 
-    # Use the docker client and spawner
     docker: DockerClient = get_docker_client()
     spawner = ContainerSpawner(docker_client=docker)
 
-    # Write context to temp file
-    with tempfile.NamedTemporaryFile(
-        mode="w",
-        suffix=".json",
-        prefix="inspector-ctx-",
-        delete=False,
-    ) as f:
-        f.write(context_json)
-        context_file = f.name
+    # Use a unique suffix to avoid container name collisions when concurrent
+    # health checks run for the same pipeline (e.g., PHASE_COMPLETE and
+    # ON_DEMAND triggered simultaneously).
+    unique_suffix = uuid.uuid4().hex[:8]
+
+    # Spawn the inspector container — pass context via env var directly
+    spawned = spawner.spawn_agent_container(
+        pipeline_id=f"{pipeline_id}-inspect-{unique_suffix}",
+        agent_role=AgentRole.INSPECTOR,
+        mode=os.environ.get("EGG_NETWORK_MODE", "public"),
+        extra_env={
+            "EGG_INSPECTOR_CONTEXT": context_json,
+        },
+        command=["python3", "/home/egg/sandbox/bin/egg-health-inspect"],
+        wait_for_gateway=False,
+        repo_volumes={},
+    )
+
+    container_id = spawned.container_info.container_id
 
     try:
-        # Spawn the inspector container
-        spawned = spawner.spawn_agent_container(
-            pipeline_id=pipeline_id,
-            agent_role=AgentRole.INSPECTOR,
-            mode=os.environ.get("EGG_NETWORK_MODE", "public"),
-            extra_env={
-                "EGG_INSPECTOR_CONTEXT_PATH": "/tmp/inspector-context.json",
-            },
-            command=["python3", "/home/egg/sandbox/bin/egg-health-inspect"],
-            wait_for_gateway=False,
-            repo_volumes={},
+        # Wait for the container to exit
+        exit_info = docker.wait_for_container(
+            container_id,
+            timeout=_CONTAINER_TIMEOUT,
         )
 
-        container_id = spawned.container_info.container_id
+        # Get the container logs (stdout contains the JSON verdict)
+        logs = docker.get_container_logs(container_id, tail=50)
 
-        try:
-            # Wait for the container to exit
-            exit_info = docker.wait_for_container(
-                container_id,
-                timeout=_CONTAINER_TIMEOUT,
+        if exit_info.exit_code != 0:
+            raise RuntimeError(
+                f"Inspector container exited with code {exit_info.exit_code}: "
+                f"{logs[-500:] if logs else '(no logs)'}"
             )
 
-            # Get the container logs (stdout contains the JSON verdict)
-            logs = docker.get_container_logs(container_id, tail=50)
-
-            if exit_info.exit_code != 0:
-                raise RuntimeError(
-                    f"Inspector container exited with code {exit_info.exit_code}: "
-                    f"{logs[-500:] if logs else '(no logs)'}"
-                )
-
-            return logs
-
-        finally:
-            # Clean up the container
-            try:
-                spawner.remove_agent_container(
-                    container_id,
-                    force=True,
-                    cleanup_session=True,
-                )
-            except (DockerClientError, ContainerSpawnError):
-                pass  # Best effort cleanup
+        return logs
 
     finally:
-        # Clean up temp file
+        # Clean up the container
         try:
-            os.unlink(context_file)
-        except OSError:
-            pass
+            spawner.remove_agent_container(
+                container_id,
+                force=True,
+                cleanup_session=True,
+            )
+        except (DockerClientError, ContainerSpawnError):
+            pass  # Best effort cleanup
 
 
 def _parse_container_output(logs: str) -> str:
     """Extract the raw_response from container stdout JSON.
 
-    The container outputs a JSON object like {"raw_response": "..."}.
+    The container outputs a JSON object like ``{"raw_response": "..."}``.
     We extract the raw_response field for verdict parsing.
+
+    Docker log timestamps (``2024-01-01T00:00:00.000000000Z <content>``)
+    are stripped using a heuristic: if a line starts with a digit and
+    contains a space before a ``{``, we treat the part after the first
+    space as the payload.  If the timestamp format changes, the fallback
+    (trying the raw line as JSON) still applies.
     """
     # Container logs may have timestamps prefixed — find the JSON line
     for line in reversed(logs.strip().splitlines()):

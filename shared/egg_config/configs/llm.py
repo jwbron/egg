@@ -89,7 +89,7 @@ class LLMConfig(BaseConfig):
 
             # Use a minimal messages request to verify API key
             # Note: This is a billable API call (minimal cost with max_tokens=1)
-            req = urllib.request.Request(
+            req = urllib.request.Request(  # noqa: EGG200 - config health check used by sandbox containers
                 f"{base_url}/v1/messages",
                 data=json.dumps(
                     {

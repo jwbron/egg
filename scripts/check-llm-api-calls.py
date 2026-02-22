@@ -14,6 +14,11 @@ Detection patterns (AST-based for Python files):
   - ``x-api-key`` alongside ``anthropic-version`` in dict literals
   - ``os.environ.get("ANTHROPIC_API_KEY")`` (outside sandbox)
 
+Known gap:
+  Indirect API calls via ``urllib.request`` (without importing the anthropic
+  SDK or referencing ``api.anthropic.com`` in a detectable way) are not
+  caught.  Suppress with ``# noqa: EGG200`` where needed.
+
 Suppression:
     # noqa: EGG200 - <justification>
 
