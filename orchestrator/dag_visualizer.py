@@ -3,6 +3,11 @@ ASCII DAG visualization for pipeline execution status.
 
 Generates visual representations of the SDLC pipeline DAG showing
 phases, their status, review cycles, and agent execution state.
+
+For Tier 3 (high-complexity) pipelines, the Implement phase is expanded
+into individual sub-phase boxes arranged by dependency wave, with
+fan-out/fan-in connectors for parallel phases. Sub-phase rendering is
+driven by ``Pipeline.plan_phase_waves`` and ``Pipeline.plan_phase_names``.
 """
 
 import sys

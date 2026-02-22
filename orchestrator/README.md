@@ -62,7 +62,7 @@ Pipeline state is stored on a dedicated `egg/pipeline-state` orphan branch acces
 Agents execute in dependency-ordered waves:
 
 - **Tier 2** (standard): Coder → Tester + Documenter (parallel) → Integrator
-- **Tier 3** (high complexity): Each plan phase gets its own implement cycle (Coder → Tester → Documenter → Checker → Code Reviewer), with independent phases running in parallel. An Integrator with expanded write access runs after all phase cycles complete.
+- **Tier 3** (high complexity): Each plan phase gets its own implement cycle (Coder → Tester → Documenter → Checker → Code Reviewer), with independent phases running in parallel. An Integrator with expanded write access runs after all phase cycles complete. The DAG visualization renders Tier 3 pipelines with individual sub-phase boxes arranged by dependency wave, connected by fan-out/fan-in connectors for parallel phases.
 
 Reviewers always run as a separate step after all workers complete, spawning in parallel with a configurable concurrency limit.
 
@@ -183,7 +183,7 @@ orchestrator/
 ├── events.py               # Event emission and tracking
 ├── sse.py                  # Server-Sent Events for real-time status
 ├── unified_sse.py          # Unified SSE stream for multiple pipelines
-├── dag_visualizer.py       # Pipeline DAG visualization
+├── dag_visualizer.py       # Pipeline DAG visualization (incl. Tier 3 sub-phase rendering)
 ├── resilience.py           # Retry, circuit breaker, and resilience patterns
 ├── metrics.py              # Metrics collection and reporting
 ├── status_reporter.py      # Status reporting utilities

@@ -303,7 +303,7 @@ EGG_AGENT_ROLE=coder
 
 **Use case:** Multi-agent workflows, complex implementations
 
-**Tier 3 enhancement:** For high-complexity tasks, the distributed mode runs each plan phase through its own implement cycle (Coder → Tester → Agentic Review), with independent phases optionally executing in parallel. After all phase cycles complete, an Integrator with expanded write access merges results and fixes integration issues. See [SDLC Pipeline Guide: Tier 3](../../docs/guides/sdlc-pipeline.md#tier-3-phase-level-dispatch) for details.
+**Tier 3 enhancement:** For high-complexity tasks, the distributed mode runs each plan phase through its own implement cycle (Coder → Tester → Agentic Review), with independent phases optionally executing in parallel. After all phase cycles complete, an Integrator with expanded write access merges results and fixes integration issues. The DAG visualization endpoint renders Tier 3 pipelines with expanded sub-phase boxes, arranged by dependency wave with fan-out/fan-in connectors for parallel phases. This is driven by the `Pipeline.plan_phase_waves` and `Pipeline.plan_phase_names` fields, populated at Tier 3 implement start. See [SDLC Pipeline Guide: Tier 3](../../docs/guides/sdlc-pipeline.md#tier-3-phase-level-dispatch) for details.
 
 **Environment:**
 ```bash
@@ -340,7 +340,7 @@ Fixed IPs:
 - `GET /health` - Health check
 - `GET/POST /pipelines` - Pipeline CRUD
 - `POST /pipelines/{id}/start` - Start or restart a pipeline (restarts failed pipelines by resetting the failed phase; worktrees are preserved across restarts)
-- `GET /pipelines/{id}/visualization` - Pipeline status snapshot (JSON, text, or ASCII)
+- `GET /pipelines/{id}/visualization` - Pipeline status snapshot (JSON, text, or ASCII); for Tier 3 pipelines, the Implement phase is expanded into sub-phase boxes with fan-out/fan-in connectors
 - `GET /pipelines/{id}/stream` - Real-time SSE stream for single pipeline events and visualization
 - `GET /pipelines/stream` - Unified SSE stream for all active pipelines (supports `?ascii=true`, `?active_only=false`, `?full_dag=true`)
 - `POST /pipelines/{id}/signal` - Sandbox signals (complete, progress, error)

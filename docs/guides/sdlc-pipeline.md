@@ -211,6 +211,42 @@ Returns a Server-Sent Events (SSE) stream for real-time updates across all activ
 - `✗` - Failed
 - `⊘` - Cancelled
 
+**Tier 3 DAG visualization**:
+
+For Tier 3 (high-complexity) pipelines, the Implement phase is expanded into individual sub-phase boxes instead of a single box. Sub-phases are arranged by dependency wave with fan-out/fan-in connectors for parallel phases:
+
+```
+>>> ═══ Implement (Tier 3) ═══
+    ┌──────────────────────┐
+    │ ✓ Auth               │
+    │  ✓ coder             │
+    │  ✓ tester            │
+    └──────────────────────┘
+        │
+     ┌──┴──┐
+     │     │
+    ┌──────────────────────┐  ┌──────────────────────┐
+    │ ▶ API                │  │ ○ UI                  │
+    │  ▶ coder             │  │                       │
+    └──────────────────────┘  └──────────────────────┘
+     │     │
+     └──┬──┘
+        │
+    ┌──────────────────────┐
+    │ ○ Pipeline agents    │
+    │  ○ integrator        │
+    │  ○ reviewer_contract │
+    └──────────────────────┘
+```
+
+Each sub-phase box shows its aggregate status, phase name, and agent sequence with per-agent status symbols. Top-level agents (integrator, contract reviewer) that are not scoped to a specific plan phase appear in a separate "Pipeline agents" box after all sub-phases.
+
+The Tier 3 visualization is driven by two fields on the `Pipeline` model:
+- `plan_phase_waves`: Ordered list of dependency waves, where each wave is a list of plan phase IDs that can run in parallel
+- `plan_phase_names`: Mapping of plan phase ID to human-readable name
+
+When `plan_phase_waves` is absent or empty, the standard single-box Implement rendering is used (backward compatible with Tier 1/2 pipelines).
+
 **Timing display**:
 
 The DAG visualization tracks per-cycle and total phase timing:
@@ -361,7 +397,7 @@ After all phases complete:
 
 **Parallel execution**: When `parallel_phases: true` is signaled by the refine agent and `PipelineConfig.enable_parallel_phases` is set, independent phases within the same wave run concurrently using `ThreadPoolExecutor`. The `PipelineConfig.max_parallel_agents` controls concurrency.
 
-**Pipeline model changes**: The `Pipeline` model tracks `complexity_tier` (a `ComplexityTier` enum: `low`, `mid`, `high`), and `PipelineConfig` has an `enable_parallel_phases` flag.
+**Pipeline model changes**: The `Pipeline` model tracks `complexity_tier` (a `ComplexityTier` enum: `low`, `mid`, `high`), and `PipelineConfig` has an `enable_parallel_phases` flag. For DAG visualization, the model also stores `plan_phase_waves` (dependency-ordered list of wave groups) and `plan_phase_names` (phase ID to human-readable name mapping), populated at Tier 3 implement start by `_run_tier3_implement()`.
 
 **Key files:**
 
@@ -373,8 +409,9 @@ After all phases complete:
 | `shared/egg_contracts/agent_roles.py` | `get_role_definition(role, complexity_tier=...)` for Tier 3 integrator |
 | `shared/egg_contracts/models.py` | `Phase.dependencies`, `AgentExecutionModel.phase_id` |
 | `shared/egg_contracts/plan_parser.py` | Dependency normalization in `ParsedPhase.to_contract_phase()` |
-| `orchestrator/models.py` | `ComplexityTier` enum, `PipelineConfig.enable_parallel_phases` |
+| `orchestrator/models.py` | `ComplexityTier` enum, `PipelineConfig.enable_parallel_phases`, `Pipeline.plan_phase_waves`, `Pipeline.plan_phase_names` |
 | `orchestrator/routes/pipelines.py` | `_run_tier3_implement()`, `_check_high_complexity_signal()` |
+| `orchestrator/dag_visualizer.py` | Tier 3 sub-phase rendering (`_render_tier3_implement`, fan-out/fan-in connectors) |
 | `gateway/agent_restrictions.py` | `INTEGRATOR_TIER3_PATTERNS`, tier-aware `get_agent_pattern()` |
 | `gateway/worktree_manager.py` | `create_phase_worktree()`, `cleanup_phase_worktrees()` |
 
