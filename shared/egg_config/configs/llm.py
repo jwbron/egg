@@ -14,7 +14,7 @@ from ..validators import mask_secret, validate_anthropic_key, validate_non_empty
 
 # Model used for health checks - uses cheapest/fastest model
 # Note: Health checks make minimal API calls (max_tokens=1) but are billable
-ANTHROPIC_HEALTH_CHECK_MODEL = "claude-haiku-4-5"  # noqa: EGG201 - raw API health check requires full model ID, not alias
+ANTHROPIC_HEALTH_CHECK_MODEL = "claude-haiku-4-5"  # noqa: EGG201 - direct Messages API call requires model identifier, not Claude Code alias
 
 
 @dataclass

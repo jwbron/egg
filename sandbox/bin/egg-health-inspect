@@ -24,6 +24,8 @@ import sys
 _DEFAULT_MODEL = "sonnet"
 # Subprocess timeout in seconds
 _SUBPROCESS_TIMEOUT = 45
+# Max retries on transient failures (process startup, resource contention)
+_MAX_RETRIES = 1
 
 # System prompt for the inspector
 _SYSTEM_PROMPT = """\
@@ -70,9 +72,6 @@ def _call_claude(user_prompt: str) -> str:
 
     model = os.environ.get("HEALTH_CHECK_MODEL", _DEFAULT_MODEL)
 
-    # Combine system prompt and user prompt for Claude Code
-    full_prompt = f"{_SYSTEM_PROMPT}\n---\n\n{user_prompt}"
-
     cmd = [
         claude_bin,
         "--print",
@@ -81,23 +80,41 @@ def _call_claude(user_prompt: str) -> str:
         model,
         "--max-turns",
         "1",
+        "--system-prompt",
+        _SYSTEM_PROMPT,
     ]
 
-    result = subprocess.run(
-        cmd,
-        input=full_prompt,
-        capture_output=True,
-        text=True,
-        timeout=_SUBPROCESS_TIMEOUT,
-    )
+    last_exc: Exception | None = None
+    for attempt in range(_MAX_RETRIES + 1):
+        try:
+            result = subprocess.run(
+                cmd,
+                input=user_prompt,
+                capture_output=True,
+                text=True,
+                timeout=_SUBPROCESS_TIMEOUT,
+            )
 
-    if result.returncode != 0:
-        stderr = result.stderr[:500] if result.stderr else "(no stderr)"
-        raise RuntimeError(
-            f"claude --print exited with code {result.returncode}: {stderr}"
-        )
+            if result.returncode != 0:
+                stderr = result.stderr[:500] if result.stderr else "(no stderr)"
+                raise RuntimeError(
+                    f"claude --print exited with code {result.returncode}: {stderr}"
+                )
 
-    return result.stdout.strip()
+            return result.stdout.strip()
+        except (subprocess.TimeoutExpired, RuntimeError) as exc:
+            last_exc = exc
+            if attempt < _MAX_RETRIES:
+                print(
+                    f"Attempt {attempt + 1} failed: {exc}",
+                    file=sys.stderr,
+                )
+                continue
+            raise
+
+    if last_exc:
+        raise last_exc
+    return ""
 
 
 def main() -> int:

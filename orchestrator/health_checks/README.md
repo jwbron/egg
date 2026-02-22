@@ -177,8 +177,6 @@ Container failures (timeouts, exit errors, malformed responses) always degrade t
 
 | Variable | Purpose | Default |
 |----------|---------|---------|
-| `ANTHROPIC_API_KEY` | API key for Claude | Required |
-| `ANTHROPIC_BASE_URL` | API base URL | `https://api.anthropic.com` |
 | `HEALTH_CHECK_MODEL` | Model to use for inspection | `sonnet` |
 
 **Context token budget:**

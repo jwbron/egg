@@ -79,12 +79,9 @@ def _should_skip_path(path: Path) -> bool:
     return False
 
 
-def _suggest_alias(model_id: str) -> str:
-    """Suggest the short alias for a full model identifier."""
-    for family, alias in _FAMILY_ALIAS.items():
-        if family in model_id:
-            return alias
-    return "sonnet"  # fallback
+def _suggest_alias(family: str) -> str:
+    """Suggest the short alias for a model family name."""
+    return _FAMILY_ALIAS.get(family, family)
 
 
 class ModelAliasVisitor(ast.NodeVisitor):
@@ -113,7 +110,8 @@ class ModelAliasVisitor(ast.NodeVisitor):
         match = _MODEL_ID_RE.search(node.value)
         if match:
             model_id = match.group(0)
-            alias = _suggest_alias(model_id)
+            family = match.group(3)
+            alias = _suggest_alias(family)
             self.violations.append(
                 (
                     node.lineno,
@@ -121,6 +119,16 @@ class ModelAliasVisitor(ast.NodeVisitor):
                 )
             )
         self.generic_visit(node)
+
+
+def _has_python_shebang(file_path: Path) -> bool:
+    """Check if a file starts with a Python shebang line."""
+    try:
+        with open(file_path, "rb") as f:
+            first_line = f.readline(256)
+        return first_line.startswith(b"#!") and b"python" in first_line
+    except Exception:
+        return False
 
 
 def check_python_file(file_path: Path) -> list[tuple[int, str]]:
@@ -152,14 +160,29 @@ def main() -> int:
         if not dir_path.is_dir():
             continue
 
+        seen: set[Path] = set()
+
+        # Scan .py files
         for py_file in dir_path.rglob("*.py"):
             if _should_skip_path(py_file):
                 continue
-
+            seen.add(py_file)
             rel = str(py_file.relative_to(repo_root))
             violations = check_python_file(py_file)
             if violations:
                 all_violations.append((rel, violations))
+
+        # Scan extensionless files with Python shebangs
+        for candidate in dir_path.rglob("*"):
+            if not candidate.is_file() or candidate.suffix or candidate in seen:
+                continue
+            if _should_skip_path(candidate):
+                continue
+            if _has_python_shebang(candidate):
+                rel = str(candidate.relative_to(repo_root))
+                violations = check_python_file(candidate)
+                if violations:
+                    all_violations.append((rel, violations))
 
     if all_violations:
         print("ERROR: Found non-alias Claude model references!\n")

@@ -187,16 +187,16 @@ class TestPathFiltering:
 
 
 class TestSuggestAlias:
-    """Tests for _suggest_alias helper."""
+    """Tests for _suggest_alias helper — takes family name, not full model ID."""
 
     def test_suggest_sonnet(self):
-        assert check_model_versions._suggest_alias("claude-sonnet-4-20250514") == "sonnet"
+        assert check_model_versions._suggest_alias("sonnet") == "sonnet"
 
     def test_suggest_opus(self):
-        assert check_model_versions._suggest_alias("claude-opus-4-5") == "opus"
+        assert check_model_versions._suggest_alias("opus") == "opus"
 
     def test_suggest_haiku(self):
-        assert check_model_versions._suggest_alias("claude-3-haiku-20240307") == "haiku"
+        assert check_model_versions._suggest_alias("haiku") == "haiku"
 
 
 class TestMultipleViolations:
