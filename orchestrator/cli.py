@@ -32,8 +32,26 @@ try:
 except ImportError:
     import logging
 
-    def get_logger(name: str, **kwargs) -> logging.Logger:  # type: ignore[misc]
-        return logging.getLogger(name)
+    class _FallbackLogger:
+        """Minimal wrapper compatible with EggLogger's structured kwargs API."""
+
+        def __init__(self, logger: logging.Logger):
+            self._logger = logger
+
+        def debug(self, msg: str, *args, **kwargs) -> None:  # type: ignore[no-untyped-def]
+            self._logger.debug(msg, *args)
+
+        def info(self, msg: str, *args, **kwargs) -> None:  # type: ignore[no-untyped-def]
+            self._logger.info(msg, *args)
+
+        def warning(self, msg: str, *args, **kwargs) -> None:  # type: ignore[no-untyped-def]
+            self._logger.warning(msg, *args)
+
+        def error(self, msg: str, *args, **kwargs) -> None:  # type: ignore[no-untyped-def]
+            self._logger.error(msg, *args)
+
+    def get_logger(name: str, **kwargs) -> _FallbackLogger:  # type: ignore[misc]
+        return _FallbackLogger(logging.getLogger(name))
 
     def configure_logging(**kwargs) -> None:
         logging.basicConfig(level=logging.INFO)
