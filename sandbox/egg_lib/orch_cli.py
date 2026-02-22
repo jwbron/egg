@@ -48,8 +48,8 @@ try:
         ORCHESTRATOR_PORT,
     )
 except ImportError:
-    ORCHESTRATOR_PORT = 9849
-    GATEWAY_PORT = 9848
+    ORCHESTRATOR_PORT = 9849  # noqa: EGG002
+    GATEWAY_PORT = 9848  # noqa: EGG002
 
 # Validation pattern for IDs used in URL path segments
 _SAFE_ID_PATTERN = re.compile(r"^[a-zA-Z0-9_\-\.]+$")

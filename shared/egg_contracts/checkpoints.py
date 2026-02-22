@@ -53,7 +53,8 @@ class SessionMetadata(BaseModel):
         default=None, ge=0, description="Session duration in seconds"
     )
     model: str | None = Field(
-        default=None, description="Model used for the session (e.g., claude-opus-4-5-20251101)"  # noqa: EGG201 - schema description shows full ID format
+        default=None,
+        description="Model used for the session (e.g., claude-opus-4-5-20251101)",  # noqa: EGG201 - schema description shows full ID format
     )
     claude_code_version: str | None = Field(
         default=None, description="Claude Code version if available"

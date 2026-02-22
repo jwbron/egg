@@ -18,8 +18,8 @@ try:
     from .auth import require_session_auth
     from .git_client import validate_repo_path
 except ImportError:
-    from auth import require_session_auth  # type: ignore[no-redef, import-not-found]
-    from git_client import validate_repo_path  # type: ignore[no-redef, import-not-found]
+    from auth import require_session_auth  # type: ignore[no-redef, import-untyped]
+    from git_client import validate_repo_path  # type: ignore[no-redef, import-untyped]
 
 # Add shared directory to path for egg_contracts
 _shared_path = Path(__file__).parent.parent / "shared"

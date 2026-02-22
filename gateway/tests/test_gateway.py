@@ -3375,9 +3375,7 @@ class TestSessionCreateWithPhase:
             base = call_kwargs.kwargs.get("base_branch") or call_kwargs[1].get("base_branch")
             assert base == "origin/main"
 
-    def test_session_create_no_pipeline_uses_head(
-        self, client, launcher_auth_headers, tmp_path
-    ):
+    def test_session_create_no_pipeline_uses_head(self, client, launcher_auth_headers, tmp_path):
         """Session create without pipeline_id uses HEAD as base branch."""
         from session_manager import SessionManager
 
@@ -3481,9 +3479,7 @@ class TestWorktreeCreateEndpointResolution:
             base = call_kwargs.kwargs.get("base_branch") or call_kwargs[1].get("base_branch")
             assert base == "origin/main"
 
-    def test_worktree_create_uses_explicit_base_branch(
-        self, client, launcher_auth_headers
-    ):
+    def test_worktree_create_uses_explicit_base_branch(self, client, launcher_auth_headers):
         """When base_branch is explicitly provided, the endpoint uses it
         without calling resolve_default_branch()."""
         with patch.object(gateway, "get_worktree_manager") as mock_worktree:

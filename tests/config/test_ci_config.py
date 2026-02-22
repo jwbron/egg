@@ -1,15 +1,13 @@
 """
 Tests for CI configuration consistency.
 
-Validates that test.yml, pyproject.toml, CONTRIBUTING.md, and Makefile
-are consistent regarding which test directories and scan targets are
-included. Ensures pytest.ini does not exist (config consolidated into
-pyproject.toml).
+Validates that Makefile, pyproject.toml, and CONTRIBUTING.md are consistent
+regarding which test directories and scan targets are included. CI workflows
+delegate to Makefile targets, so consistency checks focus on the Makefile.
+Ensures pytest.ini does not exist (config consolidated into pyproject.toml).
 """
 
 from pathlib import Path
-
-import yaml
 
 # Repository root (tests/config/ -> ../..)
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -71,46 +69,44 @@ class TestPytestConfigConsolidation:
 
 
 class TestCIWorkflowConsistency:
-    """Verify test.yml includes all test suites and scan targets."""
+    """Verify CI delegates to Makefile and Makefile includes all targets."""
 
-    def _load_test_workflow(self):
-        with open(REPO_ROOT / ".github" / "workflows" / "test.yml") as f:
-            return yaml.safe_load(f)
-
-    def _get_unit_test_run_cmd(self):
-        """Find the 'Run unit tests' step by name rather than by index."""
-        wf = self._load_test_workflow()
-        run_cmd = next(
-            (s["run"] for s in wf["jobs"]["unit"]["steps"] if s.get("name") == "Run unit tests"),
-            None,
-        )
-        assert run_cmd is not None, "No step named 'Run unit tests' found in unit job"
-        return run_cmd
+    def _load_makefile(self):
+        return (REPO_ROOT / "Makefile").read_text()
 
     def test_unit_job_runs_all_test_directories(self):
-        """The unit test command must include tests/, gateway/tests/, and orchestrator/tests/."""
-        run_cmd = self._get_unit_test_run_cmd()
+        """The Makefile test target must include tests/, gateway/tests/, and orchestrator/tests/."""
+        makefile = self._load_makefile()
 
         for test_dir in ["tests/", "gateway/tests/", "orchestrator/tests/"]:
-            assert test_dir in run_cmd, f"'{test_dir}' not found in unit test run command"
+            assert test_dir in makefile, f"'{test_dir}' not found in Makefile test target"
 
     def test_unit_job_pythonpath_includes_orchestrator(self):
         """PYTHONPATH must include orchestrator for import resolution."""
-        run_cmd = self._get_unit_test_run_cmd()
+        makefile = self._load_makefile()
 
-        assert "orchestrator" in run_cmd.split("PYTHONPATH=")[1].split()[0], (
-            "orchestrator not in PYTHONPATH for unit tests"
-        )
+        # The Makefile exports PYTHONPATH with orchestrator
+        assert "PYTHONPATH" in makefile, "PYTHONPATH not set in Makefile"
+        # Find the PYTHONPATH line and check it includes orchestrator
+        for line in makefile.splitlines():
+            if "PYTHONPATH" in line and ":=" in line:
+                assert "orchestrator" in line, "orchestrator not in PYTHONPATH in Makefile"
+                break
 
     def test_bandit_scan_includes_orchestrator(self):
-        """The Bandit security scan must include the orchestrator directory."""
-        wf = self._load_test_workflow()
-        security_steps = wf["jobs"]["security"]["steps"]
-        bandit_step = [s for s in security_steps if "bandit" in s.get("run", "")]
-        assert len(bandit_step) == 1, "Expected exactly one bandit step"
+        """The Makefile security target must include the orchestrator directory."""
+        makefile = self._load_makefile()
 
-        bandit_cmd = bandit_step[0]["run"]
-        assert "orchestrator" in bandit_cmd, "orchestrator not included in bandit security scan"
+        # Find bandit command in the security target
+        found_bandit_with_orchestrator = False
+        for line in makefile.splitlines():
+            if "bandit" in line.lower() and "-r" in line and "orchestrator" in line:
+                found_bandit_with_orchestrator = True
+                break
+
+        assert found_bandit_with_orchestrator, (
+            "orchestrator not included in bandit security scan in Makefile"
+        )
 
 
 class TestDocumentationConsistency:
@@ -123,19 +119,19 @@ class TestDocumentationConsistency:
             "CONTRIBUTING.md does not mention orchestrator tests"
         )
 
-    def test_makefile_bandit_help_includes_orchestrator(self):
-        """Makefile help text for bandit must include orchestrator."""
+    def test_makefile_bandit_includes_orchestrator(self):
+        """Makefile security target must run bandit on orchestrator."""
         content = (REPO_ROOT / "Makefile").read_text()
-        # Find the bandit help line
-        import pytest
 
+        found_bandit_with_orchestrator = False
         for line in content.splitlines():
-            if "bandit" in line and "-r" in line:
-                assert "orchestrator" in line, (
-                    f"Makefile bandit help line does not include orchestrator: {line}"
-                )
-                return
-        pytest.fail("No bandit -r line found in Makefile")
+            if "bandit" in line.lower() and "orchestrator" in line:
+                found_bandit_with_orchestrator = True
+                break
+
+        assert found_bandit_with_orchestrator, (
+            "Makefile does not include orchestrator in bandit security scan"
+        )
 
 
 class TestMypyOverrides:

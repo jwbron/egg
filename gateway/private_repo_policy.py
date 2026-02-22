@@ -60,7 +60,7 @@ try:
     from .repo_visibility import get_repo_visibility
 except ImportError:
     from error_messages import get_error_message  # type: ignore[no-redef]
-    from repo_parser import (  # type: ignore[no-redef, import-not-found]
+    from repo_parser import (  # type: ignore[no-redef, import-untyped]
         RepoInfo,
         extract_repo_from_request,
         parse_owner_repo,

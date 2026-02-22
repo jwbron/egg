@@ -23,7 +23,7 @@ if _shared_path.exists() and str(_shared_path) not in sys.path:
 try:
     from .phase_filter import PipelinePhase, get_phase_filter
 except ImportError:
-    from phase_filter import (  # type: ignore[no-redef, import-not-found]
+    from phase_filter import (  # type: ignore[no-redef, import-untyped]
         PipelinePhase,
         get_phase_filter,
     )
