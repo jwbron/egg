@@ -161,7 +161,7 @@ Delegates semantic analysis of agent progress to a short-lived sandbox container
    - Agent output files from `.egg-state/` (`agent_outputs`)
    - SDLC contract state (`contract`)
 2. Spawns a sandbox container running `egg-health-inspect` with context passed via `EGG_INSPECTOR_CONTEXT` env var
-3. Container calls the Anthropic Messages API (via gateway credential injection) with a system prompt instructing Claude to produce a JSON verdict
+3. Container runs `claude --print` with a system prompt instructing Claude to produce a JSON verdict
 4. Parses the JSON response from container stdout into a `HealthStatus` and reasoning string
 5. Returns a `HealthResult` with ALERT action for DEGRADED/FAILED verdicts
 
