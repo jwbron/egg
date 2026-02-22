@@ -27,6 +27,7 @@ from routes.pipelines import (
     _get_code_review_criteria,
     _get_contract_review_criteria,
     _read_shared_criteria,
+    _read_tester_gaps,
     _render_contract_tasks,
     _summarize_issue,
 )
@@ -1713,3 +1714,241 @@ class TestBuildPhaseScopedPromptEdgeCases:
         # Phase detail from the plan text should NOT be embedded
         assert "Implement JWT generation" not in result
         assert "Add auth middleware" not in result
+
+
+class TestReadTesterGaps:
+    """Tests for _read_tester_gaps() helper."""
+
+    def test_with_gaps_and_failures(self, tmp_path):
+        """Returns formatted string with test failures and gaps."""
+        outputs_dir = tmp_path / ".egg-state" / "agent-outputs"
+        outputs_dir.mkdir(parents=True)
+        (outputs_dir / "tester-output.json").write_text(
+            json.dumps(
+                {
+                    "tests_failed": 2,
+                    "gaps_found": [
+                        "No error handling for invalid input",
+                        "Missing boundary check in parse()",
+                    ],
+                }
+            )
+        )
+
+        result = _read_tester_gaps(tmp_path)
+        assert result is not None
+        assert "### tester findings" in result
+        assert "**2** test(s) failed" in result
+        assert "No error handling for invalid input" in result
+        assert "Missing boundary check in parse()" in result
+
+    def test_no_gaps_returns_none(self, tmp_path):
+        """Returns None when no gaps or failures found."""
+        outputs_dir = tmp_path / ".egg-state" / "agent-outputs"
+        outputs_dir.mkdir(parents=True)
+        (outputs_dir / "tester-output.json").write_text(
+            json.dumps(
+                {
+                    "tests_failed": 0,
+                    "gaps_found": [],
+                    "summary": "All tests pass",
+                }
+            )
+        )
+
+        result = _read_tester_gaps(tmp_path)
+        assert result is None
+
+    def test_missing_file_returns_none(self, tmp_path):
+        """Returns None when tester output file doesn't exist."""
+        result = _read_tester_gaps(tmp_path)
+        assert result is None
+
+    def test_malformed_json_returns_none(self, tmp_path):
+        """Returns None when JSON is malformed."""
+        outputs_dir = tmp_path / ".egg-state" / "agent-outputs"
+        outputs_dir.mkdir(parents=True)
+        (outputs_dir / "tester-output.json").write_text("not valid json{{{")
+
+        result = _read_tester_gaps(tmp_path)
+        assert result is None
+
+    def test_summary_fallback_when_no_gaps_field(self, tmp_path):
+        """Falls back to scanning summary for failure keywords."""
+        outputs_dir = tmp_path / ".egg-state" / "agent-outputs"
+        outputs_dir.mkdir(parents=True)
+        (outputs_dir / "tester-output.json").write_text(
+            json.dumps(
+                {
+                    "tests_added": 10,
+                    "tests_passed": 10,
+                    "summary": "Tests pass but found gaps in error handling",
+                }
+            )
+        )
+
+        result = _read_tester_gaps(tmp_path)
+        assert result is not None
+        assert "tester findings" in result
+        assert "gaps in error handling" in result
+
+    def test_summary_no_keywords_returns_none(self, tmp_path):
+        """Returns None when summary has no failure keywords."""
+        outputs_dir = tmp_path / ".egg-state" / "agent-outputs"
+        outputs_dir.mkdir(parents=True)
+        (outputs_dir / "tester-output.json").write_text(
+            json.dumps(
+                {
+                    "tests_added": 10,
+                    "tests_passed": 10,
+                    "summary": "All tests pass with good coverage",
+                }
+            )
+        )
+
+        result = _read_tester_gaps(tmp_path)
+        assert result is None
+
+    def test_caps_at_10_gaps(self, tmp_path):
+        """Caps gaps at 10 to avoid prompt bloat."""
+        outputs_dir = tmp_path / ".egg-state" / "agent-outputs"
+        outputs_dir.mkdir(parents=True)
+        gaps = [f"Gap number {i}" for i in range(15)]
+        (outputs_dir / "tester-output.json").write_text(
+            json.dumps({"gaps_found": gaps})
+        )
+
+        result = _read_tester_gaps(tmp_path)
+        assert result is not None
+        assert "Gap number 0" in result
+        assert "Gap number 9" in result
+        assert "Gap number 10" not in result
+        assert "5 more gaps" in result
+
+    def test_non_dict_json_returns_none(self, tmp_path):
+        """Returns None when JSON is valid but not a dict."""
+        outputs_dir = tmp_path / ".egg-state" / "agent-outputs"
+        outputs_dir.mkdir(parents=True)
+        (outputs_dir / "tester-output.json").write_text(json.dumps([1, 2, 3]))
+
+        result = _read_tester_gaps(tmp_path)
+        assert result is None
+
+    def test_gaps_found_non_list_ignored(self, tmp_path):
+        """Non-list gaps_found is ignored."""
+        outputs_dir = tmp_path / ".egg-state" / "agent-outputs"
+        outputs_dir.mkdir(parents=True)
+        (outputs_dir / "tester-output.json").write_text(
+            json.dumps({"gaps_found": "not a list", "tests_failed": 0})
+        )
+
+        result = _read_tester_gaps(tmp_path)
+        assert result is None
+
+    def test_only_failures_no_gaps(self, tmp_path):
+        """Returns finding when only tests_failed is set."""
+        outputs_dir = tmp_path / ".egg-state" / "agent-outputs"
+        outputs_dir.mkdir(parents=True)
+        (outputs_dir / "tester-output.json").write_text(
+            json.dumps({"tests_failed": 3, "summary": "3 tests failed"})
+        )
+
+        result = _read_tester_gaps(tmp_path)
+        assert result is not None
+        assert "**3** test(s) failed" in result
+
+
+class TestTesterGapFindingPrompts:
+    """Tests for tester gap-finding language in prompts."""
+
+    def test_tester_prompt_contains_gap_finding_language(self):
+        """Tester prompt includes gap-finding focus items."""
+        result = _build_agent_prompt(
+            role_value="tester",
+            phase="implement",
+            pipeline_id="pid-1",
+            pipeline_mode="issue",
+            prompt="# Feature\n\nDetail.",
+            issue_number=1,
+        )
+        assert "Validate the changes and find gaps" in result
+        assert "Gap-finding focus" in result
+        assert "Missing error handling" in result
+        assert "Boundary conditions" in result
+        assert "Uncovered code paths" in result
+
+    def test_phase_scoped_prompt_revision_mentions_tester(self, tmp_path):
+        """Phase-scoped prompt on revision cycle mentions tester output."""
+        from models import Pipeline
+
+        phase = MagicMock()
+        phase.id = "phase-1"
+        phase.name = "Core"
+        phase.tasks = []
+        phase.status = "pending"
+
+        pipeline = Pipeline(id="test-1", issue_number=42, repo="owner/repo", branch="egg/test")
+
+        result = _build_phase_scoped_prompt(
+            phase_obj=phase,
+            pipeline_id="test-1",
+            pipeline_mode="issue",
+            pipeline=pipeline,
+            worktree_repo_path=tmp_path,
+            review_feedback="Fix the naming convention",
+            review_cycle=1,
+        )
+
+        assert "reviewer and tester" in result
+        assert "tester-output.json" in result
+        assert "Revision Checklist" in result
+
+    def test_phase_scoped_prompt_cycle_0_no_revision_checklist(self, tmp_path):
+        """Phase-scoped prompt on cycle 0 does not have revision checklist."""
+        from models import Pipeline
+
+        phase = MagicMock()
+        phase.id = "phase-1"
+        phase.name = "Core"
+        phase.tasks = []
+        phase.status = "pending"
+
+        pipeline = Pipeline(id="test-1", issue_number=42, repo="owner/repo", branch="egg/test")
+
+        result = _build_phase_scoped_prompt(
+            phase_obj=phase,
+            pipeline_id="test-1",
+            pipeline_mode="issue",
+            pipeline=pipeline,
+            worktree_repo_path=tmp_path,
+            review_cycle=0,
+        )
+
+        assert "Revision Checklist" not in result
+
+    def test_phase_prompt_revision_mentions_tester_output(self):
+        """Non-Tier-3 phase prompt revision instructions mention tester output."""
+        result = _build_phase_prompt(
+            phase="implement",
+            pipeline_id="test-pid",
+            pipeline_mode="local",
+            prompt="Build a widget",
+            review_cycle=1,
+            review_feedback="Fix the naming convention",
+        )
+
+        assert "reviewer and tester" in result
+        assert "tester-output.json" in result
+
+    def test_phase_prompt_revision_no_feedback_mentions_tester(self):
+        """Non-Tier-3 phase prompt revision without feedback also mentions tester."""
+        result = _build_phase_prompt(
+            phase="implement",
+            pipeline_id="test-pid",
+            pipeline_mode="local",
+            prompt="Build a widget",
+            review_cycle=1,
+            review_feedback=None,
+        )
+
+        assert "tester-output.json" in result

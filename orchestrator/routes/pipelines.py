@@ -1602,6 +1602,65 @@ def _read_review_verdict(
         return None
 
 
+def _read_tester_gaps(repo_path: Path) -> str | None:
+    """Read tester output and extract gap findings for feedback to the coder.
+
+    Reads `.egg-state/agent-outputs/tester-output.json` and formats any
+    test failures and gaps found into a summary string.
+
+    Falls back to scanning the `summary` field for failure keywords when
+    `gaps_found` is not present (backwards compat with old tester outputs).
+
+    Returns:
+        Formatted gap summary string, or None if no gaps found.
+    """
+    tester_output_file = repo_path / ".egg-state" / "agent-outputs" / "tester-output.json"
+
+    if not tester_output_file.exists():
+        return None
+
+    try:
+        raw = tester_output_file.read_text()
+        data = json.loads(raw)
+    except (json.JSONDecodeError, OSError) as e:
+        logger.warning(
+            "Failed to parse tester output file",
+            path=str(tester_output_file),
+            error=str(e),
+        )
+        return None
+
+    if not isinstance(data, dict):
+        return None
+
+    sections: list[str] = []
+
+    tests_failed = data.get("tests_failed", 0)
+    if tests_failed:
+        sections.append(f"- **{tests_failed}** test(s) failed")
+
+    gaps_found = data.get("gaps_found")
+    if gaps_found and isinstance(gaps_found, list):
+        # Cap at 10 gaps to avoid prompt bloat
+        capped = gaps_found[:10]
+        for gap in capped:
+            sections.append(f"- {gap}")
+        if len(gaps_found) > 10:
+            sections.append(f"- ... and {len(gaps_found) - 10} more gaps")
+    elif not tests_failed:
+        # Backwards compat: scan summary for failure keywords
+        summary = data.get("summary", "")
+        if isinstance(summary, str) and any(
+            kw in summary.lower() for kw in ("fail", "gap", "missing", "error", "deficien")
+        ):
+            sections.append(f"- Tester summary: {summary}")
+
+    if not sections:
+        return None
+
+    return "### tester findings\n" + "\n".join(sections)
+
+
 def _aggregate_review_verdicts(
     verdicts: dict[str, ReviewVerdict | None],
 ) -> tuple[str, str]:
@@ -2095,13 +2154,14 @@ def _build_phase_prompt(
             if review_feedback:
                 lines.extend(
                     [
-                        "The reviewer found issues with your implementation. "
+                        "The reviewer and tester found issues with your implementation. "
                         "Focus on addressing the specific feedback above.\n",
                         "1. Review the feedback in the **Prior Review Feedback** section above",
                         "2. Check `git diff` to understand the current state of changes",
                         "3. Fix the specific issues raised by the reviewer",
-                        "4. Run tests to verify your fixes",
-                        "5. Commit with descriptive messages",
+                        "4. Check `.egg-state/agent-outputs/tester-output.json` for test failures and gaps",
+                        "5. Run tests to verify your fixes",
+                        "6. Commit with descriptive messages",
                         "",
                     ]
                 )
@@ -2111,9 +2171,10 @@ def _build_phase_prompt(
                         "A revision was requested but no specific feedback was provided. "
                         "Review the task description above and check `git diff` for the current state.\n",
                         "1. Review the task description above and check `git diff`",
-                        "2. Verify the implementation meets the requirements",
-                        "3. Run tests to verify correctness",
-                        "4. Commit with descriptive messages",
+                        "2. Check `.egg-state/agent-outputs/tester-output.json` for test failures and gaps",
+                        "3. Verify the implementation meets the requirements",
+                        "4. Run tests to verify correctness",
+                        "5. Commit with descriptive messages",
                         "",
                     ]
                 )
@@ -2353,18 +2414,20 @@ def _build_agent_prompt(
     if role_value == "tester":
         lines.extend(
             [
-                "Write and run tests for the changes made by the CODER agent:",
+                "Validate the changes and find gaps in the CODER agent's implementation:",
                 "",
                 "1. Review the changed files (available in handoff data or via git diff)",
-                "2. Write or update tests covering the new/changed code",
-                "3. Run all tests to ensure they pass",
-                "4. Report test coverage for the new code",
-                "5. Commit test files with descriptive messages",
+                "2. Identify gaps: missing error handling, boundary conditions, uncovered branches",
+                "3. Write or update tests targeting identified gaps and new/changed code",
+                "4. Run all tests and record which pass and which fail",
+                "5. Document gaps found in your handoff output (`gaps_found` field)",
+                "6. Commit test files with descriptive messages",
                 "",
-                "Focus on:",
-                "- Unit tests for new functions and methods",
-                "- Edge cases and error handling",
-                "- Integration tests where appropriate",
+                "Gap-finding focus:",
+                "- Missing error handling and input validation",
+                "- Boundary conditions and edge cases",
+                "- Uncovered code paths and branches",
+                "- Integration gaps between components",
                 "",
             ]
         )
@@ -2612,7 +2675,7 @@ def _build_phase_scoped_prompt(
     if review_cycle > 0 and review_feedback:
         lines.append(f"## Prior Review Feedback (Cycle {review_cycle})\n")
         lines.append(
-            "The reviewer found issues with your previous work for this phase. "
+            "The reviewer and tester found issues with your previous work for this phase. "
             "Address the feedback below.\n"
         )
         lines.append(review_feedback)
@@ -2670,6 +2733,17 @@ def _build_phase_scoped_prompt(
     lines.append("2. Run tests to verify correctness")
     lines.append("3. Commit with descriptive messages")
     lines.append("")
+
+    # Revision-specific checklist
+    if review_cycle > 0:
+        lines.append("### Revision Checklist\n")
+        lines.append("- [ ] Review the feedback in **Prior Review Feedback** above")
+        lines.append(
+            "- [ ] Check `.egg-state/agent-outputs/tester-output.json` for test failures and gaps"
+        )
+        lines.append("- [ ] Fix the specific issues raised")
+        lines.append("- [ ] Run tests to verify fixes")
+        lines.append("")
 
     # Contract CLI
     lines.append("Use the contract CLI to track progress:")
@@ -2958,6 +3032,15 @@ def _run_tier3_implement(
                     exit_code=tester_exit,
                 )
 
+            # Read tester gap findings for potential feedback to coder
+            tester_gap_summary = _read_tester_gaps(worktree_repo_path)
+            if tester_gap_summary:
+                logger.info(
+                    "Tester found gaps",
+                    pipeline_id=pipeline_id,
+                    phase_id=phase_id,
+                )
+
             # --- DOCUMENTER ---
             if cancel_event.is_set():
                 phase_logs.append(f"--- documenter ({phase_id}, retry={retry}) cancelled ---")
@@ -3214,6 +3297,12 @@ def _run_tier3_implement(
                     retry=retry,
                 )
                 prior_feedback = combined_feedback
+                if tester_gap_summary:
+                    prior_feedback = (
+                        f"{combined_feedback}\n\n{tester_gap_summary}"
+                        if combined_feedback
+                        else tester_gap_summary
+                    )
                 last_reviewed_commit = cycle_head
                 continue
             else:

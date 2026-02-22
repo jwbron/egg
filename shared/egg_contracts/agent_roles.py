@@ -213,12 +213,12 @@ CODER_ROLE = AgentRoleDefinition(
 
 TESTER_ROLE = AgentRoleDefinition(
     role=AgentRole.TESTER,
-    description="Writes tests for the implemented changes",
+    description="Validates implementation and finds gaps by writing and running tests",
     responsibilities=[
         "Read the list of changed files from coder",
-        "Write or update tests for the changes",
-        "Report test coverage for new code",
-        "Ensure tests pass before completing",
+        "Identify gaps in the implementation (missing error handling, boundary conditions, uncovered branches)",
+        "Write or update tests targeting identified gaps",
+        "Report test coverage and document deficiencies found",
     ],
     dependencies=[AgentRole.CODER],  # Must wait for coder
     file_access=FileAccessPattern(
@@ -246,7 +246,7 @@ TESTER_ROLE = AgentRoleDefinition(
             ".egg-state/contracts/",
         ],
     ),
-    produces_outputs=["test_files", "coverage_report"],
+    produces_outputs=["test_files", "coverage_report", "gaps_found"],
     requires_inputs=["changed_files"],
 )
 
