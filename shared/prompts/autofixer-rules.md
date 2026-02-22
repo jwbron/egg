@@ -12,5 +12,4 @@
 **Report only (post comment explaining what's needed):**
 - Complex logic errors requiring design decisions
 - Security issues requiring architectural changes
-- Test failures from unclear requirements
-- Build failures from missing environment config
+- Failures that require understanding business requirements to resolve correctly

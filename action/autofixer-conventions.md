@@ -107,6 +107,9 @@ gh pr comment 123 --body "## Check Failure: <Check Name>
 
 ## Decision Framework
 
+**Never skip a failure because it's "pre-existing".** Your job is to make all checks
+green on this branch. If a test was already broken on main, fix it here.
+
 **Auto-fix when:**
 - The fix is mechanical (formatting, import order, type annotations)
 - There's one obvious correct solution
@@ -114,11 +117,9 @@ gh pr comment 123 --body "## Check Failure: <Check Name>
 - You can verify the fix works locally
 
 **Report instead when:**
-- Multiple valid approaches exist
 - The fix requires understanding business requirements
-- The change could break other functionality
 - Security implications need human review
-- You're uncertain about the right approach
+- You're uncertain about the right approach after investigation
 
 ## Signature
 

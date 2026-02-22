@@ -1529,6 +1529,11 @@ def run_interactive(config: Config, logger: Logger) -> int:
     # Change to repos directory
     if config.repos_dir.exists():
         os.chdir(config.repos_dir)
+        # If there's exactly one repo, cd into it so git/gh commands work
+        subdirs = [d for d in config.repos_dir.iterdir() if d.is_dir() and (d / ".git").exists()]
+        if len(subdirs) == 1:
+            os.chdir(subdirs[0])
+            os.environ["EGG_REPO_PATH"] = str(subdirs[0])
     else:
         os.chdir(config.user_home)
 
@@ -1586,6 +1591,11 @@ def run_exec(config: Config, logger: Logger, args: list[str]) -> int:
     # like `gh repo view` can auto-detect the repository context.
     if config.repos_dir.exists():
         os.chdir(config.repos_dir)
+        # If there's exactly one repo, cd into it so git/gh commands work
+        subdirs = [d for d in config.repos_dir.iterdir() if d.is_dir() and (d / ".git").exists()]
+        if len(subdirs) == 1:
+            os.chdir(subdirs[0])
+            os.environ["EGG_REPO_PATH"] = str(subdirs[0])
     else:
         os.chdir(config.user_home)
 

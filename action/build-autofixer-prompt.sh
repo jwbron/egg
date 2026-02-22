@@ -86,6 +86,10 @@ ${workflow_context}
 
 ## Your task
 
+**CRITICAL: Fix ALL failing checks, not just ones introduced by this PR.** If a check
+was already failing on main, fix it anyway — the goal is green CI on this PR branch.
+Do not skip failures because they are \"pre-existing\" or \"not introduced by this PR.\"
+
 **IMPORTANT: Fix ALL issues in a single pass. Do not push until all checks pass locally.**
 
 1. **Investigate ALL failures first**: Use \`gh pr checks ${PR_NUMBER}\` to list all failing checks. For each failed check, examine the logs to understand what's wrong. Make a complete list of all issues before fixing anything.
