@@ -190,6 +190,11 @@ jobs:
         continue-on-error: true
         run: .venv/bin/python scripts/check-reviewer-job-names.py
 
+      - name: Check LLM API boundary
+        id: llm-api-boundary
+        continue-on-error: true
+        run: .venv/bin/python scripts/check-llm-api-calls.py
+
       - name: Check results
         if: always()
         run: |
@@ -202,6 +207,7 @@ jobs:
           [ "${{ steps.workflow-secrets.outcome }}" = "failure" ] && failed="$failed workflow-secrets"
           [ "${{ steps.hardcoded-ports.outcome }}" = "failure" ] && failed="$failed hardcoded-ports"
           [ "${{ steps.reviewer-job-names.outcome }}" = "failure" ] && failed="$failed reviewer-job-names"
+          [ "${{ steps.llm-api-boundary.outcome }}" = "failure" ] && failed="$failed llm-api-boundary"
           if [ -n "$failed" ]; then
             echo "::error::Failed checks:$failed"
             exit 1
