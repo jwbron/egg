@@ -344,7 +344,7 @@ The implement phase supports multi-agent orchestration, where specialized agents
 | Role | Responsibilities | Depends On | Can Write |
 |------|-----------------|------------|-----------|
 | **Coder** | Implement code changes based on plan tasks | — | Source code files (`**/*.py`, `**/*.ts`, etc.) |
-| **Tester** | Write or update tests for the changes | Coder | Test files (`tests/`, `**/*_test.py`, `**/*.test.ts`, etc.) |
+| **Tester** | Find gaps in implementation and write tests | Coder | Test files (`tests/`, `**/*_test.py`, `**/*.test.ts`, etc.) |
 | **Documenter** | Update documentation for the changes | Coder | Documentation files (`docs/`, `**/*.md`) |
 | **Integrator** | Run full test suite and validate integration | Coder, Tester | Handoff output only (read-only otherwise); **Tier 3 exception below** |
 
@@ -378,7 +378,7 @@ Plan produces phases with dependency ordering:
 
 Each implement cycle (per phase):
   1. Coder: implements tasks scoped to this phase
-  2. Tester: writes/runs tests for this phase's changes
+  2. Tester: finds gaps and writes/runs tests for this phase's changes
   3. Documenter: updates documentation for this phase's changes
   4. Checker: runs linters and auto-fixers on this phase's code
   5. Code Reviewer: checks this phase's diff for security and correctness
@@ -656,7 +656,7 @@ The implement phase can use multi-agent orchestration to parallelize work across
 | Role | Purpose | Dependencies | File Access |
 |------|---------|--------------|-------------|
 | **Coder** | Implements code changes | None | `src/`, `lib/`, `shared/` |
-| **Tester** | Creates and runs tests | Coder | `tests/`, `test_*.py`, `*.test.ts` |
+| **Tester** | Finds gaps in implementation and writes tests | Coder | `tests/`, `test_*.py`, `*.test.ts` |
 | **Documenter** | Updates documentation | Coder | `docs/`, `*.md`, `README*` |
 | **Integrator** | Final validation and integration | Coder, Tester | Read-only except `.egg-state/` (Tier 2); source/tests/docs writable (Tier 3) |
 
