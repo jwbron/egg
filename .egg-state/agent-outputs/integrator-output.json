@@ -1,91 +1,92 @@
 {
   "status": "pass",
   "phase": "implement",
-  "pipeline_id": "issue-835",
-  "issue": 835,
-  "branch": "egg/issue-835",
-  "summary": "All changes from coder, tester, and documenter agents integrate cleanly. The feature scopes agent prompts to role-relevant context: execution roles (tester, documenter, integrator) receive summarized backgrounds with structured task info instead of the full issue body, while analysis roles retain the full issue. Phase-scoped coders see the plan overview instead of the full plan. 133 prompt-related tests pass (34 from coder + 40 tester-authored edge cases + 59 pre-existing). Full orchestrator suite: 736 passed, 3 pre-existing failures in test_docker_client.py. Lint passes clean.",
+  "pipeline_id": "issue-850",
+  "issue": 850,
+  "summary": "Two-tier health check framework integration verified across both implementation phases. All tests pass, all cross-phase interfaces are correct, no regressions detected.",
   "test_results": {
-    "pipeline_prompts_tests": {
-      "status": "pass",
-      "passed": 133,
+    "health_check_tests": {
+      "passed": 419,
       "failed": 0,
-      "duration_seconds": 0.57,
-      "details": "orchestrator/tests/test_pipeline_prompts.py — 133 tests covering _summarize_issue, _extract_plan_overview, _build_role_context, _build_agent_prompt role context, _build_phase_scoped_prompt overview, plus edge cases for all functions. All pass."
+      "skipped": 0,
+      "description": "All health check framework tests (types, tier1, tier2, context, runner, integration, lifecycle, tester coverage)"
     },
-    "orchestrator_full_suite": {
-      "status": "pass_with_pre_existing_failures",
-      "passed": 736,
+    "orchestrator_tests": {
+      "passed": 1169,
       "failed": 3,
-      "duration_seconds": 17.96,
-      "details": "736 passed. 3 pre-existing failures in test_docker_client.py: TestDockerClientConnection.test_is_connected_false, TestContainerCreation.test_create_container_image_not_found, TestContainerOperations.test_start_container_not_found. All due to Docker mock exception handling issues unrelated to this PR."
+      "skipped": 0,
+      "description": "Full orchestrator test suite. 3 failures are pre-existing in test_docker_client.py (unchanged files, same failures on origin/main)"
     },
-    "lint": {
-      "status": "pass",
-      "details": "ruff check passes clean on both orchestrator/routes/pipelines.py and orchestrator/tests/test_pipeline_prompts.py."
+    "gateway_tests": {
+      "passed": 1523,
+      "failed": 0,
+      "skipped": 3,
+      "description": "Full gateway test suite - no regressions"
+    },
+    "shared_tests": {
+      "passed": 84,
+      "failed": 0,
+      "skipped": 0,
+      "description": "Full shared module test suite - no regressions"
+    },
+    "root_tests": {
+      "passed": 3744,
+      "failed": 0,
+      "skipped": 80,
+      "description": "Full root test suite including all components - no regressions"
     }
   },
   "integration_checks": {
-    "new_helper_functions": {
+    "types_interface": {
       "status": "pass",
-      "details": "_summarize_issue() extracts 1-2 sentence summaries from issue body. _extract_plan_overview() strips phase details and yaml-tasks from plan text. _build_role_context() dispatches to full body (analysis roles) or summary+pointers (execution roles). All three functions have matching tests covering normal and edge cases."
+      "detail": "Tier 2 agent inspector correctly imports and uses HealthCheck, HealthResult, HealthStatus, HealthAction, HealthTier, HealthTrigger from types.py"
     },
-    "agent_prompt_role_dispatch": {
+    "context_usage": {
       "status": "pass",
-      "details": "_build_agent_prompt() now calls _build_role_context() instead of embedding pipeline.prompt verbatim. Analysis roles (architect, task_planner, risk_analyst) get ## Task Description with full body. Execution roles (tester, documenter, integrator) get ## Background with summary + ## For More Context pointers. New phase_obj and all_phases params properly threaded through."
+      "detail": "Agent inspector correctly uses PipelineHealthContext and all lazy-loaded methods (git_log, git_diff_stat, agent_outputs, contract, live_container_ids)"
     },
-    "phase_scoped_prompt_changes": {
+    "runner_escalation": {
       "status": "pass",
-      "details": "_build_phase_scoped_prompt() embeds plan overview (not full plan) via _extract_plan_overview() on first cycle. Adds one-line summaries of other phases for orientation. Includes pointer to full plan file. Review cycle > 0 correctly skips plan embedding. New all_phases param propagated from _run_tier3_implement()."
+      "detail": "Runner correctly handles Tier 1 then Tier 2 with escalation logic: WAVE_COMPLETE escalates on DEGRADED, PHASE_COMPLETE/ON_DEMAND always escalate, STARTUP/RUNTIME_TICK never escalate"
     },
-    "tier3_implement_call_sites": {
+    "routes_integration": {
       "status": "pass",
-      "details": "_run_tier3_implement() passes phase_obj and all_phases=contract.phases to coder (_build_phase_scoped_prompt), tester (_build_agent_prompt), documenter (_build_agent_prompt), and integrator (_build_agent_prompt). Previously ad-hoc tester phase scope lines removed — now handled by _build_role_context(). Documenter now also gets phase scoping (was previously missing)."
+      "detail": "routes/health.py uses runner for ON_DEMAND checks. routes/phases.py gates phase advance on PHASE_COMPLETE checks with FAIL_PIPELINE blocking"
     },
-    "backward_compatibility": {
+    "init_exports": {
       "status": "pass",
-      "details": "New parameters phase_obj and all_phases default to None. Existing call sites without these params continue to work. Coder/refiner roles still delegate to _build_phase_prompt() unchanged. 59 pre-existing prompt tests continue to pass."
+      "detail": "All __init__.py files in health_checks/, tier1/, tier2/ export needed symbols correctly"
     },
-    "documentation_updates": {
+    "multi_agent_integration": {
       "status": "pass",
-      "details": "Three doc files updated: docs/architecture/orchestrator.md adds Prompt Context Scoping subsection. docs/guides/agent-development.md adds Prompt Context Scoping section with guidance for adding new roles. docs/guides/sdlc-pipeline.md adds Role-Specific Prompt Context section and updates Phase-scoped prompts description."
+      "detail": "multi_agent.py correctly calls health checks on wave completion with WAVE_COMPLETE trigger, breaks on FAIL_PIPELINE action"
+    },
+    "container_monitor_integration": {
+      "status": "pass",
+      "detail": "container_monitor.py integrates via set_health_check_runner, fires RUNTIME_TICK checks on container state changes"
+    },
+    "events_integration": {
+      "status": "pass",
+      "detail": "events.py defines all health check event types (STARTED, COMPLETED, DEGRADED, FAILED) that runner emits"
+    },
+    "cli_initialization": {
+      "status": "pass",
+      "detail": "cli.py registers all checks (4 Tier 1 + 1 Tier 2), stores runner on app.config, wires into container monitor, runs STARTUP checks"
     }
   },
-  "regressions": [],
-  "issues_found": [],
-  "integrator_fixes": [],
+  "lint_results": {
+    "ruff_check": "pass",
+    "ruff_format": "pass",
+    "description": "All source and test files pass ruff check and format verification"
+  },
   "pre_existing_issues": [
     {
-      "severity": "low",
-      "description": "3 tests in orchestrator/tests/test_docker_client.py fail due to Docker mock exception handling issues. test_is_connected_false asserts False but gets True; test_create_container_image_not_found and test_start_container_not_found hit TypeError from mocked exceptions. Present on main branch, not introduced by this PR.",
-      "location": "orchestrator/tests/test_docker_client.py"
+      "file": "orchestrator/tests/test_docker_client.py",
+      "description": "3 test failures in test_docker_client.py (TestDockerClientConnection::test_is_connected_false, TestContainerCreation::test_create_container_image_not_found, TestContainerOperations::test_start_container_not_found). These are pre-existing on origin/main and unrelated to issue #850 changes."
     }
   ],
-  "commits_on_branch": [
-    {
-      "sha": "8ca953d3",
-      "message": "Scope agent prompts to role-relevant context only",
-      "author": "coder",
-      "files_changed": ["orchestrator/routes/pipelines.py", "orchestrator/tests/test_pipeline_prompts.py"],
-      "lines_added": 671,
-      "lines_removed": 22
-    },
-    {
-      "sha": "75b94aed",
-      "message": "docs: Document role-specific prompt context scoping",
-      "author": "documenter",
-      "files_changed": ["docs/architecture/orchestrator.md", "docs/guides/agent-development.md", "docs/guides/sdlc-pipeline.md"],
-      "lines_added": 43,
-      "lines_removed": 1
-    },
-    {
-      "sha": "42fa0ec2",
-      "message": "WIP: auto-commit uncommitted work (documenter) [issue-835]",
-      "author": "tester (auto-committed)",
-      "files_changed": ["orchestrator/tests/test_pipeline_prompts.py"],
-      "lines_added": 535,
-      "lines_removed": 0
-    }
-  ],
-  "files_changed_by_integrator": []
+  "files_changed": 36,
+  "lines_added_approx": 10802,
+  "integration_fixes_needed": 0,
+  "verdict": "All cross-phase integration points verified clean. No fixes required. The two-tier health check framework (phase-1: core + Tier 1, phase-2: Tier 2 agent inspector) is correctly integrated with the orchestrator lifecycle."
 }

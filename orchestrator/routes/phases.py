@@ -248,6 +248,54 @@ def advance_phase(pipeline_id: str) -> tuple[Response, int]:
                     f"(status: {current_execution.status.value})"
                 )
 
+        # Gate phase advance on health checks.  Runs all Tier 1 and Tier 2
+        # checks; if any returns FAIL_PIPELINE, the transition is blocked
+        # with 409 Conflict so the caller can inspect health_results.
+        # Skipped when force=true (escape hatch for stuck pipelines).
+        # Health check errors degrade gracefully — the advance proceeds.
+        if not force:
+            try:
+                from flask import current_app
+
+                hc_runner = current_app.config.get("HEALTH_CHECK_RUNNER")
+                if hc_runner is not None:
+                    from health_checks.context import PipelineHealthContext
+                    from health_checks.runner import worst_action
+                    from health_checks.types import HealthAction, HealthTrigger
+
+                    try:
+                        from docker_client import get_docker_client
+
+                        dc = get_docker_client()
+                    except Exception:
+                        dc = None
+
+                    ctx = PipelineHealthContext(
+                        pipeline=pipeline,
+                        repo_path=Path(get_repo_path()),
+                        trigger=HealthTrigger.PHASE_COMPLETE.value,
+                        docker_client=dc,
+                        state_store=store,
+                    )
+                    hc_results = hc_runner.run(ctx, HealthTrigger.PHASE_COMPLETE)
+                    if worst_action(hc_results) == HealthAction.FAIL_PIPELINE:
+                        return make_error_response(
+                            "Health checks indicate pipeline should fail before advancing phase",
+                            status_code=409,
+                            details={
+                                "health_results": [r.to_dict() for r in hc_results],
+                            },
+                        )
+            except ImportError:
+                pass  # Health check module not available — proceed without gating
+            except Exception as hc_err:
+                # Graceful degradation: log and allow the advance to proceed
+                logger.debug(
+                    "PHASE_COMPLETE health check failed",
+                    pipeline_id=pipeline_id,
+                    error=str(hc_err),
+                )
+
         # Mark previous phase as complete
         prev_execution = pipeline.get_phase_execution(previous_phase)
         prev_execution.status = PipelineStatus.COMPLETE

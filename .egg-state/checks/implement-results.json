@@ -4,12 +4,12 @@
     {
       "name": "lint",
       "passed": true,
-      "output": "All checks passed! 398 files already formatted."
+      "output": "ruff check: All checks passed!\nruff format: 420 files already formatted.\n\nAuto-fixed: 2 unused import errors (F401) in orchestrator/tests/test_health_check_tier2_tester.py, 3 files reformatted (orchestrator/health_checks/tier2/agent_inspector.py, orchestrator/tests/test_health_check_tier2.py, orchestrator/tests/test_health_check_tier2_tester.py)."
     },
     {
       "name": "test",
       "passed": true,
-      "output": "3678 passed, 80 skipped, 3 warnings in 26.08s"
+      "output": "================ 3744 passed, 80 skipped, 3 warnings in 25.99s ================="
     }
   ]
 }

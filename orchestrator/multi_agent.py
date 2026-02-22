@@ -511,6 +511,7 @@ class MultiAgentExecutor:
         on_wave_complete: Callable[[AgentWave], None] | None = None,
         agent_prompts: dict[AgentRole, str] | None = None,
         max_waves: int = 5,
+        health_check_runner: Any = None,
     ) -> list[AgentWave]:
         """Execute all waves until completion or failure.
 
@@ -518,6 +519,7 @@ class MultiAgentExecutor:
             on_wave_complete: Optional callback after each wave
             agent_prompts: Role-to-prompt mapping (required when using spawn_fn)
             max_waves: Safety cap on number of wave iterations (default: 5)
+            health_check_runner: Optional HealthCheckRunner for WAVE_COMPLETE checks
 
         Returns:
             List of completed waves
@@ -545,6 +547,18 @@ class MultiAgentExecutor:
             if on_wave_complete:
                 on_wave_complete(completed)
 
+            # Run WAVE_COMPLETE health checks.  Tier 1 always runs; Tier 2
+            # only escalates when Tier 1 reports DEGRADED (see runner.py).
+            # If any check returns FAIL_PIPELINE, stop wave execution early.
+            if health_check_runner is not None:
+                if self._run_wave_health_checks(health_check_runner, waves_executed):
+                    logger.warning(
+                        "Health check requested pipeline failure after wave",
+                        pipeline_id=self.pipeline.id,
+                        wave=completed.wave_number,
+                    )
+                    break
+
             if completed.has_failures:
                 logger.error(
                     "Wave failed, stopping execution",
@@ -557,6 +571,46 @@ class MultiAgentExecutor:
         self.dispatcher.save_contract()
 
         return self.completed_waves
+
+    def _run_wave_health_checks(self, runner: Any, wave_number: int) -> bool:
+        """Run WAVE_COMPLETE health checks after a wave finishes.
+
+        At WAVE_COMPLETE, Tier 1 checks always run and Tier 2 checks
+        escalate only when Tier 1 reports DEGRADED (e.g. agents completed
+        but produced no commits).  This is the main mechanism for catching
+        the issue-835 pattern mid-execution.
+
+        Args:
+            runner: HealthCheckRunner instance (from app.config).
+            wave_number: 1-based index of the wave that just completed.
+
+        Returns:
+            True if any check returned FAIL_PIPELINE, meaning the caller
+            should break out of wave execution.  Returns False on error
+            (graceful degradation).
+        """
+        try:
+            from health_checks.context import PipelineHealthContext
+            from health_checks.runner import worst_action
+            from health_checks.types import HealthAction, HealthTrigger
+
+            ctx = PipelineHealthContext(
+                pipeline=self.pipeline,
+                repo_path=self.repo_path,
+                trigger=HealthTrigger.WAVE_COMPLETE.value,
+                wave_number=wave_number,
+                docker_client=self.docker_client,
+                state_store=get_state_store(self.repo_path),
+            )
+            results = runner.run(ctx, HealthTrigger.WAVE_COMPLETE)
+            return worst_action(results) == HealthAction.FAIL_PIPELINE
+        except Exception as exc:
+            logger.debug(
+                "WAVE_COMPLETE health check failed",
+                pipeline_id=self.pipeline.id,
+                error=str(exc),
+            )
+            return False
 
     def get_execution_status(self) -> dict[str, Any]:
         """Get current execution status.
