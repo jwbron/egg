@@ -1,15 +1,15 @@
 {
-  "all_passed": false,
+  "all_passed": true,
   "checks": [
     {
       "name": "lint",
       "passed": true,
-      "output": "ruff check: All checks passed!\nruff format: 417 files already formatted.\nFixed: 10 auto-fixable ruff errors (unused imports in test_health_check_lifecycle_integration.py, unused UTC import and assert False B011 in test_health_check_tester_coverage.py, import sorting). 3 files reformatted (orchestrator/cli.py, orchestrator/events.py, orchestrator/tests/test_health_check_tester_coverage.py)."
+      "output": "ruff check: All checks passed!\nruff format: 420 files already formatted.\n\nAuto-fixed: 2 unused import errors (F401) in orchestrator/tests/test_health_check_tier2_tester.py, 3 files reformatted (orchestrator/health_checks/tier2/agent_inspector.py, orchestrator/tests/test_health_check_tier2.py, orchestrator/tests/test_health_check_tier2_tester.py)."
     },
     {
       "name": "test",
-      "passed": false,
-      "output": "6271 passed, 83 skipped, 25 failed, 4 warnings in 65.57s.\n\nPre-existing failures (25 total, none caused by implement phase changes):\n\n22 failures in tests/scripts/test_checks.py: ModuleNotFoundError 'checks' is not a package. PYTHONPATH=shared:gateway:orchestrator causes orchestrator/routes/checks.py to shadow .github/scripts/checks/ package. These 22 tests pass in isolation.\n\n3 failures in orchestrator/tests/test_docker_client.py: Pre-existing mock setup bugs (test_is_connected_false: mock ping side_effect on wrong object; test_create_container_image_not_found and test_start_container_not_found: TypeError catching non-BaseException classes due to docker mock patching).\n\nAll 25 failures are pre-existing and unrelated to the current implement phase changes."
+      "passed": true,
+      "output": "================ 3744 passed, 80 skipped, 3 warnings in 25.99s ================="
     }
   ]
 }

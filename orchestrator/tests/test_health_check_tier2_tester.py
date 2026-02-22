@@ -35,7 +35,7 @@ sys.modules.setdefault("docker", MagicMock())
 sys.modules.setdefault("docker.errors", MagicMock())
 sys.modules.setdefault("docker.types", MagicMock())
 
-from health_checks.context import PipelineHealthContext, _truncate
+from health_checks.context import PipelineHealthContext
 from health_checks.runner import HealthCheckRunner, worst_action
 from health_checks.tier2.agent_inspector import (
     AgentInspectorCheck,
@@ -45,7 +45,6 @@ from health_checks.tier2.agent_inspector import (
 )
 from health_checks.types import (
     HealthAction,
-    HealthCheck,
     HealthResult,
     HealthStatus,
     HealthTier,
@@ -471,7 +470,10 @@ class TestBuildUserPromptExtended:
         prompt = _build_user_prompt(ctx)
 
         # Sections should appear in order
-        assert prompt.index("Pipeline:") < prompt.index("## Recent Commits") or "## Recent Commits" not in prompt
+        assert (
+            prompt.index("Pipeline:") < prompt.index("## Recent Commits")
+            or "## Recent Commits" not in prompt
+        )
         if "## Agent Output Files" in prompt:
             assert prompt.index("## Agent Output Files") > 0
 
@@ -546,6 +548,7 @@ class TestCallClaudeApiExtended:
         mock_httpx.post.side_effect = ValueError("Unexpected error")
         # Need to set these so the except clause can match properly
         import httpx
+
         mock_httpx.TimeoutException = httpx.TimeoutException
         mock_httpx.HTTPStatusError = httpx.HTTPStatusError
 
@@ -745,11 +748,13 @@ class _FailingTier2:
 class _HealthyTier1:
     name = "healthy_t1"
     tier = HealthTier.PROGRAMMATIC
-    triggers = frozenset({
-        HealthTrigger.PHASE_COMPLETE,
-        HealthTrigger.ON_DEMAND,
-        HealthTrigger.WAVE_COMPLETE,
-    })
+    triggers = frozenset(
+        {
+            HealthTrigger.PHASE_COMPLETE,
+            HealthTrigger.ON_DEMAND,
+            HealthTrigger.WAVE_COMPLETE,
+        }
+    )
 
     def run(self, context):
         return HealthResult(
@@ -1030,8 +1035,7 @@ class TestEventEmissionExtended:
         tier2_payloads = [
             kw["data"]
             for _, kw in emitted
-            if isinstance(kw.get("data"), dict)
-            and kw["data"].get("tier") == "tier2"
+            if isinstance(kw.get("data"), dict) and kw["data"].get("tier") == "tier2"
         ]
         assert len(tier2_payloads) == 1
         payload = tier2_payloads[0]
@@ -1050,6 +1054,7 @@ class TestEscalationLogicExtended:
 
     def test_wave_complete_with_failed_tier1_runs_tier2(self, tmp_path):
         """WAVE_COMPLETE with FAILED Tier 1 does NOT trigger Tier 2 (only DEGRADED does)."""
+
         class FailedTier1:
             name = "failed_t1"
             tier = HealthTier.PROGRAMMATIC
@@ -1094,29 +1099,19 @@ class TestEscalationLogicExtended:
     def test_should_escalate_static_method_directly(self):
         """Test _should_escalate_to_tier2 as a static method with various inputs."""
         # PHASE_COMPLETE always true
-        assert HealthCheckRunner._should_escalate_to_tier2(
-            HealthTrigger.PHASE_COMPLETE, []
-        ) is True
+        assert HealthCheckRunner._should_escalate_to_tier2(HealthTrigger.PHASE_COMPLETE, []) is True
 
         # ON_DEMAND always true
-        assert HealthCheckRunner._should_escalate_to_tier2(
-            HealthTrigger.ON_DEMAND, []
-        ) is True
+        assert HealthCheckRunner._should_escalate_to_tier2(HealthTrigger.ON_DEMAND, []) is True
 
         # STARTUP always false
-        assert HealthCheckRunner._should_escalate_to_tier2(
-            HealthTrigger.STARTUP, []
-        ) is False
+        assert HealthCheckRunner._should_escalate_to_tier2(HealthTrigger.STARTUP, []) is False
 
         # RUNTIME_TICK always false
-        assert HealthCheckRunner._should_escalate_to_tier2(
-            HealthTrigger.RUNTIME_TICK, []
-        ) is False
+        assert HealthCheckRunner._should_escalate_to_tier2(HealthTrigger.RUNTIME_TICK, []) is False
 
         # WAVE_COMPLETE with no results — no escalation
-        assert HealthCheckRunner._should_escalate_to_tier2(
-            HealthTrigger.WAVE_COMPLETE, []
-        ) is False
+        assert HealthCheckRunner._should_escalate_to_tier2(HealthTrigger.WAVE_COMPLETE, []) is False
 
         # WAVE_COMPLETE with only HEALTHY — no escalation
         healthy_result = HealthResult(
@@ -1125,9 +1120,12 @@ class TestEscalationLogicExtended:
             tier=HealthTier.PROGRAMMATIC,
             reasoning="OK",
         )
-        assert HealthCheckRunner._should_escalate_to_tier2(
-            HealthTrigger.WAVE_COMPLETE, [healthy_result]
-        ) is False
+        assert (
+            HealthCheckRunner._should_escalate_to_tier2(
+                HealthTrigger.WAVE_COMPLETE, [healthy_result]
+            )
+            is False
+        )
 
         # WAVE_COMPLETE with DEGRADED — escalate
         degraded_result = HealthResult(
@@ -1136,9 +1134,12 @@ class TestEscalationLogicExtended:
             tier=HealthTier.PROGRAMMATIC,
             reasoning="Concern",
         )
-        assert HealthCheckRunner._should_escalate_to_tier2(
-            HealthTrigger.WAVE_COMPLETE, [degraded_result]
-        ) is True
+        assert (
+            HealthCheckRunner._should_escalate_to_tier2(
+                HealthTrigger.WAVE_COMPLETE, [degraded_result]
+            )
+            is True
+        )
 
     def test_no_checks_registered_returns_empty(self, tmp_path):
         """Runner with no registered checks returns empty results."""
@@ -1161,6 +1162,7 @@ class TestEscalationLogicExtended:
     def test_only_tier2_registered_wave_complete_no_run(self, tmp_path):
         """When only Tier 2 checks registered, WAVE_COMPLETE doesn't run them
         (no Tier 1 degraded to trigger escalation)."""
+
         class WaveTier2:
             name = "wave_t2"
             tier = HealthTier.AGENT
@@ -1197,23 +1199,17 @@ class TestContextCheapAccessors:
 
     def test_pipeline_id(self, tmp_path):
         pipeline = _pipeline(pipeline_id="issue-123")
-        ctx = PipelineHealthContext(
-            pipeline=pipeline, repo_path=tmp_path, trigger="startup"
-        )
+        ctx = PipelineHealthContext(pipeline=pipeline, repo_path=tmp_path, trigger="startup")
         assert ctx.pipeline_id == "issue-123"
 
     def test_branch(self, tmp_path):
         pipeline = _pipeline(branch="egg/feature")
-        ctx = PipelineHealthContext(
-            pipeline=pipeline, repo_path=tmp_path, trigger="startup"
-        )
+        ctx = PipelineHealthContext(pipeline=pipeline, repo_path=tmp_path, trigger="startup")
         assert ctx.branch == "egg/feature"
 
     def test_current_phase_from_pipeline(self, tmp_path):
         pipeline = _pipeline(phase=PipelinePhase.PLAN)
-        ctx = PipelineHealthContext(
-            pipeline=pipeline, repo_path=tmp_path, trigger="startup"
-        )
+        ctx = PipelineHealthContext(pipeline=pipeline, repo_path=tmp_path, trigger="startup")
         assert ctx.current_phase == PipelinePhase.PLAN
 
     def test_current_phase_override(self, tmp_path):

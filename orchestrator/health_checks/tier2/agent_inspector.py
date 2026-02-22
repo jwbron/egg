@@ -261,7 +261,9 @@ class AgentInspectorCheck:
                 check_name=self.name,
                 tier=self.tier,
                 reasoning=reasoning,
-                action=HealthAction.ALERT if status != HealthStatus.HEALTHY else HealthAction.CONTINUE,
+                action=HealthAction.ALERT
+                if status != HealthStatus.HEALTHY
+                else HealthAction.CONTINUE,
                 details={"raw_response": response_text[:500]},
             )
 

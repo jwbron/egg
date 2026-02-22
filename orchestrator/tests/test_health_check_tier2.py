@@ -257,8 +257,12 @@ class TestContextAgentOutputs:
 
         ctx = PipelineHealthContext(
             pipeline=Pipeline(
-                id="test", issue_number=1, repo=None, branch="egg/test",
-                mode="issue", status=PipelineStatus.RUNNING,
+                id="test",
+                issue_number=1,
+                repo=None,
+                branch="egg/test",
+                mode="issue",
+                status=PipelineStatus.RUNNING,
                 current_phase=PipelinePhase.IMPLEMENT,
             ),
             repo_path=tmp_path,
@@ -305,8 +309,12 @@ class TestBuildUserPrompt:
         (state_dir / "plan.md").write_text("# Implementation Plan\nStep 1: Do things")
 
         pipeline = Pipeline(
-            id="issue-99", issue_number=99, repo=None, branch="egg/issue-99",
-            mode="issue", status=PipelineStatus.RUNNING,
+            id="issue-99",
+            issue_number=99,
+            repo=None,
+            branch="egg/issue-99",
+            mode="issue",
+            status=PipelineStatus.RUNNING,
             current_phase=PipelinePhase.IMPLEMENT,
         )
         ctx = PipelineHealthContext(
@@ -329,8 +337,12 @@ class TestBuildUserPrompt:
         (state_dir / "99.json").write_text(json.dumps(contract))
 
         pipeline = Pipeline(
-            id="issue-99", issue_number=99, repo=None, branch="egg/issue-99",
-            mode="issue", status=PipelineStatus.RUNNING,
+            id="issue-99",
+            issue_number=99,
+            repo=None,
+            branch="egg/issue-99",
+            mode="issue",
+            status=PipelineStatus.RUNNING,
             current_phase=PipelinePhase.IMPLEMENT,
         )
         ctx = PipelineHealthContext(
@@ -353,8 +365,12 @@ class TestBuildUserPrompt:
         (state_dir / "huge.md").write_text("x" * 5000)
 
         pipeline = Pipeline(
-            id="issue-99", issue_number=99, repo=None, branch="egg/issue-99",
-            mode="issue", status=PipelineStatus.RUNNING,
+            id="issue-99",
+            issue_number=99,
+            repo=None,
+            branch="egg/issue-99",
+            mode="issue",
+            status=PipelineStatus.RUNNING,
             current_phase=PipelinePhase.IMPLEMENT,
         )
         ctx = PipelineHealthContext(
@@ -535,11 +551,14 @@ class TestCallClaudeApi:
         mock_resp = _mock_httpx_response(200, {"content": [{"type": "text", "text": "ok"}]})
         mock_httpx.post.return_value = mock_resp
 
-        with patch.dict("os.environ", {
-            "ANTHROPIC_API_KEY": "sk-ant-env-key",
-            "ANTHROPIC_BASE_URL": "https://env.api.com",
-            "HEALTH_CHECK_MODEL": "claude-3-haiku-20240307",
-        }):
+        with patch.dict(
+            "os.environ",
+            {
+                "ANTHROPIC_API_KEY": "sk-ant-env-key",
+                "ANTHROPIC_BASE_URL": "https://env.api.com",
+                "HEALTH_CHECK_MODEL": "claude-3-haiku-20240307",
+            },
+        ):
             _call_claude_api("test")
 
         call_args = mock_httpx.post.call_args
@@ -555,9 +574,7 @@ class TestCallClaudeApi:
         mock_httpx.TimeoutException = httpx.TimeoutException
         mock_httpx.HTTPStatusError = httpx.HTTPStatusError
 
-        success_resp = _mock_httpx_response(
-            200, {"content": [{"type": "text", "text": "success"}]}
-        )
+        success_resp = _mock_httpx_response(200, {"content": [{"type": "text", "text": "success"}]})
         mock_httpx.post.side_effect = [
             httpx.TimeoutException("timeout"),
             success_resp,
@@ -728,11 +745,13 @@ class TestAgentInspectorCheck:
 class _AlwaysHealthyTier1:
     name = "always_healthy"
     tier = HealthTier.PROGRAMMATIC
-    triggers = frozenset({
-        HealthTrigger.WAVE_COMPLETE,
-        HealthTrigger.PHASE_COMPLETE,
-        HealthTrigger.ON_DEMAND,
-    })
+    triggers = frozenset(
+        {
+            HealthTrigger.WAVE_COMPLETE,
+            HealthTrigger.PHASE_COMPLETE,
+            HealthTrigger.ON_DEMAND,
+        }
+    )
 
     def run(self, context):
         return HealthResult(
@@ -746,10 +765,12 @@ class _AlwaysHealthyTier1:
 class _DegradedTier1:
     name = "degraded_tier1"
     tier = HealthTier.PROGRAMMATIC
-    triggers = frozenset({
-        HealthTrigger.WAVE_COMPLETE,
-        HealthTrigger.PHASE_COMPLETE,
-    })
+    triggers = frozenset(
+        {
+            HealthTrigger.WAVE_COMPLETE,
+            HealthTrigger.PHASE_COMPLETE,
+        }
+    )
 
     def run(self, context):
         return HealthResult(
@@ -766,11 +787,13 @@ class _MockTier2:
 
     name = "mock_tier2"
     tier = HealthTier.AGENT
-    triggers = frozenset({
-        HealthTrigger.WAVE_COMPLETE,
-        HealthTrigger.PHASE_COMPLETE,
-        HealthTrigger.ON_DEMAND,
-    })
+    triggers = frozenset(
+        {
+            HealthTrigger.WAVE_COMPLETE,
+            HealthTrigger.PHASE_COMPLETE,
+            HealthTrigger.ON_DEMAND,
+        }
+    )
     called = False
 
     def run(self, context):
@@ -960,7 +983,8 @@ class TestEventEmission:
 
         # Find the Tier 2 per-check event by looking at kwargs["data"]
         tier2_events = [
-            (args, kwargs) for args, kwargs in emitted_calls
+            (args, kwargs)
+            for args, kwargs in emitted_calls
             if isinstance(kwargs.get("data"), dict) and kwargs["data"].get("tier") == "tier2"
         ]
         assert len(tier2_events) == 1
@@ -994,7 +1018,8 @@ class TestEventEmission:
 
         # Find the aggregate COMPLETED event (emit with "results" key in data)
         aggregate_events = [
-            (args, kwargs) for args, kwargs in emitted_calls
+            (args, kwargs)
+            for args, kwargs in emitted_calls
             if isinstance(kwargs.get("data"), dict) and "results" in kwargs["data"]
         ]
         assert len(aggregate_events) == 1
