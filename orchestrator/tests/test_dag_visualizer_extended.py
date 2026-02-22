@@ -14,12 +14,8 @@ Focuses on:
 """
 
 from datetime import datetime, timedelta
-from unittest.mock import MagicMock, patch
-
-import pytest
 
 from dag_visualizer import (
-    _derive_subphase_status,
     _format_seconds,
     _render_arrow,
     _render_fan_in,
@@ -46,7 +42,6 @@ from models import (
     PipelineStatus,
 )
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -54,14 +49,14 @@ from models import (
 
 def _make_pipeline(**kwargs) -> Pipeline:
     """Create a test pipeline with sensible defaults."""
-    defaults = dict(
-        id="test-ext",
-        issue_number=1,
-        repo="test/repo",
-        branch="egg/test",
-        status=PipelineStatus.RUNNING,
-        current_phase=PipelinePhase.IMPLEMENT,
-    )
+    defaults = {
+        "id": "test-ext",
+        "issue_number": 1,
+        "repo": "test/repo",
+        "branch": "egg/test",
+        "status": PipelineStatus.RUNNING,
+        "current_phase": PipelinePhase.IMPLEMENT,
+    }
     defaults.update(kwargs)
     return Pipeline(**defaults)
 
