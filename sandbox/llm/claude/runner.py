@@ -238,6 +238,7 @@ async def run_agent_async(
     on_output: Callable[[str], None] | None = None,
     model: str | None = None,
 ) -> AgentResult:
+    # noqa: EGG201 - docstring example
     """Run agent via Claude Code CLI in headless mode.
 
     Args:

@@ -150,7 +150,7 @@ Cross-references orchestrator state against Docker reality and contract state.
 Delegates semantic analysis of agent progress to a short-lived sandbox container running `egg-health-inspect`. Returns a structured verdict (HEALTHY/DEGRADED/FAILED) with reasoning.
 
 - **Triggers:** WAVE_COMPLETE, PHASE_COMPLETE, ON_DEMAND
-- **Model:** `claude-sonnet-4-20250514` (configurable via `HEALTH_CHECK_MODEL` env var passed to container)
+- **Model:** `sonnet` (configurable via `HEALTH_CHECK_MODEL` env var)
 - **Action:** ALERT on non-HEALTHY verdicts (never FAIL_PIPELINE — Tier 2 is advisory)
 
 **How it works:**
@@ -161,7 +161,7 @@ Delegates semantic analysis of agent progress to a short-lived sandbox container
    - Agent output files from `.egg-state/` (`agent_outputs`)
    - SDLC contract state (`contract`)
 2. Spawns a sandbox container running `egg-health-inspect` with context passed via `EGG_INSPECTOR_CONTEXT` env var
-3. Container calls the Anthropic Messages API (via gateway credential injection) with a system prompt instructing Claude to produce a JSON verdict
+3. Container runs `claude --print` with a system prompt instructing Claude to produce a JSON verdict
 4. Parses the JSON response from container stdout into a `HealthStatus` and reasoning string
 5. Returns a `HealthResult` with ALERT action for DEGRADED/FAILED verdicts
 
@@ -177,7 +177,7 @@ Container failures (timeouts, exit errors, malformed responses) always degrade t
 
 | Variable | Purpose | Default |
 |----------|---------|---------|
-| `HEALTH_CHECK_MODEL` | Model to use for inspection (passed to container) | `claude-sonnet-4-20250514` |
+| `HEALTH_CHECK_MODEL` | Model to use for inspection | `sonnet` |
 
 **Context token budget:**
 

@@ -195,6 +195,11 @@ jobs:
         continue-on-error: true
         run: .venv/bin/python scripts/check-llm-api-calls.py
 
+      - name: Check model alias usage
+        id: model-alias
+        continue-on-error: true
+        run: .venv/bin/python scripts/check-model-versions.py
+
       - name: Check results
         if: always()
         run: |
@@ -208,6 +213,7 @@ jobs:
           [ "${{ steps.hardcoded-ports.outcome }}" = "failure" ] && failed="$failed hardcoded-ports"
           [ "${{ steps.reviewer-job-names.outcome }}" = "failure" ] && failed="$failed reviewer-job-names"
           [ "${{ steps.llm-api-boundary.outcome }}" = "failure" ] && failed="$failed llm-api-boundary"
+          [ "${{ steps.model-alias.outcome }}" = "failure" ] && failed="$failed model-alias"
           if [ -n "$failed" ]; then
             echo "::error::Failed checks:$failed"
             exit 1

@@ -3,27 +3,28 @@
 Health inspector script — runs inside the sandbox container.
 
 Reads pipeline context JSON from the EGG_INSPECTOR_CONTEXT env var (preferred),
-a file path in EGG_INSPECTOR_CONTEXT_PATH, or stdin.  Calls the Claude API to
-produce a health verdict and outputs a JSON verdict to stdout.
+a file path in EGG_INSPECTOR_CONTEXT_PATH, or stdin.  Calls Claude via
+Claude Code headless mode (``claude --print``) to produce a health verdict
+and outputs a JSON verdict to stdout.
 
 Exit codes:
     0 — verdict produced successfully
-    1 — error (context missing, API failure, etc.)
+    1 — error (context missing, Claude Code failure, etc.)
 """
 
 from __future__ import annotations
 
 import json
 import os
+import shutil
+import subprocess
 import sys
 
-import httpx
-
-# Default model for agent inspection
-_DEFAULT_MODEL = "claude-sonnet-4-20250514"
-# API timeout in seconds
-_API_TIMEOUT = 30
-# Max retries on transient failures
+# Default model for agent inspection (alias — resolves to latest sonnet)
+_DEFAULT_MODEL = "sonnet"
+# Subprocess timeout in seconds
+_SUBPROCESS_TIMEOUT = 45
+# Max retries on transient failures (process startup, resource contention)
 _MAX_RETRIES = 1
 
 # System prompt for the inspector
@@ -63,50 +64,52 @@ def _read_context() -> dict:
     return json.load(sys.stdin)
 
 
-def _call_claude_api(user_prompt: str) -> str:
-    """Call the Anthropic Messages API and return text response."""
-    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
-    base_url = os.environ.get("ANTHROPIC_BASE_URL", "https://api.anthropic.com").rstrip("/")
+def _call_claude(user_prompt: str) -> str:
+    """Call Claude via Claude Code headless mode and return text response."""
+    claude_bin = shutil.which("claude")
+    if not claude_bin:
+        raise FileNotFoundError("claude binary not found in PATH")
+
     model = os.environ.get("HEALTH_CHECK_MODEL", _DEFAULT_MODEL)
 
-    headers = {
-        "x-api-key": api_key,
-        "anthropic-version": "2023-06-01",
-        "content-type": "application/json",
-    }
-
-    payload = {
-        "model": model,
-        "max_tokens": 512,
-        "system": _SYSTEM_PROMPT,
-        "messages": [{"role": "user", "content": user_prompt}],
-    }
+    cmd = [
+        claude_bin,
+        "--print",
+        "--dangerously-skip-permissions",
+        "--model",
+        model,
+        "--max-turns",
+        "1",
+        "--system-prompt",
+        _SYSTEM_PROMPT,
+    ]
 
     last_exc: Exception | None = None
     for attempt in range(_MAX_RETRIES + 1):
         try:
-            resp = httpx.post(
-                f"{base_url}/v1/messages",
-                headers=headers,
-                json=payload,
-                timeout=_API_TIMEOUT,
+            result = subprocess.run(
+                cmd,
+                input=user_prompt,
+                capture_output=True,
+                text=True,
+                timeout=_SUBPROCESS_TIMEOUT,
             )
-            resp.raise_for_status()
-            body = resp.json()
-            content_blocks = body.get("content", [])
-            if content_blocks and isinstance(content_blocks, list):
-                return str(content_blocks[0].get("text", ""))
-            return ""
-        except (httpx.TimeoutException, httpx.HTTPStatusError) as exc:
+
+            if result.returncode != 0:
+                stderr = result.stderr[:500] if result.stderr else "(no stderr)"
+                raise RuntimeError(
+                    f"claude --print exited with code {result.returncode}: {stderr}"
+                )
+
+            return result.stdout.strip()
+        except (subprocess.TimeoutExpired, RuntimeError) as exc:
             last_exc = exc
             if attempt < _MAX_RETRIES:
                 print(
-                    f"API attempt {attempt + 1} failed: {exc}",
+                    f"Attempt {attempt + 1} failed: {exc}",
                     file=sys.stderr,
                 )
                 continue
-            raise
-        except Exception:
             raise
 
     if last_exc:
@@ -115,7 +118,7 @@ def _call_claude_api(user_prompt: str) -> str:
 
 
 def main() -> int:
-    """Read context, call Claude API, output verdict JSON."""
+    """Read context, call Claude via Claude Code, output verdict JSON."""
     try:
         context = _read_context()
     except Exception as exc:
@@ -159,9 +162,9 @@ def main() -> int:
     user_prompt = "\n".join(parts)
 
     try:
-        response_text = _call_claude_api(user_prompt)
+        response_text = _call_claude(user_prompt)
     except Exception as exc:
-        print(f"API call failed: {exc}", file=sys.stderr)
+        print(f"Claude Code call failed: {exc}", file=sys.stderr)
         return 1
 
     # Output verdict to stdout
