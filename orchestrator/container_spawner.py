@@ -237,6 +237,11 @@ class ContainerSpawner:
             integration_test_enabled: When True and agent_role is TESTER,
                 provision a DinD sidecar and inject DOCKER_HOST into the
                 tester's environment.
+                NOTE: This parameter is not yet wired through the production
+                Docker spawn path in pipelines.py (defaults to False). DinD
+                provisioning currently only works through the spawn_fn callback
+                path used in test/local mode. Production wiring is deferred
+                to Phase 2 — see risk assessment R-6.
 
         Returns:
             SpawnedContainer with container and session info
@@ -506,11 +511,37 @@ class ContainerSpawner:
                 environment=config.environment,
             )
 
-        except DockerClientError as e:
-            # Clean up DinD sidecar if we provisioned one
+        except ContainerSpawnError:
+            # ContainerSpawnError from GatewayError — clean up DinD and
+            # session, then re-raise as-is.
             if dind_manager is not None:
-                dind_manager.teardown()
-            # Clean up gateway session if we registered one
+                try:
+                    dind_manager.teardown()
+                except Exception as cleanup_err:
+                    logger.warning(
+                        "Failed to clean up DinD sidecar during error handling",
+                        pipeline_id=pipeline_id,
+                        error=str(cleanup_err),
+                    )
+            if session_info:
+                try:
+                    self.gateway.delete_session(session_info.session_token)
+                except GatewayError:
+                    pass  # Best effort cleanup
+            raise
+        except Exception as e:
+            # DockerClientError and any other unexpected exceptions — clean
+            # up DinD sidecar and session to prevent privileged container
+            # leaks, then wrap as ContainerSpawnError.
+            if dind_manager is not None:
+                try:
+                    dind_manager.teardown()
+                except Exception as cleanup_err:
+                    logger.warning(
+                        "Failed to clean up DinD sidecar during error handling",
+                        pipeline_id=pipeline_id,
+                        error=str(cleanup_err),
+                    )
             if session_info:
                 try:
                     self.gateway.delete_session(session_info.session_token)

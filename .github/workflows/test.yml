@@ -10,6 +10,10 @@ on:
         value: ${{ jobs.aggregate.outputs.passed }}
   workflow_dispatch:  # Allow manual testing
 
+concurrency:
+  group: test-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   unit:
     name: Unit Tests

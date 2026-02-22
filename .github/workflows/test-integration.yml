@@ -3,12 +3,25 @@ name: Integration Tests
 on:
   pull_request:
     types: [opened, synchronize, reopened]
+    paths:
+      - 'gateway/**'
+      - 'orchestrator/**'
+      - 'shared/**'
+      - 'sandbox/**'
+      - 'integration_tests/**'
+      - 'pyproject.toml'
+      - 'uv.lock'
+      - '.github/workflows/test-integration.yml'
   workflow_call:
     outputs:
       passed:
         description: 'Whether all integration tests passed'
         value: ${{ jobs.aggregate.outputs.passed }}
   workflow_dispatch:  # Allow manual testing
+
+concurrency:
+  group: integration-tests-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   integration:

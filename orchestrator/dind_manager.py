@@ -14,6 +14,7 @@ the orchestrator provisions infrastructure, the sandbox only consumes it.
 import socket
 import subprocess
 import sys
+import threading
 import time
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -55,6 +56,7 @@ DIND_CPU_LIMIT = "2.0"
 DIND_MEMORY_LIMIT = "2g"
 DIND_STARTUP_TIMEOUT_SECONDS = 60
 DIND_HEALTH_POLL_INTERVAL = 2
+DIND_MAX_LIFETIME_SECONDS = 600  # 10 minutes — auto-kill regardless of test status
 
 
 class DindError(Exception):
@@ -121,20 +123,26 @@ class DindManager:
         self,
         pipeline_id: str,
         docker_client: Any | None = None,
+        max_lifetime_seconds: int = DIND_MAX_LIFETIME_SECONDS,
     ) -> None:
         """Initialize the DinD manager.
 
         Args:
             pipeline_id: Pipeline identifier (e.g. 'issue-647').
             docker_client: Optional Docker client instance.
+            max_lifetime_seconds: Maximum seconds the DinD container may run
+                before being auto-killed. Defaults to ``DIND_MAX_LIFETIME_SECONDS``
+                (10 minutes). Set to 0 to disable the watchdog.
         """
         self.pipeline_id = pipeline_id
         self.docker_client = docker_client or (docker.from_env() if docker else None)
+        self.max_lifetime_seconds = max_lifetime_seconds
 
         self._container_name = f"egg-dind-{pipeline_id}"
         self._container_id: str = ""
         self._status = DindStatus()
         self._started = False
+        self._watchdog: threading.Timer | None = None
 
     @property
     def status(self) -> DindStatus:
@@ -308,11 +316,17 @@ class DindManager:
             self._status.daemon_url = f"tcp://{ip}:{DIND_PORT}"
             self._status.status = DindStatusValue.HEALTHY
 
+            # Start watchdog timer to auto-kill the privileged container
+            # after max_lifetime_seconds, preventing indefinite execution
+            # if the tester hangs or the orchestrator crashes.
+            self._start_watchdog()
+
             logger.info(
                 "DinD sidecar ready",
                 container_id=container.id[:12],
                 daemon_url=self._status.daemon_url,
                 pipeline_id=self.pipeline_id,
+                max_lifetime_seconds=self.max_lifetime_seconds,
             )
 
             return self._status
@@ -324,6 +338,40 @@ class DindManager:
             self._status.status = DindStatusValue.ERROR
             self._status.error_message = str(e)
             raise DindStartupError(f"Failed to start DinD sidecar: {e}") from e
+
+    def _start_watchdog(self) -> None:
+        """Start a background timer that auto-kills the DinD container.
+
+        The timer fires after ``max_lifetime_seconds``. If teardown() is
+        called before the timer fires, the timer is cancelled. This ensures
+        the privileged container cannot run indefinitely even if the
+        orchestrator or tester hangs.
+        """
+        if self.max_lifetime_seconds <= 0:
+            return
+        self._watchdog = threading.Timer(
+            self.max_lifetime_seconds,
+            self._watchdog_expired,
+        )
+        self._watchdog.daemon = True
+        self._watchdog.start()
+
+    def _watchdog_expired(self) -> None:
+        """Called when the DinD container exceeds its maximum lifetime."""
+        logger.warning(
+            "DinD watchdog expired, auto-killing container",
+            container_id=self._container_id[:12] if self._container_id else "unknown",
+            pipeline_id=self.pipeline_id,
+            max_lifetime_seconds=self.max_lifetime_seconds,
+        )
+        try:
+            self.teardown()
+        except Exception as e:
+            logger.error(
+                "DinD watchdog teardown failed",
+                pipeline_id=self.pipeline_id,
+                error=str(e),
+            )
 
     def preload_images(self, image_names: list[str]) -> list[str]:
         """Pre-load Docker images into the DinD daemon.
@@ -433,7 +481,13 @@ class DindManager:
         """Tear down the DinD sidecar and clean up resources.
 
         Removes the DinD container. Idempotent — calling twice does not error.
+        Also cancels the watchdog timer if it hasn't fired yet.
         """
+        # Cancel watchdog before removing container to avoid double-teardown
+        if self._watchdog is not None:
+            self._watchdog.cancel()
+            self._watchdog = None
+
         logger.info(
             "Tearing down DinD sidecar",
             pipeline_id=self.pipeline_id,

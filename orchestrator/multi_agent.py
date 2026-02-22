@@ -116,6 +116,8 @@ class MultiAgentExecutor:
             integration_test_enabled: When True, tester agents receive
                 EGG_INTEGRATION_TEST_ENABLED=true in their environment,
                 signaling the container spawner to provision a DinD sidecar.
+                NOTE: Currently only propagates through the spawn_fn path.
+                Production Docker path wiring is deferred to Phase 2.
         """
         self.pipeline = pipeline
         self.repo_path = repo_path
