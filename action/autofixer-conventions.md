@@ -2,19 +2,18 @@
 
 Guidelines for how to investigate and fix check failures.
 
-## Single-Pass Workflow (CRITICAL)
+## Per-Check Fixer Model
 
-**Fix ALL issues before pushing.** The autofixer must complete all fixes in a single
-pass to avoid triggering multiple workflow runs.
+The autofixer operates in a CI-driven loop:
+1. CI check fails → fixer is invoked with the specific failed checks
+2. Fixer investigates and fixes only those checks
+3. Fixer pushes fixes (does NOT re-run checks locally)
+4. CI re-runs automatically after push
+5. If still failing → fixer is re-invoked (up to max retries)
+6. If max retries exceeded → escalation comment posted for human
 
-**Workflow:**
-1. Investigate ALL failing checks first — make a complete list before fixing anything
-2. Fix all auto-fixable issues without committing
-3. Run checks locally — if anything fails, fix it and re-run
-4. Only after ALL local checks pass: commit and push once
-
-**Why this matters:** Each push triggers CI. Fixing one issue at a time causes the
-workflow to run repeatedly, wasting CI resources and time.
+**Do NOT run checks locally.** CI validates after each push. Running checks
+locally wastes agent compute — CI already does this.
 
 ## Lint Workflow Structure
 
@@ -35,8 +34,8 @@ that job. For example, a "Python" job failure might be from ruff or mypy.
 
 ## Investigating Failures
 
-Use `gh pr checks <PR_NUMBER>` to list all checks and their status. For failed
-checks, fetch the logs to understand the error:
+Use `gh run view <run-id> --log-failed` to see the failure output. For broader
+context:
 
 ```bash
 # List checks
@@ -52,38 +51,19 @@ gh run view <run-id> --log-failed
 If the check is a GitHub Actions workflow, you can also examine the workflow
 file to understand what commands are being run.
 
-## Running Checks Locally
-
-**Run ALL checks locally before pushing.** This is the verification loop:
-
-```bash
-# Common check commands (varies by project)
-make lint       # or: ruff check ., npm run lint
-make test       # or: pytest, npm test
-make build      # or: npm run build, cargo build
-```
-
-**Verification loop:**
-1. Run all check commands
-2. If any fail, fix the issue
-3. Repeat until ALL checks pass
-4. Only then commit and push
-
-Look for a Makefile, package.json scripts, or pyproject.toml for project-specific commands.
-
 ## Committing Fixes
 
-**Only commit after ALL local checks pass.** Do not push partial fixes.
+Fix the issues identified from CI logs, then commit and push:
 
 ```bash
-# After verifying all checks pass locally:
 git add <specific-files>
 git commit -m "Fix checks: <summary of all fixes>"
 git push
 ```
 
-If fixing multiple distinct issues, you may use separate commits for clarity, but
-push them all together in a single push after verifying all checks pass.
+**Do NOT run checks locally before pushing.** CI will re-run automatically.
+If fixes don't resolve the issue, the fixer will be re-invoked with updated
+failure context.
 
 ## Reporting Unfixable Issues
 
@@ -111,7 +91,6 @@ gh pr comment 123 --body "## Check Failure: <Check Name>
 - The fix is mechanical (formatting, import order, type annotations)
 - There's one obvious correct solution
 - The change is low-risk and easily reversible
-- You can verify the fix works locally
 
 **Report instead when:**
 - Multiple valid approaches exist

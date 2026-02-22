@@ -80,15 +80,16 @@ jobs:
       contents: write
       pull-requests: write
       actions: read
-    uses: ./.github/workflows/reusable-autofix.yml
+    uses: ./.github/workflows/reusable-check-fixer.yml
     with:
       pr_number: ${{ fromJson(needs.should-run.outputs.pr_number) }}
       failed_workflow: ${{ needs.should-run.outputs.failed_workflow }}
       failed_run_id: ${{ needs.should-run.outputs.failed_run_id }}
       bot_username: ${{ vars.EGG_BOT_USERNAME }}
       branch_prefix: ${{ vars.EGG_BRANCH_PREFIX }}
-      # action_ref: jwbron/egg/action@main  # Cannot be passed dynamically; hardcoded in reusable workflow
-      timeout: "20"
+      config_file: "shared/check-fixers.yml"
+      prompt_script: "action/build-check-fixer-prompt.sh"
+      timeout: "15"
     secrets:
       BOT_APP_ID: ${{ secrets.BOT_APP_ID }}
       BOT_APP_PRIVATE_KEY: ${{ secrets.BOT_APP_PRIVATE_KEY }}
