@@ -1817,7 +1817,7 @@ class TestRenderPipelineDagTier3:
         api_line = next(i for i, line in enumerate(lines) if "API" in line)
 
         # Between Auth and API, we should find coder and tester
-        auth_section = "\n".join(lines[auth_line : api_line])
+        auth_section = "\n".join(lines[auth_line:api_line])
         assert "coder" in auth_section
         assert "tester" in auth_section
 
@@ -2002,9 +2002,7 @@ class TestTier3EdgeCases:
             id="t3-5way",
             status=PipelineStatus.RUNNING,
             current_phase=PipelinePhase.IMPLEMENT,
-            plan_phase_waves=[
-                ["phase-1", "phase-2", "phase-3", "phase-4", "phase-5"]
-            ],
+            plan_phase_waves=[["phase-1", "phase-2", "phase-3", "phase-4", "phase-5"]],
             plan_phase_names={
                 "phase-1": "A",
                 "phase-2": "B",

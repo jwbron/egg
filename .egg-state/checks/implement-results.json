@@ -1,15 +1,15 @@
 {
-  "all_passed": true,
+  "all_passed": false,
   "checks": [
     {
       "name": "lint",
       "passed": true,
-      "output": "All checks passed! 398 files already formatted."
+      "output": "ruff check: All checks passed!\nruff format: 401 files already formatted (3 files reformatted during autofix: orchestrator/dag_visualizer.py, orchestrator/tests/test_dag_visualizer.py, orchestrator/tests/test_sync_worktree.py)"
     },
     {
       "name": "test",
-      "passed": true,
-      "output": "3678 passed, 80 skipped, 3 warnings in 26.08s"
+      "passed": false,
+      "output": "25 failed, 6050 passed, 83 skipped, 4 warnings in 63.78s\n\nPre-existing failures (files unchanged from main):\n- tests/scripts/test_checks.py (22 failures): ModuleNotFoundError: No module named 'checks.base'; 'checks' is not a package\n- orchestrator/tests/test_docker_client.py (3 failures): TypeError: catching classes that do not inherit from BaseException is not allowed; assert True is False (mock issue)"
     }
   ]
 }

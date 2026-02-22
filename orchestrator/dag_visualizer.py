@@ -710,9 +710,7 @@ def _render_tier3_implement(
             # Handle wrapping if too many boxes
             for chunk_start in range(0, len(wave_boxes), max_side_by_side):
                 chunk = wave_boxes[chunk_start : chunk_start + max_side_by_side]
-                chunk_widths = [
-                    max(len(line) for line in box) if box else 0 for box in chunk
-                ]
+                chunk_widths = [max(len(line) for line in box) if box else 0 for box in chunk]
 
                 if chunk_start > 0:
                     # Arrow between wrapped rows

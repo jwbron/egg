@@ -33,9 +33,7 @@ def _make_subprocess_result(
     stdout: str = "",
     stderr: str = "",
 ) -> subprocess.CompletedProcess:
-    return subprocess.CompletedProcess(
-        args=[], returncode=returncode, stdout=stdout, stderr=stderr
-    )
+    return subprocess.CompletedProcess(args=[], returncode=returncode, stdout=stdout, stderr=stderr)
 
 
 class TestSyncWorktreeWithRemote:
@@ -127,8 +125,10 @@ class TestSyncWorktreeWithRemote:
     def test_logs_warning_on_failed_reset(self):
         """If git reset --hard fails, a warning is logged."""
         spawner = _make_spawner()
-        with patch("routes.pipelines.subprocess.run") as mock_run, \
-             patch("routes.pipelines.logger") as mock_logger:
+        with (
+            patch("routes.pipelines.subprocess.run") as mock_run,
+            patch("routes.pipelines.logger") as mock_logger,
+        ):
             mock_run.side_effect = [
                 # Step 2: branch name
                 _make_subprocess_result(stdout="egg/issue-42\n"),
