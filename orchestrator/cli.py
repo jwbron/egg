@@ -32,8 +32,41 @@ try:
 except ImportError:
     import logging
 
-    def get_logger(name: str, **kwargs) -> logging.Logger:  # type: ignore[misc]
-        return logging.getLogger(name)
+    class _FallbackLogger:
+        """Minimal wrapper compatible with EggLogger's structured kwargs API."""
+
+        def __init__(self, logger: logging.Logger):
+            self._logger = logger
+
+        @staticmethod
+        def _fmt(msg: str, kwargs: dict) -> str:  # type: ignore[type-arg]
+            """Append structured kwargs to the message so context isn't lost."""
+            extra = " ".join(f"{k}={v}" for k, v in kwargs.items()) if kwargs else ""
+            return f"{msg} {extra}".rstrip() if extra else msg
+
+        def debug(self, msg: str, *args, **kwargs) -> None:  # type: ignore[no-untyped-def]
+            self._logger.debug(self._fmt(msg, kwargs), *args)
+
+        def info(self, msg: str, *args, **kwargs) -> None:  # type: ignore[no-untyped-def]
+            self._logger.info(self._fmt(msg, kwargs), *args)
+
+        def warning(self, msg: str, *args, **kwargs) -> None:  # type: ignore[no-untyped-def]
+            self._logger.warning(self._fmt(msg, kwargs), *args)
+
+        def error(self, msg: str, *args, **kwargs) -> None:  # type: ignore[no-untyped-def]
+            exc_info = kwargs.pop("exc_info", None)
+            self._logger.error(self._fmt(msg, kwargs), *args, exc_info=exc_info)
+
+        def critical(self, msg: str, *args, **kwargs) -> None:  # type: ignore[no-untyped-def]
+            exc_info = kwargs.pop("exc_info", None)
+            self._logger.critical(self._fmt(msg, kwargs), *args, exc_info=exc_info)
+
+        def exception(self, msg: str, *args, **kwargs) -> None:  # type: ignore[no-untyped-def]
+            exc_info = kwargs.pop("exc_info", True)
+            self._logger.exception(self._fmt(msg, kwargs), *args, exc_info=exc_info)
+
+    def get_logger(name: str, **kwargs) -> _FallbackLogger:  # type: ignore[misc]
+        return _FallbackLogger(logging.getLogger(name))
 
     def configure_logging(**kwargs) -> None:
         logging.basicConfig(level=logging.INFO)

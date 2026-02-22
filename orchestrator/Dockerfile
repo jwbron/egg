@@ -14,6 +14,7 @@ WORKDIR /app
 # Copy orchestrator code
 COPY orchestrator/*.py ./
 COPY orchestrator/routes/ ./routes/
+COPY orchestrator/health_checks/ ./health_checks/
 
 # Copy shared modules (egg_logging, egg_config, egg_contracts, egg_container)
 COPY shared/egg_logging/ ./egg_logging/
