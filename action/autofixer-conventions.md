@@ -131,6 +131,7 @@ green on this branch. If a test was already broken on main, fix it here.
 
 **Report instead when:**
 - The fix requires understanding business requirements
+- The change could break other functionality
 - Security implications need human review
 - You're uncertain about the right approach after investigation
 
