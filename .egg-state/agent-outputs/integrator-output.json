@@ -3,127 +3,122 @@
   "phase": "implement",
   "pipeline_id": "issue-647",
   "issue": 647,
-  "summary": "CI and DinD integration test infrastructure verified. All 73 new DinD tests pass after fixing broken import in test_container_spawner_dind.py and resolving lint errors across 6 files. No regressions detected in existing test suites.",
-  "test_results": {
-    "dind_tests": {
-      "passed": 73,
-      "failed": 0,
-      "skipped": 0,
-      "description": "All DinD-related tests: test_dind_manager.py (24), test_dind_manager_gaps.py (27), test_container_spawner_dind.py (15), test_multi_agent_dind.py (7)"
+  "summary": "Post-review integration verification complete. All 5 code review issues were addressed by the coder in commit bbcfd237. 101 DinD-specific tests pass, 6724 total tests pass. No regressions introduced. Lint and formatting clean.",
+  "review_feedback_verification": {
+    "issue_1_dind_container_leak": {
+      "status": "fixed",
+      "severity": "HIGH",
+      "detail": "container_spawner.py:398-558 restructured with outer try/except catching both ContainerSpawnError (line 522) and generic Exception (line 540). Both handlers call dind_manager.teardown() before re-raising. DinD provisioning (lines 356-385) moved inside the outer try block. Comment at lines 390-397 documents the cleanup contract.",
+      "tests": "test_tester_gaps.py::TestDindCleanupOnGatewayError (6 tests) covers: gateway session failure, container create failure, container start failure, teardown failure during error, session cleanup after DinD error, DinD not tracked after failure."
     },
-    "orchestrator_tests": {
-      "passed": 1400,
-      "failed": 4,
-      "skipped": 0,
-      "description": "Full orchestrator test suite. 4 failures are pre-existing: 3 in test_docker_client.py (docker SDK not installed in sandbox), 1 in test_models.py (AgentRole count stale on main: expects 15, has 16 due to REVIEWER_PLAN)"
+    "issue_2_dind_auto_kill_timeout": {
+      "status": "fixed",
+      "severity": "HIGH",
+      "detail": "dind_manager.py:342-374 adds watchdog timer. DIND_MAX_LIFETIME_SECONDS=600 (line 59). _start_watchdog() called after healthy start (line 322). _watchdog_expired() calls teardown(). Watchdog cancelled in teardown() to prevent double-teardown. Max lifetime is configurable via constructor param (line 126).",
+      "tests": "test_tester_gaps.py::TestDindWatchdogTimer (8 tests) covers: watchdog starts on healthy start, not started when unhealthy, cancelled on teardown, disabled when max_lifetime=0, uses correct timeout, expired calls teardown, expired swallows teardown error, default is 600 seconds."
     },
-    "gateway_tests": {
-      "passed": 1529,
-      "failed": 0,
-      "skipped": 5,
-      "description": "Full gateway test suite - no regressions"
+    "issue_3_ci_path_filters_and_concurrency": {
+      "status": "fixed",
+      "severity": "MEDIUM",
+      "detail": "test-integration.yml has path filters (lines 6-14: gateway/**, orchestrator/**, shared/**, sandbox/**, integration_tests/**, pyproject.toml, uv.lock, workflow file itself) and concurrency group (lines 22-24). lint.yml has concurrency group (lines 13-15). test.yml has concurrency group (lines 13-15). All use cancel-in-progress: true.",
+      "tests": "test_tester_gaps.py::TestCIWorkflowConfiguration (7 tests) validates path filters, concurrency groups, image builds, cleanup steps, and autofix watcher config."
     },
-    "shared_tests": {
-      "passed": 84,
-      "failed": 0,
-      "skipped": 0,
-      "description": "Full shared module test suite - no regressions"
+    "issue_4_integration_test_enabled_wiring_gap": {
+      "status": "fixed",
+      "severity": "MEDIUM",
+      "detail": "Documented in docstrings: container_spawner.py:237-244 (spawn_agent_container param docs) and multi_agent.py:118-120 (executor constructor docs). Both explicitly note that production wiring is deferred to Phase 2 and currently only works through spawn_fn callback path.",
+      "tests": "test_tester_gaps.py::TestIntegrationTestEnabledProductionWiring (4 tests) verifies defaults and confirms production path does not pass the flag."
+    },
+    "issue_5_autofix_watcher_integration_tests": {
+      "status": "fixed",
+      "severity": "LOW",
+      "detail": "on-check-failure.yml:8 workflow_run.workflows list is ['Lint', 'Test'] — 'Integration Tests' removed per risk assessment R-4 recommendation.",
+      "tests": "test_tester_gaps.py::TestCIWorkflowConfiguration::test_autofix_watcher_does_not_include_integration_tests validates this."
     }
+  },
+  "test_results": {
+    "dind_specific_tests": {
+      "passed": 101,
+      "failed": 0,
+      "skipped": 0,
+      "files": [
+        "test_dind_manager.py (24 tests)",
+        "test_dind_manager_gaps.py (22 tests)",
+        "test_container_spawner_dind.py (19 tests)",
+        "test_multi_agent_dind.py (7 tests)",
+        "test_tester_gaps.py (29 tests)"
+      ],
+      "description": "All DinD-related unit tests pass including gap tests for cleanup, watchdog, CI configuration, and production wiring."
+    },
+    "full_test_suite": {
+      "passed": 6724,
+      "failed": 26,
+      "skipped": 85,
+      "description": "Full test suite (tests/, gateway/tests/, orchestrator/tests/). All 26 failures are pre-existing on origin/main."
+    },
+    "modified_file_tests": {
+      "gateway_tests": {
+        "passed": 326,
+        "failed": 0,
+        "description": "gateway/tests/test_gateway.py — no regressions"
+      },
+      "pipeline_prompts": {
+        "status": "included in full suite",
+        "description": "orchestrator/tests/test_pipeline_prompts.py — passes"
+      }
+    }
+  },
+  "pre_existing_failures": [
+    {
+      "file": "tests/scripts/test_checks.py",
+      "count": 22,
+      "description": "ModuleNotFoundError: 'checks' is not a package. Import resolution issue unrelated to this PR. File not modified by this branch."
+    },
+    {
+      "file": "orchestrator/tests/test_docker_client.py",
+      "count": 3,
+      "description": "Docker SDK (docker-py) not available in sandbox environment. TypeError when catching docker.errors.NotFound. File not modified by this branch."
+    },
+    {
+      "file": "orchestrator/tests/test_models.py",
+      "count": 1,
+      "description": "test_all_roles expects 15 AgentRole values but 16 exist (REVIEWER_PLAN added). File not modified by this branch."
+    }
+  ],
+  "lint_results": {
+    "ruff_check": "pass",
+    "ruff_format": "pass",
+    "description": "All changed files (container_spawner.py, dind_manager.py, multi_agent.py, workflows) pass ruff check and format."
   },
   "integration_checks": {
     "ci_workflow_triggers": {
       "status": "pass",
-      "detail": "pull_request triggers added to lint.yml, test.yml, and test-integration.yml. All use types: [opened, synchronize, reopened]."
+      "detail": "pull_request triggers on lint.yml, test.yml, test-integration.yml. All use types: [opened, synchronize, reopened]."
     },
     "ci_image_builds": {
       "status": "pass",
-      "detail": "test-integration.yml now builds egg-gateway, egg-orchestrator, and mock-sandbox images before running tests."
+      "detail": "test-integration.yml builds egg-gateway, egg-orchestrator, and mock-sandbox before running tests."
     },
-    "autofix_integration": {
+    "ci_cleanup": {
       "status": "pass",
-      "detail": "on-check-failure.yml updated to watch 'Integration Tests' workflow in addition to 'Lint' and 'Test'."
+      "detail": "test-integration.yml cleanup step handles both compose stacks (docker-compose.yml and local_pipeline/docker-compose.yml)."
     },
-    "dind_manager_lifecycle": {
+    "dind_lifecycle": {
       "status": "pass",
-      "detail": "DindManager correctly manages Docker-in-Docker sidecar lifecycle: startup, health polling, image preload, teardown. All edge cases covered."
+      "detail": "DindManager handles full lifecycle: startup with stale container removal, health polling, image preload, watchdog timer, idempotent teardown."
     },
-    "container_spawner_dind": {
+    "dind_error_handling": {
       "status": "pass",
-      "detail": "ContainerSpawner provisions DinD sidecar for TESTER role only when integration_test_enabled=True. Non-fatal failures, proper cleanup on error, tracked in _dind_managers dict."
+      "detail": "All error paths in container_spawner clean up DinD sidecar. ContainerSpawnError and generic Exception handlers both call teardown(). Watchdog provides safety net."
     },
-    "multi_agent_flag_propagation": {
+    "flag_propagation": {
       "status": "pass",
-      "detail": "MultiAgentExecutor propagates EGG_INTEGRATION_TEST_ENABLED=true to TESTER role only. Applied in both spawn_fn and Docker execution paths."
+      "detail": "integration_test_enabled flows: MultiAgentExecutor -> spawn_fn env var -> TESTER role only. Production Docker path documented as Phase 2 deferral."
     },
     "conftest_dind_awareness": {
       "status": "pass",
-      "detail": "integration_tests/local_pipeline/conftest.py updated to detect DOCKER_HOST for DinD mode, skip redundant image builds."
-    },
-    "documentation_consistency": {
-      "status": "pass",
-      "detail": "All documentation (CONTRIBUTING.md, STRUCTURE.md, testing.md, index.md, orchestrator/README.md) is accurate and cross-referenced correctly."
+      "detail": "conftest.py detects DOCKER_HOST for DinD mode, skips redundant image builds via _image_exists() optimization."
     }
   },
-  "lint_results": {
-    "ruff_check": "pass",
-    "description": "All changed files pass ruff check after integrator fixes"
-  },
-  "integrator_fixes": [
-    {
-      "file": "orchestrator/tests/test_container_spawner_dind.py",
-      "issue": "ModuleNotFoundError: docker SDK not mocked before importing container_spawner",
-      "fix": "Added sys.modules.setdefault mocks for docker, docker.errors, docker.types before imports (following test_multi_agent_dind.py pattern)",
-      "impact": "Unblocked 15 tests that were failing at collection time"
-    },
-    {
-      "file": "orchestrator/dind_manager.py",
-      "issue": "UP024: socket.error should be replaced with OSError",
-      "fix": "Replaced except (socket.error, OSError) with except OSError"
-    },
-    {
-      "file": "orchestrator/tests/test_dind_manager.py",
-      "issue": "I001 unsorted imports, F841 unused variable, UP024 socket.error alias",
-      "fix": "Auto-fixed import sorting, removed unused status variable, replaced socket.error with OSError"
-    },
-    {
-      "file": "orchestrator/tests/test_dind_manager_gaps.py",
-      "issue": "I001 unsorted imports, F401 unused imports (call, DIND_PORT, DindImageLoadError), UP024 socket.error alias",
-      "fix": "Auto-fixed import sorting, removed unused imports, replaced socket.error with OSError"
-    },
-    {
-      "file": "orchestrator/tests/test_multi_agent_dind.py",
-      "issue": "F401 unused imports (AgentExecution, AgentExecutionStatus)",
-      "fix": "Removed unused imports"
-    },
-    {
-      "file": "integration_tests/local_pipeline/test_dind_integration.py",
-      "issue": "F841 unused variable status",
-      "fix": "Removed assignment to unused variable"
-    },
-    {
-      "file": "orchestrator/container_spawner.py",
-      "issue": "UP037 quoted type annotation for DindManager",
-      "fix": "Auto-fixed: removed quotes from type annotation"
-    },
-    {
-      "file": "orchestrator/tests/test_health_check_tier2_tester.py",
-      "issue": "F401 unused import json (pre-existing, not from this branch)",
-      "fix": "Auto-fixed: removed unused import"
-    }
-  ],
-  "pre_existing_issues": [
-    {
-      "file": "orchestrator/tests/test_docker_client.py",
-      "description": "3 test failures due to docker SDK not installed in sandbox. Pre-existing on origin/main."
-    },
-    {
-      "file": "orchestrator/tests/test_models.py",
-      "description": "1 test failure: test_all_roles expects 15 AgentRole values but 16 exist (REVIEWER_PLAN added to model but test count not updated). Pre-existing on origin/main."
-    }
-  ],
-  "files_changed_by_integrator": 8,
-  "total_tests_run": 3013,
-  "total_tests_passed": 3013,
-  "total_pre_existing_failures": 4,
-  "verdict": "All DinD integration code and CI workflow changes verified clean. 73 new tests all pass after fixing import issue in test_container_spawner_dind.py. No regressions in 3013 existing tests. Lint fully clean. Ready for PR."
+  "verdict": "All 5 code review issues verified as fixed. 101 DinD tests and 6724 total tests pass. No regressions. Lint clean. Ready for PR merge."
 }
