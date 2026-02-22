@@ -829,6 +829,14 @@ def _get_agent_design_criteria() -> str:
         "would suffice\n"
         "5. **Prompt-level security** — Using instructions for constraints that should be "
         "sandbox-enforced\n"
+        "6. **Direct LLM API calls outside sandbox** — Calling the Anthropic API from "
+        "orchestrator, gateway, or shared code instead of delegating to sandbox containers\n"
+        "7. **Direct API calls bypassing Claude Code** — Using raw HTTP calls to the "
+        "Anthropic API instead of claude --print (Claude Code headless mode). "
+        "Unlike item 6 (scoped to infra code), this applies everywhere including "
+        "sandbox code.\n"
+        "8. **Hardcoded model identifiers** — Using full model IDs (date-pinned or "
+        "version-pinned) instead of short aliases (sonnet, opus, haiku)\n"
     )
 
 
