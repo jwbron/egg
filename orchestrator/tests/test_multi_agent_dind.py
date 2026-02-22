@@ -174,9 +174,7 @@ class TestIntegrationTestEnvPropagation:
     def test_mixed_wave_only_tester_gets_env(self):
         """In a wave with both CODER and TESTER, only TESTER gets the env var."""
         pipeline = _make_pipeline()
-        mock_dispatcher = self._make_dispatcher(
-            [[AgentRole.CODER, AgentRole.TESTER], []]
-        )
+        mock_dispatcher = self._make_dispatcher([[AgentRole.CODER, AgentRole.TESTER], []])
 
         envs_by_role = {}
 

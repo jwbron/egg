@@ -314,8 +314,7 @@ class TestPreloadImages:
         mock_save.returncode = 0
         mock_save.wait.return_value = 0
 
-        with patch("subprocess.Popen", return_value=mock_save), \
-             patch("subprocess.run") as mock_run:
+        with patch("subprocess.Popen", return_value=mock_save), patch("subprocess.run") as mock_run:
             mock_run.return_value = MagicMock(returncode=0, stdout="Loaded image", stderr="")
             loaded = manager.preload_images(["egg-gateway:latest"])
 
@@ -343,8 +342,10 @@ class TestPreloadImages:
                 return MagicMock(returncode=1, stdout="", stderr="load failed")
             return MagicMock(returncode=0, stdout="Loaded image", stderr="")
 
-        with patch("subprocess.Popen", return_value=mock_save), \
-             patch("subprocess.run", side_effect=run_side_effect):
+        with (
+            patch("subprocess.Popen", return_value=mock_save),
+            patch("subprocess.run", side_effect=run_side_effect),
+        ):
             loaded = manager.preload_images(["bad-image", "good-image"])
 
         assert loaded == ["good-image"]
@@ -361,8 +362,10 @@ class TestPreloadImages:
         mock_save.stderr = MagicMock()
         mock_save.stderr.read.return_value = b"save failed"
 
-        with patch("subprocess.Popen", return_value=mock_save), \
-             patch("subprocess.run", return_value=MagicMock(returncode=1, stderr="fail")):
+        with (
+            patch("subprocess.Popen", return_value=mock_save),
+            patch("subprocess.run", return_value=MagicMock(returncode=1, stderr="fail")),
+        ):
             with pytest.raises(DindImageLoadError, match="Failed to pre-load"):
                 manager.preload_images(["egg-gateway:latest"])
 

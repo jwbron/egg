@@ -61,9 +61,7 @@ def mock_docker_client():
 def mock_gateway_client():
     """Create a mock Gateway client with default behaviors."""
     mock = MagicMock()
-    mock.check_health.return_value = GatewayHealth(
-        healthy=True, status="healthy", version="0.1.0"
-    )
+    mock.check_health.return_value = GatewayHealth(healthy=True, status="healthy", version="0.1.0")
     mock.register_session.return_value = SessionInfo(
         session_token="test-token-12345",
         container_id="abc123def456",
@@ -129,9 +127,7 @@ class TestSpawnWithDindProvisioning:
         assert result.environment["DOCKER_HOST"] == "tcp://172.17.0.5:2375"
 
     @patch("container_spawner.DindManager")
-    def test_dind_not_provisioned_for_non_tester(
-        self, MockDindManager, spawner
-    ):
+    def test_dind_not_provisioned_for_non_tester(self, MockDindManager, spawner):
         """DinD sidecar is NOT provisioned for non-TESTER roles even when enabled."""
         result = spawner.spawn_agent_container(
             pipeline_id="issue-123",
@@ -144,9 +140,7 @@ class TestSpawnWithDindProvisioning:
         assert "DOCKER_HOST" not in result.environment
 
     @patch("container_spawner.DindManager")
-    def test_dind_not_provisioned_when_disabled(
-        self, MockDindManager, spawner
-    ):
+    def test_dind_not_provisioned_when_disabled(self, MockDindManager, spawner):
         """DinD sidecar is NOT provisioned when integration_test_enabled=False."""
         spawner.spawn_agent_container(
             pipeline_id="issue-123",
@@ -170,9 +164,7 @@ class TestSpawnWithDindProvisioning:
         assert "DOCKER_HOST" not in result.environment
 
     @patch("container_spawner.DindManager")
-    def test_dind_docker_host_injected_into_extra_env(
-        self, MockDindManager, spawner
-    ):
+    def test_dind_docker_host_injected_into_extra_env(self, MockDindManager, spawner):
         """DOCKER_HOST is added to extra_env when DinD starts successfully."""
         mock_dind = _make_mock_dind_manager(daemon_url="tcp://10.0.0.5:2375")
         MockDindManager.return_value = mock_dind
@@ -189,9 +181,7 @@ class TestSpawnWithDindProvisioning:
         assert result.environment.get("MY_VAR") == "my_value"
 
     @patch("container_spawner.DindManager")
-    def test_dind_creates_extra_env_dict_when_none(
-        self, MockDindManager, spawner
-    ):
+    def test_dind_creates_extra_env_dict_when_none(self, MockDindManager, spawner):
         """When extra_env is None, DinD provisioning creates the dict for DOCKER_HOST."""
         mock_dind = _make_mock_dind_manager()
         MockDindManager.return_value = mock_dind
@@ -207,9 +197,7 @@ class TestSpawnWithDindProvisioning:
         assert "DOCKER_HOST" in result.environment
 
     @patch("container_spawner.DindManager")
-    def test_dind_unhealthy_no_docker_host(
-        self, MockDindManager, spawner
-    ):
+    def test_dind_unhealthy_no_docker_host(self, MockDindManager, spawner):
         """When DinD starts but daemon_url is empty, DOCKER_HOST is not set."""
         mock_dind = _make_mock_dind_manager(healthy=False, daemon_url="")
         MockDindManager.return_value = mock_dind
@@ -224,9 +212,7 @@ class TestSpawnWithDindProvisioning:
         assert "DOCKER_HOST" not in result.environment
 
     @patch("container_spawner.DindManager")
-    def test_dind_startup_failure_is_non_fatal(
-        self, MockDindManager, spawner
-    ):
+    def test_dind_startup_failure_is_non_fatal(self, MockDindManager, spawner):
         """DinD startup failure does not prevent container from being spawned."""
         mock_dind = MagicMock()
         mock_dind.start.side_effect = Exception("DinD daemon unavailable")
@@ -246,9 +232,7 @@ class TestSpawnWithDindProvisioning:
         assert "DOCKER_HOST" not in result.environment
 
     @patch("container_spawner.DindManager")
-    def test_dind_tracked_in_managers_dict(
-        self, MockDindManager, spawner
-    ):
+    def test_dind_tracked_in_managers_dict(self, MockDindManager, spawner):
         """Successful DinD manager is stored in _dind_managers for later cleanup."""
         mock_dind = _make_mock_dind_manager()
         MockDindManager.return_value = mock_dind
@@ -264,9 +248,7 @@ class TestSpawnWithDindProvisioning:
         assert spawner._dind_managers["issue-123"] is mock_dind
 
     @patch("container_spawner.DindManager")
-    def test_dind_not_tracked_on_startup_failure(
-        self, MockDindManager, spawner
-    ):
+    def test_dind_not_tracked_on_startup_failure(self, MockDindManager, spawner):
         """Failed DinD manager is NOT stored in _dind_managers."""
         mock_dind = MagicMock()
         mock_dind.start.side_effect = Exception("startup failed")
@@ -282,9 +264,7 @@ class TestSpawnWithDindProvisioning:
         assert "issue-123" not in spawner._dind_managers
 
     @patch("container_spawner.DindManager")
-    def test_dind_uses_network_from_mode(
-        self, MockDindManager, spawner
-    ):
+    def test_dind_uses_network_from_mode(self, MockDindManager, spawner):
         """DinD start() receives the network name derived from the mode."""
         mock_dind = _make_mock_dind_manager()
         MockDindManager.return_value = mock_dind
@@ -368,9 +348,7 @@ class TestCleanupPipelineDind:
         mock_dind.teardown.assert_called_once()
         assert "issue-123" not in spawner._dind_managers
 
-    def test_cleanup_pipeline_no_dind(
-        self, spawner, mock_docker_client, mock_gateway_client
-    ):
+    def test_cleanup_pipeline_no_dind(self, spawner, mock_docker_client, mock_gateway_client):
         """cleanup_pipeline() works fine when no DinD sidecar was provisioned."""
         mock_docker_client.list_containers.return_value = []
 
@@ -435,11 +413,7 @@ class TestDindManagersDict:
         self, mock_docker_client, mock_gateway_client
     ):
         """Each ContainerSpawner has its own _dind_managers dict."""
-        s1 = ContainerSpawner(
-            docker_client=mock_docker_client, gateway_client=mock_gateway_client
-        )
-        s2 = ContainerSpawner(
-            docker_client=mock_docker_client, gateway_client=mock_gateway_client
-        )
+        s1 = ContainerSpawner(docker_client=mock_docker_client, gateway_client=mock_gateway_client)
+        s2 = ContainerSpawner(docker_client=mock_docker_client, gateway_client=mock_gateway_client)
         s1._dind_managers["test"] = MagicMock()
         assert "test" not in s2._dind_managers

@@ -215,9 +215,7 @@ class TestRunTier3ImplementSequential:
                     "id": "phase-1",
                     "name": "Phase 1",
                     "status": "pending",
-                    "tasks": [
-                        {"id": "task-1-1", "description": "Task 1", "status": "pending"}
-                    ],
+                    "tasks": [{"id": "task-1-1", "description": "Task 1", "status": "pending"}],
                     "dependencies": [],
                 }
             ],
@@ -228,9 +226,7 @@ class TestRunTier3ImplementSequential:
         def save_side_effect(contract, repo_root=None):
             contract_dir = tmp_path / ".egg-state" / "contracts"
             contract_dir.mkdir(parents=True, exist_ok=True)
-            (contract_dir / "42.json").write_text(
-                contract.model_dump_json(), encoding="utf-8"
-            )
+            (contract_dir / "42.json").write_text(contract.model_dump_json(), encoding="utf-8")
             return contract_dir / "42.json"
 
         mock_save_contract.side_effect = save_side_effect
@@ -252,9 +248,7 @@ class TestRunTier3ImplementSequential:
 
         assert exit_code == 0
         mock_contract_exists.assert_called_once_with(42, tmp_path)
-        mock_load_from_branch.assert_called_once_with(
-            42, tmp_path, branch="egg/test-pipeline/work"
-        )
+        mock_load_from_branch.assert_called_once_with(42, tmp_path, branch="egg/test-pipeline/work")
         mock_save_contract.assert_called_once()
         # Should proceed with Tier 3 (1 phase * 5 agents + integrator = 6)
         assert mock_spawn.call_count == 6

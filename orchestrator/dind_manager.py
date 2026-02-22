@@ -31,6 +31,7 @@ except ImportError:
     class DockerNotFound(Exception):  # type: ignore[no-redef]
         """Stub for docker.errors.NotFound when docker SDK is not installed."""
 
+
 # Add shared directory to path for imports
 _shared_path = Path(__file__).parent.parent / "shared"
 if _shared_path.exists() and str(_shared_path) not in sys.path:
@@ -171,15 +172,11 @@ class DindManager:
             ip = container.attrs.get("NetworkSettings", {}).get("IPAddress", "")
             if ip:
                 return ip
-            raise DindStartupError(
-                f"DinD container {self._container_id[:12]} has no IP address"
-            )
+            raise DindStartupError(f"DinD container {self._container_id[:12]} has no IP address")
         except DindStartupError:
             raise
         except Exception as e:
-            raise DindStartupError(
-                f"Failed to get DinD container IP: {e}"
-            ) from e
+            raise DindStartupError(f"Failed to get DinD container IP: {e}") from e
 
     def _wait_for_healthy(self, timeout_seconds: int = DIND_STARTUP_TIMEOUT_SECONDS) -> bool:
         """Wait for the DinD daemon to accept TCP connections.
@@ -235,9 +232,7 @@ class DindManager:
             return self._status
 
         if docker is None:
-            raise DindError(
-                "docker SDK (pip install docker) is required for DinD support"
-            )
+            raise DindError("docker SDK (pip install docker) is required for DinD support")
 
         self._status = DindStatus(status=DindStatusValue.STARTING)
 
@@ -415,9 +410,7 @@ class DindManager:
         self._status.preloaded_images = loaded
 
         if not loaded and image_names:
-            raise DindImageLoadError(
-                f"Failed to pre-load any images into DinD: {image_names}"
-            )
+            raise DindImageLoadError(f"Failed to pre-load any images into DinD: {image_names}")
 
         return loaded
 

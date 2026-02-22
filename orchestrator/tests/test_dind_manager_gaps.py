@@ -174,8 +174,10 @@ class TestPreloadImagesEdgeCases:
                 mock.wait.return_value = 0
             return mock
 
-        with patch("subprocess.Popen", side_effect=popen_side_effect), \
-             patch("subprocess.run") as mock_run:
+        with (
+            patch("subprocess.Popen", side_effect=popen_side_effect),
+            patch("subprocess.run") as mock_run,
+        ):
             mock_run.return_value = MagicMock(returncode=0, stdout="Loaded", stderr="")
             loaded = manager.preload_images(["slow-image", "fast-image"])
 
@@ -200,8 +202,10 @@ class TestPreloadImagesEdgeCases:
             mock.wait.return_value = 0
             return mock
 
-        with patch("subprocess.Popen", side_effect=popen_side_effect), \
-             patch("subprocess.run") as mock_run:
+        with (
+            patch("subprocess.Popen", side_effect=popen_side_effect),
+            patch("subprocess.run") as mock_run,
+        ):
             mock_run.return_value = MagicMock(returncode=0, stdout="Loaded", stderr="")
             loaded = manager.preload_images(["bad-image", "good-image"])
 
