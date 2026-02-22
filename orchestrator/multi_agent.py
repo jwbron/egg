@@ -599,6 +599,7 @@ class MultiAgentExecutor:
                 repo_path=self.repo_path,
                 trigger=HealthTrigger.WAVE_COMPLETE.value,
                 wave_number=wave_number,
+                docker_client=self.docker_client,
             )
             results = runner.run(ctx, HealthTrigger.WAVE_COMPLETE)
             return worst_action(results) == HealthAction.FAIL_PIPELINE

@@ -135,11 +135,19 @@ def pipeline_health_check(pipeline_id: str) -> tuple[Response, int]:
         from health_checks.context import PipelineHealthContext
         from health_checks.types import HealthTrigger
 
+        try:
+            from docker_client import get_docker_client
+
+            dc = get_docker_client()
+        except Exception:
+            dc = None
+
         ctx = PipelineHealthContext(
             pipeline=pipeline,
             repo_path=Path(repo_path),
             trigger=HealthTrigger.ON_DEMAND.value,
             state_store=store,
+            docker_client=dc,
         )
         results = runner.run(ctx, HealthTrigger.ON_DEMAND)
 

@@ -131,8 +131,11 @@ def _parse_verdict(text: str) -> tuple[HealthStatus, str]:
     cleaned = text.strip()
     if cleaned.startswith("```"):
         # Remove opening fence (with optional language tag)
-        first_newline = cleaned.index("\n")
-        cleaned = cleaned[first_newline + 1 :]
+        nl = cleaned.find("\n")
+        if nl != -1:
+            cleaned = cleaned[nl + 1 :]
+        else:
+            cleaned = cleaned[3:]  # Strip just the backticks
     if cleaned.endswith("```"):
         cleaned = cleaned[: -len("```")]
     cleaned = cleaned.strip()

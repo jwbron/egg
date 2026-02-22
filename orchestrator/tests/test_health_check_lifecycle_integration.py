@@ -397,6 +397,7 @@ class TestMultiAgentWaveHealthExtra:
         executor = MultiAgentExecutor.__new__(MultiAgentExecutor)
         executor.pipeline = _make_pipeline()
         executor.repo_path = Path("/tmp/repo")
+        executor.docker_client = None
 
         mock_runner = MagicMock()
         mock_runner.run.return_value = [
@@ -413,6 +414,7 @@ class TestMultiAgentWaveHealthExtra:
         executor = MultiAgentExecutor.__new__(MultiAgentExecutor)
         executor.pipeline = _make_pipeline()
         executor.repo_path = Path("/tmp/repo")
+        executor.docker_client = None
 
         mock_runner = MagicMock()
         mock_runner.run.return_value = [
@@ -429,6 +431,7 @@ class TestMultiAgentWaveHealthExtra:
         executor = MultiAgentExecutor.__new__(MultiAgentExecutor)
         executor.pipeline = _make_pipeline()
         executor.repo_path = Path("/tmp/repo")
+        executor.docker_client = None
 
         mock_runner = MagicMock()
         mock_runner.run.return_value = [
@@ -446,6 +449,7 @@ class TestMultiAgentWaveHealthExtra:
         executor = MultiAgentExecutor.__new__(MultiAgentExecutor)
         executor.pipeline = _make_pipeline()
         executor.repo_path = Path("/tmp/repo")
+        executor.docker_client = None
 
         mock_runner = MagicMock()
         mock_runner.run.side_effect = RuntimeError("Check crashed")
@@ -460,6 +464,7 @@ class TestMultiAgentWaveHealthExtra:
         executor = MultiAgentExecutor.__new__(MultiAgentExecutor)
         executor.pipeline = _make_pipeline()
         executor.repo_path = Path("/tmp/repo")
+        executor.docker_client = None
 
         mock_runner = MagicMock()
         mock_runner.run.return_value = []

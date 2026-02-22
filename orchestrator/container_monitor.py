@@ -196,9 +196,6 @@ class ContainerMonitor:
         if old_status != new_status:
             self._container_states[container_id] = new_status
 
-            # Run RUNTIME_TICK health checks on state change
-            self._run_health_checks_on_change()
-
             # Emit appropriate event
             if new_status == ContainerStatus.RUNNING:
                 if old_status is None:
@@ -233,6 +230,9 @@ class ContainerMonitor:
                 del self._container_states[container_id]
                 # Can't emit event without ContainerInfo - just log
                 logger.info("Container removed", container_id=container_id[:12])
+
+            # Run RUNTIME_TICK health checks once per poll cycle
+            self._run_health_checks_on_change()
 
         except Exception as e:
             logger.error("Container check failed", error=str(e))

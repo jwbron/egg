@@ -227,6 +227,7 @@ class HealthCheckRunner:
                 EventType.HEALTH_CHECK_COMPLETED,
                 context.pipeline_id,
                 data={
+                    "aggregate": True,
                     "trigger": trigger.value,
                     "aggregate_status": worst.value,
                     "check_count": len(results),

@@ -209,7 +209,7 @@ class PipelineHealthContext:
             return {}
 
         try:
-            raw = contract_path.read_text(errors="replace")[:_TIER2_CHAR_CAP]
+            raw = contract_path.read_text(errors="replace")
             return json.loads(raw)  # type: ignore[no-any-return]
         except (json.JSONDecodeError, OSError):
             return {}

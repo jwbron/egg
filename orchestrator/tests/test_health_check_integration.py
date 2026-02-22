@@ -358,6 +358,7 @@ class TestMultiAgentWaveHealthChecks:
         orch.pipeline = pipeline
         orch.repo_path = Path("/tmp/repo")
         orch.dispatcher = mock_dispatcher
+        orch.docker_client = None
 
         mock_runner = MagicMock()
         mock_runner.run.return_value = [_healthy_result()]
@@ -378,6 +379,7 @@ class TestMultiAgentWaveHealthChecks:
         orch.pipeline = pipeline
         orch.repo_path = Path("/tmp/repo")
         orch.dispatcher = mock_dispatcher
+        orch.docker_client = None
 
         mock_runner = MagicMock()
         mock_runner.run.return_value = [_failed_result()]
@@ -398,6 +400,7 @@ class TestMultiAgentWaveHealthChecks:
         orch.pipeline = pipeline
         orch.repo_path = Path("/tmp/repo")
         orch.dispatcher = mock_dispatcher
+        orch.docker_client = None
 
         mock_runner = MagicMock()
         mock_runner.run.side_effect = RuntimeError("Runner crashed")
@@ -418,6 +421,7 @@ class TestMultiAgentWaveHealthChecks:
         orch.pipeline = pipeline
         orch.repo_path = Path("/tmp/repo")
         orch.dispatcher = mock_dispatcher
+        orch.docker_client = None
 
         mock_runner = MagicMock()
         mock_runner.run.return_value = [_degraded_result()]

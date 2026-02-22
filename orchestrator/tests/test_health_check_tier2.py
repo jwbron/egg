@@ -188,11 +188,11 @@ class TestContextContract:
         assert result1 is result2
         assert result1 == {"phase": "implement"}
 
-    def test_contract_truncated_for_large_files(self, tmp_path):
-        """Contract content is capped at _TIER2_CHAR_CAP chars before parsing."""
+    def test_contract_large_files_parsed_successfully(self, tmp_path):
+        """Large contract files should parse successfully (no pre-parse truncation)."""
         state_dir = tmp_path / ".egg-state" / "contracts"
         state_dir.mkdir(parents=True)
-        # Write a huge file that's valid JSON only at the start
+        # Write a large but valid JSON file
         huge_content = '{"key": "' + "x" * (_TIER2_CHAR_CAP + 5000) + '"}'
         (state_dir / "99.json").write_text(huge_content)
 
@@ -201,8 +201,8 @@ class TestContextContract:
             repo_path=tmp_path,
             trigger="phase_complete",
         )
-        # Should return empty dict since truncation makes JSON invalid
-        assert ctx.contract == {}
+        # Should parse successfully — truncation happens in prompt building, not reading
+        assert ctx.contract == {"key": "x" * (_TIER2_CHAR_CAP + 5000)}
 
     def test_contract_resolves_via_repo_name(self, tmp_path):
         """Contract resolves through repo_path/repo_name/.egg-state/."""
