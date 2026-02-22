@@ -692,11 +692,11 @@ class TestCIWorkflowConfiguration:
         assert "concurrency" in content, "test.yml must have a concurrency group"
         assert content["concurrency"].get("cancel-in-progress") is True
 
-    def test_autofix_watcher_does_not_include_integration_tests(self):
-        """on-check-failure.yml does NOT watch 'Integration Tests'.
+    def test_autofix_watcher_includes_integration_tests(self):
+        """on-check-failure.yml watches 'Integration Tests'.
 
-        Risk assessment R-4 recommended deferring this because integration
-        test failures are typically infrastructure issues, not fixable by autofix.
+        PR #882 added Integration Tests to the autofix workflow triggers
+        so that the autofixer can attempt to fix integration test failures.
         """
         import yaml
 
@@ -711,10 +711,9 @@ class TestCIWorkflowConfiguration:
             content.get(True, content.get("on", {})).get("workflow_run", {}).get("workflows", [])
         )
 
-        assert "Integration Tests" not in workflows_watched, (
-            "on-check-failure.yml should NOT watch 'Integration Tests' — "
-            "integration test failures are typically Docker/infra issues "
-            "that autofix cannot resolve (see risk assessment R-4)"
+        assert "Integration Tests" in workflows_watched, (
+            "on-check-failure.yml should watch 'Integration Tests' — "
+            "autofix should attempt to fix integration test failures (see PR #882)"
         )
 
     def test_integration_tests_builds_all_required_images(self):
