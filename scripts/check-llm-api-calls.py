@@ -10,9 +10,7 @@ and pipeline credentials) and the LLM (which processes untrusted prompts).
 Detection patterns (AST-based for Python files):
   - ``import anthropic`` / ``from anthropic import ...``
   - String literals containing ``api.anthropic.com``
-  - ``anthropic-version`` header string in assignments or calls
-  - ``x-api-key`` alongside ``anthropic-version`` in dict literals
-  - ``os.environ.get("ANTHROPIC_API_KEY")`` (outside sandbox)
+  - ``os.environ.get("ANTHROPIC_API_KEY")`` or ``os.environ["ANTHROPIC_API_KEY"]``
 
 Known gap:
   Indirect API calls via ``urllib.request`` (without importing the anthropic

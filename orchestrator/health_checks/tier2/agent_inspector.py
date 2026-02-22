@@ -112,8 +112,8 @@ def _run_inspector_container(
     """Spawn a sandbox container to run the inspector script.
 
     Context is passed via the EGG_INSPECTOR_CONTEXT env var (JSON string)
-    to avoid file-mount complexity.  Context payloads are small enough
-    for environment variables.
+    to avoid file-mount complexity.  Aggregate payload size is validated
+    against a 100KB limit before passing to the container.
 
     Returns the raw response text from the container's stdout.
     Raises on container spawn/wait/parse failures (caller handles graceful degradation).
@@ -125,6 +125,15 @@ def _run_inspector_container(
     from models import AgentRole
 
     context_json = json.dumps(context_payload, default=str)
+
+    # Guard against oversized payloads that could exceed Docker env var limits (~131KB).
+    # Individual fields are truncated, but aggregate size is not otherwise bounded.
+    max_context_bytes = 100_000  # 100KB safety margin
+    if len(context_json) > max_context_bytes:
+        raise ValueError(
+            f"Inspector context too large for env var: {len(context_json)} bytes "
+            f"(limit: {max_context_bytes} bytes)"
+        )
 
     docker: DockerClient = get_docker_client()
     spawner = ContainerSpawner(docker_client=docker)
