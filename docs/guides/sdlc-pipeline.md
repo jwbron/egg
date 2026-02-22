@@ -458,6 +458,8 @@ The refine and plan phases include an automated internal review step before huma
 - Are options meaningfully different and well-reasoned?
 - Are constraints and dependencies identified?
 - Are open questions specific enough for a human to answer?
+- Are questions actionable?
+- Are ALL uncertainties and assumptions surfaced? The analysis should not proceed with unvalidated assumptions when it could ask the human instead.
 - Is the recommended approach justified?
 
 **Review Criteria for Plan:**
