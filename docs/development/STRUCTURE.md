@@ -81,7 +81,7 @@ orchestrator/
 ├── cli.py                  # CLI for pipeline management
 ├── container_spawner.py    # Sandbox container lifecycle
 ├── container_monitor.py    # Container health monitoring
-├── dag_visualizer.py       # ASCII DAG visualization for pipeline status
+├── dag_visualizer.py       # ASCII DAG visualization for pipeline status (incl. Tier 3 sub-phase rendering)
 ├── decision_queue.py       # HITL decision queue
 ├── devserver.py            # Devserver lifecycle manager for deployment validation (DinD)
 ├── dispatch.py             # Agent dispatch logic
