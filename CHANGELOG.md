@@ -22,7 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Container log persistence and correlation system
 - Rate limiting for gateway operations
 - Fork and private repository access policies
-- CI infrastructure (GitHub Actions, pre-commit hooks, act-based local CI)
+- CI infrastructure (GitHub Actions, pre-commit hooks, native make targets)
 - Comprehensive test suite (130+ test files)
 - Architecture Decision Records (ADRs) for all major design choices
 
