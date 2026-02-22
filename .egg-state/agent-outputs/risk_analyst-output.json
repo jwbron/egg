@@ -1,471 +1,361 @@
 {
-  "issue": 732,
+  "issue": 647,
   "phase": "plan",
   "agent": "risk_analyst",
-  "title": "Risk Assessment: Parallel Phase-Level Dispatch for Implement Phase",
-  "summary": "Assessment of the hybrid approach (Approach C) for adding Tier 3 dispatch to the SDLC pipeline. The recommended approach carries manageable risk when delivered in two stages. The highest risks center on the composite execution key migration (silent data loss during deserialization), integrator privilege escalation interacting with readonly mount enforcement (#800), and the sheer scope of changes touching 12+ files across 4 packages. Six risks are rated High, five Medium, and two Low. All are mitigable with the staged approach but require careful implementation ordering and comprehensive backward compatibility testing.",
+  "title": "Risk Assessment: Wire full-stack integration tests into CI and SDLC pipeline",
+  "summary": "Assessment of the architect's recommended approach (A+C): Phase 1 adds pull_request triggers to lint.yml, test.yml, and test-integration.yml; Phase 2 adds orchestrator-managed DinD sidecar for SDLC self-testing. Phase 1 is low-risk with high confidence — 4 additive workflow file changes on well-understood GitHub Actions infrastructure. Phase 2 carries substantially higher risk due to privileged container management, DinD reliability, image pre-loading complexity, and changes to core orchestrator code. Recommend proceeding with Phase 1 immediately and deferring Phase 2 to a separate issue with dedicated human review.",
 
   "risk_assessment": {
-    "overall_risk_level": "Medium-High",
-    "overall_verdict": "Proceed with Approach C (hybrid staged delivery). Risks are manageable but require strict implementation ordering, comprehensive backward compatibility testing, and human review of integrator privilege escalation and schema migration.",
-    "confidence": "High — based on source code analysis of all 12 affected files, contract schema, gateway enforcement layers, test infrastructure, and recent commit history"
+    "overall_risk_level": "Medium",
+    "overall_verdict": "Proceed with Phase 1 (Option A) — low risk, high value. Phase 2 (Option C) should be a separate issue due to its high complexity and security implications requiring dedicated architecture review.",
+    "confidence": "High — based on source code analysis of all 4 affected workflow files, 8 test files (4216 lines), both compose stacks, container_spawner.py (650 lines), devserver.py (1029 lines), docker_client.py, sandbox Dockerfile, and network configuration."
   },
 
   "risks": [
     {
       "id": "R-1",
-      "category": "Data Integrity",
-      "title": "Silent data loss during composite key migration",
-      "description": "OrchestrationState.from_contract() at orchestration.py:76-83 converts agent_executions list to dict[AgentRole, AgentExecutionModel]. If Tier 3 produces multiple CODER executions (one per phase), the dict conversion silently overwrites earlier entries — only the last CODER execution survives. No error is raised. This affects all downstream state queries: can_agent_run(), get_runnable_agents(), get_next_wave().",
-      "likelihood": "High",
-      "impact": "Critical",
+      "category": "CI Reliability",
+      "title": "Integration tests flaky or failing on ubuntu-latest due to aarch64→x86_64 architecture mismatch",
+      "description": "All 91 integration tests were developed and validated on Linux 6.17 aarch64 (Asahi/Fedora). GitHub Actions ubuntu-latest runs x86_64. The test infrastructure involves Docker image builds (gateway from gateway/Dockerfile, orchestrator from orchestrator/Dockerfile, mock-sandbox from integration_tests/local_pipeline/mock-sandbox/Dockerfile), compose stack orchestration with hardcoded subnets (172.40.0.0/24, 172.41.0.0/24), health check timeouts (120s each for gateway and orchestrator at conftest.py:295,309), and container lifecycle management. Architecture-specific issues (different Docker storage driver behavior, kernel capabilities, network namespace handling, timing differences) may cause failures that don't reproduce locally.",
+      "likelihood": "Medium",
+      "impact": "High",
       "risk_score": "High",
       "affected_files": [
-        "shared/egg_contracts/orchestration.py:76-83",
-        "shared/egg_contracts/models.py:493-507"
+        ".github/workflows/test-integration.yml",
+        "integration_tests/local_pipeline/conftest.py:239-309"
       ],
-      "mitigation": {
-        "strategy": "Add validation before migration, then migrate atomically",
-        "steps": [
-          "Add a validator in models.py that raises on duplicate (role, phase_id) pairs in agent_executions — catches corruption before it propagates",
-          "Change OrchestrationState.executions to dict[tuple[str | None, AgentRole], AgentExecutionModel] with (phase_id, role) composite key",
-          "When phase_id is None (Tier 2), behavior must match current role-only keying — test this explicitly",
-          "Add deserialization tests with 0, 1, and multiple CODER entries across phases"
-        ],
-        "residual_risk": "Low — once composite key is in place, data loss path is eliminated"
-      },
-      "human_review_required": true,
-      "review_reason": "Schema change affects all contract consumers. Need to verify no external tools read agent_executions assuming role uniqueness."
+      "mitigation": [
+        "Start integration tests as non-required PR checks (architect's TD-5). Monitor for 5-10 successful runs before promoting to required.",
+        "Run test-integration.yml manually via workflow_dispatch on a test branch BEFORE enabling the pull_request trigger — validate the full compose stack works on ubuntu-latest x86_64.",
+        "The conftest.py already has generous timeouts (120s health check, 300s compose up, 120s mock-sandbox build). If CI is slower, increase pytest timeout to --timeout=600.",
+        "If architecture-specific failures appear, add `platform: linux/amd64` to compose service builds to catch multi-arch issues early."
+      ],
+      "rollback": "Remove pull_request trigger from test-integration.yml. Lint and test workflows are independent and unaffected.",
+      "human_review_required": false
     },
     {
       "id": "R-2",
-      "category": "Security",
-      "title": "Integrator privilege escalation conflicts with readonly mount enforcement",
-      "description": "PR #800 (merged Feb 16) enforces readonly mounts for .egg-state/contracts/, .egg-state/drafts/, .egg-state/pipelines/, and .egg-state/reviews/ during the implement phase. The architect's proposal (TD-4) gives integrator write access to src/, tests/, docs/ in Tier 3. The integrator runs during the implement phase. If the integrator also needs to update contract state (e.g., mark phases complete, record merge results), the readonly mount blocks direct file writes. Two gateway enforcement layers must agree: phase_filter.py (layer 1 — phase-based file restrictions) and agent_restrictions.py (layer 2 — role-based file restrictions).",
-      "likelihood": "High",
-      "impact": "High",
-      "risk_score": "High",
+      "category": "CI Reliability",
+      "title": "Docker subnet conflicts on shared CI runners",
+      "description": "Both compose stacks use hardcoded subnets: integration_tests/docker-compose.yml (172.40.0.0/24, 172.41.0.0/24) and integration_tests/local_pipeline/docker-compose.yml (same subnets). If multiple CI jobs from different PRs run concurrently on the same runner, subnet conflicts cause compose to fail with 'network already exists' errors. The conftest.py uses dynamic COMPOSE_PROJECT_NAME (conftest.py:204) to namespace services, but Docker networks with explicit IPAM cannot coexist at the same subnet on a single daemon.",
+      "likelihood": "Low",
+      "impact": "Medium",
+      "risk_score": "Low-Medium",
       "affected_files": [
-        "gateway/phase_filter.py:480-525",
-        "gateway/agent_restrictions.py:296-321",
-        "shared/egg_contracts/agent_roles.py:289-318"
+        "integration_tests/docker-compose.yml:67-75",
+        "integration_tests/local_pipeline/docker-compose.yml"
       ],
-      "mitigation": {
-        "strategy": "Source code write access via role config; contract updates via orchestrator API",
-        "steps": [
-          "Integrator source write access (src/, tests/, docs/) should be controlled via agent_roles.py conditional on complexity_tier — this is a role restriction change, not a phase mount change",
-          "Contract state updates should go through the orchestrator HTTP API (existing pattern: dispatcher.contract_orchestrator.apply_to_contract()), NOT direct file writes — this preserves readonly mount security",
-          "Do NOT change the implement phase readonly mounts — the mount strategy from #800 is a security boundary worth preserving",
-          "Add integration tests that verify integrator can write source but NOT contract files during Tier 3 implement"
-        ],
-        "residual_risk": "Medium — integrator with source write access is a privilege escalation; defense in depth (agentic review + human review) mitigates but does not eliminate"
-      },
-      "human_review_required": true,
-      "review_reason": "Privilege escalation for integrator role. Need security review of what the integrator can do with unrestricted src/ write access. Consider: could an adversarial integrator output exfiltrate data or inject malicious code that survives human review?"
+      "mitigation": [
+        "GitHub-hosted runners (ubuntu-latest) are isolated VMs with separate Docker daemons. Concurrent PR runs get different runners. Risk is negligible for hosted runners.",
+        "If self-hosted runners are used later, replace hardcoded subnets with Docker's auto-allocated subnets (remove IPAM config) or use unique per-run subnets derived from GITHUB_RUN_ID.",
+        "The existing docker network prune -f in cleanup mitigates orphaned networks."
+      ],
+      "rollback": "N/A — no code change needed for this risk. Monitoring only.",
+      "human_review_required": false
     },
     {
       "id": "R-3",
-      "category": "Backward Compatibility",
-      "title": "Contract schema migration breaks existing pipelines",
-      "description": "The contract schema (.egg/schemas/contract.schema.json) uses additionalProperties: false at multiple levels. Adding dependencies to Phase and phase_id to AgentExecutionModel requires a schema version bump. Existing contracts (732 stored in .egg-state/contracts/) will fail validation against the new schema unless migration is handled. The agentExecution role enum is restricted to ['coder', 'tester', 'documenter', 'integrator'] — adding reviewer roles for per-phase agentic review would require enum expansion.",
-      "likelihood": "Medium",
-      "impact": "High",
-      "risk_score": "High",
+      "category": "CI Performance",
+      "title": "Integration tests add significant CI time to every PR",
+      "description": "The integration test workflow must: build 3 Docker images from scratch (gateway, orchestrator, mock-sandbox — no Docker layer caching configured), start a compose stack, wait for health (up to 120s per service), run 91 tests with 300s timeout, then tear down. No caching is configured — only release-images.yml uses docker/setup-buildx-action. Every PR push triggers a full uncached rebuild. On ubuntu-latest cold Docker cache, total workflow time could be 10-15 minutes. Currently none of the three test workflows have concurrency groups, so rapid pushes stack CI runs.",
+      "likelihood": "High",
+      "impact": "Low-Medium",
+      "risk_score": "Medium",
       "affected_files": [
-        ".egg/schemas/contract.schema.json",
-        "shared/egg_contracts/models.py:334-365",
-        "shared/egg_contracts/models.py:400-563"
+        ".github/workflows/test-integration.yml"
       ],
-      "mitigation": {
-        "strategy": "Additive schema changes with defaults, schema version migration",
-        "steps": [
-          "New fields (dependencies, phase_id) must have defaults ([] and null respectively) so old contracts deserialize without error",
-          "Bump schemaVersion to 1.1 with a migration function that adds defaults to 1.0 contracts",
-          "Add schema validation test that loads every existing contract in .egg-state/contracts/ against the new schema",
-          "Keep additionalProperties: false — add fields explicitly rather than relaxing the constraint",
-          "Reviewer roles (reviewer_code, reviewer_contract) need to be added to the role enum if per-phase agentic review tracks execution state in the contract"
-        ],
-        "residual_risk": "Low — with proper defaults and migration, backward compatibility is maintainable"
-      },
-      "human_review_required": true,
-      "review_reason": "Schema changes affect all pipeline consumers. Verify no external tools parse contracts with strict schema validation."
+      "mitigation": [
+        "Add path filtering to the pull_request trigger from the start. Only run integration tests when gateway/, orchestrator/, shared/, integration_tests/, docker-compose.yml, or Dockerfile changes are detected. This avoids wasteful runs on docs-only or config-only PRs.",
+        "Add concurrency groups with cancel-in-progress: true to all three workflows to cancel stale runs on rapid pushes. Pattern: concurrency: { group: '${{ github.workflow }}-${{ github.ref }}', cancel-in-progress: true }.",
+        "Add Docker layer caching via actions/cache (pattern available from release-images.yml:118) to speed up image rebuilds.",
+        "Pre-build images as explicit CI steps (architect's task-1-3) to get clearer failure reporting than relying on the compose --build flag."
+      ],
+      "rollback": "Add path filtering retroactively if CI time becomes problematic. No breaking change.",
+      "human_review_required": false
     },
     {
       "id": "R-4",
-      "category": "Correctness",
-      "title": "DependencyGraph cannot model phase-to-phase dependencies",
-      "description": "DependencyGraph (dependency_graph.py) uses AgentRole as the sole node type. Wave computation (lines 227-262) produces dict[AgentRole, int] — inherently single-instance-per-role. Tier 3 needs two dependency models: (1) within a phase cycle (coder -> tester -> reviewer, same as Tier 2), and (2) between plan phases (phase-4 depends on phase-1). The current graph cannot represent the second model. Building PhaseDependencyGraph requires a separate class since the node type is fundamentally different (phase ID string vs AgentRole enum).",
+      "category": "CI Correctness",
+      "title": "Autofix workflow (on-check-failure.yml) depends on fragile workflow name coupling",
+      "description": "on-check-failure.yml:8 watches for workflow_run events from workflows named exactly 'Lint' and 'Test'. The architect proposes adding 'Integration Tests' (task-1-4). This coupling between workflow names is undocumented and fragile — renaming any workflow without updating on-check-failure.yml silently breaks autofix. More critically, the autofix bot is designed for lint and type errors (it invokes reusable-autofix.yml which uses the egg action for code fixes). Integration test failures are typically Docker/compose infrastructure issues, not code issues amenable to automatic fixing. The autofix bot attempting to 'fix' a compose timeout would waste resources and potentially make incorrect code changes.",
       "likelihood": "Medium",
-      "impact": "High",
-      "risk_score": "High",
+      "impact": "Low",
+      "risk_score": "Low",
       "affected_files": [
-        "shared/egg_contracts/dependency_graph.py:29-48",
-        "shared/egg_contracts/dependency_graph.py:227-262",
-        "shared/egg_contracts/orchestration.py:384-396"
+        ".github/workflows/on-check-failure.yml:8"
       ],
-      "mitigation": {
-        "strategy": "New PhaseDependencyGraph class alongside existing DependencyGraph",
-        "steps": [
-          "Create PhaseDependencyGraph with string phase IDs as nodes — do NOT modify existing DependencyGraph",
-          "Reuse topological sort and wave computation algorithms but with generic node type",
-          "Consider making a generic DependencyGraph[T] base class to share logic, but only if it doesn't complicate the existing code — premature generalization is a risk",
-          "Phase dependencies come from Phase.dependencies field (already parsed by plan_parser.py:88-96, just not persisted)",
-          "Integration test: graph with 3 independent + 1 dependent phase produces correct wave ordering"
-        ],
-        "residual_risk": "Low — new class has no coupling to existing graph"
-      },
-      "human_review_required": false,
-      "review_reason": null
+      "mitigation": [
+        "Defer adding 'Integration Tests' to the autofix watcher (skip task-1-4 initially). Evaluate after integration tests are stable whether autofix is useful for Docker-related failures.",
+        "Add a comment to the top of lint.yml, test.yml, and test-integration.yml documenting the on-check-failure.yml dependency: '# WARNING: Workflow name is referenced by on-check-failure.yml. Do not rename without updating that workflow.'",
+        "If autofix is added for integration tests, ensure reusable-autofix.yml can gracefully handle cases where it cannot fix the failure (exit cleanly rather than making speculative changes)."
+      ],
+      "rollback": "Remove 'Integration Tests' from on-check-failure.yml workflows list.",
+      "human_review_required": false
     },
     {
       "id": "R-5",
-      "category": "Correctness",
-      "title": "MultiAgentExecutor state tracking collides on role-keyed dictionaries",
-      "description": "MultiAgentExecutor (multi_agent.py) uses AgentRole as key in multiple dictionaries: AgentWave.containers (dict[AgentRole, ContainerInfo]), AgentWave.results (dict[AgentRole, AgentExecution]), and environment variables (EGG_AGENT_ROLE without phase context). If Tier 3 runs CODER for phase-1 and CODER for phase-2 sequentially, the wave-level state must track which phase each execution belongs to. Missing phase context in environment variables means the spawned agent cannot identify which phase's tasks to work on.",
-      "likelihood": "High",
-      "impact": "High",
-      "risk_score": "High",
+      "category": "CI Correctness",
+      "title": "Dual triggers (workflow_call + pull_request) may cause double execution",
+      "description": "Adding pull_request alongside workflow_call means each workflow runs autonomously on PR events. If any future workflow later calls them via workflow_call on pull_request events, tests run twice per push. Currently no callers exist, but this is a maintenance awareness risk for future developers.",
+      "likelihood": "Low",
+      "impact": "Low",
+      "risk_score": "Low",
       "affected_files": [
-        "orchestrator/multi_agent.py:46-77",
-        "orchestrator/multi_agent.py:353-356",
-        "orchestrator/multi_agent.py:228-279"
+        ".github/workflows/lint.yml",
+        ".github/workflows/test.yml",
+        ".github/workflows/test-integration.yml"
       ],
-      "mitigation": {
-        "strategy": "Add phase context to wave execution and environment variables",
-        "steps": [
-          "For Stage 1 (sequential): each implement cycle runs a fresh set of waves for one phase. The MultiAgentExecutor is instantiated per phase cycle, so role collision doesn't occur within a single cycle — but result recording must include phase_id",
-          "Add EGG_PHASE_ID and EGG_PHASE_NUMBER to extra_env at line 353-356 so spawned agents know their scope",
-          "Update dispatcher.complete_agent() and dispatcher.fail_agent() to accept phase_id",
-          "For Stage 2 (parallel): separate MultiAgentExecutor instances per phase avoid state collision entirely — but orchestrator must coordinate across executors",
-          "Ensure the threading.Lock at line 129 doesn't become a bottleneck when running multiple sequential phase cycles"
-        ],
-        "residual_risk": "Medium — sequential cycling (Stage 1) avoids most collision but parallel (Stage 2) reintroduces it at the orchestrator level"
-      },
-      "human_review_required": false,
-      "review_reason": null
+      "mitigation": [
+        "Document the dual-trigger design in a workflow comment: 'Runs both as reusable workflow (workflow_call) and directly on pull_request. Do not create a separate caller workflow for PR events — use Option A, not Option B (see issue #647).'",
+        "No technical mitigation needed — risk is architectural awareness only."
+      ],
+      "rollback": "N/A — informational.",
+      "human_review_required": false
     },
     {
       "id": "R-6",
-      "category": "Complexity",
-      "title": "orchestrator/routes/pipelines.py is 4500 LOC and bears most of the change burden",
-      "description": "pipelines.py is the largest and most complex file in the orchestrator at 4,495 lines. It handles pipeline creation, state management, agent spawning, decision queues, result collection, complexity detection, and phase prompt building. The Tier 3 changes add: _run_tier3_implement(), _check_high_complexity_signal(), per-phase prompt building with task filtering, and per-phase review cycling with retry. This file is already a maintenance risk and adding ~200-300 LOC of complex orchestration logic increases cognitive load and merge conflict surface.",
-      "likelihood": "Medium",
-      "impact": "Medium",
-      "risk_score": "Medium",
+      "category": "Security",
+      "title": "DinD sidecar requires --privileged, introducing first privileged container in orchestrator (Phase 2)",
+      "description": "docker:27-dind-rootless still requires elevated privileges (--privileged or specific capabilities + /dev/net/tun device access). The orchestrator currently never creates privileged containers — DevserverManager explicitly sets privileged: false and cap_drop: ['ALL'] at devserver.py:288-295. DinD would be the FIRST privileged container the orchestrator manages, breaking a security invariant. If the orchestrator has a bug or is compromised, a privileged container on the host Docker daemon could escape sandbox isolation. The issue notes --privileged + --device /dev/net/tun was validated on the development host.",
+      "likelihood": "Low",
+      "impact": "Critical",
+      "risk_score": "High",
       "affected_files": [
-        "orchestrator/routes/pipelines.py"
+        "orchestrator/container_spawner.py:192-461",
+        "orchestrator/dind_manager.py (new)"
       ],
-      "mitigation": {
-        "strategy": "Encapsulate Tier 3 logic in a separate module",
-        "steps": [
-          "Extract _run_tier3_implement() and related helpers to a new orchestrator/tier3_dispatch.py module",
-          "Keep pipelines.py as the routing/entry point — it dispatches to tier3_dispatch based on complexity_tier",
-          "This reduces merge conflict surface and keeps the PR reviewable",
-          "If extraction is out of scope, at minimum group all Tier 3 functions together at the end of pipelines.py with a clear section comment"
-        ],
-        "residual_risk": "Low — extraction is a clean refactor with no behavioral change"
-      },
-      "human_review_required": false,
-      "review_reason": null
+      "mitigation": [
+        "Phase 2 MUST be a separate issue with explicit security review and an ADR documenting the decision to introduce privileged containers.",
+        "DinD container must have strict resource limits matching DevserverManager patterns: CPU 1.0, memory 512m, PIDs 256.",
+        "DinD container must run on a dedicated isolated internal network — not egg-isolated or egg-external.",
+        "Auto-kill DinD container after a strict timeout (e.g., 10 minutes) regardless of test completion status.",
+        "Audit log all DinD container creation/destruction events.",
+        "Gate DinD behind an explicit pipeline configuration flag (integration_test_enabled), not implicit role detection.",
+        "Evaluate alternatives to --privileged: Sysbox runtime, user-namespace remapping, or running integration tests only in CI (Phase 1) without DinD."
+      ],
+      "rollback": "Revert DindManager module and container_spawner changes. Phase 2 is fully independent of Phase 1.",
+      "human_review_required": true,
+      "review_reason": "First privileged container in the orchestrator breaks an existing security invariant (devserver.py:295 explicitly sets privileged: false). Needs ADR-level review."
     },
     {
       "id": "R-7",
-      "category": "Correctness",
-      "title": "Per-phase prompt isolation may leak cross-phase context",
-      "description": "Each phase's coder should only see its own tasks and files_affected. The current _build_agent_prompt() in pipelines.py constructs prompts from the full contract. If filtering is incorrect, a coder could receive tasks from another phase, leading to out-of-scope changes, file conflicts, or wasted work. This is especially dangerous in Stage 2 (parallel) where two coders editing the same file would cause merge conflicts.",
-      "likelihood": "Medium",
+      "category": "Security",
+      "title": "DinD TCP endpoint (port 2375) is unauthenticated by default (Phase 2)",
+      "description": "Docker daemon on TCP port 2375 is unauthenticated. The tester sandbox connects via DOCKER_HOST=tcp://dind:2375. If the DinD container is reachable from any other container on overlapping networks, those containers could issue arbitrary Docker commands against the nested daemon — running containers, mounting volumes, or accessing the test network. While the nested daemon only contains test infrastructure, it provides an escalation path for network reconnaissance or data exfiltration.",
+      "likelihood": "Low",
       "impact": "Medium",
       "risk_score": "Medium",
       "affected_files": [
-        "orchestrator/routes/pipelines.py"
+        "orchestrator/dind_manager.py (new)",
+        "orchestrator/container_spawner.py"
       ],
-      "mitigation": {
-        "strategy": "Explicit phase filtering with validation",
-        "steps": [
-          "Build phase-filtered prompt function that accepts phase_id and only includes tasks where task.phase_id matches",
-          "Include a defensive check: if any task references a file in another phase's files_affected, log a warning",
-          "Add test: generate prompts for phase-1 and phase-2, verify no task/file overlap",
-          "In Stage 2, add pre-flight validation that files_affected across parallel phases are disjoint — abort if overlap detected"
-        ],
-        "residual_risk": "Low — with validation, leakage is caught before execution"
-      },
-      "human_review_required": false,
-      "review_reason": null
+      "mitigation": [
+        "DinD container MUST be on a dedicated, internal-only Docker network that only the specific tester sandbox is attached to. No other containers should be able to reach the DinD TCP endpoint.",
+        "Use TLS-authenticated Docker (port 2376 with DOCKER_TLS_CERTDIR) instead of plain TCP (2375). DinD supports automatic certificate generation.",
+        "Network policy: firewall rules or iptables within the DinD network to restrict access to the tester container's IP only."
+      ],
+      "rollback": "Remove DinD sidecar. Phase 2 is independent.",
+      "human_review_required": true,
+      "review_reason": "Unauthenticated Docker daemon endpoint on the host Docker network. Need to confirm network isolation is sufficient."
     },
     {
       "id": "R-8",
-      "category": "Performance",
-      "title": "Token cost multiplier is underestimated for retry scenarios",
-      "description": "The issue estimates Tier 3 at 2-2.5x the token cost of Tier 2. This assumes each phase cycle succeeds on the first attempt. If agentic review rejects a phase (triggering coder retry), the cost for that phase triples: original coder + tester + reviewer + retry coder + retry tester + retry reviewer. With 3 phases and max_review_cycles=3, worst case is 3 * (3 * (coder + tester + 2 reviewers)) = 36 agent runs, or 6x the Tier 2 cost. The integrator adds another agent on top.",
-      "likelihood": "Low",
-      "impact": "Medium",
-      "risk_score": "Medium",
-      "affected_files": [],
-      "mitigation": {
-        "strategy": "Cost caps and circuit breakers",
-        "steps": [
-          "Implement per-pipeline token budget with enforcement — abort Tier 3 if budget exceeded",
-          "Default max_review_cycles to 2 (not 3) for Tier 3 phases to limit retry cost",
-          "Add cost tracking per phase cycle — report per-phase costs in integrator output",
-          "Consider: if >50% of phases fail agentic review, escalate to human review instead of retrying — the plan may be flawed"
-        ],
-        "residual_risk": "Low — with budget caps, cost is bounded"
-      },
-      "human_review_required": false,
-      "review_reason": null
-    },
-    {
-      "id": "R-9",
-      "category": "Correctness",
-      "title": "Phase dependency graph cycles or missing phases cause deadlock",
-      "description": "If the plan contains circular dependencies (phase-1 depends on phase-2, phase-2 depends on phase-1) or references non-existent phases, the PhaseDependencyGraph could deadlock (infinite loop waiting for unresolvable dependencies) or error at runtime. The plan parser currently doesn't validate dependency consistency.",
-      "likelihood": "Low",
-      "impact": "High",
-      "risk_score": "Medium",
-      "affected_files": [
-        "shared/egg_contracts/dependency_graph.py",
-        "shared/egg_contracts/plan_parser.py:88-96"
-      ],
-      "mitigation": {
-        "strategy": "Validate dependency graph at plan parsing time",
-        "steps": [
-          "Add cycle detection in PhaseDependencyGraph construction (topological sort already handles this — make the error message clear)",
-          "Validate that all dependency references resolve to existing phase IDs",
-          "Reject plans with invalid dependency graphs during the plan phase, before implement begins",
-          "Add test: circular dependency plan is rejected with descriptive error"
-        ],
-        "residual_risk": "Negligible — standard DAG validation"
-      },
-      "human_review_required": false,
-      "review_reason": null
-    },
-    {
-      "id": "R-10",
       "category": "Reliability",
-      "title": "Sub-branch merge conflicts despite files_affected boundaries (Stage 2)",
-      "description": "In Stage 2 (parallel dispatch), each phase pushes to egg/<feature>/phase-N. The integrator merges sub-branches. Even with files_affected partitioning, shared files (package.json, __init__.py, imports, test fixtures) can cause merge conflicts. files_affected is declared by the plan but not enforced — a coder may modify files outside its declared scope. The gateway's branch prefix check (startswith('egg/')) already supports sub-branches, but worktree lifecycle management is new.",
+      "title": "DinD image pre-loading is fragile, slow, and resource-intensive (Phase 2)",
+      "description": "The architect proposes pre-loading images via `docker save | docker -H tcp://dind:2375 load`. This means: (1) serializing each image to tar on the host daemon (CPU + disk I/O), (2) transferring over TCP to the DinD daemon (network I/O — images can be 200-500MB each), (3) deserializing inside DinD (CPU + storage). Three images (gateway, orchestrator, mock-sandbox) means potentially 1+ GB of transfer. Over TCP on a Docker bridge network, this may take 2-5 minutes. If the TCP connection drops mid-transfer, partial image state in DinD causes confusing test failures. The DinD daemon's storage backend (overlay2 inside overlay2) adds latency.",
       "likelihood": "Medium",
       "impact": "Medium",
       "risk_score": "Medium",
       "affected_files": [
-        "gateway/worktree_manager.py",
-        "gateway/policy.py:301-303"
+        "orchestrator/dind_manager.py (new)"
       ],
-      "mitigation": {
-        "strategy": "Enforce file boundaries at commit time; design integrator for conflict resolution",
-        "steps": [
-          "In Stage 2, add gateway enforcement: coder commit in phase-N can only modify files in that phase's files_affected list (reject commits that modify out-of-scope files)",
-          "Integrator prompt should explicitly include conflict resolution instructions and expect merge conflicts",
-          "Add test: two coders modify same file in different phases — integrator resolves or escalates",
-          "Consider: shared files (package.json, __init__.py) should be assigned to a single phase or to the integrator"
-        ],
-        "residual_risk": "Medium — merge conflicts are inherent in parallel work; integrator handles them but at token cost"
-      },
-      "human_review_required": false,
-      "review_reason": null
+      "mitigation": [
+        "Use shared volume mount between host Docker and DinD for image transfer instead of TCP pipe. Save images to a shared volume, then load from the volume inside DinD — avoids network transfer entirely.",
+        "Implement per-image verification after each load: confirm image exists with `docker images` on the DinD daemon.",
+        "Add retry logic (1-2 retries per image) with exponential backoff.",
+        "Set per-image transfer timeout (120s per image).",
+        "On any pre-load failure, DindManager MUST tear down the DinD container and report a clear error — never leave a partially-loaded daemon running."
+      ],
+      "rollback": "DindManager cleanup should always remove the DinD container regardless of pre-load success/failure.",
+      "human_review_required": false
+    },
+    {
+      "id": "R-9",
+      "category": "Complexity",
+      "title": "container_spawner.py is critical-path code — Phase 2 modifications are high-risk",
+      "description": "container_spawner.py (650 lines) manages the container lifecycle for EVERY pipeline agent. spawn_agent_container() (lines 192-461) handles gateway session registration, network config, volume mounts, extra_hosts, and container IP assignment. Phase 2 requires modifying this function to conditionally provision a DinD sidecar for tester agents. Any bug in this conditional path could affect ALL container spawning (not just tester agents) if the condition check is incorrect or if shared state is accidentally mutated. The function already has complex branching for network modes (public/private/local) and mount configurations.",
+      "likelihood": "Medium",
+      "impact": "Critical",
+      "risk_score": "High",
+      "affected_files": [
+        "orchestrator/container_spawner.py:192-461",
+        "orchestrator/multi_agent.py"
+      ],
+      "mitigation": [
+        "Keep DindManager as a completely separate module with its own lifecycle — container_spawner.py should only have a thin integration layer calling DindManager.start()/stop().",
+        "DinD provisioning MUST be triggered by an explicit flag in pipeline config, not inferred from agent role. This prevents accidental DinD for non-test scenarios.",
+        "Write comprehensive unit tests for the DinD integration path BEFORE modifying container_spawner.py.",
+        "Code review must verify the non-DinD path (99% of spawns) is completely unaffected — no shared mutable state, no new parameters on the hot path.",
+        "Consider a wrapper pattern or pre/post hooks rather than if/else branching inside spawn_agent_container()."
+      ],
+      "rollback": "Revert container_spawner.py changes. DindManager module can remain as dead code.",
+      "human_review_required": true,
+      "review_reason": "Critical-path orchestrator code. Bug here affects all pipeline agent spawning."
+    },
+    {
+      "id": "R-10",
+      "category": "CI Correctness",
+      "title": "test-integration.yml cleanup step is incomplete — orphaned containers and networks possible",
+      "description": "Current cleanup (test-integration.yml:39-42) only runs `docker compose -f integration_tests/docker-compose.yml down -v --remove-orphans` — the gateway-only stack. It does NOT clean up the local_pipeline compose stack (integration_tests/local_pipeline/docker-compose.yml). If local pipeline tests fail mid-execution, containers and networks from the local_pipeline stack remain orphaned. Additionally, the conftest.py fixture has its own teardown, but if pytest itself crashes or the CI job is cancelled, the fixture teardown won't run. The conftest.py also cleans orphaned sandbox containers (_cleanup_orphaned_containers) but only at setup time.",
+      "likelihood": "Medium",
+      "impact": "Low",
+      "risk_score": "Low",
+      "affected_files": [
+        ".github/workflows/test-integration.yml:39-42"
+      ],
+      "mitigation": [
+        "Add local_pipeline compose cleanup to the CI workflow's cleanup step: `docker compose -f integration_tests/local_pipeline/docker-compose.yml down -v --remove-orphans 2>/dev/null || true`.",
+        "Add orphaned sandbox container cleanup: `docker ps -a --filter 'label=egg.pipeline.id' -q | xargs -r docker rm -f 2>/dev/null || true`.",
+        "These are defense-in-depth for when the conftest fixture's own teardown fails or doesn't run."
+      ],
+      "rollback": "N/A — cleanup improvements are always safe and beneficial.",
+      "human_review_required": false
     },
     {
       "id": "R-11",
       "category": "Compatibility",
-      "title": "Tier 1 and Tier 2 regression risk from shared code changes",
-      "description": "The composite key migration, schema changes, and orchestration state refactoring touch code paths used by all three tiers. Tier 1 (short-circuit, PR #734) and Tier 2 (standard multi-agent) must continue working unchanged. The risk is that changes intended for Tier 3 introduce subtle regressions: e.g., get_agent_execution() returning wrong results when phase_id is None, or wave computation producing incorrect ordering when only one instance of each role exists.",
-      "likelihood": "Medium",
-      "impact": "High",
-      "risk_score": "High",
-      "affected_files": [
-        "shared/egg_contracts/orchestration.py",
-        "shared/egg_contracts/models.py",
-        "orchestrator/multi_agent.py",
-        "orchestrator/routes/pipelines.py"
-      ],
-      "mitigation": {
-        "strategy": "Backward compatibility test suite run before and after every change",
-        "steps": [
-          "Before starting implementation, capture baseline test results for Tier 1 and Tier 2",
-          "Write explicit regression tests: Tier 1 short-circuit flow end-to-end, Tier 2 standard multi-agent flow end-to-end",
-          "Every PR in the Stage 1 delivery must pass these regression tests",
-          "The composite key change must be tested with phase_id=None to verify Tier 2 behavior is identical",
-          "Use test_short_circuit.py (350 lines) as the quality bar for regression test coverage"
-        ],
-        "residual_risk": "Low — with comprehensive regression tests, regressions are caught at CI"
-      },
-      "human_review_required": false,
-      "review_reason": null
-    },
-    {
-      "id": "R-12",
-      "category": "Scope",
-      "title": "12+ file change scope increases merge conflict risk with concurrent development",
-      "description": "The full implementation (Stages 1+2) touches 12+ files across 4 packages (shared/egg_contracts, orchestrator, gateway, .egg). While no active feature branches currently conflict, this repo sees frequent changes (4 commits in 2 days to key files). A multi-day implementation has significant merge conflict exposure, especially on pipelines.py (4500 LOC).",
-      "likelihood": "Medium",
-      "impact": "Low",
-      "risk_score": "Low",
-      "affected_files": [],
-      "mitigation": {
-        "strategy": "Small, frequent, independently mergeable PRs",
-        "steps": [
-          "Stage 1 should be split into multiple PRs matching the architect's phase decomposition",
-          "Phase 1 (schema/model) can merge independently — no behavioral change",
-          "Phase 2 (complexity assessment) can merge independently — adds detection without acting on it",
-          "Phases 3-5 (composite keys, phase DAG, cycling) are coupled and should be one PR",
-          "Phase 6 (integrator write access) should be a separate PR for security review",
-          "Rebase frequently against main to avoid large merge conflicts"
-        ],
-        "residual_risk": "Low — staged delivery naturally reduces conflict surface"
-      },
-      "human_review_required": false,
-      "review_reason": null
-    },
-    {
-      "id": "R-13",
-      "category": "Reliability",
-      "title": "Partial phase failure leaves pipeline in inconsistent state",
-      "description": "If a Tier 3 pipeline completes phases 1-2 but phase 3's coder fails after exhausting retries, the pipeline must decide: abort the entire feature (wasting completed phases' work), proceed to integrator with partial results, or escalate to human. The current pipeline model assumes all-or-nothing completion. Partial success tracking and recovery is not designed.",
+      "title": "conftest.py fixture subprocess calls may not honor DOCKER_HOST in DinD mode (Phase 2)",
+      "description": "The local pipeline conftest.py (line 202-221) passes os.environ to compose subprocess calls, which includes DOCKER_HOST if set. However, the mock-sandbox build step (lines 240-252) does NOT explicitly pass env — it relies on the default os.environ. If DOCKER_HOST is set (DinD mode), the `docker build` command for mock-sandbox would target the DinD daemon, but the image may need to be built on the host daemon first and then transferred. The fixture's implicit environment propagation creates ambiguity about which Docker daemon each command targets.",
       "likelihood": "Medium",
       "impact": "Medium",
       "risk_score": "Medium",
       "affected_files": [
-        "orchestrator/routes/pipelines.py",
-        "shared/egg_contracts/orchestration.py"
+        "integration_tests/local_pipeline/conftest.py:202-252"
       ],
-      "mitigation": {
-        "strategy": "Design partial completion policy before implementation",
-        "steps": [
-          "Define policy: if a phase fails after max retries, mark it failed and continue with remaining phases — integrator handles the gap",
-          "Add phase-level status to contract: each phase has status (pending/running/complete/failed/skipped)",
-          "Integrator receives list of completed vs failed phases — its prompt includes instructions for failed phases (stub, document limitation, or fix)",
-          "If >50% of phases fail, abort pipeline and escalate to human",
-          "Add test: 2/3 phases succeed, 1 fails — integrator produces valid output from partial results"
-        ],
-        "residual_risk": "Medium — partial success is inherently complex; policy decision needed"
-      },
-      "human_review_required": true,
-      "review_reason": "Partial failure policy is a product decision, not purely technical. Need human input on: should we proceed with partial results or abort?"
+      "mitigation": [
+        "Phase 2: make Docker daemon targeting explicit in every subprocess call. Use DOCKER_HOST=unix:///var/run/docker.sock for host operations and DOCKER_HOST=tcp://dind:2375 for DinD operations.",
+        "Pre-build images on the host daemon and transfer to DinD (architect's TD-4), then skip the mock-sandbox build step in the conftest when DOCKER_HOST is a TCP endpoint.",
+        "Add integration test: verify conftest fixture works correctly in both host Docker and DinD modes."
+      ],
+      "rollback": "N/A — Phase 2 verification task.",
+      "human_review_required": false
     }
   ],
+
+  "phase_risk_summary": {
+    "phase_1": {
+      "risk_level": "Low",
+      "verdict": "Proceed. All changes are additive (adding pull_request triggers), use well-understood GitHub Actions patterns, and are independently reversible. Each workflow can be rolled back individually.",
+      "key_risks": ["R-1 (CI flakiness — Medium/High)", "R-3 (CI performance — Medium)", "R-4 (autofix naming — Low)"],
+      "recommendations": [
+        "Validate test-integration.yml via workflow_dispatch on a test branch BEFORE merging the pull_request trigger. This catches aarch64→x86_64 issues pre-merge.",
+        "Start integration tests as non-required checks. Promote to required after 5-10 consecutive green runs across different PRs.",
+        "Add path filtering from the start to avoid unnecessary CI runs on docs/config-only PRs.",
+        "Add concurrency groups with cancel-in-progress to all three workflows.",
+        "Defer task-1-4 (autofix integration) — integration test failures are rarely auto-fixable."
+      ]
+    },
+    "phase_2": {
+      "risk_level": "High",
+      "verdict": "Defer to a separate issue. DinD introduces the first privileged container in the codebase, modifies critical-path container_spawner.py, adds unauthenticated TCP Docker endpoints, and requires complex image pre-loading. Each of these deserves dedicated security and reliability review.",
+      "key_risks": ["R-6 (privileged containers — High)", "R-7 (unauthenticated TCP — Medium)", "R-8 (image pre-loading — Medium)", "R-9 (container_spawner changes — High)"],
+      "recommendations": [
+        "Create a follow-up issue for Phase 2 with explicit security review requirements and an ADR.",
+        "Prototype DindManager as a standalone module with integration tests before touching container_spawner.py.",
+        "Evaluate TLS (port 2376) instead of plain TCP (port 2375) for the DinD endpoint.",
+        "Evaluate whether CI-only integration tests (Phase 1) eliminate the need for DinD entirely — if tests gate PRs via GitHub Actions, the SDLC pipeline's tester may not need to independently re-run them.",
+        "Issue #645 already references DinD for deployment validation — coordinate Phase 2 work with that issue to avoid duplicated infrastructure."
+      ]
+    },
+    "phase_3": {
+      "risk_level": "Low",
+      "verdict": "Proceed alongside Phase 1. Documentation-only changes with no risk.",
+      "key_risks": [],
+      "recommendations": ["Document the CI workflow naming dependency and test infrastructure setup."]
+    }
+  },
 
   "areas_requiring_human_review": [
     {
-      "area": "Integrator privilege escalation (R-2)",
-      "reason": "Granting write access to src/, tests/, docs/ for the integrator in Tier 3 is a security boundary change. While defense in depth (agentic review + human review) mitigates risk, the integrator could theoretically introduce malicious code or overwrite reviewed changes. Need explicit human approval for the permission model.",
-      "decision_needed": "Confirm integrator write scope: unrestricted src/tests/docs (as proposed) vs scoped to files modified by phase coders vs unrestricted with mandatory diff review"
+      "area": "Phase 2 security model: introducing privileged DinD containers to the orchestrator",
+      "reason": "The orchestrator currently enforces privileged: false on all spawned containers (devserver.py:295). Phase 2 would be the first exception. This breaks a security invariant and needs ADR-level architectural review. The --privileged flag grants the container nearly full host capabilities.",
+      "files": ["orchestrator/container_spawner.py", "orchestrator/dind_manager.py (new)"],
+      "decision_needed": "Accept privileged container risk with mitigations (resource limits, network isolation, auto-kill timeout) OR investigate alternatives (Sysbox runtime, CI-only testing without DinD, registry-based image distribution)."
     },
     {
-      "area": "Contract schema migration strategy (R-3)",
-      "reason": "Schema changes affect all contract consumers. Need to verify: (1) no external tools parse contracts with strict validation, (2) migration strategy (version bump + defaults) is acceptable, (3) reviewer roles should be added to the role enum.",
-      "decision_needed": "Approve schema migration approach: additive fields with defaults + version bump to 1.1"
+      "area": "Phase 2 scope: implement in this issue vs separate issue",
+      "reason": "Phase 1 (CI integration) and Phase 2 (DinD self-testing) are architecturally independent. Phase 1 provides immediate value with low risk. Phase 2 adds significant complexity and security implications. Combining them in one issue delays Phase 1 value delivery and dilutes review focus on Phase 2 security concerns.",
+      "files": [],
+      "decision_needed": "Implement Phase 2 in this issue (#647) or create a follow-up issue? Note: issue #645 already references DinD for deployment validation."
     },
     {
-      "area": "Partial phase failure policy (R-13)",
-      "reason": "What happens when some phases succeed and others fail? This is a product/UX decision that affects user trust and pipeline reliability.",
-      "decision_needed": "Choose policy: abort on any failure / continue with partial results / escalate to human after N failures"
+      "area": "Integration tests as required PR checks — promotion criteria",
+      "reason": "The architect recommends starting as non-required (TD-5). The promotion criteria should be explicitly defined before implementation: how many clean runs, across how many different PRs, who authorizes promotion, and what happens if flakiness is discovered after promotion.",
+      "files": [],
+      "decision_needed": "Define promotion criteria: N consecutive green runs across M different PRs before making integration tests a required status check."
     },
     {
-      "area": "Composite key migration rollout (R-1, R-11)",
-      "reason": "The composite (phase_id, role) key change is the single highest-risk modification. It touches the foundational state model used by all orchestration logic. Incorrect implementation causes silent data loss.",
-      "decision_needed": "Confirm implementation ordering: Phase 1 (schema) must merge and stabilize before Phase 3 (composite keys) begins"
+      "area": "Autofix for integration test failures (task-1-4)",
+      "reason": "The autofix bot (reusable-autofix.yml) is designed for lint and type errors. Integration test failures are typically Docker, compose, or timing issues — not code issues the bot can fix. Adding integration tests to the watcher risks irrelevant or incorrect autofix commits on PRs.",
+      "files": [".github/workflows/on-check-failure.yml:8"],
+      "decision_needed": "Include 'Integration Tests' in on-check-failure.yml watcher now, or defer until autofix effectiveness for Docker failures is evaluated?"
     }
   ],
 
-  "rollback_plan": {
-    "strategy": "Feature-flag gated rollback with contract compatibility",
-    "details": [
-      {
-        "stage": "Stage 1 rollback",
-        "mechanism": "The 3-tier complexity assessment is the entry point. Setting PipelineConfig.enable_tier3 to False (or removing the config) causes all pipelines to use Tier 2 dispatch regardless of complexity signal. Composite key tracking still works (phase_id=None behaves as Tier 2). No contract migration reversal needed since new fields have defaults.",
-        "data_impact": "None — contracts with phase_id=None are indistinguishable from pre-Tier-3 contracts",
-        "recovery_time": "Config change + restart"
-      },
-      {
-        "stage": "Stage 2 rollback",
-        "mechanism": "PipelineConfig.enable_parallel_phases defaults to False. Reverting to False restores sequential cycling (Stage 1 behavior). Sub-branches created during parallel dispatch persist on the remote but are not used. Worktree cleanup runs on pipeline completion regardless.",
-        "data_impact": "Orphaned sub-branches on remote — cleanup with script or manual deletion",
-        "recovery_time": "Config change + restart"
-      },
-      {
-        "stage": "Full rollback (remove Tier 3 entirely)",
-        "mechanism": "Revert the complexity assessment change so refine never signals Tier 3. All other code paths are unreachable. Phase_id fields in contracts remain but are ignored (None). Schema remains at 1.1 but is backward compatible.",
-        "data_impact": "None — all changes are additive and dormant when not triggered",
-        "recovery_time": "Code revert + deploy"
-      }
-    ]
+  "open_questions_assessment": {
+    "Q1_required_checks": {
+      "architect_question": "Should integration tests be required PR checks immediately?",
+      "risk_analyst_position": "No. Start informational. These tests have never run in CI — environment differences between local aarch64 and CI x86_64 are likely to surface issues. The test infrastructure has 120s health timeouts and 300s compose timeouts that may be insufficient on shared CI runners. Promote after demonstrating stability.",
+      "risk_if_wrong": "If made required immediately and tests are flaky: all PRs blocked, development velocity stops. If kept informational too long: untested code merges — but this is already the status quo, so no regression."
+    },
+    "Q2_autofix_integration": {
+      "architect_question": "Should autofix watch for integration test failures?",
+      "risk_analyst_position": "Defer. Integration test failures are infrastructure problems (Docker, compose, networking), not code problems. The autofix bot making changes in response to a compose timeout is wasteful at best and harmful at worst.",
+      "risk_if_wrong": "If added prematurely: autofix makes irrelevant commits on integration failures. Low severity — autofix should be idempotent, but noisy PRs erode developer trust."
+    },
+    "Q3_phase2_scope": {
+      "architect_question": "Is Phase 2 in scope for this issue?",
+      "risk_analyst_position": "Strongly recommend Phase 2 as a separate issue. Phase 1 alone delivers the primary value (tests gating PRs in CI). Phase 2 introduces 4 High/Medium security and reliability risks (R-6, R-7, R-8, R-9) that warrant focused review. Issue #645 already covers DinD for deployment validation — coordinate rather than duplicate.",
+      "risk_if_wrong": "If combined: Phase 1 delivery delayed by Phase 2 complexity; security review diluted. If separated: minor tracking overhead of two issues."
+    },
+    "Q4_path_filtering": {
+      "architect_question": "Should integration tests only run on relevant file changes?",
+      "risk_analyst_position": "Yes, implement path filtering from the start. Without it, every PR (including docs, config, CLAUDE.md changes) triggers 10-15 minutes of Docker builds and integration tests. Suggested paths: gateway/**, orchestrator/**, shared/**, integration_tests/**, docker-compose.yml, **/Dockerfile.",
+      "risk_if_wrong": "Without filtering: CI waste on every PR, compounding with existing on-pull-request.yml and contract-verify.yml workflows. With filtering: small risk of missing regressions from unlisted paths — mitigated by periodic manual full runs via workflow_dispatch."
+    }
   },
 
-  "implementation_ordering_recommendations": [
-    {
-      "recommendation": "Implement Phase 1 (schema/models) and Phase 3 (composite keys) together, test exhaustively, then merge before touching orchestration logic",
-      "rationale": "The composite key is the foundation. If it's wrong, everything built on top is wrong. Getting the data model right first — with backward compatibility tests against all 50+ existing contracts — eliminates the highest-risk unknown early."
-    },
-    {
-      "recommendation": "Implement Phase 6 (integrator write access) as a separate, independently reviewable PR",
-      "rationale": "Privilege escalation deserves focused security review. Mixing it with orchestration changes dilutes reviewer attention."
-    },
-    {
-      "recommendation": "Do NOT implement Stage 2 (parallel dispatch) until Stage 1 has been used in production for at least 2-3 real pipelines",
-      "rationale": "Sequential cycling validates the foundation (composite keys, phase DAG, per-phase review, integrator write access) without concurrent execution complexity. Production validation catches issues that tests miss."
-    },
-    {
-      "recommendation": "Extract Tier 3 orchestration logic from pipelines.py into a dedicated module",
-      "rationale": "pipelines.py at 4500 LOC is already at the maintenance risk threshold. Adding 200-300 LOC of Tier 3 logic makes it worse. A tier3_dispatch.py module keeps the change isolated and reviewable."
-    }
-  ],
-
-  "test_strategy_recommendations": [
-    {
-      "area": "Backward compatibility",
-      "tests_needed": [
-        "Load all 50+ existing contracts from .egg-state/contracts/ against new schema — all must pass",
-        "Tier 1 short-circuit end-to-end flow unchanged (baseline from test_short_circuit.py)",
-        "Tier 2 standard multi-agent flow unchanged (coder -> tester -> documenter -> integrator)",
-        "OrchestrationState.from_contract() with phase_id=None produces identical behavior to current code"
-      ]
-    },
-    {
-      "area": "Composite key correctness",
-      "tests_needed": [
-        "Create 3 CODER executions with different phase_ids — all 3 survive serialization/deserialization",
-        "get_agent_execution(role='coder', phase_id='phase-2') returns correct execution",
-        "can_agent_run() with phase-scoped dependencies returns correct result",
-        "Duplicate (phase_id, role) pair raises validation error"
-      ]
-    },
-    {
-      "area": "Phase cycling",
-      "tests_needed": [
-        "Sequential cycling: 3 phases execute in dependency order",
-        "Per-phase review: rejection triggers coder retry within same phase",
-        "Phase failure: one phase fails, others complete, integrator receives partial results",
-        "Prompt isolation: phase-1 coder prompt contains only phase-1 tasks"
-      ]
-    },
-    {
-      "area": "Integrator write access",
-      "tests_needed": [
-        "Tier 3 integrator can write to src/ — gateway allows",
-        "Tier 2 integrator cannot write to src/ — gateway blocks",
-        "Tier 3 integrator cannot write to .egg-state/contracts/ — readonly mount enforced"
-      ]
-    }
+  "recommended_implementation_order": [
+    "1. Run test-integration.yml via workflow_dispatch (manually) to validate all 91 tests pass on ubuntu-latest x86_64 BEFORE any workflow changes.",
+    "2. Add pull_request triggers to lint.yml and test.yml — lowest risk, immediate value, independent of integration tests.",
+    "3. Fix test-integration.yml: add orchestrator + mock-sandbox image builds, add local_pipeline compose cleanup, add path filtering, add concurrency group. Then add pull_request trigger.",
+    "4. Add concurrency groups to lint.yml and test.yml.",
+    "5. Monitor integration test stability across 5-10 PRs with tests as non-required checks.",
+    "6. Promote integration tests to required check after stability confirmed (human decision).",
+    "7. Defer Phase 2 (DinD) to a separate issue with security review, coordinating with #645."
   ],
 
   "architect_assessment_review": {
     "agreement": [
-      "Approach C (hybrid staged delivery) is the correct choice — reduces risk significantly vs Approach A",
-      "Composite (phase_id, role) key is the right abstraction — alternatives (nested structure, separate store) are more disruptive",
-      "Gateway prefix check already supports sub-branches — no policy change needed (confirmed by code analysis)",
-      "Sequential-first validates the foundation before adding parallelism complexity",
-      "No new PipelinePhase.INTEGRATE needed — internal cycling within IMPLEMENT is simpler"
+      "Option A (add PR triggers directly) is correct — Option B (caller ci.yml) breaks the on-check-failure.yml autofix naming dependency. Confirmed by reading on-check-failure.yml:8.",
+      "Pre-building images in CI (TD-2) is correct — provides better caching and failure reporting than relying solely on conftest fixture builds.",
+      "Option C (DinD sidecar) is the only viable Phase 2 approach that preserves the sandbox trust model. Option D (orchestrator runs tests) correctly rejected for violating trust boundaries.",
+      "docker:27-dind-rootless (TD-3) is the right image choice. Rootless reduces attack surface.",
+      "TD-5 (non-required checks initially) is the right call — tests have never run in CI.",
+      "DevserverManager (TD-6) is good architectural precedent for DindManager — same trust model (orchestrator manages infrastructure, sandbox only runs code).",
+      "Phases are correctly identified as independent — Phase 1 provides full value without Phase 2."
     ],
     "concerns": [
-      "Architect underestimates R-1 severity: silent data loss on deserialization is not 'Medium likelihood, High impact' — it's High likelihood because the dict conversion code has zero safety checks. First Tier 3 pipeline with >1 phase will trigger it if composite keys aren't implemented first.",
-      "Architect's R-3 (integrator write access) is correctly identified but doesn't account for the #800 readonly mount enforcement. The mitigation needs to be more specific about using the orchestrator API for contract updates.",
-      "Missing risk: partial phase failure policy is not addressed. The architect's plan assumes all phases succeed.",
-      "The 7-phase Stage 1 plan has strong dependencies (phase-5 depends on phases 2, 3, and 4). This creates a critical path that is essentially sequential despite the dependency graph suggesting some parallelism."
+      "The architect's R-2 ('integration tests add 5-10 minutes to every PR') underestimates impact because it doesn't account for the lack of Docker layer caching or concurrency groups. Without path filtering, EVERY PR triggers this, including trivial doc changes.",
+      "Missing risk: the architect doesn't flag that the test-integration.yml cleanup (line 41) only cleans the gateway-only compose stack, not the local_pipeline stack. This should be fixed in task-1-3.",
+      "The architect's recommendation to add 'Integration Tests' to autofix (task-1-4) should be deferred — the autofix bot is designed for lint/type errors, not Docker infrastructure failures.",
+      "Phase 2 risks are correctly identified (R-3, R-5 in architect output) but undersized. The privileged container risk is not just 'Medium' — it's the first breach of the orchestrator's no-privileged-containers invariant.",
+      "Missing: no mention of concurrency groups in any workflow. Rapid pushes will stack CI runs without cancel-in-progress."
     ],
     "additional_risks_identified": [
-      "R-9 (dependency graph cycles) — not in architect's analysis",
-      "R-13 (partial phase failure) — not in architect's analysis",
-      "R-6 (pipelines.py complexity) — architect notes it as 'largest file, most complex changes' but doesn't propose extraction"
+      "R-10 (incomplete cleanup) — cleanup only covers gateway-only compose, not local_pipeline compose",
+      "R-11 (DOCKER_HOST propagation) — conftest subprocess calls have implicit env propagation that creates ambiguity in DinD mode",
+      "Concurrency groups — none of the three workflows have concurrency settings, causing stacked runs on rapid pushes"
     ]
   }
 }
