@@ -4153,15 +4153,18 @@ def _build_autofix_prompt(
         logger.warning("Shared autofixer-rules.md not found, using inline fallback")
         lines.extend(
             [
+                "## Fix ALL Failures\n",
+                '**Never skip a failure because it\'s "pre-existing".** '
+                "Fix all checks on this branch.\n",
                 "## Auto-fixable vs Report-only\n",
                 "**Auto-fixable (commit fixes directly):**",
                 "- Lint errors (formatting, import order, code style)",
                 "- Type errors with clear fixes",
                 "- Simple test failures with obvious fixes\n",
-                "**Report only (note in commit message):**",
+                "**Report only (explain what's needed):**",
                 "- Complex logic errors requiring design decisions",
                 "- Security issues requiring architectural changes",
-                "- Test failures from unclear requirements",
+                "- Failures that require understanding business requirements to resolve correctly",
             ]
         )
 
@@ -4242,14 +4245,16 @@ def _build_check_and_fix_prompt(
     else:
         lines.extend(
             [
+                '**Never skip a failure because it\'s "pre-existing".** '
+                "Fix all checks on this branch.\n",
                 "**Auto-fixable (commit fixes directly):**",
                 "- Lint errors (formatting, import order, code style)",
                 "- Type errors with clear fixes",
                 "- Simple test failures with obvious fixes\n",
-                "**Report only (note in commit message):**",
+                "**Report only (explain what's needed):**",
                 "- Complex logic errors requiring design decisions",
                 "- Security issues requiring architectural changes",
-                "- Test failures from unclear requirements",
+                "- Failures that require understanding business requirements to resolve correctly",
             ]
         )
     lines.append("")

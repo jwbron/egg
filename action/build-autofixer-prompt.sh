@@ -37,7 +37,13 @@ fetch_autofixer_rules() {
     else
         # Inline fallback for rollout safety
         cat <<'EOF'
-## Default Autofixer Rules
+## Autofixer Rules
+
+### Fix ALL Failures
+
+**Never skip a failure because it's "pre-existing".** Fix all checks on this branch.
+
+### Auto-fixable vs Report-only
 
 **Auto-fixable (commit fixes directly):**
 - Lint errors (formatting, import order, code style)
@@ -45,11 +51,10 @@ fetch_autofixer_rules() {
 - Simple test failures with obvious fixes
 - Missing or outdated dependencies in lock files
 
-**Report only (post comment explaining what's needed):**
+**Report only (explain what's needed):**
 - Complex logic errors requiring design decisions
 - Security issues requiring architectural changes
-- Test failures from unclear requirements
-- Build failures from missing environment config
+- Failures that require understanding business requirements to resolve correctly
 EOF
     fi
 }
@@ -86,20 +91,8 @@ ${workflow_context}
 
 ## Your task
 
-**IMPORTANT: Fix ALL issues in a single pass. Do not push until all checks pass locally.**
-
-1. **Investigate ALL failures first**: Use \`gh pr checks ${PR_NUMBER}\` to list all failing checks. For each failed check, examine the logs to understand what's wrong. Make a complete list of all issues before fixing anything.
-
-2. **Fix without pushing**: For each auto-fixable issue (lint errors, formatting, simple type errors), make the fix but do NOT commit or push yet.
-
-3. **Verify locally**: Run all checks locally (e.g., \`make lint\`, \`make test\`, \`make build\`). If any check still fails, go back to step 2 and fix it. Repeat until ALL checks pass locally.
-
-4. **Push once**: After all local checks pass, commit all fixes together and push once.
-
-5. **Report what you can't fix**: If any issue requires human decision-making or is too complex to auto-fix, post a comment on the PR explaining:
-   - What's failing and why
-   - What needs to be done to fix it
-   - Any relevant context or suggestions
+Fix ALL failing checks on this PR. Use \`gh pr checks ${PR_NUMBER}\` to find failures,
+examine logs, fix issues, verify locally, then commit and push once.
 
 ## Autofixer Rules
 
