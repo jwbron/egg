@@ -16,7 +16,8 @@ HealthCheckRunner
 │   ├── PhaseOutputPresenceCheck
 │   └── StateConsistencyCheck
 │
-└── Tier 2 (Semantic) ─── LLM-based, conditional (phase 2)
+└── Tier 2 (Semantic) ─── LLM-based, conditional escalation
+    └── AgentInspectorCheck
 ```
 
 ## Core Types (`types.py`)
@@ -73,9 +74,10 @@ Call `.to_dict()` to serialize for JSON/event payloads.
 
 | Property | What it does | Used by |
 |----------|-------------|---------|
-| `git_log` | `git log --oneline -20` on the branch | Tier 2 |
-| `git_diff_stat` | `git diff --stat origin/main...HEAD` | Tier 2 |
-| `agent_outputs` | Reads `.egg-state/` files (max 4KB each) | StateConsistencyCheck, Tier 2 |
+| `git_log` | `git log --oneline -20` on the branch | AgentInspectorCheck |
+| `git_diff_stat` | `git diff --stat origin/main...HEAD` (truncated to ~4000 tokens) | AgentInspectorCheck |
+| `agent_outputs` | Reads `.egg-state/` files (max 4KB each) | StateConsistencyCheck, AgentInspectorCheck |
+| `contract` | Parses SDLC contract JSON for the pipeline's issue | AgentInspectorCheck |
 | `live_container_ids` | Lists running Docker containers | ContainerLivenessCheck, StartupStateCheck, StateConsistencyCheck |
 
 ## Runner (`runner.py`)
@@ -141,11 +143,48 @@ Cross-references orchestrator state against Docker reality and contract state.
   3. COMPLETE agents with PENDING contract tasks → **DEGRADED**
 - Uses `worst_action` to determine aggregate severity
 
+## Tier 2 Checks
+
+### AgentInspectorCheck (`tier2/agent_inspector.py`)
+
+Sends pipeline context to the Claude API for semantic analysis of agent progress. Returns a structured verdict (HEALTHY/DEGRADED/FAILED) with reasoning.
+
+- **Triggers:** WAVE_COMPLETE, PHASE_COMPLETE, ON_DEMAND
+- **Model:** `claude-sonnet-4-20250514` (configurable via `HEALTH_CHECK_MODEL` env var)
+- **Action:** ALERT on non-HEALTHY verdicts (never FAIL_PIPELINE — Tier 2 is advisory)
+
+**How it works:**
+
+1. Assembles a user prompt from `PipelineHealthContext` fields:
+   - Recent commits (`git_log`)
+   - Diff stats vs main (`git_diff_stat`)
+   - Agent output files from `.egg-state/` (`agent_outputs`)
+   - SDLC contract state (`contract`)
+2. Calls the Anthropic Messages API with a system prompt that instructs Claude to produce a JSON verdict
+3. Parses the JSON response into a `HealthStatus` and reasoning string
+4. Returns a `HealthResult` with ALERT action for DEGRADED/FAILED verdicts
+
+**Graceful degradation:**
+
+API failures (timeouts, HTTP errors, malformed responses) always degrade to HEALTHY with a warning. Tier 2 check failures never block the pipeline — they are purely observational and advisory. The check retries once on transient failures before degrading.
+
+**Configuration:**
+
+| Variable | Purpose | Default |
+|----------|---------|---------|
+| `ANTHROPIC_API_KEY` | API key for Claude | Required |
+| `ANTHROPIC_BASE_URL` | API base URL | `https://api.anthropic.com` |
+| `HEALTH_CHECK_MODEL` | Model to use for inspection | `claude-sonnet-4-20250514` |
+
+**Context token budget:**
+
+Tier 2 context fields are capped at ~4000 tokens (~16,000 chars) via `_TIER2_CHAR_CAP` in `context.py`. Individual agent output files are capped at 4KB. The contract JSON is trimmed to key fields (`current_phase`, `acceptance_criteria`, `decisions`, `agent_executions`) before inclusion.
+
 ## Integration Points
 
 ### Startup (`cli.py`)
 
-Runner is initialized with all Tier 1 checks registered. Stored in `app.config["HEALTH_CHECK_RUNNER"]` for route access. Runs STARTUP checks on all RUNNING pipelines.
+Runner is initialized with all Tier 1 and Tier 2 checks registered. Stored in `app.config["HEALTH_CHECK_RUNNER"]` for route access. Runs STARTUP checks on all RUNNING pipelines.
 
 ### Container Monitor (`container_monitor.py`)
 
@@ -190,10 +229,13 @@ Status codes: 200 (checks executed), 404 (pipeline not found), 503 (runner not i
 
 ## Adding a New Check
 
-1. Create a class satisfying the `HealthCheck` protocol in the appropriate tier directory
+1. Create a class satisfying the `HealthCheck` protocol in the appropriate tier directory (`tier1/` for programmatic, `tier2/` for semantic/LLM-based)
 2. Set `name`, `tier`, `triggers`, and implement `run(context) -> HealthResult`
-3. Export from the tier's `__init__.py`
-4. Register in `cli.py` startup: `runner.register(MyNewCheck())`
+3. Never raise from `run()` — catch internal errors and return a HealthResult with appropriate status
+4. Export from the tier's `__init__.py`
+5. Register in `cli.py` startup: `runner.register(MyNewCheck())`
+
+For Tier 2 checks specifically: use `HealthAction.ALERT` (not `FAIL_PIPELINE`) and degrade gracefully on API/external service failures.
 
 ## Related
 

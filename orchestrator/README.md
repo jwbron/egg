@@ -191,7 +191,8 @@ orchestrator/
 │   │   ├── startup_state.py        # Post-startup reconciliation verification
 │   │   ├── phase_output.py         # Detect missing artifacts (commits, plans)
 │   │   └── state_consistency.py    # Cross-reference orchestrator state vs Docker vs contract
-│   └── tier2/              # Semantic checks (placeholder for phase 2)
+│   └── tier2/              # Semantic checks (LLM-powered)
+│       └── agent_inspector.py   # Claude-powered agent progress analysis
 ├── sse.py                  # Server-Sent Events for real-time status
 ├── unified_sse.py          # Unified SSE stream for multiple pipelines
 ├── dag_visualizer.py       # Pipeline DAG visualization
@@ -231,7 +232,11 @@ Health checks run at key lifecycle points to catch infrastructure and semantic f
 | `PhaseOutputPresenceCheck` | Detect missing artifacts (commits, plans) | WAVE_COMPLETE, PHASE_COMPLETE, ON_DEMAND |
 | `StateConsistencyCheck` | Cross-reference orchestrator state vs Docker vs contract | RUNTIME_TICK, WAVE_COMPLETE, PHASE_COMPLETE, ON_DEMAND |
 
-**Tier 2 (Semantic)** — LLM-based checks that evaluate whether agents made meaningful progress (planned for phase 2).
+**Tier 2 (Semantic)** — LLM-based checks that evaluate whether agents made meaningful progress:
+
+| Check | Purpose | Triggers |
+|-------|---------|----------|
+| `AgentInspectorCheck` | Claude-powered analysis of agent git history, outputs, and contract state | WAVE_COMPLETE, PHASE_COMPLETE, ON_DEMAND |
 
 ### Lifecycle Triggers
 
