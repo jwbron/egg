@@ -919,7 +919,9 @@ def _get_refine_review_criteria() -> str:
         "### 5. Open Questions\n"
         "- Are open questions specific enough for a human to answer?\n"
         "- Do questions address genuine ambiguities?\n"
-        "- Are questions actionable?\n\n"
+        "- Are questions actionable?\n"
+        "- Are ALL uncertainties and assumptions surfaced? The analysis should not "
+        "proceed with unvalidated assumptions when it could ask the human instead.\n\n"
         "### 6. Recommendation Quality\n"
         "- Is there a clear recommended approach?\n"
         "- Is the recommendation justified with specific reasons?\n"
@@ -1936,7 +1938,8 @@ def _build_phase_prompt(
                 "3. Identify constraints and dependencies",
                 "4. Consider multiple implementation approaches",
                 "5. Recommend an approach with justification",
-                "6. Surface any questions that need human input",
+                "6. Surface **all** questions and uncertainties that need human input "
+                "(do not self-limit — raise every ambiguity)",
                 "",
                 "**IMPORTANT**: Do NOT create an implementation plan, task breakdown, "
                 "or phased rollout. That is the **plan** phase's job. Stay focused on "
@@ -1974,12 +1977,18 @@ def _build_phase_prompt(
                 "## Recommended Approach\n",
                 "[Which option is recommended and why. Reference the option above.]\n",
                 "## Open Questions\n",
-                "[Questions that require human input before proceeding.]\n",
+                "Surface **all** uncertainties, ambiguities, and assumptions that need "
+                "human input. Do not limit yourself to a small number — every genuine "
+                "ambiguity, missing requirement, unstated assumption, or design choice "
+                "that could go multiple ways should be raised here. It is far better to "
+                "ask too many questions than to proceed with incorrect assumptions.\n",
                 "---\n",
                 "*Authored-by: egg*",
                 "```\n",
                 "## HITL Decisions\n",
-                "For questions that require human input before proceeding:\n",
+                "For questions that require human input before proceeding. "
+                "Raise **every** uncertainty — there is no limit on the number of "
+                "decisions or feedback questions you can create:\n",
                 "**Multiple-choice questions** (use formal HITL decisions):",
                 "```bash",
                 'egg-contract add-decision --question "Which approach should we use?" \\',

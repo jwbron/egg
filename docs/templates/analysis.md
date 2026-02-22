@@ -48,6 +48,11 @@
 
 ## Open Questions
 
+Surface **all** uncertainties, ambiguities, and assumptions that need human input.
+Do not limit yourself to a small number — every genuine ambiguity, missing requirement,
+unstated assumption, or design choice that could go multiple ways should be raised here.
+It is far better to ask too many questions than to proceed with incorrect assumptions.
+
 For questions that require human input before proceeding, use formal HITL decisions.
 The agent will generate these using `egg-contract add-decision --format markdown`.
 
@@ -59,11 +64,15 @@ egg-contract add-decision --question "Which caching strategy should we use?" \
 This outputs markdown with checkboxes that the human can interact with directly.
 
 **Open-ended questions** (when you need free-form input):
-Include these as plain text in your analysis. The human will respond via comment.
+Use `egg-contract add-feedback` for open-ended questions. There is no limit on the
+number of questions — include every question where you need human input.
 
 Example open-ended questions:
 - What is the expected request volume for this feature?
 - Are there any constraints on third-party dependencies?
+- What is the expected latency budget for this path?
+- Are there existing SLAs or guarantees that must be preserved?
+- Who are the downstream consumers of this API?
 
 ## Complexity Assessment
 
