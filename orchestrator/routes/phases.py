@@ -275,6 +275,7 @@ def advance_phase(pipeline_id: str) -> tuple[Response, int]:
                         repo_path=Path(get_repo_path()),
                         trigger=HealthTrigger.PHASE_COMPLETE.value,
                         docker_client=dc,
+                        state_store=store,
                     )
                     hc_results = hc_runner.run(ctx, HealthTrigger.PHASE_COMPLETE)
                     if worst_action(hc_results) == HealthAction.FAIL_PIPELINE:

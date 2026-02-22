@@ -322,7 +322,7 @@ class TestContainerMonitorHealthIntegrationExtra:
         mock_store.load_pipeline.side_effect = lambda pid: p1 if pid == "pipeline-1" else p2
         mock_get_store.return_value = mock_store
 
-        monitor._run_health_checks_on_change()
+        monitor._run_runtime_tick_checks()
         assert monitor._health_check_runner.run.call_count == 2
 
     @patch("state_store.get_state_store")
@@ -339,7 +339,7 @@ class TestContainerMonitorHealthIntegrationExtra:
         mock_store.list_pipelines.return_value = []
         mock_get_store.return_value = mock_store
 
-        monitor._run_health_checks_on_change()
+        monitor._run_runtime_tick_checks()
         monitor._health_check_runner.run.assert_not_called()
 
     @patch("state_store.get_state_store")
@@ -354,7 +354,7 @@ class TestContainerMonitorHealthIntegrationExtra:
 
         mock_get_store.side_effect = RuntimeError("Store unavailable")
         # Should not raise
-        monitor._run_health_checks_on_change()
+        monitor._run_runtime_tick_checks()
 
     @patch("state_store.get_state_store")
     def test_per_pipeline_error_doesnt_stop_iteration(self, mock_get_store):
@@ -377,7 +377,7 @@ class TestContainerMonitorHealthIntegrationExtra:
         mock_store.load_pipeline.side_effect = load_side_effect
         mock_get_store.return_value = mock_store
 
-        monitor._run_health_checks_on_change()
+        monitor._run_runtime_tick_checks()
         # Pipeline-2 should still get checked
         assert monitor._health_check_runner.run.call_count == 1
 

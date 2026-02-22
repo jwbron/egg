@@ -271,17 +271,17 @@ class TestContainerMonitorHealthIntegration:
         assert monitor._health_check_runner is mock_runner
         assert monitor._health_check_repo_path == "/tmp/repo"
 
-    def test_run_health_checks_on_change_no_runner(self):
+    def test_run_runtime_tick_checks_no_runner(self):
         """Should silently return when no runner is set."""
         from container_monitor import ContainerMonitor
 
         mock_docker = MagicMock()
         monitor = ContainerMonitor(docker_client=mock_docker)
         # No runner set — should not raise
-        monitor._run_health_checks_on_change()
+        monitor._run_runtime_tick_checks()
 
     @patch("state_store.get_state_store")
-    def test_run_health_checks_on_change_with_runner(self, mock_get_store):
+    def test_run_runtime_tick_checks_with_runner(self, mock_get_store):
         """Should call runner.run for each running pipeline."""
         from container_monitor import ContainerMonitor
 
@@ -298,7 +298,7 @@ class TestContainerMonitorHealthIntegration:
         mock_store.load_pipeline.return_value = pipeline
         mock_get_store.return_value = mock_store
 
-        monitor._run_health_checks_on_change()
+        monitor._run_runtime_tick_checks()
         mock_runner.run.assert_called_once()
 
     @patch("state_store.get_state_store")
@@ -319,7 +319,7 @@ class TestContainerMonitorHealthIntegration:
         mock_store.load_pipeline.return_value = pipeline
         mock_get_store.return_value = mock_store
 
-        monitor._run_health_checks_on_change()
+        monitor._run_runtime_tick_checks()
         mock_runner.run.assert_not_called()
 
     @patch("state_store.get_state_store")
@@ -336,7 +336,7 @@ class TestContainerMonitorHealthIntegration:
         mock_get_store.side_effect = RuntimeError("Store unavailable")
 
         # Should not raise
-        monitor._run_health_checks_on_change()
+        monitor._run_runtime_tick_checks()
 
 
 # ===========================================================================

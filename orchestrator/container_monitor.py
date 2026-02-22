@@ -136,7 +136,7 @@ class ContainerMonitor:
         """Connect a HealthCheckRunner for RUNTIME_TICK integration.
 
         When set, health checks run automatically after each container
-        state-change poll cycle via ``_run_health_checks_on_change()``.
+        state-change poll cycle via ``_run_runtime_tick_checks()``.
 
         Args:
             runner: HealthCheckRunner instance (from cli.py startup).
@@ -145,7 +145,7 @@ class ContainerMonitor:
         self._health_check_runner = runner
         self._health_check_repo_path = repo_path
 
-    def _run_health_checks_on_change(self) -> None:
+    def _run_runtime_tick_checks(self) -> None:
         """Run RUNTIME_TICK health checks after container state changes.
 
         Called at the end of each monitor poll cycle.  Iterates over all
@@ -232,7 +232,7 @@ class ContainerMonitor:
                 logger.info("Container removed", container_id=container_id[:12])
 
             # Run RUNTIME_TICK health checks once per poll cycle
-            self._run_health_checks_on_change()
+            self._run_runtime_tick_checks()
 
         except Exception as e:
             logger.error("Container check failed", error=str(e))
