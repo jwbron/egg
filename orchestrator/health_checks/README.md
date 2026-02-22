@@ -150,7 +150,7 @@ Cross-references orchestrator state against Docker reality and contract state.
 Sends pipeline context to the Claude API for semantic analysis of agent progress. Returns a structured verdict (HEALTHY/DEGRADED/FAILED) with reasoning.
 
 - **Triggers:** WAVE_COMPLETE, PHASE_COMPLETE, ON_DEMAND
-- **Model:** `claude-sonnet-4-20250514` (configurable via `HEALTH_CHECK_MODEL` env var)
+- **Model:** `sonnet` (configurable via `HEALTH_CHECK_MODEL` env var)
 - **Action:** ALERT on non-HEALTHY verdicts (never FAIL_PIPELINE — Tier 2 is advisory)
 
 **How it works:**
@@ -174,7 +174,7 @@ API failures (timeouts, HTTP errors, malformed responses) always degrade to HEAL
 |----------|---------|---------|
 | `ANTHROPIC_API_KEY` | API key for Claude | Required |
 | `ANTHROPIC_BASE_URL` | API base URL | `https://api.anthropic.com` |
-| `HEALTH_CHECK_MODEL` | Model to use for inspection | `claude-sonnet-4-20250514` |
+| `HEALTH_CHECK_MODEL` | Model to use for inspection | `sonnet` |
 
 **Context token budget:**
 
