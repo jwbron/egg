@@ -373,8 +373,8 @@ class TestRunnerExecution:
         assert HealthTier.AGENT in tiers
 
     @patch("health_checks.runner.HealthCheckRunner._get_event_bus", return_value=None)
-    def test_exception_in_check_returns_healthy(self, _):
-        """A check that raises should produce HEALTHY with error reasoning."""
+    def test_exception_in_check_returns_degraded(self, _):
+        """A check that raises should produce DEGRADED with ALERT action."""
 
         class Exploding:
             name = "exploding"
@@ -389,8 +389,8 @@ class TestRunnerExecution:
         ctx = _make_context()
         results = runner.run(ctx, HealthTrigger.ON_DEMAND)
         assert len(results) == 1
-        assert results[0].status == HealthStatus.HEALTHY
-        assert results[0].action == HealthAction.CONTINUE
+        assert results[0].status == HealthStatus.DEGRADED
+        assert results[0].action == HealthAction.ALERT
         assert "Unexpected error" in results[0].reasoning
 
     @patch("health_checks.runner.HealthCheckRunner._get_event_bus", return_value=None)

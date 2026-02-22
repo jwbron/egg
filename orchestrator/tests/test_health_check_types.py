@@ -356,14 +356,15 @@ class TestHealthCheckRunner:
 
     @patch("health_checks.runner.HealthCheckRunner._get_event_bus", return_value=None)
     def test_exception_handling(self, _mock_bus):
-        """A check that raises should not crash the runner."""
+        """A check that raises should produce DEGRADED with ALERT action."""
         runner = HealthCheckRunner()
         runner.register(_ExplodingCheck())
 
         ctx = _make_context()
         results = runner.run(ctx, HealthTrigger.ON_DEMAND)
         assert len(results) == 1
-        assert results[0].status == HealthStatus.HEALTHY
+        assert results[0].status == HealthStatus.DEGRADED
+        assert results[0].action == HealthAction.ALERT
         assert "Kaboom" in results[0].reasoning
 
     @patch("health_checks.runner.HealthCheckRunner._get_event_bus", return_value=None)

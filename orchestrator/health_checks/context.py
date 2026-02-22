@@ -10,7 +10,7 @@ git_log or agent_outputs which trigger subprocess / IO on first use.
 from __future__ import annotations
 
 import subprocess
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -42,7 +42,7 @@ class PipelineHealthContext:
         self.wave_number = wave_number
         self.docker_client = docker_client
         self.state_store = state_store
-        self.timestamp = datetime.utcnow()
+        self.timestamp = datetime.now(UTC)
 
         # Lazy caches (None = not yet computed, _SENTINEL for "computed but empty")
         self._git_log: str | None = None

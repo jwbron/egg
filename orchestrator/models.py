@@ -191,21 +191,6 @@ class PhaseExecution(BaseModel):
         default_factory=dict, description="Produced artifacts (file paths)"
     )
     error: str | None = Field(default=None, description="Error if failed")
-    health_check_results: list["HealthCheckResultModel"] = Field(
-        default_factory=list, description="Health check results for this phase"
-    )
-
-
-class HealthCheckResultModel(BaseModel):
-    """Persisted health check result."""
-
-    status: str = Field(..., description="Health status: healthy, degraded, failed")
-    check_name: str = Field(..., description="Name of the check")
-    tier: str = Field(..., description="Check tier: tier1, tier2")
-    reasoning: str = Field(..., description="Human-readable explanation")
-    action: str = Field(default="continue", description="Suggested action")
-    details: dict[str, Any] = Field(default_factory=dict, description="Structured details")
-    timestamp: datetime = Field(default_factory=datetime.utcnow, description="When the check ran")
 
 
 class ComplexityTier(StrEnum):

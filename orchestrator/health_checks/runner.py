@@ -141,11 +141,11 @@ class HealthCheckRunner:
                 error=str(exc),
             )
             return HealthResult(
-                status=HealthStatus.HEALTHY,
+                status=HealthStatus.DEGRADED,
                 check_name=check.name,
                 tier=check.tier,
                 reasoning=f"Check failed internally: {exc}",
-                action=HealthAction.CONTINUE,
+                action=HealthAction.ALERT,
             )
 
     # ------------------------------------------------------------------

@@ -9,7 +9,7 @@ HealthResult values and conform to the HealthCheck protocol.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import StrEnum
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
@@ -70,7 +70,7 @@ class HealthResult:
     reasoning: str
     action: HealthAction = HealthAction.CONTINUE
     details: dict[str, object] = field(default_factory=dict)
-    timestamp: datetime = field(default_factory=datetime.utcnow)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
 
     def to_dict(self) -> dict[str, object]:
         """Serialize for JSON / event payloads."""

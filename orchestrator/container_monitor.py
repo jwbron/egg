@@ -165,8 +165,12 @@ class ContainerMonitor:
                         state_store=store,
                     )
                     self._health_check_runner.run(ctx, HealthTrigger.RUNTIME_TICK)
-                except Exception:
-                    pass
+                except Exception as per_pipeline_err:
+                    logger.debug(
+                        "RUNTIME_TICK health check failed for pipeline",
+                        pipeline_id=pid,
+                        error=str(per_pipeline_err),
+                    )
         except Exception as exc:
             logger.debug("RUNTIME_TICK health check failed", error=str(exc))
 
