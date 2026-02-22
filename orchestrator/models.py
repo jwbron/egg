@@ -273,6 +273,15 @@ class Pipeline(BaseModel):
         description="Complexity tier: low (short-circuit), mid (standard), high (phase-level dispatch)",
     )
     error: str | None = Field(default=None, description="Error if failed")
+    plan_phase_waves: list[list[str]] | None = Field(
+        default=None,
+        description="Tier 3 plan phase waves for DAG visualization. "
+        "Each inner list is a wave of phase IDs that can run in parallel.",
+    )
+    plan_phase_names: dict[str, str] | None = Field(
+        default=None,
+        description="Mapping of plan phase ID to human-readable name for DAG visualization.",
+    )
     version: int = Field(
         default=1, ge=1, description="Optimistic locking version (incremented on each save)"
     )

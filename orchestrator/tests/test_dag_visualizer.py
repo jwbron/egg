@@ -8,9 +8,15 @@ from dag_visualizer import (
     PHASE_ORDER,
     _compute_wave_order,
     _deduplicate_agents,
+    _derive_subphase_status,
     _format_duration,
     _get_agent_status_symbol,
     _get_status_symbol,
+    _render_fan_in,
+    _render_fan_out,
+    _render_side_by_side,
+    _render_subphase_box,
+    _render_tier3_implement,
     generate_status_report,
     render_compact_status,
     render_phase_detail,
@@ -1310,3 +1316,733 @@ class TestRunCountDisplay:
         coder_line = next(i for i, line in enumerate(lines) if "coder" in line)
         integrator_line = next(i for i, line in enumerate(lines) if "integrator" in line)
         assert coder_line < integrator_line < refiner_line < reviewer_line
+
+
+# --- Tier 3 DAG visualization tests ---
+
+
+class TestDeriveSubphaseStatus:
+    """Tests for _derive_subphase_status helper."""
+
+    def test_empty_agents_returns_pending(self):
+        """No agents means pending status."""
+        assert _derive_subphase_status([]) == PipelineStatus.PENDING
+
+    def test_all_complete(self):
+        """All agents complete returns COMPLETE."""
+        agents = [
+            AgentExecution(role=AgentRole.CODER, status=AgentExecutionStatus.COMPLETE),
+            AgentExecution(role=AgentRole.TESTER, status=AgentExecutionStatus.COMPLETE),
+        ]
+        assert _derive_subphase_status(agents) == PipelineStatus.COMPLETE
+
+    def test_any_running(self):
+        """Any running agent returns RUNNING."""
+        agents = [
+            AgentExecution(role=AgentRole.CODER, status=AgentExecutionStatus.COMPLETE),
+            AgentExecution(role=AgentRole.TESTER, status=AgentExecutionStatus.RUNNING),
+        ]
+        assert _derive_subphase_status(agents) == PipelineStatus.RUNNING
+
+    def test_any_failed(self):
+        """Any failed agent returns FAILED (highest priority)."""
+        agents = [
+            AgentExecution(role=AgentRole.CODER, status=AgentExecutionStatus.RUNNING),
+            AgentExecution(role=AgentRole.TESTER, status=AgentExecutionStatus.FAILED),
+        ]
+        assert _derive_subphase_status(agents) == PipelineStatus.FAILED
+
+    def test_all_pending(self):
+        """All pending agents returns PENDING."""
+        agents = [
+            AgentExecution(role=AgentRole.CODER, status=AgentExecutionStatus.PENDING),
+        ]
+        assert _derive_subphase_status(agents) == PipelineStatus.PENDING
+
+    def test_mixed_pending_and_complete(self):
+        """Pending takes priority over complete."""
+        agents = [
+            AgentExecution(role=AgentRole.CODER, status=AgentExecutionStatus.COMPLETE),
+            AgentExecution(role=AgentRole.TESTER, status=AgentExecutionStatus.PENDING),
+        ]
+        assert _derive_subphase_status(agents) == PipelineStatus.PENDING
+
+
+class TestRenderSubphaseBox:
+    """Tests for _render_subphase_box function."""
+
+    def test_basic_box_with_name(self):
+        """Renders a box with the phase name and status symbol."""
+        agents = [
+            AgentExecution(role=AgentRole.CODER, status=AgentExecutionStatus.COMPLETE),
+        ]
+        lines = _render_subphase_box("phase-1", "Auth", agents)
+
+        text = "\n".join(lines)
+        assert "Auth" in text
+        assert "✓" in text  # complete symbol
+        assert "coder" in text
+        assert lines[0].startswith("┌")
+        assert lines[-1].startswith("└")
+
+    def test_fallback_to_phase_id(self):
+        """Uses phase_id when phase_name is None."""
+        lines = _render_subphase_box("phase-1", None, [])
+        text = "\n".join(lines)
+        assert "phase-1" in text
+
+    def test_multiple_agents(self):
+        """Shows all agents with their status symbols."""
+        agents = [
+            AgentExecution(role=AgentRole.CODER, status=AgentExecutionStatus.COMPLETE),
+            AgentExecution(role=AgentRole.TESTER, status=AgentExecutionStatus.RUNNING),
+        ]
+        lines = _render_subphase_box("phase-1", "Auth", agents)
+        text = "\n".join(lines)
+        assert "✓ coder" in text
+        assert "▶ tester" in text
+
+    def test_ascii_mode(self):
+        """ASCII mode uses correct border characters."""
+        agents = [
+            AgentExecution(role=AgentRole.CODER, status=AgentExecutionStatus.COMPLETE),
+        ]
+        lines = _render_subphase_box("phase-1", "Auth", agents, use_ascii=True)
+        text = "\n".join(lines)
+        assert lines[0].startswith("+")
+        assert lines[-1].startswith("+")
+        assert "+ coder" in text
+
+    def test_pending_status(self):
+        """Empty agents show pending symbol."""
+        lines = _render_subphase_box("phase-1", "Auth", [])
+        text = "\n".join(lines)
+        assert "○" in text
+
+    def test_failed_status(self):
+        """Failed agent shows failed symbol on the box."""
+        agents = [
+            AgentExecution(role=AgentRole.CODER, status=AgentExecutionStatus.FAILED),
+        ]
+        lines = _render_subphase_box("phase-1", "Auth", agents)
+        text = "\n".join(lines)
+        assert "✗" in text
+
+    def test_deduplicated_agents_show_count(self):
+        """Duplicate agent runs show count."""
+        agents = [
+            AgentExecution(role=AgentRole.CODER, status=AgentExecutionStatus.FAILED),
+            AgentExecution(role=AgentRole.CODER, status=AgentExecutionStatus.COMPLETE),
+        ]
+        lines = _render_subphase_box("phase-1", "Auth", agents)
+        text = "\n".join(lines)
+        assert "×2" in text
+        assert text.count("coder") == 1
+
+
+class TestRenderSideBySide:
+    """Tests for _render_side_by_side function."""
+
+    def test_empty_input(self):
+        """Empty input returns empty list."""
+        assert _render_side_by_side([]) == []
+
+    def test_single_box(self):
+        """Single box returned as-is."""
+        box = ["┌──┐", "│AB│", "└──┘"]
+        result = _render_side_by_side([box])
+        assert result == box
+
+    def test_two_equal_height_boxes(self):
+        """Two boxes of same height are concatenated."""
+        box1 = ["┌──┐", "│AB│", "└──┘"]
+        box2 = ["┌──┐", "│CD│", "└──┘"]
+        result = _render_side_by_side([box1, box2], spacing=2)
+
+        assert len(result) == 3
+        # Each line should contain content from both boxes
+        assert "AB" in result[1]
+        assert "CD" in result[1]
+
+    def test_different_height_boxes(self):
+        """Shorter box is padded to match taller one."""
+        box1 = ["┌──┐", "│AB│", "│CD│", "└──┘"]
+        box2 = ["┌──┐", "│EF│", "└──┘"]
+        result = _render_side_by_side([box1, box2], spacing=2)
+
+        assert len(result) == 4  # Height of tallest box
+        # Shorter box's extra rows should be blank padding
+        assert "EF" not in result[2]
+
+    def test_three_boxes(self):
+        """Three boxes are correctly concatenated."""
+        box1 = ["┌──┐", "│AB│", "└──┘"]
+        box2 = ["┌──┐", "│CD│", "└──┘"]
+        box3 = ["┌──┐", "│EF│", "└──┘"]
+        result = _render_side_by_side([box1, box2, box3], spacing=2)
+
+        assert len(result) == 3
+        assert "AB" in result[1]
+        assert "CD" in result[1]
+        assert "EF" in result[1]
+
+    def test_consistent_line_widths(self):
+        """All output lines have the same width."""
+        box1 = ["┌──┐", "│AB│", "└──┘"]
+        box2 = ["┌────┐", "│CDEF│", "└────┘"]
+        result = _render_side_by_side([box1, box2], spacing=2)
+
+        widths = [len(line) for line in result]
+        assert len(set(widths)) == 1
+
+
+class TestRenderFanOut:
+    """Tests for _render_fan_out function."""
+
+    def test_single_width_returns_empty(self):
+        """Single box returns empty (no fan-out needed)."""
+        assert _render_fan_out([20]) == []
+
+    def test_two_branches(self):
+        """Two branches produce a 3-line fan-out."""
+        result = _render_fan_out([20, 20], spacing=2)
+        assert len(result) == 3
+        # Line 1 is the stem
+        assert "│" in result[0]
+        # Line 2 is the horizontal bar
+        assert "┌" in result[1]
+        assert "┐" in result[1]
+        assert "┴" in result[1]
+        # Line 3 has vertical stems
+        assert result[2].count("│") == 2
+
+    def test_three_branches(self):
+        """Three branches produce correct connector."""
+        result = _render_fan_out([20, 20, 20], spacing=2)
+        assert len(result) == 3
+        # Should have three vertical stems in line 3
+        assert result[2].count("│") == 3
+        # Line 2 should have corner characters and a tee
+        assert "┌" in result[1]
+        assert "┐" in result[1]
+
+    def test_ascii_mode(self):
+        """ASCII mode uses correct characters."""
+        result = _render_fan_out([20, 20], spacing=2, use_ascii=True)
+        assert len(result) == 3
+        assert "|" in result[0]
+        assert "+" in result[1]
+        assert result[2].count("|") == 2
+
+
+class TestRenderFanIn:
+    """Tests for _render_fan_in function."""
+
+    def test_single_width_returns_empty(self):
+        """Single box returns empty (no fan-in needed)."""
+        assert _render_fan_in([20]) == []
+
+    def test_two_branches(self):
+        """Two branches produce a 3-line fan-in."""
+        result = _render_fan_in([20, 20], spacing=2)
+        assert len(result) == 3
+        # Line 1 has vertical stems
+        assert result[0].count("│") == 2
+        # Line 2 is the horizontal bar
+        assert "└" in result[1]
+        assert "┘" in result[1]
+        assert "┬" in result[1]
+        # Line 3 is the single stem
+        assert "│" in result[2]
+
+    def test_three_branches(self):
+        """Three branches produce correct connector."""
+        result = _render_fan_in([20, 20, 20], spacing=2)
+        assert len(result) == 3
+        assert result[0].count("│") == 3
+
+    def test_ascii_mode(self):
+        """ASCII mode uses correct characters."""
+        result = _render_fan_in([20, 20], spacing=2, use_ascii=True)
+        assert len(result) == 3
+        assert result[0].count("|") == 2
+        assert "+" in result[1]
+        assert "|" in result[2]
+
+    def test_symmetric_with_fan_out(self):
+        """Fan-in and fan-out for same widths produce symmetric connectors."""
+        widths = [20, 20]
+        out = _render_fan_out(widths, spacing=2)
+        fin = _render_fan_in(widths, spacing=2)
+
+        # Both should be 3 lines
+        assert len(out) == len(fin) == 3
+        # Stem positions should match
+        assert out[2] == fin[0]  # vertical stems match
+
+
+class TestRenderTier3Implement:
+    """Tests for _render_tier3_implement orchestrator function."""
+
+    def test_sequential_wave(self):
+        """Single-phase waves render as centered boxes."""
+        pipeline = Pipeline(
+            id="t3-test",
+            status=PipelineStatus.RUNNING,
+            current_phase=PipelinePhase.IMPLEMENT,
+            plan_phase_waves=[["phase-1"], ["phase-2"]],
+            plan_phase_names={"phase-1": "Auth", "phase-2": "API"},
+        )
+        phase_exec = PhaseExecution(
+            phase=PipelinePhase.IMPLEMENT,
+            status=PipelineStatus.RUNNING,
+            agents=[
+                AgentExecution(
+                    role=AgentRole.CODER,
+                    status=AgentExecutionStatus.COMPLETE,
+                    plan_phase_id="phase-1",
+                ),
+            ],
+        )
+        lines = _render_tier3_implement(pipeline, phase_exec, is_current=True)
+        text = "\n".join(lines)
+
+        assert "Implement (Tier 3)" in text
+        assert "Auth" in text
+        assert "API" in text
+        assert ">>>" in text
+
+    def test_parallel_wave_has_fan_connectors(self):
+        """Parallel waves include fan-out and fan-in connectors."""
+        pipeline = Pipeline(
+            id="t3-test",
+            status=PipelineStatus.RUNNING,
+            current_phase=PipelinePhase.IMPLEMENT,
+            plan_phase_waves=[["phase-1", "phase-2"]],
+            plan_phase_names={"phase-1": "Auth", "phase-2": "API"},
+        )
+        lines = _render_tier3_implement(pipeline, None, is_current=True)
+        text = "\n".join(lines)
+
+        # Should have fan-out and fan-in connectors
+        assert "┌" in text or "+" in text
+        assert "┘" in text or "+" in text
+        # Both phases should appear
+        assert "Auth" in text
+        assert "API" in text
+
+    def test_top_level_agents_box(self):
+        """Top-level agents render in a separate box."""
+        pipeline = Pipeline(
+            id="t3-test",
+            status=PipelineStatus.RUNNING,
+            current_phase=PipelinePhase.IMPLEMENT,
+            plan_phase_waves=[["phase-1"]],
+            plan_phase_names={"phase-1": "Auth"},
+        )
+        phase_exec = PhaseExecution(
+            phase=PipelinePhase.IMPLEMENT,
+            status=PipelineStatus.RUNNING,
+            agents=[
+                AgentExecution(
+                    role=AgentRole.CODER,
+                    status=AgentExecutionStatus.COMPLETE,
+                    plan_phase_id="phase-1",
+                ),
+                AgentExecution(
+                    role=AgentRole.INTEGRATOR,
+                    status=AgentExecutionStatus.PENDING,
+                ),
+                AgentExecution(
+                    role=AgentRole.REVIEWER_CONTRACT,
+                    status=AgentExecutionStatus.PENDING,
+                ),
+            ],
+        )
+        lines = _render_tier3_implement(pipeline, phase_exec, is_current=True)
+        text = "\n".join(lines)
+
+        assert "Pipeline agents" in text
+        assert "integrator" in text
+        assert "reviewer_contract" in text
+
+    def test_no_top_level_agents(self):
+        """No top-level agents means no Pipeline agents box."""
+        pipeline = Pipeline(
+            id="t3-test",
+            status=PipelineStatus.RUNNING,
+            current_phase=PipelinePhase.IMPLEMENT,
+            plan_phase_waves=[["phase-1"]],
+            plan_phase_names={"phase-1": "Auth"},
+        )
+        phase_exec = PhaseExecution(
+            phase=PipelinePhase.IMPLEMENT,
+            status=PipelineStatus.RUNNING,
+            agents=[
+                AgentExecution(
+                    role=AgentRole.CODER,
+                    status=AgentExecutionStatus.COMPLETE,
+                    plan_phase_id="phase-1",
+                ),
+            ],
+        )
+        lines = _render_tier3_implement(pipeline, phase_exec, is_current=True)
+        text = "\n".join(lines)
+
+        assert "Pipeline agents" not in text
+
+    def test_ascii_mode(self):
+        """ASCII mode uses correct characters throughout."""
+        pipeline = Pipeline(
+            id="t3-test",
+            status=PipelineStatus.RUNNING,
+            current_phase=PipelinePhase.IMPLEMENT,
+            plan_phase_waves=[["phase-1", "phase-2"]],
+            plan_phase_names={"phase-1": "Auth", "phase-2": "API"},
+        )
+        lines = _render_tier3_implement(pipeline, None, is_current=True, use_ascii=True)
+        text = "\n".join(lines)
+
+        # ASCII borders
+        assert "+" in text
+        assert "===" in text
+        # No Unicode
+        assert "┌" not in text
+        assert "└" not in text
+        assert "═" not in text
+
+
+class TestRenderPipelineDagTier3:
+    """Integration tests for render_pipeline_dag with Tier 3 pipelines."""
+
+    def _make_tier3_pipeline(
+        self,
+        waves=None,
+        names=None,
+        agents=None,
+        current_phase=PipelinePhase.IMPLEMENT,
+    ):
+        """Helper to create a Tier 3 pipeline for testing."""
+        if waves is None:
+            waves = [["phase-1"], ["phase-2", "phase-3"], ["phase-4"]]
+        if names is None:
+            names = {
+                "phase-1": "Auth",
+                "phase-2": "API",
+                "phase-3": "UI",
+                "phase-4": "Integration",
+            }
+        phases = {
+            "refine": PhaseExecution(
+                phase=PipelinePhase.REFINE,
+                status=PipelineStatus.COMPLETE,
+            ),
+            "plan": PhaseExecution(
+                phase=PipelinePhase.PLAN,
+                status=PipelineStatus.COMPLETE,
+            ),
+        }
+        if agents is not None:
+            phases["implement"] = PhaseExecution(
+                phase=PipelinePhase.IMPLEMENT,
+                status=PipelineStatus.RUNNING,
+                agents=agents,
+            )
+        return Pipeline(
+            id="tier3-test",
+            status=PipelineStatus.RUNNING,
+            current_phase=current_phase,
+            plan_phase_waves=waves,
+            plan_phase_names=names,
+            phases=phases,
+        )
+
+    def test_full_dag_has_all_phases(self):
+        """Full DAG includes Refine, Plan, expanded Implement, and PR."""
+        pipeline = self._make_tier3_pipeline()
+        result = render_pipeline_dag(pipeline, include_header=False)
+
+        assert "Refine" in result
+        assert "Plan" in result
+        assert "Implement (Tier 3)" in result
+        assert "PR" in result
+
+    def test_subphase_boxes_in_wave_order(self):
+        """Sub-phase boxes appear in wave order."""
+        pipeline = self._make_tier3_pipeline()
+        result = render_pipeline_dag(pipeline, include_header=False)
+        lines = result.split("\n")
+
+        auth_line = next(i for i, line in enumerate(lines) if "Auth" in line)
+        api_line = next(i for i, line in enumerate(lines) if "API" in line)
+        integration_line = next(i for i, line in enumerate(lines) if "Integration" in line)
+
+        # Wave 1 (Auth) before Wave 2 (API, UI) before Wave 3 (Integration)
+        assert auth_line < api_line < integration_line
+
+    def test_parallel_wave_has_connectors(self):
+        """Parallel waves have fan-out and fan-in connectors."""
+        pipeline = self._make_tier3_pipeline()
+        result = render_pipeline_dag(pipeline, include_header=False)
+
+        # Fan-out/fan-in connectors for the parallel wave
+        assert "┌" in result
+        assert "┘" in result
+
+    def test_agents_in_correct_subphase(self):
+        """Agents appear in their correct sub-phase boxes."""
+        agents = [
+            AgentExecution(
+                role=AgentRole.CODER,
+                status=AgentExecutionStatus.COMPLETE,
+                plan_phase_id="phase-1",
+            ),
+            AgentExecution(
+                role=AgentRole.TESTER,
+                status=AgentExecutionStatus.COMPLETE,
+                plan_phase_id="phase-1",
+            ),
+            AgentExecution(
+                role=AgentRole.CODER,
+                status=AgentExecutionStatus.RUNNING,
+                plan_phase_id="phase-2",
+            ),
+        ]
+        pipeline = self._make_tier3_pipeline(agents=agents)
+        result = render_pipeline_dag(pipeline, include_header=False)
+
+        # Auth box should contain coder and tester
+        lines = result.split("\n")
+        auth_line = next(i for i, line in enumerate(lines) if "Auth" in line)
+        api_line = next(i for i, line in enumerate(lines) if "API" in line)
+
+        # Between Auth and API, we should find coder and tester
+        auth_section = "\n".join(lines[auth_line : api_line])
+        assert "coder" in auth_section
+        assert "tester" in auth_section
+
+    def test_top_level_agents_after_subphases(self):
+        """Top-level agents appear after all sub-phase waves."""
+        agents = [
+            AgentExecution(
+                role=AgentRole.CODER,
+                status=AgentExecutionStatus.COMPLETE,
+                plan_phase_id="phase-1",
+            ),
+            AgentExecution(
+                role=AgentRole.INTEGRATOR,
+                status=AgentExecutionStatus.PENDING,
+            ),
+        ]
+        pipeline = self._make_tier3_pipeline(agents=agents)
+        result = render_pipeline_dag(pipeline, include_header=False)
+        lines = result.split("\n")
+
+        auth_line = next(i for i, line in enumerate(lines) if "Auth" in line)
+        integrator_line = next(i for i, line in enumerate(lines) if "integrator" in line)
+
+        assert integrator_line > auth_line
+
+    def test_ascii_mode_full_dag(self):
+        """Full DAG renders correctly in ASCII mode."""
+        pipeline = self._make_tier3_pipeline()
+        result = render_pipeline_dag(pipeline, use_ascii=True, include_header=False)
+
+        # ASCII characters only
+        assert "+" in result
+        assert "|" in result
+        # No Unicode
+        assert "│" not in result
+        assert "╔" not in result
+        assert "┌" not in result
+
+    def test_header_present_with_tier3(self):
+        """Header is included when include_header=True."""
+        pipeline = self._make_tier3_pipeline()
+        pipeline.repo = "test/repo"
+        pipeline.branch = "egg/test"
+        result = render_pipeline_dag(pipeline, include_header=True)
+
+        assert "Pipeline: tier3-test" in result
+        assert "Repository: test/repo" in result
+        assert "Branch: egg/test" in result
+
+
+class TestTier3BackwardCompatibility:
+    """Regression tests ensuring Tier 1/2 pipelines render identically."""
+
+    def _make_tier1_pipeline(self, agents=None):
+        """Create a standard Tier 1/2 pipeline without plan_phase_waves."""
+        phases = {}
+        if agents is not None:
+            phases["implement"] = PhaseExecution(
+                phase=PipelinePhase.IMPLEMENT,
+                status=PipelineStatus.RUNNING,
+                agents=agents,
+            )
+        return Pipeline(
+            id="tier1-test",
+            status=PipelineStatus.RUNNING,
+            current_phase=PipelinePhase.IMPLEMENT,
+            phases=phases,
+        )
+
+    def test_no_waves_renders_standard_box(self):
+        """Pipeline without plan_phase_waves renders standard Implement box."""
+        pipeline = self._make_tier1_pipeline()
+        result = render_pipeline_dag(pipeline, include_header=False)
+
+        assert "Implement" in result
+        assert "Tier 3" not in result
+        assert "╔" in result  # Standard double-border box
+
+    def test_with_agents_renders_standard(self):
+        """Pipeline with agents but no waves renders standard agent list."""
+        agents = [
+            AgentExecution(role=AgentRole.CODER, status=AgentExecutionStatus.COMPLETE),
+            AgentExecution(role=AgentRole.TESTER, status=AgentExecutionStatus.RUNNING),
+        ]
+        pipeline = self._make_tier1_pipeline(agents=agents)
+        result = render_pipeline_dag(pipeline, include_header=False)
+
+        assert "✓ coder" in result
+        assert "▶ tester" in result
+        assert "Tier 3" not in result
+
+    def test_subphase_agents_in_standard_mode(self):
+        """Agents with plan_phase_id but no waves still render in standard box."""
+        agents = [
+            AgentExecution(
+                role=AgentRole.CODER,
+                status=AgentExecutionStatus.COMPLETE,
+                plan_phase_id="phase-1",
+            ),
+        ]
+        pipeline = self._make_tier1_pipeline(agents=agents)
+        result = render_pipeline_dag(pipeline, include_header=False)
+
+        # Should use standard rendering with sub-phase grouping
+        assert "Tier 3" not in result
+        assert "phase-1:" in result  # Standard sub-phase grouping
+        assert "coder" in result
+
+
+class TestTier3EdgeCases:
+    """Edge case tests for Tier 3 DAG visualization."""
+
+    def test_single_wave_no_connectors(self):
+        """Single-wave Tier 3 pipeline has no fan-out/fan-in."""
+        pipeline = Pipeline(
+            id="t3-single",
+            status=PipelineStatus.RUNNING,
+            current_phase=PipelinePhase.IMPLEMENT,
+            plan_phase_waves=[["phase-1"]],
+            plan_phase_names={"phase-1": "Auth"},
+        )
+        result = render_pipeline_dag(pipeline, include_header=False)
+
+        assert "Auth" in result
+        assert "Tier 3" in result
+        # No fan-out/fan-in connectors (no ┴ or ┬ characters used by connectors)
+        impl_section = result.split("Tier 3")[1].split("PR")[0]
+        assert "┴" not in impl_section
+        assert "┬" not in impl_section
+
+    def test_empty_plan_phase_waves(self):
+        """Empty plan_phase_waves list falls back to standard rendering."""
+        pipeline = Pipeline(
+            id="t3-empty",
+            status=PipelineStatus.RUNNING,
+            current_phase=PipelinePhase.IMPLEMENT,
+            plan_phase_waves=[],
+        )
+        result = render_pipeline_dag(pipeline, include_header=False)
+
+        # Empty list is falsy, should use standard rendering
+        assert "Tier 3" not in result
+
+    def test_missing_plan_phase_names(self):
+        """Missing plan_phase_names uses phase IDs as fallback."""
+        pipeline = Pipeline(
+            id="t3-nonames",
+            status=PipelineStatus.RUNNING,
+            current_phase=PipelinePhase.IMPLEMENT,
+            plan_phase_waves=[["phase-1", "phase-2"]],
+            # plan_phase_names is None
+        )
+        result = render_pipeline_dag(pipeline, include_header=False)
+
+        assert "phase-1" in result
+        assert "phase-2" in result
+
+    def test_four_parallel_phases(self):
+        """Four parallel phases render side-by-side within max limit."""
+        pipeline = Pipeline(
+            id="t3-4way",
+            status=PipelineStatus.RUNNING,
+            current_phase=PipelinePhase.IMPLEMENT,
+            plan_phase_waves=[["phase-1", "phase-2", "phase-3", "phase-4"]],
+            plan_phase_names={
+                "phase-1": "A",
+                "phase-2": "B",
+                "phase-3": "C",
+                "phase-4": "D",
+            },
+        )
+        result = render_pipeline_dag(pipeline, include_header=False)
+
+        assert "A" in result
+        assert "B" in result
+        assert "C" in result
+        assert "D" in result
+
+    def test_five_parallel_phases_wraps(self):
+        """Five parallel phases wrap into multiple rows."""
+        pipeline = Pipeline(
+            id="t3-5way",
+            status=PipelineStatus.RUNNING,
+            current_phase=PipelinePhase.IMPLEMENT,
+            plan_phase_waves=[
+                ["phase-1", "phase-2", "phase-3", "phase-4", "phase-5"]
+            ],
+            plan_phase_names={
+                "phase-1": "A",
+                "phase-2": "B",
+                "phase-3": "C",
+                "phase-4": "D",
+                "phase-5": "E",
+            },
+        )
+        result = render_pipeline_dag(pipeline, include_header=False)
+
+        # All phases should appear
+        for name in "ABCDE":
+            assert name in result
+
+    def test_long_phase_name(self):
+        """Long phase names are handled without error."""
+        pipeline = Pipeline(
+            id="t3-long",
+            status=PipelineStatus.RUNNING,
+            current_phase=PipelinePhase.IMPLEMENT,
+            plan_phase_waves=[["phase-1"]],
+            plan_phase_names={"phase-1": "A very long phase name that exceeds typical widths"},
+        )
+        result = render_pipeline_dag(pipeline, include_header=False)
+
+        assert "A very long phase name" in result
+
+    def test_none_phase_exec(self):
+        """Tier 3 rendering handles None phase_exec gracefully."""
+        pipeline = Pipeline(
+            id="t3-none",
+            status=PipelineStatus.RUNNING,
+            current_phase=PipelinePhase.IMPLEMENT,
+            plan_phase_waves=[["phase-1"]],
+            plan_phase_names={"phase-1": "Auth"},
+            # No implement phase in phases dict
+        )
+        result = render_pipeline_dag(pipeline, include_header=False)
+
+        assert "Auth" in result
+        assert "Tier 3" in result

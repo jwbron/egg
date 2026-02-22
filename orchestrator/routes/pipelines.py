@@ -2776,6 +2776,11 @@ def _run_tier3_implement(
     # Map phase IDs to Phase objects
     phase_map = {p.id: p for p in contract.phases}
 
+    # Populate wave data on the pipeline for DAG visualization
+    if phase_waves is not None:
+        pipeline.plan_phase_waves = [list(wave.phase_ids) for wave in phase_waves]
+    pipeline.plan_phase_names = {p.id: p.name for p in contract.phases}
+
     all_logs: list[str] = []
     logs_lock = threading.Lock()
     cancel_event = threading.Event()  # Signals parallel phases to abort early
