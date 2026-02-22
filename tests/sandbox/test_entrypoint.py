@@ -1039,6 +1039,7 @@ class TestChdirToSingleRepo:
         repo.mkdir()
         (repo / ".git").mkdir()
 
+        monkeypatch.chdir(tmp_path)  # restore CWD on teardown
         monkeypatch.setenv("RUNTIME_UID", "1000")
         monkeypatch.setenv("RUNTIME_GID", "1000")
         monkeypatch.delenv("EGG_REPO_PATH", raising=False)
@@ -1060,6 +1061,7 @@ class TestChdirToSingleRepo:
             repo.mkdir()
             (repo / ".git").mkdir()
 
+        monkeypatch.chdir(tmp_path)  # restore CWD on teardown
         monkeypatch.setenv("RUNTIME_UID", "1000")
         monkeypatch.setenv("RUNTIME_GID", "1000")
         monkeypatch.delenv("EGG_REPO_PATH", raising=False)
@@ -1078,6 +1080,7 @@ class TestChdirToSingleRepo:
         home = tmp_path / "home"
         home.mkdir()
 
+        monkeypatch.chdir(tmp_path)  # restore CWD on teardown
         monkeypatch.setenv("RUNTIME_UID", "1000")
         monkeypatch.setenv("RUNTIME_GID", "1000")
 
@@ -1101,6 +1104,7 @@ class TestChdirToSingleRepo:
         plain = repos_dir / "plain-dir"
         plain.mkdir()
 
+        monkeypatch.chdir(tmp_path)  # restore CWD on teardown
         monkeypatch.setenv("RUNTIME_UID", "1000")
         monkeypatch.setenv("RUNTIME_GID", "1000")
         monkeypatch.delenv("EGG_REPO_PATH", raising=False)
