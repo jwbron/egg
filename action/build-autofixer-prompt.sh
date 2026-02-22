@@ -100,7 +100,9 @@ Do not skip failures because they are \"pre-existing\" or \"not introduced by th
 
 4. **Push once**: After all local checks pass, commit all fixes together and push once.
 
-5. **Report what you can't fix**: If any issue requires human decision-making or is too complex to auto-fix, post a comment on the PR explaining:
+5. **Surface code issues**: While fixing failures, if you notice problems in the code that checks don't catch — bugs, logic errors, missing error handling, potential regressions, or questionable patterns — post a comment on the PR flagging them. Don't just make checks green; help the team catch real issues.
+
+6. **Report what you can't fix**: If any issue requires human decision-making or is too complex to auto-fix, post a comment on the PR explaining:
    - What's failing and why
    - What needs to be done to fix it
    - Any relevant context or suggestions

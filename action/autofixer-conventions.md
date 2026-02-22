@@ -85,6 +85,19 @@ git push
 If fixing multiple distinct issues, you may use separate commits for clarity, but
 push them all together in a single push after verifying all checks pass.
 
+## Surfacing Code Issues
+
+Your job isn't just making checks green. While investigating and fixing failures,
+review the surrounding code for issues that checks don't catch:
+
+- Bugs or logic errors
+- Missing error handling or edge cases
+- Potential regressions from recent changes
+- Questionable patterns or code smells
+
+If you spot any, post a PR comment describing the issue and its potential impact.
+This helps the team catch real problems early.
+
 ## Reporting Unfixable Issues
 
 When you can't auto-fix an issue, post a comment explaining:
