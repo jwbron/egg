@@ -54,13 +54,16 @@ except ImportError:
             self._logger.warning(self._fmt(msg, kwargs), *args)
 
         def error(self, msg: str, *args, **kwargs) -> None:  # type: ignore[no-untyped-def]
-            self._logger.error(self._fmt(msg, kwargs), *args)
+            exc_info = kwargs.pop("exc_info", None)
+            self._logger.error(self._fmt(msg, kwargs), *args, exc_info=exc_info)
 
         def critical(self, msg: str, *args, **kwargs) -> None:  # type: ignore[no-untyped-def]
-            self._logger.critical(self._fmt(msg, kwargs), *args)
+            exc_info = kwargs.pop("exc_info", None)
+            self._logger.critical(self._fmt(msg, kwargs), *args, exc_info=exc_info)
 
         def exception(self, msg: str, *args, **kwargs) -> None:  # type: ignore[no-untyped-def]
-            self._logger.exception(self._fmt(msg, kwargs), *args)
+            exc_info = kwargs.pop("exc_info", True)
+            self._logger.exception(self._fmt(msg, kwargs), *args, exc_info=exc_info)
 
     def get_logger(name: str, **kwargs) -> _FallbackLogger:  # type: ignore[misc]
         return _FallbackLogger(logging.getLogger(name))
