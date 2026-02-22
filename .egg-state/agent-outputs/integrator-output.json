@@ -1,91 +1,94 @@
 {
   "status": "pass",
   "phase": "implement",
-  "pipeline_id": "issue-835",
-  "issue": 835,
-  "branch": "egg/issue-835",
-  "summary": "All changes from coder, tester, and documenter agents integrate cleanly. The feature scopes agent prompts to role-relevant context: execution roles (tester, documenter, integrator) receive summarized backgrounds with structured task info instead of the full issue body, while analysis roles retain the full issue. Phase-scoped coders see the plan overview instead of the full plan. 133 prompt-related tests pass (34 from coder + 40 tester-authored edge cases + 59 pre-existing). Full orchestrator suite: 736 passed, 3 pre-existing failures in test_docker_client.py. Lint passes clean.",
+  "pipeline_id": "issue-829",
+  "issue": 829,
+  "branch": "egg/issue-829",
+  "summary": "All changes for Tier 3 DAG visualization integrate cleanly, including all three code review fixes. 216 DAG visualizer tests pass across 3 test files. Full orchestrator suite: 899 passed, 3 pre-existing failures in test_docker_client.py. Lint and formatting pass clean. No regressions introduced.",
   "test_results": {
-    "pipeline_prompts_tests": {
+    "dag_visualizer_tests": {
       "status": "pass",
-      "passed": 133,
+      "passed": 216,
       "failed": 0,
-      "duration_seconds": 0.57,
-      "details": "orchestrator/tests/test_pipeline_prompts.py — 133 tests covering _summarize_issue, _extract_plan_overview, _build_role_context, _build_agent_prompt role context, _build_phase_scoped_prompt overview, plus edge cases for all functions. All pass."
+      "duration_seconds": 0.55,
+      "files": [
+        "orchestrator/tests/test_dag_visualizer.py",
+        "orchestrator/tests/test_dag_visualizer_extended.py",
+        "orchestrator/tests/test_dag_visualizer_review_fixes.py"
+      ],
+      "details": "216 tests across 3 files. Covers: status derivation, sub-phase box rendering, side-by-side layout, fan-out/fan-in connectors, Tier 3 implement rendering, model field validation, status reports, compact status, progress bars, orphaned phase agents, CANCELLED status, connector asymmetry, wrapping, phase details, complete/failed pipelines, stem alignment, tee character overwrite with cross junctions, and full DAG end-to-end scenarios."
     },
     "orchestrator_full_suite": {
       "status": "pass_with_pre_existing_failures",
-      "passed": 736,
+      "passed": 899,
       "failed": 3,
-      "duration_seconds": 17.96,
-      "details": "736 passed. 3 pre-existing failures in test_docker_client.py: TestDockerClientConnection.test_is_connected_false, TestContainerCreation.test_create_container_image_not_found, TestContainerOperations.test_start_container_not_found. All due to Docker mock exception handling issues unrelated to this PR."
+      "duration_seconds": 20.11,
+      "details": "899 passed. 3 pre-existing failures in test_docker_client.py (TestDockerClientConnection.test_is_connected_false, TestContainerCreation.test_create_container_image_not_found, TestContainerOperations.test_start_container_not_found). All due to Docker mock exception handling issues unrelated to this PR. Verified pre-existing: tests can't even import without Docker library on baseline."
     },
     "lint": {
       "status": "pass",
-      "details": "ruff check passes clean on both orchestrator/routes/pipelines.py and orchestrator/tests/test_pipeline_prompts.py."
+      "details": "ruff check and ruff format --check both pass clean on all changed files."
+    }
+  },
+  "review_fixes_verification": {
+    "issue_1_orphaned_agents": {
+      "status": "fixed_and_verified",
+      "description": "Agents with plan_phase_id not in any wave were silently dropped from visualization.",
+      "fix_location": "dag_visualizer.py:711-725",
+      "fix_approach": "Build wave_phase_ids set from all waves. Agents with pid not in set are routed to top_level_agents instead of agents_by_phase.",
+      "test_coverage": "5 tests in TestOrphanedAgentsVisibility (review_fixes), 1 test in TestAgentsOrphanedPhaseId (extended). All assert orphaned agents appear in rendered output.",
+      "vacuous_test_fixed": "test_dag_visualizer_extended.py:547 now asserts 'tester' in result (was previously missing, test passed vacuously)."
+    },
+    "issue_2_stem_misalignment": {
+      "status": "fixed_and_verified",
+      "fix_location": "dag_visualizer.py:550-556 (fan-out), dag_visualizer.py:632-662 (fan-in)",
+      "fix_approach": "Stem position uses bar_center = (centers[0] + centers[-1]) // 2 instead of total_width // 2. Same calculation for both stem line and bar junction character.",
+      "test_coverage": "8 tests in TestStemAlignment (review_fixes), 2 tests in TestFanConnectorsAsymmetric (extended). Tests verify exact column positions and assert stem != total_width // 2 for asymmetric widths."
+    },
+    "issue_3_tee_overwrite": {
+      "status": "fixed_and_verified",
+      "fix_location": "dag_visualizer.py:564-571 (fan-out), dag_visualizer.py:649-657 (fan-in)",
+      "fix_approach": "Place intermediate branch tees first, then place center junction last. When bar_center coincides with an intermediate branch center, use cross junction (U+253C / +) instead of overwriting.",
+      "test_coverage": "9 tests in TestTeeOverwriteCrossJunction (review_fixes), 2 tests in TestFanConnectorsAsymmetric (extended). Tests verify cross junction for 3 and 5 equal-width boxes, no cross for 2 or 4 boxes."
+    },
+    "minor_plan_phase_names_guard": {
+      "status": "fixed_and_verified",
+      "fix_location": "pipelines.py:2782-2784",
+      "fix_approach": "plan_phase_names assignment moved inside 'if phase_waves is not None' guard, preventing orphaned metadata when dependency graph has cycles.",
+      "test_coverage": "Verified by code review. Comment at line 2780-2781 documents the rationale."
     }
   },
   "integration_checks": {
-    "new_helper_functions": {
-      "status": "pass",
-      "details": "_summarize_issue() extracts 1-2 sentence summaries from issue body. _extract_plan_overview() strips phase details and yaml-tasks from plan text. _build_role_context() dispatches to full body (analysis roles) or summary+pointers (execution roles). All three functions have matching tests covering normal and edge cases."
-    },
-    "agent_prompt_role_dispatch": {
-      "status": "pass",
-      "details": "_build_agent_prompt() now calls _build_role_context() instead of embedding pipeline.prompt verbatim. Analysis roles (architect, task_planner, risk_analyst) get ## Task Description with full body. Execution roles (tester, documenter, integrator) get ## Background with summary + ## For More Context pointers. New phase_obj and all_phases params properly threaded through."
-    },
-    "phase_scoped_prompt_changes": {
-      "status": "pass",
-      "details": "_build_phase_scoped_prompt() embeds plan overview (not full plan) via _extract_plan_overview() on first cycle. Adds one-line summaries of other phases for orientation. Includes pointer to full plan file. Review cycle > 0 correctly skips plan embedding. New all_phases param propagated from _run_tier3_implement()."
-    },
-    "tier3_implement_call_sites": {
-      "status": "pass",
-      "details": "_run_tier3_implement() passes phase_obj and all_phases=contract.phases to coder (_build_phase_scoped_prompt), tester (_build_agent_prompt), documenter (_build_agent_prompt), and integrator (_build_agent_prompt). Previously ad-hoc tester phase scope lines removed — now handled by _build_role_context(). Documenter now also gets phase scoping (was previously missing)."
-    },
     "backward_compatibility": {
       "status": "pass",
-      "details": "New parameters phase_obj and all_phases default to None. Existing call sites without these params continue to work. Coder/refiner roles still delegate to _build_phase_prompt() unchanged. 59 pre-existing prompt tests continue to pass."
+      "details": "Tier 1/2 pipelines unaffected. When plan_phase_waves is None (default), render_pipeline_dag routes to standard rendering path. All pre-existing DAG visualizer tests pass unchanged. New model fields default to None."
     },
-    "documentation_updates": {
+    "cross_file_consistency": {
       "status": "pass",
-      "details": "Three doc files updated: docs/architecture/orchestrator.md adds Prompt Context Scoping subsection. docs/guides/agent-development.md adds Prompt Context Scoping section with guidance for adding new roles. docs/guides/sdlc-pipeline.md adds Role-Specific Prompt Context section and updates Phase-scoped prompts description."
+      "details": "Model fields (plan_phase_waves, plan_phase_names, plan_phase_id) consistently used across models.py, dag_visualizer.py, and routes/pipelines.py. All Optional with None defaults."
+    },
+    "ascii_unicode_parity": {
+      "status": "pass",
+      "details": "All rendering functions support both ASCII and Unicode output modes. Cross junction uses '+' in ASCII mode, consistent with other junction characters."
     }
   },
   "regressions": [],
   "issues_found": [],
-  "integrator_fixes": [],
   "pre_existing_issues": [
     {
       "severity": "low",
-      "description": "3 tests in orchestrator/tests/test_docker_client.py fail due to Docker mock exception handling issues. test_is_connected_false asserts False but gets True; test_create_container_image_not_found and test_start_container_not_found hit TypeError from mocked exceptions. Present on main branch, not introduced by this PR.",
+      "description": "3 tests in orchestrator/tests/test_docker_client.py fail due to Docker mock exception handling issues. Present on main branch, not introduced by this PR.",
       "location": "orchestrator/tests/test_docker_client.py"
     }
   ],
   "commits_on_branch": [
-    {
-      "sha": "8ca953d3",
-      "message": "Scope agent prompts to role-relevant context only",
-      "author": "coder",
-      "files_changed": ["orchestrator/routes/pipelines.py", "orchestrator/tests/test_pipeline_prompts.py"],
-      "lines_added": 671,
-      "lines_removed": 22
-    },
-    {
-      "sha": "75b94aed",
-      "message": "docs: Document role-specific prompt context scoping",
-      "author": "documenter",
-      "files_changed": ["docs/architecture/orchestrator.md", "docs/guides/agent-development.md", "docs/guides/sdlc-pipeline.md"],
-      "lines_added": 43,
-      "lines_removed": 1
-    },
-    {
-      "sha": "42fa0ec2",
-      "message": "WIP: auto-commit uncommitted work (documenter) [issue-835]",
-      "author": "tester (auto-committed)",
-      "files_changed": ["orchestrator/tests/test_pipeline_prompts.py"],
-      "lines_added": 535,
-      "lines_removed": 0
-    }
-  ],
-  "files_changed_by_integrator": []
+    "3b122c1e - Add DAG visualization for Tier 3 parallel phases (coder)",
+    "42dc6849 - Document Tier 3 DAG visualization (documenter)",
+    "ef1562f6 - Add extended tests and conftest for DAG visualizer (tester)",
+    "d70f2b28 - Fix lint issues in extended test file (integrator)",
+    "61450b26 - Fix ruff formatting and update check results (coder)",
+    "35c4467c - Fix review feedback: orphaned agents, stem alignment, tee overwrite (coder)",
+    "82811dda - Document review fixes: docstrings, inline comments, test docs (documenter)",
+    "b1424950 - Add tests for code review fixes (tester)"
+  ]
 }
