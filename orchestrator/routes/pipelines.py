@@ -2002,6 +2002,9 @@ def _build_phase_prompt(
                 "egg-contract add-feedback \\",
                 '  --question "What is the expected request volume?" \\',
                 '  --question "Are there any constraints on third-party dependencies?" \\',
+                '  --question "What is the expected latency budget for this path?" \\',
+                '  --question "Are there existing SLAs or guarantees that must be preserved?" \\',
+                '  --question "Who are the downstream consumers of this API?" \\',
                 "  --format markdown",
                 "```",
                 "This creates a dedicated comment for the human to fill in answers. "
