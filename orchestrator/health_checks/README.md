@@ -147,34 +147,37 @@ Cross-references orchestrator state against Docker reality and contract state.
 
 ### AgentInspectorCheck (`tier2/agent_inspector.py`)
 
-Sends pipeline context to the Claude API for semantic analysis of agent progress. Returns a structured verdict (HEALTHY/DEGRADED/FAILED) with reasoning.
+Delegates semantic analysis of agent progress to a short-lived sandbox container running `egg-health-inspect`. Returns a structured verdict (HEALTHY/DEGRADED/FAILED) with reasoning.
 
 - **Triggers:** WAVE_COMPLETE, PHASE_COMPLETE, ON_DEMAND
-- **Model:** `claude-sonnet-4-20250514` (configurable via `HEALTH_CHECK_MODEL` env var)
+- **Model:** `claude-sonnet-4-20250514` (configurable via `HEALTH_CHECK_MODEL` env var passed to container)
 - **Action:** ALERT on non-HEALTHY verdicts (never FAIL_PIPELINE — Tier 2 is advisory)
 
 **How it works:**
 
-1. Assembles a user prompt from `PipelineHealthContext` fields:
+1. Serializes `PipelineHealthContext` into a JSON payload:
    - Recent commits (`git_log`)
    - Diff stats vs main (`git_diff_stat`)
    - Agent output files from `.egg-state/` (`agent_outputs`)
    - SDLC contract state (`contract`)
-2. Calls the Anthropic Messages API with a system prompt that instructs Claude to produce a JSON verdict
-3. Parses the JSON response into a `HealthStatus` and reasoning string
-4. Returns a `HealthResult` with ALERT action for DEGRADED/FAILED verdicts
+2. Spawns a sandbox container running `egg-health-inspect` with context passed via `EGG_INSPECTOR_CONTEXT` env var
+3. Container calls the Anthropic Messages API (via gateway credential injection) with a system prompt instructing Claude to produce a JSON verdict
+4. Parses the JSON response from container stdout into a `HealthStatus` and reasoning string
+5. Returns a `HealthResult` with ALERT action for DEGRADED/FAILED verdicts
+
+**Security boundary:**
+
+The orchestrator never calls the Anthropic API directly. All LLM calls are delegated to sandbox containers, maintaining the security boundary between the orchestrator (which has Docker and pipeline credentials) and LLM processing (which handles untrusted prompts). This is enforced at CI time by `scripts/check-llm-api-calls.py`.
 
 **Graceful degradation:**
 
-API failures (timeouts, HTTP errors, malformed responses) always degrade to HEALTHY with a warning. Tier 2 check failures never block the pipeline — they are purely observational and advisory. The check retries once on transient failures before degrading.
+Container failures (timeouts, exit errors, malformed responses) always degrade to HEALTHY with a warning. Tier 2 check failures never block the pipeline — they are purely observational and advisory.
 
 **Configuration:**
 
 | Variable | Purpose | Default |
 |----------|---------|---------|
-| `ANTHROPIC_API_KEY` | API key for Claude | Required |
-| `ANTHROPIC_BASE_URL` | API base URL | `https://api.anthropic.com` |
-| `HEALTH_CHECK_MODEL` | Model to use for inspection | `claude-sonnet-4-20250514` |
+| `HEALTH_CHECK_MODEL` | Model to use for inspection (passed to container) | `claude-sonnet-4-20250514` |
 
 **Context token budget:**
 
