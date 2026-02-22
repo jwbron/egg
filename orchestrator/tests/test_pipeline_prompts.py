@@ -1857,6 +1857,21 @@ class TestReadTesterGaps:
         assert result is not None
         assert "**3** test(s) failed" in result
 
+    def test_long_gap_strings_truncated(self, tmp_path):
+        """Individual gap strings are truncated to 200 characters."""
+        outputs_dir = tmp_path / ".egg-state" / "agent-outputs"
+        outputs_dir.mkdir(parents=True)
+        long_gap = "A" * 300
+        (outputs_dir / "tester-output.json").write_text(
+            json.dumps({"gaps_found": [long_gap]})
+        )
+
+        result = _read_tester_gaps(tmp_path)
+        assert result is not None
+        # The gap should be truncated to 200 chars
+        assert "A" * 200 in result
+        assert "A" * 201 not in result
+
 
 class TestTesterGapFindingPrompts:
     """Tests for tester gap-finding language in prompts."""
@@ -1926,8 +1941,33 @@ class TestTesterGapFindingPrompts:
 
         assert "Revision Checklist" not in result
 
-    def test_phase_prompt_revision_mentions_tester_output(self):
-        """Non-Tier-3 phase prompt revision instructions mention tester output."""
+    def test_phase_scoped_prompt_revision_no_feedback_no_checklist(self, tmp_path):
+        """Revision checklist is not shown when review_cycle > 0 but no feedback."""
+        from models import Pipeline
+
+        phase = MagicMock()
+        phase.id = "phase-1"
+        phase.name = "Core"
+        phase.tasks = []
+        phase.status = "pending"
+
+        pipeline = Pipeline(id="test-1", issue_number=42, repo="owner/repo", branch="egg/test")
+
+        result = _build_phase_scoped_prompt(
+            phase_obj=phase,
+            pipeline_id="test-1",
+            pipeline_mode="issue",
+            pipeline=pipeline,
+            worktree_repo_path=tmp_path,
+            review_feedback=None,
+            review_cycle=1,
+        )
+
+        assert "Revision Checklist" not in result
+        assert "Prior Review Feedback" not in result
+
+    def test_phase_prompt_revision_does_not_mention_tester(self):
+        """Non-Tier-3 phase prompt revision uses reviewer-only language (no tester runs)."""
         result = _build_phase_prompt(
             phase="implement",
             pipeline_id="test-pid",
@@ -1937,11 +1977,12 @@ class TestTesterGapFindingPrompts:
             review_feedback="Fix the naming convention",
         )
 
-        assert "reviewer and tester" in result
-        assert "tester-output.json" in result
+        assert "The reviewer found issues" in result
+        assert "reviewer and tester" not in result
+        assert "tester-output.json" not in result
 
-    def test_phase_prompt_revision_no_feedback_mentions_tester(self):
-        """Non-Tier-3 phase prompt revision without feedback also mentions tester."""
+    def test_phase_prompt_revision_no_feedback_does_not_mention_tester(self):
+        """Non-Tier-3 phase prompt revision without feedback has no tester references."""
         result = _build_phase_prompt(
             phase="implement",
             pipeline_id="test-pid",
@@ -1951,4 +1992,5 @@ class TestTesterGapFindingPrompts:
             review_feedback=None,
         )
 
-        assert "tester-output.json" in result
+        assert "tester-output.json" not in result
+        assert "reviewer and tester" not in result

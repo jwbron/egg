@@ -1644,7 +1644,8 @@ def _read_tester_gaps(repo_path: Path) -> str | None:
         # Cap at 10 gaps to avoid prompt bloat
         capped = gaps_found[:10]
         for gap in capped:
-            sections.append(f"- {gap}")
+            gap_str = str(gap)[:200]
+            sections.append(f"- {gap_str}")
         if len(gaps_found) > 10:
             sections.append(f"- ... and {len(gaps_found) - 10} more gaps")
     elif not tests_failed:
@@ -2154,14 +2155,13 @@ def _build_phase_prompt(
             if review_feedback:
                 lines.extend(
                     [
-                        "The reviewer and tester found issues with your implementation. "
+                        "The reviewer found issues with your implementation. "
                         "Focus on addressing the specific feedback above.\n",
                         "1. Review the feedback in the **Prior Review Feedback** section above",
                         "2. Check `git diff` to understand the current state of changes",
                         "3. Fix the specific issues raised by the reviewer",
-                        "4. Check `.egg-state/agent-outputs/tester-output.json` for test failures and gaps",
-                        "5. Run tests to verify your fixes",
-                        "6. Commit with descriptive messages",
+                        "4. Run tests to verify your fixes",
+                        "5. Commit with descriptive messages",
                         "",
                     ]
                 )
@@ -2171,10 +2171,9 @@ def _build_phase_prompt(
                         "A revision was requested but no specific feedback was provided. "
                         "Review the task description above and check `git diff` for the current state.\n",
                         "1. Review the task description above and check `git diff`",
-                        "2. Check `.egg-state/agent-outputs/tester-output.json` for test failures and gaps",
-                        "3. Verify the implementation meets the requirements",
-                        "4. Run tests to verify correctness",
-                        "5. Commit with descriptive messages",
+                        "2. Verify the implementation meets the requirements",
+                        "3. Run tests to verify correctness",
+                        "4. Commit with descriptive messages",
                         "",
                     ]
                 )
@@ -2734,8 +2733,8 @@ def _build_phase_scoped_prompt(
     lines.append("3. Commit with descriptive messages")
     lines.append("")
 
-    # Revision-specific checklist
-    if review_cycle > 0:
+    # Revision-specific checklist (only when feedback is actually present)
+    if review_cycle > 0 and review_feedback:
         lines.append("### Revision Checklist\n")
         lines.append("- [ ] Review the feedback in **Prior Review Feedback** above")
         lines.append(
@@ -2896,7 +2895,12 @@ def _run_tier3_implement(
         prior_feedback: str | None = None  # Combined reviewer feedback from prior cycle
         last_reviewed_commit: str | None = None  # HEAD before the previous cycle's coder
 
+        tester_gap_summary: str | None = None  # Current cycle's tester gap findings
+
         for retry in range(max_retries + 1):
+            # Reset tester gaps each cycle so stale findings don't accumulate
+            tester_gap_summary = None
+
             # Capture HEAD before coder runs so reviewers on the next
             # retry can diff against this commit (delta reviews).
             cycle_head: str | None = None
@@ -3032,13 +3036,23 @@ def _run_tier3_implement(
                     exit_code=tester_exit,
                 )
 
-            # Read tester gap findings for potential feedback to coder
-            tester_gap_summary = _read_tester_gaps(worktree_repo_path)
-            if tester_gap_summary:
+            # Read tester gap findings for potential feedback to coder.
+            # Only read when tester succeeded — a failed tester may have left
+            # stale output from a previous cycle on disk.
+            if tester_exit == 0:
+                tester_gap_summary = _read_tester_gaps(worktree_repo_path)
+                if tester_gap_summary:
+                    logger.info(
+                        "Tester found gaps",
+                        pipeline_id=pipeline_id,
+                        phase_id=phase_id,
+                    )
+            else:
                 logger.info(
-                    "Tester found gaps",
+                    "Skipping tester gap read due to non-zero exit",
                     pipeline_id=pipeline_id,
                     phase_id=phase_id,
+                    exit_code=tester_exit,
                 )
 
             # --- DOCUMENTER ---
