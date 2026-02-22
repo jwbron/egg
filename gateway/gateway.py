@@ -1592,9 +1592,12 @@ def checkpoint_list() -> tuple[Response, int] | Response:
 
     handler = get_checkpoint_handler()
     checkpoint_repo = _resolve_checkpoint_repo(repo_path)
+    github_token = _resolve_checkpoint_token(repo_path)
 
     try:
-        index = handler.fetch_and_read_index(repo_path, checkpoint_repo=checkpoint_repo)
+        index = handler.fetch_and_read_index(
+            repo_path, checkpoint_repo=checkpoint_repo, github_token=github_token
+        )
     except Exception as e:
         logger.error("Checkpoint index fetch failed", error=str(e))
         return make_error("Failed to fetch checkpoints", status_code=500)
@@ -1658,13 +1661,16 @@ def checkpoint_cost() -> tuple[Response, int] | Response:
 
     handler = get_checkpoint_handler()
     checkpoint_repo = _resolve_checkpoint_repo(repo_path)
+    github_token = _resolve_checkpoint_token(repo_path)
 
     # fetch_and_read_index does ls-remote + fetch + read index in one pass.
     # We then call ensure_ref to get a ref for read_checkpoint calls below.
     # After the fetch in fetch_and_read_index, ensure_ref's fetch is a no-op
     # (branch already up-to-date), so only the ls-remote is repeated.
     try:
-        index = handler.fetch_and_read_index(repo_path, checkpoint_repo=checkpoint_repo)
+        index = handler.fetch_and_read_index(
+            repo_path, checkpoint_repo=checkpoint_repo, github_token=github_token
+        )
     except Exception as e:
         logger.error("Checkpoint index fetch failed", error=str(e))
         return make_error("Failed to fetch checkpoint data", status_code=500)
@@ -1682,7 +1688,9 @@ def checkpoint_cost() -> tuple[Response, int] | Response:
         )
 
     try:
-        ref = handler.ensure_ref(repo_path, checkpoint_repo=checkpoint_repo)
+        ref = handler.ensure_ref(
+            repo_path, checkpoint_repo=checkpoint_repo, github_token=github_token
+        )
     except Exception as e:
         logger.error("Checkpoint ref resolution failed", error=str(e))
         return make_error("Failed to fetch checkpoint data", status_code=500)
@@ -1812,9 +1820,12 @@ def checkpoint_show(identifier: str) -> tuple[Response, int] | Response:
 
     handler = get_checkpoint_handler()
     checkpoint_repo = _resolve_checkpoint_repo(repo_path)
+    github_token = _resolve_checkpoint_token(repo_path)
 
     try:
-        ref = handler.ensure_ref(repo_path, checkpoint_repo=checkpoint_repo)
+        ref = handler.ensure_ref(
+            repo_path, checkpoint_repo=checkpoint_repo, github_token=github_token
+        )
     except Exception as e:
         logger.error("Checkpoint ref fetch failed", error=str(e))
         return make_error("Failed to fetch checkpoint data", status_code=500)
@@ -1825,7 +1836,9 @@ def checkpoint_show(identifier: str) -> tuple[Response, int] | Response:
     checkpoint_id = identifier
     if not identifier.startswith("ckpt-"):
         # Look up by commit SHA
-        index = handler.fetch_and_read_index(repo_path, checkpoint_repo=checkpoint_repo)
+        index = handler.fetch_and_read_index(
+            repo_path, checkpoint_repo=checkpoint_repo, github_token=github_token
+        )
         if index:
             checkpoint_id = index.get_by_commit(identifier)
         if not checkpoint_id:
@@ -1890,7 +1903,32 @@ def _resolve_checkpoint_repo(repo_path: str) -> str | None:
     return None
 
 
-_CHECKPOINT_SCRATCH_DIR = "/tmp/egg-checkpoint-scratch"
+def _resolve_checkpoint_token(repo_path: str) -> str | None:
+    """Resolve a GitHub token for checkpoint fetch operations.
+
+    Tries ``_resolve_github_token`` (which reads the git remote from
+    ``repo_path``).  When that fails — typically because ``repo_path``
+    is the scratch repo with no remotes — falls back to resolving a
+    token via the ``source_repo`` query parameter.
+    """
+    from checkpoint_handler import _resolve_github_token
+
+    token = _resolve_github_token(repo_path)
+    if token:
+        return token
+
+    source_repo = request.args.get("source_repo")
+    if source_repo and re.match(r"^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$", source_repo):
+        token_str, _auth_mode, _error = get_token_for_repo(source_repo)
+        if token_str:
+            return token_str
+
+    return None
+
+
+_CHECKPOINT_SCRATCH_DIR = "/home/egg/.egg-worktrees/.checkpoint-scratch"
+
+_checkpoint_scratch_lock = __import__("threading").Lock()
 
 
 def _ensure_checkpoint_scratch_repo() -> str | None:
@@ -1906,20 +1944,24 @@ def _ensure_checkpoint_scratch_repo() -> str | None:
     """
     if os.path.isdir(os.path.join(_CHECKPOINT_SCRATCH_DIR, "objects")):
         return _CHECKPOINT_SCRATCH_DIR
-    try:
-        os.makedirs(_CHECKPOINT_SCRATCH_DIR, exist_ok=True)
-        subprocess.run(
-            ["git", "init", "--bare", _CHECKPOINT_SCRATCH_DIR],
-            capture_output=True,
-            text=True,
-            timeout=10,
-            check=True,
-        )
-        logger.debug("Created checkpoint scratch repo", path=_CHECKPOINT_SCRATCH_DIR)
-        return _CHECKPOINT_SCRATCH_DIR
-    except Exception as e:
-        logger.warning("Failed to create checkpoint scratch repo", error=str(e))
-        return None
+    with _checkpoint_scratch_lock:
+        # Re-check after acquiring lock to avoid duplicate init
+        if os.path.isdir(os.path.join(_CHECKPOINT_SCRATCH_DIR, "objects")):
+            return _CHECKPOINT_SCRATCH_DIR
+        try:
+            os.makedirs(_CHECKPOINT_SCRATCH_DIR, exist_ok=True)
+            subprocess.run(
+                ["git", "init", "--bare", _CHECKPOINT_SCRATCH_DIR],
+                capture_output=True,
+                text=True,
+                timeout=10,
+                check=True,
+            )
+            logger.debug("Created checkpoint scratch repo", path=_CHECKPOINT_SCRATCH_DIR)
+            return _CHECKPOINT_SCRATCH_DIR
+        except Exception as e:
+            logger.warning("Failed to create checkpoint scratch repo", error=str(e))
+            return None
 
 
 def _resolve_repo_path_for_checkpoints() -> str | None:
@@ -1946,7 +1988,8 @@ def _resolve_repo_path_for_checkpoints() -> str | None:
     # Session's last known repo path (set during push operations)
     session = getattr(g, "session", None)
     if session and getattr(session, "last_repo_path", None):
-        return session.last_repo_path
+        if os.path.isdir(session.last_repo_path):
+            return session.last_repo_path
 
     # Environment variable
     env_path = os.environ.get("EGG_REPO_PATH")

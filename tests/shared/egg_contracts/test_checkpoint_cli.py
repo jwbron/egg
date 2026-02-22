@@ -265,7 +265,9 @@ class TestGetCheckpointRepoFromArgs:
     def test_explicit_flag_takes_priority(self):
         """--checkpoint-repo flag is returned without auto-detection."""
         args = self._make_args(checkpoint_repo="owner/explicit-repo")
-        assert _get_checkpoint_repo_from_args(args) == "owner/explicit-repo"
+        checkpoint_repo, source_repo = _get_checkpoint_repo_from_args(args)
+        assert checkpoint_repo == "owner/explicit-repo"
+        assert source_repo is None
 
     @patch("config.repo_config.get_checkpoint_repo", return_value="jwbron/egg-checkpoints")
     @patch("egg_contracts.checkpoint_cli.run_git")
@@ -278,8 +280,9 @@ class TestGetCheckpointRepoFromArgs:
             stderr="",
         )
         args = self._make_args()
-        result = _get_checkpoint_repo_from_args(args)
-        assert result == "jwbron/egg-checkpoints"
+        checkpoint_repo, source_repo = _get_checkpoint_repo_from_args(args)
+        assert checkpoint_repo == "jwbron/egg-checkpoints"
+        assert source_repo == "jwbron/egg"
         mock_config.assert_called_once_with("jwbron/egg")
 
     @patch("config.repo_config.get_checkpoint_repo", return_value="jwbron/egg-checkpoints")
@@ -293,14 +296,15 @@ class TestGetCheckpointRepoFromArgs:
             stderr="",
         )
         args = self._make_args()
-        result = _get_checkpoint_repo_from_args(args)
-        assert result == "jwbron/egg-checkpoints"
+        checkpoint_repo, source_repo = _get_checkpoint_repo_from_args(args)
+        assert checkpoint_repo == "jwbron/egg-checkpoints"
+        assert source_repo == "jwbron/egg"
         mock_config.assert_called_once_with("jwbron/egg")
 
     @patch("config.repo_config.get_checkpoint_repo", return_value=None)
     @patch("egg_contracts.checkpoint_cli.run_git")
     def test_returns_none_when_no_config(self, mock_git, mock_config):
-        """Returns None when repo has no checkpoint_repo configured."""
+        """Returns None checkpoint_repo when repo has no checkpoint_repo configured."""
         mock_git.return_value = subprocess.CompletedProcess(
             args=[],
             returncode=0,
@@ -308,7 +312,9 @@ class TestGetCheckpointRepoFromArgs:
             stderr="",
         )
         args = self._make_args()
-        assert _get_checkpoint_repo_from_args(args) is None
+        checkpoint_repo, source_repo = _get_checkpoint_repo_from_args(args)
+        assert checkpoint_repo is None
+        assert source_repo == "owner/repo"
 
     @patch("egg_contracts.checkpoint_cli.run_git")
     def test_returns_none_when_git_remote_fails(self, mock_git):
@@ -320,7 +326,9 @@ class TestGetCheckpointRepoFromArgs:
             stderr="fatal: not a git repo",
         )
         args = self._make_args()
-        assert _get_checkpoint_repo_from_args(args) is None
+        checkpoint_repo, source_repo = _get_checkpoint_repo_from_args(args)
+        assert checkpoint_repo is None
+        assert source_repo is None
 
     @patch("egg_contracts.checkpoint_cli.run_git")
     def test_returns_none_when_remote_url_not_github(self, mock_git):
@@ -332,7 +340,9 @@ class TestGetCheckpointRepoFromArgs:
             stderr="",
         )
         args = self._make_args()
-        assert _get_checkpoint_repo_from_args(args) is None
+        checkpoint_repo, source_repo = _get_checkpoint_repo_from_args(args)
+        assert checkpoint_repo is None
+        assert source_repo is None
 
     @patch("config.repo_config.get_checkpoint_repo", return_value="org/dotted.repo-checkpoints")
     @patch("egg_contracts.checkpoint_cli.run_git")
@@ -345,12 +355,14 @@ class TestGetCheckpointRepoFromArgs:
             stderr="",
         )
         args = self._make_args()
-        result = _get_checkpoint_repo_from_args(args)
-        assert result == "org/dotted.repo-checkpoints"
+        checkpoint_repo, source_repo = _get_checkpoint_repo_from_args(args)
+        assert checkpoint_repo == "org/dotted.repo-checkpoints"
+        assert source_repo == "my-org/some.project"
         mock_config.assert_called_once_with("my-org/some.project")
 
     @patch("egg_contracts.checkpoint_cli.run_git", side_effect=Exception("timeout"))
     def test_returns_none_on_unexpected_error(self, mock_git):
         """Returns None gracefully on unexpected exceptions."""
         args = self._make_args()
-        assert _get_checkpoint_repo_from_args(args) is None
+        checkpoint_repo, source_repo = _get_checkpoint_repo_from_args(args)
+        assert checkpoint_repo is None

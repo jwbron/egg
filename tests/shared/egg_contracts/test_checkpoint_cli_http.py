@@ -161,7 +161,7 @@ class TestBuildListParamsCheckpointRepo:
 
     @patch("egg_contracts.checkpoint_cli._get_checkpoint_repo_from_args")
     def test_includes_checkpoint_repo_when_set(self, mock_get_ckpt):
-        mock_get_ckpt.return_value = "org/checkpoints"
+        mock_get_ckpt.return_value = ("org/checkpoints", None)
         args = argparse.Namespace(
             limit=50,
             issue=835,
@@ -182,7 +182,7 @@ class TestBuildListParamsCheckpointRepo:
 
     @patch("egg_contracts.checkpoint_cli._get_checkpoint_repo_from_args")
     def test_omits_checkpoint_repo_when_none(self, mock_get_ckpt):
-        mock_get_ckpt.return_value = None
+        mock_get_ckpt.return_value = (None, None)
         args = argparse.Namespace(
             limit=50,
             issue=835,
@@ -363,6 +363,13 @@ class TestGetSourceRepo:
         )
         assert _get_source_repo("/repo") is None
 
+    @patch("egg_contracts.checkpoint_cli.run_git")
+    def test_handles_trailing_slash(self, mock_git):
+        mock_git.return_value = subprocess.CompletedProcess(
+            args=[], returncode=0, stdout="https://github.com/jwbron/egg/\n", stderr=""
+        )
+        assert _get_source_repo("/repo") == "jwbron/egg"
+
     @patch("egg_contracts.checkpoint_cli.run_git", side_effect=Exception("timeout"))
     def test_returns_none_on_exception(self, mock_git):
         assert _get_source_repo("/repo") is None
@@ -373,31 +380,25 @@ class TestAddCheckpointResolutionParams:
 
     @patch("egg_contracts.checkpoint_cli._get_checkpoint_repo_from_args")
     def test_passes_checkpoint_repo_when_available(self, mock_get_ckpt):
-        mock_get_ckpt.return_value = "org/checkpoints"
+        mock_get_ckpt.return_value = ("org/checkpoints", None)
         args = argparse.Namespace(repo_path="/repo", checkpoint_repo="org/checkpoints")
         params: dict = {"repo_path": "/repo"}
         _add_checkpoint_resolution_params(params, args)
         assert params["checkpoint_repo"] == "org/checkpoints"
         assert "source_repo" not in params
 
-    @patch("egg_contracts.checkpoint_cli._get_source_repo")
     @patch("egg_contracts.checkpoint_cli._get_checkpoint_repo_from_args")
-    def test_passes_source_repo_when_checkpoint_repo_unavailable(
-        self, mock_get_ckpt, mock_get_src
-    ):
-        mock_get_ckpt.return_value = None
-        mock_get_src.return_value = "jwbron/egg"
+    def test_passes_source_repo_when_checkpoint_repo_unavailable(self, mock_get_ckpt):
+        mock_get_ckpt.return_value = (None, "jwbron/egg")
         args = argparse.Namespace(repo_path="/repo", checkpoint_repo=None)
         params: dict = {"repo_path": "/repo"}
         _add_checkpoint_resolution_params(params, args)
         assert "checkpoint_repo" not in params
         assert params["source_repo"] == "jwbron/egg"
 
-    @patch("egg_contracts.checkpoint_cli._get_source_repo")
     @patch("egg_contracts.checkpoint_cli._get_checkpoint_repo_from_args")
-    def test_passes_neither_when_both_unavailable(self, mock_get_ckpt, mock_get_src):
-        mock_get_ckpt.return_value = None
-        mock_get_src.return_value = None
+    def test_passes_neither_when_both_unavailable(self, mock_get_ckpt):
+        mock_get_ckpt.return_value = (None, None)
         args = argparse.Namespace(repo_path="/repo", checkpoint_repo=None)
         params: dict = {"repo_path": "/repo"}
         _add_checkpoint_resolution_params(params, args)
@@ -408,13 +409,9 @@ class TestAddCheckpointResolutionParams:
 class TestBuildListParamsSourceRepo:
     """Tests that _build_list_params includes source_repo for gateway resolution."""
 
-    @patch("egg_contracts.checkpoint_cli._get_source_repo")
     @patch("egg_contracts.checkpoint_cli._get_checkpoint_repo_from_args")
-    def test_includes_source_repo_when_checkpoint_repo_unavailable(
-        self, mock_get_ckpt, mock_get_src
-    ):
-        mock_get_ckpt.return_value = None
-        mock_get_src.return_value = "jwbron/egg"
+    def test_includes_source_repo_when_checkpoint_repo_unavailable(self, mock_get_ckpt):
+        mock_get_ckpt.return_value = (None, "jwbron/egg")
         args = argparse.Namespace(
             limit=50,
             issue=None,

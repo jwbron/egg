@@ -479,7 +479,7 @@ def _get_source_repo(repo_path: str | None = None) -> str | None:
         if result.returncode != 0 or not result.stdout.strip():
             return None
         remote_url = result.stdout.strip()
-        match = re.search(r"github\.com[:/]([^/]+)/([^/]+?)(?:\.git)?$", remote_url)
+        match = re.search(r"github\.com[:/]([^/]+)/([^/]+?)(?:\.git)?/?$", remote_url)
         if match:
             return f"{match.group(1)}/{match.group(2)}"
     except Exception:
@@ -487,24 +487,34 @@ def _get_source_repo(repo_path: str | None = None) -> str | None:
     return None
 
 
-def _get_checkpoint_repo_from_args(args: argparse.Namespace) -> str | None:
-    """Get checkpoint_repo from CLI args or repo config."""
+def _get_checkpoint_repo_from_args(
+    args: argparse.Namespace,
+) -> tuple[str | None, str | None]:
+    """Get checkpoint_repo from CLI args or repo config.
+
+    Returns:
+        Tuple of (checkpoint_repo, source_repo).  ``source_repo`` is
+        always populated when it can be determined, even if
+        ``checkpoint_repo`` resolution fails — this avoids duplicate
+        ``git remote`` calls in callers that need the source_repo
+        fallback.
+    """
     checkpoint_repo: str | None = getattr(args, "checkpoint_repo", None)
     if checkpoint_repo:
-        return checkpoint_repo
+        return checkpoint_repo, None
     # Try to auto-detect from repo config by reading the git remote URL
     # and looking up checkpoint_repo in repositories.yaml.
     repo_path = args.repo_path or get_repo_path()
     source_repo = _get_source_repo(repo_path)
     if not source_repo:
-        return None
+        return None, None
     try:
         from config.repo_config import get_checkpoint_repo  # type: ignore[import-not-found]
 
-        return get_checkpoint_repo(source_repo)
+        return get_checkpoint_repo(source_repo), source_repo
     except Exception:
         pass
-    return None
+    return None, source_repo
 
 
 def _add_checkpoint_resolution_params(
@@ -516,17 +526,14 @@ def _add_checkpoint_resolution_params(
     is available), it is passed directly.  Otherwise, source_repo is
     passed so the gateway can perform the config lookup on its side.
     """
-    checkpoint_repo = _get_checkpoint_repo_from_args(args)
+    checkpoint_repo, source_repo = _get_checkpoint_repo_from_args(args)
     if checkpoint_repo:
         params["checkpoint_repo"] = checkpoint_repo
-    else:
+    elif source_repo:
         # Can't resolve checkpoint_repo locally (e.g. sandbox without
         # repositories.yaml). Pass source_repo so the gateway can
         # look it up in its own config.
-        repo_path = params.get("repo_path") or args.repo_path or get_repo_path()
-        source_repo = _get_source_repo(repo_path)
-        if source_repo:
-            params["source_repo"] = source_repo
+        params["source_repo"] = source_repo
 
 
 def _build_list_params(args: argparse.Namespace) -> dict[str, Any]:
