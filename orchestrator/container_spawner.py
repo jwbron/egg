@@ -387,6 +387,14 @@ class ContainerSpawner:
         session_info = None
         container = None
 
+        # DinD cleanup contract: if a DinD sidecar was provisioned above,
+        # it MUST be torn down on every error path to prevent privileged
+        # container leaks.  The two except handlers below (ContainerSpawnError
+        # and the catch-all Exception) both call dind_manager.teardown().
+        # On success, the manager is tracked in _dind_managers for pipeline
+        # cleanup.  The DinD manager's watchdog timer provides a final safety
+        # net: even if the orchestrator crashes, the container self-terminates
+        # after DIND_MAX_LIFETIME_SECONDS (10 min).
         try:
             # Register gateway session so the container gets a session token.
             # Even local-mode containers need a session: the sandbox git/gh

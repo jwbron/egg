@@ -79,13 +79,28 @@ Three GitHub Actions workflows gate every PR:
 All three workflows trigger on `pull_request` events (`opened`, `synchronize`,
 `reopened`) and are also callable as reusable workflows via `workflow_call`.
 
+### Concurrency and path filtering
+
+All three workflows use concurrency groups with `cancel-in-progress: true`,
+so rapid pushes cancel stale CI runs instead of stacking them. The
+concurrency group key includes the branch ref (e.g.,
+`integration-tests-<branch>`), so runs for different PRs never cancel each
+other.
+
+The Integration Tests workflow has path filters so it only triggers when
+relevant code changes (gateway, orchestrator, shared, sandbox, integration
+tests, dependency files, or the workflow itself). Docs-only or config-only
+PRs skip this expensive workflow.
+
 ### Autofix
 
 When any of these workflows fails on a PR, the
 [on-check-failure.yml](../../.github/workflows/on-check-failure.yml) watcher
 triggers the autofix bot, which attempts to fix lint and test issues
-automatically. It watches for `Lint`, `Test`, and `Integration Tests`
-workflow completions.
+automatically. It watches for `Lint` and `Test` workflow completions.
+Integration test failures are not watched by the autofix bot because they
+are typically Docker/compose infrastructure issues rather than code issues
+the bot can fix.
 
 ### Non-required checks
 
@@ -148,6 +163,34 @@ The DinD architecture follows the same trust model as `DevserverManager`:
 The DinD container runs with `--privileged` but uses the rootless
 (`docker:27-dind-rootless`) image to reduce attack surface. It is managed
 entirely by the orchestrator and torn down after the tester completes.
+
+### Security controls
+
+**Watchdog timeout.** The DinD container has a maximum lifetime of 10
+minutes (`DIND_MAX_LIFETIME_SECONDS`), enforced by a background watchdog
+timer in `DindManager`. If the tester agent hangs or the orchestrator
+crashes, the watchdog auto-kills the privileged container. The timer is
+cancelled on normal teardown to avoid double-cleanup.
+
+**Resource limits.** The DinD container is constrained to 2 CPUs and 2 GB
+memory, matching the devserver sidecar limits.
+
+**Cleanup on all error paths.** If the gateway session registration or
+container creation fails after the DinD sidecar has been provisioned, the
+spawner tears down the DinD container before propagating the error. This
+prevents privileged container leaks on partial failures.
+
+### Known limitations
+
+- **Production Docker path not wired (Phase 2 deferred).** The
+  `integration_test_enabled` parameter propagates correctly through the
+  `spawn_fn` callback path (used in tests and local mode), but the
+  production callers in `pipelines.py` do not pass it yet. DinD
+  provisioning via the Docker-based spawn path will be wired in Phase 2.
+- **Lint and Test workflows have no path filters.** Only the Integration
+  Tests workflow uses path filters. Lint and Test run on all PRs regardless
+  of which files changed. This is acceptable because they are inexpensive
+  compared to integration tests.
 
 ## Troubleshooting
 

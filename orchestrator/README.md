@@ -301,9 +301,9 @@ Defined in `shared/egg_config/constants.py`:
 
 ## DinD Integration Testing
 
-The orchestrator can provision a Docker-in-Docker (DinD) sidecar for the tester agent, enabling full-stack integration tests from within the SDLC pipeline without granting Docker socket access to sandboxes. See the [Testing Guide](../docs/guides/testing.md#dind-self-testing-sdlc-pipeline) for architecture details and troubleshooting.
+The orchestrator can provision a Docker-in-Docker (DinD) sidecar for the tester agent, enabling full-stack integration tests from within the SDLC pipeline without granting Docker socket access to sandboxes. The DinD container runs with `--privileged` (rootless image) and is constrained by a 10-minute watchdog timeout, 2-CPU / 2-GB resource limits, and guaranteed cleanup on all error paths. See the [Testing Guide](../docs/guides/testing.md#dind-self-testing-sdlc-pipeline) for architecture details, security controls, and troubleshooting.
 
-Key files: `dind_manager.py` (lifecycle), `container_spawner.py` (provisioning), `multi_agent.py` (flag propagation).
+Key files: `dind_manager.py` (lifecycle + watchdog), `container_spawner.py` (provisioning + error cleanup), `multi_agent.py` (flag propagation).
 
 ## Related Documentation
 
