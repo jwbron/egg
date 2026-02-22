@@ -37,6 +37,7 @@ ALLOWLIST_PATHS = [
     "shared/egg_config/constants.py",
     # Shell scripts cannot import Python modules
     "gateway/entrypoint.sh",
+    "orchestrator/entrypoint.sh",
     # Gateway Python module has its own DEFAULT_PORT (source of truth for gateway)
     "gateway/gateway.py",
     # Gateway tests may need hardcoded values
@@ -50,6 +51,7 @@ ALLOWLIST_PATHS = [
     # Integration test infrastructure (compose files, conftest, network tests)
     "integration_tests/conftest.py",
     "integration_tests/docker-compose.yml",
+    "integration_tests/local_pipeline/",
     "integration_tests/test_network_",
     # CI/CD workflows (YAML cannot import Python)
     ".github/workflows/",
@@ -63,6 +65,8 @@ ALLOWLIST_PATHS = [
     "tests/egg_config/test_configs.py",
     "tests/functional/conftest.py",
     "tests/shared/egg_container/test_build_cmd.py",
+    "tests/shared/egg_container/test_config_builder.py",
+    "tests/shared/egg_contracts/test_checkpoint_cli_http.py",
     # Integration tests that need hardcoded values
     "integration_tests/test_network_isolation.py",
     "integration_tests/test_network_security.py",

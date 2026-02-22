@@ -86,6 +86,12 @@ disallow_untyped_defs = false
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
+module = ["egg_contracts.tests.*"]
+disallow_untyped_defs = false
+ignore_missing_imports = true
+follow_untyped_imports = true
+
+[[tool.mypy.overrides]]
 module = ["waitress", "waitress.*"]
 ignore_missing_imports = true
 
@@ -124,6 +130,25 @@ ignore_missing_imports = true
 # B310: urllib.urlopen - used with hardcoded/controlled URLs for health checks and API calls
 # B602: subprocess shell=True - used for user-provided commands in setup/discovery scripts
 skips = ["B102", "B104", "B108", "B201", "B310", "B602"]
+
+[tool.coverage.run]
+omit = [
+    # CLI entry points — thin wrappers that require full system integration
+    "sandbox/egg_lib/orch_cli.py",
+    "sandbox/egg_lib/sdlc_cli.py",
+    "sandbox/egg_lib/checkpoint_cli.py",
+    "shared/egg_contracts/usage_cli.py",
+    "shared/egg_contracts/checkpoint_cli.py",
+    # Scripts that run outside the test harness
+    "gateway/parse-git-mounts.py",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "if __name__ == .__main__.",
+    "if TYPE_CHECKING:",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests", "gateway/tests", "orchestrator/tests"]

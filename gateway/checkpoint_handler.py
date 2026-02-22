@@ -103,12 +103,12 @@ try:
     )
     from .session_manager import Session
 except ImportError:
-    from git_client import (  # type: ignore[no-redef, import-not-found]
+    from git_client import (  # type: ignore[no-redef, import-untyped]
         cleanup_credential_helper,
         create_credential_helper,
         get_token_for_repo,
     )
-    from session_manager import Session  # type: ignore[no-redef, import-not-found]
+    from session_manager import Session  # type: ignore[no-redef, import-untyped]
 
 logger = get_logger("gateway.checkpoint-handler")
 

@@ -147,7 +147,7 @@ def auto_commit_worktree(
         pipeline_id: Pipeline ID for the commit message.
         phase: SDLC phase for file restriction filtering.
         session_token: Gateway session token for pushing.
-        gateway_url: Gateway base URL (e.g., ``http://egg-gateway:9848``).
+        gateway_url: Gateway base URL (e.g., ``http://egg-gateway:<port>``).
 
     Returns:
         Commit SHA string if a commit was made, None otherwise.
@@ -182,7 +182,7 @@ def auto_commit_worktree(
 
         if phase and changed_files:
             try:
-                from phase_filter import check_phase_file_restrictions  # type: ignore[import-not-found]  # noqa: I001
+                from phase_filter import check_phase_file_restrictions  # type: ignore[import-untyped]  # noqa: I001
             except ImportError:
                 try:
                     from gateway.phase_filter import check_phase_file_restrictions

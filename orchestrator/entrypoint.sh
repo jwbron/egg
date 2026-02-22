@@ -76,12 +76,10 @@ if [ -n "${HOST_UID:-}" ] && [ -n "${HOST_GID:-}" ] && [ "$(id -u)" = "0" ]; the
     fi
     chown "$HOST_UID:$HOST_GID" /home/egg
 
-    # chown Docker volume mount points that are root-owned by default
-    for vol_dir in /home/egg/.egg-state; do
-        if [ -d "$vol_dir" ]; then
-            chown -R "$HOST_UID:$HOST_GID" "$vol_dir"
-        fi
-    done
+    # chown Docker volume mount point that is root-owned by default
+    if [ -d /home/egg/.egg-state ]; then
+        chown -R "$HOST_UID:$HOST_GID" /home/egg/.egg-state
+    fi
     # Chown repo bind-mount points — Docker bind mounts preserve host
     # ownership, so these directories may be root-owned inside the
     # container. Only chown the top-level directories (not recursive) —

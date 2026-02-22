@@ -55,7 +55,7 @@ def _get_session_manager() -> types.ModuleType:
 
             _session_manager = sm
         except ImportError:
-            import session_manager as sm  # type: ignore[no-redef, import-not-found]
+            import session_manager as sm  # type: ignore[no-redef, import-untyped]
 
             _session_manager = sm
     return _session_manager
@@ -81,7 +81,7 @@ def _get_rate_limiter() -> types.ModuleType:
 
             _rate_limiter = rl
         except ImportError:
-            import rate_limiter as rl  # type: ignore[no-redef, import-not-found]
+            import rate_limiter as rl  # type: ignore[no-redef, import-untyped]
 
             _rate_limiter = rl
     return _rate_limiter

@@ -115,30 +115,32 @@ jobs:
         id: resolve
         run: |
           # Use inputs if called as reusable workflow, otherwise use repository variables
-          if [[ "${{ github.event_name }}" == "workflow_call" ]]; then
-            echo "bot_username=${{ inputs.bot_username }}" >> "$GITHUB_OUTPUT"
-            echo "branch_prefix=${{ inputs.branch_prefix }}" >> "$GITHUB_OUTPUT"
-            echo "reviewer_username=${{ inputs.reviewer_username || '' }}" >> "$GITHUB_OUTPUT"
-            echo "authorized_users=${{ inputs.authorized_users || 'jwbron' }}" >> "$GITHUB_OUTPUT"
-          else
-            echo "bot_username=${{ vars.EGG_BOT_USERNAME }}" >> "$GITHUB_OUTPUT"
-            echo "branch_prefix=${{ vars.EGG_BRANCH_PREFIX }}" >> "$GITHUB_OUTPUT"
-            echo "reviewer_username=${{ vars.EGG_REVIEWER_USERNAME || '' }}" >> "$GITHUB_OUTPUT"
-            echo "authorized_users=${{ vars.EGG_AUTHORIZED_USERS || 'jwbron' }}" >> "$GITHUB_OUTPUT"
-          fi
-          echo "max_feedback_rounds=${{ inputs.max_feedback_rounds || '5' }}" >> "$GITHUB_OUTPUT"
+          {
+            if [[ "${{ github.event_name }}" == "workflow_call" ]]; then
+              echo "bot_username=${{ inputs.bot_username }}"
+              echo "branch_prefix=${{ inputs.branch_prefix }}"
+              echo "reviewer_username=${{ inputs.reviewer_username || '' }}"
+              echo "authorized_users=${{ inputs.authorized_users || 'jwbron' }}"
+            else
+              echo "bot_username=${{ vars.EGG_BOT_USERNAME }}"
+              echo "branch_prefix=${{ vars.EGG_BRANCH_PREFIX }}"
+              echo "reviewer_username=${{ vars.EGG_REVIEWER_USERNAME || '' }}"
+              echo "authorized_users=${{ vars.EGG_AUTHORIZED_USERS || 'jwbron' }}"
+            fi
+            echo "max_feedback_rounds=${{ inputs.max_feedback_rounds || '5' }}"
 
-          # Determine PR number based on event type
-          if [[ "${{ github.event_name }}" == "workflow_call" ]]; then
-            echo "pr_number=${{ inputs.pr_number }}" >> "$GITHUB_OUTPUT"
-            echo "should_check_trigger=false" >> "$GITHUB_OUTPUT"
-          elif [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            echo "pr_number=${{ github.event.inputs.pr_number }}" >> "$GITHUB_OUTPUT"
-            echo "should_check_trigger=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "pr_number=${{ github.event.pull_request.number || github.event.issue.number }}" >> "$GITHUB_OUTPUT"
-            echo "should_check_trigger=true" >> "$GITHUB_OUTPUT"
-          fi
+            # Determine PR number based on event type
+            if [[ "${{ github.event_name }}" == "workflow_call" ]]; then
+              echo "pr_number=${{ inputs.pr_number }}"
+              echo "should_check_trigger=false"
+            elif [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+              echo "pr_number=${{ github.event.inputs.pr_number }}"
+              echo "should_check_trigger=false"
+            else
+              echo "pr_number=${{ github.event.pull_request.number || github.event.issue.number }}"
+              echo "should_check_trigger=true"
+            fi
+          } >> "$GITHUB_OUTPUT"
 
   # For event-triggered runs, check if the trigger matches our bot
   check-trigger:

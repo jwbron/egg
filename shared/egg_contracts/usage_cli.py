@@ -356,7 +356,7 @@ def _get_checkpoint_repo_from_args(args: argparse.Namespace) -> str | None:
     # Try to auto-detect from repo config
     repo_path = args.repo_path or get_repo_path()
     try:
-        from checkpoint_handler import _get_checkpoint_repo_for_path  # type: ignore[import-not-found]  # noqa: I001
+        from checkpoint_handler import _get_checkpoint_repo_for_path  # type: ignore[import-untyped]  # noqa: I001
 
         result: str | None = _get_checkpoint_repo_for_path(repo_path)
         return result

@@ -164,7 +164,7 @@ lint-python:
 	@$(RUFF) format --check .
 	@echo "==> Mypy..."
 	@if command -v $(MYPY) >/dev/null 2>&1; then \
-		$(MYPY) gateway shared sandbox --exclude 'gateway/tests/'; \
+		$(MYPY) gateway shared sandbox --exclude 'gateway/tests/' --exclude 'shared/egg_contracts/tests/'; \
 	else \
 		echo "SKIP: mypy not installed"; \
 	fi

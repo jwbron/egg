@@ -36,7 +36,7 @@ from egg_logging import get_logger
 try:
     from .git_client import git_cmd
 except ImportError:
-    from git_client import git_cmd  # type: ignore[no-redef, import-not-found]
+    from git_client import git_cmd  # type: ignore[no-redef, import-untyped]
 
 
 logger = get_logger("gateway.worktree-manager")
@@ -973,7 +973,7 @@ class WorktreeManager:
                 try:
                     session = session_manager.get_session_by_container(container_id)
                     if session:
-                        from session_manager import _capture_and_cleanup_session  # type: ignore[import-not-found]  # noqa: I001
+                        from session_manager import _capture_and_cleanup_session  # type: ignore[import-untyped]  # noqa: I001
 
                         _capture_and_cleanup_session(session, "failed")
                 except Exception as e:

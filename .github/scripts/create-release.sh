@@ -153,7 +153,6 @@ if git rev-parse "$VERSION" > /dev/null 2>&1; then
 fi
 
 # Get current commit
-CURRENT_SHA=$(git rev-parse HEAD)
 CURRENT_SHA_SHORT=$(git rev-parse --short HEAD)
 
 echo ""
