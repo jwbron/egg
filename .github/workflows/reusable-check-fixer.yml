@@ -184,6 +184,7 @@ jobs:
           if [[ -n "$state_comment" ]]; then
             comment_id=$(echo "$state_comment" | jq -r '.id')
             # Extract JSON from the comment body (between ```json and ```)
+            # shellcheck disable=SC2016 # backticks are markdown fences, not command substitutions
             state_json=$(echo "$state_comment" | jq -r '.body' | sed -n '/```json/,/```/p' | sed '1d;$d')
             echo "comment-id=${comment_id}" >> "$GITHUB_OUTPUT"
             echo "state=${state_json}" >> "$GITHUB_OUTPUT"
