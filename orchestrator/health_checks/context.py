@@ -4,17 +4,29 @@ Pipeline health context with lazy properties (DD-7).
 Expensive operations (git subprocess calls, file reads) only execute
 when a property is first accessed.  Tier 1 checks typically only read
 cheap attributes (pipeline, phase, containers); Tier 2 may access
-git_log or agent_outputs which trigger subprocess / IO on first use.
+git_log, agent_outputs, or contract which trigger subprocess / IO on
+first use.
 """
 
 from __future__ import annotations
 
+import json
 import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from models import Pipeline, PipelinePhase
+
+# Approximate char limit for Tier 2 context fields (~4000 tokens × 4 chars/token).
+_TIER2_CHAR_CAP = 16000
+
+
+def _truncate(text: str, max_chars: int) -> str:
+    """Truncate text to *max_chars*, appending an ellipsis marker if cut."""
+    if len(text) <= max_chars:
+        return text
+    return text[:max_chars] + "\n... [truncated]"
 
 
 class PipelineHealthContext:
@@ -60,6 +72,7 @@ class PipelineHealthContext:
         self._git_log: str | None = None
         self._git_diff_stat: str | None = None
         self._agent_outputs: dict[str, str] | None = None
+        self._contract: dict[str, object] | None = None
         self._live_container_ids: set[str] | None = None
 
     # ------------------------------------------------------------------
@@ -94,9 +107,10 @@ class PipelineHealthContext:
 
     @property
     def git_diff_stat(self) -> str:
-        """Diff stat against origin/main."""
+        """Diff stat against origin/main, truncated to ~4000 tokens."""
         if self._git_diff_stat is None:
-            self._git_diff_stat = self._run_git("diff", "--stat", "origin/main...HEAD")
+            raw = self._run_git("diff", "--stat", "origin/main...HEAD")
+            self._git_diff_stat = _truncate(raw, _TIER2_CHAR_CAP)
         return self._git_diff_stat
 
     @property
@@ -108,6 +122,16 @@ class PipelineHealthContext:
         if self._agent_outputs is None:
             self._agent_outputs = self._read_agent_outputs()
         return self._agent_outputs
+
+    @property
+    def contract(self) -> dict[str, object]:
+        """SDLC contract for the pipeline's issue (parsed JSON).
+
+        Returns an empty dict if no contract exists or cannot be parsed.
+        """
+        if self._contract is None:
+            self._contract = self._read_contract()
+        return self._contract
 
     @property
     def live_container_ids(self) -> set[str]:
@@ -143,21 +167,26 @@ class PipelineHealthContext:
         except Exception:
             return ""
 
-    def _read_agent_outputs(self) -> dict[str, str]:
-        """Read agent output files from .egg-state/."""
-        outputs: dict[str, str] = {}
+    def _resolve_state_dir(self) -> Path:
+        """Return the .egg-state directory for this pipeline's repo."""
         state_dir = self.repo_path / ".egg-state"
         if self.pipeline.repo:
             repo_name = self.pipeline.repo.split("/")[-1]
             candidate = self.repo_path / repo_name / ".egg-state"
             if candidate.exists():
                 state_dir = candidate
+        return state_dir
+
+    def _read_agent_outputs(self) -> dict[str, str]:
+        """Read agent output files from .egg-state/."""
+        outputs: dict[str, str] = {}
+        state_dir = self._resolve_state_dir()
 
         if not state_dir.exists():
             return outputs
 
-        # Read drafts and contracts
-        for subdir_name in ("drafts", "contracts"):
+        # Read drafts, contracts, and agent-outputs
+        for subdir_name in ("drafts", "contracts", "agent-outputs"):
             subdir = state_dir / subdir_name
             if subdir.is_dir():
                 for path in subdir.iterdir():
@@ -167,6 +196,23 @@ class PipelineHealthContext:
                         except Exception:
                             pass
         return outputs
+
+    def _read_contract(self) -> dict[str, object]:
+        """Read and parse the SDLC contract JSON for this pipeline's issue."""
+        state_dir = self._resolve_state_dir()
+        issue_number = self.pipeline.issue_number
+        if issue_number is None:
+            return {}
+
+        contract_path = state_dir / "contracts" / f"{issue_number}.json"
+        if not contract_path.is_file():
+            return {}
+
+        try:
+            raw = contract_path.read_text(errors="replace")[:_TIER2_CHAR_CAP]
+            return json.loads(raw)  # type: ignore[no-any-return]
+        except (json.JSONDecodeError, OSError):
+            return {}
 
     def _fetch_live_container_ids(self) -> set[str]:
         """Query Docker for live container IDs."""

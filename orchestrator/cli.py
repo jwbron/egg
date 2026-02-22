@@ -141,12 +141,16 @@ def cmd_serve(args: argparse.Namespace) -> int:
                 StartupStateCheck,
                 StateConsistencyCheck,
             )
+            from health_checks.tier2 import AgentInspectorCheck
 
             runner = HealthCheckRunner()
+            # Tier 1 (programmatic)
             runner.register(ContainerLivenessCheck())  # Docker containers alive?
             runner.register(StartupStateCheck())  # Post-reconciliation clean?
             runner.register(PhaseOutputPresenceCheck())  # Agents produced artifacts?
             runner.register(StateConsistencyCheck())  # State vs Docker vs contract?
+            # Tier 2 (semantic — runs on escalation per DD-6)
+            runner.register(AgentInspectorCheck())  # Claude-powered agent analysis
 
             # Store runner on app for access by routes and other modules
             app.config["HEALTH_CHECK_RUNNER"] = runner
