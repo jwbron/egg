@@ -5,7 +5,7 @@
   "branch": "egg/issue-850",
   "mode": "issue",
   "prompt": null,
-  "status": "running",
+  "status": "complete",
   "current_phase": "pr",
   "config": {
     "auto_create_pr": true,
@@ -734,11 +734,11 @@
     }
   ],
   "created_at": "2026-02-21T22:58:58.875829",
-  "updated_at": "2026-02-22T01:32:39.041932",
+  "updated_at": "2026-02-22T01:32:39.076918",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
   "complexity_tier": "high",
   "error": null,
-  "version": 103
+  "version": 104
 }
