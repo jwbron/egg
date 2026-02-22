@@ -1516,6 +1516,24 @@ def _read_subprocess_stderr_tail(max_lines: int = 20) -> str:
     return ""
 
 
+def _chdir_to_single_repo(config: Config) -> None:
+    """Change to repos directory, entering the single repo if exactly one exists.
+
+    If repos_dir contains exactly one git repository, chdir into it and set
+    EGG_REPO_PATH so git/gh commands auto-detect the repository context.
+    Falls back to user home if repos_dir doesn't exist.
+    """
+    if config.repos_dir.exists():
+        os.chdir(config.repos_dir)
+        # If there's exactly one repo, cd into it so git/gh commands work
+        subdirs = [d for d in config.repos_dir.iterdir() if d.is_dir() and (d / ".git").exists()]
+        if len(subdirs) == 1:
+            os.chdir(subdirs[0])
+            os.environ["EGG_REPO_PATH"] = str(subdirs[0])
+    else:
+        os.chdir(config.user_home)
+
+
 def run_interactive(config: Config, logger: Logger) -> int:
     """Launch interactive Claude Code session.
 
@@ -1526,16 +1544,7 @@ def run_interactive(config: Config, logger: Logger) -> int:
         Exit code from the subprocess
     """
 
-    # Change to repos directory
-    if config.repos_dir.exists():
-        os.chdir(config.repos_dir)
-        # If there's exactly one repo, cd into it so git/gh commands work
-        subdirs = [d for d in config.repos_dir.iterdir() if d.is_dir() and (d / ".git").exists()]
-        if len(subdirs) == 1:
-            os.chdir(subdirs[0])
-            os.environ["EGG_REPO_PATH"] = str(subdirs[0])
-    else:
-        os.chdir(config.user_home)
+    _chdir_to_single_repo(config)
 
     # Build environment for Claude Code
     env = os.environ.copy()
@@ -1589,15 +1598,7 @@ def run_exec(config: Config, logger: Logger, args: list[str]) -> int:
     """
     # Change to repos directory (same as interactive mode) so that tools
     # like `gh repo view` can auto-detect the repository context.
-    if config.repos_dir.exists():
-        os.chdir(config.repos_dir)
-        # If there's exactly one repo, cd into it so git/gh commands work
-        subdirs = [d for d in config.repos_dir.iterdir() if d.is_dir() and (d / ".git").exists()]
-        if len(subdirs) == 1:
-            os.chdir(subdirs[0])
-            os.environ["EGG_REPO_PATH"] = str(subdirs[0])
-    else:
-        os.chdir(config.user_home)
+    _chdir_to_single_repo(config)
 
     env = os.environ.copy()
     # Remove launcher secret — privileged credential not for Claude's use
