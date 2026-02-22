@@ -366,3 +366,4 @@ class TestGetCheckpointRepoFromArgs:
         args = self._make_args()
         checkpoint_repo, source_repo = _get_checkpoint_repo_from_args(args)
         assert checkpoint_repo is None
+        assert source_repo is None

@@ -1866,7 +1866,7 @@ def _resolve_checkpoint_repo(repo_path: str) -> str | None:
     explicit = request.args.get("checkpoint_repo")
     if explicit:
         # Basic validation: must look like "owner/repo"
-        if re.match(r"^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$", explicit):
+        if re.match(r"^[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*$", explicit):
             return explicit
         logger.warning(
             "Invalid checkpoint_repo format, falling back to auto-detection",
@@ -1883,7 +1883,9 @@ def _resolve_checkpoint_repo(repo_path: str) -> str | None:
     # from git remote but cannot resolve checkpoint_repo locally
     # (repositories.yaml is only mounted on the gateway).
     source_repo = request.args.get("source_repo")
-    if source_repo and re.match(r"^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$", source_repo):
+    if source_repo and re.match(
+        r"^[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*$", source_repo
+    ):
         try:
             from config.repo_config import get_checkpoint_repo
 
@@ -1920,7 +1922,9 @@ def _resolve_checkpoint_token(repo_path: str) -> str | None:
         return token
 
     source_repo = request.args.get("source_repo")
-    if source_repo and re.match(r"^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$", source_repo):
+    if source_repo and re.match(
+        r"^[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*$", source_repo
+    ):
         token_str, _auth_mode, _error = get_token_for_repo(source_repo)
         if token_str:
             return token_str
