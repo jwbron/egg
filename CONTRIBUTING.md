@@ -20,18 +20,7 @@ Thank you for your interest in contributing to egg!
    - Creates a virtual environment with all dependencies (via uv)
    - Installs pre-commit hooks
 
-3. **Install act** for running CI locally
-   ```bash
-   # macOS
-   brew install act
-
-   # Linux
-   curl -s https://raw.githubusercontent.com/nektos/act/master/install.sh | bash -s -- -b ~/.local/bin
-   ```
-
-   See [act documentation](https://github.com/nektos/act) for details.
-
-4. **Verify the setup**
+3. **Verify the setup**
    ```bash
    make lint
    make test
@@ -46,19 +35,18 @@ The `Makefile` is the single entry point for all development tasks:
 | Command | What it does | Notes |
 |---------|--------------|-------|
 | `make setup` | Install dependencies and pre-commit hooks | Run once after cloning |
-| `make lint` | Run all linters | Via act, same as GitHub Actions |
-| `make test` | Run all tests | Via act, same as GitHub Actions |
-| `make security` | Run security scan | Via act, same as GitHub Actions |
-| `make ci` | Run full CI pipeline | Via act, all jobs |
-| `make lint-fix` | Auto-fix lint issues | Native (ruff format, shfmt, YAML whitespace) |
+| `make lint` | Run all linters | Same checks as GitHub Actions |
+| `make test` | Run all tests | Same checks as GitHub Actions |
+| `make security` | Run security scan | Same checks as GitHub Actions |
+| `make lint-fix` | Auto-fix lint issues | ruff format, shfmt, YAML whitespace |
 
 Run `make help` for the full list of targets.
 
 ### CI/Local Parity
 
-**GitHub Actions workflows are the single source of truth.** All `make lint`, `make test`, and `make security` targets delegate to the workflows via [act](https://github.com/nektos/act), guaranteeing that what passes locally will pass in CI.
+**The Makefile runs the same lint and test commands used in GitHub Actions workflows.** What passes locally will pass in CI — no additional tooling required.
 
-For quick one-off checks without Docker overhead, use the venv directly:
+For quick one-off checks, you can also use the venv directly:
 ```bash
 .venv/bin/ruff check .
 .venv/bin/pytest tests/test_python_syntax.py -v
@@ -86,10 +74,10 @@ Coverage requirements:
 
 Run tests:
 ```bash
-# All tests (via act, CI parity)
+# All tests
 make test
 
-# Specific test file (native, faster)
+# Specific test file
 .venv/bin/pytest tests/test_python_syntax.py -v
 ```
 
@@ -97,7 +85,7 @@ make test
 
 1. **Create a branch** from main
 2. **Make your changes** with clear, focused commits
-3. **Run the full CI locally**: `make ci`
+3. **Run lint and tests locally**: `make lint && make test`
 4. **Create a PR** with a clear description
 5. **Address review feedback**
 

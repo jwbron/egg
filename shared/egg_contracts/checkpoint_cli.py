@@ -78,7 +78,7 @@ def _http_get(base_url: str, endpoint: str, params: dict[str, Any] | None = None
     the session token from EGG_SESSION_TOKEN.
 
     Args:
-        base_url: Gateway base URL (e.g. http://egg-gateway:9848)
+        base_url: Gateway base URL (e.g. http://egg-gateway:<port>)
         endpoint: API path (e.g. /api/v1/checkpoints)
         params: Optional query parameters
 
@@ -105,7 +105,8 @@ def _http_get(base_url: str, endpoint: str, params: dict[str, Any] | None = None
         req.add_header("Accept", "application/json")
         req.add_header("Authorization", f"Bearer {session_token}")
         with urlopen(req, timeout=120) as response:
-            return json.loads(response.read().decode())
+            result: dict[str, Any] = json.loads(response.read().decode())
+            return result
     except HTTPError as e:
         try:
             body = json.loads(e.read().decode())
@@ -509,7 +510,7 @@ def _get_checkpoint_repo_from_args(
     if not source_repo:
         return None, None
     try:
-        from config.repo_config import get_checkpoint_repo  # type: ignore[import-not-found]
+        from config.repo_config import get_checkpoint_repo
 
         return get_checkpoint_repo(source_repo), source_repo
     except Exception:
@@ -517,9 +518,7 @@ def _get_checkpoint_repo_from_args(
     return None, source_repo
 
 
-def _add_checkpoint_resolution_params(
-    params: dict[str, Any], args: argparse.Namespace
-) -> None:
+def _add_checkpoint_resolution_params(params: dict[str, Any], args: argparse.Namespace) -> None:
     """Add checkpoint_repo and source_repo params for gateway resolution.
 
     When checkpoint_repo can be resolved locally (e.g. repositories.yaml
@@ -596,7 +595,7 @@ def cmd_list(args: argparse.Namespace) -> int:
             logger.debug("HTTP list failed, falling back to git: %s", e)
 
     repo_path = args.repo_path or get_repo_path()
-    checkpoint_repo = _get_checkpoint_repo_from_args(args)
+    checkpoint_repo, _ = _get_checkpoint_repo_from_args(args)
 
     ref = ensure_checkpoint_ref(repo_path, checkpoint_repo=checkpoint_repo)
     if not ref:
@@ -668,7 +667,7 @@ def cmd_show(args: argparse.Namespace) -> int:
 
     repo_path = args.repo_path or get_repo_path()
     identifier = args.identifier
-    checkpoint_repo = _get_checkpoint_repo_from_args(args)
+    checkpoint_repo, _ = _get_checkpoint_repo_from_args(args)
 
     ref = ensure_checkpoint_ref(repo_path, checkpoint_repo=checkpoint_repo)
     if not ref:
@@ -755,7 +754,7 @@ def cmd_browse(args: argparse.Namespace) -> int:
             logger.debug("HTTP browse failed, falling back to git: %s", e)
 
     repo_path = args.repo_path or get_repo_path()
-    checkpoint_repo = _get_checkpoint_repo_from_args(args)
+    checkpoint_repo, _ = _get_checkpoint_repo_from_args(args)
 
     ref = ensure_checkpoint_ref(repo_path, checkpoint_repo=checkpoint_repo)
     if not ref:
@@ -955,7 +954,7 @@ def cmd_context(args: argparse.Namespace) -> int:
             logger.debug("HTTP context failed, falling back to git: %s", e)
 
     repo_path = args.repo_path or get_repo_path()
-    checkpoint_repo = _get_checkpoint_repo_from_args(args)
+    checkpoint_repo, _ = _get_checkpoint_repo_from_args(args)
 
     ref = ensure_checkpoint_ref(repo_path, checkpoint_repo=checkpoint_repo)
     if not ref:
@@ -1139,7 +1138,7 @@ def cmd_cost(args: argparse.Namespace) -> int:
     from .usage import TokenCounts
 
     repo_path = args.repo_path or get_repo_path()
-    checkpoint_repo = _get_checkpoint_repo_from_args(args)
+    checkpoint_repo, _ = _get_checkpoint_repo_from_args(args)
 
     ref = ensure_checkpoint_ref(repo_path, checkpoint_repo=checkpoint_repo)
     if not ref:

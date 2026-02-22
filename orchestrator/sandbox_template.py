@@ -26,8 +26,8 @@ except ImportError:
     # Fallback values
     EGG_ISOLATED_NETWORK = "egg-isolated"
     GATEWAY_ISOLATED_IP = "172.32.0.2"
-    GATEWAY_PORT = 9848
-    GATEWAY_PROXY_PORT = 3129
+    GATEWAY_PORT = 9848  # noqa: EGG002
+    GATEWAY_PROXY_PORT = 3129  # noqa: EGG002
 
 from models import AgentRole
 

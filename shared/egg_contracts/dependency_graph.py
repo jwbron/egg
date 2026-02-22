@@ -23,6 +23,7 @@ from typing import TYPE_CHECKING
 from .agent_roles import AgentRole, get_role_definition
 
 if TYPE_CHECKING:
+    from .models import Phase
     from .orchestration import OrchestrationState
 
 
@@ -397,7 +398,7 @@ class PhaseDependencyGraph:
         # waves[2] = PhaseWave(3, ["phase-4"])
     """
 
-    def __init__(self, phases: list | None = None) -> None:
+    def __init__(self, phases: list[Phase] | None = None) -> None:
         """Initialize with optional list of Phase models.
 
         Args:

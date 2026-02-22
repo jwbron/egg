@@ -918,7 +918,7 @@ def check_agent_restrictions(
     try:
         from .agent_restrictions import validate_agent_push
     except ImportError:
-        from agent_restrictions import validate_agent_push  # type: ignore[no-redef, import-not-found]  # noqa: I001
+        from agent_restrictions import validate_agent_push  # type: ignore[no-redef, import-untyped]  # noqa: I001
 
     result = validate_agent_push(agent_role, files, complexity_tier=complexity_tier)
 

@@ -346,7 +346,7 @@ def resolve_gh_api_template_variables(api_path: str, cwd: str | None) -> str | N
 
     # Import here to avoid circular dependency
     try:
-        from repo_parser import get_remote_url, parse_github_url  # type: ignore[import-not-found]
+        from repo_parser import get_remote_url, parse_github_url  # type: ignore[import-untyped]
     except ImportError:
         from .repo_parser import get_remote_url, parse_github_url
 

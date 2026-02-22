@@ -526,7 +526,9 @@ class TestResolveRepoPathFallthrough:
         import gateway as gw
 
         with (
-            patch.object(gw, "_ensure_checkpoint_scratch_repo", return_value="/scratch") as mock_scratch,
+            patch.object(
+                gw, "_ensure_checkpoint_scratch_repo", return_value="/scratch"
+            ) as mock_scratch,
             patch.dict(os.environ, {"EGG_REPO_PATH": ""}, clear=False),
         ):
             with app.test_request_context("/?repo_path=/home/egg/repos/nonexistent"):
@@ -577,9 +579,7 @@ class TestResolveCheckpointToken:
         import gateway as gw
 
         with app.test_request_context("/?source_repo=jwbron/egg"):
-            with patch(
-                "checkpoint_handler._resolve_github_token", return_value="ghp_from_remote"
-            ):
+            with patch("checkpoint_handler._resolve_github_token", return_value="ghp_from_remote"):
                 result = gw._resolve_checkpoint_token("/repo")
                 assert result == "ghp_from_remote"
 

@@ -39,7 +39,7 @@ on:
         description: 'Timeout in minutes'
         required: false
         type: string
-        default: "20"
+        default: "60"
     secrets:
       BOT_APP_ID:
         required: true
@@ -83,7 +83,7 @@ on:
         description: 'Timeout in minutes'
         required: false
         type: string
-        default: "20"
+        default: "60"
 
 jobs:
   autofix:

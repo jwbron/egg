@@ -40,7 +40,7 @@ try:
 except ImportError:
     # Fallback defaults
     GATEWAY_CONTAINER_NAME = "egg-gateway"
-    GATEWAY_PORT = 9848
+    GATEWAY_PORT = 9848  # noqa: EGG002
 
 logger = get_logger("orchestrator.gateway_client")
 
@@ -98,7 +98,7 @@ class GatewayClient:
 
         Args:
             gateway_host: Gateway hostname (default: egg-gateway or env)
-            gateway_port: Gateway port (default: 9848 or env)
+            gateway_port: Gateway port (default: GATEWAY_PORT or env)
             launcher_secret: Launcher secret for privileged operations
             timeout: Request timeout in seconds
         """
