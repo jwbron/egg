@@ -18,8 +18,7 @@ YAMLLINT := $(if $(wildcard $(VENV_BIN)/yamllint),$(VENV_BIN)/yamllint,yamllint)
 BANDIT := $(if $(wildcard $(VENV_BIN)/bandit),$(VENV_BIN)/bandit,bandit)
 PYTHON := $(if $(wildcard $(VENV_BIN)/python),$(VENV_BIN)/python,python3)
 
-# PYTHONPATH for tests and custom checks
-export PYTHONPATH := shared:gateway:orchestrator
+# PYTHONPATH — set per-target to avoid leaking into unrelated recipes
 
 .PHONY: help \
         setup venv install-linters check-linters \
@@ -157,6 +156,7 @@ check-linters:
 # In the sandbox, missing tools (hadolint, actionlint, yamllint) are skipped.
 lint: lint-python lint-shell lint-yaml lint-docker lint-actions lint-custom
 
+lint-python: export PYTHONPATH := shared:gateway:orchestrator
 lint-python:
 	@echo "==> Ruff check..."
 	@$(RUFF) check .
@@ -210,6 +210,7 @@ lint-actions:
 		echo "SKIP: actionlint not installed"; \
 	fi
 
+lint-custom: export PYTHONPATH := shared:gateway:orchestrator
 lint-custom:
 	@echo "==> Custom checks..."
 	@failed=""; \
@@ -226,6 +227,7 @@ lint-custom:
 		exit 1; \
 	fi
 
+test: export PYTHONPATH := shared:gateway:orchestrator
 test:
 	@echo "==> Running unit tests..."
 	$(PYTEST) tests/ gateway/tests/ orchestrator/tests/ -v $(PYTEST_ARGS)
@@ -242,13 +244,16 @@ security:
 # Integration tests (native — requires Docker)
 # ============================================================================
 
-test-integration:  ## Run integration tests (requires Docker)
+test-integration: export PYTHONPATH := shared
+test-integration: venv  ## Run integration tests (requires Docker)
 	$(PYTEST) integration_tests -v -m integration --timeout=300
 
-test-e2e:  ## Run E2E tests (requires API keys)
+test-e2e: export PYTHONPATH := shared
+test-e2e: venv  ## Run E2E tests (requires API keys)
 	$(PYTEST) integration_tests -v -m e2e --timeout=600
 
-test-security:  ## Run security/pentesting tests
+test-security: export PYTHONPATH := shared
+test-security: venv  ## Run security/pentesting tests
 	$(PYTEST) integration_tests -v -m security --timeout=300
 
 # ============================================================================
