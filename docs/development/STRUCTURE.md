@@ -31,7 +31,7 @@ egg/
 | `orchestrator/` | SDLC pipeline orchestrator: state management, container lifecycle, HITL queue | Orchestrator container |
 | `sandbox/` | Agent environment: Claude Code, tools, entrypoint | Sandbox container |
 | `shared/` | Shared libraries: logging, config, git utilities, centralized constants | All containers |
-| `scripts/` | CI/lint scripts (config validation, import checks, hardcoded port detection, reviewer job name enforcement) | CI / local |
+| `scripts/` | CI/lint scripts (config validation, import checks, hardcoded port detection, reviewer job name enforcement, LLM API boundary enforcement) | CI / local |
 | `tests/` | Test suite | CI / local |
 
 ## Gateway Structure
@@ -81,7 +81,7 @@ orchestrator/
 ├── cli.py                  # CLI for pipeline management
 ├── container_spawner.py    # Sandbox container lifecycle
 ├── container_monitor.py    # Container health monitoring
-├── dag_visualizer.py       # ASCII DAG visualization for pipeline status
+├── dag_visualizer.py       # ASCII DAG visualization for pipeline status (incl. Tier 3 sub-phase rendering)
 ├── decision_queue.py       # HITL decision queue
 ├── devserver.py            # Devserver lifecycle manager for deployment validation (DinD)
 ├── dispatch.py             # Agent dispatch logic
@@ -142,6 +142,7 @@ sandbox/
 │   ├── gh
 │   ├── egg-contract        # Symlink to contract_cli.py
 │   ├── egg-checkpoint      # Symlink to checkpoint_cli.py
+│   ├── egg-health-inspect  # Pipeline health inspector (delegates LLM calls for tier 2 checks)
 │   ├── egg-onboarding-docs # Generate repository documentation via egg-sdlc
 │   ├── egg-pipeline-watch  # Real-time pipeline progress viewer via SSE
 │   ├── egg-orch            # Symlink to orch_cli.py
