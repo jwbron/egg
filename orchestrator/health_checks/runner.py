@@ -163,6 +163,7 @@ class HealthCheckRunner:
             return None
 
     def _emit_started(self, context: PipelineHealthContext, trigger: HealthTrigger) -> None:
+        """Emit HEALTH_CHECK_STARTED event at the beginning of a check run."""
         bus = self._get_event_bus()
         if bus is None:
             return
@@ -178,6 +179,7 @@ class HealthCheckRunner:
             logger.debug("Failed to emit HEALTH_CHECK_STARTED", error=str(exc))
 
     def _emit_result(self, context: PipelineHealthContext, result: HealthResult) -> None:
+        """Emit a per-check event: COMPLETED, DEGRADED, or FAILED based on status."""
         bus = self._get_event_bus()
         if bus is None:
             return
@@ -205,12 +207,14 @@ class HealthCheckRunner:
         trigger: HealthTrigger,
         results: list[HealthResult],
     ) -> None:
+        """Emit aggregate HEALTH_CHECK_COMPLETED event with worst-of status."""
         bus = self._get_event_bus()
         if bus is None:
             return
         try:
             from events import EventType
 
+            # Compute aggregate status: FAILED > DEGRADED > HEALTHY
             worst = HealthStatus.HEALTHY
             for r in results:
                 if r.status == HealthStatus.FAILED:

@@ -128,6 +128,11 @@ def cmd_serve(args: argparse.Namespace) -> int:
             )
 
         # --- Health check framework initialization ---
+        # Register all Tier 1 (programmatic) health checks and run the
+        # STARTUP trigger against every RUNNING pipeline.  The runner is
+        # stored on app.config so the on-demand endpoint (routes/health.py)
+        # and phase-advance gating (routes/phases.py) can access it.
+        # See orchestrator/health_checks/README.md for the full framework.
         try:
             from health_checks.runner import HealthCheckRunner
             from health_checks.tier1 import (
@@ -138,22 +143,24 @@ def cmd_serve(args: argparse.Namespace) -> int:
             )
 
             runner = HealthCheckRunner()
-            runner.register(ContainerLivenessCheck())
-            runner.register(StartupStateCheck())
-            runner.register(PhaseOutputPresenceCheck())
-            runner.register(StateConsistencyCheck())
+            runner.register(ContainerLivenessCheck())       # Docker containers alive?
+            runner.register(StartupStateCheck())            # Post-reconciliation clean?
+            runner.register(PhaseOutputPresenceCheck())     # Agents produced artifacts?
+            runner.register(StateConsistencyCheck())        # State vs Docker vs contract?
 
             # Store runner on app for access by routes and other modules
             app.config["HEALTH_CHECK_RUNNER"] = runner
 
-            # Connect runner to container monitor for RUNTIME_TICK integration
+            # Wire runner into container monitor so RUNTIME_TICK checks fire
+            # automatically when container state changes are detected.
             try:
                 monitor = get_container_monitor()
                 monitor.set_health_check_runner(runner, repo_path)
             except Exception:
-                pass
+                pass  # Monitor may not be available; health checks still work on-demand
 
-            # Run STARTUP health checks on all running pipelines
+            # Run STARTUP health checks on all RUNNING pipelines to catch
+            # any inconsistencies left over from a previous crash/restart.
             from health_checks.context import PipelineHealthContext
             from health_checks.types import HealthTrigger
             from state_store import get_state_store as _get_store
@@ -184,6 +191,7 @@ def cmd_serve(args: argparse.Namespace) -> int:
                                 result_count=len(results),
                             )
                 except Exception as hc_err:
+                    # Per-pipeline errors are non-fatal; log and continue
                     logger.debug(
                         "Startup health check failed for pipeline",
                         pipeline_id=pid,
@@ -192,6 +200,8 @@ def cmd_serve(args: argparse.Namespace) -> int:
 
             logger.info("Health check framework initialized")
         except Exception as hc_init_err:
+            # Framework init failure is non-fatal — the orchestrator still
+            # operates, but health checks are unavailable (503 on the endpoint).
             logger.warning(
                 "Health check framework initialization failed",
                 error=str(hc_init_err),

@@ -1,5 +1,9 @@
 """
-Health check endpoint for egg-orchestrator.
+Health and pipeline health check endpoints for egg-orchestrator.
+
+Includes standard service health/readiness/liveness probes and an
+on-demand pipeline health check endpoint that runs the full two-tier
+health check framework (see ``health_checks/`` package).
 """
 
 import os
@@ -95,8 +99,10 @@ def pipeline_health_check(pipeline_id: str) -> tuple[Response, int]:
             "timestamp": "2024-01-15T12:00:00Z"
         }
     """
+    # Runner is registered on app.config at startup (see cli.py)
     runner = current_app.config.get("HEALTH_CHECK_RUNNER")
     if runner is None:
+        # 503: health checking is unavailable (framework failed to init)
         return jsonify(
             {
                 "pipeline_id": pipeline_id,
@@ -137,7 +143,8 @@ def pipeline_health_check(pipeline_id: str) -> tuple[Response, int]:
         )
         results = runner.run(ctx, HealthTrigger.ON_DEMAND)
 
-        # Determine aggregate status
+        # Aggregate status: worst-of across all results
+        # Priority: FAILED > DEGRADED > HEALTHY
         aggregate_status = "healthy"
         for r in results:
             if r.status.value == "failed":

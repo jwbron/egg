@@ -133,17 +133,26 @@ class ContainerMonitor:
                 )
 
     def set_health_check_runner(self, runner: Any, repo_path: str) -> None:
-        """Set optional health check runner for RUNTIME_TICK integration.
+        """Connect a HealthCheckRunner for RUNTIME_TICK integration.
+
+        When set, health checks run automatically after each container
+        state-change poll cycle via ``_run_health_checks_on_change()``.
 
         Args:
-            runner: HealthCheckRunner instance
-            repo_path: Path to repository for context construction
+            runner: HealthCheckRunner instance (from cli.py startup).
+            repo_path: Path to repository root for context construction.
         """
         self._health_check_runner = runner
         self._health_check_repo_path = repo_path
 
     def _run_health_checks_on_change(self) -> None:
-        """Run RUNTIME_TICK health checks when container state changes."""
+        """Run RUNTIME_TICK health checks after container state changes.
+
+        Called at the end of each monitor poll cycle.  Iterates over all
+        RUNNING pipelines and runs Tier 1 checks (Tier 2 never runs on
+        RUNTIME_TICK).  Errors are non-fatal: logged at debug level so
+        the monitor continues operating even if health checks fail.
+        """
         if self._health_check_runner is None or self._health_check_repo_path is None:
             return
         try:
@@ -156,7 +165,7 @@ class ContainerMonitor:
                 try:
                     pipeline = store.load_pipeline(pid)
                     if pipeline.status.value != "running":
-                        continue
+                        continue  # Only check active pipelines
                     ctx = PipelineHealthContext(
                         pipeline=pipeline,
                         repo_path=Path(self._health_check_repo_path),

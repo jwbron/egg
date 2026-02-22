@@ -547,7 +547,9 @@ class MultiAgentExecutor:
             if on_wave_complete:
                 on_wave_complete(completed)
 
-            # Run WAVE_COMPLETE health checks
+            # Run WAVE_COMPLETE health checks.  Tier 1 always runs; Tier 2
+            # only escalates when Tier 1 reports DEGRADED (see runner.py).
+            # If any check returns FAIL_PIPELINE, stop wave execution early.
             if health_check_runner is not None:
                 if self._run_wave_health_checks(health_check_runner, waves_executed):
                     logger.warning(
@@ -571,14 +573,21 @@ class MultiAgentExecutor:
         return self.completed_waves
 
     def _run_wave_health_checks(self, runner: Any, wave_number: int) -> bool:
-        """Run WAVE_COMPLETE health checks.
+        """Run WAVE_COMPLETE health checks after a wave finishes.
+
+        At WAVE_COMPLETE, Tier 1 checks always run and Tier 2 checks
+        escalate only when Tier 1 reports DEGRADED (e.g. agents completed
+        but produced no commits).  This is the main mechanism for catching
+        the issue-835 pattern mid-execution.
 
         Args:
-            runner: HealthCheckRunner instance
-            wave_number: Current wave number
+            runner: HealthCheckRunner instance (from app.config).
+            wave_number: 1-based index of the wave that just completed.
 
         Returns:
-            True if FAIL_PIPELINE action was returned by any check
+            True if any check returned FAIL_PIPELINE, meaning the caller
+            should break out of wave execution.  Returns False on error
+            (graceful degradation).
         """
         try:
             from health_checks.context import PipelineHealthContext

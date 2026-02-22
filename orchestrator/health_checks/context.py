@@ -35,6 +35,18 @@ class PipelineHealthContext:
         docker_client: Any | None = None,
         state_store: Any | None = None,
     ) -> None:
+        """Initialize context with cheap, already-loaded objects.
+
+        Args:
+            pipeline: The pipeline model (already loaded from state store).
+            repo_path: Root path where repos are mounted (e.g. ~/repos).
+            trigger: The HealthTrigger value that caused this check run.
+            phase: Override for current phase (defaults to pipeline.current_phase).
+            wave_number: Current wave number, if triggered by WAVE_COMPLETE.
+            docker_client: DockerClient for live container queries. Optional —
+                if None, live_container_ids returns an empty set.
+            state_store: State store instance for additional lookups.
+        """
         self.pipeline = pipeline
         self.repo_path = repo_path
         self.trigger = trigger
@@ -44,7 +56,7 @@ class PipelineHealthContext:
         self.state_store = state_store
         self.timestamp = datetime.now(UTC)
 
-        # Lazy caches (None = not yet computed, _SENTINEL for "computed but empty")
+        # Lazy caches — None means not yet computed
         self._git_log: str | None = None
         self._git_diff_stat: str | None = None
         self._agent_outputs: dict[str, str] | None = None
@@ -56,14 +68,17 @@ class PipelineHealthContext:
 
     @property
     def pipeline_id(self) -> str:
+        """Pipeline identifier (e.g. ``issue-850``)."""
         return self.pipeline.id
 
     @property
     def branch(self) -> str | None:
+        """Git branch associated with the pipeline, if any."""
         return self.pipeline.branch
 
     @property
     def current_phase(self) -> PipelinePhase:
+        """The phase being evaluated (may be overridden from constructor)."""
         return self.phase
 
     # ------------------------------------------------------------------

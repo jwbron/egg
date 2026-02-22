@@ -248,7 +248,11 @@ def advance_phase(pipeline_id: str) -> tuple[Response, int]:
                     f"(status: {current_execution.status.value})"
                 )
 
-        # Run PHASE_COMPLETE health checks before advancing (skipped on force)
+        # Gate phase advance on health checks.  Runs all Tier 1 and Tier 2
+        # checks; if any returns FAIL_PIPELINE, the transition is blocked
+        # with 409 Conflict so the caller can inspect health_results.
+        # Skipped when force=true (escape hatch for stuck pipelines).
+        # Health check errors degrade gracefully — the advance proceeds.
         if not force:
             try:
                 from flask import current_app
@@ -274,8 +278,9 @@ def advance_phase(pipeline_id: str) -> tuple[Response, int]:
                             },
                         )
             except ImportError:
-                pass
+                pass  # Health check module not available — proceed without gating
             except Exception as hc_err:
+                # Graceful degradation: log and allow the advance to proceed
                 logger.debug(
                     "PHASE_COMPLETE health check failed",
                     pipeline_id=pipeline_id,
