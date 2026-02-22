@@ -24,8 +24,6 @@ sys.modules.setdefault("docker.errors", MagicMock())
 sys.modules.setdefault("docker.types", MagicMock())
 
 from models import (
-    AgentExecution,
-    AgentExecutionStatus,
     AgentRole,
     Pipeline,
     PipelinePhase,

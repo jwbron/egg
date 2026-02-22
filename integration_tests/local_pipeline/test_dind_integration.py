@@ -101,7 +101,7 @@ class TestDindLifecycle:
 
     def test_teardown_removes_container(self, dind_manager: DindManager):
         """Teardown removes the DinD container."""
-        status = dind_manager.start()
+        dind_manager.start()
         container_name = dind_manager.container_name
 
         # Container should exist

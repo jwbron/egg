@@ -6,20 +6,18 @@ image pre-load command construction, and cleanup paths.
 All Docker SDK calls are mocked.
 """
 
-import socket
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 import dind_manager as dind_mod
+import pytest
 from dind_manager import (
     DIND_PORT,
-    DockerNotFound,
     DindError,
     DindImageLoadError,
     DindManager,
     DindStartupError,
     DindStatusValue,
+    DockerNotFound,
 )
 
 
@@ -122,7 +120,7 @@ class TestStart:
         manager = _make_manager(docker_client=mock_client)
 
         with patch.object(manager, "_wait_for_healthy", return_value=True):
-            status = manager.start(network_name="test-net")
+            manager.start(network_name="test-net")
 
         run_kwargs = mock_client.containers.run.call_args
         assert run_kwargs[1]["network"] == "test-net"
@@ -250,7 +248,7 @@ class TestHealthCheck:
 
         with patch("socket.socket") as mock_socket_cls:
             mock_sock = MagicMock()
-            mock_sock.connect.side_effect = socket.error("Connection refused")
+            mock_sock.connect.side_effect = OSError("Connection refused")
             mock_socket_cls.return_value = mock_sock
 
             with patch("time.sleep"):
@@ -279,7 +277,7 @@ class TestHealthCheck:
                 nonlocal call_count
                 call_count += 1
                 if call_count < 3:
-                    raise socket.error("Connection refused")
+                    raise OSError("Connection refused")
 
             mock_sock.connect.side_effect = connect_side_effect
             mock_socket_cls.return_value = mock_sock

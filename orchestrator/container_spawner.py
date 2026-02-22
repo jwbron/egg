@@ -144,7 +144,7 @@ class ContainerSpawner:
         """
         self._docker = docker_client
         self._gateway = gateway_client
-        self._dind_managers: dict[str, "DindManager"] = {}  # pipeline_id -> DindManager
+        self._dind_managers: dict[str, DindManager] = {}  # pipeline_id -> DindManager
 
     @property
     def docker(self) -> DockerClient:

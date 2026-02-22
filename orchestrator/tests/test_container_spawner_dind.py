@@ -6,18 +6,33 @@ cleanup_pipeline() that the coder's changes added. All Docker and
 DindManager interactions are mocked.
 """
 
+import sys
 from datetime import datetime, timedelta
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
-from container_spawner import (
+
+# Mock docker SDK before importing modules that depend on it
+_orchestrator_path = Path(__file__).parent.parent
+if str(_orchestrator_path) not in sys.path:
+    sys.path.insert(0, str(_orchestrator_path))
+
+_shared_path = Path(__file__).parent.parent.parent / "shared"
+if _shared_path.exists() and str(_shared_path) not in sys.path:
+    sys.path.insert(0, str(_shared_path))
+
+sys.modules.setdefault("docker", MagicMock())
+sys.modules.setdefault("docker.errors", MagicMock())
+sys.modules.setdefault("docker.types", MagicMock())
+
+from container_spawner import (  # noqa: E402
     ContainerSpawner,
     ContainerSpawnError,
 )
-from docker_client import DockerClientError
-from gateway_client import GatewayHealth, SessionInfo
-from models import AgentRole, ContainerInfo, ContainerStatus
-
+from docker_client import DockerClientError  # noqa: E402
+from gateway_client import GatewayHealth, SessionInfo  # noqa: E402
+from models import AgentRole, ContainerInfo, ContainerStatus  # noqa: E402
 
 # ── Fixtures ────────────────────────────────────────────────────
 

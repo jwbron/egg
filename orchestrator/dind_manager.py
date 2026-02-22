@@ -207,7 +207,7 @@ class DindManager:
                     daemon_url=f"tcp://{ip}:{DIND_PORT}",
                 )
                 return True
-            except (socket.error, OSError):
+            except OSError:
                 pass
             finally:
                 try:

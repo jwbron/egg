@@ -12,23 +12,19 @@ Fills gaps in the coder's original test_dind_manager.py:
 - Resource limit configuration verification
 """
 
-import socket
 import subprocess
-from unittest.mock import MagicMock, patch, call
-
-import pytest
+from unittest.mock import MagicMock, patch
 
 import dind_manager as dind_mod
+import pytest
 from dind_manager import (
     DIND_IMAGE,
-    DIND_PORT,
-    DockerNotFound,
     DindError,
-    DindImageLoadError,
     DindManager,
     DindStartupError,
     DindStatus,
     DindStatusValue,
+    DockerNotFound,
 )
 
 
@@ -445,7 +441,7 @@ class TestWaitForHealthyEdgeCases:
                 mock_sock = MagicMock()
                 iteration[0] += 1
                 if iteration[0] == 1:
-                    mock_sock.connect.side_effect = socket.error("refused")
+                    mock_sock.connect.side_effect = OSError("refused")
                     mock_sock.close.side_effect = OSError("close failed in finally")
                 return mock_sock
 
