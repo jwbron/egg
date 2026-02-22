@@ -64,10 +64,10 @@ class EventType(StrEnum):
 
     # System events — health check framework (see health_checks/runner.py)
     HEALTH_CHECK = "system.health_check"
-    HEALTH_CHECK_STARTED = "system.health_check.started"      # Run begins
+    HEALTH_CHECK_STARTED = "system.health_check.started"  # Run begins
     HEALTH_CHECK_COMPLETED = "system.health_check.completed"  # Per-check or aggregate
-    HEALTH_CHECK_DEGRADED = "system.health_check.degraded"    # Check returned DEGRADED
-    HEALTH_CHECK_FAILED = "system.health_check.failed"        # Check returned FAILED
+    HEALTH_CHECK_DEGRADED = "system.health_check.degraded"  # Check returned DEGRADED
+    HEALTH_CHECK_FAILED = "system.health_check.failed"  # Check returned FAILED
     ERROR = "system.error"
 
 

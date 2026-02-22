@@ -9,7 +9,6 @@ Tests the health check integration points in:
 
 import json
 import sys
-from datetime import datetime
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -29,25 +28,18 @@ sys.modules.setdefault("docker.errors", MagicMock())
 sys.modules.setdefault("docker.types", MagicMock())
 
 from flask import Flask
-
-from health_checks.runner import HealthCheckRunner, worst_action
 from health_checks.types import (
     HealthAction,
     HealthResult,
     HealthStatus,
     HealthTier,
-    HealthTrigger,
 )
 from models import (
-    AgentExecution,
-    AgentExecutionStatus,
-    AgentRole,
     Pipeline,
     PipelinePhase,
     PipelineStatus,
 )
 from routes.health import health_bp
-
 
 # ---------------------------------------------------------------------------
 # Helpers

@@ -143,10 +143,10 @@ def cmd_serve(args: argparse.Namespace) -> int:
             )
 
             runner = HealthCheckRunner()
-            runner.register(ContainerLivenessCheck())       # Docker containers alive?
-            runner.register(StartupStateCheck())            # Post-reconciliation clean?
-            runner.register(PhaseOutputPresenceCheck())     # Agents produced artifacts?
-            runner.register(StateConsistencyCheck())        # State vs Docker vs contract?
+            runner.register(ContainerLivenessCheck())  # Docker containers alive?
+            runner.register(StartupStateCheck())  # Post-reconciliation clean?
+            runner.register(PhaseOutputPresenceCheck())  # Agents produced artifacts?
+            runner.register(StateConsistencyCheck())  # State vs Docker vs contract?
 
             # Store runner on app for access by routes and other modules
             app.config["HEALTH_CHECK_RUNNER"] = runner

@@ -21,7 +21,7 @@ import json
 import subprocess
 import sys
 import tempfile
-from datetime import UTC, datetime
+from datetime import datetime
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -942,9 +942,7 @@ class TestRunnerAggregateStatus:
 
         # Find the completed event call (last emit)
         completed_calls = [
-            call
-            for call in bus.emit.call_args_list
-            if "aggregate_status" in str(call)
+            call for call in bus.emit.call_args_list if "aggregate_status" in str(call)
         ]
         assert len(completed_calls) == 1
         data = completed_calls[0][1].get("data") or completed_calls[0].kwargs.get("data")
@@ -957,7 +955,10 @@ class TestRunnerAggregateStatus:
         runner = HealthCheckRunner()
 
         # Register two checks: one healthy, one failed
-        for status, name in [(HealthStatus.HEALTHY, "check-ok"), (HealthStatus.FAILED, "check-fail")]:
+        for status, name in [
+            (HealthStatus.HEALTHY, "check-ok"),
+            (HealthStatus.FAILED, "check-fail"),
+        ]:
             mock_check = MagicMock()
             mock_check.name = name
             mock_check.tier = HealthTier.PROGRAMMATIC
@@ -967,7 +968,9 @@ class TestRunnerAggregateStatus:
                 check_name=name,
                 tier=HealthTier.PROGRAMMATIC,
                 reasoning="test",
-                action=HealthAction.FAIL_PIPELINE if status == HealthStatus.FAILED else HealthAction.CONTINUE,
+                action=HealthAction.FAIL_PIPELINE
+                if status == HealthStatus.FAILED
+                else HealthAction.CONTINUE,
             )
             runner.register(mock_check)
 
@@ -976,9 +979,7 @@ class TestRunnerAggregateStatus:
         runner.run(ctx, HealthTrigger.ON_DEMAND)
 
         completed_calls = [
-            call
-            for call in bus.emit.call_args_list
-            if "aggregate_status" in str(call)
+            call for call in bus.emit.call_args_list if "aggregate_status" in str(call)
         ]
         assert len(completed_calls) == 1
         data = completed_calls[0][1].get("data") or completed_calls[0].kwargs.get("data")
@@ -1008,9 +1009,7 @@ class TestRunnerAggregateStatus:
         runner.run(ctx, HealthTrigger.ON_DEMAND)
 
         completed_calls = [
-            call
-            for call in bus.emit.call_args_list
-            if "aggregate_status" in str(call)
+            call for call in bus.emit.call_args_list if "aggregate_status" in str(call)
         ]
         assert len(completed_calls) == 1
         data = completed_calls[0][1].get("data") or completed_calls[0].kwargs.get("data")
@@ -1295,7 +1294,7 @@ class TestHealthResultExtra:
         )
         try:
             result.status = HealthStatus.FAILED  # type: ignore[misc]
-            assert False, "Should have raised"
+            raise AssertionError("Should have raised")
         except AttributeError:
             pass
 
