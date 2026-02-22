@@ -1,15 +1,42 @@
 """Tests for .github/scripts/checks/ check scripts."""
 
+import importlib
 import json
 import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 # Add paths for imports
-sys.path.insert(0, str(Path(__file__).parent.parent.parent / "shared"))
-sys.path.insert(0, str(Path(__file__).parent.parent.parent / ".github" / "scripts"))
+_REPO_ROOT = Path(__file__).parent.parent.parent
+sys.path.insert(0, str(_REPO_ROOT / "shared"))
+sys.path.insert(0, str(_REPO_ROOT / ".github" / "scripts"))
 
 from egg_contracts import CheckResult, CheckStatus, Contract, IssueInfo
+
+
+def _import_check_module(module_name: str):
+    """Import a module from .github/scripts/checks/, handling namespace collisions.
+
+    When pytest collects from orchestrator/tests/, it adds orchestrator/routes/
+    to sys.path, which contains a checks.py file that shadows our checks package.
+    This helper ensures we import from the correct location.
+    """
+    full_name = f"checks.{module_name}" if module_name != "checks" else "checks"
+
+    # Remove stale checks modules that may point to the wrong location
+    checks_mod = sys.modules.get("checks")
+    if checks_mod and not hasattr(checks_mod, "__path__"):
+        # It's a flat file (e.g. orchestrator/routes/checks.py), not our package
+        stale = [k for k in sys.modules if k == "checks" or k.startswith("checks.")]
+        for k in stale:
+            del sys.modules[k]
+
+    # Ensure .github/scripts is at the front of sys.path
+    scripts_path = str(_REPO_ROOT / ".github" / "scripts")
+    if sys.path[0] != scripts_path:
+        sys.path.insert(0, scripts_path)
+
+    return importlib.import_module(full_name)
 
 
 class TestCheckRunnerBase:
@@ -17,7 +44,7 @@ class TestCheckRunnerBase:
 
     def test_check_runner_create_result(self):
         """Test CheckRunner.create_result helper."""
-        from checks.base import CheckRunner
+        CheckRunner = _import_check_module("base").CheckRunner
 
         # Create a concrete implementation for testing
         class TestCheck(CheckRunner):
@@ -40,7 +67,7 @@ class TestCheckRunnerBase:
 
     def test_check_runner_output_result(self, capsys):
         """Test CheckRunner.output_result outputs valid JSON."""
-        from checks.base import CheckRunner
+        CheckRunner = _import_check_module("base").CheckRunner
 
         class TestCheck(CheckRunner):
             @property
@@ -76,7 +103,7 @@ class TestMergeConflictCheck:
 
     def test_no_conflicts_passes(self, tmp_path):
         """Test that a repo without conflicts passes."""
-        from checks.merge_conflict_check import MergeConflictCheck
+        MergeConflictCheck = _import_check_module("merge_conflict_check").MergeConflictCheck
 
         # Create a fake git repo structure
         (tmp_path / ".git").mkdir()
@@ -101,7 +128,7 @@ class TestMergeConflictCheck:
 
     def test_with_conflicts_fails(self, tmp_path):
         """Test that a file with conflict markers fails."""
-        from checks.merge_conflict_check import MergeConflictCheck
+        MergeConflictCheck = _import_check_module("merge_conflict_check").MergeConflictCheck
 
         # Create a file with conflict markers
         conflict_content = """
@@ -137,7 +164,7 @@ class TestDraftValidationCheck:
 
     def test_missing_draft_fails(self, tmp_path):
         """Test that missing draft file fails."""
-        from checks.draft_validation_check import DraftValidationCheck
+        DraftValidationCheck = _import_check_module("draft_validation_check").DraftValidationCheck
 
         (tmp_path / ".egg-state" / "drafts").mkdir(parents=True)
 
@@ -152,7 +179,7 @@ class TestDraftValidationCheck:
 
     def test_valid_draft_passes(self, tmp_path):
         """Test that a valid draft file passes."""
-        from checks.draft_validation_check import DraftValidationCheck
+        DraftValidationCheck = _import_check_module("draft_validation_check").DraftValidationCheck
 
         drafts_dir = tmp_path / ".egg-state" / "drafts"
         drafts_dir.mkdir(parents=True)
@@ -174,7 +201,7 @@ that the current implementation has some limitations that we can address.
 
     def test_too_short_draft_fails(self, tmp_path):
         """Test that a draft that's too short fails."""
-        from checks.draft_validation_check import DraftValidationCheck
+        DraftValidationCheck = _import_check_module("draft_validation_check").DraftValidationCheck
 
         drafts_dir = tmp_path / ".egg-state" / "drafts"
         drafts_dir.mkdir(parents=True)
@@ -196,7 +223,7 @@ class TestPlanYamlCheck:
 
     def test_missing_plan_fails(self, tmp_path):
         """Test that missing plan file fails."""
-        from checks.plan_yaml_check import PlanYamlCheck
+        PlanYamlCheck = _import_check_module("plan_yaml_check").PlanYamlCheck
 
         (tmp_path / ".egg-state" / "drafts").mkdir(parents=True)
 
@@ -211,7 +238,7 @@ class TestPlanYamlCheck:
 
     def test_valid_plan_passes(self, tmp_path):
         """Test that a valid plan file passes."""
-        from checks.plan_yaml_check import PlanYamlCheck
+        PlanYamlCheck = _import_check_module("plan_yaml_check").PlanYamlCheck
 
         drafts_dir = tmp_path / ".egg-state" / "drafts"
         drafts_dir.mkdir(parents=True)
@@ -241,7 +268,7 @@ phases:
 
     def test_missing_yaml_block_fails(self, tmp_path):
         """Test that plan without yaml-tasks block fails."""
-        from checks.plan_yaml_check import PlanYamlCheck
+        PlanYamlCheck = _import_check_module("plan_yaml_check").PlanYamlCheck
 
         drafts_dir = tmp_path / ".egg-state" / "drafts"
         drafts_dir.mkdir(parents=True)
@@ -259,7 +286,7 @@ phases:
 
     def test_invalid_yaml_fails(self, tmp_path):
         """Test that invalid YAML fails."""
-        from checks.plan_yaml_check import PlanYamlCheck
+        PlanYamlCheck = _import_check_module("plan_yaml_check").PlanYamlCheck
 
         drafts_dir = tmp_path / ".egg-state" / "drafts"
         drafts_dir.mkdir(parents=True)
@@ -286,7 +313,7 @@ phases:
 
     def test_missing_phases_fails(self, tmp_path):
         """Test that YAML without phases field fails."""
-        from checks.plan_yaml_check import PlanYamlCheck
+        PlanYamlCheck = _import_check_module("plan_yaml_check").PlanYamlCheck
 
         drafts_dir = tmp_path / ".egg-state" / "drafts"
         drafts_dir.mkdir(parents=True)
@@ -315,7 +342,7 @@ class TestLintCheck:
 
     def test_no_makefile_skips(self, tmp_path):
         """Test that missing Makefile causes skip."""
-        from checks.lint_check import LintCheck
+        LintCheck = _import_check_module("lint_check").LintCheck
 
         contract = Contract(
             issue=IssueInfo(number=123, title="Test", url="https://example.com"),
@@ -328,7 +355,7 @@ class TestLintCheck:
 
     def test_no_lint_target_skips(self, tmp_path):
         """Test that Makefile without lint target causes skip."""
-        from checks.lint_check import LintCheck
+        LintCheck = _import_check_module("lint_check").LintCheck
 
         (tmp_path / "Makefile").write_text("test:\n\tpytest\n")
 
@@ -342,7 +369,7 @@ class TestLintCheck:
 
     def test_lint_passes(self, tmp_path):
         """Test that passing lint check succeeds."""
-        from checks.lint_check import LintCheck
+        LintCheck = _import_check_module("lint_check").LintCheck
 
         (tmp_path / "Makefile").write_text("lint:\n\techo 'ok'\n")
 
@@ -363,7 +390,7 @@ class TestLintCheck:
 
     def test_lint_fails_is_fixable(self, tmp_path):
         """Test that failing lint check is marked as fixable."""
-        from checks.lint_check import LintCheck
+        LintCheck = _import_check_module("lint_check").LintCheck
 
         (tmp_path / "Makefile").write_text("lint:\n\tflake8 .\n")
 
@@ -389,7 +416,7 @@ class TestTestCheck:
 
     def test_no_test_infrastructure_skips(self, tmp_path):
         """Test that no test infrastructure causes skip."""
-        from checks.test_check import TestCheck
+        TestCheck = _import_check_module("test_check").TestCheck
 
         contract = Contract(
             issue=IssueInfo(number=123, title="Test", url="https://example.com"),
@@ -401,7 +428,7 @@ class TestTestCheck:
 
     def test_tests_pass(self, tmp_path):
         """Test that passing tests succeed."""
-        from checks.test_check import TestCheck
+        TestCheck = _import_check_module("test_check").TestCheck
 
         (tmp_path / "Makefile").write_text("test:\n\tpytest\n")
 
@@ -422,7 +449,7 @@ class TestTestCheck:
 
     def test_tests_fail_not_fixable(self, tmp_path):
         """Test that failing tests are not marked as fixable."""
-        from checks.test_check import TestCheck
+        TestCheck = _import_check_module("test_check").TestCheck
 
         (tmp_path / "Makefile").write_text("test:\n\tpytest\n")
 
@@ -448,7 +475,7 @@ class TestCheckFixer:
 
     def test_no_fix_target_skips(self, tmp_path):
         """Test that missing fix target causes skip."""
-        from checks.check_fixer import CheckFixer
+        CheckFixer = _import_check_module("check_fixer").CheckFixer
 
         contract = Contract(
             issue=IssueInfo(number=123, title="Test", url="https://example.com"),
@@ -460,7 +487,7 @@ class TestCheckFixer:
 
     def test_fix_applies_changes(self, tmp_path):
         """Test that fix applies changes successfully."""
-        from checks.check_fixer import CheckFixer
+        CheckFixer = _import_check_module("check_fixer").CheckFixer
 
         (tmp_path / "Makefile").write_text("fix:\n\tblack .\n")
 
@@ -483,7 +510,7 @@ class TestCheckFixer:
 
     def test_fix_no_changes_needed(self, tmp_path):
         """Test that fix with no changes is still a pass."""
-        from checks.check_fixer import CheckFixer
+        CheckFixer = _import_check_module("check_fixer").CheckFixer
 
         (tmp_path / "Makefile").write_text("fix:\n\tblack .\n")
 

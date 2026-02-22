@@ -13,9 +13,20 @@ _shared_path = Path(__file__).parent.parent.parent / "shared"
 if _shared_path.exists() and str(_shared_path) not in sys.path:
     sys.path.insert(0, str(_shared_path))
 
-# Mock docker before importing modules that depend on it
-sys.modules.setdefault("docker", MagicMock())
-sys.modules.setdefault("docker.errors", MagicMock())
+# Mock docker before importing modules that depend on it.
+# Use proper exception classes so that except clauses work correctly.
+if "docker" not in sys.modules:
+    from types import ModuleType
+
+    _docker_mock = MagicMock()
+    _docker_errors = ModuleType("docker.errors")
+    _docker_errors.DockerException = type("DockerException", (Exception,), {})  # type: ignore[attr-defined]
+    _docker_errors.APIError = type("APIError", (_docker_errors.DockerException,), {})  # type: ignore[attr-defined]
+    _docker_errors.ImageNotFound = type("ImageNotFound", (_docker_errors.DockerException,), {})  # type: ignore[attr-defined]
+    _docker_errors.NotFound = type("NotFound", (_docker_errors.DockerException,), {})  # type: ignore[attr-defined]
+    _docker_mock.errors = _docker_errors
+    sys.modules["docker"] = _docker_mock
+    sys.modules["docker.errors"] = _docker_errors
 sys.modules.setdefault("docker.types", MagicMock())
 
 from container_monitor import (

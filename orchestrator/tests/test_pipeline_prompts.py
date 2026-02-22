@@ -1814,9 +1814,7 @@ class TestReadTesterGaps:
         outputs_dir = tmp_path / ".egg-state" / "agent-outputs"
         outputs_dir.mkdir(parents=True)
         gaps = [f"Gap number {i}" for i in range(15)]
-        (outputs_dir / "tester-output.json").write_text(
-            json.dumps({"gaps_found": gaps})
-        )
+        (outputs_dir / "tester-output.json").write_text(json.dumps({"gaps_found": gaps}))
 
         result = _read_tester_gaps(tmp_path)
         assert result is not None
@@ -1862,9 +1860,7 @@ class TestReadTesterGaps:
         outputs_dir = tmp_path / ".egg-state" / "agent-outputs"
         outputs_dir.mkdir(parents=True)
         long_gap = "A" * 300
-        (outputs_dir / "tester-output.json").write_text(
-            json.dumps({"gaps_found": [long_gap]})
-        )
+        (outputs_dir / "tester-output.json").write_text(json.dumps({"gaps_found": [long_gap]}))
 
         result = _read_tester_gaps(tmp_path)
         assert result is not None
@@ -2018,11 +2014,7 @@ class TestTesterGapFindingPrompts:
 
     def test_phase_prompt_prior_feedback_header_with_tester_findings(self):
         """Prior Review Feedback header section uses tester-aware language when findings present."""
-        feedback = (
-            "Reviewer says fix naming\n\n"
-            "### tester findings\n"
-            "- Missing boundary check"
-        )
+        feedback = "Reviewer says fix naming\n\n### tester findings\n- Missing boundary check"
         result = _build_phase_prompt(
             phase="implement",
             pipeline_id="test-pid",
