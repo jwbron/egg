@@ -51,18 +51,30 @@ ALLOWLIST_PATHS = [
     "integration_tests/conftest.py",
     "integration_tests/docker-compose.yml",
     "integration_tests/test_network_",
+    # Integration test local pipeline (docker-compose with port mappings)
+    "integration_tests/local_pipeline/",
     # CI/CD workflows (YAML cannot import Python)
     ".github/workflows/",
     # This lint script itself
     "scripts/check-hardcoded-ports.py",
     # Documentation is allowed to have examples
     "docs/",
+    # Gateway post-agent commit script (port in docstring)
+    "gateway/post_agent_commit.py",
+    # Orchestrator defines its own port constants (cannot import shared config in Docker)
+    "orchestrator/",
+    # Sandbox CLI tools define default ports (cannot import shared config in Docker)
+    "sandbox/egg_lib/orch_cli.py",
+    # Shared contracts CLI uses default port fallback
+    "shared/egg_contracts/checkpoint_cli.py",
     # Test data and fixtures (mock data may need specific values)
     "tests/fixtures/",
     # Test files that validate config defaults or use hardcoded values in assertions
     "tests/egg_config/test_configs.py",
     "tests/functional/conftest.py",
     "tests/shared/egg_container/test_build_cmd.py",
+    # Test files for shared packages (assertions and mocks with port values)
+    "tests/shared/",
     # Integration tests that need hardcoded values
     "integration_tests/test_network_isolation.py",
     "integration_tests/test_network_security.py",

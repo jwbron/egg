@@ -18,7 +18,7 @@ import bisect
 from collections import defaultdict, deque
 from collections.abc import Iterator
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from .agent_roles import AgentRole, get_role_definition
 
@@ -397,7 +397,7 @@ class PhaseDependencyGraph:
         # waves[2] = PhaseWave(3, ["phase-4"])
     """
 
-    def __init__(self, phases: list | None = None) -> None:
+    def __init__(self, phases: list[Any] | None = None) -> None:
         """Initialize with optional list of Phase models.
 
         Args:

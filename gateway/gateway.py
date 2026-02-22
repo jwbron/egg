@@ -1175,7 +1175,7 @@ def git_execute() -> tuple[Response, int] | Response:
                 "repo_path": repo_path,
                 "git_args": args,
                 "container_id": container_id,
-                "pipeline_id": session.pipeline_id,
+                "pipeline_id": session.pipeline_id if session else None,
                 "session_mode": getattr(g, "session_mode", None),
                 "reason": "Branch switching blocked in pipeline worktree session",
             },
@@ -1822,7 +1822,7 @@ def checkpoint_show(identifier: str) -> tuple[Response, int] | Response:
     if not ref:
         return make_error("Checkpoint branch not found", status_code=404)
 
-    checkpoint_id = identifier
+    checkpoint_id: str | None = identifier
     if not identifier.startswith("ckpt-"):
         # Look up by commit SHA
         index = handler.fetch_and_read_index(repo_path, checkpoint_repo=checkpoint_repo)
@@ -1831,6 +1831,7 @@ def checkpoint_show(identifier: str) -> tuple[Response, int] | Response:
         if not checkpoint_id:
             return make_error(f"Checkpoint not found: {identifier}", status_code=404)
 
+    assert checkpoint_id is not None  # guaranteed by the early return above
     checkpoint = handler.read_checkpoint(repo_path, checkpoint_id, ref)
     if not checkpoint:
         return make_error(f"Checkpoint not found: {identifier}", status_code=404)
@@ -1875,7 +1876,8 @@ def _resolve_repo_path_for_checkpoints() -> str | None:
     # Session's last known repo path (set during push operations)
     session = getattr(g, "session", None)
     if session and getattr(session, "last_repo_path", None):
-        return session.last_repo_path
+        repo: str = session.last_repo_path
+        return repo
 
     # Environment variable
     env_path = os.environ.get("EGG_REPO_PATH")

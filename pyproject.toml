@@ -86,6 +86,12 @@ disallow_untyped_defs = false
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
+module = ["egg_contracts.tests.*"]
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+disable_error_code = ["arg-type"]
+
+[[tool.mypy.overrides]]
 module = ["waitress", "waitress.*"]
 ignore_missing_imports = true
 

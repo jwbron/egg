@@ -105,7 +105,8 @@ def _http_get(base_url: str, endpoint: str, params: dict[str, Any] | None = None
         req.add_header("Accept", "application/json")
         req.add_header("Authorization", f"Bearer {session_token}")
         with urlopen(req, timeout=120) as response:
-            return json.loads(response.read().decode())
+            result: dict[str, Any] = json.loads(response.read().decode())
+            return result
     except HTTPError as e:
         try:
             body = json.loads(e.read().decode())
@@ -478,7 +479,7 @@ def _get_checkpoint_repo_from_args(args: argparse.Namespace) -> str | None:
         if not match:
             return None
         repo = f"{match.group(1)}/{match.group(2)}"
-        from config.repo_config import get_checkpoint_repo  # type: ignore[import-not-found]
+        from config.repo_config import get_checkpoint_repo
 
         return get_checkpoint_repo(repo)
     except Exception:
