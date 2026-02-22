@@ -1,5 +1,10 @@
 """
 Tests for DAG visualizer module.
+
+Covers core rendering functions, Tier 3 sub-phase visualization
+(fan-out/fan-in connectors, side-by-side rendering, sub-phase boxes),
+and status report generation. Extended edge-case tests are in
+test_dag_visualizer_extended.py.
 """
 
 from datetime import datetime, timedelta

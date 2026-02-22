@@ -502,10 +502,19 @@ def _render_fan_out(
 ) -> list[str]:
     """Render a fan-out connector from a single stem to multiple branches.
 
-    Produces a visual like:
-          │
-       ┌──┴──┐
-       │     │
+    Produces a visual like::
+
+          │              ← vertical stem (line 1)
+       ┌──┴──┐           ← horizontal bar with junction (line 2)
+       │     │           ← branch stems dropping to boxes (line 3)
+
+    The stem and horizontal bar center are both computed from the
+    midpoint of the leftmost and rightmost branch centers, ensuring
+    the vertical stem aligns with the bar junction character.
+
+    When 3+ equal-width boxes cause the bar center to coincide with
+    an intermediate branch position, a cross junction (``┼``) is used
+    instead of overlapping the stem junction with a branch tee.
 
     Args:
         box_widths: Widths of each box being fanned out to
@@ -513,12 +522,14 @@ def _render_fan_out(
         use_ascii: Use ASCII-only characters
 
     Returns:
-        List of lines for the fan-out connector.
+        List of lines (3) for the fan-out connector.
     """
     if len(box_widths) < 2:
         return []
 
-    # Characters
+    # Characters — named by their visual role on the horizontal bar:
+    # stem_junction: where the vertical stem meets the bar (opens upward ┴)
+    # branch_tee: where a branch drops down to a box below (opens downward ┬)
     v_line = "|" if use_ascii else "│"
     h_line = "-" if use_ascii else "─"
     stem_junction = "+" if use_ascii else "┴"  # ┴ opens upward: connects stem from above
@@ -577,10 +588,16 @@ def _render_fan_in(
 ) -> list[str]:
     """Render a fan-in connector from multiple branches to a single stem.
 
-    Produces a visual like:
-       │     │
-       └──┬──┘
-          │
+    Produces a visual like::
+
+       │     │           ← branch stems arriving from boxes (line 1)
+       └──┬──┘           ← horizontal bar with junction (line 2)
+          │              ← vertical stem (line 3)
+
+    Mirror of ``_render_fan_out``. The stem and bar center use the
+    same midpoint calculation for consistent alignment. Cross junction
+    (``┼``) is used when the bar center coincides with an intermediate
+    branch.
 
     Args:
         box_widths: Widths of each box being fanned in from
@@ -588,12 +605,14 @@ def _render_fan_in(
         use_ascii: Use ASCII-only characters
 
     Returns:
-        List of lines for the fan-in connector.
+        List of lines (3) for the fan-in connector.
     """
     if len(box_widths) < 2:
         return []
 
-    # Characters
+    # Characters — named by their visual role on the horizontal bar:
+    # stem_junction: where the vertical stem meets the bar (opens downward ┬)
+    # branch_tee: where a branch arrives from a box above (opens upward ┴)
     v_line = "|" if use_ascii else "│"
     h_line = "-" if use_ascii else "─"
     stem_junction = "+" if use_ascii else "┬"  # ┬ opens downward: connects stem below
@@ -656,11 +675,25 @@ def _render_tier3_implement(
     Replaces the single Implement box with individual sub-phase boxes
     arranged by dependency wave, connected with fan-out/fan-in connectors.
 
-    Top-level agents (those without plan_phase_id, e.g. integrator,
-    reviewer_contract) are rendered in a separate box after all sub-phases.
+    Agent partitioning:
+    - Agents whose ``plan_phase_id`` matches a wave entry are grouped
+      into their corresponding sub-phase box.
+    - Agents whose ``plan_phase_id`` does not match any wave entry
+      (orphaned) are treated as top-level agents so they remain visible.
+    - Agents without a ``plan_phase_id`` (e.g. integrator,
+      reviewer_contract) are rendered in a separate "Pipeline agents"
+      box after all sub-phases.
+
+    Wave rendering:
+    - Single-phase waves render as a centered box.
+    - Multi-phase waves render side-by-side with fan-out/fan-in
+      connectors. Waves with more than ``max_side_by_side`` (4) phases
+      wrap onto additional rows.
 
     Args:
-        pipeline: Pipeline with plan_phase_waves data
+        pipeline: Pipeline with ``plan_phase_waves`` and
+            ``plan_phase_names`` data populated by
+            ``_run_tier3_implement()`` at implement start.
         phase_exec: Phase execution data for implement phase
         is_current: Whether implement is the current phase
         use_ascii: Use ASCII-only characters
@@ -699,7 +732,7 @@ def _render_tier3_implement(
     lines.append(f"{current_marker} {border_h * 3} Implement (Tier 3) {border_h * 3}")
 
     spacing = 2
-    max_side_by_side = 4
+    max_side_by_side = 4  # wrap onto additional rows beyond this
 
     for wave_idx, wave_phase_ids in enumerate(waves):
         if not wave_phase_ids:

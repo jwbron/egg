@@ -276,11 +276,13 @@ class Pipeline(BaseModel):
     plan_phase_waves: list[list[str]] | None = Field(
         default=None,
         description="Tier 3 plan phase waves for DAG visualization. "
-        "Each inner list is a wave of phase IDs that can run in parallel.",
+        "Each inner list is a wave of phase IDs that can run in parallel. "
+        "Populated by _run_tier3_implement() at implement start.",
     )
     plan_phase_names: dict[str, str] | None = Field(
         default=None,
-        description="Mapping of plan phase ID to human-readable name for DAG visualization.",
+        description="Mapping of plan phase ID to human-readable name for DAG visualization. "
+        "Populated alongside plan_phase_waves by _run_tier3_implement().",
     )
     version: int = Field(
         default=1, ge=1, description="Optimistic locking version (incremented on each save)"
