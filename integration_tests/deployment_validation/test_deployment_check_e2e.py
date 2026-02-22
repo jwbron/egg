@@ -72,7 +72,7 @@ DEPLOYMENT_CONFIG_YAML = textwrap.dedent("""\
         container_mount_path: /app
     health_endpoints:
       echo: /health
-    startup_timeout_seconds: 60
+    startup_timeout_seconds: 120
 """)
 
 

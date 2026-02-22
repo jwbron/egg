@@ -67,7 +67,7 @@ services:
       - "${ORCHESTRATOR_PORT:-0}:9849"
     environment:
       - ORCHESTRATOR_PORT=9849
-      - EGG_REPO_PATH=/home/egg/repos
+      - EGG_REPO_PATH=/home/egg/repos/test-repo
       - GATEWAY_URL=http://172.40.0.2:9848
       - DOCKER_HOST=unix:///var/run/docker.sock
       - HOST_UID=${HOST_UID:-1000}

@@ -216,7 +216,7 @@ class PipelineConfig(BaseModel):
     max_parallel_agents: int = Field(
         default=10, ge=1, description="Maximum parallel agents per wave"
     )
-    max_review_cycles: int = Field(default=3, ge=1, description="Max review cycles per phase")
+    max_review_cycles: int = Field(default=3, ge=0, description="Max review cycles per phase")
     max_hitl_review_cycles: int = Field(
         default=3,
         ge=1,

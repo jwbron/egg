@@ -10,6 +10,7 @@ All tests require Docker and use the local_pipeline_stack fixture.
 Tests are marked with @pytest.mark.integration.
 """
 
+import os
 import subprocess
 import time
 from pathlib import Path
@@ -18,6 +19,11 @@ import pytest
 import requests
 
 from .conftest import LocalPipelineStack, wait_for_pipeline_terminal
+
+# UID/GID that the gateway container drops privileges to (matches HOST_UID/HOST_GID
+# passed to docker compose by the conftest fixture).
+HOST_UID = os.getuid()
+HOST_GID = os.getgid()
 
 pytestmark = pytest.mark.integration
 
@@ -248,11 +254,12 @@ class TestWorktreeInfrastructure:
         assert local_pipeline_stack.compose_project
 
     def test_gateway_health(self, local_pipeline_stack: LocalPipelineStack) -> None:
-        """Verify the gateway is healthy."""
+        """Verify the gateway is healthy (or degraded with dummy tokens)."""
         resp = requests.get(f"{local_pipeline_stack.gateway_url}/api/v1/health", timeout=10)
         assert resp.status_code == 200
         data = resp.json()
-        assert data.get("status") == "ok" or data.get("success") is True
+        # Accept "ok" or "degraded" (degraded is expected when using dummy GitHub tokens)
+        assert data.get("status") in ("ok", "degraded") or data.get("success") is True
 
     def test_gateway_container_accessible(self, local_pipeline_stack: LocalPipelineStack) -> None:
         """Verify we can exec into the gateway container."""
@@ -294,8 +301,8 @@ class TestWorktreeCreation:
                 json={
                     "container_id": container_id,
                     "repos": ["test-owner/test-repo"],
-                    "uid": 1000,
-                    "gid": 1000,
+                    "uid": HOST_UID,
+                    "gid": HOST_GID,
                 },
                 timeout=30,
             )
@@ -333,8 +340,8 @@ class TestWorktreeCreation:
         gateway_container = get_gateway_container_name(local_pipeline_stack.compose_project)
 
         container_id = f"test-ownership-{int(time.time())}"
-        expected_uid = 1000
-        expected_gid = 1000
+        expected_uid = HOST_UID
+        expected_gid = HOST_GID
 
         try:
             resp = requests.post(
@@ -383,8 +390,8 @@ class TestWorktreeCreation:
                 json={
                     "container_id": container_id,
                     "repos": ["test-owner/test-repo"],
-                    "uid": 1000,
-                    "gid": 1000,
+                    "uid": HOST_UID,
+                    "gid": HOST_GID,
                 },
                 timeout=30,
             )
@@ -393,7 +400,10 @@ class TestWorktreeCreation:
             container_worktree_path = f"{GATEWAY_WORKTREE_BASE}/{container_id}/test-repo"
 
             is_writable, reason = verify_worktree_writable(
-                container_worktree_path, gateway_container
+                container_worktree_path,
+                gateway_container,
+                uid=HOST_UID,
+                gid=HOST_GID,
             )
             assert is_writable, f"Worktree not writable: {reason}"
 
@@ -665,8 +675,8 @@ class TestWorktreeEdgeCases:
                 json={
                     "container_id": container_id,
                     "repos": ["test-owner/test-repo"],
-                    "uid": 1000,
-                    "gid": 1000,
+                    "uid": HOST_UID,
+                    "gid": HOST_GID,
                 },
                 timeout=30,
             )
@@ -721,8 +731,8 @@ class TestWorktreeEdgeCases:
                 json={
                     "container_id": container_id,
                     "repos": ["test-owner/test-repo"],
-                    "uid": 1000,
-                    "gid": 1000,
+                    "uid": HOST_UID,
+                    "gid": HOST_GID,
                 },
                 timeout=30,
             )
@@ -780,8 +790,8 @@ class TestWorktreeEdgeCases:
                 "container_ip": source_ip,
                 "mode": "local",
                 "repos": ["test-owner/test-repo"],
-                "uid": 1000,
-                "gid": 1000,
+                "uid": HOST_UID,
+                "gid": HOST_GID,
             },
             timeout=30,
         )
@@ -790,13 +800,17 @@ class TestWorktreeEdgeCases:
         session_token = session_data.get("data", {}).get("session_token")
         assert session_token
 
-        # Verify worktree exists
-        result = subprocess.run(
-            ["docker", "exec", gateway_container, "test", "-d", container_worktree_path],
-            capture_output=True,
-            timeout=10,
-            check=False,
-        )
+        # Verify worktree exists (allow a brief delay for async creation)
+        for _ in range(5):
+            result = subprocess.run(
+                ["docker", "exec", gateway_container, "test", "-d", container_worktree_path],
+                capture_output=True,
+                timeout=10,
+                check=False,
+            )
+            if result.returncode == 0:
+                break
+            time.sleep(1)
         assert result.returncode == 0, "Worktree should exist after session creation"
 
         # Delete session (should clean up worktree)
@@ -835,11 +849,14 @@ class TestWorktreeEdgeCases:
 
         try:
             # Pre-create the worktree directory with an empty .git directory
-            # This simulates what Docker does when creating bind mount targets
+            # This simulates what Docker does when creating bind mount targets.
+            # Create as the gateway's HOST_UID so the gateway can remove it.
             subprocess.run(
                 [
                     "docker",
                     "exec",
+                    "-u",
+                    f"{HOST_UID}:{HOST_GID}",
                     gateway_container,
                     "mkdir",
                     "-p",
@@ -873,8 +890,8 @@ class TestWorktreeEdgeCases:
                 json={
                     "container_id": container_id,
                     "repos": ["test-owner/test-repo"],
-                    "uid": 1000,
-                    "gid": 1000,
+                    "uid": HOST_UID,
+                    "gid": HOST_GID,
                 },
                 timeout=30,
             )

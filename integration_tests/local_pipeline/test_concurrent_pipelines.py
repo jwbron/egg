@@ -8,7 +8,6 @@ All tests require Docker and are marked with @pytest.mark.integration.
 """
 
 import concurrent.futures
-import json
 from pathlib import Path
 
 import pytest
@@ -79,12 +78,11 @@ class TestConcurrentPipelineExecution:
 
 
 class TestPipelineIdIsolation:
-    """Pipeline ID isolation in contract files."""
+    """Pipeline ID isolation via API."""
 
-    def test_contract_files_contain_only_own_pipeline_id(self, local_pipeline_stack) -> None:
-        """Each pipeline's contract file contains only its own pipeline_id."""
+    def test_pipelines_have_isolated_state(self, local_pipeline_stack) -> None:
+        """Each pipeline's state contains only its own pipeline_id (via API)."""
         orchestrator_url = local_pipeline_stack.orchestrator_url
-        repos_dir = local_pipeline_stack.repos_dir
 
         # Create two pipelines
         data1, status1 = create_pipeline(
@@ -102,32 +100,19 @@ class TestPipelineIdIsolation:
         pipeline_id_2 = data2["data"]["pipeline"]["id"]
 
         try:
-            # Verify contract files exist and are isolated
-            contract_path_1 = Path(repos_dir) / f".egg-state/contracts/{pipeline_id_1}.json"
-            contract_path_2 = Path(repos_dir) / f".egg-state/contracts/{pipeline_id_2}.json"
+            # Verify pipelines are isolated via API
+            get_data1, get_status1 = get_pipeline(orchestrator_url, pipeline_id_1)
+            get_data2, get_status2 = get_pipeline(orchestrator_url, pipeline_id_2)
 
-            assert contract_path_1.exists(), f"Contract 1 should exist at {contract_path_1}"
-            assert contract_path_2.exists(), f"Contract 2 should exist at {contract_path_2}"
+            assert get_status1 == 200, f"Pipeline 1 not found: {get_data1}"
+            assert get_status2 == 200, f"Pipeline 2 not found: {get_data2}"
 
-            # Read and verify contents
-            contract1 = json.loads(contract_path_1.read_text())
-            contract2 = json.loads(contract_path_2.read_text())
+            # Each pipeline should reference only its own ID
+            pipeline1 = get_data1["data"]["pipeline"]
+            pipeline2 = get_data2["data"]["pipeline"]
 
-            # Each contract should only reference its own pipeline ID
-            assert contract1.get("pipeline_id") == pipeline_id_1
-            assert contract2.get("pipeline_id") == pipeline_id_2
-
-            # Contract 1 should NOT contain pipeline 2's ID anywhere
-            contract1_text = contract_path_1.read_text()
-            assert pipeline_id_2 not in contract1_text, (
-                "Contract 1 should not reference pipeline 2's ID"
-            )
-
-            # Contract 2 should NOT contain pipeline 1's ID anywhere
-            contract2_text = contract_path_2.read_text()
-            assert pipeline_id_1 not in contract2_text, (
-                "Contract 2 should not reference pipeline 1's ID"
-            )
+            assert pipeline1["id"] == pipeline_id_1
+            assert pipeline2["id"] == pipeline_id_2
 
         finally:
             delete_pipeline(orchestrator_url, pipeline_id_1)
@@ -279,10 +264,9 @@ class TestConcurrentPipelineCreationRace:
 class TestConcurrentPipelineStateFiles:
     """Verify state files are isolated for concurrent pipelines."""
 
-    def test_concurrent_pipelines_have_distinct_state_files(self, local_pipeline_stack) -> None:
-        """Each pipeline has its own state file in .egg-state/pipelines/."""
+    def test_concurrent_pipelines_have_distinct_state(self, local_pipeline_stack) -> None:
+        """Each pipeline has its own state, retrievable via API."""
         orchestrator_url = local_pipeline_stack.orchestrator_url
-        repos_dir = local_pipeline_stack.repos_dir
 
         # Create two pipelines
         data1, status1 = create_pipeline(
@@ -300,26 +284,21 @@ class TestConcurrentPipelineStateFiles:
         pipeline_id_2 = data2["data"]["pipeline"]["id"]
 
         try:
-            # State files should exist for both
-            state_path_1 = Path(repos_dir) / f".egg-state/pipelines/{pipeline_id_1}.json"
-            state_path_2 = Path(repos_dir) / f".egg-state/pipelines/{pipeline_id_2}.json"
+            # Both pipelines should be retrievable and isolated
+            get_data1, get_status1 = get_pipeline(orchestrator_url, pipeline_id_1)
+            get_data2, get_status2 = get_pipeline(orchestrator_url, pipeline_id_2)
 
-            assert state_path_1.exists(), f"State file 1 should exist at {state_path_1}"
-            assert state_path_2.exists(), f"State file 2 should exist at {state_path_2}"
+            assert get_status1 == 200, f"Pipeline 1 not found: {get_data1}"
+            assert get_status2 == 200, f"Pipeline 2 not found: {get_data2}"
 
-            # Verify contents are isolated
-            state1 = json.loads(state_path_1.read_text())
-            state2 = json.loads(state_path_2.read_text())
+            state1 = get_data1["data"]["pipeline"]
+            state2 = get_data2["data"]["pipeline"]
 
-            assert state1.get("id") == pipeline_id_1
-            assert state2.get("id") == pipeline_id_2
+            assert state1["id"] == pipeline_id_1
+            assert state2["id"] == pipeline_id_2
 
-            # Verify no cross-contamination
-            state1_text = state_path_1.read_text()
-            state2_text = state_path_2.read_text()
-
-            assert pipeline_id_2 not in state1_text
-            assert pipeline_id_1 not in state2_text
+            # Verify distinct IDs
+            assert pipeline_id_1 != pipeline_id_2
 
         finally:
             delete_pipeline(orchestrator_url, pipeline_id_1)

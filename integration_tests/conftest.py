@@ -40,12 +40,13 @@ from tests.utils.gateway_client import (
 # Project root (one level up from integration_tests/)
 PROJECT_ROOT = Path(__file__).parent.parent
 
-# Test network configuration -- uses 172.40.x/172.41.x to avoid collision
-# with production (172.32/172.33) or other CI runs.
-ISOLATED_SUBNET = "172.40.0.0/24"
-EXTERNAL_SUBNET = "172.41.0.0/24"
-GATEWAY_ISOLATED_IP = "172.40.0.2"
-GATEWAY_EXTERNAL_IP = "172.41.0.2"
+# Test network configuration -- uses 172.42.x/172.43.x to avoid collision
+# with production (172.32/172.33), local_pipeline tests (172.40/172.41),
+# or other CI runs.
+ISOLATED_SUBNET = "172.42.0.0/24"
+EXTERNAL_SUBNET = "172.43.0.0/24"
+GATEWAY_ISOLATED_IP = "172.42.0.2"
+GATEWAY_EXTERNAL_IP = "172.43.0.2"
 # Use constants from shared module for port configuration
 PROXY_PORT = GATEWAY_PROXY_PORT
 
@@ -488,10 +489,10 @@ def _allocate_test_container_ip() -> str:
     avoid the subprocess overhead and race conditions in parallel tests.
 
     Returns:
-        An IP in the 172.40.0.100+ range (test isolated subnet).
+        An IP in the 172.42.0.100+ range (test isolated subnet).
     """
     global _next_container_ip_suffix
-    ip = f"172.40.0.{_next_container_ip_suffix}"
+    ip = f"172.42.0.{_next_container_ip_suffix}"
     _next_container_ip_suffix += 1
     # Wrap around if we somehow allocate >155 containers in one session
     if _next_container_ip_suffix > 254:

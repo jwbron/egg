@@ -5,8 +5,8 @@
 # conflicts with any running development instances.
 #
 # Network topology (same as production, different subnets):
-#   - egg-test-isolated (172.40.0.0/24): private mode traffic, proxy-routed
-#   - egg-test-external (172.41.0.0/24): public mode traffic, direct internet
+#   - egg-test-isolated (172.42.0.0/24): private mode traffic, proxy-routed
+#   - egg-test-external (172.43.0.0/24): public mode traffic, direct internet
 #
 # Sandbox containers are NOT managed by compose -- tests start them
 # programmatically for fine-grained control over network, env, and lifecycle.
@@ -24,9 +24,9 @@ services:
     container_name: ${COMPOSE_PROJECT_NAME:-egg-test}-gateway
     networks:
       egg-test-isolated:
-        ipv4_address: 172.40.0.2
+        ipv4_address: 172.42.0.2
       egg-test-external:
-        ipv4_address: 172.41.0.2
+        ipv4_address: 172.43.0.2
     ports:
       - "${GATEWAY_PORT:-0}:9848"
       - "${PROXY_PORT:-0}:3129"
@@ -64,12 +64,12 @@ networks:
     driver: bridge
     ipam:
       config:
-        - subnet: 172.40.0.0/24
-          gateway: 172.40.0.1
+        - subnet: 172.42.0.0/24
+          gateway: 172.42.0.1
   egg-test-external:
     name: ${COMPOSE_PROJECT_NAME:-egg-test}-external
     driver: bridge
     ipam:
       config:
-        - subnet: 172.41.0.0/24
-          gateway: 172.41.0.1
+        - subnet: 172.43.0.0/24
+          gateway: 172.43.0.1

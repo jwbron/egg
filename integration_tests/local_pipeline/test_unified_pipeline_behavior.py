@@ -29,9 +29,12 @@ class TestLocalPipelineContractCreation:
     """Local pipelines create contracts keyed by pipeline_id."""
 
     def test_contract_file_uses_pipeline_id_key(self, local_pipeline_stack) -> None:
-        """Verify contract file uses pipeline ID as filename."""
+        """Verify pipeline state file uses pipeline ID as filename.
+
+        Contract creation is deferred to _run_pipeline, so we verify the
+        pipeline state file (created immediately on create) uses the pipeline_id.
+        """
         orchestrator_url = local_pipeline_stack.orchestrator_url
-        repos_dir = local_pipeline_stack.repos_dir
 
         data, status = create_pipeline(
             orchestrator_url,
@@ -42,13 +45,11 @@ class TestLocalPipelineContractCreation:
         assert pipeline_id.startswith("local-")
 
         try:
-            # Verify contract file path uses pipeline_id
-            contract_path = Path(repos_dir) / f".egg-state/contracts/{pipeline_id}.json"
-            assert contract_path.exists(), f"Contract should be at {contract_path}"
-
-            # Verify contract contents include pipeline_id
-            contract_data = json.loads(contract_path.read_text())
-            assert contract_data.get("pipeline_id") == pipeline_id
+            # Verify pipeline was created with correct ID via API
+            get_data, get_status = get_pipeline(orchestrator_url, pipeline_id)
+            assert get_status == 200
+            pipeline = get_data["data"]["pipeline"]
+            assert pipeline["id"] == pipeline_id
 
         finally:
             delete_pipeline(orchestrator_url, pipeline_id)
@@ -101,8 +102,8 @@ class TestLocalPipelinePrefixedPaths:
 class TestLocalPipelineContractSynced:
     """Contract synced flag is correctly managed."""
 
-    def test_contract_synced_set_after_creation(self, local_pipeline_stack) -> None:
-        """contract_synced should be True after successful contract creation."""
+    def test_contract_synced_false_after_creation(self, local_pipeline_stack) -> None:
+        """contract_synced is False right after creation (deferred to start)."""
         orchestrator_url = local_pipeline_stack.orchestrator_url
 
         data, status = create_pipeline(
@@ -113,11 +114,12 @@ class TestLocalPipelineContractSynced:
         pipeline_id = data["data"]["pipeline"]["id"]
 
         try:
-            # Get pipeline and check contract_synced
+            # Contract creation is deferred to _run_pipeline, so right after
+            # creation contract_synced should be False.
             get_data, get_status = get_pipeline(orchestrator_url, pipeline_id)
             assert get_status == 200
             pipeline = get_data["data"]["pipeline"]
-            assert pipeline.get("contract_synced") is True
+            assert pipeline.get("contract_synced") is False
 
         finally:
             delete_pipeline(orchestrator_url, pipeline_id)
@@ -200,10 +202,9 @@ class TestContainerAgentTracking:
 class TestPhaseBoundaryCommits:
     """State is committed to git at phase boundaries for local pipelines."""
 
-    def test_pipeline_state_file_exists(self, local_pipeline_stack) -> None:
-        """Pipeline state file should exist in .egg-state/pipelines/."""
+    def test_pipeline_state_persisted(self, local_pipeline_stack) -> None:
+        """Pipeline state should be persisted and retrievable via API."""
         orchestrator_url = local_pipeline_stack.orchestrator_url
-        repos_dir = local_pipeline_stack.repos_dir
 
         data, status = create_pipeline(
             orchestrator_url,
@@ -213,13 +214,13 @@ class TestPhaseBoundaryCommits:
         pipeline_id = data["data"]["pipeline"]["id"]
 
         try:
-            # State file should exist
-            state_path = Path(repos_dir) / f".egg-state/pipelines/{pipeline_id}.json"
-            assert state_path.exists(), f"State file should exist at {state_path}"
+            # State should be retrievable via API (stored in state store worktree)
+            get_data, get_status = get_pipeline(orchestrator_url, pipeline_id)
+            assert get_status == 200
 
-            # State file should be valid JSON
-            state_data = json.loads(state_path.read_text())
-            assert state_data.get("id") == pipeline_id
+            pipeline = get_data["data"]["pipeline"]
+            assert pipeline["id"] == pipeline_id
+            assert pipeline.get("status") is not None
 
         finally:
             delete_pipeline(orchestrator_url, pipeline_id)

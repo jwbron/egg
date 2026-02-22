@@ -141,13 +141,13 @@ class TestSessionSecurity:
         # Create session bound to specific IP
         result = egg_stack.create_session(
             container_id=container_id,
-            container_ip="172.40.0.50",
+            container_ip="172.42.0.50",
         )
         token = result.get("data", result).get("session_token")
         assert token
 
         # The gateway validates source IP against session IP.
-        # Since we're calling from localhost (not 172.40.0.50),
+        # Since we're calling from localhost (not 172.42.0.50),
         # this should fail with IP mismatch.
         resp = egg_stack.api_request(
             "POST",

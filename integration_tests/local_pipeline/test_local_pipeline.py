@@ -570,7 +570,7 @@ class TestGatewayLocalModeBlocksPush:
                 f"{gateway_url}/api/v1/git/push",
                 headers={"Authorization": f"Bearer {session_token}"},
                 json={
-                    "repo_path": "/home/egg/repos",
+                    "repo_path": "/home/egg/repos/test-repo",
                     "refspec": "egg/test-branch",
                 },
                 timeout=10,
@@ -677,11 +677,11 @@ class TestReviewCycleCircuitBreaker:
             delete_pipeline(orchestrator_url, pipeline_id)
 
 
-class TestFailedPipelineCannotRestart:
-    """A failed pipeline cannot be restarted (returns 409)."""
+class TestFailedPipelineCanRestart:
+    """A failed pipeline can be restarted (the orchestrator resets and re-runs)."""
 
-    def test_failed_pipeline_returns_409(self, orchestrator_url: str) -> None:
-        """Trigger a failure via FORCE_FAIL, then try to restart."""
+    def test_failed_pipeline_restart_accepted(self, orchestrator_url: str) -> None:
+        """Trigger a failure via FORCE_FAIL, then restart — should be accepted."""
         data, status = create_pipeline(
             orchestrator_url,
             prompt="FORCE_FAIL for restart test",
@@ -695,11 +695,16 @@ class TestFailedPipelineCannotRestart:
             final = wait_for_pipeline_terminal(orchestrator_url, pipeline_id, timeout=300)
             assert final["data"]["status"] == "failed"
 
-            # Try to start again — should be 409
+            # Try to start again — orchestrator allows restart of failed pipelines
             start_data, start_status = start_pipeline(orchestrator_url, pipeline_id)
-            assert start_status == 409, (
-                f"Expected 409 for restarting failed pipeline, got {start_status}: {start_data}"
+            assert start_status == 200, (
+                f"Expected 200 for restarting failed pipeline, got {start_status}: {start_data}"
             )
+
+            # Wait for the restarted pipeline to reach a terminal state
+            final2 = wait_for_pipeline_terminal(orchestrator_url, pipeline_id, timeout=300)
+            # FORCE_FAIL will fail again, but the restart itself should succeed
+            assert final2["data"]["status"] in ("complete", "failed")
 
         finally:
             delete_pipeline(orchestrator_url, pipeline_id)

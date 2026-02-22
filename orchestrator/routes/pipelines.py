@@ -472,6 +472,11 @@ def create_pipeline() -> tuple[Response, int]:
         return make_error_response("Missing request body")
 
     mode = data.get("mode", "issue")
+    if mode not in ("local", "issue"):
+        return make_error_response(
+            f"Invalid mode: {mode!r} (must be 'local' or 'issue')",
+            status_code=400,
+        )
 
     network_mode = data.get("network_mode")
     if network_mode is not None and network_mode not in ("public", "private"):
