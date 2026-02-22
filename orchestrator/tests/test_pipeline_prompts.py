@@ -1966,8 +1966,8 @@ class TestTesterGapFindingPrompts:
         assert "Revision Checklist" not in result
         assert "Prior Review Feedback" not in result
 
-    def test_phase_prompt_revision_does_not_mention_tester(self):
-        """Non-Tier-3 phase prompt uses reviewer-only language (tester gap feedback not yet wired)."""
+    def test_phase_prompt_revision_reviewer_only_no_tester_language(self):
+        """Phase prompt with reviewer-only feedback uses reviewer-only language."""
         result = _build_phase_prompt(
             phase="implement",
             pipeline_id="test-pid",
@@ -1981,8 +1981,29 @@ class TestTesterGapFindingPrompts:
         assert "reviewer and tester" not in result
         assert "tester-output.json" not in result
 
+    def test_phase_prompt_revision_with_tester_findings(self):
+        """Phase prompt with tester findings in feedback uses reviewer+tester language."""
+        feedback = (
+            "Fix the naming convention\n\n"
+            "### tester findings\n"
+            "- **2** test(s) failed\n"
+            "- Missing error handling for null input"
+        )
+        result = _build_phase_prompt(
+            phase="implement",
+            pipeline_id="test-pid",
+            pipeline_mode="local",
+            prompt="Build a widget",
+            review_cycle=1,
+            review_feedback=feedback,
+        )
+
+        assert "reviewer and tester" in result
+        assert "tester-output.json" in result
+        assert "### tester findings" in result
+
     def test_phase_prompt_revision_no_feedback_does_not_mention_tester(self):
-        """Non-Tier-3 phase prompt without feedback has no tester references (gap feedback not yet wired)."""
+        """Phase prompt without feedback has no tester references."""
         result = _build_phase_prompt(
             phase="implement",
             pipeline_id="test-pid",
@@ -1994,3 +2015,23 @@ class TestTesterGapFindingPrompts:
 
         assert "tester-output.json" not in result
         assert "reviewer and tester" not in result
+
+    def test_phase_prompt_prior_feedback_header_with_tester_findings(self):
+        """Prior Review Feedback header section uses tester-aware language when findings present."""
+        feedback = (
+            "Reviewer says fix naming\n\n"
+            "### tester findings\n"
+            "- Missing boundary check"
+        )
+        result = _build_phase_prompt(
+            phase="implement",
+            pipeline_id="test-pid",
+            pipeline_mode="local",
+            prompt="Build a widget",
+            review_cycle=1,
+            review_feedback=feedback,
+        )
+
+        assert "The reviewer and tester found issues with your previous work" in result
+        # Should NOT contain the reviewer-only language
+        assert "found issues with your previous draft" not in result
