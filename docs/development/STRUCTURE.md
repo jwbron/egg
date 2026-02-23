@@ -184,6 +184,7 @@ shared/
 │   ├── checkpoint_cli.py   # Checkpoint browsing CLI (list, show, browse)
 │   ├── transcript_extractor.py # API transcript extraction
 │   └── redactor.py         # Sensitive data redaction for checkpoints
+├── check-fixers.yml         # Per-check fixer config (non-LLM fixes, retries, model)
 ├── prompts/                # Shared prompt criteria (used by GHA scripts AND orchestrator)
 │   ├── agent-design-criteria.md  # Agent-mode design review criteria
 │   ├── autofixer-rules.md        # Autofixer auto-fix vs report-only rules
@@ -281,7 +282,8 @@ action/
 ├── generate-config.sh                      # Runtime config generator
 ├── build-review-prompt.sh                  # PR review workflow prompt builder
 ├── build-feedback-prompt.sh                # Review feedback addressing workflow prompt builder
-├── build-autofixer-prompt.sh               # Autofixer workflow prompt builder
+├── build-autofixer-prompt.sh               # Autofixer workflow prompt builder (deprecated, use build-check-fixer-prompt.sh)
+├── build-check-fixer-prompt.sh             # Per-check fixer workflow prompt builder
 ├── build-agent-mode-design-review-prompt.sh # Agent-mode design review prompt
 ├── build-doc-updater-prompt.sh             # Doc updater workflow prompt builder
 ├── build-conflict-prompt.sh                # Conflict resolution workflow prompt builder
@@ -306,7 +308,8 @@ Key workflows for PR automation (see `.github/workflows/` for complete list):
 ├── on-pull-request-agent-mode-design.yml   # Agent-mode design review
 ├── on-pull-request-contract-verify.yml    # Contract verification on PRs
 ├── reusable-review.yml                     # PR-based code review workflow
-├── reusable-autofix.yml                    # Reusable auto-fix logic
+├── reusable-autofix.yml                    # Reusable auto-fix logic (deprecated, use reusable-check-fixer.yml)
+├── reusable-check-fixer.yml                # Per-check fixer with non-LLM fixes and retry tracking
 ├── reusable-conflict-resolve.yml           # Reusable conflict resolution
 ├── lint.yml                                # Lint workflow
 ├── test.yml                                # Test workflow
