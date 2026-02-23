@@ -242,6 +242,16 @@
           "exit_code": 0,
           "agent_role": "coder",
           "session_token": null
+        },
+        {
+          "container_id": "e1785bd8f7e1de29f9e0807de336eda7bbec2e475836eb98c4a6014d046f8a98",
+          "container_name": "egg-sandbox-egg-issue-887-documenter",
+          "status": "running",
+          "started_at": "2026-02-23T07:55:57.524570",
+          "exited_at": null,
+          "exit_code": null,
+          "agent_role": "documenter",
+          "session_token": null
         }
       ],
       "agents": [
@@ -251,6 +261,19 @@
           "container_id": "27ab6a726a9e2d9403d33a8f978e06eac3a2f4903fa480938a3b5780cbde07f2",
           "started_at": "2026-02-23T07:47:52.504658",
           "completed_at": "2026-02-23T07:55:47.650093",
+          "commit": null,
+          "outputs": {},
+          "error": null,
+          "retry_count": 0,
+          "conflicts": [],
+          "plan_phase_id": null
+        },
+        {
+          "role": "documenter",
+          "status": "running",
+          "container_id": "e1785bd8f7e1de29f9e0807de336eda7bbec2e475836eb98c4a6014d046f8a98",
+          "started_at": "2026-02-23T07:55:57.524575",
+          "completed_at": null,
           "commit": null,
           "outputs": {},
           "error": null,
@@ -302,7 +325,7 @@
     }
   ],
   "created_at": "2026-02-23T07:16:33.922974",
-  "updated_at": "2026-02-23T07:55:47.650263",
+  "updated_at": "2026-02-23T07:55:57.524634",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
@@ -310,5 +333,5 @@
   "error": null,
   "plan_phase_waves": null,
   "plan_phase_names": null,
-  "version": 40
+  "version": 41
 }
