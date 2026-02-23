@@ -559,11 +559,8 @@ class TestSetupWorktrees:
 class TestSetupAgentRules:
     """Tests for the setup_agent_rules function."""
 
-    @patch("os.lchown")
     @patch("os.chown")
-    def test_includes_all_rules_in_any_session(
-        self, mock_chown, mock_lchown, temp_dir, monkeypatch
-    ):
+    def test_includes_all_rules_in_any_session(self, mock_chown, temp_dir, monkeypatch):
         """All rules including CLI tools are included regardless of pipeline mode."""
         monkeypatch.delenv("EGG_PIPELINE_ID", raising=False)
 
@@ -583,13 +580,13 @@ class TestSetupAgentRules:
         for f in all_rules:
             (rules_dir / f).write_text(f"# {f} content")
 
-        # Create repos dir for symlink
-        repos_dir = temp_dir / "repos"
-        repos_dir.mkdir()
+        claude_dir = temp_dir / ".claude"
+        claude_dir.mkdir()
 
         config = MagicMock()
         config.user_home = temp_dir
-        config.repos_dir = repos_dir
+        config.claude_dir = claude_dir
+        config.repos_dir = temp_dir / "repos"
         config.runtime_uid = 1000
         config.runtime_gid = 1000
 
@@ -607,14 +604,13 @@ class TestSetupAgentRules:
         with patch.object(Path, "__new__", patched_path_new):
             entrypoint.setup_agent_rules(config, logger)
 
-        claude_md = temp_dir / "CLAUDE.md"
+        claude_md = claude_dir / "CLAUDE.md"
         content = claude_md.read_text()
         for f in all_rules:
             assert f"{f} content" in content, f"Missing rule: {f}"
 
-    @patch("os.lchown")
     @patch("os.chown")
-    def test_core_rules_order_preserved(self, mock_chown, mock_lchown, temp_dir, monkeypatch):
+    def test_core_rules_order_preserved(self, mock_chown, temp_dir, monkeypatch):
         """All rules are included in the expected order."""
         monkeypatch.delenv("EGG_PIPELINE_ID", raising=False)
 
@@ -633,12 +629,13 @@ class TestSetupAgentRules:
         for f in core_rules:
             (rules_dir / f).write_text(f"## {f} marker")
 
-        repos_dir = temp_dir / "repos"
-        repos_dir.mkdir()
+        claude_dir = temp_dir / ".claude"
+        claude_dir.mkdir()
 
         config = MagicMock()
         config.user_home = temp_dir
-        config.repos_dir = repos_dir
+        config.claude_dir = claude_dir
+        config.repos_dir = temp_dir / "repos"
         config.runtime_uid = 1000
         config.runtime_gid = 1000
 
@@ -655,7 +652,7 @@ class TestSetupAgentRules:
         with patch.object(Path, "__new__", patched_path_new):
             entrypoint.setup_agent_rules(config, logger)
 
-        claude_md = temp_dir / "CLAUDE.md"
+        claude_md = claude_dir / "CLAUDE.md"
         content = claude_md.read_text()
 
         # Verify all core rules present and in order
@@ -667,11 +664,8 @@ class TestSetupAgentRules:
             positions.append(pos)
         assert positions == sorted(positions), "Core rules are not in expected order"
 
-    @patch("os.lchown")
     @patch("os.chown")
-    def test_missing_optional_rule_file_skipped(
-        self, mock_chown, mock_lchown, temp_dir, monkeypatch
-    ):
+    def test_missing_optional_rule_file_skipped(self, mock_chown, temp_dir, monkeypatch):
         """Missing individual rule files are gracefully skipped."""
         monkeypatch.delenv("EGG_PIPELINE_ID", raising=False)
 
@@ -681,12 +675,13 @@ class TestSetupAgentRules:
         (rules_dir / "mission.md").write_text("# Mission")
         (rules_dir / "code-standards.md").write_text("# Code Standards")
 
-        repos_dir = temp_dir / "repos"
-        repos_dir.mkdir()
+        claude_dir = temp_dir / ".claude"
+        claude_dir.mkdir()
 
         config = MagicMock()
         config.user_home = temp_dir
-        config.repos_dir = repos_dir
+        config.claude_dir = claude_dir
+        config.repos_dir = temp_dir / "repos"
         config.runtime_uid = 1000
         config.runtime_gid = 1000
 
@@ -703,7 +698,7 @@ class TestSetupAgentRules:
         with patch.object(Path, "__new__", patched_path_new):
             entrypoint.setup_agent_rules(config, logger)
 
-        claude_md = temp_dir / "CLAUDE.md"
+        claude_md = claude_dir / "CLAUDE.md"
         content = claude_md.read_text()
         assert "# Mission" in content
         assert "# Code Standards" in content
