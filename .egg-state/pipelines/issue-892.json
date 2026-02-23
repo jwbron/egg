@@ -5,7 +5,7 @@
   "branch": "egg/issue-892",
   "mode": "issue",
   "prompt": null,
-  "status": "running",
+  "status": "failed",
   "current_phase": "refine",
   "config": {
     "auto_create_pr": true,
@@ -21,10 +21,10 @@
   "phases": {
     "refine": {
       "phase": "refine",
-      "status": "running",
+      "status": "failed",
       "started_at": "2026-02-23T07:16:33.439165",
       "work_started_at": "2026-02-23T07:16:33.451712",
-      "completed_at": null,
+      "completed_at": "2026-02-23T07:25:22.077616",
       "containers": [
         {
           "container_id": "82da6b8bc083ec7f5fef33ad4deb3166464c8df69ada802a19fd6ee7f7c7e796",
@@ -58,23 +58,23 @@
         {
           "cycle": 0,
           "started_at": "2026-02-23T07:16:33.451712",
-          "completed_at": null,
+          "completed_at": "2026-02-23T07:25:22.077602",
           "commit_sha": "56375d0c9f11376a6740ca688fa102d3154a365a"
         }
       ],
       "artifacts": {},
-      "error": null
+      "error": "Container exited with code 137"
     }
   },
   "decisions": [],
   "created_at": "2026-02-23T07:16:33.273815",
-  "updated_at": "2026-02-23T07:25:22.062387",
+  "updated_at": "2026-02-23T07:25:22.077699",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
   "complexity_tier": "mid",
-  "error": null,
+  "error": "Container exited with code 137",
   "plan_phase_waves": null,
   "plan_phase_names": null,
-  "version": 8
+  "version": 9
 }
