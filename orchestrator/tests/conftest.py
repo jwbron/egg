@@ -16,3 +16,13 @@ _shared_path = _project_root / "shared"
 for p in (_orchestrator_path, _shared_path):
     if p.exists() and str(p) not in sys.path:
         sys.path.insert(0, str(p))
+
+# Import docker before test collection so that test modules using
+# sys.modules.setdefault("docker", MagicMock()) don't shadow the real
+# package.  This prevents docker_client.NotFound et al. from being
+# bound to MagicMock objects (which aren't BaseException subclasses
+# and break ``except NotFound`` clauses).
+try:
+    import docker  # noqa: F401
+except ImportError:
+    pass
