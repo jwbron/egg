@@ -6,7 +6,7 @@ Use `egg-checkpoint` to browse agent checkpoints — session transcripts, tool c
 
 Checkpoints are most valuable when you need context from other agents in the pipeline:
 
-- **Tester**: Review the coder's session before writing tests — understand what changed and why (`egg-checkpoint list --pipeline $EGG_PIPELINE_ID --agent-type coder`)
+- **Tester**: Review the coder's session before writing tests — understand what changed and why (`egg-checkpoint list --pipeline $EGG_PIPELINE_ID --agent-type coder --phase implement`)
 - **Documenter**: Find all changed files across agents to ensure documentation covers everything (`egg-checkpoint context --pipeline $EGG_PIPELINE_ID --files`)
 - **Integrator**: Get a pipeline overview and cost summary before integrating (`egg-checkpoint context --pipeline $EGG_PIPELINE_ID --files` and `egg-checkpoint cost --pipeline $EGG_PIPELINE_ID`)
 - **Coder (revision)**: Check prior failed sessions to avoid repeating mistakes (`egg-checkpoint list --issue $EGG_ISSUE_NUMBER --status failed`)

@@ -89,7 +89,7 @@ Before writing tests, review the coder's session for context on what was changed
 
 ```bash
 # List coder checkpoints for this pipeline
-egg-checkpoint list --pipeline $EGG_PIPELINE_ID --agent-type coder
+egg-checkpoint list --pipeline $EGG_PIPELINE_ID --agent-type coder --phase implement
 
 # Inspect a specific checkpoint for details
 egg-checkpoint show ckpt-<id>
