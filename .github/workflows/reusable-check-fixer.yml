@@ -127,7 +127,7 @@ jobs:
       - name: Fetch PR metadata
         id: pr-meta
         run: |
-          pr_json=$(gh api repos/${{ github.repository }}/pulls/${{ env.PR_NUMBER }})
+          pr_json=$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}")
           {
             echo "head-ref=$(echo "$pr_json" | jq -r '.head.ref')"
             echo "head-repo=$(echo "$pr_json" | jq -r '.head.repo.full_name')"
@@ -135,6 +135,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
 
       # Skip if PR has [skip-autofix] in title
       - name: Check for skip marker
@@ -158,14 +159,14 @@ jobs:
         if: steps.skip-check.outputs.skip != 'true'
         id: failed-jobs
         run: |
-          if [[ -z "${{ env.FAILED_RUN_ID }}" || "${{ env.FAILED_WORKFLOW }}" == "manual" ]]; then
+          if [[ -z "$FAILED_RUN_ID" || "$FAILED_WORKFLOW" == "manual" ]]; then
             # Manual trigger — no specific run to query
             echo "jobs=[]" >> "$GITHUB_OUTPUT"
             echo "job-count=0" >> "$GITHUB_OUTPUT"
             echo "No specific run ID, will build generic prompt"
           else
             # Query the workflow run's jobs for failures
-            failed=$(gh api "repos/${{ github.repository }}/actions/runs/${{ env.FAILED_RUN_ID }}/jobs" \
+            failed=$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${FAILED_RUN_ID}/jobs" \
               --jq '[.jobs[] | select(.conclusion == "failure") | select(.name | test("Aggregate|aggregate") | not) | .name] | unique')
             echo "jobs=${failed}" >> "$GITHUB_OUTPUT"
 
@@ -175,6 +176,7 @@ jobs:
           fi
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
 
       # Read autofix state from PR comment
       - name: Read autofix state
@@ -182,7 +184,7 @@ jobs:
         id: state
         run: |
           # Find PR comment with egg-autofix-state marker
-          state_comment=$(gh api "repos/${{ github.repository }}/issues/${{ env.PR_NUMBER }}/comments" \
+          state_comment=$(gh api "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" \
             --jq '[.[] | select(.body | contains("<!-- egg-autofix-state -->"))] | last // empty')
 
           if [[ -n "$state_comment" ]]; then
@@ -200,12 +202,13 @@ jobs:
           fi
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
 
       # Minimize previous status comments
       - name: Minimize previous autofix comments
         if: steps.skip-check.outputs.skip != 'true'
         run: |
-          gh api "repos/${{ github.repository }}/issues/${{ env.PR_NUMBER }}/comments" \
+          gh api "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" \
             --jq ".[] | select(.user.login == \"$EGG_BOT_USERNAME\" or .user.login == \"${EGG_BOT_USERNAME}[bot]\") | select(.body | contains(\"<!-- egg-status-comment -->\")) | .node_id" \
           | while read -r node_id; do
               # shellcheck disable=SC2016 # $id is a GraphQL variable, not bash
@@ -219,6 +222,7 @@ jobs:
             done
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
 
       # Post acknowledgment
       - name: Post starting comment
@@ -537,6 +541,17 @@ jobs:
           elif [[ "$EGG_OUTCOME" == "failure" ]]; then
             BODY="<!-- egg-status-comment -->
           egg check fixer encountered an issue fixing **${FAILED_WORKFLOW}**. [View run logs](${RUN_URL})
+
+          — Authored by egg"
+            # shellcheck disable=SC2001
+            BODY=$(echo "$BODY" | sed 's/^[[:space:]]*//')
+            gh api "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" -f body="$BODY"
+          else
+            # EGG_OUTCOME is empty or unexpected (e.g., egg step was skipped due to
+            # an earlier step failure). Post a status-unknown comment so the run
+            # doesn't complete silently.
+            BODY="<!-- egg-status-comment -->
+          egg check fixer status unknown for **${FAILED_WORKFLOW}** (fixer step may have been skipped). [View run logs](${RUN_URL})
 
           — Authored by egg"
             # shellcheck disable=SC2001
