@@ -1,0 +1,7 @@
+{
+  "reviewer": "contract",
+  "verdict": "approved",
+  "summary": "All 14 acceptance criteria across 4 phases verified. Phase 1 (orchestrator prompt injection): checkpoint pointer added to _build_role_context() for all execution roles, role-specific hints added to tester/documenter/integrator sections in _build_agent_prompt(), and failed-session hint added to revision checklist in _build_phase_scoped_prompt(). Phase 2 (agent mode commands): tester-mode.md has 'Review Prior Work', integrator-mode.md has 'Pipeline Overview', documenter-mode.md has 'Find Changed Files', coder-mode.md has 'Revision Cycle Context'. Phase 3 (rules): mission.md context sources table includes Checkpoints row and workflow step mentions egg-checkpoint, checkpoint.md has 'When to Use' section with all four role-specific use cases. Phase 4 (verification): all 6685 tests pass, 27 new tests in test_checkpoint_discovery.py cover all prompt injection scenarios. Minor note: contract task statuses not updated to 'complete' and no commits linked via egg-contract, but all deliverables are present and correct.",
+  "feedback": "",
+  "timestamp": "2026-02-23T08:15:00Z"
+}
