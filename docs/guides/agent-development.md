@@ -208,15 +208,22 @@ Pattern evaluation order:
 
 ## Handoff Data
 
-Agents communicate via JSON files in `.egg-state/agent-outputs/`:
+Agents communicate via JSON files in `.egg-state/agent-outputs/`, namespaced
+by the issue number or pipeline ID to prevent merge conflicts:
 
 ```
 .egg-state/agent-outputs/
-├── coder-output.json
-├── tester-output.json
-├── documenter-output.json
-└── integrator-output.json
+├── {identifier}-coder-output.json
+├── {identifier}-tester-output.json
+├── {identifier}-documenter-output.json
+└── {identifier}-integrator-output.json
 ```
+
+For example, issue #871 produces `871-coder-output.json`, `871-tester-output.json`, etc.
+
+**Backward compatibility:** `load_agent_output()` checks the namespaced path first, then
+falls back to the old `{role}-output.json` path. This ensures in-flight pipelines created
+before the namespacing change continue to work.
 
 Standard handoff format:
 

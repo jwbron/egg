@@ -216,7 +216,9 @@ class PipelineDispatcher:
             # have contract counterparts; their verdicts are stored in the
             # AgentExecution record returned below, not as contract outputs.
             if outputs:
-                save_agent_output(self.repo_path, contract_role, outputs)
+                save_agent_output(
+                    self.repo_path, contract_role, outputs, identifier=self.contract_key
+                )
 
         return AgentExecution(
             role=role,
@@ -261,7 +263,7 @@ class PipelineDispatcher:
         contract_role = map_agent_role_to_contract_role(role)
         if contract_role is None:
             return {}
-        return collect_handoff_data(self.repo_path, contract_role)
+        return collect_handoff_data(self.repo_path, contract_role, identifier=self.contract_key)
 
     def save_contract(self) -> None:
         """Save updated contract to disk.

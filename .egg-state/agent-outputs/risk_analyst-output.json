@@ -1,260 +1,250 @@
 {
-  "issue": 887,
+  "issue": 871,
   "phase": "plan",
   "agent": "risk_analyst",
-  "title": "Risk Assessment: Improve checkpoint discoverability for agents",
+  "revision": 2,
+  "revision_reason": "Updated risk assessment after architect revision 2 addressed R-1 (wrapper layer). Incorporates plan review feedback. Identifies new risks R-8 through R-11 not covered in previous revision or architect output.",
+  "title": "Risk assessment: Namespace .egg-state files per-pipeline (revision 2)",
+  "overall_risk_level": "LOW",
 
-  "overall_risk_level": "Low",
-  "overall_assessment": "This is a low-risk change. The recommended approach (Option A: prompt-only changes) modifies only text content in prompt templates and markdown files. There are no schema migrations, no new dependencies, no logic changes to Python functions, and no changes to control flow. The changes are purely additive — appending lines to existing prompt sections. The primary risks are around test maintenance and minor merge conflicts, both of which are straightforward to resolve.",
+  "summary": "The architect's revision 2 correctly addresses the primary R-1 gap (wrapper layer callsites) by adding Phase 1.5. The core approach — prefix filenames with issue/pipeline identifier — remains well-scoped, follows established convention, and requires no gateway or enforcement layer changes. This revision identifies 4 new risks: (1) the plan draft is out-of-sync with the architect's revision 2, (2) two additional hardcoded prompt references to tester-output.json are not covered by any task, (3) two health check test files listed in the plan do not actually need changes, and (4) one additional test file (test_health_check_tier2.py) that references globally-named files is not listed. Overall risk remains LOW — the change is a file naming convention update with a solid backward-compat strategy.",
+
+  "architect_analysis_review": {
+    "revision_reviewed": 2,
+    "accuracy": "Accurate — revision 2 addresses all findings from revision 1",
+    "improvements_in_revision_2": [
+      "Phase 1.5 added for wrapper layer (handoffs.py, dispatch.py, signals.py) — directly addresses R-1",
+      "TASK-3-5 added for test_signals.py mock update — addresses R-7",
+      "AD-3 updated to keep fallback permanently — aligns with R-6 recommendation",
+      "AD-4 added for wrapper layer threading decision",
+      "Call chain analysis section added with complete 5-layer breakdown",
+      "Risk section now incorporates all R-1 through R-7 findings with mitigation status"
+    ],
+    "remaining_gaps": [
+      {
+        "gap": "Two hardcoded tester-output.json references in coder prompt builder at pipelines.py:2196 and 2790 not covered by any task",
+        "detail": "TASK-2-1 covers architect, integrator, risk_analyst prompt builders. These two references are in the coder prompt builder (revision checklist sections) and tell coder agents to check .egg-state/agent-outputs/tester-output.json directly. After the change, the tester writes to {id}-tester-output.json, so the coder won't find it at the hardcoded path.",
+        "severity": "LOW — tester gap data is injected programmatically into the coder prompt by _read_tester_gaps(), so the agent has the information regardless. The hardcoded path is a convenience reference."
+      },
+      {
+        "gap": "Plan draft (871-plan.md) does not include Phase 1.5 or wrapper layer files",
+        "detail": "The plan draft is still on revision 1. The architect produced a revision 2 JSON with the corrected plan, but 871-plan.md was not regenerated. If the plan draft drives SDLC task creation, the wrapper layer work will be missing.",
+        "severity": "HIGH — this could result in the same silent failure that R-1 described"
+      },
+      {
+        "gap": "Test files test_health_check_tier1_advanced.py and test_health_check_tester_coverage.py listed for changes but don't actually need them",
+        "detail": "Both tests create architect-output.json in .egg-state/drafts/ (not agent-outputs/). The health check _check_plan_outputs() scans drafts/ via iterdir() matching 'plan' or 'architect' in filenames. Since the change only namespaces files in agent-outputs/ and checks/, these tests are unaffected. The architect's plan incorrectly lists them as needing updates.",
+        "severity": "LOW — unnecessary changes, but modifications to the file-creation filename would still pass the health check since 'architect' would still be in the name"
+      }
+    ],
+    "correct_claims_verified": [
+      "Gateway uses directory-level wildcards — no changes needed (verified: gateway/phase_filter.py:495 uses '.egg-state/agent-outputs/*' and '.egg-state/checks/*')",
+      "Readonly mounts don't cover agent-outputs/ or checks/ (verified: _IMPLEMENT_READONLY_DIRS only has drafts, contracts, pipelines, reviews)",
+      "Health check _check_plan_outputs() scans drafts/ via iterdir() — filename-agnostic (verified: phase_output.py:152-155)",
+      "Health context _read_agent_outputs() scans agent-outputs/ via iterdir() — filename-agnostic (verified: context.py:192)",
+      "dispatch.py has self.contract_key property returning pipeline.issue_number or pipeline.id (verified: dispatch.py:118-126)",
+      "signals.py has pipeline object available from store.load_pipeline() at line 162 with issue_number attribute (verified)",
+      "pipelines.py does NOT import load_agent_output/save_agent_output/collect_handoff_data — it constructs paths inline in prompt builders and reader functions (verified: only a comment reference at line 3722)"
+    ]
+  },
 
   "risks": [
     {
       "id": "R-1",
-      "title": "Existing prompt tests may fail after adding checkpoint hints",
-      "category": "compatibility",
-      "description": "The test file orchestrator/tests/test_pipeline_prompts.py (2029 lines) has extensive test classes covering all three target functions: TestBuildRoleContext (lines 837-961), TestBuildAgentPromptRoleContext (lines 963-1075), and TestBuildPhaseScopedPromptOverview (lines 1077+). Several tests assert on the presence or absence of specific sections (e.g., '## For More Context' in result). Adding new lines to these sections could break tests that assert on exact content or ordering. Notably, test_context_pointers_always_present_for_execution_roles (line 949) asserts on 'For More Context' — this should still pass since we're adding to that section, not removing it. However, edge-case tests in TestBuildRoleContextEdgeCases (line 1284) and TestBuildAgentPromptEdgeCases (line 1430) may be more fragile.",
-      "likelihood": "Medium",
-      "impact": "Low",
-      "risk_score": "Low",
-      "affected_files": [
-        "orchestrator/tests/test_pipeline_prompts.py"
-      ],
-      "mitigation": {
-        "strategy": "Run tests before and after, update assertions as needed",
-        "steps": [
-          "Run pytest orchestrator/tests/test_pipeline_prompts.py before making any changes to establish a baseline",
-          "After adding checkpoint hints, re-run the same test file and inspect any failures",
-          "Update tests that assert on exact prompt content to include the new checkpoint lines",
-          "Add new test assertions verifying checkpoint hints appear for the correct roles"
-        ],
-        "residual_risk": "Negligible — additive text changes cause predictable test failures that are easy to fix"
-      },
-      "human_review_required": false
+      "title": "Missed wrapper callsites in orchestrator/handoffs.py, dispatch.py, signals.py",
+      "category": "Completeness",
+      "likelihood": "HIGH (without mitigation)",
+      "impact": "HIGH",
+      "risk_score": "HIGH (MITIGATED in architect revision 2)",
+      "status": "MITIGATED",
+      "description": "The original plan updated shared/egg_contracts/orchestrator.py but not the wrapper layer. Without Phase 1.5, shared functions receive identifier=None from these code paths and fall back to global paths, silently defeating the entire fix.",
+      "mitigation_applied": "Architect revision 2 added Phase 1.5 with TASK-1.5-1 (handoffs.py), TASK-1.5-2 (dispatch.py), TASK-1.5-3 (signals.py). All three files and their specific callsites are now covered.",
+      "residual_risk": "LOW — plan draft (871-plan.md) has not been updated to include Phase 1.5. See R-8."
     },
     {
       "id": "R-2",
-      "title": "Merge conflict with PR #893 (move agent rules to ~/.claude/CLAUDE.md)",
-      "category": "compatibility",
-      "description": "Open PR #893 modifies sandbox/.claude/rules/README.md, sandbox/entrypoint.py, and tests/sandbox/test_entrypoint.py. Our changes target sandbox/.claude/commands/{tester,integrator,documenter,coder}-mode.md and sandbox/.claude/rules/mission.md. There is no file-level overlap — PR #893 does not touch any of the mode command files or mission.md. However, if a follow-up PR restructures the sandbox/.claude/ directory layout, there could be indirect conflicts.",
-      "likelihood": "Low",
-      "impact": "Low",
-      "risk_score": "Low",
-      "affected_files": [
-        "sandbox/.claude/commands/tester-mode.md",
-        "sandbox/.claude/commands/integrator-mode.md",
-        "sandbox/.claude/commands/documenter-mode.md",
-        "sandbox/.claude/commands/coder-mode.md",
-        "sandbox/.claude/rules/mission.md"
-      ],
-      "mitigation": {
-        "strategy": "Check PR #893 status before implementation",
-        "steps": [
-          "Check if PR #893 is merged before starting implementation — if so, rebase onto main",
-          "Files are disjoint so git merge should handle concurrent landing cleanly",
-          "No proactive action needed"
-        ],
-        "residual_risk": "Negligible — no file overlap"
-      },
-      "human_review_required": false
+      "title": "In-flight pipeline backward compatibility during rollout",
+      "category": "Compatibility",
+      "likelihood": "MEDIUM",
+      "impact": "MEDIUM",
+      "risk_score": "MEDIUM (MITIGATED)",
+      "status": "MITIGATED",
+      "description": "In-flight pipelines may have already written agent outputs to old global paths. Readers updated to look for prefixed paths without fallback would fail to find dependency outputs.",
+      "mitigation_applied": "Backward-compat fallback in all readers: try new prefixed path first, fall back to old path. AD-3 decides to keep fallback permanently.",
+      "residual_risk": "NEGLIGIBLE"
     },
     {
       "id": "R-3",
-      "title": "Prompt token budget increase may degrade agent performance on context-heavy sessions",
-      "category": "performance",
-      "description": "Adding checkpoint hints increases prompt size for every downstream agent session. Estimated additions: ~2-3 lines in _build_role_context() (shared across all execution roles), ~2 lines per role in _build_agent_prompt() (tester, documenter, integrator), ~1 line in _build_phase_scoped_prompt() revision checklist. Total: approximately 10-15 lines of additional prompt text per session. The checkpoint.md rule (62 lines) is already loaded into every session. Combined, checkpoint-related content will be ~75 lines per session. For context-heavy sessions (large issues, many files), this adds marginal token pressure.",
-      "likelihood": "Low",
-      "impact": "Low",
-      "risk_score": "Low",
-      "affected_files": [
-        "orchestrator/routes/pipelines.py"
-      ],
-      "mitigation": {
-        "strategy": "Keep hints concise, reference existing rule for details",
-        "steps": [
-          "Limit each injection point to 1-2 lines maximum",
-          "Reference the checkpoint.md rule for full CLI docs rather than duplicating workflow blocks",
-          "The architect's TD-2 decision (brief nudge + role-specific one-liner) is the correct approach"
-        ],
-        "residual_risk": "Negligible — ~10-15 lines is a trivial percentage of typical agent prompt budgets"
-      },
-      "human_review_required": false
+      "title": "Agent sandbox commands reference hardcoded global filenames",
+      "category": "Compatibility",
+      "likelihood": "MEDIUM",
+      "impact": "LOW",
+      "risk_score": "LOW (MITIGATED)",
+      "status": "MITIGATED",
+      "description": "Sandbox agent mode commands (coder-mode.md, tester-mode.md, integrator-mode.md, documenter-mode.md) contain hardcoded file paths. Used only in manual/interactive agent mode.",
+      "mitigation_applied": "Phase 4 tasks update all sandbox commands. Backward-compat fallback covers reads during transition.",
+      "residual_risk": "LOW — sandbox commands may use shell variable interpolation which must be verified to work in the template rendering context"
     },
     {
       "id": "R-4",
-      "title": "Agents may waste tokens on unnecessary checkpoint queries",
-      "category": "performance",
-      "description": "If prompt hints are too directive (e.g., 'You MUST review checkpoints before proceeding'), agents may spend tokens running egg-checkpoint commands even when no useful checkpoints exist (e.g., first-cycle coders, new pipelines with no prior sessions). Each checkpoint query adds tool-call overhead (~500-1000 tokens for command + result parsing).",
-      "likelihood": "Low",
-      "impact": "Low",
-      "risk_score": "Low",
-      "affected_files": [
-        "orchestrator/routes/pipelines.py",
-        "sandbox/.claude/commands/tester-mode.md",
-        "sandbox/.claude/commands/integrator-mode.md",
-        "sandbox/.claude/commands/documenter-mode.md"
-      ],
-      "mitigation": {
-        "strategy": "Use suggestive language, not imperative",
-        "steps": [
-          "Phrase hints as optional context gathering: 'For additional context, you can review...' not 'You must review...'",
-          "The coder-mode.md hint should be conditional on revision cycles only (per architect TD-7)",
-          "First-cycle agents seeing an empty checkpoint result is cheap (~100 tokens) and self-correcting — agents learn to skip irrelevant queries"
-        ],
-        "residual_risk": "Negligible — even worst case, a few unnecessary checkpoint queries cost <2000 tokens per session"
-      },
-      "human_review_required": false
+      "title": "Identifier unavailable in local/non-issue pipeline modes",
+      "category": "Edge Case",
+      "likelihood": "LOW",
+      "impact": "LOW",
+      "risk_score": "LOW (MITIGATED)",
+      "status": "MITIGATED",
+      "description": "In local pipeline mode without an issue number, identifier must be derived from pipeline_id. If both are None, a sensible fallback is needed.",
+      "mitigation_applied": "Follow existing _get_draft_path() pattern: issue_number > pipeline_id > 'local'. Already proposed in AD-4.",
+      "residual_risk": "NEGLIGIBLE"
     },
     {
       "id": "R-5",
-      "title": "egg-checkpoint CLI failures or empty results could confuse agents",
-      "category": "reliability",
-      "description": "The egg-checkpoint CLI queries the egg/checkpoints/v2 branch via git. If that branch doesn't exist (new repos), if the checkpoint store is empty, or if the CLI encounters git errors, agents will see error or empty output. Agents unfamiliar with the tool could waste time debugging checkpoint access issues rather than doing their primary task.",
-      "likelihood": "Low",
-      "impact": "Low",
-      "risk_score": "Low",
-      "affected_files": [],
-      "mitigation": {
-        "strategy": "No special handling needed — this is a pre-existing condition",
-        "steps": [
-          "egg-checkpoint already handles 'no results' gracefully (returns empty list, not an error)",
-          "Hints should not frame checkpoint review as a prerequisite — agents should proceed with their primary task regardless",
-          "The existing checkpoint.md rule documents the CLI behavior"
-        ],
-        "residual_risk": "Negligible — pre-existing condition not introduced by our changes"
-      },
-      "human_review_required": false
+      "title": "Integration test hardcoded path in phase-runner.sh",
+      "category": "Test Infrastructure",
+      "likelihood": "HIGH",
+      "impact": "LOW",
+      "risk_score": "LOW (MITIGATED)",
+      "status": "MITIGATED",
+      "description": "phase-runner.sh:143 hardcodes RESULTS_FILE with implement-results.json. After the change, prompts tell agents to write to a prefixed filename, but the mock still uses the old name.",
+      "mitigation_applied": "TASK-3-3 covers updating phase-runner.sh to use ${EGG_ISSUE_NUMBER:-local}-implement-results.json.",
+      "residual_risk": "NEGLIGIBLE"
     },
     {
       "id": "R-6",
-      "title": "Mode command changes have lower reach than orchestrator prompt changes",
-      "category": "effectiveness",
-      "description": "Agent mode commands (sandbox/.claude/commands/*.md) are slash commands that agents invoke manually. In pipeline mode, agents receive orchestrator-generated prompts automatically and may not invoke slash commands. If only mode commands were implemented (without orchestrator prompt changes), the impact would be minimal since pipeline agents typically do not activate mode commands. This risk is about implementation ordering, not a failure mode.",
-      "likelihood": "Medium",
-      "impact": "Medium",
-      "risk_score": "Low-Medium",
-      "affected_files": [
-        "sandbox/.claude/commands/tester-mode.md",
-        "sandbox/.claude/commands/integrator-mode.md",
-        "sandbox/.claude/commands/documenter-mode.md",
-        "sandbox/.claude/commands/coder-mode.md"
-      ],
-      "mitigation": {
-        "strategy": "Prioritize orchestrator prompt injection (Phase 1)",
-        "steps": [
-          "The architect correctly identifies orchestrator prompt injection (Phase 1) as the highest-leverage change — it must be implemented",
-          "Mode command updates (Phase 2) are supplementary and reinforce the orchestrator hints",
-          "The coder should implement Phase 1 first, then Phase 2, then Phase 3",
-          "If the implementation budget is tight, Phase 1 alone delivers most of the value"
-        ],
-        "residual_risk": "Low — with Phase 1 implemented, checkpoint awareness reaches all pipeline agents automatically"
-      },
-      "human_review_required": false
+      "title": "Prompt-agent path mismatch if agents ignore prompt instructions",
+      "category": "Robustness",
+      "likelihood": "LOW",
+      "impact": "MEDIUM",
+      "risk_score": "LOW (MITIGATED)",
+      "status": "MITIGATED",
+      "description": "Agent output file paths are communicated via prompt instructions. If an agent writes to a different path, readers won't find the output at the expected prefixed path.",
+      "mitigation_applied": "AD-3 keeps backward-compat fallback permanently. This handles both transition and misbehaving agents.",
+      "residual_risk": "NEGLIGIBLE"
     },
     {
       "id": "R-7",
-      "title": "Deferred handoff enrichment creates a known but acceptable gap",
-      "category": "completeness",
-      "description": "The architect deferred items 5-8 from the issue (slash command, handoff enrichment, revision summaries, egg-agent-context wrapper). The most notable deferral is checkpoint_ids in handoff data (item 6). Without this, agents query checkpoints by pipeline ID or issue number rather than receiving exact checkpoint IDs in their handoff data. This means agents could theoretically see stale checkpoints from prior pipeline runs for the same issue.",
-      "likelihood": "Medium",
-      "impact": "Low",
-      "risk_score": "Low",
-      "affected_files": [],
-      "mitigation": {
-        "strategy": "Accept deferral — query-based discovery is sufficient",
-        "steps": [
-          "Querying by $EGG_PIPELINE_ID scopes results to the current pipeline run, which is sufficient for the primary use case",
-          "The architect's TD-5 correctly identifies the race condition risk with checkpoint write timing — handoff enrichment should not be attempted until that is understood",
-          "A follow-up issue should be filed to track handoff enrichment as future work",
-          "The coder should NOT attempt to implement handoff enrichment in this PR"
-        ],
-        "residual_risk": "Low — query-based discovery is reliable for the primary use cases"
-      },
-      "human_review_required": false
+      "title": "Test coverage for wrapper module changes (test_signals.py)",
+      "category": "Test Infrastructure",
+      "likelihood": "MEDIUM",
+      "impact": "LOW",
+      "risk_score": "LOW (MITIGATED)",
+      "status": "MITIGATED",
+      "description": "test_signals.py:86 mocks save_agent_output. If the function signature changes, the mock needs updating.",
+      "mitigation_applied": "TASK-3-5 added in architect revision 2 to update test_signals.py.",
+      "residual_risk": "NEGLIGIBLE"
     },
     {
       "id": "R-8",
-      "title": "No security risks identified",
-      "category": "security",
-      "description": "The changes are limited to prompt text and markdown content. No new user inputs are processed, no new API endpoints are added, no authentication or authorization logic is modified, and no new dependencies are introduced. The checkpoint CLI already exists and is accessible to all agents — we are only making agents aware of it. There is no privilege escalation or information disclosure risk since agents already have access to all checkpoints in their pipeline.",
-      "likelihood": "N/A",
-      "impact": "N/A",
-      "risk_score": "None",
-      "affected_files": [],
-      "mitigation": {
-        "strategy": "None needed",
-        "steps": []
-      },
-      "human_review_required": false
+      "title": "Plan draft (871-plan.md) does not reflect architect revision 2",
+      "category": "Process / Completeness",
+      "likelihood": "HIGH",
+      "impact": "HIGH",
+      "risk_score": "HIGH",
+      "status": "OPEN",
+      "description": "The plan draft at .egg-state/drafts/871-plan.md is still on revision 1. It does not include Phase 1.5 (wrapper layer) or the wrapper layer files (orchestrator/handoffs.py, orchestrator/dispatch.py, orchestrator/routes/signals.py). It also does not include TASK-3-5 (test_signals.py). If the plan draft is what gets turned into SDLC contract tasks, the wrapper layer work will be omitted — reproducing the exact problem described in R-1.",
+      "affected_artifacts": [
+        ".egg-state/drafts/871-plan.md (Phases section, Files Modified table, yaml-tasks block)"
+      ],
+      "mitigation": "The plan draft must be regenerated or manually updated to include: (1) Phase 1.5 with TASK-1.5-1, TASK-1.5-2, TASK-1.5-3, (2) TASK-3-5 in Phase 3, (3) handoffs.py, dispatch.py, signals.py, test_signals.py in Files Modified table. The architect's revision 2 JSON has the correct content — the plan draft needs to match it.",
+      "rollback_plan": "N/A — this is a process fix, not a code change."
+    },
+    {
+      "id": "R-9",
+      "title": "Two additional hardcoded tester-output.json references in coder prompt builder",
+      "category": "Completeness",
+      "likelihood": "MEDIUM",
+      "impact": "LOW",
+      "risk_score": "LOW",
+      "status": "OPEN",
+      "description": "orchestrator/routes/pipelines.py has two hardcoded references to tester-output.json in the coder prompt builder that are NOT covered by any task: (1) line 2196 in a revision instruction telling coder to 'Check .egg-state/agent-outputs/tester-output.json for test failures and gaps', (2) line 2790 in a revision checklist with the same instruction. TASK-2-1 only covers architect, integrator, and risk_analyst prompt builders. These references are in the coder prompt builder.",
+      "affected_files": [
+        "orchestrator/routes/pipelines.py:2196 (coder revision instruction)",
+        "orchestrator/routes/pipelines.py:2790 (coder revision checklist)"
+      ],
+      "mitigation": "Expand TASK-2-1 scope to include ALL prompt builders that reference agent output filenames, not just architect/integrator/risk_analyst. Or create a dedicated sweep task. Impact is LOW because tester gap data is injected programmatically into the coder prompt by _read_tester_gaps() — the hardcoded path is a convenience reference. With the permanent fallback (AD-3), the agent would get a 'file not found' but the data is already in the prompt.",
+      "rollback_plan": "N/A — low severity."
+    },
+    {
+      "id": "R-10",
+      "title": "Plan incorrectly lists two health check test files as needing updates",
+      "category": "Implementation Accuracy",
+      "likelihood": "LOW",
+      "impact": "LOW",
+      "risk_score": "LOW",
+      "status": "OPEN",
+      "description": "TASK-3-2 lists test_health_check_tester_coverage.py and test_health_check_tier1_advanced.py as needing updates for 'mock file creation'. Both tests create architect-output.json in .egg-state/DRAFTS/ (not agent-outputs/). The health check _check_plan_outputs() scans the drafts/ directory via iterdir() matching files with 'plan' or 'architect' in the name (phase_output.py:155). Since the change only namespaces files in agent-outputs/ and checks/, these test files are NOT affected.",
+      "evidence": [
+        "test_health_check_tier1_advanced.py:434 creates file at Path(tmpdir) / '.egg-state' / 'drafts' / 'architect-output.json'",
+        "test_health_check_tester_coverage.py:235-237 creates file at Path(tmp) / 'repo' / '.egg-state' / 'drafts' / 'architect-output.json'",
+        "phase_output.py:152-156 _check_plan_outputs() scans drafts_dir.iterdir() for files with 'plan' or 'architect' in name"
+      ],
+      "mitigation": "Remove test_health_check_tier1_advanced.py and test_health_check_tester_coverage.py from TASK-3-2 scope. These tests verify health check behavior against the drafts/ directory, which is unrelated to the agent-outputs/ namespacing change. Making unnecessary changes risks introducing errors.",
+      "rollback_plan": "N/A — the tests don't need changing."
+    },
+    {
+      "id": "R-11",
+      "title": "test_health_check_tier2.py references globally-named agent output file",
+      "category": "Test Infrastructure",
+      "likelihood": "LOW",
+      "impact": "LOW",
+      "risk_score": "LOW",
+      "status": "OPEN (no action required)",
+      "description": "orchestrator/tests/test_health_check_tier2.py:239 creates coder-output.json in agent-outputs/ and asserts at line 254 that 'coder-output.json' is a key in ctx.agent_outputs. The health context reads via iterdir() (context.py:192), so it's filename-agnostic and the test will continue to pass regardless of the naming change. This file is not listed in the architect's files_modified table. The test does NOT strictly need updating since it creates its own fixture data with an arbitrary name.",
+      "affected_files": [
+        "orchestrator/tests/test_health_check_tier2.py:239,254-255"
+      ],
+      "mitigation": "No action required. The test creates its own fixture data and verifies that the health context can read from agent-outputs/ — it doesn't test the naming convention. Including it in the plan would be over-scoping.",
+      "rollback_plan": "N/A"
     }
   ],
+
+  "security_assessment": {
+    "risk_level": "NONE",
+    "details": "This change is purely a file naming convention update within the .egg-state directory. No new input validation, authentication, authorization, or data handling code is introduced. The identifier used in path construction comes from issue_number (integer) or pipeline_id (server-generated string), both of which are trusted internal values. Gateway and phase filter enforcement layers use directory-level wildcards that are transparent to file renames. No path traversal risk since the identifier is an integer or a controlled string, and paths are constructed via Path() object joining, not string interpolation."
+  },
+
+  "performance_assessment": {
+    "risk_level": "NEGLIGIBLE",
+    "details": "The backward-compat fallback adds one additional file existence check (Path.exists() -> one stat() syscall) per read when the new prefixed file doesn't exist. This is negligible. No new I/O patterns, database queries, or network calls are introduced."
+  },
+
+  "rollback_plan": {
+    "strategy": "Git revert of the PR",
+    "steps": [
+      "Revert the PR on main",
+      "Since all shared functions default to identifier=None (backward compat), reverting writers restores old global paths immediately",
+      "Any in-flight pipelines on the new code that already wrote prefixed files: readers revert to old-path-only behavior and prefixed files are orphaned (harmless)",
+      "Clean approach: revert the entire PR. In-flight pipelines may need manual restart but this is standard pipeline failure recovery"
+    ],
+    "estimated_blast_radius": "Low — only affects .egg-state file I/O within the SDLC pipeline. No production code, gateway enforcement, or user-facing behavior is impacted."
+  },
 
   "areas_requiring_human_review": [
     {
-      "area": "Prompt wording review",
-      "reason": "The exact phrasing of checkpoint hints in orchestrator prompts directly affects agent behavior. Overly directive language causes token waste on unnecessary queries; overly vague language gets ignored. The human reviewer should evaluate whether the suggested commands and framing strike the right balance between discoverability and non-intrusiveness. This is a judgment call best informed by observing agent behavior in production.",
-      "files": ["orchestrator/routes/pipelines.py"],
-      "decision_needed": "Approve the specific wording of checkpoint hints before merge"
+      "area": "Plan draft synchronization with architect revision 2 (R-8)",
+      "priority": "HIGH",
+      "reason": "The plan draft (871-plan.md) must be updated to include Phase 1.5 (wrapper layer) before it becomes SDLC tasks. The architect's JSON output has the correct content, but the markdown plan has not been regenerated. Without this update, the implementation will miss 3 critical files (handoffs.py, dispatch.py, signals.py) and 1 test file (test_signals.py)."
     },
     {
-      "area": "Test coverage for new prompt content",
-      "reason": "The existing test suite (test_pipeline_prompts.py, 2029 lines) is comprehensive but was written before checkpoint hints existed. The coder should add test assertions for the new checkpoint-related content in each affected function. The human reviewer should verify these tests exist and are meaningful (not just 'assert checkpoint in result').",
-      "files": ["orchestrator/tests/test_pipeline_prompts.py"],
-      "decision_needed": "Verify adequate test coverage in PR review"
+      "area": "Coder prompt tester-output.json references (R-9)",
+      "priority": "LOW",
+      "reason": "Two hardcoded references in coder prompt builder at pipelines.py:2196 and 2790 are not covered by any task. Impact is low because tester gap data is injected programmatically. Reviewer should decide whether to expand TASK-2-1 scope or accept the minor discrepancy."
     },
     {
-      "area": "Deferred scope acknowledgment",
-      "reason": "The issue lists 8 items but the implementation covers only items 1-4. The architect's justification for deferring items 5-8 is technically sound (TD-5, TD-6), but the issue author may have had different prioritization. The human reviewer should confirm they are comfortable with the deferred scope and whether follow-up issues should be filed.",
-      "files": [],
-      "decision_needed": "Confirm items 5-8 can be deferred to follow-up issues"
+      "area": "Removal of two test files from TASK-3-2 scope (R-10)",
+      "priority": "LOW",
+      "reason": "test_health_check_tier1_advanced.py and test_health_check_tester_coverage.py create files in drafts/, not agent-outputs/. They don't need updating. Reviewer should confirm the health check only scans drafts/ (verified at phase_output.py:149-155)."
     }
   ],
 
-  "rollback_plan": {
-    "strategy": "Simple git revert",
-    "description": "All changes are additive text in prompt templates and markdown files. A single git revert of the implementation commit(s) fully restores the previous behavior. No database migrations, no schema changes, no configuration changes, and no dependency changes require unwinding.",
-    "steps": [
-      "1. Identify the merge commit(s) from the PR",
-      "2. git revert <commit-hash>",
-      "3. Push the revert and verify agent prompts no longer contain checkpoint hints",
-      "4. No downstream cleanup needed — agents simply won't see checkpoint hints in subsequent sessions"
-    ],
-    "data_impact": "None. No data is created, modified, or migrated by these changes.",
-    "service_impact": "None. The orchestrator does not need to be restarted — prompt changes take effect on the next agent session."
-  },
-
-  "risk_matrix_summary": {
-    "high_risks": 0,
-    "medium_risks": 0,
-    "low_risks": 7,
-    "no_risk": 1,
-    "recommendation": "Proceed with implementation. All identified risks are low severity. The medium-likelihood items (R-1: test breakage, R-6: mode command reach, R-7: deferred scope gap) all have low impact and straightforward mitigations. No risks warrant blocking the implementation or escalating to a human decision before proceeding."
-  },
-
-  "architect_assessment_review": {
-    "agreement": [
-      "Option A (prompt-only changes) is the correct approach — lowest risk with highest leverage",
-      "Orchestrator prompt injection is correctly identified as the highest-leverage change point",
-      "Brief nudge + role-specific one-liner (TD-2) avoids duplicating the checkpoint.md rule content",
-      "Deferring handoff enrichment (TD-5) is correct given checkpoint write timing uncertainty",
-      "Excluding egg-agent-context wrapper and slash command (TD-6) avoids over-engineering",
-      "Including coder-mode.md with revision-cycle-only hint (TD-7) adds value without noise"
-    ],
-    "concerns": [
-      "No significant concerns with the architect's analysis. The approach is well-scoped and the risks identified in the architect output (R-1 through R-4) align with this assessment."
-    ],
-    "additional_risks_identified": [
-      "R-5 (checkpoint CLI failures confusing agents) — minor, pre-existing condition",
-      "R-6 (mode command reach in pipeline mode) — design consideration about implementation ordering, not a new risk"
+  "recommendation": {
+    "proceed": true,
+    "overall_assessment": "The proposed change is well-designed, follows established conventions, and has a solid backward-compat strategy. The architect's revision 2 successfully addresses all findings from revision 1. The remaining risks are LOW severity with one HIGH process risk (R-8 — plan draft sync) that must be addressed before implementation begins.",
+    "conditions": [
+      "CRITICAL: Update 871-plan.md to include Phase 1.5 (wrapper layer) and TASK-3-5 (test_signals.py) before generating SDLC tasks (R-8)",
+      "Consider expanding TASK-2-1 scope to cover coder prompt builder tester-output.json references at lines 2196 and 2790 (R-9)",
+      "Remove test_health_check_tier1_advanced.py and test_health_check_tester_coverage.py from TASK-3-2 scope — they create files in drafts/, not agent-outputs/ (R-10)",
+      "Verify TASK-2-5 acceptance criterion — pipelines.py doesn't call load_agent_output/save_agent_output/collect_handoff_data directly (verified: no imports found). TASK-2-5 should be reworded to cover hardcoded path strings and inline Path constructions, not function calls"
     ]
-  },
-
-  "recommendations_for_coder": [
-    "Prioritize Phase 1 (orchestrator prompt injection in pipelines.py) — it is the highest-leverage change and the most likely to need test updates",
-    "Run pytest orchestrator/tests/test_pipeline_prompts.py before and after changes to catch test breakage early",
-    "Keep checkpoint hints to 1-2 lines per injection point — reference the checkpoint.md rule for details rather than duplicating workflow blocks",
-    "Use suggestive language ('For additional context, review...') not imperative ('You must review...')",
-    "Add new test assertions for checkpoint content in the affected test classes (TestBuildRoleContext, TestBuildAgentPromptRoleContext, TestBuildPhaseScopedPromptOverview)",
-    "Do NOT implement handoff enrichment (checkpoint_ids in AgentOutput) — that is explicitly deferred per architect TD-5",
-    "Check the status of PR #893 before starting — if merged, rebase onto main"
-  ]
+  }
 }

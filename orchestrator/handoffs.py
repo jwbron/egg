@@ -152,12 +152,14 @@ class AgentOutput:
 def save_agent_output(
     repo_path: Path,
     output: AgentOutput,
+    identifier: int | str | None = None,
 ) -> Path:
     """Save agent output to disk.
 
     Args:
         repo_path: Path to repository
         output: Agent output to save
+        identifier: Pipeline/issue identifier for namespaced paths.
 
     Returns:
         Path to saved file
@@ -165,24 +167,26 @@ def save_agent_output(
     contract_role = ROLE_MAP[output.role]
     output_data = output.to_dict()
 
-    return contract_save_output(repo_path, contract_role, output_data)
+    return contract_save_output(repo_path, contract_role, output_data, identifier=identifier)
 
 
 def load_agent_output_data(
     repo_path: Path,
     role: AgentRole,
+    identifier: int | str | None = None,
 ) -> AgentOutput | None:
     """Load agent output from disk.
 
     Args:
         repo_path: Path to repository
         role: Agent role
+        identifier: Pipeline/issue identifier for namespaced paths.
 
     Returns:
         AgentOutput or None if not found
     """
     contract_role = ROLE_MAP[role]
-    data = load_agent_output(repo_path, contract_role)
+    data = load_agent_output(repo_path, contract_role, identifier=identifier)
 
     if not data:
         return None
@@ -193,6 +197,7 @@ def load_agent_output_data(
 def collect_handoff_data(
     repo_path: Path,
     target_role: AgentRole,
+    identifier: int | str | None = None,
 ) -> dict[str, HandoffData]:
     """Collect handoff data for a target agent.
 
@@ -201,6 +206,7 @@ def collect_handoff_data(
     Args:
         repo_path: Path to repository
         target_role: Target agent role
+        identifier: Pipeline/issue identifier for namespaced paths.
 
     Returns:
         Dictionary mapping source role to handoff data
@@ -212,7 +218,7 @@ def collect_handoff_data(
 
     for dep_role in role_def.dependencies:
         orch_role = REVERSE_ROLE_MAP[dep_role]
-        output = load_agent_output_data(repo_path, orch_role)
+        output = load_agent_output_data(repo_path, orch_role, identifier=identifier)
 
         if output and output.handoff_data:
             handoffs[orch_role.value] = HandoffData(
@@ -227,17 +233,19 @@ def collect_handoff_data(
 def get_handoff_env_var(
     repo_path: Path,
     target_role: AgentRole,
+    identifier: int | str | None = None,
 ) -> str:
     """Get handoff data as a JSON string for environment variable.
 
     Args:
         repo_path: Path to repository
         target_role: Target agent role
+        identifier: Pipeline/issue identifier for namespaced paths.
 
     Returns:
         JSON string of handoff data
     """
-    handoffs = collect_handoff_data(repo_path, target_role)
+    handoffs = collect_handoff_data(repo_path, target_role, identifier=identifier)
 
     data = {role: handoff.data for role, handoff in handoffs.items()}
 

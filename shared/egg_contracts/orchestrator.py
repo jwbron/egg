@@ -320,24 +320,44 @@ def get_dispatch_for_contract(contract: Contract) -> DispatchDecision:
     return orchestrator.get_next_dispatch()
 
 
-def load_agent_output(repo_path: Path, role: AgentRole) -> dict[str, Any]:
+def load_agent_output(
+    repo_path: Path,
+    role: AgentRole,
+    identifier: int | str | None = None,
+) -> dict[str, Any]:
     """Load the handoff output from an agent.
 
     Args:
         repo_path: Path to the repository
         role: The agent role
+        identifier: Pipeline/issue identifier for namespaced paths.
+            When provided, looks for ``{identifier}-{role}-output.json``
+            first, falling back to the old ``{role}-output.json`` path.
+            When ``None``, uses the old path directly (backward compat).
 
     Returns:
         Parsed output data (empty dict if not found)
     """
-    output_file = repo_path / ".egg-state" / "agent-outputs" / f"{role.value}-output.json"
+    output_dir = repo_path / ".egg-state" / "agent-outputs"
 
-    if not output_file.exists():
+    if identifier is not None:
+        prefixed_file = output_dir / f"{identifier}-{role.value}-output.json"
+        if prefixed_file.exists():
+            try:
+                with prefixed_file.open() as f:
+                    result: dict[str, Any] = json.load(f)
+                    return result
+            except (json.JSONDecodeError, OSError):
+                return {}
+        # Fall back to old global path
+    global_file = output_dir / f"{role.value}-output.json"
+
+    if not global_file.exists():
         return {}
 
     try:
-        with output_file.open() as f:
-            result: dict[str, Any] = json.load(f)
+        with global_file.open() as f:
+            result = json.load(f)
             return result
     except (json.JSONDecodeError, OSError):
         return {}
@@ -347,6 +367,7 @@ def save_agent_output(
     repo_path: Path,
     role: AgentRole,
     outputs: dict[str, Any],
+    identifier: int | str | None = None,
 ) -> Path:
     """Save handoff output for an agent.
 
@@ -354,6 +375,10 @@ def save_agent_output(
         repo_path: Path to the repository
         role: The agent role
         outputs: The output data to save
+        identifier: Pipeline/issue identifier for namespaced paths.
+            When provided, writes to ``{identifier}-{role}-output.json``.
+            When ``None``, writes to the old ``{role}-output.json`` path
+            (backward compat).
 
     Returns:
         Path to the saved file
@@ -361,7 +386,10 @@ def save_agent_output(
     output_dir = repo_path / ".egg-state" / "agent-outputs"
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    output_file = output_dir / f"{role.value}-output.json"
+    if identifier is not None:
+        output_file = output_dir / f"{identifier}-{role.value}-output.json"
+    else:
+        output_file = output_dir / f"{role.value}-output.json"
 
     with output_file.open("w") as f:
         json.dump(outputs, f, indent=2)
@@ -372,6 +400,7 @@ def save_agent_output(
 def collect_handoff_data(
     repo_path: Path,
     target_role: AgentRole,
+    identifier: int | str | None = None,
 ) -> dict[str, Any]:
     """Collect all handoff data for a target agent.
 
@@ -381,6 +410,8 @@ def collect_handoff_data(
     Args:
         repo_path: Path to the repository
         target_role: The agent role to collect data for
+        identifier: Pipeline/issue identifier for namespaced paths.
+            Forwarded to :func:`load_agent_output` for each dependency.
 
     Returns:
         Combined handoff data from dependencies
@@ -389,7 +420,7 @@ def collect_handoff_data(
     handoff = {}
 
     for dep_role in role_def.dependencies:
-        dep_output = load_agent_output(repo_path, dep_role)
+        dep_output = load_agent_output(repo_path, dep_role, identifier=identifier)
         if dep_output:
             handoff[dep_role.value] = dep_output
 

@@ -18,7 +18,7 @@ You are the **Documenter** agent in a multi-agent SDLC pipeline. This mode activ
 
 ## Workflow
 
-1. **Read Coder handoff**: Check `.egg-state/agent-outputs/coder-output.json`
+1. **Read Coder handoff**: Check `.egg-state/agent-outputs/{identifier}-coder-output.json`
 2. **Analyze changes**: Understand what was implemented
 3. **Identify docs to update**: Find relevant documentation
 4. **Update documentation**: Keep docs accurate and helpful
@@ -26,9 +26,13 @@ You are the **Documenter** agent in a multi-agent SDLC pipeline. This mode activ
 
 ## Reading Coder Output
 
+Output filenames are prefixed with the issue number or pipeline ID
+(e.g., `871-coder-output.json` for issue #871):
+
 ```bash
 # Read the coder's handoff
-cat .egg-state/agent-outputs/coder-output.json
+IDENT="${EGG_ISSUE_NUMBER:-$EGG_PIPELINE_ID}"
+cat ".egg-state/agent-outputs/${IDENT}-coder-output.json"
 
 # This gives you:
 # - changed_files: List of files the coder modified
@@ -65,9 +69,12 @@ cat .egg-state/agent-outputs/coder-output.json
 
 Create this file when done:
 
+Output filenames are prefixed with the issue number or pipeline ID:
+
 ```bash
 mkdir -p .egg-state/agent-outputs
-cat > .egg-state/agent-outputs/documenter-output.json << 'EOF'
+IDENT="${EGG_ISSUE_NUMBER:-$EGG_PIPELINE_ID}"
+cat > ".egg-state/agent-outputs/${IDENT}-documenter-output.json" << 'EOF'
 {
   "doc_files": [
     "docs/guides/feature.md",

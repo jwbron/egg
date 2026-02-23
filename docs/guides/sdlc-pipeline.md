@@ -359,7 +359,7 @@ The implement phase supports multi-agent orchestration, where specialized agents
 The gateway enforces file access patterns for each agent role via `gateway/agent_restrictions.py`. For example, the Coder agent cannot modify documentation files, and the Tester agent cannot modify source code. This prevents agents from overstepping their responsibilities. Access patterns are tier-aware: `check_agent_file_access()` and `validate_agent_push()` accept an optional `complexity_tier` parameter.
 
 **Handoff Data:**
-Agents communicate via handoff data stored in `.egg-state/agent-outputs/{role}-output.json`. For example, the Coder agent outputs a list of changed files, which the Tester and Documenter agents read to focus their work.
+Agents communicate via handoff data stored in `.egg-state/agent-outputs/{identifier}-{role}-output.json` (where `{identifier}` is the issue number or pipeline ID). For example, the Coder agent outputs a list of changed files, which the Tester and Documenter agents read to focus their work. The identifier prefix prevents merge conflicts when concurrent pipelines merge to main.
 
 **Orchestration:**
 Multi-agent orchestration is managed by the local orchestrator (`orchestrator/container_spawner.py`). The orchestrator reads the contract state, determines which agents can run based on dependencies, and dispatches them in parallel where possible.
@@ -716,7 +716,7 @@ To disable multi-agent mode and use single-agent execution:
 
 ### Agent Handoffs
 
-Each agent produces handoff data stored in `.egg-state/agent-outputs/{role}-output.json`:
+Each agent produces handoff data stored in `.egg-state/agent-outputs/{identifier}-{role}-output.json` (e.g., `871-coder-output.json` for issue #871):
 
 ```json
 {

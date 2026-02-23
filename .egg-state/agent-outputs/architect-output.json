@@ -1,544 +1,535 @@
 {
-  "issue": 732,
+  "issue": 871,
   "phase": "plan",
   "agent": "architect",
-  "title": "Support parallel phase-level dispatch for implement phase",
-  "summary": "Architecture analysis for adding Tier 3 (high-complexity) dispatch to the SDLC pipeline. This tier runs independent plan phases as parallel implement cycles (coder -> tester -> agentic review), with dependent phases running sequentially. An integrator with write access merges sub-branches and fixes integration issues before human review. The recommended approach is a hybrid strategy: deliver sequential phase cycling first (foundation), then add parallel dispatch as an opt-in feature.",
+  "revision": 2,
+  "revision_reason": "Addressing plan review feedback: missing wrapper layer callsites (R-1), missing test file (R-7), TASK-2-5 scope, and risk section alignment with risk analyst output.",
+  "title": "Revised architecture analysis: Namespace .egg-state files per-pipeline",
+
+  "summary": "Add issue/pipeline identifier prefix to all globally-named files in .egg-state/agent-outputs/ and .egg-state/checks/, matching the convention already used by contracts/, drafts/, and reviews/. This eliminates merge conflicts when concurrent pipelines merge to main (e.g., PR #869 had 4 such conflicts). Revision 2 adds the missing wrapper layer (orchestrator/handoffs.py, dispatch.py, signals.py) identified in plan review feedback and aligns the risk section with the risk analyst's findings.",
 
   "problem_statement": {
-    "description": "The SDLC pipeline supports two dispatch tiers: Tier 1 (short-circuit for low complexity) and Tier 2 (single coder with wave-based multi-agent for mid complexity). Large features with multiple independent phases are forced through a single coder processing all tasks sequentially, creating serial bottlenecks, late integration failures, unbounded reviewer scope, and no early-abort capability.",
-    "goals": [
-      "Extend complexity assessment from 2 tiers (low/not-low) to 3 tiers (low/mid/high)",
-      "Run independent plan phases as parallel implement cycles with per-phase agentic review",
-      "Enable early abort when a phase's agentic review finds a design flaw",
-      "Bound reviewer scope to one phase's changes at a time",
-      "Give the integrator write access to merge sub-branches and fix integration issues",
-      "Track per-phase-per-role execution status in the contract",
-      "Isolate parallel phases via sub-branches to prevent merge conflicts"
+    "description": "The .egg-state/ directory has inconsistent file namespacing. Contracts, drafts, and reviews use per-issue/pipeline prefixed filenames, so concurrent pipelines never conflict on merge. However, agent-outputs/ handoff files and checks/ results use globally-named files. When multiple pipelines merge to main, these global files produce git merge conflicts (e.g., PR #869 had 4 such conflicts).",
+    "root_cause": "load_agent_output() and save_agent_output() in shared/egg_contracts/orchestrator.py construct paths as {role.value}-output.json with no identifier parameter. Prompt builders embed these same hardcoded filenames. The checks/ directory uses a similar hardcoded implement-results.json.",
+    "affected_files": [
+      "architect-output.json",
+      "integrator-output.json",
+      "risk_analyst-output.json",
+      "coder-output.json",
+      "tester-output.json",
+      "documenter-output.json",
+      "task_planner-output.json",
+      "implement-results.json"
+    ]
+  },
+
+  "call_chain_analysis": {
+    "description": "Complete call chain for agent output I/O, including the wrapper layer identified in review feedback. This section was ADDED in revision 2 to address the plan reviewer's critical finding about missing callsites.",
+    "layers": [
+      {
+        "layer": "Shared library (core)",
+        "file": "shared/egg_contracts/orchestrator.py",
+        "functions": [
+          {"name": "load_agent_output(repo_path, role)", "line": 323, "constructs_path": true},
+          {"name": "save_agent_output(repo_path, role, outputs)", "line": 346, "constructs_path": true},
+          {"name": "collect_handoff_data(repo_path, target_role)", "line": 372, "calls": "load_agent_output"}
+        ]
+      },
+      {
+        "layer": "Orchestrator wrapper (handoffs.py) — MISSED IN ORIGINAL PLAN",
+        "file": "orchestrator/handoffs.py",
+        "functions": [
+          {"name": "save_agent_output(repo_path, output: AgentOutput)", "line": 152, "calls": "contract_save_output (shared save_agent_output)", "note": "Wraps shared function with ORM AgentOutput type. Does NOT currently accept or forward identifier."},
+          {"name": "load_agent_output_data(repo_path, role: AgentRole)", "line": 171, "calls": "load_agent_output (shared)", "note": "Wraps shared function. Returns AgentOutput or None. Does NOT currently accept or forward identifier."},
+          {"name": "collect_handoff_data(repo_path, target_role: AgentRole)", "line": 193, "calls": "load_agent_output_data (internal)", "note": "Wraps via internal load. Does NOT currently accept or forward identifier."},
+          {"name": "get_handoff_env_var(repo_path, target_role: AgentRole)", "line": 227, "calls": "collect_handoff_data (internal)", "note": "JSON-serializes handoff data. Does NOT currently accept or forward identifier."}
+        ]
+      },
+      {
+        "layer": "Dispatch (dispatch.py) — MISSED IN ORIGINAL PLAN",
+        "file": "orchestrator/dispatch.py",
+        "callers": [
+          {"function": "PipelineDispatcher.complete_agent()", "line": 219, "calls": "save_agent_output (from shared directly, line 34)", "identifier_available_via": "self.contract_key (pipeline.issue_number or pipeline.id)"},
+          {"function": "PipelineDispatcher.get_handoff_data()", "line": 264, "calls": "collect_handoff_data (from shared directly, line 31)", "identifier_available_via": "self.contract_key"}
+        ],
+        "note": "dispatch.py imports save_agent_output and collect_handoff_data directly from egg_contracts.orchestrator (lines 29-35), NOT through the handoffs.py wrapper."
+      },
+      {
+        "layer": "Signals (routes/signals.py) — MISSED IN ORIGINAL PLAN",
+        "file": "orchestrator/routes/signals.py",
+        "callers": [
+          {"function": "handle_complete_signal()", "line": 193, "calls": "save_agent_output (from handoffs wrapper, line 36)", "identifier_available_via": "pipeline.issue_number from store.load_pipeline(pipeline_id) at line 162, or pipeline_id URL param"}
+        ]
+      },
+      {
+        "layer": "Pipelines (routes/pipelines.py) — covered in original plan",
+        "file": "orchestrator/routes/pipelines.py",
+        "callers": [
+          {"function": "_synthesize_plan_draft_from_outputs()", "line": "~4335", "reads": "agent output files directly via Path", "note": "Constructs filenames inline, not via shared function"},
+          {"function": "_read_tester_gaps()", "line": "~1619", "reads": "tester-output.json directly via Path", "note": "Hardcoded filename"},
+          {"function": "Various prompt builders", "note": "Hardcoded filenames in prompt strings for agents to write to"}
+        ]
+      }
     ]
   },
 
   "current_architecture": {
-    "complexity_assessment": {
-      "location": "orchestrator/routes/pipelines.py:1549-1567",
-      "mechanism": "Refine agent assesses complexity as low/medium/high. Low signals short_circuit: true in YAML metadata. Medium and high both flow to the plan phase — no Tier 3 differentiation exists.",
-      "signal_detection": "_check_short_circuit_signal() reads the last YAML block in the analysis draft for short_circuit: true",
-      "config_gate": "PipelineConfig.allow_short_circuit (default: True)"
+    "correctly_namespaced": {
+      "contracts": {
+        "pattern": "{identifier}.json",
+        "code": "shared/egg_contracts/loader.py:44 — get_contract_path(identifier)",
+        "example": "850.json"
+      },
+      "drafts": {
+        "pattern": "{identifier}-{phase}.md",
+        "code": "orchestrator/routes/pipelines.py:1060 — _get_draft_path()",
+        "example": "850-analysis.md"
+      },
+      "reviews": {
+        "pattern": "{identifier}-{phase}-{type}-review.json",
+        "code": "orchestrator/routes/pipelines.py:1035 — _verdict_path_for_type()",
+        "example": "850-implement-code-review.json"
+      }
     },
-    "multi_agent_orchestration": {
-      "location": "orchestrator/multi_agent.py, shared/egg_contracts/orchestrator.py",
-      "mechanism": "MultiAgentExecutor runs agents in wave-based parallel execution. Waves are computed from role-level dependencies via DependencyGraph. Default implement wave order: CODER -> TESTER+DOCUMENTER -> INTEGRATOR.",
-      "key_limitation": "DependencyGraph nodes are AgentRole enum values, not (phase_id, role) composites. Only one execution slot exists per role."
+    "globally_named_problem_files": {
+      "agent_outputs_writers": {
+        "programmatic": {
+          "function": "save_agent_output(repo_path, role, outputs)",
+          "location": "shared/egg_contracts/orchestrator.py:346-369",
+          "path_construction": "repo_path / '.egg-state' / 'agent-outputs' / f'{role.value}-output.json'",
+          "issue": "No identifier parameter — all pipelines write to the same filename per role"
+        },
+        "prompt_embedded": [
+          {"role": "architect", "location": "orchestrator/routes/pipelines.py:2524", "path": ".egg-state/agent-outputs/architect-output.json"},
+          {"role": "integrator", "location": "orchestrator/routes/pipelines.py:2509", "path": ".egg-state/agent-outputs/integrator-output.json"},
+          {"role": "risk_analyst", "location": "orchestrator/routes/pipelines.py:2590", "path": ".egg-state/agent-outputs/risk_analyst-output.json"}
+        ]
+      },
+      "agent_outputs_readers": {
+        "load_agent_output": {
+          "location": "shared/egg_contracts/orchestrator.py:323-343",
+          "path_construction": "repo_path / '.egg-state' / 'agent-outputs' / f'{role.value}-output.json'",
+          "callers": ["collect_handoff_data (line 392)", "orchestrator/handoffs.py:185 (load_agent_output_data)"]
+        },
+        "_synthesize_plan_draft": {
+          "location": "orchestrator/routes/pipelines.py:4335-4350",
+          "reads": ["architect-output.json", "risk_analyst-output.json"],
+          "note": "Already receives pipeline_mode and issue_number parameters"
+        },
+        "_read_tester_gaps": {
+          "location": "orchestrator/routes/pipelines.py:1619-1644",
+          "reads": ["tester-output.json"],
+          "callers": ["line 3139", "line 5173"]
+        }
+      },
+      "checks_writers": {
+        "prompt_embedded": [
+          {"function": "_build_checker_prompt", "location": "orchestrator/routes/pipelines.py:4063"},
+          {"function": "_build_check_and_fix_prompt", "location": "orchestrator/routes/pipelines.py:4275"},
+          {"function": "_build_autofix_prompt", "location": "orchestrator/routes/pipelines.py:4086-4170"}
+        ]
+      }
     },
-    "execution_state": {
-      "location": "shared/egg_contracts/orchestration.py, shared/egg_contracts/models.py",
-      "mechanism": "OrchestrationState.executions is dict[AgentRole, AgentExecutionModel]. The contract's agent_executions is a flat list of AgentExecutionModel keyed by role.",
-      "key_limitation": "Running the same role twice (e.g., CODER for Phase 1 and CODER for Phase 2) would overwrite state. No phase_id dimension exists."
-    },
-    "dependency_graph": {
-      "location": "shared/egg_contracts/dependency_graph.py",
-      "mechanism": "DependencyNode contains role, dependencies[], dependents[]. compute_waves() returns list[list[AgentRole]] for parallel execution. Topological sort ensures correct ordering.",
-      "key_limitation": "Graph operates on AgentRole, not (phase_id, role). Cannot represent 'CODER for phase-1 depends on nothing' vs 'CODER for phase-4 depends on phase-1 completion'."
-    },
-    "plan_phase_dependencies": {
-      "location": "shared/egg_contracts/plan_parser.py:88-96, 427-428",
-      "mechanism": "ParsedPhase has a dependencies field that is populated from the YAML plan. However, to_contract_phase() at line 98-105 discards this field — the contract Phase model has no dependencies field.",
-      "gap": "Phase dependencies are parsed but not persisted in the contract schema."
-    },
-    "branch_management": {
-      "location": "gateway/policy.py:129-147, gateway/worktree_manager.py",
-      "mechanism": "Branch ownership validated via egg- or egg/ prefix using startswith(). Worktrees created per pipeline with branch pattern egg/{container_id}/work.",
-      "sub_branch_support": "The prefix check (startswith('egg/')) already supports nested paths like egg/feature/phase-1. No gateway policy changes are needed for sub-branch naming — only worktree lifecycle management needs extension."
-    },
-    "integrator_role": {
-      "location": "shared/egg_contracts/agent_roles.py:289-318",
-      "mechanism": "INTEGRATOR_ROLE has blocked_write for src/, lib/, docs/, tests/, test/. Can only write to .egg-state/agent-outputs/.",
-      "key_limitation": "Read-only for production code. Tier 3 requires write access for merging sub-branches and fixing integration issues."
-    },
-    "phase_transitions": {
-      "location": "orchestrator/routes/phases.py:50-63",
-      "mechanism": "REFINE -> [PLAN, IMPLEMENT], PLAN -> [IMPLEMENT], IMPLEMENT -> [PR]. No INTEGRATE phase exists.",
-      "consideration": "Issue suggests either a new INTEGRATE phase or internal cycling within IMPLEMENT."
+    "gateway_uses_directory_wildcards": {
+      "agent_restrictions": "'.egg-state/agent-outputs/' in allowed_write patterns — directory-level, not file-level",
+      "phase_filter": "'.egg-state/agent-outputs/*' and '.egg-state/checks/*' allowed patterns — wildcards match any filename",
+      "readonly_mounts": "_IMPLEMENT_READONLY_DIRS = ('drafts', 'contracts', 'pipelines', 'reviews') — agent-outputs/ and checks/ NOT included",
+      "conclusion": "No gateway changes needed — file renames within directories are transparent to all enforcement layers"
     }
   },
-
-  "key_files": [
-    {
-      "path": "shared/egg_contracts/dependency_graph.py",
-      "role": "DAG computation for agent execution waves",
-      "changes_needed": "Add PhaseDependencyGraph class that operates on phase IDs instead of AgentRole. Compute phase waves from Phase.dependencies for determining implement cycle ordering.",
-      "risk": "High — foundation of parallel execution ordering"
-    },
-    {
-      "path": "shared/egg_contracts/agent_roles.py",
-      "role": "Role definitions including dependencies and file access patterns",
-      "changes_needed": "Modify INTEGRATOR_ROLE to support configurable write access for Tier 3. Add phase_id tracking to AgentExecution.",
-      "risk": "Medium — must maintain backward compatibility for Tier 2"
-    },
-    {
-      "path": "shared/egg_contracts/orchestration.py",
-      "role": "Orchestration state management, dependency checking",
-      "changes_needed": "Extend OrchestrationState.executions to support (phase_id, role) composite keys. Update can_agent_run() and get_runnable_agents() for phase-scoped dependency checking.",
-      "risk": "High — central state management module"
-    },
-    {
-      "path": "shared/egg_contracts/orchestrator.py",
-      "role": "Dispatch logic and agent lifecycle management",
-      "changes_needed": "Add phase-aware dispatch decisions. Support per-phase implement cycling (coder -> tester -> agentic review -> next phase or retry).",
-      "risk": "High — dispatch is the core orchestration logic"
-    },
-    {
-      "path": "shared/egg_contracts/models.py",
-      "role": "Pydantic contract models including Phase, AgentExecutionModel, Contract",
-      "changes_needed": "Add dependencies field to Phase model. Add phase_id field to AgentExecutionModel. Both optional for backward compat.",
-      "risk": "High — schema change requires backward compatibility"
-    },
-    {
-      "path": "shared/egg_contracts/plan_parser.py",
-      "role": "Plan document parsing, extracts phases/tasks from YAML",
-      "changes_needed": "Preserve ParsedPhase.dependencies when converting to contract Phase via to_contract_phase().",
-      "risk": "Low — straightforward field propagation"
-    },
-    {
-      "path": "orchestrator/multi_agent.py",
-      "role": "MultiAgentExecutor — wave spawning and parallel execution",
-      "changes_needed": "Support phase-level orchestration: run N implement cycles. Each cycle spawns coder -> tester -> agentic reviewers for a single phase's tasks.",
-      "risk": "High — significant behavioral change to execution flow"
-    },
-    {
-      "path": "orchestrator/dispatch.py",
-      "role": "PipelineDispatcher — wraps contract orchestrator for pipeline integration",
-      "changes_needed": "Add per-phase dispatching, phase-scoped handoff data, and phase cycling logic.",
-      "risk": "Medium — wrapper layer, follows orchestrator.py changes"
-    },
-    {
-      "path": "orchestrator/routes/pipelines.py",
-      "role": "Pipeline routes: phase transitions, agent prompts, complexity detection",
-      "changes_needed": "Extend complexity assessment to 3 tiers. Add _run_tier3_implement() for phase cycling. Update implement phase prompt for phase-scoped context.",
-      "risk": "High — largest file, most complex changes"
-    },
-    {
-      "path": "orchestrator/models.py",
-      "role": "Pipeline and PipelineConfig models (orchestrator-side)",
-      "changes_needed": "Add complexity_tier field to Pipeline. Extend PipelineConfig for Tier 3 settings.",
-      "risk": "Low — additive model changes"
-    },
-    {
-      "path": "gateway/worktree_manager.py",
-      "role": "Worktree lifecycle management",
-      "changes_needed": "Support per-phase worktrees for parallel execution (Stage 2 only).",
-      "risk": "Medium — filesystem lifecycle complexity"
-    },
-    {
-      "path": ".egg/schemas/contract.schema.json",
-      "role": "JSON schema for contract validation",
-      "changes_needed": "Add dependencies to Phase, phase_id to AgentExecutionModel.",
-      "risk": "Medium — schema migration affects all contracts"
-    }
-  ],
 
   "approaches": [
     {
       "id": "A",
-      "name": "Full Tier 3 in one pass (parallel + sub-branches)",
-      "description": "Implement complete Tier 3 dispatch: phase-level dependency graph, parallel implement cycles on sub-branches, integrator with write access merging sub-branches, per-phase agentic review with retry.",
+      "name": "Prefix filenames with issue/pipeline identifier (RECOMMENDED)",
+      "description": "Rename all globally-named files to use {identifier}-{role}-output.json and {identifier}-implement-results.json. Update load_agent_output/save_agent_output to accept identifier parameter. Thread identifier through wrapper layer (handoffs.py) and all callers (dispatch.py, signals.py, pipelines.py). Update all prompt builders. Add backward-compatible fallback reads.",
       "pros": [
-        "True parallelism with branch-level isolation prevents merge conflicts",
-        "Bounded agentic review scope per phase",
-        "Early abort saves tokens when a phase review finds flaws",
-        "Delivers the full vision from the issue in one delivery"
+        "Consistent with existing convention in contracts/, drafts/, reviews/",
+        "Minimal conceptual overhead — developers already understand {identifier}- prefix",
+        "Identifier (issue_number or pipeline_id) already available at all callsites",
+        "No gateway, readonly mount, or phase permission changes needed",
+        "Backward-compat fallback is simple: try new path, fall back to old"
       ],
       "cons": [
-        "Largest implementation scope — 12+ files across 4 packages",
-        "Per-phase worktree management adds lifecycle complexity",
-        "Composite key change is pervasive across orchestration stack",
-        "Testing parallel phase execution requires complex integration tests",
-        "High risk of regressions to Tier 1 and Tier 2"
+        "Requires updating both programmatic code and prompt strings (two code paths)",
+        "Wrapper layer adds 3 more files to the change set (handoffs.py, dispatch.py, signals.py)"
       ],
-      "estimated_complexity": "High",
-      "files_affected": 12
+      "risk": "Low"
     },
     {
       "id": "B",
-      "name": "Sequential phase cycling only (no parallelism)",
-      "description": "Run implement cycles sequentially — one per plan phase — on the same branch. Each cycle spawns coder -> tester -> agentic review. No sub-branches, no gateway changes.",
+      "name": "Namespace by subdirectory instead of filename prefix",
+      "description": "Move files into per-issue subdirectories: .egg-state/agent-outputs/{identifier}/architect-output.json",
       "pros": [
-        "No gateway or worktree changes needed",
-        "No merge conflicts (sequential execution on single branch)",
-        "Per-phase agentic review, early abort, and prompt isolation all work",
-        "Simpler integrator: validates rather than merges branches"
+        "Cleaner directory structure — each pipeline's files grouped together",
+        "Easier to list/cleanup files for a specific pipeline"
       ],
       "cons": [
-        "No parallelism — no wall-clock time savings for independent phases",
-        "Still requires composite execution tracking (phase_id, role)",
-        "Does not meet the issue's full vision for Tier 3"
+        "Inconsistent with existing convention (contracts/, drafts/, reviews/ use filename prefixes, not subdirectories)",
+        "Requires gateway pattern changes (.egg-state/agent-outputs/* -> .egg-state/agent-outputs/**/*)",
+        "More complex backward-compat (checking both directory structures)",
+        "git doesn't track empty directories"
       ],
-      "estimated_complexity": "Medium",
-      "files_affected": 9
+      "risk": "Medium"
     },
     {
       "id": "C",
-      "name": "Hybrid — sequential foundation with optional parallelism (recommended)",
-      "description": "Stage 1: sequential phase cycling with composite execution tracking, per-phase agentic review, 3-tier complexity assessment, integrator write access. Stage 2: sub-branch isolation, per-phase worktrees, parallel dispatch behind a feature flag.",
+      "name": "Centralized path builder utility",
+      "description": "Create a single path-building module that all code uses to resolve .egg-state/ paths.",
       "pros": [
-        "Incremental delivery — each stage is independently valuable and testable",
-        "Stage 1 provides 80% of value (per-phase review, early abort, bounded scope)",
-        "Stage 2 adds parallelism without rearchitecting the foundation",
-        "Feature flag allows gradual rollout and rollback",
-        "Composite execution tracking built once, used by both modes"
+        "Single source of truth for all path construction",
+        "Future-proof for naming convention changes"
       ],
       "cons": [
-        "Two delivery stages means more review cycles",
-        "Sequential-first may seem incomplete vs the issue's parallel vision",
-        "Both stages still require the composite key change"
+        "Over-engineering for 8 filename changes",
+        "Still needs prompt string updates (agents respond to embedded paths)",
+        "_get_draft_path() and _verdict_path_for_type() already serve this role for their directories"
       ],
-      "estimated_complexity": "Medium-High (Stage 1: Medium, Stage 2: Medium)",
-      "files_affected": 12
+      "risk": "Low (but unnecessary scope)"
     }
   ],
 
   "recommended_approach": {
-    "id": "C",
-    "name": "Hybrid — sequential foundation with optional parallelism",
-    "justification": [
-      "The refine analysis recommended Option C and both refine reviewers approved. Sequential phase cycling provides most of the value: per-phase agentic review, early abort, bounded reviewer scope, and prompt isolation. Parallelism primarily saves wall-clock time.",
-      "The composite execution tracking change (phase_id, role) is the riskiest part. Delivering it with sequential cycling first ensures stability before adding parallel dispatch and sub-branch management.",
-      "Gateway branch prefix checks already support nested paths (egg/feature/phase-1 passes startswith('egg/') check), so Stage 2 gateway changes are smaller than initially expected — the main work is worktree lifecycle management.",
-      "All 9 acceptance criteria from the issue are satisfiable: 3-tier complexity, per-phase implement cycles, coder -> tester -> agentic review with retry, integrator with write access, (phase_id, role) tracking, and sub-branch isolation (Stage 2)."
+    "id": "A",
+    "name": "Prefix filenames with issue/pipeline identifier",
+    "justification": "Directly matches the established convention used by all other .egg-state/ directories. The scope is well-bounded and the identifier is already available at all callsites (verified in revision 2 for the wrapper layer too: dispatch.py has self.contract_key, signals.py has pipeline.issue_number). No infrastructure changes needed."
+  },
+
+  "architecture_decisions": [
+    {
+      "id": "AD-1",
+      "decision": "Namespace ALL agent output files, not just the 3 listed in the issue",
+      "rationale": "load_agent_output()/save_agent_output() generate paths for ALL agent roles using the same global pattern. Fixing only 3 of 7 leaves coder-output.json, tester-output.json, documenter-output.json, and task_planner-output.json vulnerable to the same merge conflict. Since we change the shared functions, all roles benefit at zero additional cost."
+    },
+    {
+      "id": "AD-2",
+      "decision": "Add identifier parameter to load_agent_output/save_agent_output rather than creating a new path builder module",
+      "rationale": "These functions are the single point of path construction for agent outputs. Adding identifier: int | str | None follows the same pattern as get_contract_path(identifier). A new centralized path builder (Option C) would be over-engineering for this fix."
+    },
+    {
+      "id": "AD-3",
+      "decision": "Keep backward-compatible fallback permanently rather than planning removal",
+      "rationale": "Cost is one stat() syscall per read (negligible). Benefits: handles in-flight pipelines, protects against agent misbehavior (risk R-6), eliminates need for planned removal. The risk analyst recommends this approach.",
+      "updated_in": "revision 2"
+    },
+    {
+      "id": "AD-4",
+      "decision": "Thread identifier through wrapper layer (handoffs.py) and all callers (dispatch.py, signals.py)",
+      "rationale": "The original plan only covered the shared library and pipelines.py. The review identified that orchestrator/handoffs.py wraps all three shared functions, dispatch.py calls them directly, and signals.py calls them through the wrapper. Without threading identifier through all layers, the shared functions receive identifier=None and silently fall back to global paths.",
+      "added_in": "revision 2"
+    },
+    {
+      "id": "AD-5",
+      "decision": "No gateway, readonly mount, or phase permission changes needed",
+      "rationale": "Gateway uses directory-level wildcards (.egg-state/agent-outputs/*, .egg-state/checks/*). Readonly mounts only cover drafts/, contracts/, pipelines/, reviews/. Neither agent-outputs/ nor checks/ are affected. File renames within these directories are transparent to all enforcement layers."
+    }
+  ],
+
+  "implementation_plan": {
+    "summary": "5 phases: (1) shared library → (1.5) wrapper layer & callers → (2) pipelines.py prompts & readers → (3) tests → (4) docs. Phase 1.5 was ADDED in revision 2.",
+    "phases": [
+      {
+        "id": "phase-1",
+        "name": "Core path construction (shared library)",
+        "goal": "Update shared utility functions to support identifier-prefixed agent output paths",
+        "tasks": [
+          {
+            "id": "TASK-1-1",
+            "description": "Add optional identifier parameter (int | str | None) to load_agent_output() in shared/egg_contracts/orchestrator.py. When identifier is provided, construct path as {identifier}-{role.value}-output.json. Add fallback: if prefixed path does not exist, try old {role.value}-output.json path. When identifier is None, use old path directly (backward compat).",
+            "acceptance": "load_agent_output(repo, role, identifier=871) reads from 871-{role}-output.json, falling back to {role}-output.json. load_agent_output(repo, role) reads from {role}-output.json (unchanged).",
+            "files": ["shared/egg_contracts/orchestrator.py"]
+          },
+          {
+            "id": "TASK-1-2",
+            "description": "Add optional identifier parameter to save_agent_output() in shared/egg_contracts/orchestrator.py. When identifier is provided, write to {identifier}-{role.value}-output.json. When None, write to {role.value}-output.json (backward compat).",
+            "acceptance": "save_agent_output(repo, role, data, identifier=871) writes to 871-{role}-output.json. save_agent_output(repo, role, data) writes to {role}-output.json.",
+            "files": ["shared/egg_contracts/orchestrator.py"]
+          },
+          {
+            "id": "TASK-1-3",
+            "description": "Add optional identifier parameter to collect_handoff_data() in shared/egg_contracts/orchestrator.py and pass it through to load_agent_output() for each dependency.",
+            "acceptance": "collect_handoff_data(repo, role, identifier=871) reads dependency outputs from prefixed paths with fallback.",
+            "files": ["shared/egg_contracts/orchestrator.py"]
+          }
+        ],
+        "dependencies": []
+      },
+      {
+        "id": "phase-1.5",
+        "name": "Wrapper layer and caller updates (ADDED IN REVISION 2)",
+        "goal": "Thread identifier parameter through orchestrator/handoffs.py wrappers and all callers in dispatch.py and signals.py",
+        "rationale": "Addresses plan review feedback: without this phase, shared functions receive identifier=None from these code paths and fall back to global filenames, silently defeating the entire fix. Risk analyst flagged this as R-1 (HIGH/HIGH).",
+        "tasks": [
+          {
+            "id": "TASK-1.5-1",
+            "description": "Add optional identifier parameter (int | str | None) to all 4 wrapper functions in orchestrator/handoffs.py: save_agent_output(), load_agent_output_data(), collect_handoff_data(), get_handoff_env_var(). Forward identifier to the underlying shared functions. save_agent_output wraps contract_save_output (shared) at line 168. load_agent_output_data calls load_agent_output (shared) at line 185. collect_handoff_data calls load_agent_output_data at line 215. get_handoff_env_var calls collect_handoff_data at line 240.",
+            "acceptance": "All 4 wrapper functions accept and forward identifier. handoffs.save_agent_output(repo, output, identifier=871) writes to 871-{role}-output.json.",
+            "files": ["orchestrator/handoffs.py"]
+          },
+          {
+            "id": "TASK-1.5-2",
+            "description": "Update PipelineDispatcher.complete_agent() in orchestrator/dispatch.py (line 219) to pass self.contract_key as identifier to save_agent_output(). Update PipelineDispatcher.get_handoff_data() (line 264) to pass self.contract_key as identifier to collect_handoff_data(). Note: dispatch.py imports these functions directly from shared (lines 29-35), not through handoffs.py.",
+            "acceptance": "Both callers pass self.contract_key (which returns pipeline.issue_number or pipeline.id) as identifier. No calls to save_agent_output or collect_handoff_data without identifier in dispatch.py.",
+            "files": ["orchestrator/dispatch.py"]
+          },
+          {
+            "id": "TASK-1.5-3",
+            "description": "Update handle_complete_signal() in orchestrator/routes/signals.py (line 193) to pass identifier to handoffs.save_agent_output(). Derive identifier from pipeline object loaded at line 162: use pipeline.issue_number if not None, else pipeline_id (the URL param). Note: signals.py imports save_agent_output from handoffs (line 36), not from shared.",
+            "acceptance": "save_agent_output call at line 193 passes identifier. Agent output from signal handlers is written to prefixed path.",
+            "files": ["orchestrator/routes/signals.py"]
+          }
+        ],
+        "dependencies": ["phase-1"]
+      },
+      {
+        "id": "phase-2",
+        "name": "Prompt builder and reader updates (pipelines.py)",
+        "goal": "Update all prompt builders and reader functions in orchestrator/routes/pipelines.py to use identifier-prefixed paths",
+        "tasks": [
+          {
+            "id": "TASK-2-1",
+            "description": "Update _build_agent_prompt() for architect, integrator, and risk_analyst roles. Replace hardcoded output filenames with dynamically constructed {identifier}-prefixed paths using issue_number/pipeline_id already available in the prompt builder context.",
+            "acceptance": "Prompts contain e.g. '871-architect-output.json' for issue 871.",
+            "files": ["orchestrator/routes/pipelines.py"]
+          },
+          {
+            "id": "TASK-2-2",
+            "description": "Update _build_checker_prompt(), _build_check_and_fix_prompt(), and _build_autofix_prompt() to replace hardcoded 'implement-results.json' with {identifier}-implement-results.json.",
+            "acceptance": "Checker and autofix prompts contain e.g. '871-implement-results.json'.",
+            "files": ["orchestrator/routes/pipelines.py"]
+          },
+          {
+            "id": "TASK-2-3",
+            "description": "Update _synthesize_plan_draft_from_outputs() (~line 4335) to construct prefixed filenames. Derive identifier from existing pipeline_mode/issue_number parameters. Fall back to old filenames if prefixed files don't exist.",
+            "acceptance": "Function reads from {identifier}-architect-output.json first, falls back to architect-output.json.",
+            "files": ["orchestrator/routes/pipelines.py"]
+          },
+          {
+            "id": "TASK-2-4",
+            "description": "Update _read_tester_gaps() (~line 1619) to accept identifier parameter and construct prefixed path with fallback. Update both callers (~line 3139 and ~line 5173) to pass identifier.",
+            "acceptance": "Function reads from {identifier}-tester-output.json first, falls back to tester-output.json.",
+            "files": ["orchestrator/routes/pipelines.py"]
+          },
+          {
+            "id": "TASK-2-5",
+            "description": "Update all remaining callers of load_agent_output(), save_agent_output(), and collect_handoff_data() WITHIN orchestrator/routes/pipelines.py to pass identifier from pipeline context. Scope: pipelines.py only — dispatch.py and signals.py callers are covered in Phase 1.5.",
+            "acceptance": "No calls to these functions without identifier in pipelines.py pipeline code paths.",
+            "files": ["orchestrator/routes/pipelines.py"]
+          }
+        ],
+        "dependencies": ["phase-1.5"]
+      },
+      {
+        "id": "phase-3",
+        "name": "Tests",
+        "goal": "Update all existing tests and add backward-compat fallback tests",
+        "tasks": [
+          {
+            "id": "TASK-3-1",
+            "description": "Update test_pipeline_prompts.py — change all assertions that check for 'implement-results.json' in prompt content to expect prefixed filenames. Update TestReadTesterGaps tests.",
+            "acceptance": "All tests in test_pipeline_prompts.py pass with prefixed filenames.",
+            "files": ["orchestrator/tests/test_pipeline_prompts.py"]
+          },
+          {
+            "id": "TASK-3-2",
+            "description": "Update test_health_check_tester_coverage.py and test_health_check_tier1_advanced.py — update mock file creation to use prefixed filenames.",
+            "acceptance": "Health check tests pass with prefixed filenames.",
+            "files": ["orchestrator/tests/test_health_check_tester_coverage.py", "orchestrator/tests/test_health_check_tier1_advanced.py"]
+          },
+          {
+            "id": "TASK-3-3",
+            "description": "Update integration_tests/local_pipeline/mock-sandbox/phase-runner.sh — update RESULTS_FILE to use prefixed filename from EGG_ISSUE_NUMBER or EGG_PIPELINE_ID.",
+            "acceptance": "Integration test writes to {identifier}-implement-results.json.",
+            "files": ["integration_tests/local_pipeline/mock-sandbox/phase-runner.sh"]
+          },
+          {
+            "id": "TASK-3-4",
+            "description": "Add tests for backward-compat fallback in load_agent_output(). Test cases: (1) prefixed path exists, (2) only old global path exists and fallback reads it, (3) neither exists, (4) both exist and prefixed takes priority.",
+            "acceptance": "All 4 fallback test cases pass.",
+            "files": ["shared/egg_contracts/tests/test_orchestrator.py"]
+          },
+          {
+            "id": "TASK-3-5",
+            "description": "Update orchestrator/tests/test_signals.py — the mock at line 86 patches 'routes.signals.save_agent_output'. After Phase 1.5, handoffs.save_agent_output adds an optional identifier parameter. Update mock setup and assertions to account for the new parameter. ADDED IN REVISION 2 per review feedback (risk analyst R-7).",
+            "acceptance": "test_signals.py tests pass with updated mock.",
+            "files": ["orchestrator/tests/test_signals.py"]
+          }
+        ],
+        "dependencies": ["phase-2"]
+      },
+      {
+        "id": "phase-4",
+        "name": "Documentation and agent mode commands",
+        "goal": "Update all documentation and sandbox commands referencing old globally-named filenames",
+        "tasks": [
+          {
+            "id": "TASK-4-1",
+            "description": "Update docs/guides/sdlc-pipeline.md — change references to {role}-output.json naming convention.",
+            "files": ["docs/guides/sdlc-pipeline.md"]
+          },
+          {
+            "id": "TASK-4-2",
+            "description": "Update docs/guides/agent-development.md — update agent output file naming tree.",
+            "files": ["docs/guides/agent-development.md"]
+          },
+          {
+            "id": "TASK-4-3",
+            "description": "Update docs/architecture/orchestrator.md — update implement-results.json reference.",
+            "files": ["docs/architecture/orchestrator.md"]
+          },
+          {
+            "id": "TASK-4-4",
+            "description": "Update sandbox/.claude/commands/ agent mode files — replace hardcoded {role}-output.json paths.",
+            "files": ["sandbox/.claude/commands/coder-mode.md", "sandbox/.claude/commands/tester-mode.md", "sandbox/.claude/commands/integrator-mode.md", "sandbox/.claude/commands/documenter-mode.md"]
+          },
+          {
+            "id": "TASK-4-5",
+            "description": "Update docstring in orchestrator/health_checks/tier1/phase_output.py.",
+            "files": ["orchestrator/health_checks/tier1/phase_output.py"]
+          }
+        ],
+        "dependencies": ["phase-2"]
+      }
     ]
   },
 
-  "implementation_plan": {
-    "stage_1": {
-      "name": "Sequential phase cycling with composite execution tracking",
-      "description": "Build the orchestration foundation for Tier 3: 3-tier complexity assessment, sequential per-phase implement cycles, composite (phase_id, role) execution tracking, per-phase agentic review with retry, and integrator write access.",
-      "phases": [
-        {
-          "id": 1,
-          "name": "Contract schema and model extensions",
-          "description": "Extend the data model with phase dependencies, composite execution keys, and complexity tier fields. This is the foundation all other changes build on.",
-          "key_changes": [
-            "Add dependencies: list[str] field to Phase model (default: [] for backward compat)",
-            "Add phase_id: str | None field to AgentExecutionModel (None for Tier 2 compat)",
-            "Add complexity_tier: str field to Pipeline model with values low/mid/high",
-            "Update contract.schema.json with new fields",
-            "Update ParsedPhase.to_contract_phase() in plan_parser.py to propagate dependencies",
-            "Add dependencies field to YAML plan template"
-          ],
-          "files": [
-            "shared/egg_contracts/models.py",
-            "shared/egg_contracts/plan_parser.py",
-            ".egg/schemas/contract.schema.json",
-            "orchestrator/models.py",
-            "docs/templates/plan.md"
-          ],
-          "dependencies": []
-        },
-        {
-          "id": 2,
-          "name": "3-tier complexity assessment",
-          "description": "Extend refine phase complexity detection from binary to 3 tiers. Add Tier 3 signal detection.",
-          "key_changes": [
-            "Update refine prompt to signal complexity_tier: high alongside parallel_phases: true",
-            "Add _check_high_complexity_signal() in pipelines.py",
-            "Set pipeline.complexity_tier from detected signal (default: mid)",
-            "Tier 1 (low): short-circuit as before. Tier 2 (mid): standard waves. Tier 3 (high): phase cycling."
-          ],
-          "files": [
-            "orchestrator/routes/pipelines.py",
-            "orchestrator/models.py"
-          ],
-          "dependencies": ["phase-1"]
-        },
-        {
-          "id": 3,
-          "name": "Composite execution tracking",
-          "description": "Extend orchestration state to support (phase_id, role) composite keys.",
-          "key_changes": [
-            "Introduce PhaseExecutionKey type or extend OrchestrationState for (phase_id, role) keying",
-            "Update OrchestrationState.from_contract() to deserialize phase_id from AgentExecutionModel",
-            "Update can_agent_run() for phase-scoped dependency checking",
-            "Update get_runnable_agents() for phase-aware filtering",
-            "Backward compat: when phase_id is None, behavior matches current Tier 2"
-          ],
-          "files": [
-            "shared/egg_contracts/orchestration.py",
-            "shared/egg_contracts/orchestrator.py"
-          ],
-          "dependencies": ["phase-1"]
-        },
-        {
-          "id": 4,
-          "name": "Phase-level dependency graph",
-          "description": "Build a phase-level DAG that determines execution order for plan phases.",
-          "key_changes": [
-            "Add PhaseDependencyGraph class operating on phase IDs from Phase.dependencies",
-            "Compute phase waves: independent phases in same wave, dependent phases in later waves",
-            "Integrate with orchestrator to determine phase ordering for sequential cycling",
-            "For Stage 2, same graph determines parallel grouping"
-          ],
-          "files": [
-            "shared/egg_contracts/dependency_graph.py",
-            "shared/egg_contracts/orchestration.py"
-          ],
-          "dependencies": ["phase-1", "phase-3"]
-        },
-        {
-          "id": 5,
-          "name": "Sequential phase cycling in implement phase",
-          "description": "Modify implement phase to run N cycles (one per plan phase) sequentially. Each cycle: coder -> tester -> agentic review, with retry on rejection.",
-          "key_changes": [
-            "Add _run_tier3_implement() in pipelines.py that loops through phases in dependency order",
-            "Each iteration calls _run_multi_agent_phase() with phase-scoped task context",
-            "Per-phase agentic review dispatches REVIEWER_CODE + REVIEWER_CONTRACT after each cycle",
-            "Retry logic: reviewer rejection triggers coder retry within that phase (no human gate)",
-            "Phase-scoped prompts: each coder sees only its phase's tasks and files",
-            "Update _build_agent_prompt() to accept phase_id for task filtering"
-          ],
-          "files": [
-            "orchestrator/routes/pipelines.py",
-            "orchestrator/multi_agent.py",
-            "orchestrator/dispatch.py"
-          ],
-          "dependencies": ["phase-2", "phase-3", "phase-4"]
-        },
-        {
-          "id": 6,
-          "name": "Integrator write access for Tier 3",
-          "description": "Give the integrator conditional write access to source, tests, and docs in Tier 3 mode.",
-          "key_changes": [
-            "Create dynamic integrator file access based on complexity_tier",
-            "In Tier 3: integrator can write src/, tests/, docs/ to fix integration issues",
-            "In Tier 2: integrator remains read-only (backward compat)",
-            "Gateway phase_filter updated to allow integrator writes in Tier 3",
-            "Integrator prompt updated: run full test suite, fix integration issues, report"
-          ],
-          "files": [
-            "shared/egg_contracts/agent_roles.py",
-            "gateway/phase_filter.py",
-            "gateway/agent_restrictions.py"
-          ],
-          "dependencies": ["phase-1"]
-        },
-        {
-          "id": 7,
-          "name": "Tests for Stage 1",
-          "description": "Comprehensive test coverage for all Stage 1 changes.",
-          "key_changes": [
-            "Unit tests for 3-tier complexity detection and signal parsing",
-            "Unit tests for composite execution tracking (phase_id, role)",
-            "Unit tests for phase dependency graph computation",
-            "Integration tests for sequential phase cycling flow",
-            "Backward compat tests: Tier 1 and Tier 2 unchanged",
-            "Plan parser tests: dependencies field preserved"
-          ],
-          "files": [
-            "shared/egg_contracts/tests/",
-            "orchestrator/tests/"
-          ],
-          "dependencies": ["phase-5", "phase-6"]
-        }
-      ]
-    },
-    "stage_2": {
-      "name": "Parallel dispatch with sub-branch isolation",
-      "description": "Add parallel execution of independent phases on sub-branches, gated behind a feature flag. Integrator merges sub-branches before human review.",
-      "phases": [
-        {
-          "id": 8,
-          "name": "Per-phase worktree management",
-          "description": "Extend gateway WorktreeManager for per-phase worktrees.",
-          "key_changes": [
-            "Add create_phase_worktree() for sub-worktrees from pipeline worktree",
-            "Branch naming: egg/<feature>/phase-N (passes existing prefix check)",
-            "Worktree path: .egg-worktrees/{pipeline_id}/phase-{N}/{repo_name}",
-            "Lifecycle: cleanup phase worktrees after integrator merges"
-          ],
-          "files": ["gateway/worktree_manager.py"],
-          "dependencies": ["phase-7"]
-        },
-        {
-          "id": 9,
-          "name": "Parallel phase dispatch",
-          "description": "Concurrent execution of independent plan phases on sub-branches.",
-          "key_changes": [
-            "Use PhaseDependencyGraph to identify independent phase groups",
-            "Spawn parallel implement cycles for phases in same wave",
-            "Each coder pushes to egg/<feature>/phase-N",
-            "Gated behind PipelineConfig.enable_parallel_phases (default: False)"
-          ],
-          "files": ["orchestrator/routes/pipelines.py", "orchestrator/multi_agent.py"],
-          "dependencies": ["phase-8"]
-        },
-        {
-          "id": 10,
-          "name": "Integrator sub-branch merging",
-          "description": "Integrator merges phase sub-branches and resolves conflicts.",
-          "key_changes": [
-            "Integrator receives list of sub-branches to merge",
-            "Sequential merge of phase branches into main feature branch",
-            "Conflict resolution as part of integrator's fixup diff",
-            "Full test suite after merge, report integration issues"
-          ],
-          "files": ["orchestrator/routes/pipelines.py", "shared/egg_contracts/agent_roles.py"],
-          "dependencies": ["phase-9"]
-        },
-        {
-          "id": 11,
-          "name": "Tests for Stage 2",
-          "description": "Test coverage for parallel dispatch and sub-branch merging.",
-          "key_changes": [
-            "Integration tests for parallel phase execution",
-            "Tests for sub-branch creation, merge, cleanup",
-            "Merge conflict scenario tests",
-            "End-to-end: 3 independent + 1 dependent phase pipeline"
-          ],
-          "files": ["orchestrator/tests/", "gateway/tests/"],
-          "dependencies": ["phase-10"]
-        }
-      ]
-    }
-  },
+  "files_modified": [
+    {"file": "shared/egg_contracts/orchestrator.py", "phase": "1", "change": "Add identifier param to load_agent_output, save_agent_output, collect_handoff_data; add fallback logic"},
+    {"file": "orchestrator/handoffs.py", "phase": "1.5", "change": "Add identifier param to save_agent_output, load_agent_output_data, collect_handoff_data, get_handoff_env_var wrappers; forward to shared functions", "added_in": "revision 2"},
+    {"file": "orchestrator/dispatch.py", "phase": "1.5", "change": "Pass self.contract_key as identifier at lines 219 and 264", "added_in": "revision 2"},
+    {"file": "orchestrator/routes/signals.py", "phase": "1.5", "change": "Pass identifier (from pipeline.issue_number or pipeline_id) at line 193", "added_in": "revision 2"},
+    {"file": "orchestrator/routes/pipelines.py", "phase": "2", "change": "Update prompt builders, reader functions, and all callers to use prefixed paths"},
+    {"file": "orchestrator/tests/test_pipeline_prompts.py", "phase": "3", "change": "Update prompt assertions and tester gap tests"},
+    {"file": "orchestrator/tests/test_health_check_tester_coverage.py", "phase": "3", "change": "Update mock file creation"},
+    {"file": "orchestrator/tests/test_health_check_tier1_advanced.py", "phase": "3", "change": "Update mock file creation"},
+    {"file": "integration_tests/local_pipeline/mock-sandbox/phase-runner.sh", "phase": "3", "change": "Update RESULTS_FILE to prefixed path"},
+    {"file": "shared/egg_contracts/tests/test_orchestrator.py", "phase": "3", "change": "Add backward-compat fallback tests"},
+    {"file": "orchestrator/tests/test_signals.py", "phase": "3", "change": "Update save_agent_output mock at line 86 for new identifier parameter", "added_in": "revision 2"},
+    {"file": "docs/guides/sdlc-pipeline.md", "phase": "4", "change": "Update naming convention references"},
+    {"file": "docs/guides/agent-development.md", "phase": "4", "change": "Update agent output file naming tree"},
+    {"file": "docs/architecture/orchestrator.md", "phase": "4", "change": "Update implement-results.json reference"},
+    {"file": "sandbox/.claude/commands/coder-mode.md", "phase": "4", "change": "Update output file path"},
+    {"file": "sandbox/.claude/commands/tester-mode.md", "phase": "4", "change": "Update output file paths"},
+    {"file": "sandbox/.claude/commands/integrator-mode.md", "phase": "4", "change": "Update output file paths"},
+    {"file": "sandbox/.claude/commands/documenter-mode.md", "phase": "4", "change": "Update output file paths"},
+    {"file": "orchestrator/health_checks/tier1/phase_output.py", "phase": "4", "change": "Update docstring"}
+  ],
 
-  "technical_decisions": [
-    {
-      "id": "TD-1",
-      "decision": "Use composite key (phase_id, AgentRole) for execution tracking",
-      "rationale": "The contract's agent_executions list must support multiple CODER instances (one per phase). A composite key is the minimal change. phase_id is optional (None for Tier 2) for backward compatibility.",
-      "alternatives_considered": [
-        "Nested structure (phases -> executions) — rejected: too disruptive to contract consumers",
-        "Separate execution store per phase — rejected: fragments state management"
-      ]
-    },
-    {
-      "id": "TD-2",
-      "decision": "Store phase dependencies in the Phase model as dependencies: list[str]",
-      "rationale": "The Phase model is the natural home. PhaseDependencyGraph is computed at runtime from this data. The plan parser already parses dependencies — just need to propagate them.",
-      "alternatives_considered": [
-        "Separate phase_graph field — rejected: duplicates information in phases",
-        "Dynamic computation from files_affected — rejected: imprecise and unreliable"
-      ]
-    },
-    {
-      "id": "TD-3",
-      "decision": "Tier 3 signaled by refine agent with same HITL override model as Tier 1",
-      "rationale": "The refine agent already assesses complexity. Adding a third tier follows the same pattern. Human can override during HITL review. Requiring explicit approval for every Tier 3 task adds friction without proportional benefit.",
-      "alternatives_considered": [
-        "Always require human approval for Tier 3 — rejected: unnecessary friction",
-        "Auto-select from plan phase count — rejected: phase count alone doesn't indicate complexity"
-      ]
-    },
-    {
-      "id": "TD-4",
-      "decision": "Integrator gets conditional write access in Tier 3 only",
-      "rationale": "Privilege escalation scoped to Tier 3 limits blast radius. In Tier 2, integrator remains read-only. Integrator runs after all phase-level agentic reviews and before human review, providing defense in depth.",
-      "alternatives_considered": [
-        "Unconditional write access — rejected: breaks least privilege for Tier 2",
-        "New INTEGRATOR_TIER3 role — rejected: role proliferation"
-      ]
-    },
-    {
-      "id": "TD-5",
-      "decision": "Sequential first, parallel second (hybrid delivery)",
-      "rationale": "Sequential cycling validates the orchestration foundation (composite keys, phase DAG, per-phase review) without concurrent execution complexity. Foundation is the risky part; parallelism is optimization.",
-      "alternatives_considered": [
-        "Full parallel from start — rejected: too much risk in one delivery",
-        "Only sequential — rejected: doesn't meet the issue's Tier 3 vision"
-      ]
-    },
-    {
-      "id": "TD-6",
-      "decision": "No new PipelinePhase.INTEGRATE — implement phase manages cycling internally",
-      "rationale": "A new pipeline phase would require updating transitions, prompts, HITL gates, and phase_filter restrictions across the system. The implement phase can manage cycle-then-integrate internally. The integrator already runs as the final wave.",
-      "alternatives_considered": [
-        "New INTEGRATE phase — rejected: too many cross-cutting changes for modest benefit"
-      ]
-    },
-    {
-      "id": "TD-7",
-      "decision": "Gateway prefix check already supports sub-branches — no policy change needed",
-      "rationale": "gateway/policy.py _is_bot_branch() uses startswith(('egg-', 'egg/')) which matches egg/feature/phase-1. Confirmed by code analysis. Only worktree lifecycle management needs extension in Stage 2.",
-      "alternatives_considered": [
-        "Add explicit sub-branch pattern — rejected: unnecessary given existing prefix logic"
-      ]
-    }
+  "no_changes_needed": [
+    {"component": "Gateway phase filter (gateway/phase_filter.py)", "reason": "Uses directory-level wildcards — file renames transparent"},
+    {"component": "Gateway agent restrictions (gateway/agent_restrictions.py)", "reason": "Uses directory-level allowed_write patterns"},
+    {"component": "Readonly mount enforcement (shared/egg_container/__init__.py)", "reason": "agent-outputs/ and checks/ not in _IMPLEMENT_READONLY_DIRS"},
+    {"component": "Phase permissions config (.egg/phase-permissions.json)", "reason": "Uses directory-level patterns"},
+    {"component": "Container spawner (orchestrator/container_spawner.py)", "reason": "Does not reference specific filenames"},
+    {"component": "Health check functional code (phase_output.py:152)", "reason": "Scans directory via iterdir() — works with any filename"}
   ],
 
   "risks": [
     {
       "id": "R-1",
-      "description": "Composite key migration breaks existing pipeline state",
-      "likelihood": "Medium",
-      "impact": "High",
-      "mitigation": "phase_id defaults to None on AgentExecutionModel. OrchestrationState falls back to role-only keying when phase_id is None. Explicit backward-compat tests required."
+      "title": "Missed wrapper callsites in orchestrator/handoffs.py, dispatch.py, signals.py",
+      "source": "Risk analyst R-1 (HIGH/HIGH), plan reviewer critical finding",
+      "likelihood": "HIGH (without mitigation)",
+      "impact": "HIGH",
+      "status": "MITIGATED in revision 2 — Phase 1.5 added",
+      "description": "The original plan updated shared functions but not the wrapper layer. Without updating handoffs.py, dispatch.py, and signals.py, the shared functions receive identifier=None and fall back to global paths, silently defeating the entire fix.",
+      "mitigation": "Phase 1.5 now explicitly covers all 3 files with dedicated tasks (TASK-1.5-1, TASK-1.5-2, TASK-1.5-3)."
     },
     {
       "id": "R-2",
-      "description": "Per-phase prompts leak cross-phase context to coders",
-      "likelihood": "Low",
-      "impact": "Medium",
-      "mitigation": "Build phase-filtered prompt function that only includes current phase's tasks and files_affected. Test that coder prompts don't reference other phases."
+      "title": "In-flight pipeline backward compatibility during rollout",
+      "source": "Risk analyst R-2 (MEDIUM/MEDIUM)",
+      "likelihood": "MEDIUM",
+      "impact": "MEDIUM",
+      "status": "MITIGATED by fallback strategy",
+      "description": "In-flight pipelines may have already written agent outputs to old global paths.",
+      "mitigation": "Backward-compat fallback in all readers: try new prefixed path first, fall back to old path. Keep permanently (AD-3)."
     },
     {
       "id": "R-3",
-      "description": "Integrator write access introduces security risk",
-      "likelihood": "Low",
-      "impact": "Medium",
-      "mitigation": "Conditional on Tier 3 mode. Integrator runs after all agentic reviews and before human review. Defense in depth."
+      "title": "Agent sandbox commands reference hardcoded global filenames",
+      "source": "Risk analyst R-3",
+      "likelihood": "MEDIUM",
+      "impact": "LOW",
+      "status": "MITIGATED — Phase 4 updates commands; fallback covers reads in interim"
     },
     {
       "id": "R-4",
-      "description": "Sub-branch merge conflicts despite files_affected boundaries (Stage 2)",
-      "likelihood": "Medium",
-      "impact": "Medium",
-      "mitigation": "Sub-branch isolation is primary mechanism. files_affected is safety net. Integrator explicitly tasked with conflict resolution. Conflict detection in integrator prompt."
+      "title": "Identifier unavailable in local/non-issue pipeline modes",
+      "source": "Risk analyst R-4",
+      "likelihood": "LOW",
+      "impact": "LOW",
+      "status": "MITIGATED — follow existing _get_draft_path() pattern: issue_number > pipeline_id > 'local'"
     },
     {
       "id": "R-5",
-      "description": "Change scope across 12+ files increases merge conflict risk with other PRs",
-      "likelihood": "Medium",
-      "impact": "Medium",
-      "mitigation": "Staged delivery (Stage 1 then Stage 2). Each stage independently mergeable. Coordinate with in-flight orchestration work."
+      "title": "Integration test hardcoded path in phase-runner.sh",
+      "source": "Risk analyst R-5",
+      "likelihood": "HIGH",
+      "impact": "LOW",
+      "status": "MITIGATED — TASK-3-3 covers this"
     },
     {
       "id": "R-6",
-      "description": "Token cost underestimated due to agentic review retries per phase",
-      "likelihood": "Low",
-      "impact": "Low",
-      "mitigation": "Each phase has max_review_cycles (default: 3). If exhausted, escalates to human review. Total budget bounded: phases * (agents_per_cycle + retry_budget)."
+      "title": "Prompt-agent path mismatch if agents ignore prompt instructions",
+      "source": "Risk analyst R-6",
+      "likelihood": "LOW",
+      "impact": "MEDIUM",
+      "status": "MITIGATED — keeping fallback permanently (AD-3)"
+    },
+    {
+      "id": "R-7",
+      "title": "Test coverage for wrapper module changes",
+      "source": "Risk analyst R-7, plan reviewer finding",
+      "likelihood": "MEDIUM",
+      "impact": "LOW",
+      "status": "MITIGATED — TASK-3-5 added in revision 2"
     }
   ],
 
-  "constraints": [
-    "Contract schema changes must be backward-compatible with existing contracts",
-    "Tier 1 (short-circuit) and Tier 2 (standard multi-agent) must continue working unchanged",
-    "Gateway branch prefix check already supports sub-branches (no policy change needed)",
-    "Per-phase worktrees (Stage 2) must not break single-worktree-per-pipeline model",
-    "Integrator write access conditional on Tier 3 only",
-    "Plan template and parser must support dependencies field in YAML plan",
-    "Per-phase review cycles must not require human approval — only agentic review gates"
+  "backward_compatibility": {
+    "strategy": "Readers try new prefixed path first, fall back to old global path",
+    "recommendation": "Keep fallback permanently (AD-3). Cost is one stat() syscall per read. Protects against agent misbehavior and simplifies rollout.",
+    "applies_to": ["load_agent_output (shared)", "load_agent_output_data (handoffs wrapper)", "_synthesize_plan_draft_from_outputs (pipelines.py)", "_read_tester_gaps (pipelines.py)"]
+  },
+
+  "acceptance_criteria": [
+    "All .egg-state/ files include issue or pipeline ID in their filename",
+    "No globally-named files remain that could conflict across concurrent pipelines",
+    "Existing in-flight pipelines not broken (backward-compatible reader fallback)",
+    "Wrapper layer (handoffs.py) threads identifier to shared functions",
+    "All callers in dispatch.py, signals.py, and pipelines.py pass identifier",
+    "Documentation updated to reflect new naming convention",
+    "All existing tests updated and passing (including test_signals.py)",
+    "New tests for backward-compat fallback behavior added",
+    "Gateway and phase permissions continue working without changes"
   ],
 
-  "open_questions_resolved": {
-    "Q1_integrator_write_scope": {
-      "question": "Should the integrator's write access be unrestricted, scoped to modified files, or unrestricted with separate review?",
-      "recommendation": "Unrestricted within src/, tests/, docs/. The integrator needs to fix integration issues that span beyond individual coders' changed files. Scoping to changed_files is too restrictive for merge conflict resolution. Agentic review of integrator changes is already planned.",
-      "decision": "TD-4"
-    },
-    "Q2_phase_dependency_storage": {
-      "question": "Should phase dependencies be in Phase model, separate field, or computed dynamically?",
-      "recommendation": "Phase model with dependencies: list[str]. Simplest, most natural location.",
-      "decision": "TD-2"
-    },
-    "Q3_tier_selection_authority": {
-      "question": "Should Tier 3 require explicit human approval?",
-      "recommendation": "Same model as Tier 1 — refine agent signals, human overrides during HITL.",
-      "decision": "TD-3"
-    },
-    "Q4_delivery_sequencing": {
-      "question": "Sequential-first or full parallel in one pass?",
-      "recommendation": "Sequential-first (hybrid). Foundation validated before adding parallelism.",
-      "decision": "TD-5"
+  "scope": {
+    "production_code_files": 5,
+    "test_files": 5,
+    "integration_test_files": 1,
+    "documentation_files": 8,
+    "total_files": 19,
+    "complexity": "mid",
+    "note": "Increased from 14 files in revision 1 to 19 files after adding wrapper layer (3 production files + 1 test file + 1 revision of plan doc)"
+  },
+
+  "revision_changelog": [
+    {
+      "revision": 2,
+      "changes": [
+        "Added call_chain_analysis section documenting complete I/O flow including wrapper layer",
+        "Added Phase 1.5 (wrapper layer and caller updates) with 3 tasks covering handoffs.py, dispatch.py, signals.py",
+        "Added TASK-3-5 for test_signals.py mock update",
+        "Updated TASK-2-5 scope description to clarify it covers pipelines.py only (dispatch.py and signals.py in Phase 1.5)",
+        "Updated AD-3 to recommend keeping fallback permanently",
+        "Added AD-4 for wrapper layer threading decision",
+        "Updated risks section to incorporate risk analyst R-1 through R-7 findings",
+        "Added handoffs.py, dispatch.py, signals.py, test_signals.py to files_modified table",
+        "Updated scope from 14 to 19 files",
+        "Updated acceptance criteria to include wrapper layer and test_signals.py"
+      ]
     }
-  }
+  ]
 }

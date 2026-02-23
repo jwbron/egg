@@ -190,7 +190,11 @@ def handle_complete_signal(
                 handoff_data=outputs,
                 metrics=data.get("metrics", {}),
             )
-            save_agent_output(contract_path, output)
+            # Derive pipeline identifier matching PipelineDispatcher.contract_key
+            identifier: int | str = (
+                pipeline.issue_number if pipeline.issue_number is not None else pipeline_id
+            )
+            save_agent_output(contract_path, output, identifier=identifier)
 
         logger.info(
             "Agent completed",

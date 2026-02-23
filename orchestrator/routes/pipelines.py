@@ -95,6 +95,18 @@ WORKTREE_BASE_DIR = Path("/home/egg/.egg-worktrees")
 # functions to adapt language when tester findings are present.
 TESTER_FINDINGS_HEADER = "### tester findings"
 
+
+def _pipeline_identifier(
+    issue_number: int | None,
+    pipeline_id: str,
+) -> int | str:
+    """Derive the pipeline identifier used for namespaced .egg-state filenames.
+
+    Prefers ``issue_number`` when available, falling back to ``pipeline_id``.
+    """
+    return issue_number if issue_number is not None else pipeline_id
+
+
 # Network constants for sandbox container URLs
 try:
     from egg_config import (
@@ -1620,19 +1632,36 @@ def _read_review_verdict(
         return None
 
 
-def _read_tester_gaps(repo_path: Path) -> str | None:
+def _read_tester_gaps(
+    repo_path: Path,
+    identifier: int | str | None = None,
+) -> str | None:
     """Read tester output and extract gap findings for feedback to the coder.
 
-    Reads `.egg-state/agent-outputs/tester-output.json` and formats any
-    test failures and gaps found into a summary string.
+    Reads `.egg-state/agent-outputs/{identifier}-tester-output.json` (with
+    fallback to `tester-output.json`) and formats any test failures and gaps
+    found into a summary string.
 
     Falls back to scanning the `summary` field for failure keywords when
     `gaps_found` is not present (backwards compat with old tester outputs).
 
+    Args:
+        repo_path: Path to the repository.
+        identifier: Pipeline/issue identifier for namespaced filenames.
+
     Returns:
         Formatted gap summary string, or None if no gaps found.
     """
-    tester_output_file = repo_path / ".egg-state" / "agent-outputs" / "tester-output.json"
+    outputs_dir = repo_path / ".egg-state" / "agent-outputs"
+
+    # Try prefixed filename first, fall back to old global filename
+    tester_output_file = None
+    if identifier is not None:
+        prefixed = outputs_dir / f"{identifier}-tester-output.json"
+        if prefixed.exists():
+            tester_output_file = prefixed
+    if tester_output_file is None:
+        tester_output_file = outputs_dir / "tester-output.json"
 
     if not tester_output_file.exists():
         return None
@@ -2197,8 +2226,9 @@ def _build_phase_prompt(
                             "Focus on addressing the specific feedback above.\n",
                             "1. Review the feedback in the **Prior Review Feedback** section above",
                             "2. Check `git diff` to understand the current state of changes",
-                            "3. Check `.egg-state/agent-outputs/tester-output.json` "
-                            "for test failures and gaps",
+                            f"3. Check `.egg-state/agent-outputs/"
+                            f"{_pipeline_identifier(issue_number, pipeline_id)}"
+                            f"-tester-output.json` for test failures and gaps",
                             "4. Fix the specific issues raised",
                             "5. Run tests to verify your fixes",
                             "6. Commit with descriptive messages",
@@ -2460,6 +2490,9 @@ def _build_agent_prompt(
         lines.append(review_feedback)
         lines.append("")
 
+    # Derive the pipeline identifier for namespaced output filenames.
+    _identifier = _pipeline_identifier(issue_number, pipeline_id)
+
     # Role-specific instructions
     lines.append("## Your Task\n")
 
@@ -2516,7 +2549,7 @@ def _build_agent_prompt(
                 "3. Verify no regressions were introduced",
                 "4. Produce an integration report",
                 "",
-                "Write your integration report to `.egg-state/agent-outputs/integrator-output.json`.",
+                f"Write your integration report to `.egg-state/agent-outputs/{_identifier}-integrator-output.json`.",
                 "",
                 "Review pipeline overview and costs before integrating:",
                 "`egg-checkpoint context --pipeline $EGG_PIPELINE_ID --files` and "
@@ -2535,7 +2568,7 @@ def _build_agent_prompt(
                 "4. Consider multiple implementation approaches",
                 "5. Recommend an approach with justification and document technical decisions",
                 "",
-                "Write your analysis to `.egg-state/agent-outputs/architect-output.json`.",
+                f"Write your analysis to `.egg-state/agent-outputs/{_identifier}-architect-output.json`.",
                 "",
             ]
         )
@@ -2601,7 +2634,7 @@ def _build_agent_prompt(
                 "4. Propose mitigation strategies and rollback plans",
                 "5. Flag areas that need human review",
                 "",
-                "Write your risk assessment to `.egg-state/agent-outputs/risk_analyst-output.json`.",
+                f"Write your risk assessment to `.egg-state/agent-outputs/{_identifier}-risk_analyst-output.json`.",
                 "",
             ]
         )
@@ -2801,7 +2834,9 @@ def _build_phase_scoped_prompt(
         lines.append("### Revision Checklist\n")
         lines.append("- [ ] Review the feedback in **Prior Review Feedback** above")
         lines.append(
-            "- [ ] Check `.egg-state/agent-outputs/tester-output.json` for test failures and gaps"
+            f"- [ ] Check `.egg-state/agent-outputs/"
+            f"{_pipeline_identifier(pipeline.issue_number, pipeline_id)}"
+            f"-tester-output.json` for test failures and gaps"
         )
         lines.append("- [ ] Fix the specific issues raised")
         lines.append("- [ ] Run tests to verify fixes")
@@ -2878,9 +2913,7 @@ def _run_tier3_implement(
     )
 
     pipeline_mode = pipeline.mode or "issue"
-    contract_key: int | str = (
-        pipeline.issue_number if pipeline.issue_number is not None else pipeline_id
-    )
+    contract_key = _pipeline_identifier(pipeline.issue_number, pipeline_id)
 
     # Ensure contract exists in the worktree.  Agent git checkout in a
     # prior phase (e.g. `git checkout -b egg/... origin/main`) may have
@@ -3154,7 +3187,10 @@ def _run_tier3_implement(
             # Only read when tester succeeded — a failed tester may have left
             # stale output from a previous cycle on disk.
             if tester_exit == 0:
-                tester_gap_summary = _read_tester_gaps(worktree_repo_path)
+                tester_gap_summary = _read_tester_gaps(
+                    worktree_repo_path,
+                    identifier=_pipeline_identifier(pipeline.issue_number, pipeline_id),
+                )
                 if tester_gap_summary:
                     logger.info(
                         "Tester found gaps",
@@ -3254,6 +3290,7 @@ def _run_tier3_implement(
                 repo=pipeline.repo,
                 repo_checks=repo_checks,
                 repo_path=str(worktree_repo_path),
+                issue_number=pipeline.issue_number,
             )
 
             try:
@@ -3740,9 +3777,7 @@ def _run_multi_agent_phase(
     # separately via save_agent_output().
     from egg_contracts.loader import contract_exists, create_contract, create_local_contract
 
-    contract_key: int | str = (
-        pipeline.issue_number if pipeline.issue_number is not None else pipeline_id
-    )
+    contract_key = _pipeline_identifier(pipeline.issue_number, pipeline_id)
     if not contract_exists(contract_key, worktree_repo_path):
         logger.warning(
             "Contract missing from worktree, recreating for multi-agent phase",
@@ -4022,6 +4057,7 @@ def _build_checker_prompt(
     pipeline_mode: str,
     repo: str | None = None,
     repo_checks: list[dict] | None = None,
+    issue_number: int | None = None,
 ) -> str:
     """Build a prompt for the checker agent that runs tests/lint.
 
@@ -4030,13 +4066,14 @@ def _build_checker_prompt(
         autofixer into a single agent session to avoid context loss.
 
     The checker discovers and runs project test/lint commands, then
-    writes structured results to .egg-state/checks/implement-results.json.
+    writes structured results to .egg-state/checks/{identifier}-implement-results.json.
 
     Args:
         pipeline_id: Pipeline identifier.
         pipeline_mode: Pipeline mode (e.g. "local", "issue").
         repo: Target repository in "owner/repo" format.
         repo_checks: Pre-configured check commands from repositories.yaml.
+        issue_number: GitHub issue number (used for namespaced filenames).
     """
     lines = [
         "You are the **checker** for the SDLC pipeline implement phase.\n",
@@ -4076,9 +4113,12 @@ def _build_checker_prompt(
             ]
         )
 
+    _ck_id = _pipeline_identifier(issue_number, pipeline_id)
+    results_filename = f"{_ck_id}-implement-results.json"
+
     lines.extend(
         [
-            "After running checks, **write results** to `.egg-state/checks/implement-results.json`:\n",
+            f"After running checks, **write results** to `.egg-state/checks/{results_filename}`:\n",
             "```json",
             "{",
             '  "all_passed": true/false,',
@@ -4107,6 +4147,7 @@ def _build_autofix_prompt(
     check_results: dict,
     repo: str | None = None,
     repo_path: str | None = None,
+    issue_number: int | None = None,
 ) -> str:
     """Build a prompt for the autofixer agent.
 
@@ -4148,10 +4189,11 @@ def _build_autofix_prompt(
     if repo:
         repo_name = repo.split("/")[-1]
         lines.append(f"Work in the `~/repos/{repo_name}` directory.\n")
+    _af_id = _pipeline_identifier(issue_number, pipeline_id)
     lines.extend(
         [
             "1. **Investigate the failures above**: The full check output is included — "
-            "do NOT re-read `.egg-state/checks/implement-results.json`",
+            f"do NOT re-read `.egg-state/checks/{_af_id}-implement-results.json`",
             "2. **Fix without committing yet**: For each auto-fixable issue "
             "(lint errors, formatting, simple type errors, obvious test fixes), make the fix",
             "3. **Verify locally**: Run the same checks again to confirm fixes work",
@@ -4195,6 +4237,7 @@ def _build_check_and_fix_prompt(
     repo: str | None = None,
     repo_checks: list[dict] | None = None,
     repo_path: str | None = None,
+    issue_number: int | None = None,
 ) -> str:
     """Build a combined check-and-fix prompt for a single agent session.
 
@@ -4208,6 +4251,7 @@ def _build_check_and_fix_prompt(
         repo: Target repository in "owner/repo" format.
         repo_checks: Pre-configured check commands from repositories.yaml.
         repo_path: Filesystem path to repository (for loading autofixer rules).
+        issue_number: GitHub issue number (used for namespaced filenames).
     """
     lines = [
         "You are the **checker and autofixer** for the SDLC pipeline implement phase.\n",
@@ -4290,7 +4334,7 @@ def _build_check_and_fix_prompt(
             "",
             "### Results File\n",
             "After the final check run, write results to "
-            "`.egg-state/checks/implement-results.json`:\n",
+            f"`.egg-state/checks/{_pipeline_identifier(issue_number, pipeline_id)}-implement-results.json`:\n",
             "```json",
             "{",
             '  "all_passed": true/false,',
@@ -4358,6 +4402,9 @@ def _synthesize_plan_draft(
         )
         return
 
+    # Derive the pipeline identifier for namespaced output filenames.
+    _synth_id = _pipeline_identifier(issue_number, pipeline_id)
+
     sections: list[str] = []
     agent_files = [
         ("architect-output.json", "Architecture Analysis"),
@@ -4365,7 +4412,12 @@ def _synthesize_plan_draft(
     ]
 
     for filename, heading in agent_files:
-        output_file = outputs_dir / filename
+        # Try prefixed filename first, fall back to old global filename
+        prefixed_file = outputs_dir / f"{_synth_id}-{filename}"
+        if prefixed_file.exists():
+            output_file = prefixed_file
+        else:
+            output_file = outputs_dir / filename
         if not output_file.exists():
             continue
         try:
@@ -5136,6 +5188,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                         repo=pipeline.repo,
                         repo_checks=repo_checks,
                         repo_path=str(worktree_repo_path),
+                        issue_number=pipeline.issue_number,
                     )
                     check_fix_command = [
                         "claude",
@@ -5188,7 +5241,10 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                 # Only read when the phase succeeded — a failed phase may
                 # have left stale output from a previous cycle on disk.
                 if use_multi_agent and not phase_failed:
-                    tester_gap_summary = _read_tester_gaps(worktree_repo_path)
+                    tester_gap_summary = _read_tester_gaps(
+                        worktree_repo_path,
+                        identifier=_pipeline_identifier(pipeline.issue_number, pipeline_id),
+                    )
                     if tester_gap_summary:
                         logger.info(
                             "Tester found gaps",

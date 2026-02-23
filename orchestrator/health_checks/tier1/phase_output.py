@@ -7,7 +7,7 @@ to review.
 
 For each phase type, verifies:
 - implement: new commits on the remote branch beyond origin/main
-- plan: architect-output.json (or plan draft) exists
+- plan: {identifier}-architect-output.json (or plan draft) exists
 - refine: refine output exists
 
 Returns DEGRADED (not FAILED) when agents succeeded but artifacts

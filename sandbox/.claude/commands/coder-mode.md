@@ -41,9 +41,13 @@ egg-contract show
 
 Create this file when done:
 
+Output filenames are prefixed with the issue number or pipeline ID
+(e.g., `871-coder-output.json` for issue #871):
+
 ```bash
 mkdir -p .egg-state/agent-outputs
-cat > .egg-state/agent-outputs/coder-output.json << 'EOF'
+IDENT="${EGG_ISSUE_NUMBER:-$EGG_PIPELINE_ID}"
+cat > ".egg-state/agent-outputs/${IDENT}-coder-output.json" << 'EOF'
 {
   "changed_files": [
     "path/to/file1.py",

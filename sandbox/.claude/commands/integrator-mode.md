@@ -26,15 +26,20 @@ The Integrator is read-only for the codebase. You validate but do not modify.
 
 ## Reading Agent Outputs
 
+Output filenames are prefixed with the issue number or pipeline ID
+(e.g., `871-coder-output.json` for issue #871):
+
 ```bash
+IDENT="${EGG_ISSUE_NUMBER:-$EGG_PIPELINE_ID}"
+
 # Read coder output
-cat .egg-state/agent-outputs/coder-output.json
+cat ".egg-state/agent-outputs/${IDENT}-coder-output.json"
 
 # Read tester output
-cat .egg-state/agent-outputs/tester-output.json
+cat ".egg-state/agent-outputs/${IDENT}-tester-output.json"
 
 # Read documenter output (if available)
-cat .egg-state/agent-outputs/documenter-output.json
+cat ".egg-state/agent-outputs/${IDENT}-documenter-output.json"
 ```
 
 ## Validation Steps
@@ -78,9 +83,12 @@ npm run lint
 
 Create this file when done:
 
+Output filenames are prefixed with the issue number or pipeline ID:
+
 ```bash
 mkdir -p .egg-state/agent-outputs
-cat > .egg-state/agent-outputs/integrator-output.json << 'EOF'
+IDENT="${EGG_ISSUE_NUMBER:-$EGG_PIPELINE_ID}"
+cat > ".egg-state/agent-outputs/${IDENT}-integrator-output.json" << 'EOF'
 {
   "status": "success",
   "tests": {
