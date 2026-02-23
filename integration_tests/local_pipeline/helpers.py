@@ -15,7 +15,7 @@ def create_pipeline(
     mode: str = "local",
     prompt: str = "Test pipeline",
     issue_number: int | None = None,
-    repo: str | None = None,
+    repo: str | None = "test-owner/test-repo",
     branch: str | None = None,
     config: dict | None = None,
 ) -> tuple[dict, int]:

@@ -107,7 +107,7 @@ class TestGetNonexistentPipeline:
 
     def test_get_nonexistent_returns_404(self, orchestrator_url: str) -> None:
         """Returns 404 with appropriate message for non-existent ID."""
-        fake_id = "nonexistent-pipeline-12345"
+        fake_id = "local-00000000"
         resp = requests.get(
             f"{orchestrator_url}/api/v1/pipelines/{fake_id}",
             timeout=10,
@@ -127,7 +127,7 @@ class TestDeleteNonexistentPipeline:
 
     def test_delete_nonexistent_returns_404(self, orchestrator_url: str) -> None:
         """Returns 404; idempotent behavior for non-existent pipeline."""
-        fake_id = "nonexistent-pipeline-delete-test"
+        fake_id = "local-00000001"
         resp = requests.delete(
             f"{orchestrator_url}/api/v1/pipelines/{fake_id}",
             timeout=10,
@@ -331,7 +331,7 @@ class TestStatusEndpointValidation:
 
     def test_status_nonexistent_returns_404(self, orchestrator_url: str) -> None:
         """Status endpoint returns 404 for non-existent pipeline."""
-        fake_id = "nonexistent-status-test"
+        fake_id = "local-00000002"
         resp = requests.get(
             f"{orchestrator_url}/api/v1/pipelines/{fake_id}/status",
             timeout=10,
@@ -347,7 +347,7 @@ class TestStartEndpointValidation:
 
     def test_start_nonexistent_returns_404(self, orchestrator_url: str) -> None:
         """Start endpoint returns 404 for non-existent pipeline."""
-        fake_id = "nonexistent-start-test"
+        fake_id = "local-00000003"
         resp = requests.post(
             f"{orchestrator_url}/api/v1/pipelines/{fake_id}/start",
             timeout=10,

@@ -581,10 +581,12 @@ class TestGatewayLocalModeBlocksPush:
             )
 
             push_data = push_resp.json()
-            assert (
-                "local" in push_data.get("message", "").lower()
-                or "local" in str(push_data.get("details", {})).lower()
-            ), f"Error message should mention local mode: {push_data}"
+            # The response may mention "local" in the message, details, or
+            # nested data fields (e.g. data.session_mode == "local")
+            response_str = str(push_data).lower()
+            assert "local" in response_str, (
+                f"Error response should reference local mode: {push_data}"
+            )
 
         finally:
             # Cleanup session
@@ -824,21 +826,32 @@ class TestAutofixCircuitBreaker:
 
 
 class TestContractCreatedForLocalPipeline:
-    """Creating a local pipeline also creates a companion contract."""
+    """Running a local pipeline creates a companion contract."""
 
-    def test_contract_file_exists_after_create(self, local_pipeline_stack) -> None:
-        """Verify .egg-state/contracts/{pipeline_id}.json is created."""
+    def test_contract_created_after_pipeline_start(self, local_pipeline_stack) -> None:
+        """Verify contract is created when the pipeline starts running.
+
+        Contract creation is deferred to _run_pipeline (not create), so the
+        contract file only appears after the pipeline is started. We start the
+        pipeline, wait for it to complete (or fail), and verify the contract
+        was written.
+        """
         orchestrator_url = local_pipeline_stack.orchestrator_url
         repos_dir = local_pipeline_stack.repos_dir
 
         data, status = create_pipeline(
             orchestrator_url,
             prompt="Test contract creation",
+            config={"hitl_gates": False},
         )
         assert status == 200
         pipeline_id = data["data"]["pipeline"]["id"]
 
         try:
+            # Start the pipeline so the contract is written
+            start_pipeline(orchestrator_url, pipeline_id)
+            wait_for_pipeline_terminal(orchestrator_url, pipeline_id, timeout=360)
+
             # Check that the contract file was created in the repos dir
             import json
             from pathlib import Path
@@ -849,7 +862,6 @@ class TestContractCreatedForLocalPipeline:
             # Verify contract content
             contract_data = json.loads(contract_path.read_text())
             assert contract_data.get("pipeline_id") == pipeline_id
-            assert contract_data.get("current_phase") == "refine"
 
         finally:
             delete_pipeline(orchestrator_url, pipeline_id)

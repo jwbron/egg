@@ -3139,57 +3139,65 @@ def session_create() -> tuple[Response, int] | Response:
         if len(branch) > 256:
             return make_error("Invalid branch: must be 256 characters or fewer")
 
-    # Step 1: Query visibility for all repos
+    # Step 1: Query visibility for all repos (skip for local mode)
     repo_visibilities = {}
-    for repo in repos:
-        repo_info = parse_owner_repo(repo)
-        if repo_info:
-            visibility = get_repo_visibility(repo_info.owner, repo_info.repo)
-            repo_visibilities[repo] = visibility
-        else:
-            # Can't parse repo - skip it
-            logger.warning(
-                "Could not parse repository for visibility check",
-                repo=repo,
-                container_id=container_id,
-            )
+    if mode != "local":
+        for repo in repos:
+            repo_info = parse_owner_repo(repo)
+            if repo_info:
+                visibility = get_repo_visibility(repo_info.owner, repo_info.repo)
+                repo_visibilities[repo] = visibility
+            else:
+                # Can't parse repo - skip it
+                logger.warning(
+                    "Could not parse repository for visibility check",
+                    repo=repo,
+                    container_id=container_id,
+                )
 
     # Step 2: Filter repos based on mode
+    # local mode: include all repos (no visibility filtering)
     # private mode: keep private and internal repos
     # public mode: keep only public repos
     filtered_repos = []
-    for repo, visibility in repo_visibilities.items():
-        if visibility is None:
-            # Unknown visibility - fail closed, don't include
-            logger.warning(
-                "Unknown visibility for repo, excluding",
-                repo=repo,
-                mode=mode,
-                container_id=container_id,
-            )
-            continue
+    if mode == "local":
+        # Local mode: all requested repos are included without visibility filtering.
+        # Local pipelines use pre-configured repos that are already on disk,
+        # so GitHub API visibility checks are unnecessary.
+        filtered_repos = list(repos)
+    else:
+        for repo, visibility in repo_visibilities.items():
+            if visibility is None:
+                # Unknown visibility - fail closed, don't include
+                logger.warning(
+                    "Unknown visibility for repo, excluding",
+                    repo=repo,
+                    mode=mode,
+                    container_id=container_id,
+                )
+                continue
 
-        if mode == "private":
-            # Private mode: include private and internal repos only
-            if visibility in ("private", "internal"):
+            if mode == "private":
+                # Private mode: include private and internal repos only
+                if visibility in ("private", "internal"):
+                    filtered_repos.append(repo)
+                else:
+                    logger.debug(
+                        "Excluding public repo in private mode",
+                        repo=repo,
+                        visibility=visibility,
+                        container_id=container_id,
+                    )
+            # Public mode: include only public repos
+            elif visibility == "public":
                 filtered_repos.append(repo)
             else:
                 logger.debug(
-                    "Excluding public repo in private mode",
+                    "Excluding non-public repo in public mode",
                     repo=repo,
                     visibility=visibility,
                     container_id=container_id,
                 )
-        # Public mode: include only public repos
-        elif visibility == "public":
-            filtered_repos.append(repo)
-        else:
-            logger.debug(
-                "Excluding non-public repo in public mode",
-                repo=repo,
-                visibility=visibility,
-                container_id=container_id,
-            )
 
     # Step 3: Create worktrees for filtered repos
     manager = get_worktree_manager()

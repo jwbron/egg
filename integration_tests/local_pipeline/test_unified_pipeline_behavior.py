@@ -20,7 +20,13 @@ from pathlib import Path
 import pytest
 import requests
 
-from .helpers import create_pipeline, delete_pipeline, get_pipeline
+from .helpers import (
+    create_pipeline,
+    delete_pipeline,
+    get_pipeline,
+    start_pipeline,
+    wait_for_pipeline_terminal,
+)
 
 pytestmark = pytest.mark.integration
 
@@ -230,18 +236,27 @@ class TestPhasePromptInstructions:
     """Agent prompts include correct instructions for unified behavior."""
 
     def test_local_pipeline_includes_contract_cli_instructions(self, local_pipeline_stack) -> None:
-        """Local pipeline contract should exist with proper structure."""
+        """Local pipeline contract should exist with proper structure after start.
+
+        Contract creation is deferred to _run_pipeline, so we must start the
+        pipeline before checking for the contract file on disk.
+        """
         orchestrator_url = local_pipeline_stack.orchestrator_url
         repos_dir = local_pipeline_stack.repos_dir
 
         data, status = create_pipeline(
             orchestrator_url,
             prompt="Test contract CLI instructions",
+            config={"hitl_gates": False},
         )
         assert status == 200
         pipeline_id = data["data"]["pipeline"]["id"]
 
         try:
+            # Start the pipeline so the contract is written
+            start_pipeline(orchestrator_url, pipeline_id)
+            wait_for_pipeline_terminal(orchestrator_url, pipeline_id, timeout=360)
+
             # Verify contract exists (implies contract CLI can be used)
             contract_path = Path(repos_dir) / f".egg-state/contracts/{pipeline_id}.json"
             assert contract_path.exists(), "Contract file should exist for local pipeline"

@@ -50,6 +50,9 @@ jobs:
       - name: Build mock-sandbox container
         run: docker build -t mock-sandbox -f integration_tests/local_pipeline/mock-sandbox/Dockerfile integration_tests/local_pipeline/mock-sandbox
 
+      - name: Pre-pull images used by integration tests
+        run: docker pull busybox:latest
+
       - name: Run integration and security tests
         run: |
           PYTHONPATH=shared .venv/bin/pytest integration_tests -v \

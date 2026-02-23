@@ -481,10 +481,11 @@ def create_pipeline(
     *,
     mode: str = "local",
     prompt: str = "Test pipeline",
+    repo: str = "test-owner/test-repo",
     config: dict | None = None,
 ) -> tuple[dict, int]:
     """Create a pipeline via the orchestrator API."""
-    body: dict = {"mode": mode, "prompt": prompt}
+    body: dict = {"mode": mode, "prompt": prompt, "repo": repo}
     if config is not None:
         body["config"] = config
     resp = requests.post(

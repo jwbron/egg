@@ -139,6 +139,7 @@ class TestInvalidDecisionId:
         )
         assert status == 200
         pipeline_id = data["data"]["pipeline"]["id"]
+        real_decision_id = None
 
         try:
             start_pipeline(orchestrator_url, pipeline_id)
@@ -171,20 +172,21 @@ class TestInvalidDecisionId:
             assert pending["id"] == real_decision_id
 
         finally:
-            # Cleanup - resolve real decision first
+            # Cleanup - resolve real decision first (if it was assigned)
             try:
-                resolve_decision(orchestrator_url, pipeline_id, real_decision_id)
-                # Resolve any subsequent gates
-                for _ in range(2):
-                    try:
-                        status_data = wait_for_awaiting_human(
-                            orchestrator_url, pipeline_id, timeout=30
-                        )
-                        pending = status_data["data"].get("pending_decision")
-                        if pending:
-                            resolve_decision(orchestrator_url, pipeline_id, pending["id"])
-                    except (TimeoutError, AssertionError):
-                        break
+                if real_decision_id is not None:
+                    resolve_decision(orchestrator_url, pipeline_id, real_decision_id)
+                    # Resolve any subsequent gates
+                    for _ in range(2):
+                        try:
+                            status_data = wait_for_awaiting_human(
+                                orchestrator_url, pipeline_id, timeout=30
+                            )
+                            pending = status_data["data"].get("pending_decision")
+                            if pending:
+                                resolve_decision(orchestrator_url, pipeline_id, pending["id"])
+                        except (TimeoutError, AssertionError):
+                            break
             except requests.RequestException:
                 pass
             delete_pipeline(orchestrator_url, pipeline_id)
