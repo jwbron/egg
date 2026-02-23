@@ -283,7 +283,7 @@ action/
 ├── generate-config.sh                      # Runtime config generator
 ├── build-review-prompt.sh                  # PR review workflow prompt builder
 ├── build-feedback-prompt.sh                # Review feedback addressing workflow prompt builder
-├── build-autofixer-prompt.sh               # Autofixer workflow prompt builder
+├── build-check-fixer-prompt.sh             # Per-check fixer prompt builder
 ├── build-agent-mode-design-review-prompt.sh # Agent-mode design review prompt
 ├── build-doc-updater-prompt.sh             # Doc updater workflow prompt builder
 ├── build-conflict-prompt.sh                # Conflict resolution workflow prompt builder
@@ -308,7 +308,7 @@ Key workflows for PR automation (see `.github/workflows/` for complete list):
 ├── on-pull-request-agent-mode-design.yml   # Agent-mode design review
 ├── on-pull-request-contract-verify.yml    # Contract verification on PRs
 ├── reusable-review.yml                     # PR-based code review workflow
-├── reusable-autofix.yml                    # Reusable auto-fix logic
+├── reusable-check-fixer.yml                # Per-check auto-fix logic
 ├── reusable-conflict-resolve.yml           # Reusable conflict resolution
 ├── lint.yml                                # Lint workflow
 ├── test.yml                                # Test workflow

@@ -16,7 +16,7 @@ This action runs the egg autonomous coding agent within GitHub Actions. It sets 
 | **Prompt Builders** | |
 | `build-review-prompt.sh` | Builds prompts for PR review workflows |
 | `build-feedback-prompt.sh` | Builds prompts for addressing review feedback workflows |
-| `build-autofixer-prompt.sh` | Builds prompts for autofixer workflows |
+| `build-check-fixer-prompt.sh` | Builds per-check focused prompts for the check fixer workflow |
 | `build-agent-mode-design-review-prompt.sh` | Builds prompts for agent-mode design reviews |
 | `build-doc-updater-prompt.sh` | Builds prompts for documentation update workflows |
 | `build-conflict-prompt.sh` | Builds prompts for merge conflict resolution |

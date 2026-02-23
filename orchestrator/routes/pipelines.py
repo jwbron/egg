@@ -4101,7 +4101,7 @@ def _build_autofix_prompt(
         Prefer :func:`_build_check_and_fix_prompt` which merges checker and
         autofixer into a single agent session to avoid context loss.
 
-    Modeled on action/build-autofixer-prompt.sh. Tells the agent to read
+    Modeled on action/build-check-fixer-prompt.sh. Tells the agent to read
     check failures, fix auto-fixable issues, and commit fixes.
     """
     failures = []

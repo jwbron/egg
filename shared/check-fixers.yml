@@ -48,3 +48,8 @@ workflows:
       max_retries: 2
     "Security Scan":
       max_retries: 2
+  "Integration Tests":
+    "Integration Tests":
+      model: "opus"
+      timeout: "15"
+      max_retries: 2

@@ -50,21 +50,23 @@ jobs:
       ANTHROPIC_OAUTH_TOKEN: ${{ secrets.ANTHROPIC_OAUTH_TOKEN }}
 ```
 
-### Autofix Workflow
+### Check Fixer Workflow
 
-**`reusable-autofix.yml`** - Automatically fix failing checks.
+**`reusable-check-fixer.yml`** - Automatically fix failing CI checks with per-check focused fixing.
 
 ```yaml
 jobs:
   autofix:
-    uses: jwbron/egg/.github/workflows/reusable-autofix.yml@main
+    uses: jwbron/egg/.github/workflows/reusable-check-fixer.yml@main
     with:
       pr_number: ${{ github.event.workflow_run.pull_requests[0].number }}
       failed_workflow: ${{ github.event.workflow_run.name }}
       failed_run_id: ${{ github.event.workflow_run.id }}
       bot_username: ${{ vars.EGG_BOT_USERNAME }}
       branch_prefix: ${{ vars.EGG_BRANCH_PREFIX }}
-      timeout: "20"
+      config_file: "shared/check-fixers.yml"
+      prompt_script: "action/build-check-fixer-prompt.sh"
+      timeout: "15"
     secrets:
       BOT_APP_ID: ${{ secrets.BOT_APP_ID }}
       BOT_APP_PRIVATE_KEY: ${{ secrets.BOT_APP_PRIVATE_KEY }}
@@ -154,7 +156,7 @@ There are two types of workflows that use bot identity:
 
 1. **Entry-point workflows** (e.g., `on-pull-request.yml`, `on-check-failure.yml`) — These use `vars.EGG_BOT_USERNAME` and `vars.EGG_BRANCH_PREFIX` directly from repository variables.
 
-2. **Reusable workflows** (e.g., `reusable-review.yml`, `reusable-autofix.yml`) — These receive `bot_username` and `branch_prefix` via the `with:` input block from calling workflows.
+2. **Reusable workflows** (e.g., `reusable-review.yml`, `reusable-check-fixer.yml`) — These receive `bot_username` and `branch_prefix` via the `with:` input block from calling workflows.
 
 For entry-point workflows, reference the variables directly:
 
