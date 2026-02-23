@@ -1,471 +1,286 @@
 {
-  "issue": 732,
+  "issue": 857,
   "phase": "plan",
   "agent": "risk_analyst",
-  "title": "Risk Assessment: Parallel Phase-Level Dispatch for Implement Phase",
-  "summary": "Assessment of the hybrid approach (Approach C) for adding Tier 3 dispatch to the SDLC pipeline. The recommended approach carries manageable risk when delivered in two stages. The highest risks center on the composite execution key migration (silent data loss during deserialization), integrator privilege escalation interacting with readonly mount enforcement (#800), and the sheer scope of changes touching 12+ files across 4 packages. Six risks are rated High, five Medium, and two Low. All are mitigable with the staged approach but require careful implementation ordering and comprehensive backward compatibility testing.",
+  "title": "Risk Assessment: Sync pipeline state branch to remote for durability",
+  "summary": "Assessment of the architect's recommended approach: push-at-phase-boundaries for the `egg/pipeline-state` branch (Option C) combined with pre-validation data sanitization for schema drift (Option I). The approach is sound and low-complexity compared to alternatives. However, code review uncovered a critical implementation blocker: the gateway's `validate_repo_path()` restricts git operations to paths under `/home/egg/repos/` and `/home/egg/.egg-worktrees/`, but the state worktree lives at `/home/egg/.egg-state/pipeline-worktree` — outside all allowed paths. A naive push from the state worktree will be rejected with 403. This must be addressed in implementation. Five risks are rated Medium, three Low, and one is rated High (the path validation blocker). All are mitigable with the proposed strategies.",
 
   "risk_assessment": {
-    "overall_risk_level": "Medium-High",
-    "overall_verdict": "Proceed with Approach C (hybrid staged delivery). Risks are manageable but require strict implementation ordering, comprehensive backward compatibility testing, and human review of integrator privilege escalation and schema migration.",
-    "confidence": "High — based on source code analysis of all 12 affected files, contract schema, gateway enforcement layers, test infrastructure, and recent commit history"
+    "overall_risk_level": "Medium",
+    "overall_verdict": "Proceed with the architect's recommended approach (Option C + Option I). The implementation is well-scoped (6 files, 2 work areas) and builds on proven patterns (existing GatewayClient push/fetch). The highest risk is the gateway path validation blocker (R-1), which requires either adding the state worktree path to ALLOWED_REPO_PATHS or pushing from the main repo path. All other risks are manageable with the proposed mitigations.",
+    "confidence": "High — based on source code analysis of state_store.py, gateway_client.py, gateway.py, git_client.py, policy.py, startup_reconciliation.py, cli.py, and routes/pipelines.py"
   },
 
   "risks": [
     {
       "id": "R-1",
-      "category": "Data Integrity",
-      "title": "Silent data loss during composite key migration",
-      "description": "OrchestrationState.from_contract() at orchestration.py:76-83 converts agent_executions list to dict[AgentRole, AgentExecutionModel]. If Tier 3 produces multiple CODER executions (one per phase), the dict conversion silently overwrites earlier entries — only the last CODER execution survives. No error is raised. This affects all downstream state queries: can_agent_run(), get_runnable_agents(), get_next_wave().",
-      "likelihood": "High",
-      "impact": "Critical",
+      "category": "Implementation Blocker",
+      "title": "Gateway path validation rejects state worktree path",
+      "description": "The gateway's `validate_repo_path()` in git_client.py:202-228 only allows git operations from paths under ALLOWED_REPO_PATHS: `/home/egg/repos/`, `/home/egg/.egg-worktrees/`, and `/repos/`. The state worktree lives at `/home/egg/.egg-state/pipeline-worktree`, which is outside all allowed paths. A push from this path will be rejected with 403 by the gateway before any branch ownership or file restriction checks run. The architect's plan proposes reusing `push_worktree_branch()` with the state worktree path, but this will fail at the path validation layer.",
+      "likelihood": "Certain",
+      "impact": "High",
       "risk_score": "High",
       "affected_files": [
-        "shared/egg_contracts/orchestration.py:76-83",
-        "shared/egg_contracts/models.py:493-507"
+        "gateway/git_client.py:162-166 (ALLOWED_REPO_PATHS)",
+        "gateway/gateway.py:514-523 (validate_repo_path call in push handler)",
+        "orchestrator/state_store.py:43-45 (_DEFAULT_WORKTREE_DIR)"
       ],
       "mitigation": {
-        "strategy": "Add validation before migration, then migrate atomically",
+        "strategy": "Push from the main repo path instead of the state worktree path, OR add the state path to ALLOWED_REPO_PATHS",
         "steps": [
-          "Add a validator in models.py that raises on duplicate (role, phase_id) pairs in agent_executions — catches corruption before it propagates",
-          "Change OrchestrationState.executions to dict[tuple[str | None, AgentRole], AgentExecutionModel] with (phase_id, role) composite key",
-          "When phase_id is None (Tier 2), behavior must match current role-only keying — test this explicitly",
-          "Add deserialization tests with 0, 1, and multiple CODER entries across phases"
+          "Option A (preferred): Push the state branch from the main repo path (`/home/egg/repos/{repo}`). Since `egg/pipeline-state` is a local branch in the main repo, `git push origin egg/pipeline-state` works from the main repo directory. The push_state_branch() method should use `self.repo_path` (main repo) as the repo_path argument, not `self._worktree_dir`. The refspec should be `egg/pipeline-state:egg/pipeline-state`.",
+          "Option B (alternative): Add `/home/egg/.egg-state/` to ALLOWED_REPO_PATHS in gateway/git_client.py. This is simpler but broadens the gateway's trust boundary to include the state volume, which may have security implications.",
+          "Option A is preferred because it avoids expanding the gateway's allowed paths and uses the existing infrastructure correctly."
         ],
-        "residual_risk": "Low — once composite key is in place, data loss path is eliminated"
-      },
-      "human_review_required": true,
-      "review_reason": "Schema change affects all contract consumers. Need to verify no external tools read agent_executions assuming role uniqueness."
+        "human_review_required": true,
+        "human_review_reason": "The choice between expanding ALLOWED_REPO_PATHS vs. pushing from the main repo affects the gateway's security boundary. Human should confirm the approach."
+      }
     },
     {
       "id": "R-2",
-      "category": "Security",
-      "title": "Integrator privilege escalation conflicts with readonly mount enforcement",
-      "description": "PR #800 (merged Feb 16) enforces readonly mounts for .egg-state/contracts/, .egg-state/drafts/, .egg-state/pipelines/, and .egg-state/reviews/ during the implement phase. The architect's proposal (TD-4) gives integrator write access to src/, tests/, docs/ in Tier 3. The integrator runs during the implement phase. If the integrator also needs to update contract state (e.g., mark phases complete, record merge results), the readonly mount blocks direct file writes. Two gateway enforcement layers must agree: phase_filter.py (layer 1 — phase-based file restrictions) and agent_restrictions.py (layer 2 — role-based file restrictions).",
-      "likelihood": "High",
-      "impact": "High",
-      "risk_score": "High",
+      "category": "Data Integrity",
+      "title": "Startup fetch overwrites unpushed local state changes",
+      "description": "The architect proposes 'remote wins' semantics on startup: `git fetch` + `git reset --hard origin/egg/pipeline-state`. If the orchestrator crashes mid-phase (between phase-boundary pushes) and restarts, any state changes since the last push are lost. This includes: agent heartbeat updates, container status transitions, decision resolutions, and intermediate pipeline status changes. While the architect correctly notes this represents 'at most one phase boundary of drift', the lost state could include decision resolutions (HITL responses) that a human already submitted, causing them to be re-requested.",
+      "likelihood": "Low",
+      "impact": "Medium",
+      "risk_score": "Medium",
       "affected_files": [
-        "gateway/phase_filter.py:480-525",
-        "gateway/agent_restrictions.py:296-321",
-        "shared/egg_contracts/agent_roles.py:289-318"
+        "orchestrator/state_store.py (proposed fetch_state_branch method)",
+        "orchestrator/cli.py:132-145 (startup sequence)"
       ],
       "mitigation": {
-        "strategy": "Source code write access via role config; contract updates via orchestrator API",
+        "strategy": "Prefer local state when it exists; only use remote as fallback for empty/missing local state",
         "steps": [
-          "Integrator source write access (src/, tests/, docs/) should be controlled via agent_roles.py conditional on complexity_tier — this is a role restriction change, not a phase mount change",
-          "Contract state updates should go through the orchestrator HTTP API (existing pattern: dispatcher.contract_orchestrator.apply_to_contract()), NOT direct file writes — this preserves readonly mount security",
-          "Do NOT change the implement phase readonly mounts — the mount strategy from #800 is a security boundary worth preserving",
-          "Add integration tests that verify integrator can write source but NOT contract files during Tier 3 implement"
+          "On startup, check if the local state branch has commits. If it does, local state is authoritative — skip the remote fetch or merge rather than overwrite.",
+          "Only use `git reset --hard origin/egg/pipeline-state` when the local branch is empty or doesn't exist (fresh volume/new host scenario).",
+          "If a merge approach is too complex, at minimum compare local and remote HEAD timestamps or commit counts before deciding which wins.",
+          "The simple heuristic: if local worktree has pipeline files, trust local. If local worktree is empty or missing, fetch from remote."
         ],
-        "residual_risk": "Medium — integrator with source write access is a privilege escalation; defense in depth (agentic review + human review) mitigates but does not eliminate"
-      },
-      "human_review_required": true,
-      "review_reason": "Privilege escalation for integrator role. Need security review of what the integrator can do with unrestricted src/ write access. Consider: could an adversarial integrator output exfiltrate data or inject malicious code that survives human review?"
+        "human_review_required": false
+      }
     },
     {
       "id": "R-3",
-      "category": "Backward Compatibility",
-      "title": "Contract schema migration breaks existing pipelines",
-      "description": "The contract schema (.egg/schemas/contract.schema.json) uses additionalProperties: false at multiple levels. Adding dependencies to Phase and phase_id to AgentExecutionModel requires a schema version bump. Existing contracts (732 stored in .egg-state/contracts/) will fail validation against the new schema unless migration is handled. The agentExecution role enum is restricted to ['coder', 'tester', 'documenter', 'integrator'] — adding reviewer roles for per-phase agentic review would require enum expansion.",
+      "category": "Session Management",
+      "title": "Temporary session ID collision between worktree and state branch pushes",
+      "description": "The existing `push_worktree_branch()` creates temp sessions with container_id `{pipeline_id}-failsafe-push`. If the new `push_state_branch()` also creates temp sessions at the same phase-boundary call sites, it needs a distinct container_id. If both use the same container_id pattern and execute concurrently (or if the first session cleanup fails), the second registration will either fail or reuse a stale session.",
       "likelihood": "Medium",
-      "impact": "High",
-      "risk_score": "High",
+      "impact": "Low",
+      "risk_score": "Medium",
       "affected_files": [
-        ".egg/schemas/contract.schema.json",
-        "shared/egg_contracts/models.py:334-365",
-        "shared/egg_contracts/models.py:400-563"
+        "orchestrator/gateway_client.py:553-618 (push_worktree_branch)",
+        "orchestrator/gateway_client.py (proposed push_state_branch)"
       ],
       "mitigation": {
-        "strategy": "Additive schema changes with defaults, schema version migration",
+        "strategy": "Use a distinct container_id pattern for state branch push sessions",
         "steps": [
-          "New fields (dependencies, phase_id) must have defaults ([] and null respectively) so old contracts deserialize without error",
-          "Bump schemaVersion to 1.1 with a migration function that adds defaults to 1.0 contracts",
-          "Add schema validation test that loads every existing contract in .egg-state/contracts/ against the new schema",
-          "Keep additionalProperties: false — add fields explicitly rather than relaxing the constraint",
-          "Reviewer roles (reviewer_code, reviewer_contract) need to be added to the role enum if per-phase agentic review tracks execution state in the contract"
+          "Use `{pipeline_id}-state-push` or `state-branch-push` as the temp container_id for state branch push operations.",
+          "Ensure the session cleanup in the finally block completes before the next push attempt.",
+          "Consider serializing the two pushes (worktree branch first, state branch second) rather than running them concurrently."
         ],
-        "residual_risk": "Low — with proper defaults and migration, backward compatibility is maintainable"
-      },
-      "human_review_required": true,
-      "review_reason": "Schema changes affect all pipeline consumers. Verify no external tools parse contracts with strict schema validation."
+        "human_review_required": false
+      }
     },
     {
       "id": "R-4",
-      "category": "Correctness",
-      "title": "DependencyGraph cannot model phase-to-phase dependencies",
-      "description": "DependencyGraph (dependency_graph.py) uses AgentRole as the sole node type. Wave computation (lines 227-262) produces dict[AgentRole, int] — inherently single-instance-per-role. Tier 3 needs two dependency models: (1) within a phase cycle (coder -> tester -> reviewer, same as Tier 2), and (2) between plan phases (phase-4 depends on phase-1). The current graph cannot represent the second model. Building PhaseDependencyGraph requires a separate class since the node type is fundamentally different (phase ID string vs AgentRole enum).",
+      "category": "Performance",
+      "title": "Startup latency from remote fetch blocks request serving",
+      "description": "The architect proposes calling `fetch_state_branch()` at startup before health check initialization (cli.py:132-145). If the gateway is slow to respond or the remote fetch is large (many pipeline state files accumulated over time), this blocks the orchestrator from serving requests. The current startup sequence already includes reconciliation and health checks — adding a network round-trip to the gateway compounds startup latency.",
       "likelihood": "Medium",
-      "impact": "High",
-      "risk_score": "High",
+      "impact": "Medium",
+      "risk_score": "Medium",
       "affected_files": [
-        "shared/egg_contracts/dependency_graph.py:29-48",
-        "shared/egg_contracts/dependency_graph.py:227-262",
-        "shared/egg_contracts/orchestration.py:384-396"
+        "orchestrator/cli.py:132-145 (startup sequence)"
       ],
       "mitigation": {
-        "strategy": "New PhaseDependencyGraph class alongside existing DependencyGraph",
+        "strategy": "Make startup fetch non-blocking with a timeout",
         "steps": [
-          "Create PhaseDependencyGraph with string phase IDs as nodes — do NOT modify existing DependencyGraph",
-          "Reuse topological sort and wave computation algorithms but with generic node type",
-          "Consider making a generic DependencyGraph[T] base class to share logic, but only if it doesn't complicate the existing code — premature generalization is a risk",
-          "Phase dependencies come from Phase.dependencies field (already parsed by plan_parser.py:88-96, just not persisted)",
-          "Integration test: graph with 3 independent + 1 dependent phase produces correct wave ordering"
+          "Set a short timeout (e.g., 10 seconds) on the startup fetch. If it times out, continue with local state.",
+          "Alternatively, run the fetch in a background thread after the server starts accepting requests, and flag state as 'sync pending' until complete.",
+          "Ensure the fetch is truly best-effort: if the gateway isn't healthy yet (common during container orchestration where services start in parallel), skip the fetch gracefully."
         ],
-        "residual_risk": "Low — new class has no coupling to existing graph"
-      },
-      "human_review_required": false,
-      "review_reason": null
+        "human_review_required": false
+      }
     },
     {
       "id": "R-5",
-      "category": "Correctness",
-      "title": "MultiAgentExecutor state tracking collides on role-keyed dictionaries",
-      "description": "MultiAgentExecutor (multi_agent.py) uses AgentRole as key in multiple dictionaries: AgentWave.containers (dict[AgentRole, ContainerInfo]), AgentWave.results (dict[AgentRole, AgentExecution]), and environment variables (EGG_AGENT_ROLE without phase context). If Tier 3 runs CODER for phase-1 and CODER for phase-2 sequentially, the wave-level state must track which phase each execution belongs to. Missing phase context in environment variables means the spawned agent cannot identify which phase's tasks to work on.",
-      "likelihood": "High",
-      "impact": "High",
-      "risk_score": "High",
+      "category": "Security",
+      "title": "Pipeline state data exposed to remote repository",
+      "description": "Pipeline state files contain operational metadata: container IDs, IP addresses (127.0.0.1 for temp sessions), error messages with stack traces, agent execution history, and HITL decision content. Pushing to remote makes this visible to anyone with repository read access. While this is a private repository, it changes the data exposure surface from 'Docker volume on one host' to 'anyone with repo access'.",
+      "likelihood": "Certain",
+      "impact": "Low",
+      "risk_score": "Low",
       "affected_files": [
-        "orchestrator/multi_agent.py:46-77",
-        "orchestrator/multi_agent.py:353-356",
-        "orchestrator/multi_agent.py:228-279"
+        "orchestrator/state_store.py (PIPELINES_DIR files)"
       ],
       "mitigation": {
-        "strategy": "Add phase context to wave execution and environment variables",
+        "strategy": "Accept the risk — data is operational, not secret",
         "steps": [
-          "For Stage 1 (sequential): each implement cycle runs a fresh set of waves for one phase. The MultiAgentExecutor is instantiated per phase cycle, so role collision doesn't occur within a single cycle — but result recording must include phase_id",
-          "Add EGG_PHASE_ID and EGG_PHASE_NUMBER to extra_env at line 353-356 so spawned agents know their scope",
-          "Update dispatcher.complete_agent() and dispatcher.fail_agent() to accept phase_id",
-          "For Stage 2 (parallel): separate MultiAgentExecutor instances per phase avoid state collision entirely — but orchestrator must coordinate across executors",
-          "Ensure the threading.Lock at line 129 doesn't become a bottleneck when running multiple sequential phase cycles"
+          "Pipeline state files don't contain secrets (tokens, credentials, API keys). The gateway holds credentials separately.",
+          "Container IDs and internal IPs (127.0.0.1) are transient and not exploitable.",
+          "Error messages may contain stack traces but these are already visible in logs.",
+          "This matches the precedent set by `egg/checkpoints/v2` which already pushes similar operational data to remote.",
+          "Document in PR description that pipeline state pushed to remote contains operational metadata only."
         ],
-        "residual_risk": "Medium — sequential cycling (Stage 1) avoids most collision but parallel (Stage 2) reintroduces it at the orchestrator level"
-      },
-      "human_review_required": false,
-      "review_reason": null
+        "human_review_required": false
+      }
     },
     {
       "id": "R-6",
-      "category": "Complexity",
-      "title": "orchestrator/routes/pipelines.py is 4500 LOC and bears most of the change burden",
-      "description": "pipelines.py is the largest and most complex file in the orchestrator at 4,495 lines. It handles pipeline creation, state management, agent spawning, decision queues, result collection, complexity detection, and phase prompt building. The Tier 3 changes add: _run_tier3_implement(), _check_high_complexity_signal(), per-phase prompt building with task filtering, and per-phase review cycling with retry. This file is already a maintenance risk and adding ~200-300 LOC of complex orchestration logic increases cognitive load and merge conflict surface.",
+      "category": "Compatibility",
+      "title": "Sanitization function requires ongoing maintenance as enums evolve",
+      "description": "The proposed `sanitize_pipeline_data()` function must maintain sets of valid enum values at module level. When new enum values are added or removed from models.py, the sanitization function must be updated in lockstep. If a developer adds a new enum to the Pipeline model (e.g., a new field with enum values) but doesn't add sanitization logic for it, old state files with unknown values for that field will still fail validation.",
       "likelihood": "Medium",
       "impact": "Medium",
       "risk_score": "Medium",
       "affected_files": [
-        "orchestrator/routes/pipelines.py"
+        "orchestrator/state_store.py (proposed sanitize_pipeline_data)",
+        "orchestrator/models.py"
       ],
       "mitigation": {
-        "strategy": "Encapsulate Tier 3 logic in a separate module",
+        "strategy": "Build valid enum sets dynamically from the model enums rather than hardcoding",
         "steps": [
-          "Extract _run_tier3_implement() and related helpers to a new orchestrator/tier3_dispatch.py module",
-          "Keep pipelines.py as the routing/entry point — it dispatches to tier3_dispatch based on complexity_tier",
-          "This reduces merge conflict surface and keeps the PR reviewable",
-          "If extraction is out of scope, at minimum group all Tier 3 functions together at the end of pipelines.py with a clear section comment"
+          "Use `{v.value for v in AgentRole}` to build the valid set at module load time, not a hardcoded list.",
+          "Write the sanitization to walk the model schema (via Pydantic's model_json_schema() or field annotations) to discover which fields are enums, rather than hardcoding field names.",
+          "Add a unit test that validates the sanitization function handles all current enum fields — this test will fail if a new enum field is added without sanitization coverage.",
+          "Alternatively, use a simpler approach: catch ValidationError on load, parse the error details to identify the offending field/value, and apply targeted fixes. This is more reactive but requires zero maintenance."
         ],
-        "residual_risk": "Low — extraction is a clean refactor with no behavioral change"
-      },
-      "human_review_required": false,
-      "review_reason": null
+        "human_review_required": false
+      }
     },
     {
       "id": "R-7",
-      "category": "Correctness",
-      "title": "Per-phase prompt isolation may leak cross-phase context",
-      "description": "Each phase's coder should only see its own tasks and files_affected. The current _build_agent_prompt() in pipelines.py constructs prompts from the full contract. If filtering is incorrect, a coder could receive tasks from another phase, leading to out-of-scope changes, file conflicts, or wasted work. This is especially dangerous in Stage 2 (parallel) where two coders editing the same file would cause merge conflicts.",
-      "likelihood": "Medium",
-      "impact": "Medium",
-      "risk_score": "Medium",
+      "category": "Concurrency",
+      "title": "State branch push serialization with pipeline state locking",
+      "description": "The state store uses both `fcntl.flock` (cross-process) and `threading.RLock` (in-process) for serializing git operations in the state worktree. The proposed push operation needs to interact correctly with this locking: if push acquires the lock, it blocks all state saves during the network round-trip; if push runs outside the lock, it risks pushing a partial state (e.g., mid-write of a JSON file). Since pushes go through the gateway API (not local git), they're already decoupled from the worktree's git index — but the gateway push handler will run `git diff` against the branch to check changed files (if session_role is set).",
+      "likelihood": "Low",
+      "impact": "Low",
+      "risk_score": "Low",
       "affected_files": [
-        "orchestrator/routes/pipelines.py"
+        "orchestrator/state_store.py:148-173 (_git_op context manager)",
+        "orchestrator/state_store.py (proposed push_state_branch)"
       ],
       "mitigation": {
-        "strategy": "Explicit phase filtering with validation",
+        "strategy": "Push outside the state store lock since the gateway operates on git refs, not the working tree",
         "steps": [
-          "Build phase-filtered prompt function that accepts phase_id and only includes tasks where task.phase_id matches",
-          "Include a defensive check: if any task references a file in another phase's files_affected, log a warning",
-          "Add test: generate prompts for phase-1 and phase-2, verify no task/file overlap",
-          "In Stage 2, add pre-flight validation that files_affected across parallel phases are disjoint — abort if overlap detected"
+          "The push operation sends a refspec to the gateway, which pushes the committed state. It doesn't read the working tree directly.",
+          "Since temp sessions have no session_role, the gateway skips file restriction checks (line 652 condition) and won't call get_changed_files_in_push(). No git diff runs against the state worktree.",
+          "The push should NOT hold the _git_op lock. It operates on committed refs and the gateway handles its own git operations.",
+          "Ensure push_state_branch() is called after _commit_state() completes and the lock is released."
         ],
-        "residual_risk": "Low — with validation, leakage is caught before execution"
-      },
-      "human_review_required": false,
-      "review_reason": null
+        "human_review_required": false
+      }
     },
     {
       "id": "R-8",
-      "category": "Performance",
-      "title": "Token cost multiplier is underestimated for retry scenarios",
-      "description": "The issue estimates Tier 3 at 2-2.5x the token cost of Tier 2. This assumes each phase cycle succeeds on the first attempt. If agentic review rejects a phase (triggering coder retry), the cost for that phase triples: original coder + tester + reviewer + retry coder + retry tester + retry reviewer. With 3 phases and max_review_cycles=3, worst case is 3 * (3 * (coder + tester + 2 reviewers)) = 36 agent runs, or 6x the Tier 2 cost. The integrator adds another agent on top.",
-      "likelihood": "Low",
-      "impact": "Medium",
-      "risk_score": "Medium",
-      "affected_files": [],
-      "mitigation": {
-        "strategy": "Cost caps and circuit breakers",
-        "steps": [
-          "Implement per-pipeline token budget with enforcement — abort Tier 3 if budget exceeded",
-          "Default max_review_cycles to 2 (not 3) for Tier 3 phases to limit retry cost",
-          "Add cost tracking per phase cycle — report per-phase costs in integrator output",
-          "Consider: if >50% of phases fail agentic review, escalate to human review instead of retrying — the plan may be flawed"
-        ],
-        "residual_risk": "Low — with budget caps, cost is bounded"
-      },
-      "human_review_required": false,
-      "review_reason": null
-    },
-    {
-      "id": "R-9",
-      "category": "Correctness",
-      "title": "Phase dependency graph cycles or missing phases cause deadlock",
-      "description": "If the plan contains circular dependencies (phase-1 depends on phase-2, phase-2 depends on phase-1) or references non-existent phases, the PhaseDependencyGraph could deadlock (infinite loop waiting for unresolvable dependencies) or error at runtime. The plan parser currently doesn't validate dependency consistency.",
-      "likelihood": "Low",
-      "impact": "High",
-      "risk_score": "Medium",
-      "affected_files": [
-        "shared/egg_contracts/dependency_graph.py",
-        "shared/egg_contracts/plan_parser.py:88-96"
-      ],
-      "mitigation": {
-        "strategy": "Validate dependency graph at plan parsing time",
-        "steps": [
-          "Add cycle detection in PhaseDependencyGraph construction (topological sort already handles this — make the error message clear)",
-          "Validate that all dependency references resolve to existing phase IDs",
-          "Reject plans with invalid dependency graphs during the plan phase, before implement begins",
-          "Add test: circular dependency plan is rejected with descriptive error"
-        ],
-        "residual_risk": "Negligible — standard DAG validation"
-      },
-      "human_review_required": false,
-      "review_reason": null
-    },
-    {
-      "id": "R-10",
-      "category": "Reliability",
-      "title": "Sub-branch merge conflicts despite files_affected boundaries (Stage 2)",
-      "description": "In Stage 2 (parallel dispatch), each phase pushes to egg/<feature>/phase-N. The integrator merges sub-branches. Even with files_affected partitioning, shared files (package.json, __init__.py, imports, test fixtures) can cause merge conflicts. files_affected is declared by the plan but not enforced — a coder may modify files outside its declared scope. The gateway's branch prefix check (startswith('egg/')) already supports sub-branches, but worktree lifecycle management is new.",
-      "likelihood": "Medium",
-      "impact": "Medium",
-      "risk_score": "Medium",
-      "affected_files": [
-        "gateway/worktree_manager.py",
-        "gateway/policy.py:301-303"
-      ],
-      "mitigation": {
-        "strategy": "Enforce file boundaries at commit time; design integrator for conflict resolution",
-        "steps": [
-          "In Stage 2, add gateway enforcement: coder commit in phase-N can only modify files in that phase's files_affected list (reject commits that modify out-of-scope files)",
-          "Integrator prompt should explicitly include conflict resolution instructions and expect merge conflicts",
-          "Add test: two coders modify same file in different phases — integrator resolves or escalates",
-          "Consider: shared files (package.json, __init__.py) should be assigned to a single phase or to the integrator"
-        ],
-        "residual_risk": "Medium — merge conflicts are inherent in parallel work; integrator handles them but at token cost"
-      },
-      "human_review_required": false,
-      "review_reason": null
-    },
-    {
-      "id": "R-11",
       "category": "Compatibility",
-      "title": "Tier 1 and Tier 2 regression risk from shared code changes",
-      "description": "The composite key migration, schema changes, and orchestration state refactoring touch code paths used by all three tiers. Tier 1 (short-circuit, PR #734) and Tier 2 (standard multi-agent) must continue working unchanged. The risk is that changes intended for Tier 3 introduce subtle regressions: e.g., get_agent_execution() returning wrong results when phase_id is None, or wave computation producing incorrect ordering when only one instance of each role exists.",
-      "likelihood": "Medium",
-      "impact": "High",
-      "risk_score": "High",
-      "affected_files": [
-        "shared/egg_contracts/orchestration.py",
-        "shared/egg_contracts/models.py",
-        "orchestrator/multi_agent.py",
-        "orchestrator/routes/pipelines.py"
-      ],
-      "mitigation": {
-        "strategy": "Backward compatibility test suite run before and after every change",
-        "steps": [
-          "Before starting implementation, capture baseline test results for Tier 1 and Tier 2",
-          "Write explicit regression tests: Tier 1 short-circuit flow end-to-end, Tier 2 standard multi-agent flow end-to-end",
-          "Every PR in the Stage 1 delivery must pass these regression tests",
-          "The composite key change must be tested with phase_id=None to verify Tier 2 behavior is identical",
-          "Use test_short_circuit.py (350 lines) as the quality bar for regression test coverage"
-        ],
-        "residual_risk": "Low — with comprehensive regression tests, regressions are caught at CI"
-      },
-      "human_review_required": false,
-      "review_reason": null
-    },
-    {
-      "id": "R-12",
-      "category": "Scope",
-      "title": "12+ file change scope increases merge conflict risk with concurrent development",
-      "description": "The full implementation (Stages 1+2) touches 12+ files across 4 packages (shared/egg_contracts, orchestrator, gateway, .egg). While no active feature branches currently conflict, this repo sees frequent changes (4 commits in 2 days to key files). A multi-day implementation has significant merge conflict exposure, especially on pipelines.py (4500 LOC).",
+      "title": "Dropped agent executions may affect pipeline status display and reporting",
+      "description": "The sanitization drops agent executions with unknown roles (e.g., `reviewer_unified`). These pipelines are likely terminal (old, completed/failed), but if users or dashboards enumerate agent executions to show pipeline history, the dropped agents will be invisible. The pipeline's overall status and phase history remain intact, but per-agent reporting will have gaps.",
       "likelihood": "Medium",
       "impact": "Low",
       "risk_score": "Low",
-      "affected_files": [],
-      "mitigation": {
-        "strategy": "Small, frequent, independently mergeable PRs",
-        "steps": [
-          "Stage 1 should be split into multiple PRs matching the architect's phase decomposition",
-          "Phase 1 (schema/model) can merge independently — no behavioral change",
-          "Phase 2 (complexity assessment) can merge independently — adds detection without acting on it",
-          "Phases 3-5 (composite keys, phase DAG, cycling) are coupled and should be one PR",
-          "Phase 6 (integrator write access) should be a separate PR for security review",
-          "Rebase frequently against main to avoid large merge conflicts"
-        ],
-        "residual_risk": "Low — staged delivery naturally reduces conflict surface"
-      },
-      "human_review_required": false,
-      "review_reason": null
-    },
-    {
-      "id": "R-13",
-      "category": "Reliability",
-      "title": "Partial phase failure leaves pipeline in inconsistent state",
-      "description": "If a Tier 3 pipeline completes phases 1-2 but phase 3's coder fails after exhausting retries, the pipeline must decide: abort the entire feature (wasting completed phases' work), proceed to integrator with partial results, or escalate to human. The current pipeline model assumes all-or-nothing completion. Partial success tracking and recovery is not designed.",
-      "likelihood": "Medium",
-      "impact": "Medium",
-      "risk_score": "Medium",
       "affected_files": [
-        "orchestrator/routes/pipelines.py",
-        "shared/egg_contracts/orchestration.py"
+        "orchestrator/state_store.py (proposed sanitize_pipeline_data)"
       ],
       "mitigation": {
-        "strategy": "Design partial completion policy before implementation",
+        "strategy": "Log sanitized changes and preserve original data in a metadata field",
         "steps": [
-          "Define policy: if a phase fails after max retries, mark it failed and continue with remaining phases — integrator handles the gap",
-          "Add phase-level status to contract: each phase has status (pending/running/complete/failed/skipped)",
-          "Integrator receives list of completed vs failed phases — its prompt includes instructions for failed phases (stub, document limitation, or fix)",
-          "If >50% of phases fail, abort pipeline and escalate to human",
-          "Add test: 2/3 phases succeed, 1 fails — integrator produces valid output from partial results"
+          "Log at WARNING level when agents are dropped, including the pipeline ID, dropped role value, and agent count.",
+          "Optionally add a `_sanitized_agents` field to the sanitized data that preserves the raw dicts of dropped agents for debugging. Pydantic's extra='allow' or a dedicated field could hold this.",
+          "The auto-migration re-save (sanitized data written back to disk) should be opt-in, not automatic. This preserves the original JSON for forensics."
         ],
-        "residual_risk": "Medium — partial success is inherently complex; policy decision needed"
-      },
-      "human_review_required": true,
-      "review_reason": "Partial failure policy is a product decision, not purely technical. Need human input on: should we proceed with partial results or abort?"
+        "human_review_required": false
+      }
+    },
+    {
+      "id": "R-9",
+      "category": "Operational",
+      "title": "All pipelines' state pushed atomically on every phase boundary",
+      "description": "The `egg/pipeline-state` branch contains state files for ALL pipelines (active and terminal). A single `git push origin egg/pipeline-state` pushes the entire branch — all pipeline state files. Over time, as pipelines accumulate (no cleanup mechanism exists), the branch grows. Each push transfers the entire ref difference, which grows with the number of pipeline state commits. This is bounded by git's delta compression but could become noticeable at scale.",
+      "likelihood": "Low",
+      "impact": "Low",
+      "risk_score": "Low",
+      "affected_files": [
+        "orchestrator/state_store.py:40 (STATE_BRANCH — single branch for all pipelines)"
+      ],
+      "mitigation": {
+        "strategy": "Accept for now; consider periodic gc or archival later",
+        "steps": [
+          "Git push only transfers new commits since the last push, not the entire branch history. This bounds the per-push transfer size to the changes since the last push.",
+          "Terminal pipeline state files are small (~5-20KB JSON each). Even with hundreds of pipelines, the total is manageable.",
+          "A separate cleanup issue (out of scope per architect) can address archival of terminal pipelines.",
+          "Monitor push latency in logs to detect if this becomes a problem."
+        ],
+        "human_review_required": false
+      }
     }
   ],
 
-  "areas_requiring_human_review": [
-    {
-      "area": "Integrator privilege escalation (R-2)",
-      "reason": "Granting write access to src/, tests/, docs/ for the integrator in Tier 3 is a security boundary change. While defense in depth (agentic review + human review) mitigates risk, the integrator could theoretically introduce malicious code or overwrite reviewed changes. Need explicit human approval for the permission model.",
-      "decision_needed": "Confirm integrator write scope: unrestricted src/tests/docs (as proposed) vs scoped to files modified by phase coders vs unrestricted with mandatory diff review"
+  "architect_plan_review": {
+    "approach_validation": {
+      "remote_sync_option_c": {
+        "verdict": "Agree — phase-boundary pushing is the right tradeoff",
+        "notes": "The 8-12 pushes per lifecycle is well within acceptable overhead. The choice to avoid per-commit pushing (Option A) is correct — pipeline state changes far too frequently. Background sync (Option B) adds unnecessary complexity."
+      },
+      "schema_sanitization_option_i": {
+        "verdict": "Agree — pre-validation sanitization is cleaner than model validators",
+        "notes": "The approach of building valid enum sets from the actual Python enums (rather than hardcoding) would make it more maintainable. The decision to drop unknown agents rather than mapping them is correct — semantic accuracy of historical data matters less than loadability."
+      }
     },
-    {
-      "area": "Contract schema migration strategy (R-3)",
-      "reason": "Schema changes affect all contract consumers. Need to verify: (1) no external tools parse contracts with strict validation, (2) migration strategy (version bump + defaults) is acceptable, (3) reviewer roles should be added to the role enum.",
-      "decision_needed": "Approve schema migration approach: additive fields with defaults + version bump to 1.1"
-    },
-    {
-      "area": "Partial phase failure policy (R-13)",
-      "reason": "What happens when some phases succeed and others fail? This is a product/UX decision that affects user trust and pipeline reliability.",
-      "decision_needed": "Choose policy: abort on any failure / continue with partial results / escalate to human after N failures"
-    },
-    {
-      "area": "Composite key migration rollout (R-1, R-11)",
-      "reason": "The composite (phase_id, role) key change is the single highest-risk modification. It touches the foundational state model used by all orchestration logic. Incorrect implementation causes silent data loss.",
-      "decision_needed": "Confirm implementation ordering: Phase 1 (schema) must merge and stabilize before Phase 3 (composite keys) begins"
-    }
-  ],
-
-  "rollback_plan": {
-    "strategy": "Feature-flag gated rollback with contract compatibility",
-    "details": [
+    "gaps_identified": [
       {
-        "stage": "Stage 1 rollback",
-        "mechanism": "The 3-tier complexity assessment is the entry point. Setting PipelineConfig.enable_tier3 to False (or removing the config) causes all pipelines to use Tier 2 dispatch regardless of complexity signal. Composite key tracking still works (phase_id=None behaves as Tier 2). No contract migration reversal needed since new fields have defaults.",
-        "data_impact": "None — contracts with phase_id=None are indistinguishable from pre-Tier-3 contracts",
-        "recovery_time": "Config change + restart"
+        "gap": "Gateway path validation not addressed in implementation plan",
+        "severity": "Critical",
+        "details": "The implementation plan assumes push_worktree_branch/fetch_worktree_branch can be reused with the state worktree path. The state worktree at `/home/egg/.egg-state/pipeline-worktree` is outside ALLOWED_REPO_PATHS in gateway/git_client.py:162-166. The implementation must either push from the main repo path (preferred) or expand ALLOWED_REPO_PATHS."
       },
       {
-        "stage": "Stage 2 rollback",
-        "mechanism": "PipelineConfig.enable_parallel_phases defaults to False. Reverting to False restores sequential cycling (Stage 1 behavior). Sub-branches created during parallel dispatch persist on the remote but are not used. Worktree cleanup runs on pipeline completion regardless.",
-        "data_impact": "Orphaned sub-branches on remote — cleanup with script or manual deletion",
-        "recovery_time": "Config change + restart"
+        "gap": "Startup fetch ordering with respect to gateway readiness",
+        "severity": "Medium",
+        "details": "The plan inserts the fetch call between startup reconciliation and health check init (cli.py). But during container orchestration, the gateway sidecar may not be ready yet when the orchestrator starts. The plan doesn't address this dependency ordering or specify a timeout/retry strategy."
       },
       {
-        "stage": "Full rollback (remove Tier 3 entirely)",
-        "mechanism": "Revert the complexity assessment change so refine never signals Tier 3. All other code paths are unreachable. Phase_id fields in contracts remain but are ignored (None). Schema remains at 1.1 but is backward compatible.",
-        "data_impact": "None — all changes are additive and dormant when not triggered",
-        "recovery_time": "Code revert + deploy"
+        "gap": "Fetch-on-startup 'remote wins' semantics are too aggressive",
+        "severity": "Medium",
+        "details": "The plan specifies `git reset --hard origin/egg/pipeline-state` on startup. This overwrites any local state that wasn't pushed (e.g., from a crash between phase boundaries). A safer approach: only reset if local state is empty/missing; prefer local when it has content."
+      },
+      {
+        "gap": "No consideration of temp session container_id uniqueness for state push",
+        "severity": "Low",
+        "details": "The existing push_worktree_branch uses `{pipeline_id}-failsafe-push` as the temp container_id. The new state branch push needs its own distinct ID pattern to avoid session collisions."
       }
     ]
   },
 
-  "implementation_ordering_recommendations": [
+  "areas_requiring_human_review": [
     {
-      "recommendation": "Implement Phase 1 (schema/models) and Phase 3 (composite keys) together, test exhaustively, then merge before touching orchestration logic",
-      "rationale": "The composite key is the foundation. If it's wrong, everything built on top is wrong. Getting the data model right first — with backward compatibility tests against all 50+ existing contracts — eliminates the highest-risk unknown early."
+      "area": "Gateway ALLOWED_REPO_PATHS expansion",
+      "reason": "If Option B (adding `/home/egg/.egg-state/` to ALLOWED_REPO_PATHS) is chosen for R-1, this broadens the gateway's trust boundary. Human should confirm this is acceptable or prefer Option A (push from main repo path).",
+      "files": ["gateway/git_client.py:162-166"]
     },
     {
-      "recommendation": "Implement Phase 6 (integrator write access) as a separate, independently reviewable PR",
-      "rationale": "Privilege escalation deserves focused security review. Mixing it with orchestration changes dilutes reviewer attention."
-    },
-    {
-      "recommendation": "Do NOT implement Stage 2 (parallel dispatch) until Stage 1 has been used in production for at least 2-3 real pipelines",
-      "rationale": "Sequential cycling validates the foundation (composite keys, phase DAG, per-phase review, integrator write access) without concurrent execution complexity. Production validation catches issues that tests miss."
-    },
-    {
-      "recommendation": "Extract Tier 3 orchestration logic from pipelines.py into a dedicated module",
-      "rationale": "pipelines.py at 4500 LOC is already at the maintenance risk threshold. Adding 200-300 LOC of Tier 3 logic makes it worse. A tier3_dispatch.py module keeps the change isolated and reviewable."
+      "area": "Startup fetch semantics (local-wins vs remote-wins)",
+      "reason": "The choice between 'remote always wins' and 'local preferred, remote as fallback' affects data loss behavior during crash recovery. Human should confirm the desired semantics.",
+      "files": ["orchestrator/cli.py", "orchestrator/state_store.py"]
     }
   ],
 
-  "test_strategy_recommendations": [
-    {
-      "area": "Backward compatibility",
-      "tests_needed": [
-        "Load all 50+ existing contracts from .egg-state/contracts/ against new schema — all must pass",
-        "Tier 1 short-circuit end-to-end flow unchanged (baseline from test_short_circuit.py)",
-        "Tier 2 standard multi-agent flow unchanged (coder -> tester -> documenter -> integrator)",
-        "OrchestrationState.from_contract() with phase_id=None produces identical behavior to current code"
-      ]
-    },
-    {
-      "area": "Composite key correctness",
-      "tests_needed": [
-        "Create 3 CODER executions with different phase_ids — all 3 survive serialization/deserialization",
-        "get_agent_execution(role='coder', phase_id='phase-2') returns correct execution",
-        "can_agent_run() with phase-scoped dependencies returns correct result",
-        "Duplicate (phase_id, role) pair raises validation error"
-      ]
-    },
-    {
-      "area": "Phase cycling",
-      "tests_needed": [
-        "Sequential cycling: 3 phases execute in dependency order",
-        "Per-phase review: rejection triggers coder retry within same phase",
-        "Phase failure: one phase fails, others complete, integrator receives partial results",
-        "Prompt isolation: phase-1 coder prompt contains only phase-1 tasks"
-      ]
-    },
-    {
-      "area": "Integrator write access",
-      "tests_needed": [
-        "Tier 3 integrator can write to src/ — gateway allows",
-        "Tier 2 integrator cannot write to src/ — gateway blocks",
-        "Tier 3 integrator cannot write to .egg-state/contracts/ — readonly mount enforced"
-      ]
-    }
-  ],
+  "rollback_plan": {
+    "description": "Both work areas (remote sync and schema sanitization) are independently revertable.",
+    "steps": [
+      "Remote sync: Remove the push_state_branch/fetch_state_branch calls from phase boundary call sites and cli.py startup. The state branch continues to work locally-only as before. No data migration needed — the remote copy of the branch is harmless.",
+      "Schema sanitization: Revert the sanitize_pipeline_data call in load_pipeline(). Old pipelines with unknown enums will resume causing validation errors on startup — same as current behavior.",
+      "If the remote state branch has been pushed and later needs to be removed, `git push origin --delete egg/pipeline-state` cleans it up. This does not affect local state."
+    ]
+  },
 
-  "architect_assessment_review": {
-    "agreement": [
-      "Approach C (hybrid staged delivery) is the correct choice — reduces risk significantly vs Approach A",
-      "Composite (phase_id, role) key is the right abstraction — alternatives (nested structure, separate store) are more disruptive",
-      "Gateway prefix check already supports sub-branches — no policy change needed (confirmed by code analysis)",
-      "Sequential-first validates the foundation before adding parallelism complexity",
-      "No new PipelinePhase.INTEGRATE needed — internal cycling within IMPLEMENT is simpler"
-    ],
-    "concerns": [
-      "Architect underestimates R-1 severity: silent data loss on deserialization is not 'Medium likelihood, High impact' — it's High likelihood because the dict conversion code has zero safety checks. First Tier 3 pipeline with >1 phase will trigger it if composite keys aren't implemented first.",
-      "Architect's R-3 (integrator write access) is correctly identified but doesn't account for the #800 readonly mount enforcement. The mitigation needs to be more specific about using the orchestrator API for contract updates.",
-      "Missing risk: partial phase failure policy is not addressed. The architect's plan assumes all phases succeed.",
-      "The 7-phase Stage 1 plan has strong dependencies (phase-5 depends on phases 2, 3, and 4). This creates a critical path that is essentially sequential despite the dependency graph suggesting some parallelism."
-    ],
-    "additional_risks_identified": [
-      "R-9 (dependency graph cycles) — not in architect's analysis",
-      "R-13 (partial phase failure) — not in architect's analysis",
-      "R-6 (pipelines.py complexity) — architect notes it as 'largest file, most complex changes' but doesn't propose extraction"
+  "test_strategy_review": {
+    "architect_coverage": "The architect's test strategy covers the key unit and integration scenarios. The proposed tests are appropriate.",
+    "additional_tests_recommended": [
+      "Unit test: push_state_branch uses main repo path (not worktree path) as repo_path argument, validating R-1 mitigation",
+      "Unit test: sanitize_pipeline_data builds valid enum sets dynamically from model enums (not hardcoded), validating R-6 mitigation",
+      "Integration test: startup fetch when gateway is unavailable completes within timeout and doesn't block startup (R-4 mitigation)",
+      "Unit test: temp session container_id for state push is distinct from worktree push container_id (R-3 mitigation)",
+      "Regression test: load_pipeline still raises StateValidationError for genuinely corrupt JSON (not just schema drift), ensuring sanitization doesn't mask real corruption"
     ]
   }
 }
