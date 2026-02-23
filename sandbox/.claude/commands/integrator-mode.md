@@ -132,6 +132,20 @@ If issues are found:
 }
 ```
 
+## Pipeline Overview
+
+Before integrating, review the full pipeline scope and token spend:
+
+```bash
+# Cross-agent context summary with files touched
+egg-checkpoint context --pipeline $EGG_PIPELINE_ID --files
+
+# Token usage and cost breakdown by phase and agent
+egg-checkpoint cost --pipeline $EGG_PIPELINE_ID
+```
+
+This gives you a complete picture of what each agent did, which files were touched, and how much budget was consumed.
+
 ## Quality Checklist
 
 Before completing:

@@ -58,6 +58,20 @@ cat > .egg-state/agent-outputs/coder-output.json << 'EOF'
 EOF
 ```
 
+## Revision Cycle Context
+
+If this is a revision cycle (re-running after feedback), check prior failed sessions to understand what went wrong:
+
+```bash
+# List failed sessions for this issue
+egg-checkpoint list --issue $EGG_ISSUE_NUMBER --status failed
+
+# Inspect a specific failed checkpoint
+egg-checkpoint show ckpt-<id>
+```
+
+This helps you avoid repeating the same mistakes and understand what the reviewer flagged.
+
 ## Quality Checklist
 
 Before completing:

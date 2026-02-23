@@ -83,6 +83,20 @@ cat > .egg-state/agent-outputs/tester-output.json << 'EOF'
 EOF
 ```
 
+## Review Prior Work
+
+Before writing tests, review the coder's session for context on what was changed and why:
+
+```bash
+# List coder checkpoints for this pipeline
+egg-checkpoint list --pipeline $EGG_PIPELINE_ID --agent-type coder
+
+# Inspect a specific checkpoint for details
+egg-checkpoint show ckpt-<id>
+```
+
+This gives you the coder's tool calls, files touched, and reasoning — more context than the handoff JSON alone.
+
 ## Quality Checklist
 
 Before completing:
