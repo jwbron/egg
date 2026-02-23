@@ -141,10 +141,10 @@
         {
           "container_id": "d09dc3dd6da2090b5045cf58fa343e548d37e2f69c563d16e966a1959dbbacd4",
           "container_name": "egg-sandbox-egg-issue-871-risk_analyst",
-          "status": "running",
+          "status": "exited",
           "started_at": "2026-02-23T07:43:54.130690",
-          "exited_at": null,
-          "exit_code": null,
+          "exited_at": "2026-02-23T07:49:07.564905",
+          "exit_code": 0,
           "agent_role": "risk_analyst",
           "session_token": null
         }
@@ -178,10 +178,10 @@
         },
         {
           "role": "risk_analyst",
-          "status": "running",
+          "status": "complete",
           "container_id": "d09dc3dd6da2090b5045cf58fa343e548d37e2f69c563d16e966a1959dbbacd4",
           "started_at": "2026-02-23T07:43:54.130696",
-          "completed_at": null,
+          "completed_at": "2026-02-23T07:49:07.565693",
           "commit": null,
           "outputs": {},
           "error": null,
@@ -220,7 +220,7 @@
     }
   ],
   "created_at": "2026-02-23T07:21:30.130566",
-  "updated_at": "2026-02-23T07:48:08.980479",
+  "updated_at": "2026-02-23T07:49:07.565880",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
@@ -228,5 +228,5 @@
   "error": null,
   "plan_phase_waves": null,
   "plan_phase_names": null,
-  "version": 26
+  "version": 27
 }
