@@ -96,6 +96,17 @@ If no documentation updates are needed:
 }
 ```
 
+## Find Changed Files
+
+Discover all files touched across agents to ensure documentation covers everything:
+
+```bash
+# Cross-agent context summary with files touched
+egg-checkpoint context --pipeline $EGG_PIPELINE_ID --files
+```
+
+This is more comprehensive than the coder's handoff alone — it includes files touched by all agents in the pipeline.
+
 ## Quality Checklist
 
 Before completing:

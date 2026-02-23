@@ -7,9 +7,9 @@ This directory contains instructions for the AI agent (Claude Code) operating in
 Claude Code reads `CLAUDE.md` files automatically when starting. During container startup, all rule files are combined into a single `CLAUDE.md`:
 
 **Installation:**
-- `~/CLAUDE.md` → All rules combined
+- `~/.claude/CLAUDE.md` → All rules combined (user-level global config)
 
-**Why one file?** Since `~/repos/` is mounted from the host (not copied), we can't reliably write to it during container startup. Combining all rules into `~/CLAUDE.md` ensures they're always available.
+**Why one file?** Since `~/repos/` is mounted from the host (not copied), we can't reliably write to it during container startup. Combining all rules into `~/.claude/CLAUDE.md` ensures they're always available regardless of CWD.
 
 **Note**: `CLAUDE.md` is the [official Claude Code format](https://www.anthropic.com/engineering/claude-code-best-practices) for providing context and instructions to the agent.
 
