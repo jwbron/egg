@@ -305,15 +305,38 @@ class ContainerSpawner:
 
         # Build mounts: repo volumes + .git shadows + certs
         mounts: list[MountSpec] = []
+
+        # Check if worktrees are in a named Docker volume (integration tests)
+        # instead of host bind mounts (production). When EGG_WORKTREES_VOLUME
+        # is set, mount the entire volume at /home/egg/.egg-worktrees instead
+        # of individual bind mounts. The container will access repos directly
+        # from their worktree paths rather than via /home/egg/repos symlinks.
+        worktrees_volume = os.environ.get("EGG_WORKTREES_VOLUME")
+
         if repo_volumes:
-            for name, host_path in repo_volumes.items():
+            if worktrees_volume:
+                # Integration test mode: mount the entire worktrees named volume.
+                # Spawned containers will find repos at /home/egg/.egg-worktrees/{pipeline_id}/{repo}
+                # instead of /home/egg/repos/{repo}. EGG_REPO_PATH is set correctly
+                # by the orchestrator to point to the worktree path.
                 mounts.append(
                     MountSpec(
-                        mount_type="bind",
-                        source=host_path,
-                        destination=f"/home/egg/repos/{name}",
+                        mount_type="volume",
+                        source=worktrees_volume,
+                        destination="/home/egg/.egg-worktrees",
                     )
                 )
+            else:
+                # Production mode: bind mount each worktree individually from host
+                for name, host_path in repo_volumes.items():
+                    mounts.append(
+                        MountSpec(
+                            mount_type="bind",
+                            source=host_path,
+                            destination=f"/home/egg/repos/{name}",
+                        )
+                    )
+
             # Shadow .git in each mounted repo to force gateway git operations.
             # Orchestrator can't stat host paths, so assume_worktree=True (/dev/null bind).
             mounts.extend(git_shadow_mounts(repo_volumes, assume_worktree=True))
@@ -432,11 +455,23 @@ class ContainerSpawner:
 
             # Build spawner-specific env vars that override the shared defaults.
             # CONTAINER_ID must match the worktree container_id so the gateway
-            # git proxy can map /home/egg/repos/<name> to the correct worktree
-            # at /home/egg/.egg-worktrees/<id>/<name>.
+            # git proxy can map paths to the correct worktree.
+            #
+            # In production (bind mounts), repos are at /home/egg/repos/<name>.
+            # In integration tests (volume mount), repos are at /home/egg/.egg-worktrees/<pipeline_id>/<name>.
+            if worktrees_volume and repo_volumes:
+                # When using a worktrees volume, set EGG_REPO_PATH to the actual
+                # worktree path inside the volume. repo_volumes values are paths
+                # like /home/egg/.egg-worktrees/{pipeline_id}/{repo_name}.
+                # Pick the first repo path (most pipelines have one repo).
+                repo_path = list(repo_volumes.values())[0]
+            else:
+                # Production mode: standard /home/egg/repos location
+                repo_path = "/home/egg/repos"
+
             spawner_env: dict[str, str] = {
                 "CONTAINER_ID": pipeline_id,
-                "EGG_REPO_PATH": "/home/egg/repos",
+                "EGG_REPO_PATH": repo_path,
                 "EGG_AGENT_ROLE": agent_role.value,
                 "EGG_PIPELINE_ID": pipeline_id,
             }
