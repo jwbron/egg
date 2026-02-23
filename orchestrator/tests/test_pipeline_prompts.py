@@ -30,6 +30,7 @@ from routes.pipelines import (
     _read_tester_gaps,
     _render_contract_tasks,
     _summarize_issue,
+    _synthesize_plan_draft,
 )
 
 
@@ -2117,3 +2118,251 @@ class TestTesterGapFindingPrompts:
         assert "The reviewer and tester found issues with your previous work" in result
         # Should NOT contain the reviewer-only language
         assert "found issues with your previous draft" not in result
+
+
+class TestReadTesterGapsNamespacedEdgeCases:
+    """Additional edge-case tests for _read_tester_gaps with identifier."""
+
+    def test_no_identifier_uses_global_ignores_prefixed(self, tmp_path):
+        """When identifier=None, only global file is used even if prefixed exists."""
+        outputs_dir = tmp_path / ".egg-state" / "agent-outputs"
+        outputs_dir.mkdir(parents=True)
+        (outputs_dir / "871-tester-output.json").write_text(
+            json.dumps({"tests_failed": 5, "gaps_found": ["prefixed-gap"]})
+        )
+        (outputs_dir / "tester-output.json").write_text(
+            json.dumps({"tests_failed": 1, "gaps_found": ["global-gap"]})
+        )
+
+        result = _read_tester_gaps(tmp_path, identifier=None)
+        assert result is not None
+        assert "global-gap" in result
+        assert "prefixed-gap" not in result
+
+    def test_neither_file_with_identifier_returns_none(self, tmp_path):
+        """Returns None when identifier given but neither file exists."""
+        outputs_dir = tmp_path / ".egg-state" / "agent-outputs"
+        outputs_dir.mkdir(parents=True)
+        # No files at all
+
+        result = _read_tester_gaps(tmp_path, identifier=871)
+        assert result is None
+
+    def test_corrupted_prefixed_falls_back_to_none(self, tmp_path):
+        """Corrupted prefixed file returns None (no fallback to global in this function)."""
+        outputs_dir = tmp_path / ".egg-state" / "agent-outputs"
+        outputs_dir.mkdir(parents=True)
+        # Prefixed file is corrupt
+        (outputs_dir / "871-tester-output.json").write_text("NOT JSON{{{")
+
+        # _read_tester_gaps selects the prefixed file because it exists,
+        # then fails to parse → returns None.
+        result = _read_tester_gaps(tmp_path, identifier=871)
+        assert result is None
+
+    def test_string_identifier_prefixed_file(self, tmp_path):
+        """String identifiers work for _read_tester_gaps."""
+        outputs_dir = tmp_path / ".egg-state" / "agent-outputs"
+        outputs_dir.mkdir(parents=True)
+        (outputs_dir / "local-xyz-tester-output.json").write_text(
+            json.dumps({"tests_failed": 2, "gaps_found": ["gap-a"]})
+        )
+
+        result = _read_tester_gaps(tmp_path, identifier="local-xyz")
+        assert result is not None
+        assert "gap-a" in result
+
+
+class TestAutofixPromptNamespaced:
+    """Tests for _build_autofix_prompt with namespaced results filename."""
+
+    def test_uses_issue_number_in_results_filename(self):
+        """Results filename references issue_number when provided."""
+        result = _build_autofix_prompt(
+            pipeline_id="issue-871",
+            pipeline_mode="issue",
+            check_results={"checks": [{"name": "pytest", "passed": False, "output": "fail"}]},
+            issue_number=871,
+        )
+        assert "871-implement-results.json" in result
+
+    def test_falls_back_to_pipeline_id(self):
+        """Falls back to pipeline_id when issue_number is None."""
+        result = _build_autofix_prompt(
+            pipeline_id="local-abc",
+            pipeline_mode="local",
+            check_results={"checks": []},
+            issue_number=None,
+        )
+        assert "local-abc-implement-results.json" in result
+
+
+class TestSynthesizePlanDraftNamespaced:
+    """Tests for _synthesize_plan_draft with namespaced agent output filenames."""
+
+    def test_reads_prefixed_agent_outputs(self, tmp_path):
+        """Reads {identifier}-architect-output.json when present."""
+        # Set up draft path structure
+        drafts_dir = tmp_path / ".egg-state" / "drafts"
+        drafts_dir.mkdir(parents=True)
+
+        outputs_dir = tmp_path / ".egg-state" / "agent-outputs"
+        outputs_dir.mkdir(parents=True)
+        (outputs_dir / "871-architect-output.json").write_text(
+            json.dumps({"content": "Architecture analysis for issue 871"})
+        )
+        (outputs_dir / "871-risk_analyst-output.json").write_text(
+            json.dumps({"content": "Risk assessment for issue 871"})
+        )
+
+        _synthesize_plan_draft(
+            repo_path=tmp_path,
+            pipeline_id="issue-871",
+            pipeline_mode="issue",
+            issue_number=871,
+        )
+
+        draft_path = tmp_path / ".egg-state" / "drafts" / "871-plan.md"
+        assert draft_path.exists()
+        content = draft_path.read_text()
+        assert "Architecture analysis for issue 871" in content
+        assert "Risk assessment for issue 871" in content
+
+    def test_falls_back_to_global_agent_outputs(self, tmp_path):
+        """Falls back to global filenames when prefixed files missing."""
+        drafts_dir = tmp_path / ".egg-state" / "drafts"
+        drafts_dir.mkdir(parents=True)
+
+        outputs_dir = tmp_path / ".egg-state" / "agent-outputs"
+        outputs_dir.mkdir(parents=True)
+        # Only global files exist — content must exceed _MIN_PLAN_DRAFT_CONTENT_LENGTH (50)
+        long_content = "Global architecture analysis with detailed design decisions and component interactions for the feature"
+        (outputs_dir / "architect-output.json").write_text(
+            json.dumps({"content": long_content})
+        )
+
+        _synthesize_plan_draft(
+            repo_path=tmp_path,
+            pipeline_id="issue-871",
+            pipeline_mode="issue",
+            issue_number=871,
+        )
+
+        draft_path = tmp_path / ".egg-state" / "drafts" / "871-plan.md"
+        assert draft_path.exists()
+        content = draft_path.read_text()
+        assert long_content in content
+
+    def test_prefixed_preferred_over_global(self, tmp_path):
+        """When both prefixed and global exist, prefixed wins."""
+        drafts_dir = tmp_path / ".egg-state" / "drafts"
+        drafts_dir.mkdir(parents=True)
+
+        outputs_dir = tmp_path / ".egg-state" / "agent-outputs"
+        outputs_dir.mkdir(parents=True)
+        (outputs_dir / "architect-output.json").write_text(
+            json.dumps({"content": "Old global architecture output that should be ignored when prefixed version is available"})
+        )
+        (outputs_dir / "871-architect-output.json").write_text(
+            json.dumps({"content": "New prefixed architecture output with detailed design decisions and component interactions"})
+        )
+
+        _synthesize_plan_draft(
+            repo_path=tmp_path,
+            pipeline_id="issue-871",
+            pipeline_mode="issue",
+            issue_number=871,
+        )
+
+        draft_path = tmp_path / ".egg-state" / "drafts" / "871-plan.md"
+        assert draft_path.exists()
+        content = draft_path.read_text()
+        assert "New prefixed architecture output" in content
+        assert "Old global architecture output" not in content
+
+    def test_does_not_overwrite_existing_draft(self, tmp_path):
+        """Existing draft is not overwritten by synthesis."""
+        drafts_dir = tmp_path / ".egg-state" / "drafts"
+        drafts_dir.mkdir(parents=True)
+        draft_path = drafts_dir / "871-plan.md"
+        draft_path.write_text("Existing plan from task_planner")
+
+        outputs_dir = tmp_path / ".egg-state" / "agent-outputs"
+        outputs_dir.mkdir(parents=True)
+        (outputs_dir / "871-architect-output.json").write_text(
+            json.dumps({"content": "Architecture from architect"})
+        )
+
+        _synthesize_plan_draft(
+            repo_path=tmp_path,
+            pipeline_id="issue-871",
+            pipeline_mode="issue",
+            issue_number=871,
+        )
+
+        assert draft_path.read_text() == "Existing plan from task_planner"
+
+    def test_local_mode_uses_pipeline_id(self, tmp_path):
+        """In local mode, uses pipeline_id for both draft path and output lookup."""
+        drafts_dir = tmp_path / ".egg-state" / "drafts"
+        drafts_dir.mkdir(parents=True)
+
+        outputs_dir = tmp_path / ".egg-state" / "agent-outputs"
+        outputs_dir.mkdir(parents=True)
+        long_content = "Local mode architecture analysis with detailed design decisions, component interactions, and implementation strategy"
+        (outputs_dir / "local-abc-architect-output.json").write_text(
+            json.dumps({"content": long_content})
+        )
+
+        _synthesize_plan_draft(
+            repo_path=tmp_path,
+            pipeline_id="local-abc",
+            pipeline_mode="local",
+            issue_number=None,
+        )
+
+        draft_path = tmp_path / ".egg-state" / "drafts" / "local-abc-plan.md"
+        assert draft_path.exists()
+        content = draft_path.read_text()
+        assert long_content in content
+
+    def test_no_outputs_dir_no_crash(self, tmp_path):
+        """No agent-outputs directory does not crash."""
+        drafts_dir = tmp_path / ".egg-state" / "drafts"
+        drafts_dir.mkdir(parents=True)
+
+        # No agent-outputs directory at all
+        _synthesize_plan_draft(
+            repo_path=tmp_path,
+            pipeline_id="issue-871",
+            pipeline_mode="issue",
+            issue_number=871,
+        )
+
+        draft_path = tmp_path / ".egg-state" / "drafts" / "871-plan.md"
+        assert not draft_path.exists()
+
+    def test_empty_outputs_produce_no_draft(self, tmp_path):
+        """Agent outputs with empty content do not produce a draft."""
+        drafts_dir = tmp_path / ".egg-state" / "drafts"
+        drafts_dir.mkdir(parents=True)
+
+        outputs_dir = tmp_path / ".egg-state" / "agent-outputs"
+        outputs_dir.mkdir(parents=True)
+        (outputs_dir / "871-architect-output.json").write_text(
+            json.dumps({"content": ""})
+        )
+        (outputs_dir / "871-risk_analyst-output.json").write_text(
+            json.dumps({"content": "   "})
+        )
+
+        _synthesize_plan_draft(
+            repo_path=tmp_path,
+            pipeline_id="issue-871",
+            pipeline_mode="issue",
+            issue_number=871,
+        )
+
+        draft_path = tmp_path / ".egg-state" / "drafts" / "871-plan.md"
+        # No meaningful content → draft not written
+        assert not draft_path.exists()

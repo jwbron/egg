@@ -106,6 +106,117 @@ class TestSaveAgentOutputIdentifier:
         assert json.loads(path.read_text()) == {"key": "value"}
 
 
+class TestLoadAgentOutputErrorHandling:
+    """Edge-case and error-handling tests for load_agent_output."""
+
+    def test_corrupted_prefixed_file_returns_empty(self, tmp_path: Path):
+        """Corrupted prefixed file returns {} without falling through to global."""
+        outputs_dir = tmp_path / ".egg-state" / "agent-outputs"
+        outputs_dir.mkdir(parents=True)
+        (outputs_dir / "871-coder-output.json").write_text("NOT VALID JSON{{{")
+        (outputs_dir / "coder-output.json").write_text(
+            json.dumps({"key": "global"})
+        )
+
+        # The prefixed file exists but is corrupt — returns empty dict,
+        # does NOT fall through to global file.
+        result = load_agent_output(tmp_path, AgentRole.CODER, identifier=871)
+        assert result == {}
+
+    def test_corrupted_global_file_returns_empty(self, tmp_path: Path):
+        """Corrupted global file returns {} when no identifier provided."""
+        outputs_dir = tmp_path / ".egg-state" / "agent-outputs"
+        outputs_dir.mkdir(parents=True)
+        (outputs_dir / "coder-output.json").write_text("{invalid json}")
+
+        result = load_agent_output(tmp_path, AgentRole.CODER)
+        assert result == {}
+
+    def test_empty_prefixed_file_returns_empty(self, tmp_path: Path):
+        """Empty prefixed file triggers JSONDecodeError, returns {}."""
+        outputs_dir = tmp_path / ".egg-state" / "agent-outputs"
+        outputs_dir.mkdir(parents=True)
+        (outputs_dir / "871-coder-output.json").write_text("")
+
+        result = load_agent_output(tmp_path, AgentRole.CODER, identifier=871)
+        assert result == {}
+
+    def test_integer_zero_identifier(self, tmp_path: Path):
+        """Identifier of 0 (falsy int) is still treated as a valid identifier."""
+        outputs_dir = tmp_path / ".egg-state" / "agent-outputs"
+        outputs_dir.mkdir(parents=True)
+        (outputs_dir / "0-coder-output.json").write_text(
+            json.dumps({"key": "zero"})
+        )
+
+        result = load_agent_output(tmp_path, AgentRole.CODER, identifier=0)
+        assert result == {"key": "zero"}
+
+    def test_no_identifier_ignores_prefixed_file(self, tmp_path: Path):
+        """When identifier=None, prefixed files are ignored entirely."""
+        outputs_dir = tmp_path / ".egg-state" / "agent-outputs"
+        outputs_dir.mkdir(parents=True)
+        (outputs_dir / "871-coder-output.json").write_text(
+            json.dumps({"key": "prefixed"})
+        )
+
+        # No global file, identifier=None → empty dict (prefixed file ignored)
+        result = load_agent_output(tmp_path, AgentRole.CODER, identifier=None)
+        assert result == {}
+
+    def test_all_agent_roles_with_identifier(self, tmp_path: Path):
+        """All agent roles produce correctly-prefixed filenames."""
+        outputs_dir = tmp_path / ".egg-state" / "agent-outputs"
+        outputs_dir.mkdir(parents=True)
+        for role in [AgentRole.CODER, AgentRole.TESTER, AgentRole.DOCUMENTER, AgentRole.INTEGRATOR]:
+            (outputs_dir / f"42-{role.value}-output.json").write_text(
+                json.dumps({"role": role.value})
+            )
+
+        for role in [AgentRole.CODER, AgentRole.TESTER, AgentRole.DOCUMENTER, AgentRole.INTEGRATOR]:
+            result = load_agent_output(tmp_path, role, identifier=42)
+            assert result == {"role": role.value}
+
+
+class TestSaveAgentOutputEdgeCases:
+    """Edge-case tests for save_agent_output."""
+
+    def test_round_trip_with_identifier(self, tmp_path: Path):
+        """save then load with same identifier returns original data."""
+        data = {"changed_files": ["a.py", "b.py"], "summary": "test changes"}
+        save_agent_output(tmp_path, AgentRole.TESTER, data, identifier=871)
+        result = load_agent_output(tmp_path, AgentRole.TESTER, identifier=871)
+        assert result == data
+
+    def test_round_trip_without_identifier(self, tmp_path: Path):
+        """save then load without identifier returns original data."""
+        data = {"changed_files": ["x.py"]}
+        save_agent_output(tmp_path, AgentRole.CODER, data)
+        result = load_agent_output(tmp_path, AgentRole.CODER)
+        assert result == data
+
+    def test_save_creates_directory(self, tmp_path: Path):
+        """save_agent_output creates the output directory if missing."""
+        path = save_agent_output(tmp_path, AgentRole.CODER, {"k": "v"}, identifier=99)
+        assert path.exists()
+        assert path.parent.name == "agent-outputs"
+
+    def test_save_overwrites_existing(self, tmp_path: Path):
+        """Saving twice with the same identifier overwrites the file."""
+        save_agent_output(tmp_path, AgentRole.CODER, {"v": 1}, identifier=10)
+        save_agent_output(tmp_path, AgentRole.CODER, {"v": 2}, identifier=10)
+        result = load_agent_output(tmp_path, AgentRole.CODER, identifier=10)
+        assert result == {"v": 2}
+
+    def test_different_identifiers_coexist(self, tmp_path: Path):
+        """Files for different identifiers do not interfere."""
+        save_agent_output(tmp_path, AgentRole.CODER, {"id": "a"}, identifier=100)
+        save_agent_output(tmp_path, AgentRole.CODER, {"id": "b"}, identifier=200)
+
+        assert load_agent_output(tmp_path, AgentRole.CODER, identifier=100) == {"id": "a"}
+        assert load_agent_output(tmp_path, AgentRole.CODER, identifier=200) == {"id": "b"}
+
+
 class TestCollectHandoffDataIdentifier:
     """Tests for collect_handoff_data with identifier parameter."""
 
@@ -121,3 +232,32 @@ class TestCollectHandoffDataIdentifier:
         result = collect_handoff_data(tmp_path, AgentRole.TESTER, identifier=871)
         assert "coder" in result
         assert result["coder"]["files"] == ["main.py"]
+
+    def test_collect_fallback_to_global(self, tmp_path: Path):
+        """collect_handoff_data falls back to global path when prefixed missing."""
+        outputs_dir = tmp_path / ".egg-state" / "agent-outputs"
+        outputs_dir.mkdir(parents=True)
+        (outputs_dir / "coder-output.json").write_text(
+            json.dumps({"files": ["legacy.py"]})
+        )
+
+        result = collect_handoff_data(tmp_path, AgentRole.TESTER, identifier=999)
+        assert "coder" in result
+        assert result["coder"]["files"] == ["legacy.py"]
+
+    def test_collect_no_deps_returns_empty(self, tmp_path: Path):
+        """Role with no dependencies returns empty dict."""
+        # CODER has no dependencies
+        result = collect_handoff_data(tmp_path, AgentRole.CODER, identifier=871)
+        assert result == {}
+
+    def test_collect_without_identifier(self, tmp_path: Path):
+        """collect_handoff_data works without identifier (backward compat)."""
+        outputs_dir = tmp_path / ".egg-state" / "agent-outputs"
+        outputs_dir.mkdir(parents=True)
+        (outputs_dir / "coder-output.json").write_text(
+            json.dumps({"files": ["old.py"]})
+        )
+
+        result = collect_handoff_data(tmp_path, AgentRole.TESTER)
+        assert "coder" in result
