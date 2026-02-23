@@ -140,7 +140,15 @@ if [ "$EGG_AGENT_ROLE" = "checker" ]; then
         ALL_PASSED="true"
     fi
 
-    RESULTS_FILE="$CHECKS_DIR/implement-results.json"
+    # Derive pipeline identifier for namespaced results filename
+    if [ -n "$EGG_ISSUE_NUMBER" ]; then
+        _IDENT="$EGG_ISSUE_NUMBER"
+    elif [ -n "$EGG_PIPELINE_ID" ]; then
+        _IDENT="$EGG_PIPELINE_ID"
+    else
+        _IDENT="unknown"
+    fi
+    RESULTS_FILE="$CHECKS_DIR/${_IDENT}-implement-results.json"
     if [ "$ALL_PASSED" = "true" ]; then
         cat > "$RESULTS_FILE" <<CHECK_EOF
 {"all_passed":true,"checks":[{"name":"pytest","passed":true,"output":"All tests passed"},{"name":"lint","passed":true,"output":"No lint errors"}]}

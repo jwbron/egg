@@ -72,14 +72,19 @@ class TestBuildCheckerPrompt:
         assert "Repository:" not in result
 
     def test_always_includes_results_format(self):
-        """Both modes include the results JSON format."""
+        """Both modes include the namespaced results JSON format."""
         checks = [{"name": "test", "command": "pytest"}]
         for prompt in [
             _build_checker_prompt("pid-1", "local"),
             _build_checker_prompt("pid-1", "local", repo_checks=checks),
         ]:
-            assert "implement-results.json" in prompt
+            assert "pid-1-implement-results.json" in prompt
             assert "all_passed" in prompt
+
+    def test_results_filename_uses_issue_number(self):
+        """Results filename uses issue_number when provided."""
+        result = _build_checker_prompt("pid-1", "issue", issue_number=871)
+        assert "871-implement-results.json" in result
 
     def test_includes_pipeline_metadata(self):
         """Prompt always includes pipeline ID and mode."""
@@ -589,10 +594,15 @@ class TestBuildCheckAndFixPrompt:
         assert "Auto-fixable" in result or "auto-fixable" in result.lower()
 
     def test_includes_results_file_format(self):
-        """Includes the results JSON format."""
+        """Includes the namespaced results JSON format."""
         result = _build_check_and_fix_prompt("pid-1", "local")
-        assert "implement-results.json" in result
+        assert "pid-1-implement-results.json" in result
         assert "all_passed" in result
+
+    def test_results_filename_uses_issue_number(self):
+        """Results filename uses issue_number when provided."""
+        result = _build_check_and_fix_prompt("pid-1", "issue", issue_number=871)
+        assert "871-implement-results.json" in result
 
     def test_includes_repeat_workflow(self):
         """Includes repeat-up-to-3-times workflow."""
@@ -1559,6 +1569,58 @@ class TestBuildAgentPromptEdgeCases:
         assert "Issue: #" not in result
 
 
+class TestNamespacedOutputFilenames:
+    """Tests for namespaced (identifier-prefixed) output filenames in prompts."""
+
+    def test_architect_prompt_uses_issue_number(self):
+        """Architect prompt references {issue_number}-architect-output.json."""
+        result = _build_agent_prompt(
+            role_value="architect",
+            phase="plan",
+            pipeline_id="issue-871",
+            pipeline_mode="issue",
+            prompt="# Feature",
+            issue_number=871,
+        )
+        assert "871-architect-output.json" in result
+
+    def test_risk_analyst_prompt_uses_issue_number(self):
+        """Risk analyst prompt references {issue_number}-risk_analyst-output.json."""
+        result = _build_agent_prompt(
+            role_value="risk_analyst",
+            phase="plan",
+            pipeline_id="issue-871",
+            pipeline_mode="issue",
+            prompt="# Feature",
+            issue_number=871,
+        )
+        assert "871-risk_analyst-output.json" in result
+
+    def test_integrator_prompt_uses_issue_number(self):
+        """Integrator prompt references {issue_number}-integrator-output.json."""
+        result = _build_agent_prompt(
+            role_value="integrator",
+            phase="implement",
+            pipeline_id="issue-871",
+            pipeline_mode="issue",
+            prompt="# Feature",
+            issue_number=871,
+        )
+        assert "871-integrator-output.json" in result
+
+    def test_prompt_falls_back_to_pipeline_id(self):
+        """Without issue_number, prompt uses pipeline_id as identifier."""
+        result = _build_agent_prompt(
+            role_value="architect",
+            phase="plan",
+            pipeline_id="local-abc123",
+            pipeline_mode="local",
+            prompt="# Feature",
+            issue_number=None,
+        )
+        assert "local-abc123-architect-output.json" in result
+
+
 class TestBuildPhaseScopedPromptEdgeCases:
     """Edge cases for _build_phase_scoped_prompt() plan overview behavior."""
 
@@ -1741,6 +1803,34 @@ class TestReadTesterGaps:
         assert "**2** test(s) failed" in result
         assert "No error handling for invalid input" in result
         assert "Missing boundary check in parse()" in result
+
+    def test_prefixed_file_preferred(self, tmp_path):
+        """Prefixed file is preferred over global file when identifier given."""
+        outputs_dir = tmp_path / ".egg-state" / "agent-outputs"
+        outputs_dir.mkdir(parents=True)
+        (outputs_dir / "tester-output.json").write_text(
+            json.dumps({"tests_failed": 1, "gaps_found": ["old-gap"]})
+        )
+        (outputs_dir / "871-tester-output.json").write_text(
+            json.dumps({"tests_failed": 3, "gaps_found": ["prefixed-gap"]})
+        )
+
+        result = _read_tester_gaps(tmp_path, identifier=871)
+        assert result is not None
+        assert "prefixed-gap" in result
+        assert "old-gap" not in result
+
+    def test_fallback_to_global_with_identifier(self, tmp_path):
+        """Falls back to global path when prefixed file does not exist."""
+        outputs_dir = tmp_path / ".egg-state" / "agent-outputs"
+        outputs_dir.mkdir(parents=True)
+        (outputs_dir / "tester-output.json").write_text(
+            json.dumps({"tests_failed": 1, "gaps_found": ["global-gap"]})
+        )
+
+        result = _read_tester_gaps(tmp_path, identifier=871)
+        assert result is not None
+        assert "global-gap" in result
 
     def test_no_gaps_returns_none(self, tmp_path):
         """Returns None when no gaps or failures found."""
