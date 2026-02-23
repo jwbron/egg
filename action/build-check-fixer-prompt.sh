@@ -28,58 +28,14 @@
 #   escalation-details   — JSON array of {job, attempts, max} for exceeded checks
 #   non-llm-jobs         — JSON array of job names attempted by non-LLM fixes
 #   llm-jobs             — JSON array of job names attempted by LLM fixer
+#   all-non-escalated-jobs — JSON array of all non-escalated job names (in prompt)
 
 set -euo pipefail
 
 # ---------------------------------------------------------------------------
-# Parse check-fixers.yml config (simple YAML parser using grep/sed)
-# ---------------------------------------------------------------------------
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="${SCRIPT_DIR}/.."
-
-load_config() {
-    local config_file=""
-
-    # Use CONFIG_FILE from environment if set, otherwise discover
-    if [[ -n "${CONFIG_FILE:-}" && -f "${CONFIG_FILE}" ]]; then
-        config_file="${CONFIG_FILE}"
-    elif [[ -f ".egg/check-fixers.yml" ]]; then
-        config_file=".egg/check-fixers.yml"
-    elif [[ -f "${REPO_ROOT}/shared/check-fixers.yml" ]]; then
-        config_file="${REPO_ROOT}/shared/check-fixers.yml"
-    fi
-
-    if [[ -z "$config_file" ]]; then
-        echo "::warning::No check-fixers.yml found, using defaults"
-        echo "{}"
-        return
-    fi
-
-    cat "$config_file"
-}
-
-# Get a job-specific config value from the YAML. Falls back to defaults.
-# Uses Python for reliable YAML parsing.
-get_job_config() {
-    local workflow="$1"
-    local job="$2"
-    local field="$3"
-    local config_file="$4"
-
-    CFG_PATH="$config_file" CFG_WORKFLOW="$workflow" CFG_JOB="$job" CFG_FIELD="$field" \
-    python3 -c "
-import yaml, sys, os
-with open(os.environ['CFG_PATH']) as f:
-    cfg = yaml.safe_load(f) or {}
-defaults = cfg.get('defaults', {})
-workflows = cfg.get('workflows', {})
-wf = workflows.get(os.environ['CFG_WORKFLOW'], {})
-job_cfg = wf.get(os.environ['CFG_JOB'], {})
-val = job_cfg.get(os.environ['CFG_FIELD'], defaults.get(os.environ['CFG_FIELD'], ''))
-print(val if val else '')
-" 2>/dev/null || echo ""
-}
 
 # ---------------------------------------------------------------------------
 # Build the prompt
@@ -145,6 +101,7 @@ needs_llm = False
 has_non_llm = False
 max_retries_reached = False
 jobs_for_llm = []
+all_non_escalated = []  # All jobs not yet escalated (for prompt + fallthrough)
 
 for job in failed_jobs:
     job_cfg = wf.get(job, {})
@@ -159,6 +116,8 @@ for job in failed_jobs:
         escalation.append({'job': job, 'attempts': attempts, 'max': job_max})
         continue
 
+    all_non_escalated.append(job)
+
     # Check for non-LLM fix (only on first attempt)
     non_llm_cmd = job_cfg.get('non_llm_fix', '')
     if non_llm_cmd and attempts == 0:
@@ -167,9 +126,10 @@ for job in failed_jobs:
     else:
         needs_llm = True
         jobs_for_llm.append(job)
-        # Use the highest-tier model among failed jobs
-        if job_model == 'opus':
-            model = 'opus'
+
+    # Use the highest-tier model among non-escalated failed jobs
+    if job_model == 'opus':
+        model = 'opus'
 
 result = {
     'non_llm_fixes': non_llm_fixes,
@@ -180,9 +140,17 @@ result = {
     'model': model,
     'jobs_for_llm': jobs_for_llm,
     'non_llm_jobs': [f['job'] for f in non_llm_fixes],
+    # All non-escalated jobs go into the prompt so that fallthrough
+    # to LLM has full context even if needs_llm was initially false.
+    'all_non_escalated': all_non_escalated,
 }
 print(json.dumps(result))
-" 2>/dev/null || echo '{"non_llm_fixes":[],"needs_llm":true,"has_non_llm":false,"max_retries_reached":false,"escalation":[],"model":"sonnet","jobs_for_llm":[]}')
+" || {
+            # Log warning to stderr (GitHub Actions still picks up ::warning:: from stderr in run blocks)
+            echo "::warning::Failed to parse check-fixers.yml config, falling through to LLM for all jobs" >&2
+            # Return valid fallback JSON on stdout
+            echo '{"non_llm_fixes":[],"needs_llm":true,"has_non_llm":false,"max_retries_reached":false,"escalation":[],"model":"sonnet","jobs_for_llm":[],"non_llm_jobs":[],"all_non_escalated":[]}'
+        })
 
         non_llm_fixes=$(echo "$result" | python3 -c "import json,sys; print(json.dumps(json.load(sys.stdin)['non_llm_fixes']))")
         needs_llm=$(echo "$result" | python3 -c "import json,sys; print(str(json.load(sys.stdin)['needs_llm']).lower())")
@@ -190,10 +158,13 @@ print(json.dumps(result))
         max_retries_reached=$(echo "$result" | python3 -c "import json,sys; print(str(json.load(sys.stdin)['max_retries_reached']).lower())")
         escalation_details=$(echo "$result" | python3 -c "import json,sys; print(json.dumps(json.load(sys.stdin)['escalation']))")
         model=$(echo "$result" | python3 -c "import json,sys; print(json.load(sys.stdin)['model'])")
-        failed_job_list=$(echo "$result" | python3 -c "import json,sys; print('\n'.join(json.load(sys.stdin)['jobs_for_llm']))")
-        local non_llm_jobs llm_jobs
+        # Prompt lists ALL non-escalated jobs (not just jobs_for_llm) so that
+        # fallthrough from non-LLM fixes gives the LLM full context.
+        failed_job_list=$(echo "$result" | python3 -c "import json,sys; print('\n'.join(json.load(sys.stdin)['all_non_escalated']))")
+        local non_llm_jobs llm_jobs all_non_escalated_jobs
         non_llm_jobs=$(echo "$result" | python3 -c "import json,sys; print(json.dumps(json.load(sys.stdin)['non_llm_jobs']))")
         llm_jobs=$(echo "$result" | python3 -c "import json,sys; print(json.dumps(json.load(sys.stdin)['jobs_for_llm']))")
+        all_non_escalated_jobs=$(echo "$result" | python3 -c "import json,sys; print(json.dumps(json.load(sys.stdin)['all_non_escalated']))")
     else
         # No config file — all jobs need LLM, default model
         needs_llm="true"
@@ -201,6 +172,7 @@ print(json.dumps(result))
         failed_job_list=$(echo "$failed_jobs_json" | python3 -c "import json,sys; print('\n'.join(json.load(sys.stdin)))")
         local non_llm_jobs="[]"
         local llm_jobs="$failed_jobs_json"
+        local all_non_escalated_jobs="$failed_jobs_json"
     fi
 
     # Build the failed checks section for the prompt
@@ -284,6 +256,7 @@ ${conventions:-Use git commit and git push to push fixes. Sign comments with: --
         echo "escalation-details=${escalation_details}"
         echo "non-llm-jobs=${non_llm_jobs}"
         echo "llm-jobs=${llm_jobs}"
+        echo "all-non-escalated-jobs=${all_non_escalated_jobs}"
     } >> "${GITHUB_OUTPUT:-/dev/null}"
 
     echo "Check fixer prompt built: ${#prompt} chars, model=${model}, has_non_llm=${has_non_llm}, needs_llm=${needs_llm}"

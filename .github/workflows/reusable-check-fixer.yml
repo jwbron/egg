@@ -224,9 +224,8 @@ jobs:
       - name: Post starting comment
         if: steps.skip-check.outputs.skip != 'true'
         run: |
-          FAILED_JOBS_JSON='${{ steps.failed-jobs.outputs.jobs }}'
-          if [[ -n "${{ env.FAILED_RUN_ID }}" && "${{ env.FAILED_WORKFLOW }}" != "manual" ]]; then
-            RUN_LINK="[${FAILED_WORKFLOW}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ env.FAILED_RUN_ID }})"
+          if [[ -n "$FAILED_RUN_ID" && "$FAILED_WORKFLOW" != "manual" ]]; then
+            RUN_LINK="[${FAILED_WORKFLOW}](${SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${FAILED_RUN_ID})"
             JOB_LIST=""
             if [[ "$FAILED_JOBS_JSON" != "[]" ]]; then
               JOB_LIST=$(echo "$FAILED_JOBS_JSON" | jq -r '.[] | "- " + .')
@@ -242,9 +241,12 @@ jobs:
           # Strip leading whitespace from each line (caused by YAML indentation)
           # shellcheck disable=SC2001 # sed is needed for regex-based multiline substitution
           BODY=$(echo "$BODY" | sed 's/^[[:space:]]*//')
-          gh api "repos/${{ github.repository }}/issues/${{ env.PR_NUMBER }}/comments" -f body="$BODY"
+          gh api "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" -f body="$BODY"
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+          FAILED_JOBS_JSON: ${{ steps.failed-jobs.outputs.jobs }}
+          SERVER_URL: ${{ github.server_url }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
 
       # SECURITY: Build the fixer prompt from a trusted checkout (main).
       - name: Checkout main (trusted)
@@ -273,8 +275,7 @@ jobs:
         if: steps.skip-check.outputs.skip != 'true' && steps.plan.outputs.max-retries-reached == 'true'
         id: escalation
         run: |
-          ESCALATION='${{ steps.plan.outputs.escalation-details }}'
-          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ env.FAILED_RUN_ID }}"
+          RUN_URL="${SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${FAILED_RUN_ID}"
 
           # Build escalation table
           TABLE="| Check | Attempts | Logs |"
@@ -288,7 +289,7 @@ jobs:
 
           # Add context if LLM fixer is still running for other checks
           STILL_RUNNING=""
-          if [[ "${{ steps.plan.outputs.needs-llm }}" == "true" ]]; then
+          if [[ "$NEEDS_LLM" == "true" ]]; then
             STILL_RUNNING=$'\n'"_Other failing checks are still being addressed by the autofixer._"$'\n'
           fi
 
@@ -305,9 +306,13 @@ jobs:
 
           # shellcheck disable=SC2001
           BODY=$(echo "$BODY" | sed 's/^[[:space:]]*//')
-          gh api "repos/${{ github.repository }}/issues/${{ env.PR_NUMBER }}/comments" -f body="$BODY"
+          gh api "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" -f body="$BODY"
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+          ESCALATION: ${{ steps.plan.outputs.escalation-details }}
+          NEEDS_LLM: ${{ steps.plan.outputs.needs-llm }}
+          SERVER_URL: ${{ github.server_url }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
 
       # Run non-LLM fixes (first attempt only for applicable checks)
       - name: Checkout PR branch for non-LLM fixes
@@ -367,8 +372,6 @@ jobs:
       - name: Update state after non-LLM fixes
         if: steps.skip-check.outputs.skip != 'true' && steps.non-llm-push.outputs.pushed == 'true'
         run: |
-          COMMENT_ID='${{ steps.state.outputs.comment-id }}'
-
           # Data passed via env vars to avoid shell interpolation injection
           NEW_STATE=$(python3 -c "
           import json, os
@@ -393,9 +396,9 @@ jobs:
           BODY=$(echo "$BODY" | sed 's/^[[:space:]]*//')
 
           if [[ -n "$COMMENT_ID" ]]; then
-            gh api "repos/${{ github.repository }}/issues/comments/${COMMENT_ID}" -X PATCH -f body="$BODY"
+            gh api "repos/${GITHUB_REPOSITORY}/issues/comments/${COMMENT_ID}" -X PATCH -f body="$BODY"
           else
-            gh api "repos/${{ github.repository }}/issues/${{ env.PR_NUMBER }}/comments" -f body="$BODY"
+            gh api "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" -f body="$BODY"
           fi
 
           # Post result comment
@@ -405,12 +408,14 @@ jobs:
           — Authored by egg"
           # shellcheck disable=SC2001
           RESULT_BODY=$(echo "$RESULT_BODY" | sed 's/^[[:space:]]*//')
-          gh api "repos/${{ github.repository }}/issues/${{ env.PR_NUMBER }}/comments" -f body="$RESULT_BODY"
+          gh api "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" -f body="$RESULT_BODY"
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
           ATTEMPTED_JOBS: ${{ steps.plan.outputs.non-llm-jobs }}
           CURRENT_STATE: ${{ steps.state.outputs.state }}
+          COMMENT_ID: ${{ steps.state.outputs.comment-id }}
           FAILED_WORKFLOW: ${{ env.FAILED_WORKFLOW }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
 
       # If non-LLM fixes were pushed, exit here — CI will re-run
       - name: Exit after non-LLM fixes
@@ -471,8 +476,6 @@ jobs:
           && (steps.plan.outputs.needs-llm == 'true' || steps.non-llm-fallthrough.outputs.fallthrough == 'true')
           && steps.non-llm-push.outputs.pushed != 'true'
         run: |
-          COMMENT_ID='${{ steps.state.outputs.comment-id }}'
-
           # Data passed via env vars to avoid shell interpolation injection
           NEW_STATE=$(python3 -c "
           import json, os
@@ -497,16 +500,19 @@ jobs:
           BODY=$(echo "$BODY" | sed 's/^[[:space:]]*//')
 
           if [[ -n "$COMMENT_ID" ]]; then
-            gh api "repos/${{ github.repository }}/issues/comments/${COMMENT_ID}" -X PATCH -f body="$BODY"
+            gh api "repos/${GITHUB_REPOSITORY}/issues/comments/${COMMENT_ID}" -X PATCH -f body="$BODY"
           else
-            gh api "repos/${{ github.repository }}/issues/${{ env.PR_NUMBER }}/comments" -f body="$BODY"
+            gh api "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" -f body="$BODY"
           fi
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
-          # When non-LLM fallthrough occurs, LLM handles all jobs (including ones that had non-LLM fixes)
-          ATTEMPTED_JOBS: ${{ steps.non-llm-fallthrough.outputs.fallthrough == 'true' && steps.failed-jobs.outputs.jobs || steps.plan.outputs.llm-jobs }}
+          COMMENT_ID: ${{ steps.state.outputs.comment-id }}
+          # In fallthrough, the LLM gets all non-escalated jobs (prompt includes them all).
+          # Otherwise, only the jobs originally designated for LLM.
+          ATTEMPTED_JOBS: ${{ steps.non-llm-fallthrough.outputs.fallthrough == 'true' && steps.plan.outputs.all-non-escalated-jobs || steps.plan.outputs.llm-jobs }}
           CURRENT_STATE: ${{ steps.state.outputs.state }}
           FAILED_WORKFLOW: ${{ env.FAILED_WORKFLOW }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
 
       # Post result comment
       - name: Post result comment
@@ -515,27 +521,33 @@ jobs:
           && steps.skip-check.outputs.skip != 'true'
           && steps.non-llm-push.outputs.pushed != 'true'
         run: |
-          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          RUN_URL="${SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}"
 
-          if [[ "${{ steps.plan.outputs.max-retries-reached }}" == "true" && "${{ steps.plan.outputs.needs-llm }}" != "true" ]]; then
+          if [[ "$MAX_RETRIES_REACHED" == "true" && "$NEEDS_LLM" != "true" ]]; then
             # All checks exceeded max retries, escalation comment already posted
             echo "Escalation comment already posted, skipping result comment"
-          elif [[ "${{ steps.egg.outcome }}" == "success" ]]; then
+          elif [[ "$EGG_OUTCOME" == "success" ]]; then
             BODY="<!-- egg-status-comment -->
           egg check fixer completed for **${FAILED_WORKFLOW}**. CI will re-run to verify. [View run logs](${RUN_URL})
 
           — Authored by egg"
             # shellcheck disable=SC2001
             BODY=$(echo "$BODY" | sed 's/^[[:space:]]*//')
-            gh api "repos/${{ github.repository }}/issues/${{ env.PR_NUMBER }}/comments" -f body="$BODY"
-          elif [[ "${{ steps.egg.outcome }}" == "failure" ]]; then
+            gh api "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" -f body="$BODY"
+          elif [[ "$EGG_OUTCOME" == "failure" ]]; then
             BODY="<!-- egg-status-comment -->
           egg check fixer encountered an issue fixing **${FAILED_WORKFLOW}**. [View run logs](${RUN_URL})
 
           — Authored by egg"
             # shellcheck disable=SC2001
             BODY=$(echo "$BODY" | sed 's/^[[:space:]]*//')
-            gh api "repos/${{ github.repository }}/issues/${{ env.PR_NUMBER }}/comments" -f body="$BODY"
+            gh api "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" -f body="$BODY"
           fi
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+          MAX_RETRIES_REACHED: ${{ steps.plan.outputs.max-retries-reached }}
+          NEEDS_LLM: ${{ steps.plan.outputs.needs-llm }}
+          EGG_OUTCOME: ${{ steps.egg.outcome }}
+          SERVER_URL: ${{ github.server_url }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
