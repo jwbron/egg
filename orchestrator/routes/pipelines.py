@@ -95,6 +95,18 @@ WORKTREE_BASE_DIR = Path("/home/egg/.egg-worktrees")
 # functions to adapt language when tester findings are present.
 TESTER_FINDINGS_HEADER = "### tester findings"
 
+
+def _pipeline_identifier(
+    issue_number: int | None,
+    pipeline_id: str,
+) -> int | str:
+    """Derive the pipeline identifier used for namespaced .egg-state filenames.
+
+    Prefers ``issue_number`` when available, falling back to ``pipeline_id``.
+    """
+    return issue_number if issue_number is not None else pipeline_id
+
+
 # Network constants for sandbox container URLs
 try:
     from egg_config import (
@@ -2215,7 +2227,7 @@ def _build_phase_prompt(
                             "1. Review the feedback in the **Prior Review Feedback** section above",
                             "2. Check `git diff` to understand the current state of changes",
                             f"3. Check `.egg-state/agent-outputs/"
-                            f"{issue_number if issue_number is not None else pipeline_id}"
+                            f"{_pipeline_identifier(issue_number, pipeline_id)}"
                             f"-tester-output.json` for test failures and gaps",
                             "4. Fix the specific issues raised",
                             "5. Run tests to verify your fixes",
@@ -2479,7 +2491,7 @@ def _build_agent_prompt(
         lines.append("")
 
     # Derive the pipeline identifier for namespaced output filenames.
-    _identifier: int | str | None = issue_number if issue_number is not None else pipeline_id
+    _identifier = _pipeline_identifier(issue_number, pipeline_id)
 
     # Role-specific instructions
     lines.append("## Your Task\n")
@@ -2823,7 +2835,7 @@ def _build_phase_scoped_prompt(
         lines.append("- [ ] Review the feedback in **Prior Review Feedback** above")
         lines.append(
             f"- [ ] Check `.egg-state/agent-outputs/"
-            f"{pipeline.issue_number if pipeline.issue_number is not None else pipeline_id}"
+            f"{_pipeline_identifier(pipeline.issue_number, pipeline_id)}"
             f"-tester-output.json` for test failures and gaps"
         )
         lines.append("- [ ] Fix the specific issues raised")
@@ -2901,9 +2913,7 @@ def _run_tier3_implement(
     )
 
     pipeline_mode = pipeline.mode or "issue"
-    contract_key: int | str = (
-        pipeline.issue_number if pipeline.issue_number is not None else pipeline_id
-    )
+    contract_key = _pipeline_identifier(pipeline.issue_number, pipeline_id)
 
     # Ensure contract exists in the worktree.  Agent git checkout in a
     # prior phase (e.g. `git checkout -b egg/... origin/main`) may have
@@ -3177,10 +3187,10 @@ def _run_tier3_implement(
             # Only read when tester succeeded — a failed tester may have left
             # stale output from a previous cycle on disk.
             if tester_exit == 0:
-                _tg_id: int | str | None = (
-                    pipeline.issue_number if pipeline.issue_number is not None else pipeline_id
+                tester_gap_summary = _read_tester_gaps(
+                    worktree_repo_path,
+                    identifier=_pipeline_identifier(pipeline.issue_number, pipeline_id),
                 )
-                tester_gap_summary = _read_tester_gaps(worktree_repo_path, identifier=_tg_id)
                 if tester_gap_summary:
                     logger.info(
                         "Tester found gaps",
@@ -3767,9 +3777,7 @@ def _run_multi_agent_phase(
     # separately via save_agent_output().
     from egg_contracts.loader import contract_exists, create_contract, create_local_contract
 
-    contract_key: int | str = (
-        pipeline.issue_number if pipeline.issue_number is not None else pipeline_id
-    )
+    contract_key = _pipeline_identifier(pipeline.issue_number, pipeline_id)
     if not contract_exists(contract_key, worktree_repo_path):
         logger.warning(
             "Contract missing from worktree, recreating for multi-agent phase",
@@ -4105,7 +4113,7 @@ def _build_checker_prompt(
             ]
         )
 
-    _ck_id: int | str = issue_number if issue_number is not None else pipeline_id
+    _ck_id = _pipeline_identifier(issue_number, pipeline_id)
     results_filename = f"{_ck_id}-implement-results.json"
 
     lines.extend(
@@ -4181,7 +4189,7 @@ def _build_autofix_prompt(
     if repo:
         repo_name = repo.split("/")[-1]
         lines.append(f"Work in the `~/repos/{repo_name}` directory.\n")
-    _af_id: int | str = issue_number if issue_number is not None else pipeline_id
+    _af_id = _pipeline_identifier(issue_number, pipeline_id)
     lines.extend(
         [
             "1. **Investigate the failures above**: The full check output is included — "
@@ -4326,7 +4334,7 @@ def _build_check_and_fix_prompt(
             "",
             "### Results File\n",
             "After the final check run, write results to "
-            f"`.egg-state/checks/{issue_number if issue_number is not None else pipeline_id}-implement-results.json`:\n",
+            f"`.egg-state/checks/{_pipeline_identifier(issue_number, pipeline_id)}-implement-results.json`:\n",
             "```json",
             "{",
             '  "all_passed": true/false,',
@@ -4395,7 +4403,7 @@ def _synthesize_plan_draft(
         return
 
     # Derive the pipeline identifier for namespaced output filenames.
-    _synth_id: int | str | None = issue_number if issue_number is not None else pipeline_id
+    _synth_id = _pipeline_identifier(issue_number, pipeline_id)
 
     sections: list[str] = []
     agent_files = [
@@ -4405,8 +4413,8 @@ def _synthesize_plan_draft(
 
     for filename, heading in agent_files:
         # Try prefixed filename first, fall back to old global filename
-        prefixed_file = outputs_dir / f"{_synth_id}-{filename}" if _synth_id else None
-        if prefixed_file and prefixed_file.exists():
+        prefixed_file = outputs_dir / f"{_synth_id}-{filename}"
+        if prefixed_file.exists():
             output_file = prefixed_file
         else:
             output_file = outputs_dir / filename
@@ -5233,10 +5241,10 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                 # Only read when the phase succeeded — a failed phase may
                 # have left stale output from a previous cycle on disk.
                 if use_multi_agent and not phase_failed:
-                    _tg_id2: int | str | None = (
-                        pipeline.issue_number if pipeline.issue_number is not None else pipeline_id
+                    tester_gap_summary = _read_tester_gaps(
+                        worktree_repo_path,
+                        identifier=_pipeline_identifier(pipeline.issue_number, pipeline_id),
                     )
-                    tester_gap_summary = _read_tester_gaps(worktree_repo_path, identifier=_tg_id2)
                     if tester_gap_summary:
                         logger.info(
                             "Tester found gaps",
