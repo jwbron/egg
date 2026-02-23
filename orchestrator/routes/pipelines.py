@@ -1289,6 +1289,10 @@ def _build_role_context(
         lines.append(f"- Full issue: `gh issue view {issue_number}`")
     lines.append("- Changed files: `git diff HEAD~10..HEAD` or check handoff data")
     lines.append("- Coder output: check `EGG_HANDOFF_DATA` environment variable")
+    lines.append(
+        "- Prior agent sessions: `egg-checkpoint context --pipeline $EGG_PIPELINE_ID` "
+        "(see checkpoint rule for details)"
+    )
     lines.append("")
 
     return "\n".join(lines)
@@ -2477,6 +2481,9 @@ def _build_agent_prompt(
                 "- Uncovered code paths and branches",
                 "- Integration gaps between components",
                 "",
+                "Before writing tests, review the coder's session for context on what was changed and why:",
+                "`egg-checkpoint list --pipeline $EGG_PIPELINE_ID --agent-type coder --phase implement`",
+                "",
             ]
         )
     elif role_value == "documenter":
@@ -2494,6 +2501,9 @@ def _build_agent_prompt(
                 "- Updated usage examples if APIs changed",
                 "- Clear explanation of any breaking changes",
                 "",
+                "Find all changed files across agents:",
+                "`egg-checkpoint context --pipeline $EGG_PIPELINE_ID --files`",
+                "",
             ]
         )
     elif role_value == "integrator":
@@ -2507,6 +2517,10 @@ def _build_agent_prompt(
                 "4. Produce an integration report",
                 "",
                 "Write your integration report to `.egg-state/agent-outputs/integrator-output.json`.",
+                "",
+                "Review pipeline overview and costs before integrating:",
+                "`egg-checkpoint context --pipeline $EGG_PIPELINE_ID --files` and "
+                "`egg-checkpoint cost --pipeline $EGG_PIPELINE_ID`",
                 "",
             ]
         )
@@ -2791,6 +2805,10 @@ def _build_phase_scoped_prompt(
         )
         lines.append("- [ ] Fix the specific issues raised")
         lines.append("- [ ] Run tests to verify fixes")
+        lines.append(
+            "- [ ] Check prior failed sessions: "
+            "`egg-checkpoint list --issue $EGG_ISSUE_NUMBER --status failed`"
+        )
         lines.append("")
 
     # Contract CLI
