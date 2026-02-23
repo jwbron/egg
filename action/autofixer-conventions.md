@@ -1,8 +1,22 @@
 # Autofixer Conventions (GitHub Actions)
 
-Operational conventions specific to the GitHub Actions autofixer.
-General autofixer rules (workflow, decision framework, etc.) are in
-`shared/prompts/autofixer-rules.md`.
+Operational conventions specific to the per-check GitHub Actions autofixer.
+These conventions replace `shared/prompts/autofixer-rules.md` for the per-check
+fixer context (the shared rules instruct running checks locally, which conflicts
+with the CI-driven model below).
+
+## Per-Check Fixer Model
+
+The autofixer operates in a CI-driven loop:
+1. CI check fails → fixer is invoked with the specific failed checks
+2. Fixer investigates and fixes only those checks
+3. Fixer pushes fixes (does NOT re-run checks locally)
+4. CI re-runs automatically after push
+5. If still failing → fixer is re-invoked (up to max retries)
+6. If max retries exceeded → escalation comment posted for human
+
+**Do NOT run checks locally.** CI validates after each push. Running checks
+locally wastes agent compute — CI already does this.
 
 ## Lint Workflow Structure
 
@@ -23,8 +37,8 @@ that job. For example, a "Python" job failure might be from ruff or mypy.
 
 ## Investigating Failures
 
-Use `gh pr checks <PR_NUMBER>` to list all checks and their status. For failed
-checks, fetch the logs to understand the error:
+Use `gh run view <run-id> --log-failed` to see the failure output. For broader
+context:
 
 ```bash
 # List checks
@@ -42,17 +56,17 @@ file to understand what commands are being run.
 
 ## Committing Fixes
 
-**Only commit after ALL local checks pass.** Do not push partial fixes.
+Fix the issues identified from CI logs, then commit and push:
 
 ```bash
-# After verifying all checks pass locally:
 git add <specific-files>
 git commit -m "Fix checks: <summary of all fixes>"
 git push
 ```
 
-If fixing multiple distinct issues, you may use separate commits for clarity, but
-push them all together in a single push after verifying all checks pass.
+**Do NOT run checks locally before pushing.** CI will re-run automatically.
+If fixes don't resolve the issue, the fixer will be re-invoked with updated
+failure context.
 
 **Why single push matters:** Each push triggers CI. Fixing one issue at a time
 causes the workflow to run repeatedly, wasting CI resources and time.
