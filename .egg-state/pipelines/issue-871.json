@@ -510,10 +510,10 @@
     },
     "pr": {
       "phase": "pr",
-      "status": "running",
+      "status": "complete",
       "started_at": "2026-02-23T08:58:23.710455",
       "work_started_at": "2026-02-23T08:58:23.738936",
-      "completed_at": null,
+      "completed_at": "2026-02-23T09:00:17.771408",
       "containers": [
         {
           "container_id": "c7ccab0d129d8bce450108e188aea2976111e4232782e44ba34c009d5649b64b",
@@ -584,7 +584,7 @@
     }
   ],
   "created_at": "2026-02-23T07:21:30.130566",
-  "updated_at": "2026-02-23T09:00:09.256751",
+  "updated_at": "2026-02-23T09:00:17.771965",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
@@ -592,5 +592,5 @@
   "error": null,
   "plan_phase_waves": null,
   "plan_phase_names": null,
-  "version": 69
+  "version": 70
 }
