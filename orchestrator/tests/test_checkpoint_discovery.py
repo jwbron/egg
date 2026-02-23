@@ -20,7 +20,6 @@ from routes.pipelines import (
     _build_role_context,
 )
 
-
 # ---------------------------------------------------------------------------
 # _build_role_context: checkpoint pointer in "For More Context"
 # ---------------------------------------------------------------------------
@@ -93,7 +92,10 @@ class TestAgentPromptCheckpointHints:
             prompt="# Feature\n\nDetail.",
             issue_number=1,
         )
-        assert "egg-checkpoint list --pipeline $EGG_PIPELINE_ID --agent-type coder --phase implement" in result
+        assert (
+            "egg-checkpoint list --pipeline $EGG_PIPELINE_ID --agent-type coder --phase implement"
+            in result
+        )
 
     def test_tester_prompt_checkpoint_appears_after_gap_finding(self):
         """Tester checkpoint command appears after the gap-finding section."""
@@ -191,7 +193,10 @@ class TestAgentPromptCheckpointHints:
             issue_number=1,
             phase_obj=phase,
         )
-        assert "egg-checkpoint list --pipeline $EGG_PIPELINE_ID --agent-type coder --phase implement" in result
+        assert (
+            "egg-checkpoint list --pipeline $EGG_PIPELINE_ID --agent-type coder --phase implement"
+            in result
+        )
 
     def test_documenter_with_none_prompt_still_gets_checkpoint_hint(self):
         """Documenter with None prompt still gets checkpoint hint."""
@@ -256,9 +261,7 @@ class TestPhaseScopedPromptCheckpointHint:
         from models import Pipeline
 
         phase = self._make_phase(tasks=[self._make_task()])
-        pipeline = Pipeline(
-            id="test-1", issue_number=42, repo="owner/repo", branch="egg/test"
-        )
+        pipeline = Pipeline(id="test-1", issue_number=42, repo="owner/repo", branch="egg/test")
 
         result = _build_phase_scoped_prompt(
             phase_obj=phase,
@@ -277,9 +280,7 @@ class TestPhaseScopedPromptCheckpointHint:
         from models import Pipeline
 
         phase = self._make_phase(tasks=[self._make_task()])
-        pipeline = Pipeline(
-            id="test-1", issue_number=42, repo="owner/repo", branch="egg/test"
-        )
+        pipeline = Pipeline(id="test-1", issue_number=42, repo="owner/repo", branch="egg/test")
 
         result = _build_phase_scoped_prompt(
             phase_obj=phase,
@@ -292,7 +293,9 @@ class TestPhaseScopedPromptCheckpointHint:
         )
 
         checklist_pos = result.find("### Revision Checklist")
-        failed_hint_pos = result.find("egg-checkpoint list --issue $EGG_ISSUE_NUMBER --status failed")
+        failed_hint_pos = result.find(
+            "egg-checkpoint list --issue $EGG_ISSUE_NUMBER --status failed"
+        )
         # The hint must appear after the checklist heading
         assert checklist_pos < failed_hint_pos
 
@@ -301,9 +304,7 @@ class TestPhaseScopedPromptCheckpointHint:
         from models import Pipeline
 
         phase = self._make_phase(tasks=[self._make_task()])
-        pipeline = Pipeline(
-            id="test-1", issue_number=42, repo="owner/repo", branch="egg/test"
-        )
+        pipeline = Pipeline(id="test-1", issue_number=42, repo="owner/repo", branch="egg/test")
 
         result = _build_phase_scoped_prompt(
             phase_obj=phase,
@@ -321,9 +322,7 @@ class TestPhaseScopedPromptCheckpointHint:
         from models import Pipeline
 
         phase = self._make_phase(tasks=[self._make_task()])
-        pipeline = Pipeline(
-            id="test-1", issue_number=42, repo="owner/repo", branch="egg/test"
-        )
+        pipeline = Pipeline(id="test-1", issue_number=42, repo="owner/repo", branch="egg/test")
 
         result = _build_phase_scoped_prompt(
             phase_obj=phase,
@@ -342,9 +341,7 @@ class TestPhaseScopedPromptCheckpointHint:
         from models import Pipeline
 
         phase = self._make_phase(tasks=[self._make_task()])
-        pipeline = Pipeline(
-            id="test-1", issue_number=42, repo="owner/repo", branch="egg/test"
-        )
+        pipeline = Pipeline(id="test-1", issue_number=42, repo="owner/repo", branch="egg/test")
 
         result = _build_phase_scoped_prompt(
             phase_obj=phase,
@@ -364,9 +361,7 @@ class TestPhaseScopedPromptCheckpointHint:
         from models import Pipeline
 
         phase = self._make_phase(tasks=[self._make_task()])
-        pipeline = Pipeline(
-            id="test-1", issue_number=42, repo="owner/repo", branch="egg/test"
-        )
+        pipeline = Pipeline(id="test-1", issue_number=42, repo="owner/repo", branch="egg/test")
 
         result = _build_phase_scoped_prompt(
             phase_obj=phase,
@@ -415,7 +410,10 @@ class TestCheckpointHintsEndToEnd:
         # General pointer from _build_role_context
         assert "egg-checkpoint context --pipeline $EGG_PIPELINE_ID" in result
         # Specific command for tester
-        assert "egg-checkpoint list --pipeline $EGG_PIPELINE_ID --agent-type coder --phase implement" in result
+        assert (
+            "egg-checkpoint list --pipeline $EGG_PIPELINE_ID --agent-type coder --phase implement"
+            in result
+        )
 
     def test_documenter_gets_both_general_and_specific_checkpoint_hints(self):
         """Documenter gets both the general pointer and the files-specific command."""
@@ -459,6 +457,4 @@ class TestCheckpointHintsEndToEnd:
                 prompt="# Feature\n\nDetail.",
                 issue_number=1,
             )
-            assert "egg-checkpoint" not in result, (
-                f"{role} should not have any checkpoint hints"
-            )
+            assert "egg-checkpoint" not in result, f"{role} should not have any checkpoint hints"
