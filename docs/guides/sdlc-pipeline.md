@@ -623,8 +623,9 @@ Each agent invocation runs in a fresh container with no memory of previous runs.
 1. The contract JSON in `.egg-state/contracts/`
 2. Git commits on the feature branch
 3. GitHub issue/PR comments and reviews
+4. Checkpoints from prior agent sessions (via `egg-checkpoint`)
 
-This prevents context pollution and ensures reproducible behavior. When the implementer is re-invoked after review feedback, it receives the PR review comments as part of its prompt context.
+This prevents context pollution and ensures reproducible behavior. When the implementer is re-invoked after review feedback, it receives the PR review comments as part of its prompt context. Agents also receive checkpoint discovery hints in their prompts, enabling them to review prior sessions for richer context than handoff data alone.
 
 ### Role-Specific Prompt Context
 
@@ -637,6 +638,7 @@ Agent prompts include role-appropriate context rather than embedding the full is
 - Phase-scoped task details with descriptions, acceptance criteria, and affected files (Tier 3)
 - An implementation summary across all phases (integrator only)
 - One-line orientation summaries of other phases (tester/documenter in Tier 3)
+- Checkpoint discovery hints for reviewing prior agent sessions (`egg-checkpoint`)
 - Pointers to full context on demand (`gh issue view`, handoff data, git diff)
 
 **Phase-scoped coders** (Tier 3) receive:

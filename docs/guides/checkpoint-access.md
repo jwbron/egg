@@ -123,12 +123,36 @@ All list/context filters use AND logic (all must match). Filters available:
 ### Tester: Find what the coder changed
 
 ```bash
-# See coder's checkpoints for this issue
-egg-checkpoint list --issue $EGG_ISSUE_NUMBER --agent-type coder --phase implement
+# See coder's checkpoints for this pipeline
+egg-checkpoint list --pipeline $EGG_PIPELINE_ID --agent-type coder --phase implement
 
-# Show details of the most recent one
+# Show details of a specific checkpoint
 egg-checkpoint show ckpt-<id>
 ```
+
+### Documenter: Find all changed files
+
+```bash
+# Cross-agent context summary with files touched
+egg-checkpoint context --pipeline $EGG_PIPELINE_ID --files
+
+# Extract just the file paths from a specific checkpoint
+egg-checkpoint show ckpt-<id> --json | jq '.files_touched[] | .path'
+```
+
+This is more comprehensive than the coder's handoff data alone — it includes files touched by all agents in the pipeline.
+
+### Coder (revision): Learn from prior failures
+
+```bash
+# Find failed sessions for this issue
+egg-checkpoint list --issue $EGG_ISSUE_NUMBER --status failed
+
+# Inspect the failed checkpoint to understand what went wrong
+egg-checkpoint show ckpt-<id>
+```
+
+When re-running after review feedback, checking prior failed sessions helps avoid repeating the same mistakes.
 
 ### Integrator: Get full pipeline context
 
@@ -138,6 +162,9 @@ egg-checkpoint context --pipeline $EGG_PIPELINE_ID
 
 # With file details to see what was touched
 egg-checkpoint context --pipeline $EGG_PIPELINE_ID --files
+
+# Token usage and cost breakdown by phase and agent
+egg-checkpoint cost --pipeline $EGG_PIPELINE_ID
 ```
 
 ### Debugging: Find failed sessions
