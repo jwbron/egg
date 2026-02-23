@@ -507,6 +507,20 @@
       ],
       "artifacts": {},
       "error": null
+    },
+    "pr": {
+      "phase": "pr",
+      "status": "running",
+      "started_at": "2026-02-23T08:58:23.710455",
+      "work_started_at": null,
+      "completed_at": null,
+      "containers": [],
+      "agents": [],
+      "review_cycles": 0,
+      "hitl_review_cycles": 0,
+      "cycle_timings": [],
+      "artifacts": {},
+      "error": null
     }
   },
   "decisions": [
@@ -538,7 +552,7 @@
     }
   ],
   "created_at": "2026-02-23T07:21:30.130566",
-  "updated_at": "2026-02-23T08:58:23.682917",
+  "updated_at": "2026-02-23T08:58:23.711042",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
@@ -546,5 +560,5 @@
   "error": null,
   "plan_phase_waves": null,
   "plan_phase_names": null,
-  "version": 65
+  "version": 66
 }
