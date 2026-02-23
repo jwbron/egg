@@ -704,11 +704,11 @@ class TestSetupAgentRules:
         assert "# Code Standards" in content
 
     @patch("os.chown")
-    @patch("os.lchown")
-    def test_no_rules_does_nothing(self, mock_lchown, mock_chown, temp_dir):
+    def test_no_rules_does_nothing(self, mock_chown, temp_dir):
         """Does nothing when no rules directory exists."""
         config = MagicMock()
         config.user_home = temp_dir
+        config.claude_dir = temp_dir / ".claude"
         config.repos_dir = temp_dir / "repos"
         config.runtime_uid = 1000
         config.runtime_gid = 1000

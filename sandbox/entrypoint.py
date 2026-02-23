@@ -826,6 +826,15 @@ def setup_agent_rules(config: Config, logger: Logger) -> None:
     claude_md.write_text("\n\n---\n\n".join(content_parts))
     os.chown(claude_md, config.runtime_uid, config.runtime_gid)
 
+    # Clean up stale files from previous location (~/CLAUDE.md, ~/repos/CLAUDE.md symlink)
+    # to prevent duplicate rules when upgrading on persistent volumes.
+    stale_home = config.user_home / "CLAUDE.md"
+    if stale_home.exists() or stale_home.is_symlink():
+        stale_home.unlink()
+    stale_repos = config.repos_dir / "CLAUDE.md"
+    if stale_repos.exists() or stale_repos.is_symlink():
+        stale_repos.unlink()
+
     logger.success("AI agent rules installed: ~/.claude/CLAUDE.md (global)")
     logger.info(f"  Combined {len(rules_order)} rule files (index-based per LLM Doc ADR)")
     logger.info("  Note: Reference docs at $EGG_REPO_PATH/docs/ (fetched on-demand)")
