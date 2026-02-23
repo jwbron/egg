@@ -10,8 +10,6 @@ and get_handoff_env_var.
 import json
 from pathlib import Path
 
-import pytest
-
 from handoffs import (
     AgentOutput,
     collect_handoff_data,
@@ -59,15 +57,17 @@ class TestLoadAgentOutputDataWrapper:
         outputs_dir = tmp_path / ".egg-state" / "agent-outputs"
         outputs_dir.mkdir(parents=True)
         (outputs_dir / "871-coder-output.json").write_text(
-            json.dumps({
-                "role": "coder",
-                "commit": "abc123",
-                "files_changed": ["a.py"],
-                "handoff_data": {"files": ["a.py"]},
-                "logs": None,
-                "metrics": {},
-                "timestamp": "2026-01-01T00:00:00",
-            })
+            json.dumps(
+                {
+                    "role": "coder",
+                    "commit": "abc123",
+                    "files_changed": ["a.py"],
+                    "handoff_data": {"files": ["a.py"]},
+                    "logs": None,
+                    "metrics": {},
+                    "timestamp": "2026-01-01T00:00:00",
+                }
+            )
         )
 
         result = load_agent_output_data(tmp_path, AgentRole.CODER, identifier=871)
@@ -80,15 +80,17 @@ class TestLoadAgentOutputDataWrapper:
         outputs_dir = tmp_path / ".egg-state" / "agent-outputs"
         outputs_dir.mkdir(parents=True)
         (outputs_dir / "coder-output.json").write_text(
-            json.dumps({
-                "role": "coder",
-                "commit": "def456",
-                "files_changed": [],
-                "handoff_data": {},
-                "logs": None,
-                "metrics": {},
-                "timestamp": "2026-01-01T00:00:00",
-            })
+            json.dumps(
+                {
+                    "role": "coder",
+                    "commit": "def456",
+                    "files_changed": [],
+                    "handoff_data": {},
+                    "logs": None,
+                    "metrics": {},
+                    "timestamp": "2026-01-01T00:00:00",
+                }
+            )
         )
 
         result = load_agent_output_data(tmp_path, AgentRole.CODER, identifier=999)
@@ -109,15 +111,17 @@ class TestCollectHandoffDataWrapper:
         outputs_dir = tmp_path / ".egg-state" / "agent-outputs"
         outputs_dir.mkdir(parents=True)
         (outputs_dir / "871-coder-output.json").write_text(
-            json.dumps({
-                "role": "coder",
-                "commit": "abc",
-                "files_changed": ["main.py"],
-                "handoff_data": {"changed_files": ["main.py"]},
-                "logs": None,
-                "metrics": {},
-                "timestamp": "2026-01-01T00:00:00",
-            })
+            json.dumps(
+                {
+                    "role": "coder",
+                    "commit": "abc",
+                    "files_changed": ["main.py"],
+                    "handoff_data": {"changed_files": ["main.py"]},
+                    "logs": None,
+                    "metrics": {},
+                    "timestamp": "2026-01-01T00:00:00",
+                }
+            )
         )
 
         result = collect_handoff_data(tmp_path, AgentRole.TESTER, identifier=871)
@@ -129,15 +133,17 @@ class TestCollectHandoffDataWrapper:
         outputs_dir = tmp_path / ".egg-state" / "agent-outputs"
         outputs_dir.mkdir(parents=True)
         (outputs_dir / "coder-output.json").write_text(
-            json.dumps({
-                "role": "coder",
-                "commit": "abc",
-                "files_changed": [],
-                "handoff_data": {"changed_files": ["old.py"]},
-                "logs": None,
-                "metrics": {},
-                "timestamp": "2026-01-01T00:00:00",
-            })
+            json.dumps(
+                {
+                    "role": "coder",
+                    "commit": "abc",
+                    "files_changed": [],
+                    "handoff_data": {"changed_files": ["old.py"]},
+                    "logs": None,
+                    "metrics": {},
+                    "timestamp": "2026-01-01T00:00:00",
+                }
+            )
         )
 
         result = collect_handoff_data(tmp_path, AgentRole.TESTER)
@@ -149,15 +155,17 @@ class TestCollectHandoffDataWrapper:
         outputs_dir = tmp_path / ".egg-state" / "agent-outputs"
         outputs_dir.mkdir(parents=True)
         (outputs_dir / "871-coder-output.json").write_text(
-            json.dumps({
-                "role": "coder",
-                "commit": "abc",
-                "files_changed": [],
-                "handoff_data": {},
-                "logs": None,
-                "metrics": {},
-                "timestamp": "2026-01-01T00:00:00",
-            })
+            json.dumps(
+                {
+                    "role": "coder",
+                    "commit": "abc",
+                    "files_changed": [],
+                    "handoff_data": {},
+                    "logs": None,
+                    "metrics": {},
+                    "timestamp": "2026-01-01T00:00:00",
+                }
+            )
         )
 
         result = collect_handoff_data(tmp_path, AgentRole.TESTER, identifier=871)
@@ -172,15 +180,17 @@ class TestGetHandoffEnvVarWrapper:
         outputs_dir = tmp_path / ".egg-state" / "agent-outputs"
         outputs_dir.mkdir(parents=True)
         (outputs_dir / "871-coder-output.json").write_text(
-            json.dumps({
-                "role": "coder",
-                "commit": "abc",
-                "files_changed": ["x.py"],
-                "handoff_data": {"key": "value"},
-                "logs": None,
-                "metrics": {},
-                "timestamp": "2026-01-01T00:00:00",
-            })
+            json.dumps(
+                {
+                    "role": "coder",
+                    "commit": "abc",
+                    "files_changed": ["x.py"],
+                    "handoff_data": {"key": "value"},
+                    "logs": None,
+                    "metrics": {},
+                    "timestamp": "2026-01-01T00:00:00",
+                }
+            )
         )
 
         result = get_handoff_env_var(tmp_path, AgentRole.TESTER, identifier=871)
@@ -193,15 +203,17 @@ class TestGetHandoffEnvVarWrapper:
         outputs_dir = tmp_path / ".egg-state" / "agent-outputs"
         outputs_dir.mkdir(parents=True)
         (outputs_dir / "coder-output.json").write_text(
-            json.dumps({
-                "role": "coder",
-                "commit": "abc",
-                "files_changed": [],
-                "handoff_data": {"legacy": True},
-                "logs": None,
-                "metrics": {},
-                "timestamp": "2026-01-01T00:00:00",
-            })
+            json.dumps(
+                {
+                    "role": "coder",
+                    "commit": "abc",
+                    "files_changed": [],
+                    "handoff_data": {"legacy": True},
+                    "logs": None,
+                    "metrics": {},
+                    "timestamp": "2026-01-01T00:00:00",
+                }
+            )
         )
 
         result = get_handoff_env_var(tmp_path, AgentRole.TESTER)

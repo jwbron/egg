@@ -2210,8 +2210,9 @@ def _build_phase_prompt(
                             "Focus on addressing the specific feedback above.\n",
                             "1. Review the feedback in the **Prior Review Feedback** section above",
                             "2. Check `git diff` to understand the current state of changes",
-                            "3. Check `.egg-state/agent-outputs/tester-output.json` "
-                            "for test failures and gaps",
+                            f"3. Check `.egg-state/agent-outputs/"
+                            f"{issue_number if issue_number is not None else pipeline_id}"
+                            f"-tester-output.json` for test failures and gaps",
                             "4. Fix the specific issues raised",
                             "5. Run tests to verify your fixes",
                             "6. Commit with descriptive messages",
@@ -2807,7 +2808,9 @@ def _build_phase_scoped_prompt(
         lines.append("### Revision Checklist\n")
         lines.append("- [ ] Review the feedback in **Prior Review Feedback** above")
         lines.append(
-            "- [ ] Check `.egg-state/agent-outputs/tester-output.json` for test failures and gaps"
+            f"- [ ] Check `.egg-state/agent-outputs/"
+            f"{pipeline.issue_number if pipeline.issue_number is not None else pipeline_id}"
+            f"-tester-output.json` for test failures and gaps"
         )
         lines.append("- [ ] Fix the specific issues raised")
         lines.append("- [ ] Run tests to verify fixes")
@@ -3157,13 +3160,9 @@ def _run_tier3_implement(
             # stale output from a previous cycle on disk.
             if tester_exit == 0:
                 _tg_id: int | str | None = (
-                    pipeline.issue_number
-                    if pipeline.issue_number is not None
-                    else pipeline_id
+                    pipeline.issue_number if pipeline.issue_number is not None else pipeline_id
                 )
-                tester_gap_summary = _read_tester_gaps(
-                    worktree_repo_path, identifier=_tg_id
-                )
+                tester_gap_summary = _read_tester_gaps(worktree_repo_path, identifier=_tg_id)
                 if tester_gap_summary:
                     logger.info(
                         "Tester found gaps",
@@ -5217,13 +5216,9 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                 # have left stale output from a previous cycle on disk.
                 if use_multi_agent and not phase_failed:
                     _tg_id2: int | str | None = (
-                        pipeline.issue_number
-                        if pipeline.issue_number is not None
-                        else pipeline_id
+                        pipeline.issue_number if pipeline.issue_number is not None else pipeline_id
                     )
-                    tester_gap_summary = _read_tester_gaps(
-                        worktree_repo_path, identifier=_tg_id2
-                    )
+                    tester_gap_summary = _read_tester_gaps(worktree_repo_path, identifier=_tg_id2)
                     if tester_gap_summary:
                         logger.info(
                             "Tester found gaps",

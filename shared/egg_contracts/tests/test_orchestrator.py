@@ -11,8 +11,6 @@ Verifies the backward-compat fallback behavior:
 import json
 from pathlib import Path
 
-import pytest
-
 from egg_contracts.agent_roles import AgentRole
 from egg_contracts.orchestrator import (
     collect_handoff_data,
@@ -28,9 +26,7 @@ class TestLoadAgentOutputIdentifier:
         """When prefixed path exists, it is returned."""
         outputs_dir = tmp_path / ".egg-state" / "agent-outputs"
         outputs_dir.mkdir(parents=True)
-        (outputs_dir / "871-coder-output.json").write_text(
-            json.dumps({"key": "prefixed"})
-        )
+        (outputs_dir / "871-coder-output.json").write_text(json.dumps({"key": "prefixed"}))
 
         result = load_agent_output(tmp_path, AgentRole.CODER, identifier=871)
         assert result == {"key": "prefixed"}
@@ -39,9 +35,7 @@ class TestLoadAgentOutputIdentifier:
         """When only old global path exists, fallback reads it."""
         outputs_dir = tmp_path / ".egg-state" / "agent-outputs"
         outputs_dir.mkdir(parents=True)
-        (outputs_dir / "coder-output.json").write_text(
-            json.dumps({"key": "global"})
-        )
+        (outputs_dir / "coder-output.json").write_text(json.dumps({"key": "global"}))
 
         result = load_agent_output(tmp_path, AgentRole.CODER, identifier=871)
         assert result == {"key": "global"}
@@ -55,12 +49,8 @@ class TestLoadAgentOutputIdentifier:
         """When both prefixed and global exist, prefixed takes priority."""
         outputs_dir = tmp_path / ".egg-state" / "agent-outputs"
         outputs_dir.mkdir(parents=True)
-        (outputs_dir / "coder-output.json").write_text(
-            json.dumps({"key": "global"})
-        )
-        (outputs_dir / "871-coder-output.json").write_text(
-            json.dumps({"key": "prefixed"})
-        )
+        (outputs_dir / "coder-output.json").write_text(json.dumps({"key": "global"}))
+        (outputs_dir / "871-coder-output.json").write_text(json.dumps({"key": "prefixed"}))
 
         result = load_agent_output(tmp_path, AgentRole.CODER, identifier=871)
         assert result == {"key": "prefixed"}
@@ -69,9 +59,7 @@ class TestLoadAgentOutputIdentifier:
         """When identifier is None, uses global path directly."""
         outputs_dir = tmp_path / ".egg-state" / "agent-outputs"
         outputs_dir.mkdir(parents=True)
-        (outputs_dir / "coder-output.json").write_text(
-            json.dumps({"key": "global"})
-        )
+        (outputs_dir / "coder-output.json").write_text(json.dumps({"key": "global"}))
 
         result = load_agent_output(tmp_path, AgentRole.CODER)
         assert result == {"key": "global"}
@@ -80,9 +68,7 @@ class TestLoadAgentOutputIdentifier:
         """String identifiers (e.g. local pipeline IDs) work."""
         outputs_dir = tmp_path / ".egg-state" / "agent-outputs"
         outputs_dir.mkdir(parents=True)
-        (outputs_dir / "local-abc123-coder-output.json").write_text(
-            json.dumps({"key": "local"})
-        )
+        (outputs_dir / "local-abc123-coder-output.json").write_text(json.dumps({"key": "local"}))
 
         result = load_agent_output(tmp_path, AgentRole.CODER, identifier="local-abc123")
         assert result == {"key": "local"}
@@ -93,9 +79,7 @@ class TestSaveAgentOutputIdentifier:
 
     def test_save_with_identifier(self, tmp_path: Path):
         """Saves to prefixed path when identifier provided."""
-        path = save_agent_output(
-            tmp_path, AgentRole.CODER, {"key": "value"}, identifier=871
-        )
+        path = save_agent_output(tmp_path, AgentRole.CODER, {"key": "value"}, identifier=871)
         assert path.name == "871-coder-output.json"
         assert json.loads(path.read_text()) == {"key": "value"}
 
@@ -114,9 +98,7 @@ class TestLoadAgentOutputErrorHandling:
         outputs_dir = tmp_path / ".egg-state" / "agent-outputs"
         outputs_dir.mkdir(parents=True)
         (outputs_dir / "871-coder-output.json").write_text("NOT VALID JSON{{{")
-        (outputs_dir / "coder-output.json").write_text(
-            json.dumps({"key": "global"})
-        )
+        (outputs_dir / "coder-output.json").write_text(json.dumps({"key": "global"}))
 
         # The prefixed file exists but is corrupt — returns empty dict,
         # does NOT fall through to global file.
@@ -145,9 +127,7 @@ class TestLoadAgentOutputErrorHandling:
         """Identifier of 0 (falsy int) is still treated as a valid identifier."""
         outputs_dir = tmp_path / ".egg-state" / "agent-outputs"
         outputs_dir.mkdir(parents=True)
-        (outputs_dir / "0-coder-output.json").write_text(
-            json.dumps({"key": "zero"})
-        )
+        (outputs_dir / "0-coder-output.json").write_text(json.dumps({"key": "zero"}))
 
         result = load_agent_output(tmp_path, AgentRole.CODER, identifier=0)
         assert result == {"key": "zero"}
@@ -156,9 +136,7 @@ class TestLoadAgentOutputErrorHandling:
         """When identifier=None, prefixed files are ignored entirely."""
         outputs_dir = tmp_path / ".egg-state" / "agent-outputs"
         outputs_dir.mkdir(parents=True)
-        (outputs_dir / "871-coder-output.json").write_text(
-            json.dumps({"key": "prefixed"})
-        )
+        (outputs_dir / "871-coder-output.json").write_text(json.dumps({"key": "prefixed"}))
 
         # No global file, identifier=None → empty dict (prefixed file ignored)
         result = load_agent_output(tmp_path, AgentRole.CODER, identifier=None)
@@ -224,9 +202,7 @@ class TestCollectHandoffDataIdentifier:
         """collect_handoff_data forwards identifier to load_agent_output."""
         outputs_dir = tmp_path / ".egg-state" / "agent-outputs"
         outputs_dir.mkdir(parents=True)
-        (outputs_dir / "871-coder-output.json").write_text(
-            json.dumps({"files": ["main.py"]})
-        )
+        (outputs_dir / "871-coder-output.json").write_text(json.dumps({"files": ["main.py"]}))
 
         # TESTER depends on CODER
         result = collect_handoff_data(tmp_path, AgentRole.TESTER, identifier=871)
@@ -237,9 +213,7 @@ class TestCollectHandoffDataIdentifier:
         """collect_handoff_data falls back to global path when prefixed missing."""
         outputs_dir = tmp_path / ".egg-state" / "agent-outputs"
         outputs_dir.mkdir(parents=True)
-        (outputs_dir / "coder-output.json").write_text(
-            json.dumps({"files": ["legacy.py"]})
-        )
+        (outputs_dir / "coder-output.json").write_text(json.dumps({"files": ["legacy.py"]}))
 
         result = collect_handoff_data(tmp_path, AgentRole.TESTER, identifier=999)
         assert "coder" in result
@@ -255,9 +229,7 @@ class TestCollectHandoffDataIdentifier:
         """collect_handoff_data works without identifier (backward compat)."""
         outputs_dir = tmp_path / ".egg-state" / "agent-outputs"
         outputs_dir.mkdir(parents=True)
-        (outputs_dir / "coder-output.json").write_text(
-            json.dumps({"files": ["old.py"]})
-        )
+        (outputs_dir / "coder-output.json").write_text(json.dumps({"files": ["old.py"]}))
 
         result = collect_handoff_data(tmp_path, AgentRole.TESTER)
         assert "coder" in result

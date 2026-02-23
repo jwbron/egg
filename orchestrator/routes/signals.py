@@ -192,9 +192,7 @@ def handle_complete_signal(
             )
             # Derive pipeline identifier matching PipelineDispatcher.contract_key
             identifier: int | str = (
-                pipeline.issue_number
-                if pipeline.issue_number is not None
-                else pipeline_id
+                pipeline.issue_number if pipeline.issue_number is not None else pipeline_id
             )
             save_agent_output(contract_path, output, identifier=identifier)
 

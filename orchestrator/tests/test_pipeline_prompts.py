@@ -2237,9 +2237,7 @@ class TestSynthesizePlanDraftNamespaced:
         outputs_dir.mkdir(parents=True)
         # Only global files exist — content must exceed _MIN_PLAN_DRAFT_CONTENT_LENGTH (50)
         long_content = "Global architecture analysis with detailed design decisions and component interactions for the feature"
-        (outputs_dir / "architect-output.json").write_text(
-            json.dumps({"content": long_content})
-        )
+        (outputs_dir / "architect-output.json").write_text(json.dumps({"content": long_content}))
 
         _synthesize_plan_draft(
             repo_path=tmp_path,
@@ -2261,10 +2259,18 @@ class TestSynthesizePlanDraftNamespaced:
         outputs_dir = tmp_path / ".egg-state" / "agent-outputs"
         outputs_dir.mkdir(parents=True)
         (outputs_dir / "architect-output.json").write_text(
-            json.dumps({"content": "Old global architecture output that should be ignored when prefixed version is available"})
+            json.dumps(
+                {
+                    "content": "Old global architecture output that should be ignored when prefixed version is available"
+                }
+            )
         )
         (outputs_dir / "871-architect-output.json").write_text(
-            json.dumps({"content": "New prefixed architecture output with detailed design decisions and component interactions"})
+            json.dumps(
+                {
+                    "content": "New prefixed architecture output with detailed design decisions and component interactions"
+                }
+            )
         )
 
         _synthesize_plan_draft(
@@ -2349,12 +2355,8 @@ class TestSynthesizePlanDraftNamespaced:
 
         outputs_dir = tmp_path / ".egg-state" / "agent-outputs"
         outputs_dir.mkdir(parents=True)
-        (outputs_dir / "871-architect-output.json").write_text(
-            json.dumps({"content": ""})
-        )
-        (outputs_dir / "871-risk_analyst-output.json").write_text(
-            json.dumps({"content": "   "})
-        )
+        (outputs_dir / "871-architect-output.json").write_text(json.dumps({"content": ""}))
+        (outputs_dir / "871-risk_analyst-output.json").write_text(json.dumps({"content": "   "}))
 
         _synthesize_plan_draft(
             repo_path=tmp_path,
