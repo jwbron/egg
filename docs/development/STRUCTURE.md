@@ -185,6 +185,7 @@ shared/
 │   ├── checkpoint_cli.py   # Checkpoint browsing CLI (list, show, browse)
 │   ├── transcript_extractor.py # API transcript extraction
 │   └── redactor.py         # Sensitive data redaction for checkpoints
+├── check-fixers.yml         # Per-check fixer config (non-LLM fixes, retries, model)
 ├── prompts/                # Shared prompt criteria (used by GHA scripts AND orchestrator)
 │   ├── agent-design-criteria.md  # Agent-mode design review criteria
 │   ├── autofixer-rules.md        # Autofixer auto-fix vs report-only rules
