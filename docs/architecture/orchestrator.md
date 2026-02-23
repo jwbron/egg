@@ -118,7 +118,7 @@ The orchestrator reads pipeline artifacts (verdict files, draft documents, check
 - `.egg-state/drafts/{identifier}-analysis.md` — Draft for `refine` phase (special-cased to `analysis`)
 - `.egg-state/drafts/{identifier}-{phase}.md` — Draft for other phases (e.g., `plan`). No draft for `implement` phase.
 - `.egg-state/reviews/{identifier}-{phase}-{reviewer_type}-review.json` — Review verdict files
-- `.egg-state/checks/implement-results.json` — Check results from the `implement` phase
+- `.egg-state/checks/{identifier}-implement-results.json` — Check results from the `implement` phase (e.g., `871-implement-results.json`)
 
 **Volume mounts:**
 - Orchestrator: Bind mount from `${HOST_HOME}/.egg-worktrees` to `/home/egg/.egg-worktrees` (read container-written artifacts)
