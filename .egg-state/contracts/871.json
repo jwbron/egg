@@ -8,7 +8,392 @@
   "pipeline_id": null,
   "current_phase": "refine",
   "acceptance_criteria": [],
-  "phases": [],
+  "phases": [
+    {
+      "id": "phase-1",
+      "name": "Core path construction",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-1-1",
+          "description": "Add optional identifier parameter (int | str | None) to load_agent_output() in shared/egg_contracts/orchestrator.py. When identifier is provided, construct path as {identifier}-{role.value}-output.json. Add fallback \u2014 if prefixed path does not exist, try old {role.value}-output.json path. When identifier is None, use old path directly (backward compat).",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "load_agent_output(repo, role, identifier=871) reads from 871-{role}-output.json, falling back to {role}-output.json. load_agent_output(repo, role) reads from {role}-output.json (unchanged behavior).",
+          "files_affected": [
+            "shared/egg_contracts/orchestrator.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-2",
+          "description": "Add optional identifier parameter to save_agent_output() in shared/egg_contracts/orchestrator.py. When identifier is provided, write to {identifier}-{role.value}-output.json. When None, write to {role.value}-output.json (backward compat).",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "save_agent_output(repo, role, data, identifier=871) writes to 871-{role}-output.json. save_agent_output(repo, role, data) writes to {role}-output.json.",
+          "files_affected": [
+            "shared/egg_contracts/orchestrator.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-3",
+          "description": "Add optional identifier parameter to collect_handoff_data() in shared/egg_contracts/orchestrator.py and pass it through to load_agent_output() for each dependency.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "collect_handoff_data(repo, role, identifier=871) reads dependency outputs from prefixed paths with fallback.",
+          "files_affected": [
+            "shared/egg_contracts/orchestrator.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        }
+      ],
+      "dependencies": [],
+      "review_feedback": []
+    },
+    {
+      "id": "phase-2",
+      "name": "Orchestrator wrapper and caller updates",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-2-1",
+          "description": "Add optional identifier parameter to all wrapper functions in orchestrator/handoffs.py \u2014 save_agent_output() (line 152), load_agent_output_data() (line 171), collect_handoff_data() (line 193), and get_handoff_env_var() (line 227). Each wrapper must accept identifier and forward it to the underlying shared library function.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "All four wrapper functions accept an optional identifier parameter and pass it through. Calling save_agent_output(repo, output, identifier=871) results in the shared save_agent_output receiving identifier=871.",
+          "files_affected": [
+            "orchestrator/handoffs.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-2-2",
+          "description": "Update orchestrator/dispatch.py \u2014 PipelineDispatcher.complete_agent() (line 219) must pass self.contract_key as identifier to save_agent_output(). PipelineDispatcher.get_handoff_data() (line 264) must pass self.contract_key as identifier to collect_handoff_data(). The contract_key property (line 118) already returns issue_number for issue-mode or pipeline_id for local-mode.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "PipelineDispatcher.complete_agent() calls save_agent_output(self.repo_path, contract_role, outputs, identifier=self.contract_key). PipelineDispatcher.get_handoff_data() calls collect_handoff_data(self.repo_path, contract_role, identifier=self.contract_key). Verified by grep showing no calls without identifier.",
+          "files_affected": [
+            "orchestrator/dispatch.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-2-3",
+          "description": "Update orchestrator/routes/signals.py \u2014 handle_complete_signal() (line 193) must pass the pipeline identifier to save_agent_output(). Derive identifier from the pipeline object (pipeline.issue_number for issue-mode, pipeline_id for local-mode).",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "save_agent_output at line 193 receives identifier. Verified by grep showing no calls without identifier.",
+          "files_affected": [
+            "orchestrator/routes/signals.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        }
+      ],
+      "dependencies": [],
+      "review_feedback": []
+    },
+    {
+      "id": "phase-3",
+      "name": "Prompt builder and reader updates",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-3-1",
+          "description": "Update _build_agent_prompt() in orchestrator/routes/pipelines.py for architect, integrator, and risk_analyst roles. Replace hardcoded output filenames (e.g., \"architect-output.json\") with dynamically constructed {identifier}-prefixed paths using the issue_number/pipeline_id already available in the prompt builder context. Affects lines ~2509, ~2524, ~2590.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Prompts contain e.g. \"871-architect-output.json\" for issue 871. Verified by running test_pipeline_prompts.py.",
+          "files_affected": [
+            "orchestrator/routes/pipelines.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-3-2",
+          "description": "Update _build_checker_prompt(), _build_check_and_fix_prompt(), and _build_autofix_prompt() to replace hardcoded \"implement-results.json\" with {identifier}-implement-results.json. Add identifier parameter if not already available from pipeline context. Affects lines ~4063, ~4275, and related autofix prompt code.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Checker and autofix prompts contain e.g. \"871-implement-results.json\".",
+          "files_affected": [
+            "orchestrator/routes/pipelines.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-3-3",
+          "description": "Update _synthesize_plan_draft_from_outputs() (~line 4335) to construct prefixed filenames in the agent_files list. Derive identifier from the existing pipeline_mode/issue_number parameters. Fall back to old filenames if prefixed files don't exist.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Function reads from {identifier}-architect-output.json first, falls back to architect-output.json. Same for risk_analyst.",
+          "files_affected": [
+            "orchestrator/routes/pipelines.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-3-4",
+          "description": "Update _read_tester_gaps() (~line 1619) to accept identifier parameter and construct prefixed path with fallback. Update both callers (~line 3139 and ~line 5173) to pass identifier from pipeline context.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Function reads from {identifier}-tester-output.json first, falls back to tester-output.json.",
+          "files_affected": [
+            "orchestrator/routes/pipelines.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-3-5",
+          "description": "Update all remaining callers of load_agent_output(), save_agent_output(), and collect_handoff_data() in orchestrator/routes/pipelines.py to pass the identifier from pipeline context. This covers any callers not addressed by TASK-3-1 through TASK-3-4.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "No calls to load_agent_output, save_agent_output, or collect_handoff_data without identifier in any orchestrator code path. grep across orchestrator/ confirms all invocations pass identifier.",
+          "files_affected": [
+            "orchestrator/routes/pipelines.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        }
+      ],
+      "dependencies": [],
+      "review_feedback": []
+    },
+    {
+      "id": "phase-4",
+      "name": "Tests",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-4-1",
+          "description": "Update test_pipeline_prompts.py \u2014 change all assertions that check for \"implement-results.json\" in prompt content to expect prefixed filenames. Update TestReadTesterGaps tests to create/expect prefixed filenames.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "All tests in test_pipeline_prompts.py pass with prefixed filenames.",
+          "files_affected": [
+            "orchestrator/tests/test_pipeline_prompts.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-4-2",
+          "description": "Update test_health_check_tester_coverage.py and test_health_check_tier1_advanced.py \u2014 update mock file creation to use prefixed filenames where these tests create/reference architect-output.json or similar files.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Health check tests pass with prefixed filenames.",
+          "files_affected": [
+            "orchestrator/tests/test_health_check_tester_coverage.py",
+            "orchestrator/tests/test_health_check_tier1_advanced.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-4-3",
+          "description": "Update orchestrator/tests/test_signals.py \u2014 the mock at line 86 patches save_agent_output. Update this mock and any assertions to account for the new identifier parameter in the function signature.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "test_signals.py tests pass. Mock correctly matches updated save_agent_output signature.",
+          "files_affected": [
+            "orchestrator/tests/test_signals.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-4-4",
+          "description": "Update integration_tests/local_pipeline/mock-sandbox/phase-runner.sh \u2014 update RESULTS_FILE assignment (~line 143) to use prefixed filename derived from pipeline context environment variables (EGG_ISSUE_NUMBER or EGG_PIPELINE_ID).",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Integration test writes to {identifier}-implement-results.json. Local pipeline integration test passes.",
+          "files_affected": [
+            "integration_tests/local_pipeline/mock-sandbox/phase-runner.sh"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-4-5",
+          "description": "Add tests for backward-compat fallback in load_agent_output(). Test cases \u2014 (1) prefixed path exists and is returned, (2) only old global path exists and fallback reads it, (3) neither exists and empty dict returned, (4) both exist and prefixed path takes priority.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "All 4 fallback test cases pass. Tests placed alongside existing orchestrator contract tests.",
+          "files_affected": [
+            "shared/egg_contracts/tests/test_orchestrator.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        }
+      ],
+      "dependencies": [],
+      "review_feedback": []
+    },
+    {
+      "id": "phase-5",
+      "name": "Documentation and agent mode commands",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-5-1",
+          "description": "Update docs/guides/sdlc-pipeline.md \u2014 change references to {role}-output.json naming convention (lines ~362, ~717) to document {identifier}-{role}-output.json.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Documentation reflects new naming convention with examples.",
+          "files_affected": [
+            "docs/guides/sdlc-pipeline.md"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-5-2",
+          "description": "Update docs/guides/agent-development.md \u2014 update the agent output file naming tree (lines ~215-218) to show {identifier}-prefixed filenames.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "File tree example shows prefixed filenames.",
+          "files_affected": [
+            "docs/guides/agent-development.md"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-5-3",
+          "description": "Update docs/architecture/orchestrator.md \u2014 update implement-results.json reference (line ~121) to show prefixed filename.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Architecture doc reflects new naming.",
+          "files_affected": [
+            "docs/architecture/orchestrator.md"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-5-4",
+          "description": "Update sandbox/.claude/commands/ agent mode files (coder-mode.md, tester-mode.md, integrator-mode.md, documenter-mode.md) \u2014 replace all hardcoded {role}-output.json paths with a note that paths are prefixed with the issue/pipeline identifier.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "All agent mode command files reference {identifier}-prefixed paths.",
+          "files_affected": [
+            "sandbox/.claude/commands/coder-mode.md",
+            "sandbox/.claude/commands/tester-mode.md",
+            "sandbox/.claude/commands/integrator-mode.md",
+            "sandbox/.claude/commands/documenter-mode.md"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-5-5",
+          "description": "Update docstring in orchestrator/health_checks/tier1/phase_output.py (line ~10) to reflect new naming convention.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Docstring mentions {identifier}-prefixed filenames.",
+          "files_affected": [
+            "orchestrator/health_checks/tier1/phase_output.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        }
+      ],
+      "dependencies": [],
+      "review_feedback": []
+    }
+  ],
   "decisions": [],
   "workflow_owner": null,
   "audit_log": [],
@@ -24,9 +409,9 @@
       "role": "architect",
       "phase_id": null,
       "status": "complete",
-      "started_at": "2026-02-23T07:36:05.680030Z",
-      "completed_at": "2026-02-23T08:00:29.266824Z",
-      "commit": "2fcfdae76",
+      "started_at": "2026-02-23T07:53:15.674813Z",
+      "completed_at": "2026-02-23T08:00:38.604846Z",
+      "commit": null,
       "checkpoint_id": null,
       "outputs": {},
       "error": null,
@@ -37,9 +422,9 @@
       "role": "task_planner",
       "phase_id": null,
       "status": "complete",
-      "started_at": "2026-02-23T07:43:53.425190Z",
-      "completed_at": "2026-02-23T08:04:33.006804Z",
-      "commit": "0f0033ef5",
+      "started_at": "2026-02-23T08:00:38.618072Z",
+      "completed_at": "2026-02-23T08:04:41.884739Z",
+      "commit": null,
       "checkpoint_id": null,
       "outputs": {},
       "error": null,
@@ -50,8 +435,8 @@
       "role": "risk_analyst",
       "phase_id": null,
       "status": "complete",
-      "started_at": "2026-02-23T07:43:53.426984Z",
-      "completed_at": "2026-02-23T08:09:48.947628Z",
+      "started_at": "2026-02-23T08:00:38.620467Z",
+      "completed_at": "2026-02-23T08:09:57.341624Z",
       "commit": null,
       "checkpoint_id": null,
       "outputs": {},
