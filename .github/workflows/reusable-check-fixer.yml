@@ -1,0 +1,568 @@
+name: Reusable Check Fixer Workflow
+
+on:
+  workflow_call:
+    inputs:
+      pr_number:
+        description: 'PR number to fix checks for'
+        required: true
+        type: number
+      failed_workflow:
+        description: 'Name of the failed workflow'
+        required: false
+        type: string
+        default: "manual"
+      failed_run_id:
+        description: 'Run ID of the failed workflow'
+        required: false
+        type: string
+        default: ""
+      bot_username:
+        description: 'GitHub username of the bot (e.g., my-bot)'
+        required: true
+        type: string
+      branch_prefix:
+        description: 'Branch prefix for bot branches (e.g., egg)'
+        required: true
+        type: string
+      action_ref:
+        description: 'Reference to egg action (owner/repo/path@ref format). NOTE: GitHub Actions uses: field cannot be dynamic - consuming repos must hardcode their action reference in the uses step below.'
+        required: false
+        type: string
+        default: "jwbron/egg/action@main"
+      config_file:
+        description: 'Path to check-fixers.yml config (relative to repo root)'
+        required: false
+        type: string
+        default: "shared/check-fixers.yml"
+      prompt_script:
+        description: 'Path to prompt builder script (relative to repo root)'
+        required: false
+        type: string
+        default: "action/build-check-fixer-prompt.sh"
+      timeout:
+        description: 'Timeout in minutes'
+        required: false
+        type: string
+        default: "15"
+    secrets:
+      BOT_APP_ID:
+        required: true
+      BOT_APP_PRIVATE_KEY:
+        required: true
+      BOT_APP_INSTALLATION_ID:
+        required: true
+      ANTHROPIC_OAUTH_TOKEN:
+        required: true
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: 'PR number to fix checks for'
+        required: true
+        type: number
+      failed_workflow:
+        description: 'Name of the failed workflow (Lint, Test)'
+        required: false
+        type: string
+        default: "manual"
+      failed_run_id:
+        description: 'Run ID of the failed workflow'
+        required: false
+        type: string
+        default: ""
+      bot_username:
+        description: 'GitHub username of the bot (e.g., my-bot)'
+        required: true
+        type: string
+      branch_prefix:
+        description: 'Branch prefix for bot branches (e.g., egg)'
+        required: true
+        type: string
+      config_file:
+        description: 'Path to check-fixers.yml config (relative to repo root)'
+        required: false
+        type: string
+        default: "shared/check-fixers.yml"
+      prompt_script:
+        description: 'Path to prompt builder script (relative to repo root)'
+        required: false
+        type: string
+        default: "action/build-check-fixer-prompt.sh"
+      timeout:
+        description: 'Timeout in minutes'
+        required: false
+        type: string
+        default: "15"
+
+jobs:
+  check-fixer:
+    name: Fix PR Checks
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+      pull-requests: write
+      actions: read
+
+    # Serialize fixers per PR — do NOT cancel in-progress (avoid branch conflicts)
+    concurrency:
+      group: egg-autofix-${{ inputs.pr_number }}
+      cancel-in-progress: false
+
+    env:
+      PR_NUMBER: ${{ inputs.pr_number }}
+      FAILED_WORKFLOW: ${{ inputs.failed_workflow }}
+      FAILED_RUN_ID: ${{ inputs.failed_run_id }}
+      EGG_BOT_USERNAME: ${{ inputs.bot_username }}
+      BRANCH_PREFIX: ${{ inputs.branch_prefix }}
+
+    steps:
+      - name: Generate bot token
+        id: bot-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.BOT_APP_ID }}
+          private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
+
+      - name: Fetch PR metadata
+        id: pr-meta
+        run: |
+          pr_json=$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}")
+          {
+            echo "head-ref=$(echo "$pr_json" | jq -r '.head.ref')"
+            echo "head-repo=$(echo "$pr_json" | jq -r '.head.repo.full_name')"
+            echo "title=$(echo "$pr_json" | jq -r '.title')"
+          } >> "$GITHUB_OUTPUT"
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+
+      # Skip if PR has [skip-autofix] in title
+      - name: Check for skip marker
+        id: skip-check
+        env:
+          PR_TITLE: ${{ steps.pr-meta.outputs.title }}
+        run: |
+          if [[ "$PR_TITLE" == *"[skip-autofix]"* ]]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "PR has [skip-autofix] marker, skipping"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Early exit if skipped
+        if: steps.skip-check.outputs.skip == 'true'
+        run: echo "Skipping autofix due to [skip-autofix] marker"
+
+      # Identify which jobs failed in the triggering workflow run
+      - name: Identify failed jobs
+        if: steps.skip-check.outputs.skip != 'true'
+        id: failed-jobs
+        run: |
+          if [[ -z "$FAILED_RUN_ID" || "$FAILED_WORKFLOW" == "manual" ]]; then
+            # Manual trigger — no specific run to query
+            echo "jobs=[]" >> "$GITHUB_OUTPUT"
+            echo "job-count=0" >> "$GITHUB_OUTPUT"
+            echo "No specific run ID, will build generic prompt"
+          else
+            # Query the workflow run's jobs for failures
+            failed=$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${FAILED_RUN_ID}/jobs" \
+              --jq '[.jobs[] | select(.conclusion == "failure") | select(.name | test("Aggregate|aggregate") | not) | .name] | unique')
+            echo "jobs=${failed}" >> "$GITHUB_OUTPUT"
+
+            count=$(echo "$failed" | jq 'length')
+            echo "job-count=${count}" >> "$GITHUB_OUTPUT"
+            echo "Failed jobs: ${failed}"
+          fi
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+
+      # Read autofix state from PR comment
+      - name: Read autofix state
+        if: steps.skip-check.outputs.skip != 'true'
+        id: state
+        run: |
+          # Find PR comment with egg-autofix-state marker
+          state_comment=$(gh api "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" \
+            --jq '[.[] | select(.body | contains("<!-- egg-autofix-state -->"))] | last // empty')
+
+          if [[ -n "$state_comment" ]]; then
+            comment_id=$(echo "$state_comment" | jq -r '.id')
+            # Extract JSON from the comment body (between ```json and ```)
+            # shellcheck disable=SC2016 # backticks are markdown fences, not command substitutions
+            state_json=$(echo "$state_comment" | jq -r '.body' | sed -n '/```json/,/```/p' | sed '1d;$d')
+            echo "comment-id=${comment_id}" >> "$GITHUB_OUTPUT"
+            echo "state=${state_json}" >> "$GITHUB_OUTPUT"
+            echo "Found existing state: ${state_json}"
+          else
+            echo "comment-id=" >> "$GITHUB_OUTPUT"
+            echo "state={}" >> "$GITHUB_OUTPUT"
+            echo "No existing autofix state found"
+          fi
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+
+      # Minimize previous status comments
+      - name: Minimize previous autofix comments
+        if: steps.skip-check.outputs.skip != 'true'
+        run: |
+          gh api "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" \
+            --jq ".[] | select(.user.login == \"$EGG_BOT_USERNAME\" or .user.login == \"${EGG_BOT_USERNAME}[bot]\") | select(.body | contains(\"<!-- egg-status-comment -->\")) | .node_id" \
+          | while read -r node_id; do
+              # shellcheck disable=SC2016 # $id is a GraphQL variable, not bash
+              gh api graphql -f query='
+                mutation($id: ID!) {
+                  minimizeComment(input: {subjectId: $id, classifier: OUTDATED}) {
+                    minimizedComment { isMinimized }
+                  }
+                }
+              ' -f id="$node_id" || true
+            done
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+
+      # Post acknowledgment
+      - name: Post starting comment
+        if: steps.skip-check.outputs.skip != 'true'
+        run: |
+          if [[ -n "$FAILED_RUN_ID" && "$FAILED_WORKFLOW" != "manual" ]]; then
+            RUN_LINK="[${FAILED_WORKFLOW}](${SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${FAILED_RUN_ID})"
+            JOB_LIST=""
+            if [[ "$FAILED_JOBS_JSON" != "[]" ]]; then
+              JOB_LIST=$(echo "$FAILED_JOBS_JSON" | jq -r '.[] | "- " + .')
+              JOB_LIST=$'\n'"${JOB_LIST}"
+            fi
+            BODY="<!-- egg-status-comment -->
+          egg is investigating the ${RUN_LINK} check failure...
+          ${JOB_LIST}"
+          else
+            BODY="<!-- egg-status-comment -->
+          egg is investigating check failures for PR #${PR_NUMBER}..."
+          fi
+          # Strip leading whitespace from each line (caused by YAML indentation)
+          # shellcheck disable=SC2001 # sed is needed for regex-based multiline substitution
+          BODY=$(echo "$BODY" | sed 's/^[[:space:]]*//')
+          gh api "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" -f body="$BODY"
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+          FAILED_JOBS_JSON: ${{ steps.failed-jobs.outputs.jobs }}
+          SERVER_URL: ${{ github.server_url }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+
+      # SECURITY: Build the fixer prompt from a trusted checkout (main).
+      - name: Checkout main (trusted)
+        if: steps.skip-check.outputs.skip != 'true'
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          persist-credentials: false
+
+      # Build fix plan: prompt, non-LLM fixes, retry state
+      - name: Build fix plan
+        if: steps.skip-check.outputs.skip != 'true'
+        id: plan
+        run: bash ${{ inputs.prompt_script }}
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+          PR_NUMBER: ${{ env.PR_NUMBER }}
+          FAILED_WORKFLOW: ${{ env.FAILED_WORKFLOW }}
+          FAILED_RUN_ID: ${{ env.FAILED_RUN_ID }}
+          FAILED_JOBS: ${{ steps.failed-jobs.outputs.jobs }}
+          AUTOFIX_STATE: ${{ steps.state.outputs.state }}
+          CONFIG_FILE: ${{ inputs.config_file }}
+
+      # Check if max retries reached — escalate
+      - name: Check max retries and escalate
+        if: steps.skip-check.outputs.skip != 'true' && steps.plan.outputs.max-retries-reached == 'true'
+        id: escalation
+        run: |
+          RUN_URL="${SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${FAILED_RUN_ID}"
+
+          # Build escalation table
+          TABLE="| Check | Attempts | Logs |"
+          TABLE="${TABLE}"$'\n'"| ----- | -------- | ---- |"
+          while IFS= read -r row; do
+            job=$(echo "$row" | jq -r '.job')
+            attempts=$(echo "$row" | jq -r '.attempts')
+            max=$(echo "$row" | jq -r '.max')
+            TABLE="${TABLE}"$'\n'"| ${FAILED_WORKFLOW} / ${job} | ${attempts}/${max} | [View](${RUN_URL}) |"
+          done < <(echo "$ESCALATION" | jq -c '.[]')
+
+          # Add context if LLM fixer is still running for other checks
+          STILL_RUNNING=""
+          if [[ "$NEEDS_LLM" == "true" ]]; then
+            STILL_RUNNING=$'\n'"_Other failing checks are still being addressed by the autofixer._"$'\n'
+          fi
+
+          BODY="<!-- egg-status-comment -->
+          ## Autofix: Human Input Needed
+
+          The following checks could not be fixed automatically after multiple attempts:
+
+          ${TABLE}
+          ${STILL_RUNNING}
+          Please investigate manually or push a fix.
+
+          — Authored by egg"
+
+          # shellcheck disable=SC2001
+          BODY=$(echo "$BODY" | sed 's/^[[:space:]]*//')
+          gh api "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" -f body="$BODY"
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+          ESCALATION: ${{ steps.plan.outputs.escalation-details }}
+          NEEDS_LLM: ${{ steps.plan.outputs.needs-llm }}
+          SERVER_URL: ${{ github.server_url }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+
+      # Run non-LLM fixes (first attempt only for applicable checks)
+      - name: Checkout PR branch for non-LLM fixes
+        if: steps.skip-check.outputs.skip != 'true' && steps.plan.outputs.has-non-llm-fixes == 'true'
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ steps.pr-meta.outputs.head-repo }}
+          ref: ${{ steps.pr-meta.outputs.head-ref }}
+          token: ${{ steps.bot-token.outputs.token }}
+          persist-credentials: true
+
+      - name: Run non-LLM fixes
+        if: steps.skip-check.outputs.skip != 'true' && steps.plan.outputs.has-non-llm-fixes == 'true'
+        id: non-llm
+        run: |
+          echo "Running non-LLM fixes..."
+
+          # Execute each fix command
+          # SECURITY: Commands come from check-fixers.yml in the trusted main checkout.
+          # The `eval` is safe because the config is not user-controlled — it's read from
+          # the main branch by the prompt builder step (which also runs from main).
+          echo "$NON_LLM_FIXES" | jq -c '.[]' | while IFS= read -r fix; do
+            job=$(echo "$fix" | jq -r '.job')
+            command=$(echo "$fix" | jq -r '.command')
+            echo "::group::Non-LLM fix for ${job}"
+            echo "Running: ${command}"
+            eval "$command" || echo "::warning::Non-LLM fix for ${job} had non-zero exit (continuing)"
+            echo "::endgroup::"
+          done
+
+          # Check if any files changed
+          if git diff --quiet && git diff --cached --quiet; then
+            echo "changes=false" >> "$GITHUB_OUTPUT"
+            echo "No changes from non-LLM fixes"
+          else
+            echo "changes=true" >> "$GITHUB_OUTPUT"
+            echo "Non-LLM fixes produced changes"
+          fi
+        env:
+          NON_LLM_FIXES: ${{ steps.plan.outputs.non-llm-fixes }}
+
+      - name: Commit and push non-LLM fixes
+        if: steps.skip-check.outputs.skip != 'true' && steps.non-llm.outputs.changes == 'true'
+        id: non-llm-push
+        run: |
+          git config user.name "egg"
+          git config user.email "egg@localhost"
+          git add -u
+          git commit -m "Fix checks: apply automated formatting fixes"
+          git push
+          echo "pushed=true" >> "$GITHUB_OUTPUT"
+          echo "Non-LLM fixes committed and pushed. CI will re-run."
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+
+      # Update state after non-LLM fixes (only increment jobs that were attempted)
+      - name: Update state after non-LLM fixes
+        if: steps.skip-check.outputs.skip != 'true' && steps.non-llm-push.outputs.pushed == 'true'
+        run: |
+          # Data passed via env vars to avoid shell interpolation injection
+          NEW_STATE=$(python3 -c "
+          import json, os
+          state = json.loads(os.environ['CURRENT_STATE']) if os.environ.get('CURRENT_STATE') else {}
+          attempted = json.loads(os.environ['ATTEMPTED_JOBS'])
+          workflow = os.environ['FAILED_WORKFLOW']
+          for job in attempted:
+              key = f'{workflow}/{job}'
+              state[key] = state.get(key, 0) + 1
+          print(json.dumps(state, indent=2))
+          ")
+
+          BODY="<!-- egg-autofix-state -->
+          <details><summary>Autofix tracking</summary>
+
+          \`\`\`json
+          ${NEW_STATE}
+          \`\`\`
+          </details>"
+
+          # shellcheck disable=SC2001
+          BODY=$(echo "$BODY" | sed 's/^[[:space:]]*//')
+
+          if [[ -n "$COMMENT_ID" ]]; then
+            gh api "repos/${GITHUB_REPOSITORY}/issues/comments/${COMMENT_ID}" -X PATCH -f body="$BODY"
+          else
+            gh api "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" -f body="$BODY"
+          fi
+
+          # Post result comment
+          RESULT_BODY="<!-- egg-status-comment -->
+          egg applied automated formatting fixes and pushed. CI will re-run to verify.
+
+          — Authored by egg"
+          # shellcheck disable=SC2001
+          RESULT_BODY=$(echo "$RESULT_BODY" | sed 's/^[[:space:]]*//')
+          gh api "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" -f body="$RESULT_BODY"
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+          ATTEMPTED_JOBS: ${{ steps.plan.outputs.non-llm-jobs }}
+          CURRENT_STATE: ${{ steps.state.outputs.state }}
+          COMMENT_ID: ${{ steps.state.outputs.comment-id }}
+          FAILED_WORKFLOW: ${{ env.FAILED_WORKFLOW }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+
+      # If non-LLM fixes were pushed, exit here — CI will re-run
+      - name: Exit after non-LLM fixes
+        if: steps.skip-check.outputs.skip != 'true' && steps.non-llm-push.outputs.pushed == 'true'
+        run: |
+          echo "Non-LLM fixes pushed. Exiting — CI will re-run and re-trigger if still failing."
+
+      # Fall through to LLM fixer if non-LLM fixes ran but produced no changes
+      - name: Check non-LLM fallthrough
+        if: >-
+          steps.skip-check.outputs.skip != 'true'
+          && steps.plan.outputs.has-non-llm-fixes == 'true'
+          && steps.non-llm.outputs.changes == 'false'
+        id: non-llm-fallthrough
+        run: |
+          echo "Non-LLM fixes produced no changes, falling through to LLM fixer"
+          echo "fallthrough=true" >> "$GITHUB_OUTPUT"
+
+      # Run LLM fixer (when non-LLM didn't apply or didn't resolve).
+      # needs-llm is true when at least one check still needs LLM fixing
+      # (checks that exceeded max retries are excluded from the prompt).
+      # Also runs when non-LLM fixes produced no changes (fallthrough).
+      - name: Checkout PR branch for LLM fixer
+        if: >-
+          steps.skip-check.outputs.skip != 'true'
+          && (steps.plan.outputs.needs-llm == 'true' || steps.non-llm-fallthrough.outputs.fallthrough == 'true')
+          && steps.non-llm-push.outputs.pushed != 'true'
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ steps.pr-meta.outputs.head-repo }}
+          ref: ${{ steps.pr-meta.outputs.head-ref }}
+          persist-credentials: false
+
+      - name: Run egg check fixer
+        if: >-
+          steps.skip-check.outputs.skip != 'true'
+          && (steps.plan.outputs.needs-llm == 'true' || steps.non-llm-fallthrough.outputs.fallthrough == 'true')
+          && steps.non-llm-push.outputs.pushed != 'true'
+        id: egg
+        uses: jwbron/egg/action@main
+        with:
+          prompt-file: ${{ steps.plan.outputs.prompt-file }}
+          model: ${{ steps.plan.outputs.model }}
+          anthropic-oauth-token: ${{ secrets.ANTHROPIC_OAUTH_TOKEN }}
+          bot-app-id: ${{ secrets.BOT_APP_ID }}
+          bot-app-private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
+          bot-app-installation-id: ${{ secrets.BOT_APP_INSTALLATION_ID }}
+          bot-username: ${{ env.EGG_BOT_USERNAME }}
+          bot-branch-prefix: ${{ env.BRANCH_PREFIX }}
+          checkpoint-repo: ${{ vars.EGG_CHECKPOINT_REPO || '' }}
+          timeout: ${{ inputs.timeout }}
+
+      # Update state after LLM fixer (only increment jobs that were attempted by LLM)
+      - name: Update state after LLM fixer
+        if: >-
+          always() && !cancelled()
+          && steps.skip-check.outputs.skip != 'true'
+          && (steps.plan.outputs.needs-llm == 'true' || steps.non-llm-fallthrough.outputs.fallthrough == 'true')
+          && steps.non-llm-push.outputs.pushed != 'true'
+        run: |
+          # Data passed via env vars to avoid shell interpolation injection
+          NEW_STATE=$(python3 -c "
+          import json, os
+          state = json.loads(os.environ['CURRENT_STATE']) if os.environ.get('CURRENT_STATE') else {}
+          attempted = json.loads(os.environ['ATTEMPTED_JOBS'])
+          workflow = os.environ['FAILED_WORKFLOW']
+          for job in attempted:
+              key = f'{workflow}/{job}'
+              state[key] = state.get(key, 0) + 1
+          print(json.dumps(state, indent=2))
+          ")
+
+          BODY="<!-- egg-autofix-state -->
+          <details><summary>Autofix tracking</summary>
+
+          \`\`\`json
+          ${NEW_STATE}
+          \`\`\`
+          </details>"
+
+          # shellcheck disable=SC2001
+          BODY=$(echo "$BODY" | sed 's/^[[:space:]]*//')
+
+          if [[ -n "$COMMENT_ID" ]]; then
+            gh api "repos/${GITHUB_REPOSITORY}/issues/comments/${COMMENT_ID}" -X PATCH -f body="$BODY"
+          else
+            gh api "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" -f body="$BODY"
+          fi
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+          COMMENT_ID: ${{ steps.state.outputs.comment-id }}
+          # In fallthrough, the LLM gets all non-escalated jobs (prompt includes them all).
+          # Otherwise, only the jobs originally designated for LLM.
+          ATTEMPTED_JOBS: ${{ steps.non-llm-fallthrough.outputs.fallthrough == 'true' && steps.plan.outputs.all-non-escalated-jobs || steps.plan.outputs.llm-jobs }}
+          CURRENT_STATE: ${{ steps.state.outputs.state }}
+          FAILED_WORKFLOW: ${{ env.FAILED_WORKFLOW }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+
+      # Post result comment
+      - name: Post result comment
+        if: >-
+          always() && !cancelled()
+          && steps.skip-check.outputs.skip != 'true'
+          && steps.non-llm-push.outputs.pushed != 'true'
+        run: |
+          RUN_URL="${SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}"
+
+          if [[ "$MAX_RETRIES_REACHED" == "true" && "$NEEDS_LLM" != "true" ]]; then
+            # All checks exceeded max retries, escalation comment already posted
+            echo "Escalation comment already posted, skipping result comment"
+          elif [[ "$EGG_OUTCOME" == "success" ]]; then
+            BODY="<!-- egg-status-comment -->
+          egg check fixer completed for **${FAILED_WORKFLOW}**. CI will re-run to verify. [View run logs](${RUN_URL})
+
+          — Authored by egg"
+            # shellcheck disable=SC2001
+            BODY=$(echo "$BODY" | sed 's/^[[:space:]]*//')
+            gh api "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" -f body="$BODY"
+          elif [[ "$EGG_OUTCOME" == "failure" ]]; then
+            BODY="<!-- egg-status-comment -->
+          egg check fixer encountered an issue fixing **${FAILED_WORKFLOW}**. [View run logs](${RUN_URL})
+
+          — Authored by egg"
+            # shellcheck disable=SC2001
+            BODY=$(echo "$BODY" | sed 's/^[[:space:]]*//')
+            gh api "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" -f body="$BODY"
+          else
+            # EGG_OUTCOME is empty or unexpected (e.g., egg step was skipped due to
+            # an earlier step failure). Post a status-unknown comment so the run
+            # doesn't complete silently.
+            BODY="<!-- egg-status-comment -->
+          egg check fixer status unknown for **${FAILED_WORKFLOW}** (fixer step may have been skipped). [View run logs](${RUN_URL})
+
+          — Authored by egg"
+            # shellcheck disable=SC2001
+            BODY=$(echo "$BODY" | sed 's/^[[:space:]]*//')
+            gh api "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" -f body="$BODY"
+          fi
+        env:
+          GH_TOKEN: ${{ steps.bot-token.outputs.token }}
+          MAX_RETRIES_REACHED: ${{ steps.plan.outputs.max-retries-reached }}
+          NEEDS_LLM: ${{ steps.plan.outputs.needs-llm }}
+          EGG_OUTCOME: ${{ steps.egg.outcome }}
+          SERVER_URL: ${{ github.server_url }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}

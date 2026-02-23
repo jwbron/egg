@@ -28,6 +28,7 @@ Review criteria for each workflow are defined in `shared/prompts/` as markdown f
 | `shared/prompts/code-review-criteria.md` | AI Code Review, orchestrator reviewers |
 | `shared/prompts/agent-design-criteria.md` | Design Review, orchestrator reviewers |
 | `shared/prompts/autofixer-rules.md` | Check Autofixer |
+| `shared/check-fixers.yml` | Check Autofixer (per-job config: non-LLM fixes, retries, model) |
 | `shared/prompts/contract-review-criteria.md` | Contract Verification, orchestrator reviewers |
 | `shared/prompts/onboarding-docs-prompt.md` | Documentation Onboarding (`egg-onboarding-docs`) |
 
@@ -293,21 +294,67 @@ Contract files follow the schema at `.egg/schemas/contract.schema.json`. The wor
 ## Check Autofixer
 
 **Workflow:** [`.github/workflows/on-check-failure.yml`](../../.github/workflows/on-check-failure.yml)
+**Framework:** [`.github/workflows/reusable-check-fixer.yml`](../../.github/workflows/reusable-check-fixer.yml)
+**Config:** [`shared/check-fixers.yml`](../../shared/check-fixers.yml)
 
 Triggers when `Lint`, `Test`, or `Integration Tests` workflows fail on a PR, or via `workflow_dispatch`.
+Uses a per-check fixer loop where CI validates after each fix attempt.
 
 ### How It Works
 
 1. **Skip check** — Skips PRs with `[skip-autofix]` in the title.
-2. **Comment cleanup** — Minimizes previous "investigating" comments to reduce clutter.
-3. **Acknowledgment** — Posts a comment linking to the failed workflow run.
-4. **Trusted prompt build** — Builds the autofixer prompt from `main` using
-   `build-autofixer-prompt.sh`, which includes the failed workflow name and run ID.
-5. **Investigation** — The agent uses `gh pr checks` to list failures, examines logs
-   via `gh run view <id> --log-failed`, and reads workflow files for context.
-6. **Fix or report** — Auto-fixable issues (lint, formatting, simple type errors) are
-   fixed, committed, and pushed. Complex issues get a comment explaining the problem
-   and suggested next steps.
+2. **Identify failed jobs** — Queries the GitHub API for which specific jobs failed
+   in the triggering workflow run (e.g., Python, Shell within Lint).
+3. **Read autofix state** — Reads retry counts from a `<!-- egg-autofix-state -->`
+   PR comment to track how many times each check has been attempted.
+4. **Comment cleanup** — Minimizes previous status comments to reduce clutter.
+5. **Build fix plan** — Runs `build-check-fixer-prompt.sh` from `main` (trusted),
+   which reads `check-fixers.yml` config and determines:
+   - Which checks have non-LLM fixes available (ruff, shfmt, etc.)
+   - Which checks need the LLM fixer
+   - Which checks have exceeded max retries (escalation needed)
+6. **Phase 1: Non-LLM fixes** — On first attempt, runs mechanical fixes (e.g.,
+   `ruff format`, `shfmt`) for applicable checks. If changes are produced, commits,
+   pushes, and **exits** — CI re-runs with fresh context.
+7. **Phase 2: LLM fixer** — If non-LLM fixes didn't apply or didn't resolve the
+   issue, runs a focused LLM agent with a prompt listing only the specific failed
+   jobs. The agent fixes and pushes but does **not** re-run checks locally.
+8. **State update** — Increments attempt counts for each failed check in the
+   state comment.
+9. **Escalation** — When any check exceeds its `max_retries`, posts an escalation
+   comment listing the checks that need human attention.
+
+### CI-Driven Loop
+
+The fixer operates in a loop driven by CI:
+```
+CI fails → fixer fixes → pushes → CI re-runs → still fails? → fixer re-invoked
+```
+
+The fixer does **not** run checks locally. This avoids wasting agent compute
+on re-running checks that CI already handles. Each push triggers CI, which
+re-triggers the fixer if checks still fail.
+
+### Non-LLM Fixes
+
+Mechanical fixes run before the LLM fixer on first attempt. Configured per job
+in `check-fixers.yml`:
+
+| Check | Non-LLM Fix |
+|-------|-------------|
+| Lint / Python | `ruff check --fix --unsafe-fixes` + `ruff format` |
+| Lint / Shell | `shfmt` formatting |
+| Lint / YAML | Trailing whitespace removal + final newline |
+
+If non-LLM fixes produce changes, they are committed and pushed immediately.
+CI re-runs, and if the check still fails, the LLM fixer handles it on the
+next attempt.
+
+### Retry and Escalation
+
+Each check has a configurable `max_retries` (default: 3). State is tracked
+in a PR comment with a JSON payload. When a check exceeds its max retries,
+an escalation comment is posted requesting human intervention.
 
 ### Auto-Fix vs Report
 
@@ -317,6 +364,25 @@ The agent follows these rules (customizable via `.egg/autofixer-rules.md`):
 |--------|------|
 | **Auto-fix** | Lint errors, formatting, import order, type errors with clear fixes, simple test failures |
 | **Report only** | Complex logic errors, security issues, unclear requirements, missing environment config |
+
+### Concurrency
+
+Fixers serialize per PR using `cancel-in-progress: false`. When both Lint and
+Test fail simultaneously, the two `workflow_run` events queue and execute
+sequentially rather than one canceling the other.
+
+### Configuration
+
+Per-job settings in `check-fixers.yml`:
+
+| Setting | Default | Purpose |
+|---------|---------|---------|
+| `model` | `sonnet` | LLM model for this check |
+| `timeout` | `15` | Minutes before timeout |
+| `max_retries` | `3` | Max fix attempts before escalation |
+| `non_llm_fix` | (none) | Shell commands for mechanical fixing |
+
+Repos can override by placing `.egg/check-fixers.yml` in their repository.
 
 ## Conflict Resolver
 
@@ -536,6 +602,7 @@ This variable controls who can trigger the Address Review Feedback workflow thro
 |------|---------|
 | `.egg/review-rules.md` | Custom review focus areas (overrides defaults) |
 | `.egg/autofixer-rules.md` | Custom auto-fix vs report rules (overrides defaults) |
+| `.egg/check-fixers.yml` | Custom per-check fixer config (overrides `shared/check-fixers.yml`) |
 | `.egg/conflict-rules.md` | Custom conflict resolution rules (overrides defaults) |
 
 ### Skip Labels

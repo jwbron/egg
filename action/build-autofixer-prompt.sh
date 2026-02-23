@@ -1,4 +1,8 @@
 #!/usr/bin/env bash
+# DEPRECATED: Use build-check-fixer-prompt.sh instead.
+# This script is kept for external repos that still reference it.
+# New repos should use reusable-check-fixer.yml with build-check-fixer-prompt.sh.
+#
 # build-autofixer-prompt.sh — Build a minimal prompt for agent-driven check autofix
 #
 # This script creates a minimal prompt that tells Claude to investigate check
