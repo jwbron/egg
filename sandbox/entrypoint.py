@@ -810,8 +810,10 @@ def setup_agent_rules(config: Config, logger: Logger) -> None:
     if not (rules_dir / "mission.md").exists():
         return
 
-    # Combine rules into CLAUDE.md
-    claude_md = config.user_home / "CLAUDE.md"
+    # Combine rules into ~/.claude/CLAUDE.md (user-level global config)
+    # This is the documented Claude Code location for user-wide instructions,
+    # loaded automatically regardless of CWD or which repo is checked out.
+    claude_md = config.claude_dir / "CLAUDE.md"
     content_parts = []
 
     for rule_file in rules_order:
@@ -819,18 +821,21 @@ def setup_agent_rules(config: Config, logger: Logger) -> None:
         if rule_path.exists():
             content_parts.append(rule_path.read_text())
 
+    # Ensure ~/.claude/ exists (setup_claude creates it later, but we need it now)
+    config.claude_dir.mkdir(parents=True, exist_ok=True)
     claude_md.write_text("\n\n---\n\n".join(content_parts))
     os.chown(claude_md, config.runtime_uid, config.runtime_gid)
 
-    # Symlink in ~/repos/
-    if config.repos_dir.exists():
-        repos_claude = config.repos_dir / "CLAUDE.md"
-        if repos_claude.is_symlink():
-            repos_claude.unlink()
-        repos_claude.symlink_to(claude_md)
-        os.lchown(repos_claude, config.runtime_uid, config.runtime_gid)
+    # Clean up stale files from previous location (~/CLAUDE.md, ~/repos/CLAUDE.md symlink)
+    # to prevent duplicate rules when upgrading on persistent volumes.
+    stale_home = config.user_home / "CLAUDE.md"
+    if stale_home.exists() or stale_home.is_symlink():
+        stale_home.unlink()
+    stale_repos = config.repos_dir / "CLAUDE.md"
+    if stale_repos.exists() or stale_repos.is_symlink():
+        stale_repos.unlink()
 
-    logger.success("AI agent rules installed: ~/CLAUDE.md (symlinked to ~/repos/)")
+    logger.success("AI agent rules installed: ~/.claude/CLAUDE.md (global)")
     logger.info(f"  Combined {len(rules_order)} rule files (index-based per LLM Doc ADR)")
     logger.info("  Note: Reference docs at $EGG_REPO_PATH/docs/ (fetched on-demand)")
 
