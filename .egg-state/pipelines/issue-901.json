@@ -5,7 +5,7 @@
   "branch": "egg/issue-901",
   "mode": "issue",
   "prompt": null,
-  "status": "running",
+  "status": "complete",
   "current_phase": "pr",
   "config": {
     "auto_create_pr": true,
@@ -538,7 +538,7 @@
     }
   ],
   "created_at": "2026-02-24T15:56:53.359677",
-  "updated_at": "2026-02-24T19:50:56.562508",
+  "updated_at": "2026-02-24T19:50:56.596422",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
@@ -546,5 +546,5 @@
   "error": null,
   "plan_phase_waves": null,
   "plan_phase_names": null,
-  "version": 66
+  "version": 67
 }
