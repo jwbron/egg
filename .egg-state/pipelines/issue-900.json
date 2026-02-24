@@ -67,9 +67,24 @@
       "phase_start_sha": null
     }
   },
-  "decisions": [],
+  "decisions": [
+    {
+      "id": "decision-1",
+      "question": "Should decision_type use a Python enum, Literal type, or free-form str?",
+      "context": "",
+      "options": [
+        "Enum (DecisionType class, matches existing DecisionStatus pattern)",
+        "Literal type (simpler, no new class)",
+        "Free-form str with default (most flexible)"
+      ],
+      "status": "pending",
+      "created_at": "2026-02-24T21:49:36.713066",
+      "resolved_at": null,
+      "resolution": null
+    }
+  ],
   "created_at": "2026-02-24T21:42:50.271543",
-  "updated_at": "2026-02-24T21:42:50.598728",
+  "updated_at": "2026-02-24T21:49:36.716336",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
@@ -77,5 +92,5 @@
   "error": null,
   "plan_phase_waves": null,
   "plan_phase_names": null,
-  "version": 7
+  "version": 8
 }
