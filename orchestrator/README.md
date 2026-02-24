@@ -169,7 +169,7 @@ See [Architecture: Deployment Modes](../docs/architecture/orchestrator.md#deploy
 orchestrator/
 ├── api.py                  # Flask REST API server with blueprint registration
 ├── cli.py                  # CLI interface (serve, health, pipelines commands)
-├── models.py               # Pydantic models (Pipeline, AgentExecution, ContainerInfo, etc.)
+├── models.py               # Pydantic models (Pipeline, AgentExecution, ReviewVerdict, AggregatedReviewResult, etc.)
 ├── state_store.py          # Git-backed persistent state storage
 ├── container_spawner.py    # Container spawning with gateway session integration
 ├── container_monitor.py    # Container state monitoring and lifecycle tracking
