@@ -176,10 +176,10 @@
         "Always available (keep current behavior)",
         "Available on phase_gate and feedback, but not choice"
       ],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-02-24T21:49:54.225217",
-      "resolved_at": null,
-      "resolution": null
+      "resolved_at": "2026-02-24T22:01:59.680474",
+      "resolution": "Approved"
     },
     {
       "id": "decision-6",
@@ -209,7 +209,7 @@
     }
   ],
   "created_at": "2026-02-24T21:42:50.271543",
-  "updated_at": "2026-02-24T22:01:54.953974",
+  "updated_at": "2026-02-24T22:01:59.683188",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
@@ -217,5 +217,5 @@
   "error": null,
   "plan_phase_waves": null,
   "plan_phase_names": null,
-  "version": 26
+  "version": 27
 }
