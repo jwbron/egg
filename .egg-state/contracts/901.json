@@ -5,7 +5,7 @@
     "title": "Issue #901",
     "url": "https://github.com/jwbron/egg/issues/901"
   },
-  "pipeline_id": null,
+  "pipeline_id": "issue-901",
   "current_phase": "refine",
   "acceptance_criteria": [],
   "phases": [],
