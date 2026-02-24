@@ -123,10 +123,10 @@
         "Literal type (simpler, no new class)",
         "Free-form str with default (most flexible)"
       ],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-02-24T21:49:36.713066",
-      "resolved_at": null,
-      "resolution": null
+      "resolved_at": "2026-02-24T22:01:13.632626",
+      "resolution": "free-form str"
     },
     {
       "id": "decision-2",
@@ -209,7 +209,7 @@
     }
   ],
   "created_at": "2026-02-24T21:42:50.271543",
-  "updated_at": "2026-02-24T21:55:04.821282",
+  "updated_at": "2026-02-24T22:01:13.634616",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
@@ -217,5 +217,5 @@
   "error": null,
   "plan_phase_waves": null,
   "plan_phase_names": null,
-  "version": 22
+  "version": 23
 }
