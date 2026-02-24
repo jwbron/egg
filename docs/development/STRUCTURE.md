@@ -68,8 +68,7 @@ gateway/
 ├── Dockerfile              # Gateway container image
 ├── squid.conf              # Proxy config (private mode)
 ├── scripts/                # Gateway helper scripts
-└── tests/                  # Gateway tests
-    └── test_assigned_branch.py  # Push-target enforcement and branch lock tests
+└── tests/                  # Gateway tests (push-target enforcement, branch lock, 40+ files)
 ```
 
 ## Orchestrator Structure
@@ -124,9 +123,7 @@ orchestrator/
 ├── Dockerfile              # Orchestrator container image
 ├── entrypoint.sh           # Container entry point
 ├── requirements.txt        # Python dependencies
-└── tests/                  # Orchestrator tests (30+ files, including health check tests)
-    ├── test_signals.py     # Signal handling and completion branch verification tests
-    └── test_sync_worktree.py  # Worktree sync with remote tests
+└── tests/                  # Orchestrator tests (signal verification, worktree sync, health checks, 30+ files)
 ```
 
 ## Sandbox Structure
@@ -161,8 +158,7 @@ sandbox/
 ├── claude-commands/        # Custom slash commands
 ├── claude-rules/           # Agent behavior rules
 ├── scripts/                # Container helper scripts
-└── tests/                  # Sandbox tests
-    └── test_command_timeout.py  # Per-command timeout wrapper tests
+└── tests/                  # Sandbox tests (command timeout, test infrastructure)
 ```
 
 ## Shared Libraries
