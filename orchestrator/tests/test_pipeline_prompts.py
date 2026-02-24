@@ -8,6 +8,8 @@ import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 # Mock heavy dependencies that pipelines.py imports at module level
 _docker_mock = MagicMock()
 sys.modules.setdefault("docker", _docker_mock)
@@ -2475,7 +2477,6 @@ class TestBuildReviewPrompt:
         assert "Cross-reference" in prompt
         assert "Cite specific" in prompt
         assert "completeness" in prompt.lower()
-<<<<<<< HEAD
 
     def test_non_code_reviewer_generic_conventions_framing(self):
         """Non-code reviewers get generic quality standards framing, not infrastructure framing."""
@@ -2598,11 +2599,8 @@ class TestBuildReviewPrompt:
 
     def test_unknown_reviewer_type_raises_error(self):
         """Unknown reviewer type raises ValueError in preamble."""
-        try:
+        with pytest.raises(ValueError, match="Unknown reviewer type"):
             _get_reviewer_scope_preamble("unknown-type", "implement")
-            assert False, "Expected ValueError was not raised"
-        except ValueError as e:
-            assert "Unknown reviewer type" in str(e)
 
     def test_feedback_field_guideline_blocking_only(self):
         """Feedback field guideline makes clear it's for blocking issues only."""
@@ -2640,5 +2638,3 @@ class TestBuildReviewPrompt:
         assert "Trace data flow" in prompt
         assert "edge cases" in prompt.lower()
         assert "Research when uncertain" in prompt
-=======
->>>>>>> d42035edc (Deepen SDLC review quality with expanded verdict schema and aligned prompts)

@@ -11,7 +11,6 @@ including:
 
 import sys
 from pathlib import Path
-from types import ModuleType
 from unittest.mock import MagicMock
 
 # Add shared and orchestrator to path for import
@@ -336,9 +335,7 @@ class TestProductionAggregateReviewVerdicts:
         """Any needs_revision → overall needs_revision."""
         verdicts = {
             "code": self.ReviewVerdict(verdict="approved"),
-            "contract": self.ReviewVerdict(
-                verdict="needs_revision", feedback="Missing tests"
-            ),
+            "contract": self.ReviewVerdict(verdict="needs_revision", feedback="Missing tests"),
         }
         result = self._aggregate(verdicts)
         assert result.verdict == "needs_revision"
@@ -421,7 +418,6 @@ class TestProductionAggregateReviewVerdicts:
         # Positional: [0]=verdict, [1]=blocking_feedback, [2]=advisory_content
         assert result[0] == "needs_revision"
         assert "Bug found" in result[1]
-<<<<<<< HEAD
 
     def test_empty_verdicts_dict(self):
         """Empty dict returns approved with empty strings."""
@@ -519,5 +515,3 @@ class TestProductionAggregateReviewVerdicts:
         result = self._aggregate(verdicts)
         assert "**Suggestions:**" in result.advisory_content
         assert "type annotation" in result.advisory_content
-=======
->>>>>>> d42035edc (Deepen SDLC review quality with expanded verdict schema and aligned prompts)
