@@ -136,10 +136,10 @@
         "\"choice\" (old decisions render as choices, as specified in issue)",
         "\"unknown\" (explicit marker that type was not set, terminal falls back to heuristics)"
       ],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-02-24T21:49:42.524879",
-      "resolved_at": null,
-      "resolution": null
+      "resolved_at": "2026-02-24T22:01:49.304843",
+      "resolution": "Approved"
     },
     {
       "id": "decision-3",
@@ -209,7 +209,7 @@
     }
   ],
   "created_at": "2026-02-24T21:42:50.271543",
-  "updated_at": "2026-02-24T22:01:13.634616",
+  "updated_at": "2026-02-24T22:01:49.310818",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
@@ -217,5 +217,5 @@
   "error": null,
   "plan_phase_waves": null,
   "plan_phase_names": null,
-  "version": 23
+  "version": 24
 }
