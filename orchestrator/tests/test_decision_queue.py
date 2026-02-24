@@ -7,19 +7,16 @@ error cases (DecisionNotFoundError, DecisionAlreadyResolvedError),
 and the get_decision_queue factory.
 """
 
-from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
-
 from decision_queue import (
     DecisionAlreadyResolvedError,
     DecisionNotFoundError,
     DecisionQueue,
     get_decision_queue,
 )
-from models import DecisionStatus, HITLDecision, Pipeline
-
+from models import DecisionStatus, Pipeline
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -336,7 +333,9 @@ class TestHandlerManagement:
     def test_add_and_remove_handler(self, queue):
         """Handler can be added and removed."""
         received = []
-        handler = lambda d: received.append(d)
+
+        def handler(d):
+            received.append(d)
 
         queue.add_handler(handler)
         queue.queue_decision(question="With handler?")

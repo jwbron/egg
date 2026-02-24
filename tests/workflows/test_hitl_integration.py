@@ -157,7 +157,6 @@ class TestTypedDecisionIntegration:
 
     def test_phase_gate_decision_type_field(self):
         """Phase gate decisions should have decision_type='phase_gate'."""
-        from egg_lib.sdlc_hitl import handle_hitl_checkpoint
 
         decision = {
             "id": "decision-1",
@@ -177,10 +176,12 @@ class TestTypedDecisionIntegration:
 
     def test_json_resolution_request_changes_parsed(self):
         """JSON request_changes should extract readable feedback."""
-        resolution = json.dumps({
-            "action": "request_changes",
-            "feedback": "Add more detail to section 3",
-        })
+        resolution = json.dumps(
+            {
+                "action": "request_changes",
+                "feedback": "Add more detail to section 3",
+            }
+        )
         payload = json.loads(resolution)
         assert payload["action"] == "request_changes"
         assert payload["feedback"] == "Add more detail to section 3"
@@ -239,8 +240,11 @@ class TestTypedDecisionIntegration:
         }
 
         result = handle_hitl_checkpoint(
-            client, "issue-100", decision,
-            pipeline_mode="issue", issue_number=100,
+            client,
+            "issue-100",
+            decision,
+            pipeline_mode="issue",
+            issue_number=100,
         )
 
         assert result == "resolved"
@@ -270,8 +274,11 @@ class TestTypedDecisionIntegration:
         }
 
         result = handle_hitl_checkpoint(
-            client, "issue-100", decision,
-            pipeline_mode="issue", issue_number=100,
+            client,
+            "issue-100",
+            decision,
+            pipeline_mode="issue",
+            issue_number=100,
         )
 
         assert result == "resolved"

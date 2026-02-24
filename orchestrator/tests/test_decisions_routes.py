@@ -6,7 +6,6 @@ POST without new fields (defaults applied), and GET list/get endpoints
 include decision_type and questions in response serialization.
 """
 
-import json
 import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -44,7 +43,7 @@ def client(app):
 
 def _make_pipeline(pipeline_id="test-pipeline", decisions=None):
     """Create a mock Pipeline object."""
-    from models import DecisionStatus, HITLDecision, Pipeline
+    from models import Pipeline
 
     pipeline = Pipeline(
         id=pipeline_id,
@@ -125,7 +124,9 @@ class TestCreateDecisionWithType:
 
     @patch("routes.decisions.get_repo_path")
     @patch("routes.decisions.get_decision_queue")
-    def test_create_with_decision_type_phase_gate(self, mock_get_queue, mock_repo, client, tmp_path):
+    def test_create_with_decision_type_phase_gate(
+        self, mock_get_queue, mock_repo, client, tmp_path
+    ):
         """POST with decision_type='phase_gate' creates correct decision."""
         mock_repo.return_value = tmp_path
         mock_queue = MagicMock()
@@ -188,17 +189,19 @@ class TestListDecisionsSerialization:
         mock_queue = MagicMock()
 
         questions = [{"id": "q-1", "question": "Why?", "answer": ""}]
-        pipeline = _make_pipeline(decisions=[
-            _make_decision(
-                decision_id="d1",
-                decision_type="phase_gate",
-            ),
-            _make_decision(
-                decision_id="d2",
-                decision_type="feedback",
-                questions=questions,
-            ),
-        ])
+        pipeline = _make_pipeline(
+            decisions=[
+                _make_decision(
+                    decision_id="d1",
+                    decision_type="phase_gate",
+                ),
+                _make_decision(
+                    decision_id="d2",
+                    decision_type="feedback",
+                    questions=questions,
+                ),
+            ]
+        )
         mock_queue._load_pipeline.return_value = pipeline
         mock_get_queue.return_value = mock_queue
 
@@ -245,9 +248,11 @@ class TestListDecisionsSerialization:
         mock_queue = MagicMock()
 
         # Simulate an old-style decision (defaults applied by Pydantic)
-        pipeline = _make_pipeline(decisions=[
-            _make_decision(decision_id="d1"),
-        ])
+        pipeline = _make_pipeline(
+            decisions=[
+                _make_decision(decision_id="d1"),
+            ]
+        )
         mock_queue._load_pipeline.return_value = pipeline
         mock_get_queue.return_value = mock_queue
 
@@ -383,15 +388,15 @@ class TestResolveDecisionEndpoint:
 
     @patch("routes.decisions.get_repo_path")
     @patch("routes.decisions.get_decision_queue")
-    def test_resolve_already_resolved_returns_409(self, mock_get_queue, mock_repo, client, tmp_path):
+    def test_resolve_already_resolved_returns_409(
+        self, mock_get_queue, mock_repo, client, tmp_path
+    ):
         """POST resolve for already-resolved decision returns 409."""
         from decision_queue import DecisionAlreadyResolvedError
 
         mock_repo.return_value = tmp_path
         mock_queue = MagicMock()
-        mock_queue.resolve_decision.side_effect = DecisionAlreadyResolvedError(
-            "Already resolved"
-        )
+        mock_queue.resolve_decision.side_effect = DecisionAlreadyResolvedError("Already resolved")
         mock_get_queue.return_value = mock_queue
 
         response = client.post(
@@ -415,6 +420,7 @@ class TestCancelDecisionEndpoint:
         cancelled_decision = _make_decision(status="cancelled")
         # Override status to CANCELLED
         from models import DecisionStatus
+
         cancelled_decision.status = DecisionStatus.CANCELLED
         mock_queue.cancel_decision.return_value = cancelled_decision
         mock_get_queue.return_value = mock_queue

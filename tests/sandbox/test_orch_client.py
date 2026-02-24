@@ -323,12 +323,14 @@ class TestCreateDecision:
         """create_decision sends correct POST with all parameters."""
         client, set_resp = stub_server
         decision_resp = {"id": "decision-1", "decision_type": "feedback"}
-        set_resp({
-            "/api/v1/pipelines/p1/decisions": (
-                200,
-                {"data": {"decision": decision_resp}},
-            )
-        })
+        set_resp(
+            {
+                "/api/v1/pipelines/p1/decisions": (
+                    200,
+                    {"data": {"decision": decision_resp}},
+                )
+            }
+        )
 
         questions = [{"id": "q-1", "question": "Why?", "answer": ""}]
         result = client.create_decision(
@@ -356,12 +358,14 @@ class TestCreateDecision:
         """create_decision with defaults omits decision_type='choice' from body."""
         client, set_resp = stub_server
         decision_resp = {"id": "decision-1"}
-        set_resp({
-            "/api/v1/pipelines/p1/decisions": (
-                200,
-                {"data": {"decision": decision_resp}},
-            )
-        })
+        set_resp(
+            {
+                "/api/v1/pipelines/p1/decisions": (
+                    200,
+                    {"data": {"decision": decision_resp}},
+                )
+            }
+        )
 
         result = client.create_decision(
             pipeline_id="p1",
@@ -388,12 +392,14 @@ class TestCreateDecision:
             "questions": [],
             "status": "pending",
         }
-        set_resp({
-            "/api/v1/pipelines/p1/decisions": (
-                200,
-                {"data": {"decision": decision_resp}},
-            )
-        })
+        set_resp(
+            {
+                "/api/v1/pipelines/p1/decisions": (
+                    200,
+                    {"data": {"decision": decision_resp}},
+                )
+            }
+        )
 
         result = client.create_decision(
             pipeline_id="p1",
@@ -406,12 +412,14 @@ class TestCreateDecision:
     def test_error_handling(self, stub_server):
         """create_decision raises OrchestratorError on HTTP error."""
         client, set_resp = stub_server
-        set_resp({
-            "/api/v1/pipelines/p1/decisions": (
-                400,
-                {"message": "Missing question"},
-            )
-        })
+        set_resp(
+            {
+                "/api/v1/pipelines/p1/decisions": (
+                    400,
+                    {"message": "Missing question"},
+                )
+            }
+        )
 
         with pytest.raises(OrchestratorError, match="Missing question"):
             client.create_decision(
@@ -422,12 +430,14 @@ class TestCreateDecision:
     def test_server_error(self, stub_server):
         """create_decision raises OrchestratorError on 500."""
         client, set_resp = stub_server
-        set_resp({
-            "/api/v1/pipelines/p1/decisions": (
-                500,
-                {"message": "Internal server error"},
-            )
-        })
+        set_resp(
+            {
+                "/api/v1/pipelines/p1/decisions": (
+                    500,
+                    {"message": "Internal server error"},
+                )
+            }
+        )
 
         with pytest.raises(OrchestratorError) as exc_info:
             client.create_decision(
@@ -440,12 +450,14 @@ class TestCreateDecision:
         """create_decision with questions but no options omits options from body."""
         client, set_resp = stub_server
         decision_resp = {"id": "decision-1", "decision_type": "feedback"}
-        set_resp({
-            "/api/v1/pipelines/p1/decisions": (
-                200,
-                {"data": {"decision": decision_resp}},
-            )
-        })
+        set_resp(
+            {
+                "/api/v1/pipelines/p1/decisions": (
+                    200,
+                    {"data": {"decision": decision_resp}},
+                )
+            }
+        )
 
         questions = [
             {"id": "q-1", "question": "Volume?", "answer": ""},
@@ -469,12 +481,14 @@ class TestCreateDecision:
         """create_decision with explicit decision_type='choice' omits it from body."""
         client, set_resp = stub_server
         decision_resp = {"id": "decision-1"}
-        set_resp({
-            "/api/v1/pipelines/p1/decisions": (
-                200,
-                {"data": {"decision": decision_resp}},
-            )
-        })
+        set_resp(
+            {
+                "/api/v1/pipelines/p1/decisions": (
+                    200,
+                    {"data": {"decision": decision_resp}},
+                )
+            }
+        )
 
         result = client.create_decision(
             pipeline_id="p1",

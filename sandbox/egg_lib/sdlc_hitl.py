@@ -258,11 +258,16 @@ def _handle_universal_option(
             print(f"  {DIM}No feedback entered.{RESET}")
             return None
         # General feedback is attached to an approve action
-        if _resolve_with_json(client, pipeline_id, decision_id, {
-            "action": "approve",
-            "feedback": feedback,
-        }):
-            _print_confirmation(f"Approved with feedback")
+        if _resolve_with_json(
+            client,
+            pipeline_id,
+            decision_id,
+            {
+                "action": "approve",
+                "feedback": feedback,
+            },
+        ):
+            _print_confirmation("Approved with feedback")
             return "resolved"
         return None
 
@@ -273,11 +278,16 @@ def _handle_universal_option(
         if not feedback.strip():
             print(f"  {DIM}No feedback entered.{RESET}")
             return None
-        if _resolve_with_json(client, pipeline_id, decision_id, {
-            "action": "change_approach",
-            "feedback": feedback,
-        }):
-            _print_confirmation(f"Change approach requested")
+        if _resolve_with_json(
+            client,
+            pipeline_id,
+            decision_id,
+            {
+                "action": "change_approach",
+                "feedback": feedback,
+            },
+        ):
+            _print_confirmation("Change approach requested")
             return "resolved"
         return None
 
@@ -360,10 +370,15 @@ def _handle_phase_gate(
             if not feedback.strip():
                 print(f"  {DIM}No feedback entered.{RESET}")
                 continue
-            if _resolve_with_json(client, pipeline_id, decision_id, {
-                "action": "request_changes",
-                "feedback": feedback,
-            }):
+            if _resolve_with_json(
+                client,
+                pipeline_id,
+                decision_id,
+                {
+                    "action": "request_changes",
+                    "feedback": feedback,
+                },
+            ):
                 _print_confirmation(f"Changes requested for {phase_label}")
                 return "resolved"
 
@@ -385,9 +400,7 @@ def _handle_choice(
 
         valid_nums = {str(i) for i in range(1, len(options) + 1)}
         valid = valid_nums | {"f", "a", "c"}
-        choice = _prompt_choice(
-            f"\n  {BOLD}Choose [1-{len(options)}/f/a/c]:{RESET} ", valid
-        )
+        choice = _prompt_choice(f"\n  {BOLD}Choose [1-{len(options)}/f/a/c]:{RESET} ", valid)
 
         # Check universal options first
         result = _handle_universal_option(choice, client, pipeline_id, decision_id)
@@ -396,10 +409,15 @@ def _handle_choice(
 
         if choice in valid_nums:
             selected = options[int(choice) - 1]
-            if _resolve_with_json(client, pipeline_id, decision_id, {
-                "action": "select",
-                "selected": selected,
-            }):
+            if _resolve_with_json(
+                client,
+                pipeline_id,
+                decision_id,
+                {
+                    "action": "select",
+                    "selected": selected,
+                },
+            ):
                 _print_confirmation(f"Selected: {selected}")
                 return "resolved"
 
@@ -417,9 +435,7 @@ def _handle_feedback(
     if not questions:
         while True:
             _display_universal_options()
-            feedback = _prompt_text(
-                f"\n  {BOLD}Enter your response (empty line to finish):{RESET}"
-            )
+            feedback = _prompt_text(f"\n  {BOLD}Enter your response (empty line to finish):{RESET}")
             if not feedback.strip():
                 print(f"  {DIM}No response entered.{RESET}")
                 # Show universal options for empty input
@@ -432,10 +448,15 @@ def _handle_feedback(
                 if result:
                     return result
                 continue
-            if _resolve_with_json(client, pipeline_id, decision_id, {
-                "action": "submit_feedback",
-                "answers": {"response": feedback},
-            }):
+            if _resolve_with_json(
+                client,
+                pipeline_id,
+                decision_id,
+                {
+                    "action": "submit_feedback",
+                    "answers": {"response": feedback},
+                },
+            ):
                 _print_confirmation("Feedback submitted")
                 return "resolved"
             continue
@@ -464,7 +485,9 @@ def _handle_feedback(
         answers.clear()
         if not _collect_answers():
             # Interrupted mid-collection — show partial answers with recovery
-            print(f"\n  {YELLOW}Input interrupted. {len(answers)}/{len(questions)} answers collected.{RESET}")
+            print(
+                f"\n  {YELLOW}Input interrupted. {len(answers)}/{len(questions)} answers collected.{RESET}"
+            )
             if answers:
                 print(f"\n  {BOLD}Partial answers:{RESET}")
                 for i, q in enumerate(questions):
@@ -488,7 +511,9 @@ def _handle_feedback(
                 continue  # Interrupted again
             else:
                 # Discard — return to caller to re-enter
-                return _handle_universal_option("c", client, pipeline_id, decision_id) or "cancelled"
+                return (
+                    _handle_universal_option("c", client, pipeline_id, decision_id) or "cancelled"
+                )
         else:
             break
 
@@ -515,10 +540,15 @@ def _handle_feedback(
             return result
 
         if choice == "s":
-            if _resolve_with_json(client, pipeline_id, decision_id, {
-                "action": "submit_feedback",
-                "answers": answers,
-            }):
+            if _resolve_with_json(
+                client,
+                pipeline_id,
+                decision_id,
+                {
+                    "action": "submit_feedback",
+                    "answers": answers,
+                },
+            ):
                 _print_confirmation(f"Feedback submitted ({len(answers)} answer(s))")
                 return "resolved"
 
@@ -643,7 +673,6 @@ def handle_hitl_checkpoint(
         "resolved" if the decision was resolved (pipeline should continue),
         "cancelled" if the pipeline was cancelled.
     """
-    decision_id = decision.get("id", "unknown")
     question = decision.get("question", "Decision required")
     context = decision.get("context", "")
     decision_type = decision.get("decision_type", "choice")
@@ -680,8 +709,14 @@ def handle_hitl_checkpoint(
     # Dispatch to type-specific handler
     if decision_type == "phase_gate":
         return _handle_phase_gate(
-            client, pipeline_id, decision, repo_path,
-            draft_rel, draft_content, phase, issue_number,
+            client,
+            pipeline_id,
+            decision,
+            repo_path,
+            draft_rel,
+            draft_content,
+            phase,
+            issue_number,
         )
     elif decision_type == "choice":
         options = decision.get("options", [])
@@ -698,8 +733,14 @@ def handle_hitl_checkpoint(
         print(f"\n  {DIM}Draft file: {draft_rel} (not found){RESET}")
 
     return _handle_generic(
-        client, pipeline_id, decision, repo_path,
-        draft_rel, draft_content, phase, issue_number,
+        client,
+        pipeline_id,
+        decision,
+        repo_path,
+        draft_rel,
+        draft_content,
+        phase,
+        issue_number,
     )
 
 

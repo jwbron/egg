@@ -633,8 +633,11 @@ class TestHandlePhaseGate:
 
         client = self._make_client()
         result = handle_hitl_checkpoint(
-            client, "issue-42", self._make_decision(),
-            pipeline_mode="issue", issue_number=42,
+            client,
+            "issue-42",
+            self._make_decision(),
+            pipeline_mode="issue",
+            issue_number=42,
         )
 
         assert result == "resolved"
@@ -652,8 +655,11 @@ class TestHandlePhaseGate:
 
         client = self._make_client()
         result = handle_hitl_checkpoint(
-            client, "issue-42", self._make_decision(),
-            pipeline_mode="issue", issue_number=42,
+            client,
+            "issue-42",
+            self._make_decision(),
+            pipeline_mode="issue",
+            issue_number=42,
         )
 
         assert result == "resolved"
@@ -671,8 +677,11 @@ class TestHandlePhaseGate:
 
         client = self._make_client()
         handle_hitl_checkpoint(
-            client, "issue-42", self._make_decision(),
-            pipeline_mode="issue", issue_number=42,
+            client,
+            "issue-42",
+            self._make_decision(),
+            pipeline_mode="issue",
+            issue_number=42,
         )
 
         captured = capsys.readouterr()
@@ -687,8 +696,11 @@ class TestHandlePhaseGate:
 
         client = self._make_client()
         handle_hitl_checkpoint(
-            client, "issue-42", self._make_decision(),
-            pipeline_mode="issue", issue_number=42,
+            client,
+            "issue-42",
+            self._make_decision(),
+            pipeline_mode="issue",
+            issue_number=42,
         )
 
         captured = capsys.readouterr()
@@ -724,8 +736,11 @@ class TestHandleChoice:
 
         client = self._make_client()
         handle_hitl_checkpoint(
-            client, "issue-42", self._make_decision(),
-            pipeline_mode="issue", issue_number=42,
+            client,
+            "issue-42",
+            self._make_decision(),
+            pipeline_mode="issue",
+            issue_number=42,
         )
 
         captured = capsys.readouterr()
@@ -742,8 +757,11 @@ class TestHandleChoice:
 
         client = self._make_client()
         result = handle_hitl_checkpoint(
-            client, "issue-42", self._make_decision(),
-            pipeline_mode="issue", issue_number=42,
+            client,
+            "issue-42",
+            self._make_decision(),
+            pipeline_mode="issue",
+            issue_number=42,
         )
 
         assert result == "resolved"
@@ -761,8 +779,11 @@ class TestHandleChoice:
 
         client = self._make_client()
         handle_hitl_checkpoint(
-            client, "issue-42", self._make_decision(),
-            pipeline_mode="issue", issue_number=42,
+            client,
+            "issue-42",
+            self._make_decision(),
+            pipeline_mode="issue",
+            issue_number=42,
         )
 
         captured = capsys.readouterr()
@@ -802,8 +823,11 @@ class TestHandleFeedback:
 
         client = self._make_client()
         result = handle_hitl_checkpoint(
-            client, "issue-42", self._make_decision(),
-            pipeline_mode="issue", issue_number=42,
+            client,
+            "issue-42",
+            self._make_decision(),
+            pipeline_mode="issue",
+            issue_number=42,
         )
 
         assert result == "resolved"
@@ -823,8 +847,11 @@ class TestHandleFeedback:
 
         client = self._make_client()
         result = handle_hitl_checkpoint(
-            client, "issue-42", self._make_decision(),
-            pipeline_mode="issue", issue_number=42,
+            client,
+            "issue-42",
+            self._make_decision(),
+            pipeline_mode="issue",
+            issue_number=42,
         )
 
         assert result == "resolved"
@@ -843,8 +870,11 @@ class TestHandleFeedback:
         client = self._make_client()
         decision = self._make_decision(questions=[])
         result = handle_hitl_checkpoint(
-            client, "issue-42", decision,
-            pipeline_mode="issue", issue_number=42,
+            client,
+            "issue-42",
+            decision,
+            pipeline_mode="issue",
+            issue_number=42,
         )
 
         assert result == "resolved"
@@ -862,8 +892,11 @@ class TestHandleFeedback:
 
         client = self._make_client()
         handle_hitl_checkpoint(
-            client, "issue-42", self._make_decision(),
-            pipeline_mode="issue", issue_number=42,
+            client,
+            "issue-42",
+            self._make_decision(),
+            pipeline_mode="issue",
+            issue_number=42,
         )
 
         captured = capsys.readouterr()
@@ -895,8 +928,11 @@ class TestUniversalOptions:
             "options": ["approve", "request changes"],
         }
         result = handle_hitl_checkpoint(
-            client, "issue-42", decision,
-            pipeline_mode="issue", issue_number=42,
+            client,
+            "issue-42",
+            decision,
+            pipeline_mode="issue",
+            issue_number=42,
         )
         assert result == "cancelled"
         client.cancel_pipeline.assert_called_once()
@@ -917,8 +953,11 @@ class TestUniversalOptions:
             "options": ["A", "B"],
         }
         result = handle_hitl_checkpoint(
-            client, "issue-42", decision,
-            pipeline_mode="issue", issue_number=42,
+            client,
+            "issue-42",
+            decision,
+            pipeline_mode="issue",
+            issue_number=42,
         )
         assert result == "cancelled"
 
@@ -939,8 +978,11 @@ class TestUniversalOptions:
             "options": ["approve", "request changes"],
         }
         result = handle_hitl_checkpoint(
-            client, "issue-42", decision,
-            pipeline_mode="issue", issue_number=42,
+            client,
+            "issue-42",
+            decision,
+            pipeline_mode="issue",
+            issue_number=42,
         )
 
         assert result == "resolved"
@@ -974,8 +1016,11 @@ class TestFallbackGenericMenu:
             "decision_type": "unknown_type",
         }
         result = handle_hitl_checkpoint(
-            client, "issue-42", decision,
-            pipeline_mode="issue", issue_number=42,
+            client,
+            "issue-42",
+            decision,
+            pipeline_mode="issue",
+            issue_number=42,
         )
 
         assert result == "resolved"
@@ -998,8 +1043,11 @@ class TestFallbackGenericMenu:
             "options": [],
         }
         result = handle_hitl_checkpoint(
-            client, "issue-42", decision,
-            pipeline_mode="issue", issue_number=42,
+            client,
+            "issue-42",
+            decision,
+            pipeline_mode="issue",
+            issue_number=42,
         )
 
         assert result == "resolved"
@@ -1020,8 +1068,11 @@ class TestFallbackGenericMenu:
             "decision_type": "unknown_type",
         }
         result = handle_hitl_checkpoint(
-            client, "issue-42", decision,
-            pipeline_mode="issue", issue_number=42,
+            client,
+            "issue-42",
+            decision,
+            pipeline_mode="issue",
+            issue_number=42,
         )
 
         assert result == "cancelled"
@@ -1042,8 +1093,11 @@ class TestFallbackGenericMenu:
             "decision_type": "unknown_type",
         }
         result = handle_hitl_checkpoint(
-            client, "issue-42", decision,
-            pipeline_mode="issue", issue_number=42,
+            client,
+            "issue-42",
+            decision,
+            pipeline_mode="issue",
+            issue_number=42,
         )
 
         assert result == "resolved"
@@ -1084,8 +1138,11 @@ class TestUniversalOptionsEdgeCases:
             "options": ["approve", "request changes"],
         }
         result = handle_hitl_checkpoint(
-            client, "issue-42", decision,
-            pipeline_mode="issue", issue_number=42,
+            client,
+            "issue-42",
+            decision,
+            pipeline_mode="issue",
+            issue_number=42,
         )
 
         assert result == "cancelled"
@@ -1109,8 +1166,11 @@ class TestUniversalOptionsEdgeCases:
             "options": ["approve", "request changes"],
         }
         result = handle_hitl_checkpoint(
-            client, "issue-42", decision,
-            pipeline_mode="issue", issue_number=42,
+            client,
+            "issue-42",
+            decision,
+            pipeline_mode="issue",
+            issue_number=42,
         )
 
         assert result == "resolved"
@@ -1135,8 +1195,11 @@ class TestUniversalOptionsEdgeCases:
             "options": ["PostgreSQL", "MongoDB"],
         }
         result = handle_hitl_checkpoint(
-            client, "issue-42", decision,
-            pipeline_mode="issue", issue_number=42,
+            client,
+            "issue-42",
+            decision,
+            pipeline_mode="issue",
+            issue_number=42,
         )
 
         assert result == "resolved"
@@ -1162,8 +1225,11 @@ class TestUniversalOptionsEdgeCases:
             "options": ["A", "B"],
         }
         result = handle_hitl_checkpoint(
-            client, "issue-42", decision,
-            pipeline_mode="issue", issue_number=42,
+            client,
+            "issue-42",
+            decision,
+            pipeline_mode="issue",
+            issue_number=42,
         )
 
         assert result == "cancelled"
@@ -1184,8 +1250,11 @@ class TestUniversalOptionsEdgeCases:
             "options": ["PostgreSQL", "MongoDB"],
         }
         result = handle_hitl_checkpoint(
-            client, "issue-42", decision,
-            pipeline_mode="issue", issue_number=42,
+            client,
+            "issue-42",
+            decision,
+            pipeline_mode="issue",
+            issue_number=42,
         )
 
         assert result == "resolved"
@@ -1226,8 +1295,11 @@ class TestPhaseGateEdgeCases:
             "options": ["approve", "request changes"],
         }
         result = handle_hitl_checkpoint(
-            client, "issue-42", decision,
-            pipeline_mode="issue", issue_number=42,
+            client,
+            "issue-42",
+            decision,
+            pipeline_mode="issue",
+            issue_number=42,
         )
 
         assert result == "resolved"
@@ -1256,8 +1328,11 @@ class TestPhaseGateEdgeCases:
             "options": ["approve", "request changes"],
         }
         result = handle_hitl_checkpoint(
-            client, "issue-42", decision,
-            pipeline_mode="issue", issue_number=42,
+            client,
+            "issue-42",
+            decision,
+            pipeline_mode="issue",
+            issue_number=42,
         )
 
         assert result == "resolved"
@@ -1278,8 +1353,11 @@ class TestPhaseGateEdgeCases:
             "options": ["approve", "request changes"],
         }
         result = handle_hitl_checkpoint(
-            client, "issue-42", decision,
-            pipeline_mode="issue", issue_number=42,
+            client,
+            "issue-42",
+            decision,
+            pipeline_mode="issue",
+            issue_number=42,
         )
 
         assert result == "resolved"
@@ -1302,8 +1380,11 @@ class TestPhaseGateEdgeCases:
             "options": ["approve", "request changes"],
         }
         result = handle_hitl_checkpoint(
-            client, "issue-42", decision,
-            pipeline_mode="issue", issue_number=42,
+            client,
+            "issue-42",
+            decision,
+            pipeline_mode="issue",
+            issue_number=42,
         )
 
         assert result == "resolved"
@@ -1347,8 +1428,11 @@ class TestFeedbackEdgeCases:
             ],
         }
         result = handle_hitl_checkpoint(
-            client, "issue-42", decision,
-            pipeline_mode="issue", issue_number=42,
+            client,
+            "issue-42",
+            decision,
+            pipeline_mode="issue",
+            issue_number=42,
         )
 
         assert result == "cancelled"
@@ -1374,8 +1458,11 @@ class TestFeedbackEdgeCases:
             ],
         }
         result = handle_hitl_checkpoint(
-            client, "issue-42", decision,
-            pipeline_mode="issue", issue_number=42,
+            client,
+            "issue-42",
+            decision,
+            pipeline_mode="issue",
+            issue_number=42,
         )
 
         assert result == "resolved"
@@ -1405,8 +1492,11 @@ class TestFeedbackEdgeCases:
             ],
         }
         result = handle_hitl_checkpoint(
-            client, "issue-42", decision,
-            pipeline_mode="issue", issue_number=42,
+            client,
+            "issue-42",
+            decision,
+            pipeline_mode="issue",
+            issue_number=42,
         )
 
         assert result == "resolved"
@@ -1434,8 +1524,11 @@ class TestFeedbackEdgeCases:
             ],
         }
         result = handle_hitl_checkpoint(
-            client, "issue-42", decision,
-            pipeline_mode="issue", issue_number=42,
+            client,
+            "issue-42",
+            decision,
+            pipeline_mode="issue",
+            issue_number=42,
         )
 
         assert result == "resolved"
@@ -1467,8 +1560,11 @@ class TestFeedbackEdgeCases:
             ],
         }
         result = handle_hitl_checkpoint(
-            client, "issue-42", decision,
-            pipeline_mode="issue", issue_number=42,
+            client,
+            "issue-42",
+            decision,
+            pipeline_mode="issue",
+            issue_number=42,
         )
 
         assert result == "resolved"
@@ -1492,8 +1588,11 @@ class TestFeedbackEdgeCases:
             ],
         }
         result = handle_hitl_checkpoint(
-            client, "issue-42", decision,
-            pipeline_mode="issue", issue_number=42,
+            client,
+            "issue-42",
+            decision,
+            pipeline_mode="issue",
+            issue_number=42,
         )
 
         assert result == "resolved"
@@ -1519,8 +1618,11 @@ class TestFeedbackEdgeCases:
             "questions": [],
         }
         result = handle_hitl_checkpoint(
-            client, "issue-42", decision,
-            pipeline_mode="issue", issue_number=42,
+            client,
+            "issue-42",
+            decision,
+            pipeline_mode="issue",
+            issue_number=42,
         )
 
         assert result == "resolved"
@@ -1560,8 +1662,11 @@ class TestChoiceEdgeCases:
             "options": ["Yes"],
         }
         result = handle_hitl_checkpoint(
-            client, "issue-42", decision,
-            pipeline_mode="issue", issue_number=42,
+            client,
+            "issue-42",
+            decision,
+            pipeline_mode="issue",
+            issue_number=42,
         )
 
         assert result == "resolved"
@@ -1585,8 +1690,11 @@ class TestChoiceEdgeCases:
             "options": ["A", "B", "C", "D"],
         }
         result = handle_hitl_checkpoint(
-            client, "issue-42", decision,
-            pipeline_mode="issue", issue_number=42,
+            client,
+            "issue-42",
+            decision,
+            pipeline_mode="issue",
+            issue_number=42,
         )
 
         assert result == "resolved"
@@ -1614,8 +1722,11 @@ class TestChoiceEdgeCases:
             "options": ["PostgreSQL", "MongoDB"],
         }
         result = handle_hitl_checkpoint(
-            client, "issue-42", decision,
-            pipeline_mode="issue", issue_number=42,
+            client,
+            "issue-42",
+            decision,
+            pipeline_mode="issue",
+            issue_number=42,
         )
 
         assert result == "resolved"
@@ -1652,8 +1763,11 @@ class TestDisplayOutput:
             "options": ["approve", "request changes"],
         }
         handle_hitl_checkpoint(
-            client, "issue-42", decision,
-            pipeline_mode="issue", issue_number=42,
+            client,
+            "issue-42",
+            decision,
+            pipeline_mode="issue",
+            issue_number=42,
         )
 
         captured = capsys.readouterr()
@@ -1676,8 +1790,11 @@ class TestDisplayOutput:
             "options": ["PostgreSQL", "MongoDB"],
         }
         handle_hitl_checkpoint(
-            client, "issue-42", decision,
-            pipeline_mode="issue", issue_number=42,
+            client,
+            "issue-42",
+            decision,
+            pipeline_mode="issue",
+            issue_number=42,
         )
 
         captured = capsys.readouterr()
@@ -1702,8 +1819,11 @@ class TestDisplayOutput:
             ],
         }
         handle_hitl_checkpoint(
-            client, "issue-42", decision,
-            pipeline_mode="issue", issue_number=42,
+            client,
+            "issue-42",
+            decision,
+            pipeline_mode="issue",
+            issue_number=42,
         )
 
         captured = capsys.readouterr()
@@ -1712,7 +1832,9 @@ class TestDisplayOutput:
 
     @patch("egg_lib.sdlc_hitl._find_repo_path")
     @patch("builtins.input")
-    def test_phase_gate_missing_draft_shows_not_found(self, mock_input, mock_repo, tmp_path, capsys):
+    def test_phase_gate_missing_draft_shows_not_found(
+        self, mock_input, mock_repo, tmp_path, capsys
+    ):
         """Phase gate with missing draft file shows 'not found' message."""
         mock_repo.return_value = tmp_path
         mock_input.return_value = "3"
@@ -1726,8 +1848,11 @@ class TestDisplayOutput:
             "options": ["approve", "request changes"],
         }
         handle_hitl_checkpoint(
-            client, "issue-42", decision,
-            pipeline_mode="issue", issue_number=42,
+            client,
+            "issue-42",
+            decision,
+            pipeline_mode="issue",
+            issue_number=42,
         )
 
         captured = capsys.readouterr()
@@ -1763,8 +1888,11 @@ class TestDefaultDecisionType:
             "options": ["A", "B"],
         }
         result = handle_hitl_checkpoint(
-            client, "issue-42", decision,
-            pipeline_mode="issue", issue_number=42,
+            client,
+            "issue-42",
+            decision,
+            pipeline_mode="issue",
+            issue_number=42,
         )
 
         assert result == "resolved"
@@ -1787,8 +1915,11 @@ class TestDefaultDecisionType:
             "context": "Some context",
         }
         result = handle_hitl_checkpoint(
-            client, "issue-42", decision,
-            pipeline_mode="issue", issue_number=42,
+            client,
+            "issue-42",
+            decision,
+            pipeline_mode="issue",
+            issue_number=42,
         )
 
         assert result == "resolved"
