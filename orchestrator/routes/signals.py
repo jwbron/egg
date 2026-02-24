@@ -5,6 +5,7 @@ Provides REST endpoints for sandboxes to report completion,
 progress updates, and errors back to the orchestrator.
 """
 
+import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -131,6 +132,123 @@ def handle_signal(pipeline_id: str) -> tuple[Response, int]:
     return handler(pipeline_id, data, repo_path)
 
 
+def _verify_commit_on_branch(
+    commit: str,
+    branch: str,
+    worktree_path: Path,
+    pipeline_id: str,
+) -> bool | None:
+    """Check if a commit exists on the expected branch.
+
+    Returns:
+        True if commit is on the branch.
+        False if commit is NOT on the branch (hard-block).
+        None if verification failed (best-effort, non-blocking).
+    """
+    try:
+        # Fetch first to ensure we have the latest remote state
+        result = subprocess.run(
+            ["git", "-C", str(worktree_path), "fetch", "origin", "--", branch],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+        if result.returncode != 0:
+            logger.warning(
+                "Branch fetch failed during completion verification (non-blocking)",
+                pipeline_id=pipeline_id,
+                branch=branch,
+                error=result.stderr.strip(),
+            )
+            return None  # Can't verify — don't block
+
+        # Check if commit exists on the branch
+        result = subprocess.run(
+            [
+                "git",
+                "-C",
+                str(worktree_path),
+                "branch",
+                "-r",
+                "--contains",
+                "--",
+                commit,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+        if result.returncode != 0:
+            logger.warning(
+                "git branch --contains failed (non-blocking)",
+                pipeline_id=pipeline_id,
+                commit=commit,
+                error=result.stderr.strip(),
+            )
+            return None  # Can't verify — don't block
+
+        # Check if origin/{branch} appears in the output
+        for line in result.stdout.splitlines():
+            if f"origin/{branch}" in line.strip():
+                return True
+
+        # Commit not found on expected branch
+        logger.warning(
+            "Commit not found on expected branch",
+            pipeline_id=pipeline_id,
+            commit=commit,
+            expected_branch=branch,
+            branches_containing=result.stdout.strip(),
+        )
+        return False
+
+    except Exception as e:
+        logger.warning(
+            "Branch verification failed (non-blocking)",
+            pipeline_id=pipeline_id,
+            commit=commit,
+            branch=branch,
+            error=str(e),
+        )
+        return None  # Don't block on verification errors
+
+
+def _check_branch_progress(
+    branch: str,
+    phase_start_sha: str,
+    worktree_path: Path,
+    pipeline_id: str,
+) -> None:
+    """Log a warning if no new commits have been pushed since phase start."""
+    try:
+        result = subprocess.run(
+            [
+                "git",
+                "-C",
+                str(worktree_path),
+                "rev-parse",
+                f"origin/{branch}",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+        if result.returncode == 0:
+            current_tip = result.stdout.strip()
+            if current_tip == phase_start_sha:
+                logger.warning(
+                    "No new commits on branch since phase start",
+                    pipeline_id=pipeline_id,
+                    branch=branch,
+                    phase_start_sha=phase_start_sha,
+                )
+    except Exception:
+        pass  # Non-fatal — progress check is advisory
+
+
 def handle_complete_signal(
     pipeline_id: str,
     data: dict[str, Any],
@@ -166,6 +284,47 @@ def handle_complete_signal(
 
         commit = data.get("commit")
         outputs = data.get("handoff_data", {})
+
+        # SECURITY: Verify commit exists on the expected branch.
+        # When the agent reports a commit SHA, confirm it was actually
+        # pushed to the pipeline's assigned branch.  This catches the
+        # failure mode where an agent pushes to an improvised branch
+        # name and the orchestrator accepts the signal without checking.
+        if commit and pipeline.branch:
+            branch_verified = _verify_commit_on_branch(
+                commit,
+                pipeline.branch,
+                contract_path,
+                pipeline_id,
+            )
+            if branch_verified is False:
+                # Hard-block: commit not found on expected branch.
+                return make_error_response(
+                    f"Completion rejected: commit {commit} not found on "
+                    f"expected branch {pipeline.branch}. The agent may have "
+                    f"pushed to a different branch.",
+                    status_code=409,
+                    details={
+                        "commit": commit,
+                        "expected_branch": pipeline.branch,
+                        "pipeline_id": pipeline_id,
+                    },
+                )
+
+            # Check for no new commits since phase start (advisory warning).
+            # Only run when branch_verified is True — if verification failed
+            # (returned None), the fetch didn't succeed and origin/{branch}
+            # may be stale, making the progress check unreliable.
+            if branch_verified is True:
+                current_phase = pipeline.current_phase
+                phase_exec = pipeline.phases.get(current_phase.value)
+                if phase_exec and phase_exec.phase_start_sha:
+                    _check_branch_progress(
+                        pipeline.branch,
+                        phase_exec.phase_start_sha,
+                        contract_path,
+                        pipeline_id,
+                    )
 
         # Only interact with the contract dispatcher for roles that have
         # a contract mapping (multi-agent phases: plan, implement).

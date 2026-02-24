@@ -66,6 +66,15 @@ Agents execute in dependency-ordered waves:
 
 Reviewers always run as a separate step after all workers complete, spawning in parallel with a configurable concurrency limit.
 
+### Worktree Sync
+
+Before each pipeline phase starts, the orchestrator syncs the agent worktree with the remote branch so downstream code (contract loading, draft reading) sees the full pipeline state. The sync behavior depends on the prior phase's outcome:
+
+- **Prior phase succeeded + local ahead of remote:** Local commits are pushed to remote before resetting, preserving completed work.
+- **Prior phase failed + local ahead of remote:** Local commits are discarded and the worktree is reset to remote, removing incomplete work.
+- **Local and remote diverged:** A fast-forward merge is attempted. If the merge fails, the orchestrator logs an error and leaves the worktree unchanged (may require manual intervention).
+- **Local behind or in-sync with remote:** Standard reset to remote tip.
+
 ### HITL Decisions
 
 The orchestrator queues blocking decisions for human input (architecture choices, go/no-go gates) and pauses pipeline execution until resolved. Decisions are tracked with timeout management and handler notifications.
@@ -93,8 +102,10 @@ All endpoints are prefixed with `/api/v1`.
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `POST` | `/pipelines/{id}/signal` | Sandbox completion/progress/error callbacks |
+| `POST` | `/pipelines/{id}/signal` | Sandbox completion/progress/error callbacks (with branch verification) |
 | `POST` | `/pipelines/{id}/signal/batch` | Batch multiple signals |
+
+**Completion signal branch verification:** When an agent signals completion with a `commit` SHA, the orchestrator verifies the commit exists on the pipeline's expected branch. If the commit is not found on the expected branch (e.g., the agent pushed to an improvised branch name), the signal is rejected with HTTP 409. Verification failures (network issues, git errors) are non-blocking — the signal is accepted when verification cannot be performed. Additionally, the orchestrator logs a warning if no new commits have been pushed since the phase started (detected via `phase_start_sha` recorded at phase start).
 
 ### Containers
 

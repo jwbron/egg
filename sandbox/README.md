@@ -161,6 +161,24 @@ gh pr comment <number> --body "..."
 gh pr review <number> --comment --body-file /tmp/review-body.md
 ```
 
+## Command Timeout
+
+A system-level per-command timeout wrapper prevents runaway shell commands (e.g., `grep -rn 'pattern' /`) from consuming unbounded CPU and memory. The wrapper interposes on `/bin/bash` and wraps `-c` invocations (the pattern used by Claude Code's Bash tool) with the `timeout` utility.
+
+**How it works:**
+- `entrypoint.py` moves `/bin/bash` to `/bin/bash.real` and installs a wrapper script at `/bin/bash`
+- The wrapper only wraps `bash -c "..."` invocations; interactive shells and script sourcing pass through unchanged
+- On timeout, `SIGTERM` is sent first, followed by `SIGKILL` after a grace period
+
+**Configuration (environment variables):**
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `BASH_COMMAND_TIMEOUT` | Timeout in seconds (0 to disable) | `120` |
+| `BASH_COMMAND_TIMEOUT_GRACE` | SIGKILL grace period in seconds | `10` |
+
+**Files:** `sandbox/entrypoint.py` (`setup_command_timeout()`), `sandbox/tests/test_command_timeout.py`
+
 ## Configuration
 
 Container setup is automated via `docker-setup.py`, which runs on container start to install dependencies, configure the environment, and set up Claude Code. No manual setup is required inside the container.

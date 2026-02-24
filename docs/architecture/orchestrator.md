@@ -146,7 +146,14 @@ The orchestrator calls `ensure_egg_state_dirs()` before spawning containers to c
 
 1. **Push to remote** (outbound): The orchestrator pushes worktree contents (including `.egg-state/` files) to the remote branch at key pipeline checkpoints — after contract initialization, after phase completion, and on pipeline failure. This ensures agents always see the latest statefiles without working on unpushed changes. Pushes use `GatewayClient.push_worktree_branch()` with a temporary session token and are logged as warnings on failure (non-blocking).
 
-2. **Fetch from remote** (inbound): Before starting pipeline phases, the orchestrator syncs the local worktree with the remote branch via `_sync_worktree_with_remote()`. This handles orchestrator restarts where the local worktree branch lags behind origin: commits pushed by agents in previous phases (contracts, drafts, statefiles) exist on the remote but not in the local checkout. The function performs a gateway-authenticated fetch (`GatewayClient.fetch_worktree_branch()`) followed by a local `git reset --hard origin/<branch>`. The operation is best-effort and idempotent — it skips gracefully when the remote branch doesn't yet exist (first pipeline run), when fetch fails, or when the local branch has commits not on the remote (local-ahead divergence).
+2. **Fetch from remote** (inbound): Before starting pipeline phases, the orchestrator syncs the local worktree with the remote branch via `_sync_worktree_with_remote()`. This handles orchestrator restarts where the local worktree branch lags behind origin: commits pushed by agents in previous phases (contracts, drafts, statefiles) exist on the remote but not in the local checkout. The function performs a gateway-authenticated fetch (`GatewayClient.fetch_worktree_branch()`) followed by a local `git reset --hard origin/<branch>`. The sync behavior depends on the prior phase's outcome:
+
+   - **Prior phase succeeded, local ahead:** Local commits are pushed to remote first, preserving completed work, then the worktree is reset.
+   - **Prior phase failed, local ahead:** Local commits are discarded and the worktree is reset to remote (removes incomplete work from a failed/killed agent).
+   - **Diverged (local and remote both have unique commits):** A fast-forward merge is attempted. If the merge fails, the worktree is left unchanged and the error is logged (may require manual intervention).
+   - **Local behind or in-sync:** Standard reset to remote tip.
+
+   The operation is best-effort and idempotent — it skips gracefully when the remote branch doesn't yet exist (first pipeline run) or when fetch fails.
 
 See `orchestrator/routes/pipelines.py` for implementation details.
 
