@@ -1040,7 +1040,7 @@ def setup_command_timeout(config: Config, logger: Logger) -> None:
     try:
         shutil.move(str(bash_path), str(real_bash))
     except OSError as e:
-        logger.warning(f"Cannot install command timeout wrapper: {e}")
+        logger.warn(f"Cannot install command timeout wrapper: {e}")
         return
 
     # Write the wrapper script
@@ -1076,9 +1076,7 @@ exec "$REAL_BASH" "$@"
     os.chmod(str(bash_path), 0o755)
     os.chmod(str(real_bash), 0o755)
 
-    logger.success(
-        f"Command timeout wrapper installed (BASH_COMMAND_TIMEOUT={timeout_secs}s)"
-    )
+    logger.success(f"Command timeout wrapper installed (BASH_COMMAND_TIMEOUT={timeout_secs}s)")
 
 
 def check_gateway_health(config: Config, logger: Logger) -> bool:

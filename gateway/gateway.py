@@ -619,13 +619,15 @@ def git_push() -> tuple[Response, int] | Response:
     # This prevents agents from improvising branch names on push failure.
     # Killswitch: set PUSH_TARGET_ENFORCEMENT=false to disable.
     if not is_checkpoint_push:
-        push_target_enforcement = os.environ.get(
-            "PUSH_TARGET_ENFORCEMENT", "true"
-        ).lower() not in ("false", "0", "no")
+        push_target_enforcement = os.environ.get("PUSH_TARGET_ENFORCEMENT", "true").lower() not in (
+            "false",
+            "0",
+            "no",
+        )
         if push_target_enforcement and hasattr(g, "session") and g.session:
             session_pipeline_id = getattr(g.session, "pipeline_id", None)
             session_assigned_branch = getattr(g.session, "assigned_branch", None)
-            if session_pipeline_id and session_assigned_branch:
+            if isinstance(session_pipeline_id, str) and isinstance(session_assigned_branch, str):
                 if branch != session_assigned_branch:
                     audit_log(
                         "push_denied_wrong_branch",
@@ -846,7 +848,7 @@ def git_push() -> tuple[Response, int] | Response:
             if hasattr(g, "session") and g.session:
                 session_pipeline_id = getattr(g.session, "pipeline_id", None)
 
-            if has_non_state_files and session_pipeline_id:
+            if has_non_state_files and isinstance(session_pipeline_id, str):
                 hint = (
                     "Push contains files from prior pipeline phases that this phase "
                     "cannot modify. This indicates the worktree was not properly synced. "

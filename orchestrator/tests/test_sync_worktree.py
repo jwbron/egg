@@ -85,7 +85,9 @@ class TestSyncWorktreeWithRemote:
                 _make_subprocess_result(returncode=0),
             ]
             _sync_worktree_with_remote(
-                spawner, "pipe-1", Path("/tmp/repo"),
+                spawner,
+                "pipe-1",
+                Path("/tmp/repo"),
                 prior_phase_succeeded=True,
             )
             # Should have pushed to remote
@@ -111,7 +113,9 @@ class TestSyncWorktreeWithRemote:
                 _make_subprocess_result(returncode=0),
             ]
             _sync_worktree_with_remote(
-                spawner, "pipe-1", Path("/tmp/repo"),
+                spawner,
+                "pipe-1",
+                Path("/tmp/repo"),
                 prior_phase_succeeded=False,
             )
             # Should NOT have pushed
@@ -178,7 +182,9 @@ class TestSyncWorktreeWithRemote:
                 _make_subprocess_result(returncode=0),
             ]
             _sync_worktree_with_remote(
-                spawner, "pipe-1", Path("/tmp/repo"),
+                spawner,
+                "pipe-1",
+                Path("/tmp/repo"),
                 prior_phase_succeeded=True,
             )
             # Push was attempted but failed
@@ -230,7 +236,11 @@ class TestSyncWorktreeWithRemote:
             # Error should be logged
             mock_logger.error.assert_called()
             error_msg = mock_logger.error.call_args[0][0]
-            assert "fast-forward" in error_msg.lower() or "merge" in error_msg.lower() or "diverged" in error_msg.lower()
+            assert (
+                "fast-forward" in error_msg.lower()
+                or "merge" in error_msg.lower()
+                or "diverged" in error_msg.lower()
+            )
 
     def test_successful_reset(self):
         """Happy path: fetch, detect branch, verify remote, reset."""

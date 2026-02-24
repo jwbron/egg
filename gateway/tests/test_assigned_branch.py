@@ -15,6 +15,7 @@ from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock, patch
 
 import auth
+import policy
 import pytest
 import session_manager as session_manager_module
 from private_repo_policy import PrivateRepoPolicyResult
@@ -26,7 +27,6 @@ from session_manager import (
 )
 
 import gateway
-import policy
 
 
 class TestSessionAssignedBranchField:
@@ -189,6 +189,7 @@ class TestRegisterSessionAssignedBranch:
 # Push-target enforcement tests (TASK-2-2)
 # ---------------------------------------------------------------------------
 
+
 def _make_pipeline_session(
     assigned_branch: str | None = "egg/issue-42",
     pipeline_id: str | None = "issue-42",
@@ -308,10 +309,18 @@ class TestPushTargetEnforcement:
             patch.object(gateway, "audit_log"),
             patch.object(gateway, "validate_repo_path", return_value=(True, "")),
             patch.object(gateway, "map_container_path_to_worktree", return_value="/tmp/repo"),
-            patch.object(gateway, "resolve_remote_url", return_value=("https://github.com/owner/repo.git", None)),
+            patch.object(
+                gateway,
+                "resolve_remote_url",
+                return_value=("https://github.com/owner/repo.git", None),
+            ),
             patch.object(gateway, "get_auth_mode", return_value="local"),
             patch.object(gateway, "get_token_for_repo", return_value=("ghp_test", "app", None)),
-            patch.object(gateway, "get_authenticated_remote_target", return_value="https://x-access-token:ghp_test@github.com/owner/repo.git"),
+            patch.object(
+                gateway,
+                "get_authenticated_remote_target",
+                return_value="https://x-access-token:ghp_test@github.com/owner/repo.git",
+            ),
             patch.object(gateway, "get_changed_files_in_push", return_value=([], None)),
             patch("subprocess.run", side_effect=_mock_subprocess_for_push()),
         ):
@@ -329,7 +338,11 @@ class TestPushTargetEnforcement:
             patch.object(gateway, "audit_log"),
             patch.object(gateway, "validate_repo_path", return_value=(True, "")),
             patch.object(gateway, "map_container_path_to_worktree", return_value="/tmp/repo"),
-            patch.object(gateway, "resolve_remote_url", return_value=("https://github.com/owner/repo.git", None)),
+            patch.object(
+                gateway,
+                "resolve_remote_url",
+                return_value=("https://github.com/owner/repo.git", None),
+            ),
             patch.object(gateway, "get_auth_mode", return_value="local"),
         ):
             response = _do_push(push_client, headers, refspec="egg/wrong-branch")
@@ -349,10 +362,18 @@ class TestPushTargetEnforcement:
             patch.object(gateway, "audit_log"),
             patch.object(gateway, "validate_repo_path", return_value=(True, "")),
             patch.object(gateway, "map_container_path_to_worktree", return_value="/tmp/repo"),
-            patch.object(gateway, "resolve_remote_url", return_value=("https://github.com/owner/repo.git", None)),
+            patch.object(
+                gateway,
+                "resolve_remote_url",
+                return_value=("https://github.com/owner/repo.git", None),
+            ),
             patch.object(gateway, "get_auth_mode", return_value="local"),
             patch.object(gateway, "get_token_for_repo", return_value=("ghp_test", "app", None)),
-            patch.object(gateway, "get_authenticated_remote_target", return_value="https://x-access-token:ghp_test@github.com/owner/repo.git"),
+            patch.object(
+                gateway,
+                "get_authenticated_remote_target",
+                return_value="https://x-access-token:ghp_test@github.com/owner/repo.git",
+            ),
             patch.object(gateway, "get_changed_files_in_push", return_value=([], None)),
             patch("subprocess.run", side_effect=_mock_subprocess_for_push()),
         ):
@@ -370,7 +391,11 @@ class TestPushTargetEnforcement:
             patch.object(gateway, "audit_log"),
             patch.object(gateway, "validate_repo_path", return_value=(True, "")),
             patch.object(gateway, "map_container_path_to_worktree", return_value="/tmp/repo"),
-            patch.object(gateway, "resolve_remote_url", return_value=("https://github.com/owner/repo.git", None)),
+            patch.object(
+                gateway,
+                "resolve_remote_url",
+                return_value=("https://github.com/owner/repo.git", None),
+            ),
             patch.object(gateway, "get_auth_mode", return_value="local"),
         ):
             response = _do_push(push_client, headers, refspec="HEAD:refs/heads/egg/other-branch")
@@ -389,10 +414,18 @@ class TestPushTargetEnforcement:
             patch.object(gateway, "audit_log"),
             patch.object(gateway, "validate_repo_path", return_value=(True, "")),
             patch.object(gateway, "map_container_path_to_worktree", return_value="/tmp/repo"),
-            patch.object(gateway, "resolve_remote_url", return_value=("https://github.com/owner/repo.git", None)),
+            patch.object(
+                gateway,
+                "resolve_remote_url",
+                return_value=("https://github.com/owner/repo.git", None),
+            ),
             patch.object(gateway, "get_auth_mode", return_value="local"),
             patch.object(gateway, "get_token_for_repo", return_value=("ghp_test", "app", None)),
-            patch.object(gateway, "get_authenticated_remote_target", return_value="https://x-access-token:ghp_test@github.com/owner/repo.git"),
+            patch.object(
+                gateway,
+                "get_authenticated_remote_target",
+                return_value="https://x-access-token:ghp_test@github.com/owner/repo.git",
+            ),
             patch.object(gateway, "get_changed_files_in_push", return_value=([], None)),
             patch("subprocess.run", side_effect=_mock_subprocess_for_push()),
         ):
@@ -410,10 +443,18 @@ class TestPushTargetEnforcement:
             patch.object(gateway, "audit_log"),
             patch.object(gateway, "validate_repo_path", return_value=(True, "")),
             patch.object(gateway, "map_container_path_to_worktree", return_value="/tmp/repo"),
-            patch.object(gateway, "resolve_remote_url", return_value=("https://github.com/owner/repo.git", None)),
+            patch.object(
+                gateway,
+                "resolve_remote_url",
+                return_value=("https://github.com/owner/repo.git", None),
+            ),
             patch.object(gateway, "get_auth_mode", return_value="local"),
             patch.object(gateway, "get_token_for_repo", return_value=("ghp_test", "app", None)),
-            patch.object(gateway, "get_authenticated_remote_target", return_value="https://x-access-token:ghp_test@github.com/owner/repo.git"),
+            patch.object(
+                gateway,
+                "get_authenticated_remote_target",
+                return_value="https://x-access-token:ghp_test@github.com/owner/repo.git",
+            ),
             patch.object(gateway, "get_changed_files_in_push", return_value=([], None)),
             patch("subprocess.run", side_effect=_mock_subprocess_for_push()),
         ):
@@ -431,10 +472,18 @@ class TestPushTargetEnforcement:
             patch.object(gateway, "audit_log"),
             patch.object(gateway, "validate_repo_path", return_value=(True, "")),
             patch.object(gateway, "map_container_path_to_worktree", return_value="/tmp/repo"),
-            patch.object(gateway, "resolve_remote_url", return_value=("https://github.com/owner/repo.git", None)),
+            patch.object(
+                gateway,
+                "resolve_remote_url",
+                return_value=("https://github.com/owner/repo.git", None),
+            ),
             patch.object(gateway, "get_auth_mode", return_value="local"),
             patch.object(gateway, "get_token_for_repo", return_value=("ghp_test", "app", None)),
-            patch.object(gateway, "get_authenticated_remote_target", return_value="https://x-access-token:ghp_test@github.com/owner/repo.git"),
+            patch.object(
+                gateway,
+                "get_authenticated_remote_target",
+                return_value="https://x-access-token:ghp_test@github.com/owner/repo.git",
+            ),
             patch.object(gateway, "get_changed_files_in_push", return_value=([], None)),
             patch("subprocess.run", side_effect=_mock_subprocess_for_push()),
             patch.dict(os.environ, {"PUSH_TARGET_ENFORCEMENT": "false"}),
@@ -443,7 +492,9 @@ class TestPushTargetEnforcement:
             response = _do_push(push_client, headers, refspec="egg/wrong-branch")
             assert response.status_code == 200
 
-    def test_auto_commit_session_without_assigned_branch_succeeds(self, push_client, mock_push_policy):
+    def test_auto_commit_session_without_assigned_branch_succeeds(
+        self, push_client, mock_push_policy
+    ):
         """(h) Auto-commit/failsafe session (no assigned_branch) push succeeds."""
         # push_worktree_branch creates temp sessions without a branch param,
         # so assigned_branch is None — enforcement is skipped.
@@ -459,10 +510,18 @@ class TestPushTargetEnforcement:
             patch.object(gateway, "audit_log"),
             patch.object(gateway, "validate_repo_path", return_value=(True, "")),
             patch.object(gateway, "map_container_path_to_worktree", return_value="/tmp/repo"),
-            patch.object(gateway, "resolve_remote_url", return_value=("https://github.com/owner/repo.git", None)),
+            patch.object(
+                gateway,
+                "resolve_remote_url",
+                return_value=("https://github.com/owner/repo.git", None),
+            ),
             patch.object(gateway, "get_auth_mode", return_value="local"),
             patch.object(gateway, "get_token_for_repo", return_value=("ghp_test", "app", None)),
-            patch.object(gateway, "get_authenticated_remote_target", return_value="https://x-access-token:ghp_test@github.com/owner/repo.git"),
+            patch.object(
+                gateway,
+                "get_authenticated_remote_target",
+                return_value="https://x-access-token:ghp_test@github.com/owner/repo.git",
+            ),
             patch.object(gateway, "get_changed_files_in_push", return_value=([], None)),
             patch("subprocess.run", side_effect=_mock_subprocess_for_push()),
         ):
@@ -481,10 +540,18 @@ class TestPushTargetEnforcement:
             patch.object(gateway, "audit_log"),
             patch.object(gateway, "validate_repo_path", return_value=(True, "")),
             patch.object(gateway, "map_container_path_to_worktree", return_value="/tmp/repo"),
-            patch.object(gateway, "resolve_remote_url", return_value=("https://github.com/owner/repo.git", None)),
+            patch.object(
+                gateway,
+                "resolve_remote_url",
+                return_value=("https://github.com/owner/repo.git", None),
+            ),
             patch.object(gateway, "get_auth_mode", return_value="local"),
             patch.object(gateway, "get_token_for_repo", return_value=("ghp_test", "app", None)),
-            patch.object(gateway, "get_authenticated_remote_target", return_value="https://x-access-token:ghp_test@github.com/owner/repo.git"),
+            patch.object(
+                gateway,
+                "get_authenticated_remote_target",
+                return_value="https://x-access-token:ghp_test@github.com/owner/repo.git",
+            ),
             patch.object(gateway, "get_changed_files_in_push", return_value=([], None)),
             patch("subprocess.run", side_effect=_mock_subprocess_for_push()),
             patch.dict(os.environ, {"PUSH_TARGET_ENFORCEMENT": env_value}),
@@ -503,7 +570,11 @@ class TestPushTargetEnforcement:
             patch.object(gateway, "audit_log") as mock_audit,
             patch.object(gateway, "validate_repo_path", return_value=(True, "")),
             patch.object(gateway, "map_container_path_to_worktree", return_value="/tmp/repo"),
-            patch.object(gateway, "resolve_remote_url", return_value=("https://github.com/owner/repo.git", None)),
+            patch.object(
+                gateway,
+                "resolve_remote_url",
+                return_value=("https://github.com/owner/repo.git", None),
+            ),
             patch.object(gateway, "get_auth_mode", return_value="local"),
         ):
             response = _do_push(push_client, headers, refspec="egg/wrong-branch")
@@ -529,10 +600,18 @@ class TestPushTargetEnforcement:
             patch.object(gateway, "audit_log"),
             patch.object(gateway, "validate_repo_path", return_value=(True, "")),
             patch.object(gateway, "map_container_path_to_worktree", return_value="/tmp/repo"),
-            patch.object(gateway, "resolve_remote_url", return_value=("https://github.com/owner/repo.git", None)),
+            patch.object(
+                gateway,
+                "resolve_remote_url",
+                return_value=("https://github.com/owner/repo.git", None),
+            ),
             patch.object(gateway, "get_auth_mode", return_value="local"),
             patch.object(gateway, "get_token_for_repo", return_value=("ghp_test", "app", None)),
-            patch.object(gateway, "get_authenticated_remote_target", return_value="https://x-access-token:ghp_test@github.com/owner/repo.git"),
+            patch.object(
+                gateway,
+                "get_authenticated_remote_target",
+                return_value="https://x-access-token:ghp_test@github.com/owner/repo.git",
+            ),
             patch.object(gateway, "get_changed_files_in_push", return_value=([], None)),
             patch("subprocess.run", side_effect=_mock_subprocess_for_push()),
         ):

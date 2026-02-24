@@ -4921,7 +4921,12 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
             # pushed (success) or discarded (failure).
             prior_phase_succeeded = True
             current_phase = pipeline.current_phase
-            phase_order = [PipelinePhase.REFINE, PipelinePhase.PLAN, PipelinePhase.IMPLEMENT, PipelinePhase.PR]
+            phase_order = [
+                PipelinePhase.REFINE,
+                PipelinePhase.PLAN,
+                PipelinePhase.IMPLEMENT,
+                PipelinePhase.PR,
+            ]
             current_idx = phase_order.index(current_phase) if current_phase in phase_order else 0
             if current_idx > 0:
                 prior_phase = phase_order[current_idx - 1]
@@ -4933,7 +4938,9 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                     prior_phase_succeeded = False
 
             _sync_worktree_with_remote(
-                spawner, pipeline_id, worktree_repo_path,
+                spawner,
+                pipeline_id,
+                worktree_repo_path,
                 prior_phase_succeeded=prior_phase_succeeded,
             )
 

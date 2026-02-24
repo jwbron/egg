@@ -258,7 +258,9 @@ class TestVerifyCommitOnBranch:
 
         mock_run.side_effect = [
             _make_subprocess_result(returncode=0),  # fetch ok
-            _make_subprocess_result(returncode=128, stderr="not a valid commit"),  # branch --contains fails
+            _make_subprocess_result(
+                returncode=128, stderr="not a valid commit"
+            ),  # branch --contains fails
         ]
         result = _verify_commit_on_branch("abc123", "egg/issue-42", Path("/tmp/wt"), "pipe-1")
         assert result is None

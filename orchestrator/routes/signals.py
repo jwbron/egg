@@ -166,8 +166,13 @@ def _verify_commit_on_branch(
         # Check if commit exists on the branch
         result = subprocess.run(
             [
-                "git", "-C", str(worktree_path),
-                "branch", "-r", "--contains", commit,
+                "git",
+                "-C",
+                str(worktree_path),
+                "branch",
+                "-r",
+                "--contains",
+                commit,
             ],
             capture_output=True,
             text=True,
@@ -219,8 +224,11 @@ def _check_branch_progress(
     try:
         result = subprocess.run(
             [
-                "git", "-C", str(worktree_path),
-                "rev-parse", f"origin/{branch}",
+                "git",
+                "-C",
+                str(worktree_path),
+                "rev-parse",
+                f"origin/{branch}",
             ],
             capture_output=True,
             text=True,
@@ -283,7 +291,10 @@ def handle_complete_signal(
         # name and the orchestrator accepts the signal without checking.
         if commit and pipeline.branch:
             branch_verified = _verify_commit_on_branch(
-                commit, pipeline.branch, contract_path, pipeline_id,
+                commit,
+                pipeline.branch,
+                contract_path,
+                pipeline_id,
             )
             if branch_verified is False:
                 # Hard-block: commit not found on expected branch.
@@ -304,8 +315,10 @@ def handle_complete_signal(
             phase_exec = pipeline.phases.get(current_phase.value)
             if phase_exec and phase_exec.phase_start_sha:
                 _check_branch_progress(
-                    pipeline.branch, phase_exec.phase_start_sha,
-                    contract_path, pipeline_id,
+                    pipeline.branch,
+                    phase_exec.phase_start_sha,
+                    contract_path,
+                    pipeline_id,
                 )
 
         # Only interact with the contract dispatcher for roles that have

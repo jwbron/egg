@@ -44,7 +44,7 @@ _WRAPPER_TEMPLATE = textwrap.dedent("""\
 
 
 @pytest.fixture
-def wrapper_dir(tmp_path: Path):
+def wrapper_dir(tmp_path: Path) -> Path:
     """Create a temp directory with the wrapper script and a bash.real symlink."""
     # Create bash.real pointing to the system bash
     system_bash = "/bin/bash"
@@ -72,7 +72,7 @@ def _run_via_wrapper(
     grace_secs: str = "2",
     disable: bool = False,
     run_timeout: int = 30,
-) -> subprocess.CompletedProcess:
+) -> subprocess.CompletedProcess[str]:
     """Run a command through the wrapper script."""
     env = os.environ.copy()
     env["BASH_COMMAND_TIMEOUT"] = "0" if disable else timeout_secs
@@ -90,7 +90,7 @@ def _run_via_wrapper(
 class TestCommandTimeout:
     """Tests for the bash command timeout wrapper."""
 
-    def test_long_running_command_is_killed(self, wrapper_dir: Path):
+    def test_long_running_command_is_killed(self, wrapper_dir: Path) -> None:
         """(a) Command exceeding BASH_COMMAND_TIMEOUT is killed."""
         result = _run_via_wrapper(
             wrapper_dir,
@@ -103,7 +103,7 @@ class TestCommandTimeout:
         assert result.returncode != 0
         # The command should not have run for the full 60 seconds
 
-    def test_normal_command_completes_successfully(self, wrapper_dir: Path):
+    def test_normal_command_completes_successfully(self, wrapper_dir: Path) -> None:
         """(b) Command completing within timeout succeeds normally."""
         result = _run_via_wrapper(
             wrapper_dir,
@@ -113,7 +113,7 @@ class TestCommandTimeout:
         assert result.returncode == 0
         assert "hello-from-wrapper" in result.stdout
 
-    def test_disable_timeout_via_env(self, wrapper_dir: Path):
+    def test_disable_timeout_via_env(self, wrapper_dir: Path) -> None:
         """(c) BASH_COMMAND_TIMEOUT=0 disables the timeout."""
         result = _run_via_wrapper(
             wrapper_dir,
@@ -123,7 +123,7 @@ class TestCommandTimeout:
         assert result.returncode == 0
         assert "timeout-disabled" in result.stdout
 
-    def test_timeout_stderr_message(self, wrapper_dir: Path):
+    def test_timeout_stderr_message(self, wrapper_dir: Path) -> None:
         """(d) timeout(1) sets a non-zero exit code when command is killed."""
         result = _run_via_wrapper(
             wrapper_dir,
@@ -135,7 +135,7 @@ class TestCommandTimeout:
         # timeout returns 124 when sending SIGTERM, or 137 if SIGKILL
         assert result.returncode in (124, 137, -15, -9)
 
-    def test_non_c_invocation_passes_through(self, wrapper_dir: Path):
+    def test_non_c_invocation_passes_through(self, wrapper_dir: Path) -> None:
         """(e) Non -c invocations pass through to real bash unmodified."""
         # Run a script file through the wrapper (not -c)
         env = os.environ.copy()
@@ -158,7 +158,7 @@ class TestCommandTimeout:
         assert result.returncode == 0
         assert "pass-through-ok" in result.stdout
 
-    def test_exit_code_preserved_through_wrapper(self, wrapper_dir: Path):
+    def test_exit_code_preserved_through_wrapper(self, wrapper_dir: Path) -> None:
         """(f) Command exit code is preserved through the wrapper."""
         result = _run_via_wrapper(
             wrapper_dir,
@@ -167,7 +167,7 @@ class TestCommandTimeout:
         )
         assert result.returncode == 42
 
-    def test_empty_timeout_disables_wrapping(self, wrapper_dir: Path):
+    def test_empty_timeout_disables_wrapping(self, wrapper_dir: Path) -> None:
         """(g) Empty BASH_COMMAND_TIMEOUT also disables the timeout."""
         env = os.environ.copy()
         env["BASH_COMMAND_TIMEOUT"] = ""
@@ -204,7 +204,7 @@ from entrypoint import setup_command_timeout
 class TestSetupCommandTimeout:
     """Tests for the setup_command_timeout function in entrypoint.py."""
 
-    def test_idempotent_when_already_installed(self, tmp_path: Path):
+    def test_idempotent_when_already_installed(self, tmp_path: Path) -> None:
         """setup_command_timeout returns early when bash.real already exists."""
         mock_config = MagicMock()
         mock_logger = MagicMock()
@@ -218,12 +218,14 @@ class TestSetupCommandTimeout:
         with (
             patch("entrypoint.Path") as mock_path_cls,
         ):
+
             def path_side_effect(p):
                 if p == "/bin/bash.real":
                     return real_bash
                 if p == "/bin/bash":
                     return bash_path
                 return Path(p)
+
             mock_path_cls.side_effect = path_side_effect
 
             setup_command_timeout(mock_config, mock_logger)
@@ -231,7 +233,7 @@ class TestSetupCommandTimeout:
         mock_logger.info.assert_called()
         assert "already installed" in mock_logger.info.call_args[0][0]
 
-    def test_move_failure_logs_warning(self, tmp_path: Path):
+    def test_move_failure_logs_warning(self, tmp_path: Path) -> None:
         """setup_command_timeout logs warning when shutil.move fails."""
         mock_config = MagicMock()
         mock_logger = MagicMock()
@@ -245,15 +247,17 @@ class TestSetupCommandTimeout:
             patch("entrypoint.Path") as mock_path_cls,
             patch("entrypoint.shutil.move", side_effect=OSError("Permission denied")),
         ):
+
             def path_side_effect(p):
                 if p == "/bin/bash.real":
                     return real_bash_mock
                 if p == "/bin/bash":
                     return bash_mock
                 return Path(p)
+
             mock_path_cls.side_effect = path_side_effect
 
             setup_command_timeout(mock_config, mock_logger)
 
-        mock_logger.warning.assert_called()
-        assert "Cannot install" in mock_logger.warning.call_args[0][0]
+        mock_logger.warn.assert_called()
+        assert "Cannot install" in mock_logger.warn.call_args[0][0]
