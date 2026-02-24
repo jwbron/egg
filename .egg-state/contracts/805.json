@@ -9,7 +9,99 @@
   "current_phase": "refine",
   "acceptance_criteria": [],
   "phases": [],
-  "decisions": [],
+  "decisions": [
+    {
+      "id": "decision-1",
+      "question": "Should common config files (pyproject.toml, package.json, Makefile, tsconfig.json, etc.) be implicitly allowed for all implement-phase agents, or should the planner be responsible for including them in files_affected?",
+      "type": "hitl",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Implicitly allow common config files",
+          "description": "Less friction, agents will not get stuck on dependency changes"
+        },
+        {
+          "id": "opt-2",
+          "label": "Planner must include them explicitly",
+          "description": "Stricter, but planner template should prompt for it"
+        },
+        {
+          "id": "opt-other",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-2",
+      "question": "What should be the default behavior for egg-contract request-file (escape hatch)?",
+      "type": "hitl",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Auto-approve with logging",
+          "description": "Observability but no blocking \u2014 agents never get stuck"
+        },
+        {
+          "id": "opt-2",
+          "label": "Queue a HITL decision for human approval",
+          "description": "Stricter, but may slow down agents"
+        },
+        {
+          "id": "opt-3",
+          "label": "Auto-approve by default, strict-mode flag queues HITL",
+          "description": "Flexible: auto-approve normally, configurable strict mode"
+        },
+        {
+          "id": "opt-other",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-3",
+      "question": "How should directory-sibling expansion work when a file like src/auth/login.py is in files_affected?",
+      "type": "hitl",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Shallow expansion only (dir/*)",
+          "description": "Sibling files in same directory only"
+        },
+        {
+          "id": "opt-2",
+          "label": "Recursive expansion (dir/**)",
+          "description": "All files in directory tree"
+        },
+        {
+          "id": "opt-3",
+          "label": "No automatic expansion",
+          "description": "Rely on planner using globs like src/auth/*"
+        },
+        {
+          "id": "opt-other",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    }
+  ],
   "workflow_owner": null,
   "audit_log": [],
   "refine_review_cycles": 0,
@@ -17,7 +109,37 @@
   "plan_review_cycles": 0,
   "plan_review_feedback": "",
   "pr": null,
-  "feedback": null,
+  "feedback": {
+    "id": "feedback-1",
+    "phase": "refine",
+    "questions": [
+      {
+        "id": "Q1",
+        "question": "For test file generation: should tests/ be implicitly allowed when a source file is in files_affected, or should the planner always list test files explicitly?",
+        "answer": null
+      },
+      {
+        "id": "Q2",
+        "question": "Should violation counts accumulate across all pushes in a session, or reset per push? (Accumulating = second push touching out-of-scope file blocks; resetting = each push gets one free warning)",
+        "answer": null
+      },
+      {
+        "id": "Q3",
+        "question": "For post-agent auto-commit: should files outside the allowlist be restored silently (with a log), restored with a visible warning in the checkpoint, or treated the same as push violations (warn-then-block)?",
+        "answer": null
+      },
+      {
+        "id": "Q4",
+        "question": "Are there any specific common config files beyond pyproject.toml, package.json, Makefile, and tsconfig.json that should always be in the implicit allowlist?",
+        "answer": null
+      }
+    ],
+    "submitted": false,
+    "submitted_by": null,
+    "submitted_at": null,
+    "comment_id": null,
+    "debounce_until": null
+  },
   "phase_configs": null,
   "agent_executions": [],
   "multi_agent_config": null
