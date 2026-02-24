@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/jwt/utils.py
+# hypothesis_version: 6.151.9
+
+[b'\x00', b')[- ]----\r?\n.+?\r?\n----[- ]END \\1[- ]----\r?\n?', b'----[- ]BEGIN (', b'-cert-v01@openssh.com', b'=', b'CERTIFICATE', b'CERTIFICATE REQUEST', b'DH PARAMETERS', b'DSA PRIVATE KEY', b'EC PRIVATE KEY', b'ENCRYPTED PRIVATE KEY', b'NEW CERTIFICATE REQUEST', b'OPENSSH PRIVATE KEY', b'PRIVATE KEY', b'PUBLIC KEY', b'RSA PRIVATE KEY', b'RSA PUBLIC KEY', b'SSH2 ENCRYPTED PRIVATE KEY', b'SSH2 PUBLIC KEY', b'TRUSTED CERTIFICATE', b'X509 CRL', b'\\A(\\S+)[ \\t]+(\\S+)', b'ecdsa-sha2-nistp256', b'ecdsa-sha2-nistp384', b'ecdsa-sha2-nistp521', b'ssh-dss', b'ssh-ed25519', b'ssh-rsa', b'|', '%0*x', 'Invalid signature', 'ascii', 'big', 'utf-8']

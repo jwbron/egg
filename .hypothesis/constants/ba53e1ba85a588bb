@@ -1,0 +1,4 @@
+# file: /home/egg/repos/egg/sandbox/docker-setup.py
+# hypothesis_version: 6.151.9
+
+['    extra_packages:', '  docker_setup:', '--skip-unavailable', '-p', '-qq', '-y', '.config', '/bin/bash', '/etc/debian_version', '/etc/fedora-release', '/etc/lsb-release', '/etc/sysctl.conf', '=', 'EGG_REPO_CONFIG', 'Setup complete!', '__main__', 'a', 'apt', 'apt-get', 'build-essential', 'config', 'curl', 'dnf', 'docker_setup', 'egg', 'extra_packages', 'fedora', 'gcc', 'gcc-c++', 'git', 'htop', 'install', 'jq', 'lsof', 'make', 'packages', 'pkg-config', 'pkgconf', 'repos', 'repositories.yaml', 'sysctl', 'tree', 'ubuntu', 'unknown', 'unzip', 'update', 'vim', 'wget', 'yes']

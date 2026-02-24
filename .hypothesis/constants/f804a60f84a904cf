@@ -1,0 +1,4 @@
+# file: /home/egg/repos/egg/.github/scripts/checks/plan_yaml_check.py
+# hypothesis_version: 6.151.9
+
+['.egg-state', 'check-plan-yaml', 'drafts', 'errors', 'expected_path', 'has_pr_metadata', 'hint', 'id', 'phases', 'phases_count', 'pr', 'tasks', 'yaml_error']

@@ -1,0 +1,4 @@
+# file: /home/egg/repos/egg/shared/egg_logging/context.py
+# hypothesis_version: 6.151.9
+
+['01', 'EGG_PR_NUMBER', 'EGG_REPOSITORY', 'EGG_SPAN_ID', 'EGG_TASK_ID', 'EGG_TRACE_ID', 'EGG_WORKFLOW_ID', 'EGG_WORKFLOW_TYPE', 'LogContext', 'LogContext | None', 'OTEL_SPAN_ID', 'OTEL_TRACE_ID', 'egg_log_context', 'pr_number', 'repository', 'spanId', 'task_id', 'traceFlags', 'traceId', 'workflow_id', 'workflow_type']

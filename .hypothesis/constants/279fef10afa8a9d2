@@ -1,0 +1,4 @@
+# file: /home/egg/repos/egg/gateway/repo_visibility.py
+# hypothesis_version: 6.151.9
+
+[200, 403, 404, '2022-11-28', 'Accept', 'Authorization', 'GITHUB_USER_TOKEN', 'GitHub API timeout', 'X-GitHub-Api-Version', 'bot', 'internal', 'private', 'public', 'shared', 'user', 'visibility']

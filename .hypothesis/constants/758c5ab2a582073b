@@ -1,0 +1,4 @@
+# file: /home/egg/repos/egg/sandbox/egg_lib/self_improvement/config.py
+# hypothesis_version: 6.151.9
+
+['EGG_BOT_EMAIL', 'EGG_BOT_USERNAME', 'egg', 'egg@localhost', 'metrics', 'on-check-failure.yml', 'on-pull-request.yml']

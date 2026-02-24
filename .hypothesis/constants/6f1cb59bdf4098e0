@@ -1,0 +1,4 @@
+# file: /home/egg/repos/egg/gateway/rate_limiter.py
+# hypothesis_version: 6.151.9
+
+[100, 3600, 'Rate limit exceeded', 'active_keys', 'allowed', 'any_limited', 'core', 'default', 'event_type', 'failed_lookup', 'gateway.rate-limiter', 'github_api', 'heartbeat', 'is_limited', 'last_updated', 'limit', 'max_requests', 'name', 'rate_limited', 'recent_events', 'remaining', 'reset_at', 'resource', 'resources', 'retry-after', 'retry_after_seconds', 'seconds_until_reset', 'session_heartbeat', 'shared', 'timestamp', 'used', 'window_seconds', 'x-ratelimit-limit', 'x-ratelimit-reset', 'x-ratelimit-used']

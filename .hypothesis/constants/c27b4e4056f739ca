@@ -1,0 +1,4 @@
+# file: /home/egg/repos/egg/shared/egg_config/cli.py
+# hypothesis_version: 6.151.9
+
+[5.0, '--json', '--service', '--timeout', '--verbose', '-j', '-s', '-t', '-v', 'Available commands', 'Run health checks', 'Show warnings', 'ValidationResult', '[?]', '[FAIL]', '[OK]', '[WARN]', '__main__', 'command', 'degraded', 'egg-config', 'health', 'healthy', 'show', 'store_true', 'timeout', 'unhealthy', 'validate', 'watch']

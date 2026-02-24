@@ -1,0 +1,4 @@
+# file: /home/egg/repos/egg/orchestrator/gateway_client.py
+# hypothesis_version: 6.151.9
+
+[2.0, 9848, '/api/v1/git/fetch', '/api/v1/git/push', '/api/v1/health', '127.0.0.1', '172.32.0.', 'Authorization', 'Content-Type', 'DELETE', 'EGG_LAUNCHER_SECRET', 'GATEWAY_HOST', 'GATEWAY_PORT', 'GET', 'Gateway is healthy', 'PATCH', 'POST', 'Waiting for gateway', 'agent_role', 'application/json', 'base_branch', 'branch', 'claude_code_version', 'complexity_tier', 'container_id', 'container_ip', 'created_at', 'data', 'deleted', 'details', 'egg-gateway', 'errors', 'expires_at', 'force', 'gid', 'healthy', 'issue_number', 'local', 'message', 'mode', 'origin', 'phase', 'pipeline_id', 'pr_number', 'public', 'refspec', 'remote', 'repo_path', 'repos', 'session_token', 'shared', 'status', 'success', 'uid', 'unhealthy', 'unknown', 'unreachable', 'uptime_seconds', 'valid', 'version', 'worktrees']

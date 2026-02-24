@@ -1,0 +1,4 @@
+# file: /home/egg/repos/egg/shared/egg_config/registry.py
+# hypothesis_version: 6.151.9
+
+[5.0, 'ConfigRegistry', 'all_valid', 'degraded', 'errors', 'healthy', 'results', 'services', 'status', 'timestamp', 'unhealthy', 'warnings']

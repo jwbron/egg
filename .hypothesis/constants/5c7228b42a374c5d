@@ -1,0 +1,4 @@
+# file: /home/egg/repos/egg/gateway/config_validator.py
+# hypothesis_version: 6.151.9
+
+['#', '/secrets', '1', 'PRIVATE_MODE', '__main__', 'false', 'launcher-secret', 'true', 'yes']

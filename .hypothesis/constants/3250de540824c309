@@ -1,0 +1,4 @@
+# file: /home/egg/repos/egg/sandbox/egg_lib/self_improvement/collect.py
+# hypothesis_version: 6.151.9
+
+[500, 5000, 50000, '### Statistics', '--format', '--output', '--partition', '--repo', '--since-hours', '0', '</details>', 'PARTITION_COUNT=0', '__main__', '```', 'branch', 'collected_at', 'completed_at', 'failed_runs', 'failure', 'head_branch', 'html_url', 'index', 'json', 'log_excerpt', 'logs_omitted', 'markdown', 'other_runs', 'partition', 'repository', 'run_id', 'run_number', 'runs_to_analyze', 'since', 'started_at', 'statistics', 'status', 'store_true', 'success', 'successful_runs', 'total', 'total_runs', 'trigger', 'unknown', 'url', 'workflow', 'workflow_path', 'workflows_analyzed', '{partition}', '✅', '❌']

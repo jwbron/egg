@@ -1,0 +1,4 @@
+# file: /home/egg/repos/egg/orchestrator/sse.py
+# hypothesis_version: 6.151.9
+
+[1000, 3600, 5000, 'EGG_REPO_PATH', 'SSE client connected', 'Z', 'already_terminal', 'cancelled', 'complete', 'completed', 'current_phase', 'dag', 'data', 'done', 'error', 'event', 'event_type', 'failed', 'orchestrator.sse', 'pending_decisions', 'pipeline_id', 'reason', 'refresh', 'shared', 'snapshot', 'status', 'timeout', 'timestamp', 'update', 'visualization']

@@ -1,0 +1,4 @@
+# file: /home/egg/repos/egg/orchestrator/state_store.py
+# hypothesis_version: 6.151.9
+
+[0.1, '*.json', '*/index.lock', '--cached', '--detach', '--no-verify', '--orphan', '--quiet', '--verify', '-C', '-c', '-m', '-rf', '.', '.egg-state/pipelines', '.git', '.git-ops.lock', '/', '/home/egg/.egg-state', 'EGG_STATE_DIR', 'HEAD', 'add', 'checkout', 'commit', 'diff', 'egg/pipeline-state', 'git', 'gitdir', 'index.lock', 'issue', 'local', 'local-', 'mode', 'pipeline-worktree', 'rev-parse', 'rm', 'w', 'worktree', 'worktrees']

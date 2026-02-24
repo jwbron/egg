@@ -1,0 +1,4 @@
+# file: /home/egg/repos/egg/shared/egg_orchestrator/types.py
+# hypothesis_version: 6.151.9
+
+[100, 'AgentRole', 'CompletionData', 'DeploymentMode', 'ErrorData', 'HeartbeatData', 'ProgressData', 'SignalPayload', 'SignalResponse', 'SignalType', 'agent_role', 'architect', 'checker', 'coder', 'commit', 'complete', 'container_id', 'current_task', 'data', 'distributed', 'documenter', 'error', 'files_changed', 'handoff_data', 'heartbeat', 'integrator', 'local', 'message', 'metrics', 'progress', 'progress_percent', 'recoverable', 'refiner', 'remote-single', 'reviewer', 'reviewer_code', 'reviewer_contract', 'reviewer_plan', 'reviewer_refine', 'risk_analyst', 'signal_type', 'success', 'task_planner', 'tester', 'traceback']

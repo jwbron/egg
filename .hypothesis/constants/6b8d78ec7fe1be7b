@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/jwt/algorithms.py
+# hypothesis_version: 6.151.9
+
+[b'ecdsa-sha2-', b'ssh-rsa', '-----BEGIN PRIVATE', '-----BEGIN PUBLIC', 'EC', 'ES256', 'ES256K', 'ES384', 'ES512', 'ES521', 'Ed25519', 'Ed448', 'EdDSA', 'HS256', 'HS384', 'HS512', 'Not an HMAC key', 'Not an RSA key', 'OKP', 'P-256', 'P-384', 'P-521', 'PS256', 'PS384', 'PS512', 'RS256', 'RS384', 'RS512', 'RSA', 'big', 'crv', 'd', 'dp', 'dq', 'e', 'k', 'key_ops', 'kty', 'n', 'none', 'oct', 'oth', 'p', 'private_numbers', 'q', 'qi', 'secp256k1', 'sign', 'ssh-', 'utf-8', 'verify', 'x', 'y']

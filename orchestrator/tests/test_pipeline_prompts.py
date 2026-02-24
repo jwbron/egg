@@ -2475,6 +2475,7 @@ class TestBuildReviewPrompt:
         assert "Cross-reference" in prompt
         assert "Cite specific" in prompt
         assert "completeness" in prompt.lower()
+<<<<<<< HEAD
 
     def test_non_code_reviewer_generic_conventions_framing(self):
         """Non-code reviewers get generic quality standards framing, not infrastructure framing."""
@@ -2639,3 +2640,5 @@ class TestBuildReviewPrompt:
         assert "Trace data flow" in prompt
         assert "edge cases" in prompt.lower()
         assert "Research when uncertain" in prompt
+=======
+>>>>>>> d42035edc (Deepen SDLC review quality with expanded verdict schema and aligned prompts)

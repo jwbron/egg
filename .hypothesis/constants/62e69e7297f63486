@@ -1,0 +1,4 @@
+# file: /home/egg/repos/egg/shared/egg_contracts/phase_defaults.py
+# hypothesis_version: 6.151.9
+
+['Auto-fix Check', 'Draft Validation', 'Lint Check', 'Merge Conflict Check', 'Plan YAML Validation', 'Test Check', 'check-fixer', 'check-lint', 'check-merge-conflict', 'check-plan-yaml', 'check-test', 'check_fixer.py', 'lint_check.py', 'plan_yaml_check.py', 'test_check.py']

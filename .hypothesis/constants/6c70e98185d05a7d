@@ -1,0 +1,4 @@
+# file: /home/egg/repos/egg/shared/egg_contracts/roles.py
+# hypothesis_version: 6.151.9
+
+['*', '.', '.*', 'can_modify', 'cannot_modify', 'current_phase', 'decisions.*', 'decisions.*.resolved', 'human', 'implementer', 'phases.*.status', 'reviewer', 'system']

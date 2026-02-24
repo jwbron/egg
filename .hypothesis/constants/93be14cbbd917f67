@@ -1,0 +1,4 @@
+# file: /home/egg/repos/egg/sandbox/egg_lib/cli.py
+# hypothesis_version: 6.151.9
+
+['--auth', '--build', '--compose', '--down', '--exec', '--max-parallel', '--max-turns', '--model', '--multi-agent', '--output-format', '--print', '--private', '--public', '--rebuild', '--reset', '--setup', '--time', '--timeout', '--verbose', '-v', '200', '30', 'EGG_AGENT_ROLE', 'EGG_BOT_NAME', 'EGG_COMMIT_SHA', 'EGG_ISSUE_NUMBER', 'EGG_PIPELINE_ID', 'EGG_PR_NUMBER', 'INPUT_MODE', 'INPUT_MODEL', 'INPUT_PROMPT', 'INPUT_TIMEOUT', 'MINUTES', 'api-key', 'auto', 'claude', 'internal', 'multi_agent', 'oauth-token', 'opus', 'private', 'public', 'store_true', 'stream-json', 'yes']

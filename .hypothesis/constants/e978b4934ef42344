@@ -1,0 +1,4 @@
+# file: /home/egg/repos/egg/orchestrator/metrics.py
+# hypothesis_version: 6.151.9
+
+[0.0, 0.1, 0.5, 1.0, 5.0, 10.0, 30.0, 60.0, 300, 600, 1800, 3600, 7200, 14400, ',', 'Metric: agent failed', 'buckets', 'count', 'counters', 'gauges', 'histograms', 'inf', 'labels', 'name', 'orchestrator.metrics', 'shared', 'sum', 'uptime_seconds', 'value']

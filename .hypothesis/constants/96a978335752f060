@@ -1,0 +1,4 @@
+# file: /home/egg/repos/egg/gateway/fork_policy.py
+# hypothesis_version: 6.151.9
+
+['Fork will be private', 'allowed', 'decision', 'denied', 'details', 'error', 'event_type', 'fork', 'fork_from_public', 'fork_policy', 'fork_to_public', 'gateway.fork-policy', 'hint', 'make_private', 'personal', 'policy', 'private', 'private_mode', 'public', 'reason', 'shared', 'source_repository', 'source_visibility', 'target_organization', 'target_visibility', 'timestamp', 'visibility_unknown']

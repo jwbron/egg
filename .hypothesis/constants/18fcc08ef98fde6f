@@ -1,0 +1,4 @@
+# file: /home/egg/repos/egg/.github/scripts/checks/base.py
+# hypothesis_version: 6.151.9
+
+['json', 'shared']

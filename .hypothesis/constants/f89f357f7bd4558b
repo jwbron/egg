@@ -1,0 +1,4 @@
+# file: /home/egg/repos/egg/orchestrator/devserver.py
+# hypothesis_version: 6.151.9
+
+[200, '--name-only', '--no-build', '--project-name', '--remove-orphans', '--timeout', '--volumes', '-d', '-f', '-q', '/', '10', '=', 'ALL', 'Config', 'Credential check', 'ExposedPorts', 'GET', 'HEAD', 'HEAD~1', 'IPAddress', 'NetworkSettings', 'Networks', 'Pre-pulling image', 'Service healthy', 'bridge', 'cap_drop', 'compose', 'container_id', 'cpus', 'deploy', 'diff', 'docker', 'docker-compose.yml', 'down', 'egg.check-network', 'egg.pipeline-id', 'egg.service', 'environment', 'error', 'error_message', 'external', 'git', 'healthy', 'image', 'ip', 'limits', 'memory', 'name', 'network_id', 'networks', 'origin/main...HEAD', 'pids', 'port', 'privileged', 'ps', 'read_only', 'resources', 'security_opt', 'services', 'shared', 'show', 'starting', 'status', 'stopped', 'true', 'unhealthy', 'up', 'utf-8', 'volumes', 'warnings']

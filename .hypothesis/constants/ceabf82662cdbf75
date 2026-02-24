@@ -1,0 +1,4 @@
+# file: /home/egg/repos/egg/gateway/policy.py
+# hypothesis_version: 6.151.9
+
+[120, 200, 300, 500, '+', ',', ':', 'GATEWAY_BOT_NAME', 'PR comment allowed', 'PR review allowed', 'action', 'allowed', 'auth_mode', 'author', 'bot', 'bot_pr', 'bot_prefix', 'branch', 'config', 'configured_user', 'configured_user_pr', 'details', 'expected', 'gateway.policy', 'github_user', 'headRefName', 'hint', 'login', 'main', 'master', 'new_branch', 'number', 'open', 'open_prs', 'pr_number', 'protected_branches', 'reason', 'refs/heads/', 'repo', 'reviewer', 'shared', 'state', 'trusted_user_pr', 'user']

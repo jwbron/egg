@@ -1,0 +1,4 @@
+# file: /home/egg/repos/egg/sandbox/egg_lib/self_improvement/collectors/gha.py
+# hypothesis_version: 6.151.9
+
+['+00:00', '--jq', '--json', '--log', '--paginate', '--repo', '-q', '.nameWithOwner', '.workflow_runs', 'Z', 'api', 'cancelled', 'conclusion', 'created_at', 'event', 'failure', 'gh', 'gha', 'head_branch', 'html_url', 'id', 'in_progress', 'name', 'nameWithOwner', 'path', 'queued', 'repo', 'run', 'run_number', 'running', 'status', 'success', 'unknown', 'updated_at', 'view', 'workflow', 'workflow_path']

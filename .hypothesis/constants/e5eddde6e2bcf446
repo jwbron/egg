@@ -1,0 +1,4 @@
+# file: /usr/lib/python3/dist-packages/cryptography/hazmat/primitives/serialization/ssh.py
+# hypothesis_version: 6.151.9
+
+[b'\n', b' ', b'(.*?)', b'-----BEGIN OPENSSH PRIVATE KEY-----', b'-----END OPENSSH PRIVATE KEY-----', b'-cert-v01@openssh.com', b'>I', b'>Q', b'\\A(\\S+)[ \\t]+(\\S+)', b'aes256-cbc', b'aes256-ctr', b'bcrypt', b'ecdsa-sha2-nistp256', b'ecdsa-sha2-nistp384', b'ecdsa-sha2-nistp521', b'nistp256', b'nistp384', b'nistp521', b'none', b'openssh-key-v1\x00', b'ssh-dss', b'ssh-ed25519', b'ssh-rsa', 127, 1024, 'Curve name mismatch', 'Invalid data', 'Invalid key format', 'Invalid line format', 'Need bcrypt module', 'Unsupported KDF: %r', 'Unsupported key type', 'big', 'data', 'password', 'secp256r1', 'secp384r1', 'secp521r1']

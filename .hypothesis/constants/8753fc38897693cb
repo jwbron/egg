@@ -1,0 +1,4 @@
+# file: /home/egg/repos/egg/shared/egg_logging/formatters.py
+# hypothesis_version: 6.151.9
+
+[100, '\x1b[0m', '\x1b[31m', '\x1b[32m', '\x1b[33m', '\x1b[35m', '\x1b[36m', '%Y-%m-%d %H:%M:%S', '%Y-%m-%dT%H:%M:%S.', '.', 'CRITICAL', 'DEBUG', 'DEFAULT', 'ERROR', 'INFO', 'NO_COLOR', 'WARNING', '_', 'access_level', 'args', 'component', 'context', 'created', 'egg', 'environment', 'exc_info', 'exc_text', 'exception', 'extra', 'file', 'filename', 'funcName', 'function', 'isatty', 'levelname', 'levelno', 'line', 'lineno', 'logger', 'message', 'module', 'msecs', 'msg', 'name', 'pathname', 'pr_number', 'process', 'processName', 'relativeCreated', 'repository', 'service', 'severity', 'sourceLocation', 'spanId', 'span_id', 'stack_info', 'taskName', 'task_id', 'thread', 'threadName', 'timestamp', 'traceFlags', 'traceId', 'trace_flags', 'trace_id']

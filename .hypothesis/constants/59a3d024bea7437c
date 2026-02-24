@@ -1,0 +1,4 @@
+# file: /home/egg/repos/egg/shared/egg_logging/__init__.py
+# hypothesis_version: 6.151.9
+
+['0.2.0', 'BoundLogger', 'ConsoleFormatter', 'ContextScope', 'EggLogger', 'JsonFormatter', 'LogContext', 'context_from_env', 'get_current_context', 'get_logger', 'set_current_context']

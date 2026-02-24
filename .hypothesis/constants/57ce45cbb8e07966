@@ -1,0 +1,4 @@
+# file: /home/egg/repos/egg/shared/egg_config/configs/llm.py
+# hypothesis_version: 6.151.9
+
+[5.0, 400, 401, 1000, 7200, '2023-06-01', '7200', 'ANTHROPIC_API_KEY', 'ANTHROPIC_BASE_URL', 'LLMConfig', 'LLM_MODEL', 'LLM_TIMEOUT', 'POST', '[default]', '[provider default]', 'anthropic-version', 'anthropic_api_key', 'anthropic_base_url', 'api_key', 'application/json', 'claude-haiku-4-5', 'content', 'content-type', 'hi', 'llm', 'max_tokens', 'messages', 'model', 'oauth', 'role', 'timeout', 'user', 'x-api-key']

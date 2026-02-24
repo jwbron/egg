@@ -1,0 +1,4 @@
+# file: /home/egg/repos/egg/shared/egg_contracts/redactor.py
+# hypothesis_version: 6.151.9
+
+[0.9, 100, '(--auth[=\\s]+)(\\S+)', '(--token[=\\s]+)(\\S+)', '.*_API_KEY$', '.*_CREDENTIAL.*', '.*_KEY$', '.*_PASSWORD$', '.*_SECRET$', '.*_TOKEN$', 'AKIA[A-Z0-9]{16}', '[REDACTED]', '\\.aws/credentials', '\\.env', '\\.env\\.[a-z]+', '\\.gnupg/', '\\.key$', '\\.netrc', '\\.pem$', '\\.ssh/', '\\1', '^ANTHROPIC_API_KEY$', '^API_KEY$', '^AUTH_TOKEN$', '^AWS_.*', '^AZURE_.*', '^DATABASE_URL$', '^GCP_.*', '^GITHUB_TOKEN$', '^MONGO.*_URI$', '^MYSQL_.*', '^OPENAI_API_KEY$', '^POSTGRES_.*', '^REDIS_URL$', '_-', 'credentials\\.json', 'gho_[a-zA-Z0-9]{36}', 'ghp_[a-zA-Z0-9]{36}', 'ghs_[a-zA-Z0-9]{36}', 'ghu_[a-zA-Z0-9]{36}', 'id_ed25519', 'id_rsa', 'secrets\\.json', 'sk-[a-zA-Z0-9]{20,}', 'ya29\\.[a-zA-Z0-9_-]+']

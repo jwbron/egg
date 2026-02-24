@@ -1,0 +1,4 @@
+# file: /home/egg/repos/egg/orchestrator/docker_client.py
+# hypothesis_version: 6.151.9
+
+[100, 300, 3600, '+00:00', '0001-01-01T00:00:00Z', 'Config', 'Container created', 'Container removed', 'Container started', 'Container stopped', 'DOCKER_HOST', 'ExitCode', 'FinishedAt', 'Labels', 'StartedAt', 'State', 'Status', 'StatusCode', 'Z', 'created', 'egg-sandbox-', 'egg.agent.role', 'egg.container.name', 'egg.created_at', 'egg.orchestrator', 'egg:latest', 'exited', 'label', 'orchestrator.docker', 'replace', 'running', 'shared', 'true', 'unknown', 'utf-8']

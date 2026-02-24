@@ -1,0 +1,4 @@
+# file: /home/egg/repos/egg/gateway/transcript_buffer.py
+# hypothesis_version: 6.151.9
+
+[448, 1024, 2000, 5000, '...', '.jsonl.tmp', '/tmp/egg-transcripts', 'API turn captured', 'Buffer cleared', 'Failed to get stats', 'ab', 'api_turn', 'container_id', 'content', 'duration_ms', 'entries_dropped', 'error', 'function', 'max_size', 'max_tokens', 'messages', 'model', 'name', 'path', 'r+b', 'replace', 'request', 'response', 'role', 'shared', 'size_bytes', 'stop_reason', 'streaming', 'system', 'text', 'timestamp', 'tool_result', 'tool_use', 'tools', 'type', 'usage', 'utf-8', 'w']

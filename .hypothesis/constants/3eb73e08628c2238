@@ -1,0 +1,4 @@
+# file: /home/egg/repos/egg/shared/egg_orchestrator/client.py
+# hypothesis_version: 6.151.9
+
+['Content-Type', 'GET', 'OrchestratorClient', 'OrchestratorError', 'OrchestratorHealth', 'POST', 'agent_role', 'application/json', 'components', 'details', 'egg-orchestrator', 'healthy', 'message', 'service', 'signal_type', 'status', 'timestamp', 'unhealthy', 'unknown', 'unreachable']

@@ -1,0 +1,4 @@
+# file: /home/egg/repos/egg/shared/egg_logging/signatures.py
+# hypothesis_version: 6.151.9
+
+['_', 'trace_id', 'workflow_id', 'workflow_type']

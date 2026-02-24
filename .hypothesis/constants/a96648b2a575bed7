@@ -1,0 +1,4 @@
+# file: /home/egg/repos/egg/gateway/post_agent_commit.py
+# hypothesis_version: 6.151.9
+
+[200, ' -> ', '--', '--abbrev-ref', '--author', '--no-verify', '--porcelain', '-c', '-m', '/usr/bin/git', 'Authorization', 'Auto-commit failed', 'Content-Type', 'HEAD', 'POST', 'add', 'application/json', 'checkout', 'commit', 'egg <egg@localhost>', 'origin', 'post_agent_auto_push', 'refspec', 'remote', 'repo_path', 'rev-parse', 'safe.directory=*', 'shared', 'status']

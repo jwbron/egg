@@ -1,0 +1,4 @@
+# file: /home/egg/repos/egg/orchestrator/multi_agent.py
+# hypothesis_version: 6.151.9
+
+[3600, 'Agent spawned', 'EGG_AGENT_ROLE', 'EGG_HANDOFF_DATA', 'EGG_WAVE_NUMBER', 'Unknown error', 'Wave completed', 'commit', 'complete', 'completed_waves', 'container_id', 'current_wave', 'dispatcher_status', 'error', 'failed', 'has_failures', 'is_complete', 'phase', 'pipeline_id', 'role', 'running', 'shared', 'status', 'success', 'wave', '{}']

@@ -1,0 +1,4 @@
+# file: /home/egg/repos/egg/shared/egg_config/utils.py
+# hypothesis_version: 6.151.9
+
+['"', '#', "'", '0', '1', '=', 'false', 'no', 'off', 'on', 'true', 'yes']

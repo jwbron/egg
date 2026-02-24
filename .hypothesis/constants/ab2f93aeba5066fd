@@ -1,0 +1,4 @@
+# file: /home/egg/repos/egg/.github/scripts/checks/merge_conflict_check.py
+# hypothesis_version: 6.151.9
+
+['<<<<<<<', 'check-merge-conflict', 'files', 'git', 'ignore', 'ls-files', 'stderr']

@@ -1,0 +1,4 @@
+# file: /home/egg/repos/egg/orchestrator/health_checks/context.py
+# hypothesis_version: 6.151.9
+
+[4000, 16000, '\n... [truncated]', '--oneline', '--stat', '-20', '.egg-state', '.json', '.md', '.yaml', '.yml', '/', 'agent-outputs', 'contracts', 'diff', 'drafts', 'git', 'log', 'origin/main...HEAD', 'replace']

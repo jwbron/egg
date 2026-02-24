@@ -421,6 +421,7 @@ class TestProductionAggregateReviewVerdicts:
         # Positional: [0]=verdict, [1]=blocking_feedback, [2]=advisory_content
         assert result[0] == "needs_revision"
         assert "Bug found" in result[1]
+<<<<<<< HEAD
 
     def test_empty_verdicts_dict(self):
         """Empty dict returns approved with empty strings."""
@@ -518,3 +519,5 @@ class TestProductionAggregateReviewVerdicts:
         result = self._aggregate(verdicts)
         assert "**Suggestions:**" in result.advisory_content
         assert "type annotation" in result.advisory_content
+=======
+>>>>>>> d42035edc (Deepen SDLC review quality with expanded verdict schema and aligned prompts)

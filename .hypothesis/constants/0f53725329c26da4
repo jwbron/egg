@@ -1,0 +1,4 @@
+# file: /home/egg/repos/egg/shared/egg_contracts/deployment.py
+# hypothesis_version: 6.151.9
+
+[100, 120, 200, 599, 600, '..', '.egg', '/', '/app', 'GET', 'HTTP method', 'compose_file', 'container_mount_path', 'deployment.json', 'deployment.yml', 'docker-compose.yml', 'health_endpoints', 'source_dir', 'utf-8']

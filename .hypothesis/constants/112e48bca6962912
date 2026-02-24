@@ -1,0 +1,4 @@
+# file: /home/egg/repos/egg/sandbox/llm/claude/runner.py
+# hypothesis_version: 6.151.9
+
+[b'\n', 5.0, 500, 1024, '(no content)', '--model', '--output-format', '--print', '--verbose', '--version', '1.0.0', '429', 'Model not available', 'Permission denied', 'Rate limited', 'assistant', 'authentication', 'claude', 'content', 'init', 'invalid_api_key', 'message', 'model', 'not found', 'opus', 'permission', 'rate_limit', 'result', 'stream-json', 'subtype', 'system', 'text', 'thinking', 'type']

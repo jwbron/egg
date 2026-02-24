@@ -1,0 +1,4 @@
+# file: /home/egg/repos/egg/shared/egg_container/__init__.py
+# hypothesis_version: 6.151.9
+
+[',readonly', '--add-host', '--dns', '--ip', '--mount', '--name', '--network', '--security-opt', '-e', '.egg-readonly', '.egg-state', '.git', '/dev/null', '/home/egg/repos', '0.0.0.0', 'CONTAINER_ID', 'EGG_PRIVATE_MODE', 'EGG_SESSION_TOKEN', 'EndpointsConfig', 'GATEWAY_URL', 'HTTPS_PROXY', 'HTTP_PROXY', 'IPAMConfig', 'IPv4Address', 'NO_PROXY', 'PRIVATE_MODE', 'RUNTIME_GID', 'RUNTIME_UID', 'ReadOnly', 'Source', 'Target', 'Type', 'bind', 'command', 'contracts', 'dns', 'docker', 'drafts', 'environment', 'extra_hosts', 'false', 'http_proxy', 'https_proxy', 'image', 'implement', 'label=disable', 'labels', 'mounts', 'name', 'network', 'networking_config', 'no_proxy', 'pipelines', 'private', 'reviewer', 'reviews', 'run', 'security_opt', 'tmpfs', 'true', 'volume']

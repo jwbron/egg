@@ -1,0 +1,4 @@
+# file: /home/egg/repos/egg/gateway/anthropic_credentials.py
+# hypothesis_version: 6.151.9
+
+['"', '#', "'", '...', '.config', '=', 'ANTHROPIC_API_KEY', 'Authorization', 'EGG_SECRETS_PATH', 'egg', 'secrets.env', 'shared', 'sk-ant-', 'x-api-key']

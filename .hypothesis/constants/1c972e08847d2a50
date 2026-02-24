@@ -1,0 +1,4 @@
+# file: /home/egg/repos/egg/sandbox/egg_lib/sdlc_hitl.py
+# hypothesis_version: 6.151.9
+
+['\x1b[0m', '\x1b[1m', '\x1b[2m', '\x1b[31m', '\x1b[32m', '\x1b[33m', '\x1b[36m', '  > ', ',', '--show-toplevel', '.git', '/', '1', '2', '3', '4', '5', 'Approved', 'Decision required', 'EDITOR', 'EGG_REPOS', '\\banalysis\\b', '\\bimplement\\b', '\\bplan\\b', '\\bpr\\b', '\\brefine\\b', 'cancelled', 'claude', 'context', 'git', 'id', 'implement', 'issue', 'local', 'plan', 'pr', 'question', 'refine', 'repos', 'resolved', 'rev-parse', 'unknown', 'vim']

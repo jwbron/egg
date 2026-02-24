@@ -1,0 +1,4 @@
+# file: /home/egg/repos/egg/shared/egg_contracts/loader.py
+# hypothesis_version: 6.151.9
+
+['*.json', '.egg-state/contracts', '.tmp', 'audit_log', 'git', 'json', 'show', 'w']

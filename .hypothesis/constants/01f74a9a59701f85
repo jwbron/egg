@@ -1,0 +1,4 @@
+# file: /home/egg/repos/egg/gateway/worktree_manager.py
+# hypothesis_version: 6.151.9
+
+[0.1, 1000, '*/index.lock', '-', '--force', '--format', '--list', '--merged', '--porcelain', '--short', '--verify', '-D', '-R', '-b', '-d', '..', '.git', '/', '/home/egg/repos', 'Failed to chown', 'HEAD', 'Permission denied', 'Worktree created', 'Worktree removed', '[^a-zA-Z0-9-]', 'add', 'branch', 'chown', 'container_id', 'docker', 'failed', 'gitdir', 'gitdir:', 'gitdir: ', 'index.lock', 'name', 'origin/main', 'origin/master', 'path', 'ps', 'ref: refs/heads/', 'remove', 'repo_name', 'repos', 'rev-parse', 'shared', 'status', 'symbolic-ref', 'unknown error', 'worktree', 'worktrees', '{{.Names}}']
