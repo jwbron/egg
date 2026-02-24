@@ -94,10 +94,23 @@
       "created_at": "2026-02-24T21:49:42.524879",
       "resolved_at": null,
       "resolution": null
+    },
+    {
+      "id": "decision-3",
+      "question": "Should the questions field entries use a nested Pydantic model or untyped dicts?",
+      "context": "",
+      "options": [
+        "Nested Pydantic model (FeedbackQuestion with id, question, answer fields)",
+        "Untyped list[dict] (flexible but no schema enforcement)"
+      ],
+      "status": "pending",
+      "created_at": "2026-02-24T21:49:44.827814",
+      "resolved_at": null,
+      "resolution": null
     }
   ],
   "created_at": "2026-02-24T21:42:50.271543",
-  "updated_at": "2026-02-24T21:49:42.527136",
+  "updated_at": "2026-02-24T21:49:44.829742",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
@@ -105,5 +118,5 @@
   "error": null,
   "plan_phase_waves": null,
   "plan_phase_names": null,
-  "version": 9
+  "version": 10
 }
