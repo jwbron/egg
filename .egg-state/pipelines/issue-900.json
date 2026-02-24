@@ -94,10 +94,23 @@
       "created_at": "2026-02-24T21:28:19.983669",
       "resolved_at": null,
       "resolution": null
+    },
+    {
+      "id": "decision-3",
+      "question": "Should the questions field entries use a nested Pydantic model or stay as loose list[dict]?",
+      "context": "",
+      "options": [
+        "Nested Pydantic model (FeedbackQuestion with id, question, answer fields)",
+        "Loose list[dict] (flexible, matches issue spec exactly)"
+      ],
+      "status": "pending",
+      "created_at": "2026-02-24T21:28:20.885759",
+      "resolved_at": null,
+      "resolution": null
     }
   ],
   "created_at": "2026-02-24T21:25:23.358616",
-  "updated_at": "2026-02-24T21:28:19.985633",
+  "updated_at": "2026-02-24T21:28:20.888158",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
@@ -105,5 +118,5 @@
   "error": null,
   "plan_phase_waves": null,
   "plan_phase_names": null,
-  "version": 9
+  "version": 10
 }
