@@ -18,16 +18,31 @@
     "allow_short_circuit": true,
     "enable_parallel_phases": true
   },
-  "phases": {},
+  "phases": {
+    "refine": {
+      "phase": "refine",
+      "status": "running",
+      "started_at": "2026-02-24T14:51:09.827374",
+      "work_started_at": null,
+      "completed_at": null,
+      "containers": [],
+      "agents": [],
+      "review_cycles": 0,
+      "hitl_review_cycles": 0,
+      "cycle_timings": [],
+      "artifacts": {},
+      "error": null
+    }
+  },
   "decisions": [],
   "created_at": "2026-02-24T14:51:09.714607",
-  "updated_at": "2026-02-24T14:51:09.734792",
-  "contract_synced": false,
+  "updated_at": "2026-02-24T14:51:09.827566",
+  "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
   "complexity_tier": "mid",
   "error": null,
   "plan_phase_waves": null,
   "plan_phase_names": null,
-  "version": 3
+  "version": 5
 }
