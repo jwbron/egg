@@ -213,13 +213,13 @@
           "plan_phase_id": null
         }
       ],
-      "review_cycles": 0,
+      "review_cycles": 1,
       "hitl_review_cycles": 0,
       "cycle_timings": [
         {
           "cycle": 0,
           "started_at": "2026-02-24T18:21:09.037002",
-          "completed_at": null,
+          "completed_at": "2026-02-24T18:37:29.715898",
           "commit_sha": "7c43f99c5a8399dea1c9e4de4569bad423c8f748"
         }
       ],
@@ -243,7 +243,7 @@
     }
   ],
   "created_at": "2026-02-24T15:56:53.359677",
-  "updated_at": "2026-02-24T18:37:21.772006",
+  "updated_at": "2026-02-24T18:37:29.716519",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
@@ -251,5 +251,5 @@
   "error": null,
   "plan_phase_waves": null,
   "plan_phase_names": null,
-  "version": 29
+  "version": 30
 }
