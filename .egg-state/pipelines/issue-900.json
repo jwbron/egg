@@ -134,10 +134,23 @@
       "created_at": "2026-02-24T21:49:54.225217",
       "resolved_at": null,
       "resolution": null
+    },
+    {
+      "id": "decision-6",
+      "question": "With JSON resolution payloads, does the follow-up decision flow (re-queuing when human selects bare \"request changes\") become unnecessary?",
+      "context": "",
+      "options": [
+        "Yes, eliminate the follow-up flow (JSON payload always includes feedback field)",
+        "No, keep the follow-up as a safety net for edge cases"
+      ],
+      "status": "pending",
+      "created_at": "2026-02-24T21:49:56.730139",
+      "resolved_at": null,
+      "resolution": null
     }
   ],
   "created_at": "2026-02-24T21:42:50.271543",
-  "updated_at": "2026-02-24T21:49:54.227765",
+  "updated_at": "2026-02-24T21:49:56.731979",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
@@ -145,5 +158,5 @@
   "error": null,
   "plan_phase_waves": null,
   "plan_phase_names": null,
-  "version": 12
+  "version": 13
 }
