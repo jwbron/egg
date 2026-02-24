@@ -69,6 +69,7 @@ gateway/
 ├── squid.conf              # Proxy config (private mode)
 ├── scripts/                # Gateway helper scripts
 └── tests/                  # Gateway tests
+    └── test_assigned_branch.py  # Push-target enforcement and branch lock tests
 ```
 
 ## Orchestrator Structure
@@ -124,6 +125,8 @@ orchestrator/
 ├── entrypoint.sh           # Container entry point
 ├── requirements.txt        # Python dependencies
 └── tests/                  # Orchestrator tests (30+ files, including health check tests)
+    ├── test_signals.py     # Signal handling and completion branch verification tests
+    └── test_sync_worktree.py  # Worktree sync with remote tests
 ```
 
 ## Sandbox Structure
@@ -157,7 +160,9 @@ sandbox/
 │   └── github-app-token.py # Token generation utility
 ├── claude-commands/        # Custom slash commands
 ├── claude-rules/           # Agent behavior rules
-└── scripts/                # Container helper scripts
+├── scripts/                # Container helper scripts
+└── tests/                  # Sandbox tests
+    └── test_command_timeout.py  # Per-command timeout wrapper tests
 ```
 
 ## Shared Libraries
