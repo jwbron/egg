@@ -81,10 +81,23 @@
       "created_at": "2026-02-24T21:14:18.474663",
       "resolved_at": null,
       "resolution": null
+    },
+    {
+      "id": "decision-2",
+      "question": "Should the questions field on HITLDecision use a Pydantic sub-model or stay as list[dict]?",
+      "context": "",
+      "options": [
+        "Pydantic sub-model (FeedbackQuestion)",
+        "Untyped list[dict]"
+      ],
+      "status": "pending",
+      "created_at": "2026-02-24T21:14:22.505421",
+      "resolved_at": null,
+      "resolution": null
     }
   ],
   "created_at": "2026-02-24T21:09:04.675818",
-  "updated_at": "2026-02-24T21:14:18.477390",
+  "updated_at": "2026-02-24T21:14:22.506589",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
@@ -92,5 +105,5 @@
   "error": null,
   "plan_phase_waves": null,
   "plan_phase_names": null,
-  "version": 8
+  "version": 9
 }
