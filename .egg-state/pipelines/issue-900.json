@@ -94,10 +94,24 @@
       "created_at": "2026-02-24T21:14:22.505421",
       "resolved_at": null,
       "resolution": null
+    },
+    {
+      "id": "decision-3",
+      "question": "How should the orchestrator handle JSON resolution payloads for backward compatibility?",
+      "context": "",
+      "options": [
+        "Try JSON first, fall back to string matching",
+        "Update all resolution handling at once (no fallback)",
+        "Keep plain text, encode action as prefix (e.g. APPROVE: feedback text)"
+      ],
+      "status": "pending",
+      "created_at": "2026-02-24T21:14:27.190984",
+      "resolved_at": null,
+      "resolution": null
     }
   ],
   "created_at": "2026-02-24T21:09:04.675818",
-  "updated_at": "2026-02-24T21:14:22.506589",
+  "updated_at": "2026-02-24T21:14:27.193246",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
@@ -105,5 +119,5 @@
   "error": null,
   "plan_phase_waves": null,
   "plan_phase_names": null,
-  "version": 9
+  "version": 10
 }
