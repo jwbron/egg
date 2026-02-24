@@ -1,0 +1,20 @@
+{
+  "all_passed": true,
+  "checks": [
+    {
+      "name": "lint",
+      "passed": true,
+      "output": "==> Ruff check...\nAll checks passed!\n==> Ruff format check...\n431 files already formatted\n==> Mypy...\nSuccess: no issues found in 118 source files\n==> Shellcheck...\n==> Yamllint...\nSKIP: yamllint not installed\n==> Hadolint...\nSKIP: hadolint not installed\n==> Actionlint...\nSKIP: actionlint not installed\n==> Custom checks...\n  bin-symlinks...\nOK: All 2 bin/ symlinks are valid\n  claude-imports...\nWarning: host-services directory not found\n  container-host-boundary...\nOK: No forbidden host-services imports found in sandbox\n  container-paths...\nOK: No problematic sys.path patterns found\n  docker-and-claude-invocations...\nOK: No docker/claude invocation violations found\n  gh-cli-usage...\nWarning: host-services directory not found\n  hardcoded-ports...\nOK: No hardcoded port numbers found\n  llm-api-calls...\nOK: No direct LLM API usage found outside sandbox\n  model-versions...\nOK: No non-alias Claude model references found\n  reviewer-job-names...\nOK: All reviewer jobs use the required naming prefix\n  workflow-secrets...\nOK: No untrusted script execution with secrets found in workflows"
+    },
+    {
+      "name": "test",
+      "passed": true,
+      "output": "6767 passed, 85 skipped, 4 warnings in 73.51s (0:01:13)"
+    },
+    {
+      "name": "security",
+      "passed": true,
+      "output": "==> Running security scan...\nSKIP: bandit not installed"
+    }
+  ]
+}

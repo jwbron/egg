@@ -713,6 +713,74 @@ class TestReadReviewVerdict:
         if result is not None:
             assert result.verdict == "approved"
 
+    def test_backward_compat_old_json_without_new_fields(self, tmp_path: Path):
+        """Old verdict JSON without analysis/suggestions fields parses correctly."""
+        reviews_dir = tmp_path / ".egg-state" / "reviews"
+        reviews_dir.mkdir(parents=True, exist_ok=True)
+        # Old format: no analysis or suggestions fields
+        verdict = {
+            "verdict": "needs_revision",
+            "summary": "Found issues",
+            "feedback": "Fix the bug",
+            "timestamp": "2024-01-01T00:00:00Z",
+        }
+        (reviews_dir / "42-implement-code-review.json").write_text(
+            json.dumps(verdict), encoding="utf-8"
+        )
+
+        result = self._read(tmp_path, "implement", "code", "issue", 42, "test-pipeline")
+        if result is not None:
+            assert result.verdict == "needs_revision"
+            assert result.feedback == "Fix the bug"
+            # New fields default to empty strings
+            assert result.analysis == ""
+            assert result.suggestions == ""
+
+    def test_reads_verdict_with_all_fields(self, tmp_path: Path):
+        """Verdict JSON with all new fields is parsed correctly."""
+        reviews_dir = tmp_path / ".egg-state" / "reviews"
+        reviews_dir.mkdir(parents=True, exist_ok=True)
+        verdict = {
+            "verdict": "approved",
+            "summary": "Code looks good",
+            "analysis": "Reviewed all changed files. Logic is sound.",
+            "suggestions": "Consider adding a docstring to the helper function.",
+            "feedback": "",
+            "timestamp": "2024-01-01T00:00:00Z",
+        }
+        (reviews_dir / "42-implement-code-review.json").write_text(
+            json.dumps(verdict), encoding="utf-8"
+        )
+
+        result = self._read(tmp_path, "implement", "code", "issue", 42, "test-pipeline")
+        if result is not None:
+            assert result.verdict == "approved"
+            assert result.analysis == "Reviewed all changed files. Logic is sound."
+            assert result.suggestions == "Consider adding a docstring to the helper function."
+            assert result.feedback == ""
+
+
+class TestReviewVerdictDefaults:
+    """Tests that ReviewVerdict defaults work for existing usage patterns."""
+
+    def test_minimal_construction(self):
+        """ReviewVerdict with only verdict field uses empty defaults for new fields."""
+        v = ReviewVerdict(verdict="approved")
+        assert v.verdict == "approved"
+        assert v.summary == ""
+        assert v.analysis == ""
+        assert v.suggestions == ""
+        assert v.feedback == ""
+        assert v.timestamp == ""
+
+    def test_construction_with_feedback_only(self):
+        """ReviewVerdict with verdict and feedback (common mock pattern) works."""
+        v = ReviewVerdict(verdict="needs_revision", feedback="Fix types")
+        assert v.verdict == "needs_revision"
+        assert v.feedback == "Fix types"
+        assert v.analysis == ""
+        assert v.suggestions == ""
+
 
 class TestReadLastReviewFeedback:
     """Tests for _read_last_review_feedback helper."""

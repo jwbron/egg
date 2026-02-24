@@ -320,7 +320,8 @@ The orchestrator runs multiple specialized reviewers in parallel, with phase-spe
 **Verdict Aggregation:**
 - All reviewers run in parallel
 - Any `needs_revision` from any reviewer → aggregate `needs_revision`
-- Feedback is combined with per-reviewer section headers
+- Blocking feedback (from `needs_revision` verdicts) is combined with per-reviewer section headers and passed to the next revision cycle
+- Analysis and suggestions from **all** verdicts (including `approved`) are collected as advisory content and logged for observability
 - Failed reviewers are tracked separately and trigger escalation
 
 **Per-Reviewer State Tracking:**
@@ -447,11 +448,30 @@ The refine and plan phases include an automated internal review step before huma
 {
   "reviewer": "refine" | "plan" | "agent-design" | "contract" | "code",
   "verdict": "approved" | "needs_revision",
-  "summary": "Brief summary of findings",
-  "feedback": "Detailed feedback (empty if approved)",
+  "summary": "Brief summary of findings (1-2 sentences)",
+  "analysis": "Detailed analysis of the reviewed work (always populated)",
+  "suggestions": "Non-blocking suggestions for improvement (even when approving)",
+  "feedback": "Blocking issues requiring revision (empty when approving)",
   "timestamp": "ISO 8601 timestamp"
 }
 ```
+
+**Field guidelines:**
+- **analysis**: Always populated regardless of verdict. Describes what was reviewed, what was found, and reasoning. Code reviewers provide file-by-file analysis; contract reviewers provide criterion-by-criterion verification; plan/refine reviewers provide section-by-section evaluation.
+- **suggestions**: Non-blocking observations and improvement ideas, included even when approving. These are surfaced as advisory content for observability.
+- **feedback**: Reserved for blocking issues only — problems that must be fixed before approval. Empty when the verdict is `approved`.
+
+**Review Conventions:**
+
+All SDLC reviewers follow quality standards aligned with the PR reviewer workflow:
+
+1. **Be comprehensive** — Review the entire scope, not just the obvious parts
+2. **Be specific** — Reference exact file paths, line numbers, function names, and code snippets
+3. **Be direct** — State issues plainly without hedging or softening language
+4. **Suggest fixes** — When identifying a problem, include a concrete suggestion for resolution
+5. **Provide context** — Explain *why* something is an issue (impact, risk, or principle violated)
+
+Code reviewers additionally receive "last line of defense" framing and must provide file-by-file analysis of all changed files. Draft-based reviewers (refine, plan) follow expanded procedural steps that require cross-referencing each section against criteria and citing specific evidence.
 
 **Review Criteria for Refine:**
 - Does the analysis address the issue description?

@@ -37,6 +37,7 @@ try:
     from ..docker_client import ContainerNotFoundError, ContainerOperationError, DockerClientError
     from ..models import (
         AgentRole,
+        AggregatedReviewResult,
         CycleTiming,
         Pipeline,
         PipelinePhase,
@@ -62,6 +63,7 @@ except ImportError:
     )
     from models import (  # type: ignore
         AgentRole,
+        AggregatedReviewResult,
         ComplexityTier,
         CycleTiming,
         Pipeline,
@@ -1009,7 +1011,8 @@ def _get_reviewer_scope_preamble(reviewer_type: str, phase: str) -> str:
             "agent-mode design principles. Do NOT review general code quality, "
             "security, or correctness — other reviewers handle those.\n\n"
             "**Only flag issues if you find clear agent-mode design anti-patterns.** "
-            "If the output has no agent-mode concerns, approve it."
+            "If the output has no agent-mode concerns, a brief approval is acceptable "
+            "— you do not need to produce a lengthy analysis when there are no concerns."
         )
     elif reviewer_type == "code":
         return (
@@ -1018,27 +1021,37 @@ def _get_reviewer_scope_preamble(reviewer_type: str, phase: str) -> str:
             "**Be direct.** Do not soften feedback. State issues clearly and explain "
             "why they matter.\n\n"
             "**Be thorough.** Find ALL issues on the first pass. Do not stop after "
-            "identifying a few problems."
+            "identifying a few problems.\n\n"
+            "**Analysis format:** Provide file-by-file analysis covering each changed "
+            "file. For each file, note what changed, whether the change is correct, "
+            "and any issues or observations."
         )
     elif reviewer_type == "contract":
         return (
             "This is a **contract verification review**. Verify that the implementation "
             "matches the contract and all acceptance criteria are met. Do NOT review "
-            "general code quality or security — other reviewers handle those."
+            "general code quality or security — other reviewers handle those.\n\n"
+            "**Analysis format:** Provide a criterion-by-criterion verification — for each "
+            "acceptance criterion, state whether it is met and cite the specific evidence."
         )
     elif reviewer_type == "refine":
         return (
             "This is a **refine phase review**. Focus on the quality and completeness "
             "of the analysis produced during the refine phase. Evaluate problem "
             "understanding, codebase research, options analysis, and the recommended "
-            "approach. Agent-mode design alignment is handled by another reviewer."
+            "approach. Agent-mode design alignment is handled by another reviewer.\n\n"
+            "**Analysis format:** Provide section-by-section evaluation of the refine "
+            "output — assess each major section for depth, accuracy, and completeness."
         )
     elif reviewer_type == "plan":
         return (
             "This is a **plan phase review**. Focus on the quality and completeness "
             "of the implementation plan. Evaluate task breakdown, acceptance criteria, "
             "dependency ordering, risk assessment, and test strategy. Agent-mode "
-            "design alignment is handled by another reviewer."
+            "design alignment is handled by another reviewer.\n\n"
+            "**Analysis format:** Provide section-by-section evaluation of the plan — "
+            "assess task decomposition, acceptance criteria quality, dependency ordering, "
+            "and risk coverage."
         )
     else:
         raise ValueError(f"Unknown reviewer type: {reviewer_type}")
@@ -1520,6 +1533,17 @@ def _build_review_prompt(
         lines.append("7. Evaluate against the criteria below")
         lines.append(f"8. Write your verdict to `{verdict_path}` as JSON")
         lines.append("9. Commit the verdict file")
+    elif draft_path:
+        # Expanded procedural steps for draft-based (non-code) reviewers
+        lines.append("2. Read the draft thoroughly — do not skim")
+        lines.append(
+            "3. Cross-reference each section of the draft against the review criteria below"
+        )
+        lines.append("4. Cite specific sections, quotes, or omissions as evidence in your analysis")
+        lines.append("5. Evaluate completeness — identify any criteria not adequately addressed")
+        lines.append("6. Assess overall quality and coherence of the draft")
+        lines.append(f"7. Write your verdict to `{verdict_path}` as JSON")
+        lines.append("8. Commit the verdict file")
     else:
         lines.append("2. Evaluate it against the criteria below")
         lines.append(f"3. Write your verdict to `{verdict_path}` as JSON")
@@ -1529,6 +1553,38 @@ def _build_review_prompt(
     # Review criteria
     lines.append("## Review Criteria\n")
     lines.append(_get_review_criteria_for_type(reviewer_type, phase, repo_path=repo_path))
+    lines.append("")
+
+    # Review conventions — quality standards aligned with PR reviewer thoroughness
+    lines.append("## Review Conventions\n")
+    if reviewer_type == "code":
+        lines.append(
+            "You are a critical part of the engineering infrastructure — the last line "
+            "of defense before code reaches production. Your review must meet these "
+            "quality standards:\n"
+        )
+    else:
+        lines.append("Your review must meet these quality standards:\n")
+    lines.append(
+        "1. **Be comprehensive.** Review the entire scope, not just the obvious parts. "
+        "Do not stop after finding the first few issues."
+    )
+    lines.append(
+        "2. **Be specific.** Reference exact file paths, line numbers, function names, "
+        "and code snippets. Vague feedback is not actionable."
+    )
+    lines.append(
+        "3. **Be direct.** State issues plainly without hedging or softening language. "
+        '"This will fail when X" not "you might want to consider X".'
+    )
+    lines.append(
+        "4. **Suggest fixes.** When identifying a problem, include a concrete suggestion "
+        "for how to resolve it."
+    )
+    lines.append(
+        "5. **Provide context.** Explain *why* something is an issue — the impact, "
+        "the risk, or the principle being violated."
+    )
     lines.append("")
 
     # Delta review directive for re-reviews
@@ -1558,15 +1614,31 @@ def _build_review_prompt(
     lines.append("{")
     lines.append(f'  "reviewer": "{reviewer_type}",')
     lines.append('  "verdict": "approved" or "needs_revision",')
-    lines.append('  "summary": "Brief summary of findings",')
-    lines.append('  "feedback": "Detailed feedback if needs_revision, empty if approved",')
+    lines.append('  "summary": "Brief summary of findings (1-2 sentences)",')
+    lines.append('  "analysis": "Detailed analysis of the reviewed work (see below)",')
+    lines.append('  "suggestions": "Non-blocking suggestions for improvement",')
+    lines.append('  "feedback": "Blocking issues requiring revision before approval",')
     lines.append('  "timestamp": "ISO 8601 timestamp"')
     lines.append("}")
     lines.append("```\n")
+    lines.append("**Field guidelines:**\n")
     lines.append(
-        "If the work meets all criteria, set verdict to `approved`. "
+        "- **analysis**: Always provide detailed analysis regardless of verdict. "
+        "Describe what you reviewed, what you found, and your reasoning. "
+        "Be thorough but concise (200-500 words)."
+    )
+    lines.append(
+        "- **suggestions**: Non-blocking observations and improvement ideas. "
+        "Include these even when approving — they help the team improve over time."
+    )
+    lines.append(
+        "- **feedback**: Reserved for **blocking issues only** — problems that must "
+        "be fixed before the work can be approved. Leave empty when approving."
+    )
+    lines.append(
+        "\nIf the work meets all criteria, set verdict to `approved`. "
         "If significant issues remain, set verdict to `needs_revision` "
-        "and provide actionable feedback."
+        "and provide actionable feedback in the `feedback` field."
     )
 
     # Phase restrictions for reviewers
@@ -1711,20 +1783,26 @@ def _read_tester_gaps(
 
 def _aggregate_review_verdicts(
     verdicts: dict[str, ReviewVerdict | None],
-) -> tuple[str, str]:
+) -> AggregatedReviewResult:
     """Aggregate multiple typed review verdicts into an overall result.
 
     Returns:
-        (overall_verdict, combined_feedback) where overall_verdict is
-        "approved" or "needs_revision". Any needs_revision → overall
-        needs_revision. Missing/None verdicts are treated as approved.
+        AggregatedReviewResult with:
+        - verdict: "approved" or "needs_revision" (any needs_revision → overall needs_revision)
+        - blocking_feedback: combined feedback from needs_revision verdicts only
+        - advisory_content: analysis and suggestions from ALL verdicts (including approved)
+
+        Missing/None verdicts are skipped.
     """
     overall = "approved"
     feedback_sections: list[str] = []
+    advisory_sections: list[str] = []
 
     for reviewer_type, verdict in verdicts.items():
         if verdict is None:
             continue
+
+        # Collect blocking feedback from needs_revision verdicts
         if verdict.verdict == "needs_revision":
             overall = "needs_revision"
             section = f"### {reviewer_type} reviewer\n"
@@ -1734,8 +1812,24 @@ def _aggregate_review_verdicts(
                 section += verdict.summary
             feedback_sections.append(section)
 
-    combined = "\n\n".join(feedback_sections) if feedback_sections else ""
-    return overall, combined
+        # Collect analysis and suggestions from ALL verdicts (including approved)
+        advisory_parts: list[str] = []
+        if verdict.analysis:
+            advisory_parts.append(verdict.analysis)
+        if verdict.suggestions:
+            advisory_parts.append(f"**Suggestions:** {verdict.suggestions}")
+        if advisory_parts:
+            advisory_sections.append(
+                f"### {reviewer_type} reviewer\n" + "\n\n".join(advisory_parts)
+            )
+
+    blocking_feedback = "\n\n".join(feedback_sections) if feedback_sections else ""
+    advisory_content = "\n\n".join(advisory_sections) if advisory_sections else ""
+    return AggregatedReviewResult(
+        verdict=overall,
+        blocking_feedback=blocking_feedback,
+        advisory_content=advisory_content,
+    )
 
 
 def _sync_worktree_with_remote(
@@ -3444,9 +3538,17 @@ def _run_tier3_implement(
                 for rtype in reviewer_types
             }
 
-            overall_verdict, combined_feedback = _aggregate_review_verdicts(all_verdicts)
+            agg_result = _aggregate_review_verdicts(all_verdicts)
 
-            if overall_verdict == "approved":
+            if agg_result.advisory_content:
+                logger.info(
+                    "Review advisory content (non-blocking)",
+                    pipeline_id=pipeline_id,
+                    phase_id=phase_id,
+                    advisory_preview=agg_result.advisory_content[:500],
+                )
+
+            if agg_result.verdict == "approved":
                 logger.info(
                     "Phase approved by all reviewers",
                     pipeline_id=pipeline_id,
@@ -3461,12 +3563,12 @@ def _run_tier3_implement(
                     phase_id=phase_id,
                     retry=retry,
                 )
-                if tester_gap_summary and combined_feedback:
-                    prior_feedback = f"{combined_feedback}\n\n{tester_gap_summary}"
+                if tester_gap_summary and agg_result.blocking_feedback:
+                    prior_feedback = f"{agg_result.blocking_feedback}\n\n{tester_gap_summary}"
                 elif tester_gap_summary:
                     prior_feedback = tester_gap_summary
                 else:
-                    prior_feedback = combined_feedback
+                    prior_feedback = agg_result.blocking_feedback
                 last_reviewed_commit = cycle_head
                 continue
             else:
@@ -5393,9 +5495,17 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                         pipeline_id=pipeline_id,
                     )
 
-                overall_verdict, combined_feedback = _aggregate_review_verdicts(all_verdicts)
+                agg_result = _aggregate_review_verdicts(all_verdicts)
 
-                if overall_verdict == "approved":
+                if agg_result.advisory_content:
+                    logger.info(
+                        "Review advisory content (non-blocking)",
+                        pipeline_id=pipeline_id,
+                        phase=current_phase.value,
+                        advisory_preview=agg_result.advisory_content[:500],
+                    )
+
+                if agg_result.verdict == "approved":
                     logger.info(
                         "All reviewers approved",
                         pipeline_id=pipeline_id,
@@ -5430,12 +5540,12 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
 
                 # Store feedback and loop — merge tester gaps with reviewer
                 # feedback so the coder sees both on the next cycle.
-                if tester_gap_summary and combined_feedback:
-                    review_feedback = f"{combined_feedback}\n\n{tester_gap_summary}"
+                if tester_gap_summary and agg_result.blocking_feedback:
+                    review_feedback = f"{agg_result.blocking_feedback}\n\n{tester_gap_summary}"
                 elif tester_gap_summary:
                     review_feedback = tester_gap_summary
                 else:
-                    review_feedback = combined_feedback
+                    review_feedback = agg_result.blocking_feedback
                 with get_pipeline_state_lock(pipeline_id):
                     pipeline = store.load_pipeline(pipeline_id)
                     phase_execution = pipeline.get_phase_execution(current_phase)

@@ -1,0 +1,7 @@
+{
+  "reviewer": "agent-design",
+  "verdict": "approved",
+  "summary": "No agent-mode design anti-patterns found. The analysis correctly identifies that the ReviewVerdict JSON format serves a machine consumer (_aggregate_review_verdicts), making structured output appropriate. Proposed schema extensions (analysis, suggestions fields) are modest and backward-compatible. Prompt improvements focus on quality expectations (what) rather than rigid procedures (how). The analysis shows good judgment by explicitly exempting the agent-design reviewer from the always-populate-analysis requirement, consistent with its intentionally brief scope.",
+  "feedback": "",
+  "timestamp": "2026-02-24T12:00:00Z"
+}

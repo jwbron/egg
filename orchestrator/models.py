@@ -7,7 +7,7 @@ including container state, HITL decisions, and agent coordination.
 
 from datetime import datetime
 from enum import StrEnum
-from typing import Any
+from typing import Any, NamedTuple
 
 from pydantic import BaseModel, Field
 
@@ -99,8 +99,31 @@ class ReviewVerdict(BaseModel):
 
     verdict: str = Field(..., description="'approved' or 'needs_revision'")
     summary: str = Field(default="", description="Brief summary of review findings")
-    feedback: str = Field(default="", description="Detailed feedback if needs_revision")
+    analysis: str = Field(
+        default="",
+        description="Detailed analysis of the reviewed work, populated regardless of verdict",
+    )
+    suggestions: str = Field(
+        default="",
+        description="Non-blocking suggestions for improvement, even when approving",
+    )
+    feedback: str = Field(default="", description="Blocking feedback requiring revision")
     timestamp: str = Field(default="", description="ISO 8601 timestamp")
+
+
+class AggregatedReviewResult(NamedTuple):
+    """Result of aggregating multiple review verdicts.
+
+    Attributes:
+        verdict: Overall verdict — 'approved' or 'needs_revision'.
+        blocking_feedback: Combined feedback from needs_revision verdicts only.
+        advisory_content: Combined analysis and suggestions from ALL verdicts
+            (including approved), for observability and logging.
+    """
+
+    verdict: str
+    blocking_feedback: str
+    advisory_content: str
 
 
 class ContainerInfo(BaseModel):

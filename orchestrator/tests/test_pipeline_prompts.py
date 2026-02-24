@@ -8,6 +8,8 @@ import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 # Mock heavy dependencies that pipelines.py imports at module level
 _docker_mock = MagicMock()
 sys.modules.setdefault("docker", _docker_mock)
@@ -21,11 +23,13 @@ from routes.pipelines import (
     _build_checker_prompt,
     _build_phase_prompt,
     _build_phase_scoped_prompt,
+    _build_review_prompt,
     _build_role_context,
     _extract_plan_overview,
     _get_agent_design_criteria,
     _get_code_review_criteria,
     _get_contract_review_criteria,
+    _get_reviewer_scope_preamble,
     _read_shared_criteria,
     _read_tester_gaps,
     _render_contract_tasks,
@@ -2368,3 +2372,269 @@ class TestSynthesizePlanDraftNamespaced:
         draft_path = tmp_path / ".egg-state" / "drafts" / "871-plan.md"
         # No meaningful content → draft not written
         assert not draft_path.exists()
+
+
+class TestBuildReviewPrompt:
+    """Tests for _build_review_prompt verdict format, conventions, and preambles."""
+
+    def test_verdict_format_includes_analysis_and_suggestions(self):
+        """Verdict JSON template includes analysis and suggestions fields."""
+        prompt = _build_review_prompt(
+            phase="implement",
+            pipeline_id="test-pipe",
+            pipeline_mode="issue",
+            reviewer_type="code",
+            issue_number=100,
+        )
+        assert '"analysis"' in prompt
+        assert '"suggestions"' in prompt
+
+    def test_verdict_format_no_empty_if_approved(self):
+        """The old 'empty if approved' language is not present."""
+        prompt = _build_review_prompt(
+            phase="implement",
+            pipeline_id="test-pipe",
+            pipeline_mode="issue",
+            reviewer_type="code",
+            issue_number=100,
+        )
+        assert "empty if approved" not in prompt
+
+    def test_review_conventions_present(self):
+        """Generated prompt contains a Review Conventions section with quality standards."""
+        prompt = _build_review_prompt(
+            phase="implement",
+            pipeline_id="test-pipe",
+            pipeline_mode="issue",
+            reviewer_type="code",
+            issue_number=100,
+        )
+        assert "## Review Conventions" in prompt
+        assert "Be comprehensive" in prompt
+        assert "Be specific" in prompt
+        assert "Be direct" in prompt
+        assert "Suggest fixes" in prompt
+        assert "Provide context" in prompt
+
+    def test_code_reviewer_conventions_include_infrastructure_framing(self):
+        """Code reviewer prompt includes 'critical infrastructure' framing."""
+        prompt = _build_review_prompt(
+            phase="implement",
+            pipeline_id="test-pipe",
+            pipeline_mode="issue",
+            reviewer_type="code",
+            issue_number=100,
+        )
+        assert "critical" in prompt.lower()
+        assert "last line of defense" in prompt
+
+    def test_agent_design_preamble_allows_brief_approval(self):
+        """Agent-design reviewer preamble does not require detailed analysis."""
+        preamble = _get_reviewer_scope_preamble("agent-design", "implement")
+        assert "brief approval is acceptable" in preamble
+
+    def test_code_preamble_includes_file_by_file(self):
+        """Code reviewer preamble includes file-by-file analysis expectation."""
+        preamble = _get_reviewer_scope_preamble("code", "implement")
+        assert "file-by-file" in preamble
+
+    def test_contract_preamble_includes_criterion_verification(self):
+        """Contract reviewer preamble includes criterion-by-criterion verification."""
+        preamble = _get_reviewer_scope_preamble("contract", "implement")
+        assert "criterion-by-criterion" in preamble
+
+    def test_refine_preamble_includes_section_evaluation(self):
+        """Refine reviewer preamble includes section-by-section evaluation."""
+        preamble = _get_reviewer_scope_preamble("refine", "refine")
+        assert "section-by-section" in preamble
+
+    def test_plan_preamble_includes_section_evaluation(self):
+        """Plan reviewer preamble includes section-by-section evaluation."""
+        preamble = _get_reviewer_scope_preamble("plan", "plan")
+        assert "section-by-section" in preamble
+
+    def test_analysis_field_guidelines(self):
+        """Prompt includes guidance to always provide analysis regardless of verdict."""
+        prompt = _build_review_prompt(
+            phase="implement",
+            pipeline_id="test-pipe",
+            pipeline_mode="issue",
+            reviewer_type="code",
+            issue_number=100,
+        )
+        assert "Always provide detailed analysis regardless of verdict" in prompt
+
+    def test_draft_reviewer_has_expanded_steps(self):
+        """Draft-based reviewers get expanded procedural steps (6+)."""
+        prompt = _build_review_prompt(
+            phase="refine",
+            pipeline_id="test-pipe",
+            pipeline_mode="issue",
+            reviewer_type="refine",
+            issue_number=100,
+        )
+        # Draft-based reviewer should have cross-reference and cite steps
+        assert "Cross-reference" in prompt
+        assert "Cite specific" in prompt
+        assert "completeness" in prompt.lower()
+
+    def test_non_code_reviewer_generic_conventions_framing(self):
+        """Non-code reviewers get generic quality standards framing, not infrastructure framing."""
+        prompt = _build_review_prompt(
+            phase="implement",
+            pipeline_id="test-pipe",
+            pipeline_mode="issue",
+            reviewer_type="contract",
+            issue_number=100,
+        )
+        assert "## Review Conventions" in prompt
+        assert "Your review must meet these quality standards" in prompt
+        # Should NOT have the code-specific infrastructure framing
+        assert "last line of defense" not in prompt
+
+    def test_contract_reviewer_phase_restrictions_include_contract_write(self):
+        """Contract reviewer gets extra permission to update contract files."""
+        prompt = _build_review_prompt(
+            phase="implement",
+            pipeline_id="test-pipe",
+            pipeline_mode="issue",
+            reviewer_type="contract",
+            issue_number=100,
+        )
+        assert "CAN update the contract" in prompt
+
+    def test_code_reviewer_phase_restrictions_no_contract_write(self):
+        """Code reviewer does NOT get contract write permission."""
+        prompt = _build_review_prompt(
+            phase="implement",
+            pipeline_id="test-pipe",
+            pipeline_mode="issue",
+            reviewer_type="code",
+            issue_number=100,
+        )
+        assert "CAN update the contract" not in prompt
+
+    def test_delta_review_directive(self):
+        """Re-review with last_reviewed_commit includes delta review section."""
+        prompt = _build_review_prompt(
+            phase="implement",
+            pipeline_id="test-pipe",
+            pipeline_mode="issue",
+            reviewer_type="code",
+            issue_number=100,
+            review_cycle=2,
+            last_reviewed_commit="abc123",
+        )
+        assert "## Delta Review" in prompt
+        assert "git diff abc123..HEAD" in prompt
+        assert "cycle 2" in prompt
+
+    def test_first_review_no_delta_section(self):
+        """First review cycle does not include delta review section."""
+        prompt = _build_review_prompt(
+            phase="implement",
+            pipeline_id="test-pipe",
+            pipeline_mode="issue",
+            reviewer_type="code",
+            issue_number=100,
+            review_cycle=1,
+        )
+        assert "## Delta Review" not in prompt
+
+    def test_prior_feedback_section(self):
+        """Re-review with prior feedback includes prior feedback section."""
+        prompt = _build_review_prompt(
+            phase="implement",
+            pipeline_id="test-pipe",
+            pipeline_mode="issue",
+            reviewer_type="code",
+            issue_number=100,
+            review_cycle=2,
+            prior_feedback="Fix the SQL injection vulnerability in query.py",
+        )
+        assert "## Prior Review Feedback" in prompt
+        assert "SQL injection vulnerability in query.py" in prompt
+
+    def test_prior_feedback_not_shown_on_first_cycle(self):
+        """Prior feedback is not shown on first review cycle even if provided."""
+        prompt = _build_review_prompt(
+            phase="implement",
+            pipeline_id="test-pipe",
+            pipeline_mode="issue",
+            reviewer_type="code",
+            issue_number=100,
+            review_cycle=1,
+            prior_feedback="Fix the bug",
+        )
+        assert "## Prior Review Feedback" not in prompt
+
+    def test_local_pipeline_mode_verdict_path(self):
+        """Local pipeline mode uses pipeline_id in verdict path instead of issue number."""
+        prompt = _build_review_prompt(
+            phase="implement",
+            pipeline_id="local-abc12345",
+            pipeline_mode="local",
+            reviewer_type="code",
+        )
+        assert "local-abc12345" in prompt
+        # Should not contain an issue number reference in the verdict path
+        assert "None-implement" not in prompt
+
+    def test_non_code_non_draft_reviewer_short_steps(self):
+        """Non-code reviewer in implement phase (no draft) gets short procedural steps."""
+        prompt = _build_review_prompt(
+            phase="implement",
+            pipeline_id="test-pipe",
+            pipeline_mode="issue",
+            reviewer_type="contract",
+            issue_number=100,
+        )
+        # Contract reviewer in implement phase has no draft_path, so gets the short steps
+        # It should NOT have code reviewer's extended steps (like "Trace data flow")
+        assert "Trace data flow" not in prompt
+        # And not the draft-based expanded steps
+        assert "Cross-reference" not in prompt
+        # But should still have basic evaluation steps
+        assert "Evaluate it against the criteria below" in prompt
+
+    def test_unknown_reviewer_type_raises_error(self):
+        """Unknown reviewer type raises ValueError in preamble."""
+        with pytest.raises(ValueError, match="Unknown reviewer type"):
+            _get_reviewer_scope_preamble("unknown-type", "implement")
+
+    def test_feedback_field_guideline_blocking_only(self):
+        """Feedback field guideline makes clear it's for blocking issues only."""
+        prompt = _build_review_prompt(
+            phase="implement",
+            pipeline_id="test-pipe",
+            pipeline_mode="issue",
+            reviewer_type="code",
+            issue_number=100,
+        )
+        assert "blocking issues only" in prompt.lower()
+        assert "Leave empty when approving" in prompt
+
+    def test_suggestions_field_guideline_even_when_approving(self):
+        """Suggestions field guideline encourages providing them even when approving."""
+        prompt = _build_review_prompt(
+            phase="implement",
+            pipeline_id="test-pipe",
+            pipeline_mode="issue",
+            reviewer_type="code",
+            issue_number=100,
+        )
+        assert "even when approving" in prompt.lower()
+
+    def test_code_reviewer_has_systematic_steps(self):
+        """Code reviewer in implement phase gets detailed systematic review steps."""
+        prompt = _build_review_prompt(
+            phase="implement",
+            pipeline_id="test-pipe",
+            pipeline_mode="issue",
+            reviewer_type="code",
+            issue_number=100,
+        )
+        assert "review every changed file systematically" in prompt
+        assert "Trace data flow" in prompt
+        assert "edge cases" in prompt.lower()
+        assert "Research when uncertain" in prompt
