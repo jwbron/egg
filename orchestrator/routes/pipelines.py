@@ -1539,9 +1539,7 @@ def _build_review_prompt(
         lines.append(
             "3. Cross-reference each section of the draft against the review criteria below"
         )
-        lines.append(
-            "4. Cite specific sections, quotes, or omissions as evidence in your analysis"
-        )
+        lines.append("4. Cite specific sections, quotes, or omissions as evidence in your analysis")
         lines.append("5. Evaluate completeness — identify any criteria not adequately addressed")
         lines.append("6. Assess overall quality and coherence of the draft")
         lines.append(f"7. Write your verdict to `{verdict_path}` as JSON")
@@ -1577,7 +1575,7 @@ def _build_review_prompt(
     )
     lines.append(
         "3. **Be direct.** State issues plainly without hedging or softening language. "
-        "\"This will fail when X\" not \"you might want to consider X\"."
+        '"This will fail when X" not "you might want to consider X".'
     )
     lines.append(
         "4. **Suggest fixes.** When identifying a problem, include a concrete suggestion "
@@ -3566,9 +3564,7 @@ def _run_tier3_implement(
                     retry=retry,
                 )
                 if tester_gap_summary and agg_result.blocking_feedback:
-                    prior_feedback = (
-                        f"{agg_result.blocking_feedback}\n\n{tester_gap_summary}"
-                    )
+                    prior_feedback = f"{agg_result.blocking_feedback}\n\n{tester_gap_summary}"
                 elif tester_gap_summary:
                     prior_feedback = tester_gap_summary
                 else:
@@ -5545,9 +5541,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                 # Store feedback and loop — merge tester gaps with reviewer
                 # feedback so the coder sees both on the next cycle.
                 if tester_gap_summary and agg_result.blocking_feedback:
-                    review_feedback = (
-                        f"{agg_result.blocking_feedback}\n\n{tester_gap_summary}"
-                    )
+                    review_feedback = f"{agg_result.blocking_feedback}\n\n{tester_gap_summary}"
                 elif tester_gap_summary:
                     review_feedback = tester_gap_summary
                 else:
