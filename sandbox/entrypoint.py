@@ -1073,8 +1073,8 @@ fi
 exec "$REAL_BASH" "$@"
 """
     bash_path.write_text(wrapper)
-    os.chmod(str(bash_path), 0o755)
-    os.chmod(str(real_bash), 0o755)
+    os.chmod(str(bash_path), 0o755)  # nosec B103 - executable wrapper script
+    os.chmod(str(real_bash), 0o755)  # nosec B103 - executable bash binary
 
     logger.success(f"Command timeout wrapper installed (BASH_COMMAND_TIMEOUT={timeout_secs}s)")
 
