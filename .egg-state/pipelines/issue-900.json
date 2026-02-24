@@ -429,14 +429,14 @@
         "approve",
         "request changes"
       ],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-02-24T22:50:19.092803",
-      "resolved_at": null,
-      "resolution": null
+      "resolved_at": "2026-02-24T22:50:27.863092",
+      "resolution": "Approved"
     }
   ],
   "created_at": "2026-02-24T21:42:50.271543",
-  "updated_at": "2026-02-24T22:50:19.117827",
+  "updated_at": "2026-02-24T22:50:27.865918",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
@@ -444,5 +444,5 @@
   "error": null,
   "plan_phase_waves": null,
   "plan_phase_names": null,
-  "version": 55
+  "version": 56
 }
