@@ -41,9 +41,9 @@ sandbox/
 │   ├── contract_cli.py     # SDLC contract CLI (egg-contract)
 │   ├── orchestration.py    # Multi-agent orchestration support
 │   ├── orch_cli.py         # Orchestrator CLI (egg-orch)
-│   ├── orch_client.py      # Orchestrator API client
+│   ├── orch_client.py      # Orchestrator API client (decision creation with type support)
 │   ├── sdlc_cli.py         # SDLC pipeline CLI (egg-sdlc)
-│   ├── sdlc_hitl.py        # SDLC human-in-the-loop support
+│   ├── sdlc_hitl.py        # SDLC human-in-the-loop support (type-aware rendering)
 │   └── self_improvement/   # Self-improvement data collection
 │       ├── collect.py      # Data collection orchestrator
 │       ├── config.py       # Collection configuration

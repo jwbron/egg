@@ -1144,9 +1144,12 @@ work → checker+autofixer (run checks → fix → re-run, up to 3x) → review
 | `orchestrator/dispatch.py` | Pipeline phase dispatch |
 | `orchestrator/container_spawner.py` | Agent container lifecycle |
 | `orchestrator/multi_agent.py` | Multi-agent orchestration |
-| `orchestrator/decision_queue.py` | HITL decision handling |
+| `orchestrator/decision_queue.py` | HITL decision handling (typed decisions) |
+| `orchestrator/models.py` | Pipeline and HITLDecision models (decision_type, questions) |
 | `orchestrator/state_store.py` | Git-backed pipeline state |
-| `orchestrator/routes/pipelines.py` | Pipeline API and prompt building |
+| `orchestrator/routes/pipelines.py` | Pipeline API, prompt building, JSON resolution parsing |
+| `sandbox/egg_lib/sdlc_hitl.py` | Type-aware terminal HITL handler |
+| `sandbox/egg_lib/orch_client.py` | Orchestrator API client (create_decision with type support) |
 | `.github/workflows/reusable-review.yml` | PR-based code review workflow |
 | `sandbox/scripts/gh` | gh wrapper with self-review fallback |
 | `shared/egg_contracts/models.py` | Pydantic models for contract (includes CheckDefinition, CheckResult, PhaseConfig) |
@@ -1182,12 +1185,13 @@ egg-sdlc
 
 **Features:**
 - Real-time DAG visualization (reuses `egg-pipeline-watch` SSE patterns)
-- Interactive HITL checkpoints with multiple resolution options:
-  1. Edit draft with `$EDITOR` (default: vim)
-  2. Launch Claude for AI-assisted editing
-  3. Approve and advance to next phase
-  4. Provide text feedback for revision
-  5. Cancel pipeline
+- Type-aware HITL checkpoints that render differently based on `decision_type`:
+  - **Phase gate** (`phase_gate`): Draft preview with edit, approve, and request-changes options
+  - **Choice** (`choice`): Numbered options for discrete selection
+  - **Feedback** (`feedback`): Per-question prompts with review-before-submit
+  - **Generic fallback**: Legacy 5-option menu for unknown decision types
+- Universal options on every checkpoint: general feedback (`[f]`), change approach (`[a]`), cancel (`[c]`)
+- JSON resolution payloads for structured intent parsing (see [HITL Decisions](../hitl-decisions.md))
 - Automatic reconnection on SSE timeouts
 - Works both inside containers and from the host (via `egg --exec`)
 

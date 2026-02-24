@@ -13,7 +13,7 @@ Three mechanisms exist for gathering human input:
 2. **Feedback comments** — Open-ended questions in an editable comment
 3. **Phase approval** — Single checkbox to approve and advance to the next phase
 
-In local mode, the orchestrator's decision queue also supports a "request changes" option at phase gates, with a circuit breaker (`max_review_cycles`, default 3) to prevent unbounded revision loops.
+In local mode, decisions carry a `decision_type` field (`phase_gate`, `choice`, or `feedback`) that drives type-specific terminal rendering. The orchestrator's decision queue supports a "request changes" option at phase gates, with a circuit breaker (`max_hitl_review_cycles`, default 3) to prevent unbounded revision loops. See [Local Mode: Type-Aware Terminal Rendering](#local-mode-type-aware-terminal-rendering) for details.
 
 ## Formal HITL Decisions
 
@@ -150,7 +150,7 @@ Phase approval is a simpler mechanism for advancing the pipeline at HITL gates.
 3. When the human checks the `[x] Approve` checkbox, the orchestrator detects the change
 4. The contract phase is updated and the next pipeline phase is triggered
 
-In **local mode**, the orchestrator handles phase approval via its decision queue, which also supports a "request changes" option with a circuit breaker (`max_review_cycles`, default 3) to prevent unbounded revision loops.
+In **local mode**, the orchestrator handles phase approval via its decision queue with `decision_type="phase_gate"`. The terminal renders a draft preview and offers edit, approve, and request-changes options. A circuit breaker (`max_hitl_review_cycles`, default 3) prevents unbounded revision loops.
 
 ### Key Differences from Decisions
 
@@ -206,9 +206,71 @@ Check that:
 - The submit checkbox is checked: `- [x] Submit feedback`
 - Answers are in blockquote format: `> Answer text`
 
+## Local Mode: Type-Aware Terminal Rendering
+
+In local mode (`egg-sdlc`), the HITL checkpoint handler (`sandbox/egg_lib/sdlc_hitl.py`) dispatches to type-specific terminal UIs based on the `decision_type` field on `HITLDecision`.
+
+### Decision Types
+
+| Type | Field Value | Terminal Behavior |
+|------|-------------|-------------------|
+| Phase gate | `phase_gate` | Shows draft preview, offers edit/approve/request-changes |
+| Choice | `choice` | Renders numbered options for selection |
+| Feedback | `feedback` | Prompts for each question individually, supports review-before-submit |
+
+Every decision type also includes universal options:
+- **General feedback** (`[f]`) — free-text input attached alongside the primary resolution
+- **Change approach** (`[a]`) — signals the agent to re-run the current phase differently
+- **Cancel pipeline** (`[c]`) — terminates the pipeline
+
+### JSON Resolution Payloads
+
+Resolutions are sent as JSON objects so the pipeline can parse the human's intent:
+
+| Action | Payload | Meaning |
+|--------|---------|---------|
+| Approve | `{"action": "approve"}` | Advance to next phase |
+| Approve with feedback | `{"action": "approve", "feedback": "..."}` | Advance with context |
+| Select option | `{"action": "select", "selected": "MongoDB"}` | Choice selection |
+| Request changes | `{"action": "request_changes", "feedback": "..."}` | Re-run phase with feedback |
+| Change approach | `{"action": "change_approach", "feedback": "..."}` | Re-run with different direction |
+| Submit feedback | `{"action": "submit_feedback", "answers": {...}}` | Structured answers |
+
+The pipeline runner (`orchestrator/routes/pipelines.py`) parses JSON payloads first, falling back to legacy bare-string keyword matching for backward compatibility.
+
+### Creating Typed Decisions from Agents
+
+Agents can create typed decisions via the `OrchClient.create_decision()` method:
+
+```python
+client.create_decision(
+    pipeline_id="issue-123",
+    question="Which database should we use?",
+    options=["PostgreSQL", "MongoDB", "SQLite"],
+    decision_type="choice",
+)
+
+client.create_decision(
+    pipeline_id="issue-123",
+    question="Feedback needed",
+    decision_type="feedback",
+    questions=[
+        {"id": "q1", "question": "What is the expected traffic volume?"},
+        {"id": "q2", "question": "Any specific performance requirements?"},
+    ],
+)
+```
+
+The orchestrator API (`POST /api/v1/pipelines/{id}/decisions`) accepts `decision_type` and `questions` fields in the request body.
+
 ## Related Files
 
-- `orchestrator/decision_queue.py` — Decision queue handling decisions, feedback, and approvals
+- `orchestrator/models.py` — `HITLDecision` model with `decision_type` and `questions` fields
+- `orchestrator/decision_queue.py` — Decision queue handling typed decisions
+- `orchestrator/routes/decisions.py` — Decision API endpoints (create, list, resolve)
+- `orchestrator/routes/pipelines.py` — Phase gate resolution with JSON payload parsing
+- `sandbox/egg_lib/sdlc_hitl.py` — Type-aware terminal HITL handler
+- `sandbox/egg_lib/orch_client.py` — `OrchClient.create_decision()` for typed decisions
 - `sandbox/egg_lib/contract_cli.py` — CLI for creating decisions and feedback
 - `shared/egg_contracts/feedback.py` — Feedback generation and parsing
 - `docs/templates/analysis.md` — Template showing decision usage
