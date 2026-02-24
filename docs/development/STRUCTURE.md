@@ -68,7 +68,7 @@ gateway/
 ├── Dockerfile              # Gateway container image
 ├── squid.conf              # Proxy config (private mode)
 ├── scripts/                # Gateway helper scripts
-└── tests/                  # Gateway tests
+└── tests/                  # Gateway tests (push-target enforcement, branch lock, 40+ files)
 ```
 
 ## Orchestrator Structure
@@ -123,7 +123,7 @@ orchestrator/
 ├── Dockerfile              # Orchestrator container image
 ├── entrypoint.sh           # Container entry point
 ├── requirements.txt        # Python dependencies
-└── tests/                  # Orchestrator tests (30+ files, including health check tests)
+└── tests/                  # Orchestrator tests (signal verification, worktree sync, health checks, 30+ files)
 ```
 
 ## Sandbox Structure
@@ -157,7 +157,8 @@ sandbox/
 │   └── github-app-token.py # Token generation utility
 ├── claude-commands/        # Custom slash commands
 ├── claude-rules/           # Agent behavior rules
-└── scripts/                # Container helper scripts
+├── scripts/                # Container helper scripts
+└── tests/                  # Sandbox tests (command timeout, test infrastructure)
 ```
 
 ## Shared Libraries
