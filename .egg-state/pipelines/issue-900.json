@@ -189,10 +189,10 @@
         "Yes, eliminate the follow-up flow (JSON payload always includes feedback field)",
         "No, keep the follow-up as a safety net for edge cases"
       ],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-02-24T21:49:56.730139",
-      "resolved_at": null,
-      "resolution": null
+      "resolved_at": "2026-02-24T22:02:00.191359",
+      "resolution": "Approved"
     },
     {
       "id": "decision-7",
@@ -209,7 +209,7 @@
     }
   ],
   "created_at": "2026-02-24T21:42:50.271543",
-  "updated_at": "2026-02-24T22:01:59.683188",
+  "updated_at": "2026-02-24T22:02:00.193313",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
@@ -217,5 +217,5 @@
   "error": null,
   "plan_phase_waves": null,
   "plan_phase_names": null,
-  "version": 27
+  "version": 28
 }
