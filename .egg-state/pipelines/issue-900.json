@@ -67,9 +67,24 @@
       "phase_start_sha": null
     }
   },
-  "decisions": [],
+  "decisions": [
+    {
+      "id": "decision-1",
+      "question": "Should Edit/Claude options be available for non-phase-gate decision types?",
+      "context": "",
+      "options": [
+        "Phase-gate only",
+        "All types",
+        "Phase-gate and feedback only"
+      ],
+      "status": "pending",
+      "created_at": "2026-02-24T21:14:18.474663",
+      "resolved_at": null,
+      "resolution": null
+    }
+  ],
   "created_at": "2026-02-24T21:09:04.675818",
-  "updated_at": "2026-02-24T21:09:05.063910",
+  "updated_at": "2026-02-24T21:14:18.477390",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
@@ -77,5 +92,5 @@
   "error": null,
   "plan_phase_waves": null,
   "plan_phase_names": null,
-  "version": 7
+  "version": 8
 }
