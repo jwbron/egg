@@ -104,7 +104,7 @@
         {
           "cycle": 0,
           "started_at": "2026-02-24T20:33:46.056355",
-          "completed_at": null,
+          "completed_at": "2026-02-24T20:46:40.816019",
           "commit_sha": "ec5fd7a92480c22922cbc31ef53ae0ae324e927d"
         }
       ],
@@ -115,7 +115,7 @@
   },
   "decisions": [],
   "created_at": "2026-02-24T20:33:45.850326",
-  "updated_at": "2026-02-24T20:46:31.315227",
+  "updated_at": "2026-02-24T20:46:40.816294",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
@@ -123,5 +123,5 @@
   "error": null,
   "plan_phase_waves": null,
   "plan_phase_names": null,
-  "version": 12
+  "version": 13
 }
