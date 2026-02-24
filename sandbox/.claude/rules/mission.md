@@ -110,6 +110,8 @@ Do NOT use `--body` with inline content — use `--body-file` to avoid shell esc
 **NEVER** `git reset --hard` or `git push --force` without `git branch backup-branch` first.
 If commits lost: `git reflog` → `git cherry-pick <hash>`
 
+**Scope all filesystem searches to `~/repos/`** — never search from `/`. See `environment.md` § Shell Command Safety for details and examples.
+
 ## Decision Framework
 
 **Proceed independently**: Clear requirements, code with tests, bug fixes, docs.

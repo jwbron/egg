@@ -805,7 +805,21 @@ def git_push() -> tuple[Response, int] | Response:
             has_non_state_files = any(
                 not f.startswith(".egg-state/") for f in phase_result.blocked_files
             )
-            if has_non_state_files:
+            # Pipeline sessions get a pipeline-specific hint pointing to
+            # egg-orch; non-pipeline sessions see the original generic hint.
+            session_pipeline_id = None
+            if hasattr(g, "session") and g.session:
+                session_pipeline_id = getattr(g.session, "pipeline_id", None)
+
+            if has_non_state_files and session_pipeline_id:
+                hint = (
+                    "Push contains files from prior pipeline phases that this phase "
+                    "cannot modify. This indicates the worktree was not properly synced. "
+                    "Signal an error with `egg-orch signal error --error 'Push denied: "
+                    "phase file restrictions'` and include this message. "
+                    f"Blocked files: {phase_result.blocked_files}"
+                )
+            elif has_non_state_files:
                 hint = (
                     "Branch contains files outside .egg-state/ from a previous phase. "
                     "Create a clean branch from origin/main with only your state files."

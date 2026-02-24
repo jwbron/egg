@@ -73,6 +73,35 @@ If push fails:
 
 - PostgreSQL and Redis start automatically
 
+## Shell Command Safety
+
+Shell commands run in this container share resources with the host system. Unbounded
+commands can consume excessive CPU and memory, increasing costs and causing timeouts.
+
+**Scope all filesystem operations to `~/repos/` or `$EGG_REPO_PATH`.** The root
+filesystem (`/`) includes system directories, package caches, and virtual environments
+that are irrelevant to your task. Searching from `/` scans tens of thousands of files
+and will be killed by the system timeout (default 120 seconds).
+
+**DO**:
+```bash
+grep -rn "pattern" ~/repos/
+find ~/repos/ -name "*.py" -exec grep -l "pattern" {} \;
+```
+
+**DON'T**:
+```bash
+grep -rn "pattern" /          # Scans entire filesystem — will be killed after 120s
+find / -name "*.py"           # Same problem — unbounded search
+```
+
+**On push failure**: Do NOT improvise by pushing to a different branch name. The
+gateway enforces branch assignment in pipeline mode and will reject pushes to
+non-assigned branches. Instead, report the error:
+```bash
+egg-orch signal error --error "Push failed: <error message>" --recoverable
+```
+
 ## Network Lockdown Notes
 
 If a tool returns 403 Forbidden, you are likely in private mode. Acknowledge the limitation and proceed with local resources. Package installation and web access are unavailable in private mode — all common dependencies are pre-installed.
