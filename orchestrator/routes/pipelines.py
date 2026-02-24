@@ -1836,6 +1836,7 @@ def _sync_worktree_with_remote(
     spawner: "ContainerSpawner",
     pipeline_id: str,
     worktree_repo_path: Path,
+    prior_phase_succeeded: bool = True,
 ) -> None:
     """Sync a worktree with its remote branch (best-effort).
 
@@ -1845,8 +1846,16 @@ def _sync_worktree_with_remote(
     fetches those commits and resets the worktree so that all downstream code
     (contract loading, draft reading, etc.) sees the full pipeline state.
 
-    Only resets if the remote branch exists and local has not diverged —
-    skips the reset when local is ahead of or has diverged from remote.
+    When local is ahead of remote:
+    - If the prior phase succeeded, push local commits to remote first,
+      then reset to origin (preserves completed work).
+    - If the prior phase failed or was killed, discard local commits and
+      reset to remote (discards incomplete work).
+
+    When local has diverged (ahead AND behind), attempt a fast-forward
+    merge.  If the merge fails, log an error (pipeline may need manual
+    intervention).
+
     Safe to call on every pipeline start because it is idempotent when the
     local branch is already up to date.
     """
@@ -1889,9 +1898,9 @@ def _sync_worktree_with_remote(
     except Exception:
         return
 
-    # Step 3b: Check if local has diverged from or is ahead of remote.
-    # If local has commits not on remote (e.g., auto-commit hook didn't fire),
-    # skip the reset to avoid discarding local work.
+    # Step 3b: Check divergence between local and remote.
+    local_ahead = 0
+    remote_ahead = 0
     try:
         result = subprocess.run(
             [*git_base, "rev-list", "--left-right", "--count", f"HEAD...origin/{branch}"],
@@ -1904,19 +1913,89 @@ def _sync_worktree_with_remote(
             parts = result.stdout.strip().split()
             if len(parts) == 2:
                 local_ahead = int(parts[0])
-                if local_ahead > 0:
-                    logger.info(
-                        "Local branch has commits not on remote — skipping reset",
-                        pipeline_id=pipeline_id,
-                        branch=branch,
-                        local_ahead=local_ahead,
-                    )
-                    return
+                remote_ahead = int(parts[1])
     except Exception:
         pass  # If check fails, proceed with reset (best-effort)
 
-    # Step 4: Reset local branch to remote (local changes from a crashed agent
-    # should already be committed + pushed by the gateway's auto-commit hook)
+    # Step 3c: Handle local-ahead commits.
+    if local_ahead > 0 and remote_ahead == 0:
+        # Local is strictly ahead of remote (no divergence).
+        if prior_phase_succeeded:
+            # Prior phase completed successfully — push local work to remote
+            # before resetting, so it's not lost.
+            logger.info(
+                "Prior phase succeeded — pushing local-ahead commits to remote",
+                pipeline_id=pipeline_id,
+                branch=branch,
+                local_ahead=local_ahead,
+            )
+            push_ok = spawner.gateway.push_worktree_branch(
+                pipeline_id=pipeline_id,
+                repo_path=str(worktree_repo_path),
+                branch=branch,
+            )
+            if not push_ok:
+                logger.warning(
+                    "Failed to push local-ahead commits (continuing with reset)",
+                    pipeline_id=pipeline_id,
+                    branch=branch,
+                )
+        else:
+            # Prior phase failed — discard incomplete local work.
+            logger.info(
+                "Prior phase failed — discarding local-ahead commits",
+                pipeline_id=pipeline_id,
+                branch=branch,
+                local_ahead=local_ahead,
+            )
+        # Fall through to reset (Step 4)
+
+    elif local_ahead > 0 and remote_ahead > 0:
+        # Divergence: local and remote both have unique commits.
+        # Attempt fast-forward merge to reconcile.
+        logger.info(
+            "Local and remote have diverged — attempting merge",
+            pipeline_id=pipeline_id,
+            branch=branch,
+            local_ahead=local_ahead,
+            remote_ahead=remote_ahead,
+        )
+        try:
+            merge_result = subprocess.run(
+                [*git_base, "merge", "--ff-only", f"origin/{branch}"],
+                capture_output=True,
+                text=True,
+                timeout=30,
+                check=False,
+            )
+            if merge_result.returncode == 0:
+                logger.info(
+                    "Fast-forward merge succeeded",
+                    pipeline_id=pipeline_id,
+                    branch=branch,
+                )
+                return  # Merge succeeded — worktree is now in sync
+            else:
+                logger.error(
+                    "Cannot fast-forward merge diverged branches — "
+                    "pipeline may need manual intervention",
+                    pipeline_id=pipeline_id,
+                    branch=branch,
+                    local_ahead=local_ahead,
+                    remote_ahead=remote_ahead,
+                    error=merge_result.stderr.strip(),
+                )
+                return  # Don't force-reset on divergence — signal the problem
+        except Exception as merge_err:
+            logger.error(
+                "Merge attempt failed",
+                pipeline_id=pipeline_id,
+                error=str(merge_err),
+            )
+            return
+
+    # Step 4: Reset local branch to remote.
+    # This handles: local behind remote, local in-sync, and post-push reset.
     try:
         result = subprocess.run(
             [*git_base, "reset", "--hard", f"origin/{branch}"],
@@ -4837,7 +4916,26 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
         # Fetching and resetting ensures downstream code (contract loading,
         # draft reading) sees the full pipeline state from prior phases.
         if worktree_repo_path != repo_path:
-            _sync_worktree_with_remote(spawner, pipeline_id, worktree_repo_path)
+            # Determine whether the most recent prior phase completed
+            # successfully — this controls whether local-ahead commits are
+            # pushed (success) or discarded (failure).
+            prior_phase_succeeded = True
+            current_phase = pipeline.current_phase
+            phase_order = [PipelinePhase.REFINE, PipelinePhase.PLAN, PipelinePhase.IMPLEMENT, PipelinePhase.PR]
+            current_idx = phase_order.index(current_phase) if current_phase in phase_order else 0
+            if current_idx > 0:
+                prior_phase = phase_order[current_idx - 1]
+                prior_exec = pipeline.phases.get(prior_phase.value)
+                if prior_exec and prior_exec.status in (
+                    PipelineStatus.FAILED,
+                    PipelineStatus.CANCELLED,
+                ):
+                    prior_phase_succeeded = False
+
+            _sync_worktree_with_remote(
+                spawner, pipeline_id, worktree_repo_path,
+                prior_phase_succeeded=prior_phase_succeeded,
+            )
 
         # Resolve the certs named volume for gateway CA trust.
         # The docker-compose stack creates ${COMPOSE_PROJECT_NAME:-egg}-certs.
