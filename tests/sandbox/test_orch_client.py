@@ -40,6 +40,9 @@ class _StubHandler(BaseHTTPRequestHandler):
     def do_PATCH(self):
         self._handle()
 
+    def do_DELETE(self):
+        self._handle()
+
     def _handle(self):
         _StubHandler.last_path = self.path
         # Read and parse request body if present
@@ -432,3 +435,75 @@ class TestCreateDecision:
                 question="Test?",
             )
         assert exc_info.value.status_code == 500
+
+    def test_create_with_questions_only(self, stub_server):
+        """create_decision with questions but no options omits options from body."""
+        client, set_resp = stub_server
+        decision_resp = {"id": "decision-1", "decision_type": "feedback"}
+        set_resp({
+            "/api/v1/pipelines/p1/decisions": (
+                200,
+                {"data": {"decision": decision_resp}},
+            )
+        })
+
+        questions = [
+            {"id": "q-1", "question": "Volume?", "answer": ""},
+            {"id": "q-2", "question": "Performance?", "answer": ""},
+        ]
+        result = client.create_decision(
+            pipeline_id="p1",
+            question="Feedback needed",
+            decision_type="feedback",
+            questions=questions,
+        )
+
+        assert result["id"] == "decision-1"
+        body = _StubHandler.last_body
+        assert body["question"] == "Feedback needed"
+        assert body["decision_type"] == "feedback"
+        assert body["questions"] == questions
+        assert "options" not in body
+
+    def test_create_with_explicit_choice_type(self, stub_server):
+        """create_decision with explicit decision_type='choice' omits it from body."""
+        client, set_resp = stub_server
+        decision_resp = {"id": "decision-1"}
+        set_resp({
+            "/api/v1/pipelines/p1/decisions": (
+                200,
+                {"data": {"decision": decision_resp}},
+            )
+        })
+
+        result = client.create_decision(
+            pipeline_id="p1",
+            question="Pick one?",
+            options=["A", "B"],
+            decision_type="choice",
+        )
+
+        assert result["id"] == "decision-1"
+        body = _StubHandler.last_body
+        # Default "choice" is omitted to avoid sending unnecessary data
+        assert "decision_type" not in body
+
+
+class TestDeletePipeline:
+    """Tests for OrchClient.delete_pipeline() method."""
+
+    def test_success(self, stub_server):
+        """delete_pipeline sends DELETE request."""
+        client, set_resp = stub_server
+        set_resp({"/api/v1/pipelines/p1": (200, {"status": "deleted"})})
+        result = client.delete_pipeline("p1")
+        assert result["status"] == "deleted"
+
+    def test_not_found(self, stub_server):
+        """delete_pipeline raises OrchestratorError on 404."""
+        client, set_resp = stub_server
+        set_resp({"/api/v1/pipelines/p1": (404, {"message": "Pipeline not found"})})
+
+        with pytest.raises(OrchestratorError) as exc_info:
+            client.delete_pipeline("p1")
+        assert exc_info.value.status_code == 404

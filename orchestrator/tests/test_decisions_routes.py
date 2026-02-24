@@ -258,3 +258,266 @@ class TestListDecisionsSerialization:
         decisions = data["data"]["decisions"]
         assert decisions[0]["decision_type"] == "choice"
         assert decisions[0]["questions"] == []
+
+
+class TestQueueDecisionValidation:
+    """Tests for POST create-decision input validation and error handling."""
+
+    @patch("routes.decisions.get_repo_path")
+    def test_missing_question_returns_400(self, mock_repo, client, tmp_path):
+        """POST without question field returns 400."""
+        mock_repo.return_value = tmp_path
+
+        response = client.post(
+            "/api/v1/pipelines/test-pipeline/decisions",
+            json={"options": ["A", "B"]},
+        )
+
+        assert response.status_code == 400
+        data = response.get_json()
+        assert data["success"] is False
+        assert "question" in data["message"].lower()
+
+    @patch("routes.decisions.get_repo_path")
+    def test_empty_body_returns_400(self, mock_repo, client, tmp_path):
+        """POST with empty body returns 400."""
+        mock_repo.return_value = tmp_path
+
+        response = client.post(
+            "/api/v1/pipelines/test-pipeline/decisions",
+            content_type="application/json",
+            data="{}",
+        )
+
+        assert response.status_code == 400
+
+    @patch("routes.decisions.get_repo_path")
+    @patch("routes.decisions.get_decision_queue")
+    def test_create_with_choice_type_and_options(self, mock_get_queue, mock_repo, client, tmp_path):
+        """POST with decision_type='choice' and explicit options."""
+        mock_repo.return_value = tmp_path
+        mock_queue = MagicMock()
+        mock_decision = _make_decision(
+            decision_type="choice",
+        )
+        mock_queue.queue_decision.return_value = mock_decision
+        mock_get_queue.return_value = mock_queue
+
+        response = client.post(
+            "/api/v1/pipelines/test-pipeline/decisions",
+            json={
+                "question": "Which approach?",
+                "decision_type": "choice",
+                "options": ["REST", "GraphQL", "gRPC"],
+            },
+        )
+
+        assert response.status_code == 200
+        mock_queue.queue_decision.assert_called_once_with(
+            question="Which approach?",
+            context="",
+            options=["REST", "GraphQL", "gRPC"],
+            decision_type="choice",
+            questions=None,
+        )
+
+
+class TestResolveDecisionEndpoint:
+    """Tests for POST resolve-decision endpoint."""
+
+    @patch("routes.decisions.get_repo_path")
+    @patch("routes.decisions.get_decision_queue")
+    def test_resolve_success(self, mock_get_queue, mock_repo, client, tmp_path):
+        """POST resolve returns resolved decision."""
+        mock_repo.return_value = tmp_path
+        mock_queue = MagicMock()
+
+        resolved_decision = _make_decision(
+            status="resolved",
+            resolution='{"action": "approve"}',
+        )
+        mock_queue.resolve_decision.return_value = resolved_decision
+        mock_get_queue.return_value = mock_queue
+
+        response = client.post(
+            "/api/v1/pipelines/test-pipeline/decisions/decision-1/resolve",
+            json={"resolution": '{"action": "approve"}'},
+        )
+
+        assert response.status_code == 200
+        data = response.get_json()
+        assert data["success"] is True
+        assert data["data"]["decision"]["status"] == "resolved"
+
+    @patch("routes.decisions.get_repo_path")
+    def test_resolve_missing_resolution_returns_400(self, mock_repo, client, tmp_path):
+        """POST resolve without resolution field returns 400."""
+        mock_repo.return_value = tmp_path
+
+        response = client.post(
+            "/api/v1/pipelines/test-pipeline/decisions/decision-1/resolve",
+            json={},
+        )
+
+        assert response.status_code == 400
+        data = response.get_json()
+        assert data["success"] is False
+
+    @patch("routes.decisions.get_repo_path")
+    @patch("routes.decisions.get_decision_queue")
+    def test_resolve_not_found_returns_404(self, mock_get_queue, mock_repo, client, tmp_path):
+        """POST resolve for non-existent decision returns 404."""
+        from decision_queue import DecisionNotFoundError
+
+        mock_repo.return_value = tmp_path
+        mock_queue = MagicMock()
+        mock_queue.resolve_decision.side_effect = DecisionNotFoundError("Not found")
+        mock_get_queue.return_value = mock_queue
+
+        response = client.post(
+            "/api/v1/pipelines/test-pipeline/decisions/decision-99/resolve",
+            json={"resolution": "approve"},
+        )
+
+        assert response.status_code == 404
+
+    @patch("routes.decisions.get_repo_path")
+    @patch("routes.decisions.get_decision_queue")
+    def test_resolve_already_resolved_returns_409(self, mock_get_queue, mock_repo, client, tmp_path):
+        """POST resolve for already-resolved decision returns 409."""
+        from decision_queue import DecisionAlreadyResolvedError
+
+        mock_repo.return_value = tmp_path
+        mock_queue = MagicMock()
+        mock_queue.resolve_decision.side_effect = DecisionAlreadyResolvedError(
+            "Already resolved"
+        )
+        mock_get_queue.return_value = mock_queue
+
+        response = client.post(
+            "/api/v1/pipelines/test-pipeline/decisions/decision-1/resolve",
+            json={"resolution": "approve"},
+        )
+
+        assert response.status_code == 409
+
+
+class TestCancelDecisionEndpoint:
+    """Tests for POST cancel-decision endpoint."""
+
+    @patch("routes.decisions.get_repo_path")
+    @patch("routes.decisions.get_decision_queue")
+    def test_cancel_success(self, mock_get_queue, mock_repo, client, tmp_path):
+        """POST cancel returns cancelled decision."""
+        mock_repo.return_value = tmp_path
+        mock_queue = MagicMock()
+
+        cancelled_decision = _make_decision(status="cancelled")
+        # Override status to CANCELLED
+        from models import DecisionStatus
+        cancelled_decision.status = DecisionStatus.CANCELLED
+        mock_queue.cancel_decision.return_value = cancelled_decision
+        mock_get_queue.return_value = mock_queue
+
+        response = client.post(
+            "/api/v1/pipelines/test-pipeline/decisions/decision-1/cancel",
+        )
+
+        assert response.status_code == 200
+        data = response.get_json()
+        assert data["success"] is True
+        assert data["data"]["decision"]["status"] == "cancelled"
+
+    @patch("routes.decisions.get_repo_path")
+    @patch("routes.decisions.get_decision_queue")
+    def test_cancel_not_found_returns_404(self, mock_get_queue, mock_repo, client, tmp_path):
+        """POST cancel for non-existent decision returns 404."""
+        from decision_queue import DecisionNotFoundError
+
+        mock_repo.return_value = tmp_path
+        mock_queue = MagicMock()
+        mock_queue.cancel_decision.side_effect = DecisionNotFoundError("Not found")
+        mock_get_queue.return_value = mock_queue
+
+        response = client.post(
+            "/api/v1/pipelines/test-pipeline/decisions/decision-99/cancel",
+        )
+
+        assert response.status_code == 404
+
+
+class TestGetDecisionEndpointErrors:
+    """Tests for GET single decision error handling."""
+
+    @patch("routes.decisions.get_repo_path")
+    @patch("routes.decisions.get_decision_queue")
+    def test_get_not_found_returns_404(self, mock_get_queue, mock_repo, client, tmp_path):
+        """GET non-existent decision returns 404."""
+        from decision_queue import DecisionNotFoundError
+
+        mock_repo.return_value = tmp_path
+        mock_queue = MagicMock()
+        mock_queue.get_decision.side_effect = DecisionNotFoundError("Not found")
+        mock_get_queue.return_value = mock_queue
+
+        response = client.get(
+            "/api/v1/pipelines/test-pipeline/decisions/decision-99",
+        )
+
+        assert response.status_code == 404
+
+
+class TestQueueStatusEndpoint:
+    """Tests for GET queue-status endpoint."""
+
+    @patch("routes.decisions.get_repo_path")
+    @patch("routes.decisions.get_decision_queue")
+    def test_status_success(self, mock_get_queue, mock_repo, client, tmp_path):
+        """GET queue status returns counts."""
+        mock_repo.return_value = tmp_path
+        mock_queue = MagicMock()
+        mock_queue.get_queue_status.return_value = {
+            "pipeline_id": "test-pipeline",
+            "total_decisions": 3,
+            "pending": 1,
+            "resolved": 2,
+            "pending_decisions": [
+                {"id": "d3", "question": "Pending?", "created_at": "2024-01-01T00:00:00"},
+            ],
+        }
+        mock_get_queue.return_value = mock_queue
+
+        response = client.get(
+            "/api/v1/pipelines/test-pipeline/decisions/status",
+        )
+
+        assert response.status_code == 200
+        data = response.get_json()
+        assert data["success"] is True
+        assert data["data"]["total_decisions"] == 3
+        assert data["data"]["pending"] == 1
+
+
+class TestListDecisionsFiltering:
+    """Tests for GET list-decisions with pending_only filter."""
+
+    @patch("routes.decisions.get_repo_path")
+    @patch("routes.decisions.get_decision_queue")
+    def test_pending_only_filter(self, mock_get_queue, mock_repo, client, tmp_path):
+        """GET with pending_only=true returns only pending decisions."""
+        mock_repo.return_value = tmp_path
+        mock_queue = MagicMock()
+
+        pending = _make_decision(decision_id="d1", status="pending")
+        mock_queue.get_pending_decisions.return_value = [pending]
+        mock_get_queue.return_value = mock_queue
+
+        response = client.get(
+            "/api/v1/pipelines/test-pipeline/decisions?pending_only=true",
+        )
+
+        assert response.status_code == 200
+        data = response.get_json()
+        assert len(data["data"]["decisions"]) == 1
+        assert data["data"]["decisions"][0]["status"] == "pending"
+        mock_queue.get_pending_decisions.assert_called_once()
