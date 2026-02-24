@@ -282,3 +282,86 @@ class TestSyncWorktreeWithRemote:
             mock_run.side_effect = subprocess.TimeoutExpired(cmd="git", timeout=10)
             # Should not raise
             _sync_worktree_with_remote(spawner, "pipe-1", Path("/tmp/repo"))
+
+    def test_diverged_merge_exception_returns_without_reset(self):
+        """Diverged + merge raises exception → returns without reset."""
+        spawner = _make_spawner()
+        with (
+            patch("routes.pipelines.subprocess.run") as mock_run,
+            patch("routes.pipelines.logger") as mock_logger,
+        ):
+            mock_run.side_effect = [
+                # Step 2: branch name
+                _make_subprocess_result(stdout="egg/issue-42\n"),
+                # Step 3: rev-parse succeeds
+                _make_subprocess_result(returncode=0),
+                # Step 3b: local is 2 ahead, 3 behind (diverged)
+                _make_subprocess_result(stdout="2\t3\n"),
+                # Merge attempt raises timeout
+                subprocess.TimeoutExpired(cmd="git merge", timeout=30),
+            ]
+            _sync_worktree_with_remote(spawner, "pipe-1", Path("/tmp/repo"))
+            # Error logged about merge attempt failure
+            mock_logger.error.assert_called()
+            # Should not have attempted reset (only 4 subprocess.run calls)
+            assert mock_run.call_count == 4
+
+    def test_rev_list_non_numeric_output_defaults_to_reset(self):
+        """Non-numeric rev-list output falls through to reset."""
+        spawner = _make_spawner()
+        with patch("routes.pipelines.subprocess.run") as mock_run:
+            mock_run.side_effect = [
+                # Step 2: branch name
+                _make_subprocess_result(stdout="egg/issue-42\n"),
+                # Step 3: rev-parse succeeds
+                _make_subprocess_result(returncode=0),
+                # Step 3b: unexpected output from rev-list
+                _make_subprocess_result(stdout="not-a-number\n"),
+                # Step 4: reset succeeds (falls through due to ValueError)
+                _make_subprocess_result(returncode=0),
+            ]
+            # Should not raise, falls through to reset
+            _sync_worktree_with_remote(spawner, "pipe-1", Path("/tmp/repo"))
+            # Should reach step 4 (reset)
+            assert mock_run.call_count == 4
+            reset_call = mock_run.call_args_list[3]
+            assert "reset" in reset_call[0][0]
+
+    def test_prior_phase_succeeded_defaults_to_true(self):
+        """Default prior_phase_succeeded=True means local-ahead commits get pushed."""
+        spawner = _make_spawner(push_ok=True)
+        with patch("routes.pipelines.subprocess.run") as mock_run:
+            mock_run.side_effect = [
+                # Step 2: branch name
+                _make_subprocess_result(stdout="egg/issue-42\n"),
+                # Step 3: rev-parse succeeds
+                _make_subprocess_result(returncode=0),
+                # Step 3b: local is 1 ahead, 0 behind
+                _make_subprocess_result(stdout="1\t0\n"),
+                # Step 4: reset succeeds
+                _make_subprocess_result(returncode=0),
+            ]
+            # Call without prior_phase_succeeded param (defaults to True)
+            _sync_worktree_with_remote(spawner, "pipe-1", Path("/tmp/repo"))
+            # Should have attempted push (default True)
+            spawner.gateway.push_worktree_branch.assert_called_once()
+
+    def test_rev_list_check_fails_proceeds_to_reset(self):
+        """Rev-list check subprocess failure proceeds to reset."""
+        spawner = _make_spawner()
+        with patch("routes.pipelines.subprocess.run") as mock_run:
+            mock_run.side_effect = [
+                # Step 2: branch name
+                _make_subprocess_result(stdout="egg/issue-42\n"),
+                # Step 3: rev-parse succeeds
+                _make_subprocess_result(returncode=0),
+                # Step 3b: rev-list fails
+                _make_subprocess_result(returncode=1, stderr="error"),
+                # Step 4: reset succeeds
+                _make_subprocess_result(returncode=0),
+            ]
+            _sync_worktree_with_remote(spawner, "pipe-1", Path("/tmp/repo"))
+            # Should still reach reset (step 4)
+            assert mock_run.call_count == 4
+            reset_call = mock_run.call_args_list[3]
+            assert "reset" in reset_call[0][0]

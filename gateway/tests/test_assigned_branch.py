@@ -468,3 +468,74 @@ class TestPushTargetEnforcement:
         ):
             response = _do_push(push_client, headers, refspec="egg/issue-42")
             assert response.status_code == 200
+
+    @pytest.mark.parametrize("env_value", ["0", "no"])
+    def test_killswitch_values_0_and_no(self, push_client, mock_push_policy, env_value):
+        """(i) PUSH_TARGET_ENFORCEMENT='0' and 'no' also disable the check."""
+        session = _make_pipeline_session(assigned_branch="egg/issue-42")
+        headers, mock_result, mock_policy, current_sm = _setup_push_auth(session)
+
+        with (
+            patch.object(current_sm, "validate_session_for_request", return_value=mock_result),
+            patch.object(gateway, "check_private_repo_access", return_value=mock_policy),
+            patch.object(gateway, "audit_log"),
+            patch.object(gateway, "validate_repo_path", return_value=(True, "")),
+            patch.object(gateway, "map_container_path_to_worktree", return_value="/tmp/repo"),
+            patch.object(gateway, "resolve_remote_url", return_value=("https://github.com/owner/repo.git", None)),
+            patch.object(gateway, "get_auth_mode", return_value="local"),
+            patch.object(gateway, "get_token_for_repo", return_value=("ghp_test", "app", None)),
+            patch.object(gateway, "get_authenticated_remote_target", return_value="https://x-access-token:ghp_test@github.com/owner/repo.git"),
+            patch.object(gateway, "get_changed_files_in_push", return_value=([], None)),
+            patch("subprocess.run", side_effect=_mock_subprocess_for_push()),
+            patch.dict(os.environ, {"PUSH_TARGET_ENFORCEMENT": env_value}),
+        ):
+            response = _do_push(push_client, headers, refspec="egg/wrong-branch")
+            assert response.status_code == 200
+
+    def test_push_denial_logs_audit_event(self, push_client, mock_push_policy):
+        """(j) Push denied due to branch mismatch logs audit event."""
+        session = _make_pipeline_session(assigned_branch="egg/issue-42")
+        headers, mock_result, mock_policy, current_sm = _setup_push_auth(session)
+
+        with (
+            patch.object(current_sm, "validate_session_for_request", return_value=mock_result),
+            patch.object(gateway, "check_private_repo_access", return_value=mock_policy),
+            patch.object(gateway, "audit_log") as mock_audit,
+            patch.object(gateway, "validate_repo_path", return_value=(True, "")),
+            patch.object(gateway, "map_container_path_to_worktree", return_value="/tmp/repo"),
+            patch.object(gateway, "resolve_remote_url", return_value=("https://github.com/owner/repo.git", None)),
+            patch.object(gateway, "get_auth_mode", return_value="local"),
+        ):
+            response = _do_push(push_client, headers, refspec="egg/wrong-branch")
+            assert response.status_code == 403
+            # Verify audit_log was called with the push_denied_wrong_branch event
+            mock_audit.assert_called()
+            call_args = mock_audit.call_args
+            assert call_args[0][0] == "push_denied_wrong_branch"
+            assert call_args[1]["success"] is False
+            assert call_args[1]["details"]["assigned_branch"] == "egg/issue-42"
+            assert call_args[1]["details"]["branch"] == "egg/wrong-branch"
+
+    def test_checkpoint_push_bypasses_enforcement(self, push_client, mock_push_policy):
+        """(k) Checkpoint push skips push-target enforcement entirely."""
+        session = _make_pipeline_session(assigned_branch="egg/issue-42")
+        # Set checkpoint_repo so the push is recognized as a checkpoint push
+        session.checkpoint_repo = "owner/repo"
+        headers, mock_result, mock_policy, current_sm = _setup_push_auth(session)
+
+        with (
+            patch.object(current_sm, "validate_session_for_request", return_value=mock_result),
+            patch.object(gateway, "check_private_repo_access", return_value=mock_policy),
+            patch.object(gateway, "audit_log"),
+            patch.object(gateway, "validate_repo_path", return_value=(True, "")),
+            patch.object(gateway, "map_container_path_to_worktree", return_value="/tmp/repo"),
+            patch.object(gateway, "resolve_remote_url", return_value=("https://github.com/owner/repo.git", None)),
+            patch.object(gateway, "get_auth_mode", return_value="local"),
+            patch.object(gateway, "get_token_for_repo", return_value=("ghp_test", "app", None)),
+            patch.object(gateway, "get_authenticated_remote_target", return_value="https://x-access-token:ghp_test@github.com/owner/repo.git"),
+            patch.object(gateway, "get_changed_files_in_push", return_value=([], None)),
+            patch("subprocess.run", side_effect=_mock_subprocess_for_push()),
+        ):
+            # Push to checkpoint branch (egg/checkpoints/v2) — different from assigned
+            response = _do_push(push_client, headers, refspec="egg/checkpoints/v2")
+            assert response.status_code == 200

@@ -134,3 +134,126 @@ class TestCommandTimeout:
         )
         # timeout returns 124 when sending SIGTERM, or 137 if SIGKILL
         assert result.returncode in (124, 137, -15, -9)
+
+    def test_non_c_invocation_passes_through(self, wrapper_dir: Path):
+        """(e) Non -c invocations pass through to real bash unmodified."""
+        # Run a script file through the wrapper (not -c)
+        env = os.environ.copy()
+        env["BASH_COMMAND_TIMEOUT"] = "2"
+        env["BASH_COMMAND_TIMEOUT_GRACE"] = "2"
+
+        # Create a small script file
+        script = wrapper_dir.parent / "test_script.sh"
+        script.write_text("#!/bin/bash\necho pass-through-ok\n")
+        script.chmod(0o755)
+
+        result = subprocess.run(
+            [str(wrapper_dir), str(script)],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+            env=env,
+        )
+        assert result.returncode == 0
+        assert "pass-through-ok" in result.stdout
+
+    def test_exit_code_preserved_through_wrapper(self, wrapper_dir: Path):
+        """(f) Command exit code is preserved through the wrapper."""
+        result = _run_via_wrapper(
+            wrapper_dir,
+            "exit 42",
+            timeout_secs="30",
+        )
+        assert result.returncode == 42
+
+    def test_empty_timeout_disables_wrapping(self, wrapper_dir: Path):
+        """(g) Empty BASH_COMMAND_TIMEOUT also disables the timeout."""
+        env = os.environ.copy()
+        env["BASH_COMMAND_TIMEOUT"] = ""
+        env["BASH_COMMAND_TIMEOUT_GRACE"] = "2"
+
+        result = subprocess.run(
+            [str(wrapper_dir), "-c", "echo empty-timeout-ok"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+            env=env,
+        )
+        assert result.returncode == 0
+        assert "empty-timeout-ok" in result.stdout
+
+
+import sys
+from unittest.mock import MagicMock, patch
+
+# Add sandbox/ to sys.path so entrypoint module is importable
+_sandbox_path = str(Path(__file__).parent.parent)
+if _sandbox_path not in sys.path:
+    sys.path.insert(0, _sandbox_path)
+
+# Add shared/ for egg_config dependency
+_shared_path = str(Path(__file__).parent.parent.parent / "shared")
+if _shared_path not in sys.path:
+    sys.path.insert(0, _shared_path)
+
+from entrypoint import setup_command_timeout
+
+
+class TestSetupCommandTimeout:
+    """Tests for the setup_command_timeout function in entrypoint.py."""
+
+    def test_idempotent_when_already_installed(self, tmp_path: Path):
+        """setup_command_timeout returns early when bash.real already exists."""
+        mock_config = MagicMock()
+        mock_logger = MagicMock()
+
+        # Simulate bash.real already existing (idempotent case)
+        real_bash = tmp_path / "bash.real"
+        real_bash.write_text("#!/bin/bash\n")
+        bash_path = tmp_path / "bash"
+        bash_path.write_text("#!/bin/bash\n")
+
+        with (
+            patch("entrypoint.Path") as mock_path_cls,
+        ):
+            def path_side_effect(p):
+                if p == "/bin/bash.real":
+                    return real_bash
+                if p == "/bin/bash":
+                    return bash_path
+                return Path(p)
+            mock_path_cls.side_effect = path_side_effect
+
+            setup_command_timeout(mock_config, mock_logger)
+
+        mock_logger.info.assert_called()
+        assert "already installed" in mock_logger.info.call_args[0][0]
+
+    def test_move_failure_logs_warning(self, tmp_path: Path):
+        """setup_command_timeout logs warning when shutil.move fails."""
+        mock_config = MagicMock()
+        mock_logger = MagicMock()
+
+        # bash.real does NOT exist (not yet installed)
+        real_bash_mock = MagicMock()
+        real_bash_mock.exists.return_value = False
+        bash_mock = MagicMock()
+
+        with (
+            patch("entrypoint.Path") as mock_path_cls,
+            patch("entrypoint.shutil.move", side_effect=OSError("Permission denied")),
+        ):
+            def path_side_effect(p):
+                if p == "/bin/bash.real":
+                    return real_bash_mock
+                if p == "/bin/bash":
+                    return bash_mock
+                return Path(p)
+            mock_path_cls.side_effect = path_side_effect
+
+            setup_command_timeout(mock_config, mock_logger)
+
+        mock_logger.warning.assert_called()
+        assert "Cannot install" in mock_logger.warning.call_args[0][0]

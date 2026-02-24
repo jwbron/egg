@@ -128,6 +128,38 @@ class TestPhaseExecution:
         assert len(phase.agents) == 2
         assert phase.agents[0].role == AgentRole.CODER
 
+    def test_phase_start_sha_defaults_to_none(self):
+        """phase_start_sha defaults to None."""
+        phase = PhaseExecution(phase=PipelinePhase.IMPLEMENT)
+        assert phase.phase_start_sha is None
+
+    def test_phase_start_sha_can_be_set(self):
+        """phase_start_sha can be set to a commit SHA."""
+        phase = PhaseExecution(
+            phase=PipelinePhase.IMPLEMENT,
+            phase_start_sha="abc123def456",
+        )
+        assert phase.phase_start_sha == "abc123def456"
+
+    def test_phase_start_sha_serializes(self):
+        """phase_start_sha round-trips through model_dump."""
+        phase = PhaseExecution(
+            phase=PipelinePhase.IMPLEMENT,
+            phase_start_sha="abc123def456",
+        )
+        data = phase.model_dump()
+        assert data["phase_start_sha"] == "abc123def456"
+        restored = PhaseExecution(**data)
+        assert restored.phase_start_sha == "abc123def456"
+
+    def test_phase_start_sha_none_serializes(self):
+        """phase_start_sha=None round-trips through model_dump."""
+        phase = PhaseExecution(phase=PipelinePhase.IMPLEMENT)
+        data = phase.model_dump()
+        assert data["phase_start_sha"] is None
+        restored = PhaseExecution(**data)
+        assert restored.phase_start_sha is None
+
 
 class TestPipelineConfig:
     """Tests for PipelineConfig model."""
