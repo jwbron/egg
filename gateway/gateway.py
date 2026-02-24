@@ -614,6 +614,41 @@ def git_push() -> tuple[Response, int] | Response:
                     details=priv_result.to_dict(),
                 )
 
+    # SECURITY: Pipeline push-target enforcement.
+    # In pipeline mode, agents must push only to their assigned branch.
+    # This prevents agents from improvising branch names on push failure.
+    # Killswitch: set PUSH_TARGET_ENFORCEMENT=false to disable.
+    if not is_checkpoint_push:
+        push_target_enforcement = os.environ.get(
+            "PUSH_TARGET_ENFORCEMENT", "true"
+        ).lower() not in ("false", "0", "no")
+        if push_target_enforcement and hasattr(g, "session") and g.session:
+            session_pipeline_id = getattr(g.session, "pipeline_id", None)
+            session_assigned_branch = getattr(g.session, "assigned_branch", None)
+            if session_pipeline_id and session_assigned_branch:
+                if branch != session_assigned_branch:
+                    audit_log(
+                        "push_denied_wrong_branch",
+                        "git_push",
+                        success=False,
+                        details={
+                            "repo": repo,
+                            "branch": branch,
+                            "assigned_branch": session_assigned_branch,
+                            "pipeline_id": session_pipeline_id,
+                        },
+                    )
+                    return make_error(
+                        f"Pipeline sessions must push to their assigned branch "
+                        f"'{session_assigned_branch}'. Got '{branch}'.",
+                        status_code=403,
+                        details={
+                            "assigned_branch": session_assigned_branch,
+                            "attempted_branch": branch,
+                            "pipeline_id": session_pipeline_id,
+                        },
+                    )
+
     # Check branch ownership policy (pass auth mode for relaxed policy in user mode)
     policy = get_policy_engine()
     policy_result = policy.check_branch_ownership(repo, branch, auth_mode=auth_mode)
