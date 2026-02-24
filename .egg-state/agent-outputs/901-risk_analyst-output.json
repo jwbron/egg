@@ -1,0 +1,234 @@
+{
+  "issue": 901,
+  "phase": "plan",
+  "agent": "risk_analyst",
+  "revision": 1,
+  "revision_reason": null,
+  "title": "Risk assessment: Fix refine phase push failures, runaway shell commands, and wrong-branch completion signals",
+
+  "summary": "The architect's recommended approach (Approach A: Pre-Phase Worktree Sync + Gateway Push-Target Enforcement + Sandbox Timeout + Prompt Guardrails) is sound and addresses all three root causes. The overall risk profile is LOW-MEDIUM. The most significant risks are: (1) the per-command timeout implementation via /etc/profile.d/ or shell wrapper may not activate depending on how Claude Code spawns its Bash subprocess — the implementation must verify the shell initialization path, (2) the pre-phase sync push-before-reset behavior could push incomplete or broken work from a crashed prior agent to the remote branch, contaminating it for the next phase, and (3) the push-target refspec parsing has diverse edge cases (local:remote, HEAD:remote, bare push) that need comprehensive test coverage to avoid false rejections. Two corrections to the architect's plan: (a) the completion signal verification should be a hard block when a commit SHA is provided (not just a warning), and (b) the default command timeout should be 120 seconds rather than 300 seconds, with an explicit override mechanism for known-long operations.",
+
+  "architect_approach_assessment": {
+    "recommended_approach": "A — Pre-Phase Worktree Sync + Gateway Push-Target Enforcement + Sandbox Timeout + Prompt Guardrails",
+    "assessment": "The approach is architecturally sound. The key insight — fix the precondition (sync the remote branch) rather than weaken the security check (scoped diff) — is correct and preserves the gateway's fail-closed security model. The four-part fix addresses all three root causes at the appropriate layer. The incremental rollout order (prompt guardrails → gateway enforcement → orchestrator sync → sandbox timeout) is well-prioritized by risk and dependency.",
+    "agreement_with_architect": true,
+    "disagreements": [
+      {
+        "topic": "Default command timeout value (OQ-2)",
+        "architect_claim": "Default timeout of 300 seconds (5 minutes) balances safety and usability",
+        "correction": "300 seconds is too generous for the problem being solved. The incident involved a 22-minute grep — any timeout under 22 minutes would have caught it. However, 300 seconds still allows significant resource waste. A 120-second default is sufficient for the vast majority of shell commands (builds, test runs, file operations) and catches runaway searches sooner. Test suites that genuinely need more time can use Claude Code's per-call timeout parameter or an explicit `timeout 600 <command>` prefix. The 120-second value aligns with Claude Code's existing Bash tool default timeout.",
+        "severity": "low",
+        "recommendation": "Use 120 seconds as the default BASH_COMMAND_TIMEOUT. Document that agents can override per-command via Claude Code's timeout parameter or shell timeout prefix."
+      },
+      {
+        "topic": "Completion signal verification should be a hard block, not a warning (OQ-3 related)",
+        "architect_claim": "Task-8 says verification should start as a 'warning log (not a hard block) to avoid breaking legitimate no-commit completions'",
+        "correction": "The concern about no-commit completions is valid but the solution is too permissive. A cleaner contract: if the completion signal includes a commit SHA (commit != None), verify it exists on the expected branch and REJECT the signal if not found. If commit is None, skip the check entirely. This provides hard enforcement for the exact scenario that caused the incident (agent pushed to wrong branch and reported a commit SHA) while preserving flexibility for phases that complete without committing. A warning-only approach means the pipeline continues with stale state — the same outcome as the original incident.",
+        "severity": "medium",
+        "recommendation": "Implement as: commit SHA provided → hard verify on expected branch → reject if not found (HTTP 409 Conflict with descriptive error). Commit None → skip check. This is a strict-when-relevant, permissive-when-appropriate design."
+      },
+      {
+        "topic": "Pre-phase sync behavior when remote has diverged",
+        "architect_claim": "AD-6 says pre-phase push is best-effort with graceful degradation — push failure is logged but does not block phase start",
+        "correction": "This is appropriate for transient network failures but inappropriate for branch divergence. If the remote branch has commits that the local branch doesn't have (e.g., another agent or human pushed to it), the push will fail AND the phase agent will see the same push denial as before. The sync function should detect divergence (both ahead and behind) and handle it: either merge/rebase or signal an error to the pipeline. Simply logging and continuing produces a guaranteed push failure for the agent.",
+        "severity": "low",
+        "recommendation": "Add divergence detection in _sync_worktree_with_remote(): after the rev-list --left-right check, if BOTH counts are non-zero (local ahead AND behind), log a warning with details and attempt a fast-forward merge. If that fails, signal a pipeline error via egg-orch rather than silently proceeding."
+      }
+    ]
+  },
+
+  "risks": [
+    {
+      "id": "R-1",
+      "category": "implementation",
+      "title": "Per-command timeout wrapper may not activate depending on shell initialization path",
+      "description": "The architect proposes implementing the timeout via /etc/profile.d/ script or shell function. However, Claude Code's Bash tool spawns commands via subprocess, which may use a non-login, non-interactive shell (e.g., /bin/sh -c 'command'). In that case, /etc/profile.d/ scripts are NOT sourced, and shell functions defined in .bashrc or .profile are NOT available. The sandbox entrypoint (sandbox/entrypoint.py) uses subprocess.Popen() to run Claude, and Claude Code's Bash tool uses its own subprocess invocation. Neither path guarantees that /etc/profile.d/ scripts are loaded.",
+      "likelihood": "medium",
+      "impact": "high",
+      "impact_detail": "If the timeout wrapper is not activated, runaway commands are still unbounded — the exact problem this fix is meant to solve. The timeout is the hard guardrail backing the soft prompt guardrails. Without it, only the 1-hour container timeout (from orchestrator's wait_for_container(timeout=3600)) prevents indefinite hangs.",
+      "affected_files": [
+        "sandbox/entrypoint.py (subprocess invocation)",
+        "sandbox/llm/claude/runner.py (Claude Code launch)"
+      ],
+      "mitigation": "Instead of /etc/profile.d/, implement the timeout at a layer that cannot be bypassed: (a) wrap the Bash tool's shell invocation in the sandbox entrypoint by setting BASH_ENV to a script that defines a timeout wrapper, or (b) use Claude Code's configuration to set a global Bash tool timeout if supported, or (c) implement a shell wrapper at /usr/local/bin/ that intercepts common long-running patterns. Before implementing, verify experimentally how Claude Code invokes bash commands in the sandbox (login shell vs non-login shell) and choose the approach that covers the actual invocation path.",
+      "rollback": "Remove the timeout mechanism. Revert to prompt-guardrails-only defense.",
+      "human_review_needed": true,
+      "human_review_reason": "The implementation approach for per-command timeouts needs validation against Claude Code's actual shell invocation behavior. The architect's suggestion (/etc/profile.d/) may not work. The implementer should test the chosen approach in the sandbox before committing."
+    },
+    {
+      "id": "R-2",
+      "category": "correctness",
+      "title": "Pre-phase sync may push incomplete or broken work from crashed prior agents",
+      "description": "The architect's plan adds push-before-reset to _sync_worktree_with_remote() so that local-ahead commits reach the remote before the new phase starts. However, if the prior agent crashed mid-work, its local commits may be incomplete, broken, or contain debug artifacts. Pushing these to the remote branch makes them permanent and visible to all subsequent agents and the pipeline. The current behavior (skipping push when local is ahead) is actually safer in the crash recovery case — it silently discards the incomplete work on reset.",
+      "likelihood": "low-medium",
+      "impact": "medium",
+      "impact_detail": "Broken or incomplete commits from a crashed agent would be pushed to the remote branch, visible in the repository history. Subsequent agents would inherit this broken state. The auto_commit_worktree() already handles uncommitted changes with phase filtering, but committed changes from the crashed agent would bypass this protection.",
+      "affected_files": [
+        "orchestrator/routes/pipelines.py:1835-1934 (_sync_worktree_with_remote)"
+      ],
+      "mitigation": "Before pushing local-ahead commits, check whether the prior phase completed successfully (check agent_execution status in the contract). If the prior phase failed or was killed, do NOT push the local-ahead commits — instead, reset to the remote branch tip (discarding the incomplete local work). Only push local-ahead commits when the prior phase completed successfully. This distinguishes 'prior agent finished but orchestrator didn't push' from 'prior agent crashed with partial work'.",
+      "rollback": "Revert to current behavior (skip push when local is ahead). The worst case returns to the status quo: push denial for the next agent, which is recoverable.",
+      "human_review_needed": false
+    },
+    {
+      "id": "R-3",
+      "category": "correctness",
+      "title": "Push-target refspec parsing has diverse edge cases that may cause false rejections",
+      "description": "Git push accepts many syntaxes: 'git push origin branch', 'git push origin local:remote', 'git push origin HEAD:refs/heads/remote', 'git push origin HEAD', 'git push' (uses tracking branch), 'git push origin +branch' (force), 'git push origin :branch' (delete). The gateway must parse ALL of these to extract the target branch and compare to the expected branch. Incomplete parsing will cause either false rejections (blocking valid pushes) or false accepts (allowing wrong-branch pushes).",
+      "likelihood": "medium",
+      "impact": "medium",
+      "impact_detail": "False rejections block the agent from pushing valid work, causing the same frustration pattern as the original incident (push fails, agent improvises). False accepts defeat the purpose of the enforcement. Both outcomes are disruptive to the pipeline.",
+      "affected_files": [
+        "gateway/gateway.py (git_push handler, ~line 700)"
+      ],
+      "mitigation": "Use git's own refspec parsing rather than hand-writing regex. The gateway can run `git push --dry-run` to determine the actual target ref, or parse the push args using gitpython's refspec utilities. At minimum, the test suite (task-4) must cover: bare branch name, local:remote, HEAD:remote, HEAD (no remote), bare push (no args), force prefix (+branch), refs/heads/ prefix, and delete refspec (:branch). Also handle the case where the agent uses `git push origin local-branch:expected-branch` — the target branch matches even though the local name differs.",
+      "rollback": "Disable push-target enforcement (remove the check). Falls back to current behavior where any egg/-prefixed branch is allowed.",
+      "human_review_needed": false
+    },
+    {
+      "id": "R-4",
+      "category": "operational",
+      "title": "Timeout may kill legitimate long-running test suites and builds",
+      "description": "Large test suites (pytest with many integration tests), npm install, Docker builds, and compilation steps can legitimately take 2-10 minutes. A 120-second (or 300-second) per-command timeout would kill these operations. The architect suggests agents can use explicit timeout overrides, but Claude Code may not consistently set per-call timeouts for operations it doesn't expect to be long-running.",
+      "likelihood": "medium",
+      "impact": "medium",
+      "impact_detail": "Test runs, builds, and dependency installations being killed by timeout would cause agent confusion, retry loops, and wasted tokens. The agent would see a timeout error, possibly retry the same command, hit the timeout again, and eventually signal an error. This is disruptive but not data-corrupting.",
+      "affected_files": [
+        "sandbox/entrypoint.py or equivalent timeout wrapper"
+      ],
+      "mitigation": "Implement a two-tier timeout: (a) a shorter default timeout (120s) for general commands, and (b) a whitelist of command prefixes that get a longer timeout (600s): pytest, npm, make, go build, cargo, javac, docker, pip install. The whitelist can be configured via environment variable (BASH_LONG_COMMANDS='pytest,npm,make,...'). Alternatively, Claude Code's Bash tool already has a per-call timeout parameter (max 600000ms) — document this as the override mechanism and set the system default lower.",
+      "rollback": "Set BASH_COMMAND_TIMEOUT to a very high value (3600) to effectively disable per-command timeouts while keeping the infrastructure in place.",
+      "human_review_needed": false
+    },
+    {
+      "id": "R-5",
+      "category": "compatibility",
+      "title": "Push-target enforcement must handle post-agent auto-commit push path",
+      "description": "The gateway's auto_commit_worktree() (gateway/post_agent_commit.py:286-315) creates a temporary session and pushes via the gateway's /api/v1/git/push endpoint. This push also goes through the same validation pipeline as agent-initiated pushes. If push-target enforcement checks the session's expected branch, the auto-commit's temporary session must also have the correct expected branch set. Otherwise, the post-agent auto-commit push could be blocked by the new enforcement.",
+      "likelihood": "medium",
+      "impact": "high",
+      "impact_detail": "If post-agent auto-commit pushes are blocked, uncommitted work from exiting containers would be silently lost. The auto-commit mechanism is a critical safety net — blocking it defeats its purpose. This is especially dangerous because the failure would be silent (the container is already exiting).",
+      "affected_files": [
+        "gateway/post_agent_commit.py:286-315 (auto-commit push)",
+        "gateway/gateway.py (push-target enforcement)"
+      ],
+      "mitigation": "When implementing push-target enforcement, explicitly verify that auto_commit_worktree()'s temporary session registration includes the correct pipeline_id and expected branch. Add a test that exercises the auto-commit push path with push-target enforcement enabled. Alternatively, exempt auto-commit pushes from push-target enforcement by checking a session flag (e.g., is_auto_commit=True).",
+      "rollback": "Disable push-target enforcement. Auto-commit push path returns to current behavior.",
+      "human_review_needed": true,
+      "human_review_reason": "The interaction between push-target enforcement and auto-commit pushes is a critical safety concern. The implementer should trace the full auto-commit push path to ensure the temporary session has the correct branch metadata, and add integration tests covering this scenario."
+    },
+    {
+      "id": "R-6",
+      "category": "correctness",
+      "title": "Pre-phase sync adds push to a best-effort function that currently only reads",
+      "description": "_sync_worktree_with_remote() currently only performs reads (fetch, rev-list, reset). Adding a push operation changes its side-effect profile from read-only to read-write. This is a behavioral change to a function called during pipeline initialization. If the push has unintended side effects (e.g., triggers CI webhooks, updates branch protection status, creates notifications), it could cause unexpected behavior.",
+      "likelihood": "low",
+      "impact": "low",
+      "impact_detail": "The push goes through the gateway's existing push path, which already handles CI webhooks and branch protection. The primary concern is unexpected notifications or CI triggers from the sync push, which would be confusing but not data-corrupting.",
+      "affected_files": [
+        "orchestrator/routes/pipelines.py:1835-1934 (_sync_worktree_with_remote)"
+      ],
+      "mitigation": "Use push_worktree_branch() from gateway_client.py:553-618 which already exists for this purpose and handles errors gracefully. Ensure the push uses the existing temporary session pattern (with cleanup in finally block). Document the behavioral change in the function's docstring.",
+      "rollback": "Remove the push call from _sync_worktree_with_remote(). Return to skip-when-ahead behavior.",
+      "human_review_needed": false
+    },
+    {
+      "id": "R-7",
+      "category": "security",
+      "title": "Push-target enforcement improves security but introduces a new denial-of-service vector",
+      "description": "If push-target enforcement has a bug that rejects ALL pushes in pipeline mode (e.g., off-by-one in branch name comparison, missing normalization of refs/heads/ prefix), it would block all pipeline agents from pushing. This is a denial-of-service for the entire pipeline system. The enforcement is on the hot path of every pipeline push operation.",
+      "likelihood": "low",
+      "impact": "high",
+      "impact_detail": "All pipeline agents would be unable to push, causing all pipelines to fail or hang. The auto-commit safety net would also be affected (see R-5). Recovery requires deploying a gateway fix or configuration change.",
+      "affected_files": [
+        "gateway/gateway.py (git_push handler)"
+      ],
+      "mitigation": "Implement a killswitch: add an environment variable (PUSH_TARGET_ENFORCEMENT=true) that can be set to false to disable enforcement without a code deploy. Add comprehensive tests covering all push syntaxes. Stage the rollout: deploy with enforcement disabled, monitor logs for what WOULD be blocked, then enable enforcement once confident in the parsing logic.",
+      "rollback": "Set PUSH_TARGET_ENFORCEMENT=false in gateway environment. Instant rollback without code deploy.",
+      "human_review_needed": false
+    },
+    {
+      "id": "R-8",
+      "category": "behavioral",
+      "title": "Prompt guardrails may be ignored or contradicted by other instructions",
+      "description": "The sandbox already has extensive instructions in CLAUDE.md and sandbox/.claude/rules/. Adding more rules increases the chance of instruction conflict or deprioritization by the model. If the filesystem search warning conflicts with a task that requires searching system files (e.g., debugging container configuration), the agent may either ignore the guardrail (defeating its purpose) or refuse a legitimate operation.",
+      "likelihood": "low",
+      "impact": "low",
+      "impact_detail": "Prompt guardrails are defense-in-depth, not the primary enforcement mechanism. If ignored, the per-command timeout (R-1, if properly implemented) catches the runaway command. The risk is wasted time between the guardrail failing and the timeout activating.",
+      "affected_files": [
+        "sandbox/.claude/rules/environment.md"
+      ],
+      "mitigation": "Keep the guardrail concise and specific. Do not use absolute language ('NEVER search outside ~/repos/') — instead use guidance ('ALWAYS scope searches to ~/repos/ or $EGG_REPO_PATH; searching from / will scan the entire filesystem and may be killed by timeout'). This explains the WHY and makes the instruction more likely to be followed.",
+      "rollback": "Remove the added guardrail text. No functional impact.",
+      "human_review_needed": false
+    }
+  ],
+
+  "cross_cutting_concerns": [
+    {
+      "id": "CC-1",
+      "title": "Four-component change requires coordinated rollout",
+      "description": "Approach A touches four components: orchestrator (_sync_worktree_with_remote), gateway (push-target enforcement, error messages), sandbox (timeout wrapper, rules file). These components are independently deployable but the fixes are most effective together. The rollout order matters: prompt guardrails and gateway enforcement should deploy before the orchestrator sync change, because the sync change depends on the gateway allowing the pre-phase push.",
+      "recommendation": "Deploy in the architect's suggested order: (1) prompt guardrails, (2) gateway push-target enforcement, (3) orchestrator pre-phase sync, (4) sandbox timeout. Each step is independently valuable. If any step is blocked, the others still provide incremental improvement."
+    },
+    {
+      "id": "CC-2",
+      "title": "Test coverage for the interaction between sync, push-target enforcement, and auto-commit",
+      "description": "The three gateway/orchestrator changes interact: pre-phase sync pushes through the gateway (subject to push-target enforcement), and auto-commit pushes through the gateway (also subject to push-target enforcement). Integration tests must cover the full lifecycle: phase N completes → auto-commit pushes → orchestrator sync pushes prior commits → phase N+1 agent pushes new work. Each of these pushes must succeed under push-target enforcement.",
+      "recommendation": "Add an integration test that exercises a two-phase pipeline transition with push-target enforcement enabled. Verify: (a) auto-commit push for phase N succeeds, (b) sync push succeeds, (c) phase N+1 agent push succeeds, (d) phase N+1 agent push to wrong branch is blocked."
+    },
+    {
+      "id": "CC-3",
+      "title": "Existing in-flight pipelines",
+      "description": "If the gateway push-target enforcement is deployed while pipelines are running, in-flight agents on existing sessions may be affected. The gateway session's expected branch must be set correctly for existing sessions, not just new ones. If existing sessions lack the branch metadata, push-target enforcement should be skipped (not enforce against a null expected branch).",
+      "recommendation": "Push-target enforcement should only activate when session.pipeline_id is set AND session.branch is set. If either is null (old sessions), skip enforcement. This ensures backward compatibility with in-flight pipelines created before the deployment."
+    }
+  ],
+
+  "rollback_plan": {
+    "overall": "Each of the four changes can be rolled back independently without affecting the others. The changes have no shared state or database migrations. Rollback order should be reverse of deployment: timeout → sync → push-target → guardrails.",
+    "per_change": [
+      {
+        "change": "Prompt guardrails (sandbox/.claude/rules/environment.md)",
+        "rollback": "Remove the added text. No code changes needed. Takes effect on next container spawn.",
+        "data_impact": "None."
+      },
+      {
+        "change": "Gateway push-target enforcement",
+        "rollback": "Set PUSH_TARGET_ENFORCEMENT=false in gateway env (if killswitch implemented) or revert the code change. Takes effect immediately for new pushes.",
+        "data_impact": "None. Push validation is stateless."
+      },
+      {
+        "change": "Pre-phase worktree sync (push-before-reset)",
+        "rollback": "Revert the change to _sync_worktree_with_remote(). Return to skip-when-ahead behavior. Takes effect on next phase transition.",
+        "data_impact": "None. The sync is idempotent."
+      },
+      {
+        "change": "Sandbox per-command timeout",
+        "rollback": "Set BASH_COMMAND_TIMEOUT to 0 or a very high value (3600). Or remove the timeout wrapper entirely. Takes effect on next container spawn.",
+        "data_impact": "None. Timeout is stateless."
+      }
+    ]
+  },
+
+  "human_review_areas": [
+    {
+      "area": "Per-command timeout implementation approach",
+      "reason": "The implementation path for command timeouts is the least well-defined part of the plan. The architect suggests /etc/profile.d/ which may not work with Claude Code's shell invocation. The implementer needs to experimentally verify the shell initialization path and choose an approach that covers it. This is a design decision that affects the reliability of the entire timeout mechanism.",
+      "urgency": "blocking — should be resolved before implementation starts"
+    },
+    {
+      "area": "Auto-commit interaction with push-target enforcement",
+      "reason": "The auto-commit push path creates temporary gateway sessions. Push-target enforcement must be verified against this path to avoid silently losing uncommitted work from exiting containers. This interaction is not covered in the architect's plan.",
+      "urgency": "blocking — must be addressed in task-3 implementation"
+    },
+    {
+      "area": "Completion signal hard-block vs warning trade-off",
+      "reason": "The architect recommends warning-only verification. This risk assessment recommends hard-block when a commit SHA is provided. The correct choice depends on whether there are legitimate scenarios where an agent provides a commit SHA that is NOT on the expected branch. If such scenarios exist, warning-only is safer. If not, hard-block prevents pipeline state corruption.",
+      "urgency": "non-blocking — can be decided during implementation"
+    }
+  ],
+
+  "overall_risk_rating": "LOW-MEDIUM",
+  "recommendation": "PROCEED with Approach A. The risks are manageable and the mitigations are straightforward. The two blocking human review items (timeout implementation path and auto-commit interaction) should be resolved during the planning/design phase before implementation begins. All other risks are addressed by the proposed mitigations and can be handled during implementation."
+}
