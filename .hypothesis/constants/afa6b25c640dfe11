@@ -1,4 +1,0 @@
-# file: /home/egg/repos/egg/orchestrator/handoffs.py
-# hypothesis_version: 6.151.9
-
-['AgentOutput', 'HandoffData', 'by_role', 'commit', 'commits', 'data', 'error', 'failed', 'files_changed', 'handoff_data', 'logs', 'metrics', 'role', 'shared', 'source_role', 'status', 'successful', 'timestamp', 'total']

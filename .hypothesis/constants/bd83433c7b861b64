@@ -1,4 +1,0 @@
-# file: /home/egg/repos/egg/gateway/error_messages.py
-# hypothesis_version: 6.151.9
-
-['1', 'PolicyViolation', 'VERBOSE_ERRORS', 'clone_public', 'default', 'error', 'fetch_public', 'fork', 'fork_blocked', 'fork_from_public', 'fork_to_public', 'gh_execute_public', 'hint', 'hints', 'issue_public', 'operation', 'policy', 'pr_comment_public', 'pr_create_public', 'private_mode', 'public', 'public_repo', 'push_public', 'reason', 'repo', 'repository', 'success', 'true', 'unknown', 'visibility', 'visibility_unknown', 'yes']

@@ -1,4 +1,0 @@
-# file: /home/egg/repos/egg/config/repo_config.py
-# hypothesis_version: 6.151.9
-
-['--access-level', '--check-readable', '--check-writable', '--default-reviewer', '--github-username', '--list-all', '--list-readable', '--list-writable', '--sync-all-prs', '.config', '=', 'EGG_REPO_CONFIG', 'GITHUB_TOKEN', 'REPO', '__main__', 'auth_mode', 'bot', 'bot_username', 'checkpoint_repo', 'checks', 'command', 'config', 'default_reviewer', 'disable_auto_fix', 'egg', 'false', 'git_email', 'git_name', 'github_sync', 'github_user', 'github_username', 'name', 'none', 'readable', 'readable_repos', 'repo_settings', 'repos', 'repositories.yaml', 'store_true', 'sync_all_prs', 'true', 'user', 'user_mode', 'writable', 'writable_repos']

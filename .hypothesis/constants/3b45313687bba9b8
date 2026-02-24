@@ -1,4 +1,0 @@
-# file: /home/egg/repos/egg/orchestrator/health_checks/types.py
-# hypothesis_version: 6.151.9
-
-['Z', 'action', 'alert', 'check_name', 'continue', 'degraded', 'details', 'fail_pipeline', 'failed', 'healthy', 'on_demand', 'phase_complete', 'reasoning', 'runtime_tick', 'startup', 'status', 'tier', 'tier1', 'tier2', 'timestamp', 'wave_complete']

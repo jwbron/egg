@@ -1,4 +1,0 @@
-# file: /home/egg/repos/egg/gateway/session_manager.py
-# hypothesis_version: 6.151.9
-
-[384, '.tmp', 'Session deleted', 'Session has expired', 'Session registered', 'agent_role', 'assigned_branch', 'auto_commit_sha', 'checkpoint_repo', 'claude_code_version', 'completed', 'complexity_tier', 'container_id', 'container_ip', 'created_at', 'error', 'expired', 'expires_at', 'issue_number', 'last_branch', 'last_repo_path', 'last_seen', 'local', 'mode', 'phase', 'pipeline_id', 'pr_number', 'private', 'public', 'saved_at', 'session_auth_failed', 'session_deleted', 'session_expired', 'session_ip_mismatch', 'session_registered', 'session_token_hash', 'sessions', 'sessions.json', 'shared', 'valid', 'version', 'w']

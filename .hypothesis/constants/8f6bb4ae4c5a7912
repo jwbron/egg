@@ -1,4 +1,0 @@
-# file: /home/egg/repos/egg/orchestrator/routes/phases.py
-# hypothesis_version: 6.151.9
-
-[200, 400, 404, 409, '/<pipeline_id>/phase', '/api/v1/pipelines', 'GET', 'HEALTH_CHECK_RUNNER', 'Missing target_phase', 'POST', 'Phase advanced', 'Phase completed', 'Phase failed', 'Phase retrieved', 'Phase started', 'artifacts', 'completed_at', 'current_phase', 'data', 'details', 'error', 'force', 'health_results', 'issue', 'local', 'message', 'mode', 'next_phase', 'orchestrator.phases', 'phase', 'phase_execution', 'phases', 'previous_phase', 'review_cycles', 'shared', 'started_at', 'status', 'success', 'target_phase', 'work_started_at']

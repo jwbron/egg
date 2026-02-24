@@ -1,4 +1,0 @@
-# file: /home/egg/repos/egg/orchestrator/health_checks/tier1/startup_state.py
-# hypothesis_version: 6.151.9
-
-['shared', 'stale_agents', 'stale_containers', 'startup_state']

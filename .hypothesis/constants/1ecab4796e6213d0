@@ -1,4 +1,0 @@
-# file: /home/egg/repos/egg/orchestrator/health_checks/tier1/phase_output.py
-# hypothesis_version: 6.151.9
-
-['--count', '.egg-state', '/', 'agents_with_commits', 'architect', 'drafts', 'git', 'origin/main..HEAD', 'plan', 'rev-list', 'shared']

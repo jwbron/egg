@@ -1,4 +1,0 @@
-# file: /home/egg/repos/egg/shared/egg_contracts/resilience.py
-# hypothesis_version: 6.151.9
-
-[0.5, 0.75, 1.0, 2.0, 30.0, 300, 360, 'T', 'data', 'elapsed_seconds', 'is_limited', 'job_start_time', 'limit', 'ratelimit-limit', 'ratelimit-remaining', 'ratelimit-reset', 'remaining', 'remaining_seconds', 'reset', 'reset_at', 'retry-after', 'retry_after', 'seconds_until_reset', 'timestamp', 'used', 'x-ratelimit-limit', 'x-ratelimit-reset', 'x-ratelimit-used']

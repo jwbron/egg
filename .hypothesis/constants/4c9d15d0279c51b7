@@ -1,4 +1,0 @@
-# file: /home/egg/repos/egg/gateway/repo_parser.py
-# hypothesis_version: 6.151.9
-
-[200, '-C', '-c', '..', '.git', '/', '//', '://', 'Git command failed', 'gateway.repo-parser', 'get-url', 'git', 'git@', 'github.com', 'http://', 'https://', 'origin', 'remote', 'safe.directory=*', 'shared', '~/.egg-worktrees']

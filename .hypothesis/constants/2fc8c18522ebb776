@@ -1,4 +1,0 @@
-# file: /usr/lib/python3/dist-packages/jwt/jwks_client.py
-# hypothesis_version: 6.151.9
-
-['header', 'kid', 'sig', 'verify_signature']

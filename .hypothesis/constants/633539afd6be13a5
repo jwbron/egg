@@ -1,4 +1,0 @@
-# file: /home/egg/repos/egg/sandbox/egg_lib/self_improvement/collectors/base.py
-# hypothesis_version: 6.151.9
-
-['cancelled', 'failure', 'gha', 'local', 'running', 'success']

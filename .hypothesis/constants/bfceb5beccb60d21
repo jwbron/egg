@@ -1,4 +1,0 @@
-# file: /home/egg/repos/egg/sandbox/egg_lib/compose.py
-# hypothesis_version: 6.151.9
-
-[b'config/repo_config.py', b'docker-compose.yml', b'gateway', b'orchestrator', b'shared', 0.0, 200, 384, '    volumes:', '  gateway:', '  orchestrator:', ' "\'#$`\n\\', '"', '--build', '--format', '--remove-orphans', '-d', '-f', '.compose-build-hash', '.env', '172.32.0.2', '=', 'BOT_GITHUB_TOKEN', 'EGG_COMPOSE_FILE', 'EGG_CONFIG_DIR', 'EGG_HOST_REPO_MAP', 'EGG_LAUNCHER_SECRET', 'EGG_REPO_CHECKS', 'EGG_USER_GIT_EMAIL', 'EGG_USER_GIT_NAME', 'Egg stack stopped', 'GATEWAY_BOT_NAME', 'GITHUB_USER_TOKEN', 'Gateway', 'Gateway is healthy', 'HOST_GID', 'HOST_HOME', 'HOST_UID', 'Orchestrator', '[\\x00-\\x1f\\x7f]', '\\', '\\"', '\\\\', 'checks', 'compose', 'config', 'disconnect', 'docker', 'docker-compose.yml', 'down', 'egg', 'gateway', 'inspect', 'network', 'orchestrator', 'repo_config.py', 'repo_settings', 'repositories.yaml', 'rm', 'services:', 'shared', 'up', 'version', '{}']

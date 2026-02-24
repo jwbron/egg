@@ -1,4 +1,0 @@
-# file: /home/egg/repos/egg/orchestrator/health_checks/runner.py
-# hypothesis_version: 6.151.9
-
-['aggregate', 'aggregate_status', 'check_count', 'results', 'shared', 'trigger']

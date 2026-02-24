@@ -1,4 +1,0 @@
-# file: /home/egg/repos/egg/sandbox/egg_lib/container_logging.py
-# hypothesis_version: 6.151.9
-
-[-1000, 100, 1000, 1024, '\n=== STDERR ===\n', '%Y%m%d-%H%M%S', '(task-\\d{8}-\\d{6})', '--label', '--log-driver', '--log-opt', '.cache', '=', '=== STDOUT ===\n', 'a+', 'container-logs', 'container_id', 'docker', 'egg', 'entries', 'json-file', 'log-index.json', 'log_file', 'logs', 'max-file=5', 'max-size=10m', 'task_id', 'task_to_container', 'thread_to_task', 'thread_ts', 'timestamp', 'w']

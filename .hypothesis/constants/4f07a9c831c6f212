@@ -1,4 +1,0 @@
-# file: /home/egg/repos/egg/sandbox/egg_lib/auth.py
-# hypothesis_version: 6.151.9
-
-['#', '--config-dir', '.venv', '=', 'ANTHROPIC_API_KEY', 'ANTHROPIC_API_KEY=', 'GITHUB_APP_ID', 'PROXY-INJECTED', 'anthropic-api-key', 'api_key', 'bin', 'config.yaml', 'ghp_', 'ghs_', 'github-app-token.py', 'github-app.pem', 'github_pat_', 'host-services', 'oauth', 'python', 'python3', 'secrets.env', 'tools']

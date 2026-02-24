@@ -1,4 +1,0 @@
-# file: /home/egg/repos/egg/gateway/phase_filter.py
-# hypothesis_version: 6.151.9
-
-['*', '../', './', '.egg', '.egg-state/drafts/*', '.egg-state/reviews/*', '/', '; ', 'Add notes', 'All files allowed', 'Comment on issues', 'Create PRs', 'Edit PRs', 'Edit issues', 'Files allowed', 'Link commits', 'No files to check', 'Operation allowed', 'Push code', 'View contract state', 'add-commit *', 'add-decision *', 'allowed_operations', 'allowed_patterns', 'blocked_operations', 'blocked_patterns', 'blocked_reason', 'description', 'egg-contract', 'exit_requires', 'file_restrictions', 'gh', 'git', 'human', 'implement', 'implementer', 'issue comment *', 'issue edit *', 'pattern', 'phases', 'plan', 'pr', 'pr create*', 'pr edit *', 'push *', 'refine', 'reviewer', 'role', 'show *', 'type', 'unknown', 'update-notes *']

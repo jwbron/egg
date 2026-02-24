@@ -1,4 +1,0 @@
-# file: /home/egg/repos/egg/shared/egg_contracts/agent_recovery.py
-# hypothesis_version: 6.151.9
-
-[2.0, 300, ', ', '--diff-filter=U', '--name-only', 'Retrying immediately', 'agents_involved', 'attempts', 'backoff', 'can_execute', 'can_retry', 'changed_files', 'closed', 'conflict_type', 'conflicting_files', 'detected_at', 'diff', 'edit', 'errors', 'failed_agents', 'failure_count', 'failure_threshold', 'git', 'half_open', 'immediate', 'last_failure', 'manual', 'merge', 'network', 'open', 'opened_at', 'rate_limit', 'resolution_hint', 'skip', 'state', 'success_count', 'timeout', 'transient']

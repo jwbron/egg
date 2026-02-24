@@ -1,4 +1,0 @@
-# file: /home/egg/repos/egg/shared/egg_config/config.py
-# hypothesis_version: 6.151.9
-
-['.config', '__main__', 'egg', 'local_repos', 'paths', 'repositories.yaml']

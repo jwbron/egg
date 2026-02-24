@@ -1,4 +1,0 @@
-# file: /home/egg/repos/egg/orchestrator/container_spawner.py
-# hypothesis_version: 6.151.9
-
-[200, 1000, 9848, '...', '/', '/home/egg', '/home/egg/repos', '/shared/certs', '172.32.0.10', '172.32.0.2', '172.33.0.2', 'CLAUDE_CODE_VERSION', 'CONTAINER_ID', 'Container created', 'EGG_AGENT_ROLE', 'EGG_EXTERNAL_NETWORK', 'EGG_ISOLATED_NETWORK', 'EGG_ISSUE_NUMBER', 'EGG_PHASE', 'EGG_PIPELINE_ID', 'EGG_REPO_PATH', 'EGG_SANDBOX_IMAGE', 'HOST_GID', 'HOST_HOME', 'HOST_UID', 'IPAddress', 'NetworkSettings', 'Networks', 'bind', 'egg-external', 'egg-gateway', 'egg-isolated', 'egg.agent.role', 'egg.issue.number', 'egg.pipeline.id', 'egg:latest', 'local', 'orchestrator.spawner', 'private', 'public', 'shared', 'volume']

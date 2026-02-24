@@ -1,4 +1,0 @@
-# file: /home/egg/repos/egg/sandbox/statusbar.py
-# hypothesis_version: 6.151.9
-
-[1.0, '\x1b[0m', '\x1b[32m', '-', '...', '/', '=', '\\', '\\033\\[[0-9;]*m', '|']

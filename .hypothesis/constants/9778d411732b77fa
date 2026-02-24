@@ -1,4 +1,0 @@
-# file: /home/egg/repos/egg/.github/scripts/checks/lint_check.py
-# hypothesis_version: 6.151.9
-
-[-2000, 300, 'Linting failed', 'Linting passed', 'Makefile', 'check-lint', 'command', 'hint', 'lint', 'lint :', 'lint:', 'make', 'make lint', 'stderr', 'stdout']

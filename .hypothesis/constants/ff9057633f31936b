@@ -1,4 +1,0 @@
-# file: /usr/lib/python3/dist-packages/cryptography/hazmat/primitives/asymmetric/ed25519.py
-# hypothesis_version: 6.151.9
-
-['Ed25519PrivateKey', 'Ed25519PublicKey']

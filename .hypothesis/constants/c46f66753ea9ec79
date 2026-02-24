@@ -1,4 +1,0 @@
-# file: /usr/lib/python3/dist-packages/cryptography/hazmat/primitives/asymmetric/dsa.py
-# hypothesis_version: 6.151.9
-
-[160, 224, 256, 1024, 2048, 3072, 4096, 'DSAParameterNumbers', 'DSAPrivateKey', 'DSAPrivateNumbers', 'DSAPublicKey', 'DSAPublicNumbers', '_g', '_p', '_parameter_numbers', '_public_numbers', '_q', '_x', '_y']

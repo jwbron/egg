@@ -1,4 +1,0 @@
-# file: /home/egg/repos/egg/.github/scripts/checks/draft_validation_check.py
-# hypothesis_version: 6.151.9
-
-[100, '.egg-state', 'Draft file is valid', '^#\\s+', 'drafts', 'expected_path', 'length', 'missing', 'path']

@@ -1,4 +1,0 @@
-# file: /home/egg/repos/egg/sandbox/egg_lib/self_improvement/collectors/local.py
-# hypothesis_version: 6.151.9
-
-['.cache', '^ERROR[:\\s]', '^Error:', '^Exception:', '^FAILED[:\\s]', '^FATAL[:\\s]', 'all tests passed', 'cancelled', 'container-logs', 'container_id', 'egg', 'entries', 'exec', 'failure', 'local', 'log-index.json', 'log_file', 'replace', 'running', 'success', 'task_id', 'thread_ts', 'timestamp']

@@ -1,4 +1,0 @@
-# file: /home/egg/repos/egg/shared/egg_contracts/usage.py
-# hypothesis_version: 6.151.9
-
-[0.0, '0.10', '0.30', '0.50', '1.0', '1.00', '1.25', '1000000', '15.00', '25.00', '3.00', '3.75', '5.00', '6.25', 'All PR numbers', 'All issue numbers', 'All session IDs', 'All workflow IDs', 'Associated PR number', 'GitHub PR number', 'GitHub issue number', 'Model used', 'PR base branch', 'PR head branch', 'Pipeline phases seen', 'Schema version', 'Session identifier', 'TokenCounts', 'Total PRs tracked', 'Total estimated cost', 'Total input tokens', 'Total issues tracked', 'Total output tokens', 'Workflow name', '^[0-9]+\\.[0-9]+$', 'cache_read', 'cache_write', 'haiku', 'input', 'opus', 'output', 'sonnet']

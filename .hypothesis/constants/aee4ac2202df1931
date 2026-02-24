@@ -1,4 +1,0 @@
-# file: /home/egg/repos/egg/shared/egg_contracts/checkpoints.py
-# hypothesis_version: 6.151.9
-
-['2.0', 'CheckpointSummaryV2', 'CheckpointV2', 'Git branch', 'Git commit SHA', 'GitHub PR number', 'GitHub issue number', 'Message content', 'Message role', 'Number of tool calls', 'Pipeline phase', 'Pipeline run ID', 'Schema version', 'Session metadata', 'Session/container ID', 'Total input tokens', 'Total output tokens', 'Total tokens used', 'Type of operation', 'When session ended', 'When session started', '^[0-9]+\\.[0-9]+$', '^[a-f0-9]{7,40}$', 'architect', 'assistant', 'before', 'checker', 'coder', 'commit', 'commit_sha', 'completed', 'create', 'delete', 'documenter', 'edit', 'expired', 'failed', 'glob', 'grep', 'implement', 'integrator', 'pipeline_phase', 'plan', 'pr', 'push_sha', 'read', 'refine', 'refiner', 'reviewer', 'risk_analyst', 'session_end', 'system', 'task_planner', 'tester', 'tool_result', 'unknown', 'user', 'write']

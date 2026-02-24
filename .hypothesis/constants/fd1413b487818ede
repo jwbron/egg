@@ -1,4 +1,0 @@
-# file: /home/egg/repos/egg/shared/egg_contracts/hitl.py
-# hypothesis_version: 6.151.9
-
-['-', '---', '> ', 'Option 2: Override', '[ ]', '[x]', '_', 'adjust', 'adjust_criteria', 'assign', 'break', 'break_into_subtasks', 'cancel', 'cancel_pipeline', 'category', 'checked', 'complete', 'complete_manually', 'context', 'criteria', 'debounce_until', 'guidance', 'has_changes', 'id', 'label', 'manual', 'manually', 'mark', 'mark_complete', 'options', 'override', 'provide_context', 'reassign', 'requirements', 'skip', 'skip_tasks', 'sub-task', 'subtask', 'x']

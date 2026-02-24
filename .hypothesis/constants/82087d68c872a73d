@@ -1,4 +1,0 @@
-# file: /home/egg/repos/egg/shared/egg_orchestrator/constants.py
-# hypothesis_version: 6.151.9
-
-[9849, '/api/v1/health', '172.32.0.3', '172.33.0.3', 'EGG_AGENT_ROLE', 'EGG_ORCHESTRATOR_URL', 'EGG_PIPELINE_ID', 'ENV_AGENT_ROLE', 'ENV_ORCHESTRATOR_URL', 'ENV_PIPELINE_ID', 'ORCHESTRATOR_PORT', 'egg-orchestrator']

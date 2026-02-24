@@ -1,4 +1,0 @@
-# file: /home/egg/repos/egg/gateway/proxy_monitor.py
-# hypothesis_version: 6.151.9
-
-[0.1, 400, 403, '\nStopped. Summary:', '0', '1', 'PROXY_LOG_VERBOSE', 'Z', '__main__', 'action', 'alert_type', 'allowed', 'allowed_requests', 'block_rate', 'blocked', 'blocked_requests', 'client_ip', 'destination', 'event_type', 'high_block_rate', 'message', 'method', 'reason', 'security_alert', 'source', 'squid_proxy', 'status', 'timestamp', 'unknown', 'url']

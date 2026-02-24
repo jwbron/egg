@@ -1,4 +1,0 @@
-# file: /home/egg/repos/egg/orchestrator/status_reporter.py
-# hypothesis_version: 6.151.9
-
-[100, '.tmp', '=', 'Agent completed', 'Agent failed', 'Agent started', 'Phase completed', 'Phase failed', 'Phase started', 'Pipeline cancelled', 'Pipeline created', 'Pipeline failed', 'Status handler error', 'Z', 'a', 'compact', 'current_phase', 'dag', 'data', 'event_type', 'message', 'phase', 'pipeline_id', 'progress', 'shared', 'status', 'status_update', 'timestamp', 'unknown', 'visualization']

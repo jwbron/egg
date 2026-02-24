@@ -1,4 +1,0 @@
-# file: /home/egg/repos/egg/gateway/auth.py
-# hypothesis_version: 6.151.9
-
-[401, 'Authorization', 'Bearer ', 'F', 'gateway.auth', 'gateway.rate_limiter', 'message', 'rate_limiter', 'session_manager', 'shared', 'success']

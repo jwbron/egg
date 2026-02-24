@@ -1,4 +1,0 @@
-# file: /home/egg/repos/egg/sandbox/egg_lib/config.py
-# hypothesis_version: 6.151.9
-
-['\x1b[0;31m', '\x1b[0;32m', '\x1b[0;34m', '\x1b[0m', '\x1b[1;33m', '\x1b[1m', '.aws', '.cache', '.config', '.docker', '.gitconfig', '.gnupg', '.kube', '.netrc', '.ssh', 'Colors', 'Config', 'Dockerfile', 'EGG_CONTAINER_IP', 'EGG_EXTERNAL_NETWORK', 'EGG_EXTERNAL_SUBNET', 'EGG_ISOLATED_NETWORK', 'EGG_ISOLATED_SUBNET', 'GATEWAY_EXTERNAL_IP', 'GATEWAY_IMAGE_NAME', 'GATEWAY_ISOLATED_IP', 'GATEWAY_PORT', 'GATEWAY_PROXY_PORT', 'ORCHESTRATOR_PORT', 'XDG_CACHE_HOME', 'darwin', 'egg', 'gcloud', 'get_local_repos', 'get_platform', 'github-token', 'linux', 'local_repos', 'macos', 'paths', 'repositories.yaml', 'shared', 'unknown']

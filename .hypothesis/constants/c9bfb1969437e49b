@@ -1,4 +1,0 @@
-# file: /home/egg/repos/egg/shared/egg_contracts/plan_parser.py
-# hypothesis_version: 6.151.9
-
-['### Parse Warnings', '(\\d+)', ',', '-', '---', 'Human verification', 'TASK-(\\d+)-(\\d+)', '\\*\\*Goal\\*\\*:\\s*(.+)', '\\[([^\\]]+)\\]', 'acceptance', 'dependencies', 'description', 'exit_criteria', 'files', 'goal', 'id', 'name', 'phase-', 'phase\\s*(\\d+)', 'phases', 'pr', 'pr_plan', 'tasks', 'title', 'utf-8']

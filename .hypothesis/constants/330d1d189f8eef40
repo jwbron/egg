@@ -1,4 +1,0 @@
-# file: /home/egg/repos/egg/shared/egg_contracts/transcript_extractor.py
-# hypothesis_version: 6.151.9
-
-[1.5, 15.0, 75.0, 100, 1000, 1500, 2500, 25000, 1000000, '+00:00', '..', '...', '/', '/tmp/egg-transcripts', 'Edit', 'Glob', 'Grep', 'Read', 'Write', 'Z', '\\', 'api_turn', 'content', 'file_path', 'id', 'input', 'input_parse_error', 'input_tokens', 'is_error', 'messages', 'model', 'name', 'output_tokens', 'path', 'raw_partial_input', 'request', 'response', 'role', 'text', 'timestamp', 'tool_result', 'tool_use', 'tool_use_id', 'type', 'unknown', 'usage', 'user']

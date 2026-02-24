@@ -1,4 +1,0 @@
-# file: /usr/lib/python3/dist-packages/jwt/api_jwt.py
-# hypothesis_version: 6.151.9
-
-[',', ':', 'HS256', 'Invalid audience', 'Invalid issuer', 'aud', 'exp', 'iat', 'iss', 'nbf', 'payload', 'require', 'utf-8', 'verify_aud', 'verify_exp', 'verify_iat', 'verify_iss', 'verify_nbf', 'verify_signature']

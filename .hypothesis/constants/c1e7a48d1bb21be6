@@ -1,4 +1,0 @@
-# file: /home/egg/repos/egg/shared/egg_logging/logger.py
-# hypothesis_version: 6.151.9
-
-[1024, '/.dockerenv', 'BoundLogger', 'EGG_CONTAINER', 'K_SERVICE', 'container', 'gcp', 'host', 'pr_number', 'repository', 'root', 'span_id', 'task_id', 'trace_flags', 'trace_id']

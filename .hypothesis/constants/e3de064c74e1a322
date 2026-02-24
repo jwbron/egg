@@ -1,4 +1,0 @@
-# file: /home/egg/repos/egg/shared/egg_contracts/feedback.py
-# hypothesis_version: 6.151.9
-
-['\n\n---\n\n', '###', '### Open Questions', '*Authored-by: egg*', '---', '>', '> _Your answer here_', '^Your answer here$', '^\\s*$', '^_Your answer here_$', 'feedback-(\\d+)', 'feedback-1', 'feedback_id', 'questions', 'submitted', 'x']

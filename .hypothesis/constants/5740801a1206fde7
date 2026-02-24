@@ -1,4 +1,0 @@
-# file: /home/egg/repos/egg/gateway/phase_api.py
-# hypothesis_version: 6.151.9
-
-[200, 400, 403, 404, 500, '.', '/advance', '/api/v1/phase', '/app', '/filter', '/home/egg/repos', '/permissions/<phase>', '1', 'EGG_AGENT_ROLE', 'GET', 'Missing command', 'Missing issue_number', 'Missing request body', 'POST', 'X-Egg-Role', 'actor', 'agent', 'agent_role', 'allowed', 'allowed_operations', 'blocked_operations', 'command', 'current_phase', 'data', 'description', 'details', 'exit_requires', 'from_phase', 'gateway.phase', 'hint', 'issue_number', 'message', 'next_phase', 'operation_type', 'pattern', 'phase', 'reason', 'repo_path', 'repos', 'role', 'session', 'shared', 'success', 'to_phase', 'transitioned_by', 'type', 'valid_phases', 'valid_types']

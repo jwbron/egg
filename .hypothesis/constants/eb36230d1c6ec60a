@@ -1,4 +1,0 @@
-# file: /home/egg/repos/egg/sandbox/egg_lib/orch_client.py
-# hypothesis_version: 6.151.9
-
-[120, 200, 400, 9849, '/.dockerenv', '/api/v1/health', '/api/v1/pipelines', '?pending_only=true', 'Accept', 'Cache-Control', 'Content-Type', 'DELETE', 'EGG_CONTAINER', 'EGG_ORCHESTRATOR_URL', 'GET', 'PATCH', 'POST', 'application/json', 'branch', 'cancelled', 'config', 'data', 'decisions', 'egg-orchestrator', 'healthy', 'issue', 'issue_number', 'message', 'mode', 'network_mode', 'no-cache', 'pipeline', 'prompt', 'raw', 'replace', 'repo', 'resolution', 'status', 'text/event-stream', 'utf-8']

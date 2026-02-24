@@ -1,4 +1,0 @@
-# file: /home/egg/repos/egg/shared/egg_orchestrator/detection.py
-# hypothesis_version: 6.151.9
-
-['distributed', 'get_agent_role', 'get_deployment_mode', 'get_orchestrator_url', 'get_pipeline_id', 'is_orchestrator_mode', 'remote-single']

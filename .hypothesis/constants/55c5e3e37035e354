@@ -1,4 +1,0 @@
-# file: /home/egg/repos/egg/gateway/private_repo_policy.py
-# hypothesis_version: 6.151.9
-
-['/', '1', 'Missing session mode', 'PRIVATE_MODE', 'allowed', 'clone', 'decision', 'denied', 'details', 'error', 'event_type', 'false', 'fetch', 'gh_execute', 'global', 'hint', 'issue', 'mode_source', 'operation', 'policy', 'pr_comment', 'pr_create', 'private', 'private_mode', 'private_repo_policy', 'public', 'push', 'reason', 'repo', 'repo_path', 'repository', 'session', 'session_mode', 'shared', 'timestamp', 'true', 'unknown', 'url', 'visibility', 'visibility_unknown', 'yes']

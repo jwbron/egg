@@ -1,4 +1,0 @@
-# file: /usr/lib/python3/dist-packages/jwt/api_jwk.py
-# hypothesis_version: 6.151.9
-
-['EC', 'ES256', 'ES256K', 'ES384', 'ES512', 'Ed25519', 'EdDSA', 'HS256', 'OKP', 'P-256', 'P-384', 'P-521', 'RS256', 'RSA', 'Unsupported crv: %s', 'Unsupported kty: %s', 'alg', 'crv', 'crv is not found: %s', 'keys', 'kid', 'kty', 'kty is not found: %s', 'oct', 'secp256k1', 'use']

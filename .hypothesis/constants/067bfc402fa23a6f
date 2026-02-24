@@ -1,4 +1,0 @@
-# file: /home/egg/repos/egg/.github/scripts/checks/check_fixer.py
-# hypothesis_version: 6.151.9
-
-[-2000, 300, '--porcelain', 'Auto-fix failed', 'Makefile', 'changes_made', 'check-fixer', 'command', 'fix', 'fix :', 'fix:', 'git', 'hint', 'make', 'make fix', 'status', 'stderr', 'stdout']

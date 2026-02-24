@@ -1,4 +1,0 @@
-# file: /home/egg/repos/egg/sandbox/egg_lib/sdlc_cli.py
-# hypothesis_version: 6.151.9
-
-[1.0, 30.0, 409, '\x1b[0m', '\x1b[1m', '\x1b[2J\x1b[H', '\x1b[2m', '\x1b[31m', '\x1b[32m', '\x1b[33m', '\x1b[36m', '--issue', '--json', '--prompt', '--repo', '-i', '-p', '-q', '-r', '.nameWithOwner', '/', '1', ':', '?', 'EGG_PRIVATE_MODE', 'GitHub issue number', 'NAME', 'NUM', 'T', 'TEXT', 'Unknown error', 'Z', '__main__', 'already_terminal', 'awaiting approval', 'awaiting_human', 'cancelled', 'complete', 'completed', 'current_phase', 'dag', 'data: ', 'done', 'egg-sdlc', 'error', 'event: ', 'event_type', 'failed', 'gh', 'id', 'interrupted', 'issue', 'issue_number_pos', 'local', 'message', 'nameWithOwner', 'pending', 'pending_decisions', 'pipeline_id', 'private', 'raw', 'reason', 'replace', 'repo', 'repos', 'running', 'status', 'timeout', 'timestamp', 'true', 'unknown', 'utf-8', 'view', 'visualization', 'was cancelled']

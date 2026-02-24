@@ -1,4 +1,0 @@
-# file: /home/egg/repos/egg/shared/egg_config/configs/github.py
-# hypothesis_version: 6.151.9
-
-[5.0, 300, 401, 1000, '.config', '2022-11-28', 'Accept', 'Authorization', 'GITHUB_TOKEN', 'GITHUB_USER_TOKEN', 'GitHubConfig', 'Token not configured', 'User-Agent', 'X-GitHub-Api-Version', '_token_source', 'egg', 'egg-config/1.0', 'environment', 'github', 'github-token', 'github-token file', 'github_username', 'login', 'readonly_token', 'repositories.yaml', 'secrets.env', 'token', 'token_expires_at', 'unknown', 'user_mode_token', 'username']

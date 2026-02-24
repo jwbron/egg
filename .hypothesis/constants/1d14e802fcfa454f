@@ -1,4 +1,0 @@
-# file: /home/egg/repos/egg/sandbox/egg_lib/runtime.py
-# hypothesis_version: 6.151.9
-
-[',', '--format', '--rm', '-C', '-e', '-f', '-i', '-it', '-t', '-v', '.', '.git', '.md', '/', '/:', '0', '1', ':', 'ANTHROPIC_API_KEY', 'Docker build failed', 'EGG_AGENT_ROLE', 'EGG_ISSUE_NUMBER', 'EGG_MULTI_AGENT', 'EGG_PIPELINE_ID', 'EGG_PIPELINE_PHASE', 'EGG_PR_NUMBER', 'EGG_QUIET', 'EGG_REPOS', 'EGG_TASK_ID', 'EGG_THREAD_TS', 'EGG_TIMING', 'IPv4Address', 'Interrupted by user', 'PYTHONUNBUFFERED', 'Starting services...', 'api-key', 'api_key', 'build_docker_cmd', 'build_image', 'check_config', 'check_image', 'configure_mounts', 'docker', 'get-url', 'git', 'git@', 'github.com', 'inspect', 'kill', 'network', 'null', 'oauth', 'oauth-token', 'origin', 'prepare_container', 'private', 'public', 'remote', 'repositories.yaml', 'rm', 'start_gateway', '{{json .Containers}}']

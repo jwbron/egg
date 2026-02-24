@@ -1,4 +1,0 @@
-# file: /home/egg/repos/egg/shared/egg_config/validators.py
-# hypothesis_version: 6.151.9
-
-[65535, '*', 'Email is empty', 'Invalid email format', 'URL is empty', 'URL missing host', '[EMPTY]', 'command', 'gho_', 'ghp_', 'ghs_', 'ghu_', 'github_pat_', 'http', 'https', 'name', 'sk-ant-']

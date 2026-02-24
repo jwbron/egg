@@ -1,4 +1,0 @@
-# file: /home/egg/repos/egg/shared/egg_config/base.py
-# hypothesis_version: 6.151.9
-
-[5.0, 'BaseConfig', 'Config', 'ValidationResult', 'degraded', 'healthy', 'invalid', 'latency_ms', 'message', 'valid']

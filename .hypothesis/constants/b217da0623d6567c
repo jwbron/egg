@@ -1,4 +1,0 @@
-# file: /usr/lib/python3/dist-packages/jwt/api_jws.py
-# hypothesis_version: 6.151.9
-
-[b'.', ',', ':', 'HS256', 'JWT', 'Not enough segments', 'alg', 'header', 'kid', 'none', 'payload', 'signature', 'typ', 'utf-8', 'verify_signature']

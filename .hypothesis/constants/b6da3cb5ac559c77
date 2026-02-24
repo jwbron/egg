@@ -1,4 +1,0 @@
-# file: /home/egg/repos/egg/orchestrator/sandbox_template.py
-# hypothesis_version: 6.151.9
-
-[2.0, 1000000000.0, 3129, 9848, 9849, '-', '/home/egg/repos', '0', '1', '172.32.0.2', '172.32.0.3', '4g', 'EGG_AGENT_ROLE', 'EGG_GATEWAY_URL', 'EGG_ISSUE_NUMBER', 'EGG_ORCHESTRATOR_URL', 'EGG_PIPELINE_ID', 'EGG_PRIVATE_MODE', 'EGG_PROMPT_FILE', 'EGG_SESSION_TOKEN', 'GATEWAY_URL', 'HTTPS_PROXY', 'HTTP_PROXY', 'NO_PROXY', 'ORCHESTRATOR_URL', 'bind', 'detach', 'egg-isolated', 'egg-orchestrator', 'egg.agent.role', 'egg.issue.number', 'egg.orchestrator', 'egg.pipeline.id', 'egg:latest', 'environment', 'host', 'http_proxy', 'https_proxy', 'image', 'labels', 'mem_limit', 'mode', 'name', 'nano_cpus', 'network', 'network_mode', 'no_proxy', 'rw', 'shared', 'true', 'volumes']

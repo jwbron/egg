@@ -1,4 +1,0 @@
-# file: /home/egg/repos/egg/orchestrator/health_checks/tier2/agent_inspector.py
-# hypothesis_version: 6.151.9
-
-[500, 100000, 'DEGRADED', 'EGG_NETWORK_MODE', 'FAILED', 'HEALTHY', '```', 'acceptance_criteria', 'agent_executions', 'agent_inspector', 'agent_outputs', 'branch', 'contract_summary', 'current_phase', 'decisions', 'error', 'git_diff_stat', 'git_log', 'graceful_degradation', 'pipeline_id', 'public', 'python3', 'raw_response', 'reasoning', 'shared', 'status', 'trigger', 'unknown', '{']

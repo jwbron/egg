@@ -1,4 +1,0 @@
-# file: /home/egg/repos/egg/gateway/contract_api.py
-# hypothesis_version: 6.151.9
-
-[200, 400, 403, 404, 500, '/<int:issue_number>', '/api/v1/contract', '/mutate', '/validate', '1', 'Contract exists', 'Contract retrieved', 'EGG_AGENT_ROLE', 'GET', 'Missing field_path', 'Missing issue_number', 'Missing new_value', 'Missing request body', 'Mutation allowed', 'POST', 'X-Egg-Role', 'actor', 'agent', 'agent_role', 'contract', 'data', 'details', 'exists', 'false', 'field_path', 'gateway.contract', 'hint', 'include_audit_log', 'issue_number', 'message', 'new_value', 'reason', 'repo_path', 'required_role', 'role', 'session', 'shared', 'success', 'true']

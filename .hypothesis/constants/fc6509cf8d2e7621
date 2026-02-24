@@ -1,4 +1,0 @@
-# file: /home/egg/repos/egg/shared/egg_contracts/checkpoint_loader.py
-# hypothesis_version: 6.151.9
-
-[420, '.checkpoint_', '.index_', '.tmp', '00', 'json', 'w']

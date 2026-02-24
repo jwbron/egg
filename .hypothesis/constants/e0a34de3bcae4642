@@ -1,4 +1,0 @@
-# file: /home/egg/repos/egg/orchestrator/dag_visualizer.py
-# hypothesis_version: 6.151.9
-
-[0.5, 3600, '        v', '        |', '        │', '        ▼', '#', '+', '-', '-->', '=', '>', '>>>', '?', 'Cycle Timings:', 'DAG Visualization:', 'Implement', 'PR', 'Plan', 'Refine', 'Status: Not started', 'Z', 'agents', 'awaiting approval', 'compact', 'containers', 'current_phase', 'cycle', 'cycles', 'dag', 'done', 'o', 'pending_decisions', 'phases', 'pipeline_id', 'plan_phase_id', 'progress', 'review_cycles', 'reviewer', 'role', 'running', 'shared', 'status', 'timestamp', 'updated_at', 'v', 'visualization', 'worker', 'x', '|', '||', '×', '→', '⊘', '⏸', '─', '│', '┌', '┐', '└', '┘', '┬', '┴', '┼', '═', '╔', '╗', '╚', '╝', '█', '░', '▶', '▼', '○', '✓', '✗']

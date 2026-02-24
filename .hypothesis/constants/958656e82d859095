@@ -1,4 +1,0 @@
-# file: /home/egg/repos/egg/orchestrator/events.py
-# hypothesis_version: 6.151.9
-
-[1.0, 5.0, 100, 'Event handler error', 'Event published', 'Z', 'agent.completed', 'agent.failed', 'agent.started', 'agent.timeout', 'container.removed', 'container.spawned', 'container.stopped', 'data', 'decision.created', 'decision.resolved', 'event_type', 'orchestrator', 'orchestrator.events', 'phase.completed', 'phase.failed', 'phase.started', 'pipeline.cancelled', 'pipeline.completed', 'pipeline.created', 'pipeline.failed', 'pipeline.started', 'pipeline_id', 'shared', 'source', 'system.error', 'system.health_check', 'timestamp']

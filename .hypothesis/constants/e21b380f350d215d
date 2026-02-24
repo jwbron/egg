@@ -1,4 +1,0 @@
-# file: /home/egg/repos/egg/sandbox/llm/runner.py
-# hypothesis_version: 6.151.9
-
-['--model', '1', '127.0.0.1', 'DISABLE_TELEMETRY', 'NO_PROXY', 'claude', 'opus']
