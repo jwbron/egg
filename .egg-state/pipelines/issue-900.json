@@ -149,10 +149,10 @@
         "Nested Pydantic model (FeedbackQuestion with id, question, answer fields)",
         "Untyped list[dict] (flexible but no schema enforcement)"
       ],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-02-24T21:49:44.827814",
-      "resolved_at": null,
-      "resolution": null
+      "resolved_at": "2026-02-24T22:01:50.844720",
+      "resolution": "Approved"
     },
     {
       "id": "decision-4",
@@ -209,7 +209,7 @@
     }
   ],
   "created_at": "2026-02-24T21:42:50.271543",
-  "updated_at": "2026-02-24T22:01:49.310818",
+  "updated_at": "2026-02-24T22:01:50.847382",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
@@ -217,5 +217,5 @@
   "error": null,
   "plan_phase_waves": null,
   "plan_phase_names": null,
-  "version": 24
+  "version": 25
 }
