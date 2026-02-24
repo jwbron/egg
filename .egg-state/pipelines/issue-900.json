@@ -81,10 +81,23 @@
       "created_at": "2026-02-24T21:49:36.713066",
       "resolved_at": null,
       "resolution": null
+    },
+    {
+      "id": "decision-2",
+      "question": "What should the default decision_type be for existing decisions loaded from old state files?",
+      "context": "",
+      "options": [
+        "\"choice\" (old decisions render as choices, as specified in issue)",
+        "\"unknown\" (explicit marker that type was not set, terminal falls back to heuristics)"
+      ],
+      "status": "pending",
+      "created_at": "2026-02-24T21:49:42.524879",
+      "resolved_at": null,
+      "resolution": null
     }
   ],
   "created_at": "2026-02-24T21:42:50.271543",
-  "updated_at": "2026-02-24T21:49:36.716336",
+  "updated_at": "2026-02-24T21:49:42.527136",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
@@ -92,5 +105,5 @@
   "error": null,
   "plan_phase_waves": null,
   "plan_phase_names": null,
-  "version": 8
+  "version": 9
 }
