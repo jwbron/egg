@@ -5065,11 +5065,30 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
             # Start the current phase
             phase_execution = pipeline.get_phase_execution(current_phase)
             if phase_execution.status == PipelineStatus.PENDING:
+                # Record branch tip SHA for completion signal verification.
+                # This allows the completion handler to detect if a commit
+                # was pushed to a different branch than expected.
+                phase_start_sha: str | None = None
+                try:
+                    _sha_result = subprocess.run(
+                        ["git", "rev-parse", f"origin/{pipeline.branch}"],
+                        capture_output=True,
+                        text=True,
+                        cwd=str(worktree_repo_path),
+                        timeout=10,
+                        check=False,
+                    )
+                    if _sha_result.returncode == 0:
+                        phase_start_sha = _sha_result.stdout.strip()
+                except Exception:
+                    pass  # Non-fatal — verification is best-effort
+
                 with get_pipeline_state_lock(pipeline_id):
                     pipeline = store.load_pipeline(pipeline_id)
                     phase_execution = pipeline.get_phase_execution(current_phase)
                     phase_execution.status = PipelineStatus.RUNNING
                     phase_execution.started_at = datetime.utcnow()
+                    phase_execution.phase_start_sha = phase_start_sha
                     pipeline.status = PipelineStatus.RUNNING
                     store.save_pipeline(pipeline)
 
