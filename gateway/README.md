@@ -102,6 +102,23 @@ Pipeline sessions are locked to their assigned worktree branch. The gateway bloc
 **Error message:**
 - `Branch switching is not allowed in pipeline sessions. You are locked to branch '<branch>'.` (HTTP 403)
 
+### Push-Target Enforcement (Pipeline Sessions)
+
+Pipeline sessions must push only to their assigned branch. This prevents agents from improvising branch names when a push fails (e.g., pushing to `egg/issue-42-refine` instead of `egg/issue-42/work`), which would leave commits on an unexpected branch and break pipeline state tracking.
+
+**How it works:**
+- After session validation and before branch ownership checks, the gateway compares the push target branch against `session.assigned_branch`
+- Both `pipeline_id` and `assigned_branch` must be set on the session for the check to activate
+- Refspec formats like `local:remote` are supported — the remote portion is checked
+- If the push target does not match the assigned branch, the push is rejected with HTTP 403
+
+**Killswitch:** Set `PUSH_TARGET_ENFORCEMENT=false` to disable (for emergency bypass).
+
+**Error message:**
+- `Pipeline sessions must push to their assigned branch '<assigned>'. Got '<attempted>'.` (HTTP 403)
+
+**Pipeline-aware push error messages:** When a push is rejected due to phase file restrictions (e.g., branch history contains files from prior phases), pipeline sessions receive a targeted error message directing the agent to signal the error via `egg-orch signal error` rather than attempting workarounds. Non-pipeline sessions continue to see the original generic hint about creating a clean branch.
+
 ### Commit-Time Validation (Pipeline Sessions)
 
 In addition to push-time file restriction enforcement, the gateway validates staged files at `git commit` time for pipeline sessions. This catches violations early—before the agent spends tokens on building up commits that would be rejected at push.
@@ -429,6 +446,7 @@ gateway/
 │   ├── test_transcript_buffer.py
 │   ├── test_integrator_tier3.py
 │   ├── test_phase_worktree.py
+│   ├── test_assigned_branch.py  # Push-target enforcement and branch lock tests
 │   ├── integration_test.sh
 │   └── README-integration.md
 └── README.md               # This file
@@ -451,6 +469,8 @@ gateway/
 7. **Defense-in-depth enforcement**: Phase file restrictions are enforced at multiple layers—readonly filesystem mounts (OS level), commit-time validation (gateway), and push-time validation (gateway). Each layer catches violations earlier, reducing wasted agent tokens and preventing bypass vectors.
 
 8. **Branch lock for pipeline sessions**: Pipeline agents are locked to their worktree branch to ensure deterministic post-agent commit/push. The `Session.assigned_branch` field is set during session creation when a pipeline ID is present.
+
+9. **Push-target enforcement**: Pipeline agents must push to their assigned branch only. When a push to the assigned branch fails (e.g., due to phase file restrictions from branch history contamination), agents must signal an error rather than improvise a new branch name. This prevents commits from landing on unexpected branches where the pipeline cannot find them.
 
 ## Testing
 
