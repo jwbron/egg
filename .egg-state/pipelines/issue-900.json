@@ -162,10 +162,10 @@
         "Permanent fallback (always try JSON parse, fall back to string matching)",
         "Time-limited (deprecate after 2-3 releases, then require JSON only)"
       ],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-02-24T21:49:47.009990",
-      "resolved_at": null,
-      "resolution": null
+      "resolved_at": "2026-02-24T22:01:54.948684",
+      "resolution": "Approved"
     },
     {
       "id": "decision-5",
@@ -209,7 +209,7 @@
     }
   ],
   "created_at": "2026-02-24T21:42:50.271543",
-  "updated_at": "2026-02-24T22:01:50.847382",
+  "updated_at": "2026-02-24T22:01:54.953974",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
@@ -217,5 +217,5 @@
   "error": null,
   "plan_phase_waves": null,
   "plan_phase_names": null,
-  "version": 25
+  "version": 26
 }
