@@ -148,7 +148,7 @@ def _verify_commit_on_branch(
     try:
         # Fetch first to ensure we have the latest remote state
         result = subprocess.run(
-            ["git", "-C", str(worktree_path), "fetch", "origin", branch],
+            ["git", "-C", str(worktree_path), "fetch", "origin", "--", branch],
             capture_output=True,
             text=True,
             timeout=30,
@@ -172,6 +172,7 @@ def _verify_commit_on_branch(
                 "branch",
                 "-r",
                 "--contains",
+                "--",
                 commit,
             ],
             capture_output=True,
@@ -310,16 +311,20 @@ def handle_complete_signal(
                     },
                 )
 
-            # Check for no new commits since phase start (advisory warning)
-            current_phase = pipeline.current_phase
-            phase_exec = pipeline.phases.get(current_phase.value)
-            if phase_exec and phase_exec.phase_start_sha:
-                _check_branch_progress(
-                    pipeline.branch,
-                    phase_exec.phase_start_sha,
-                    contract_path,
-                    pipeline_id,
-                )
+            # Check for no new commits since phase start (advisory warning).
+            # Only run when branch_verified is True — if verification failed
+            # (returned None), the fetch didn't succeed and origin/{branch}
+            # may be stale, making the progress check unreliable.
+            if branch_verified is True:
+                current_phase = pipeline.current_phase
+                phase_exec = pipeline.phases.get(current_phase.value)
+                if phase_exec and phase_exec.phase_start_sha:
+                    _check_branch_progress(
+                        pipeline.branch,
+                        phase_exec.phase_start_sha,
+                        contract_path,
+                        pipeline_id,
+                    )
 
         # Only interact with the contract dispatcher for roles that have
         # a contract mapping (multi-agent phases: plan, implement).

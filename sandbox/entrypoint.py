@@ -1035,6 +1035,11 @@ def setup_command_timeout(config: Config, logger: Logger) -> None:
         return
 
     timeout_secs = os.environ.get("BASH_COMMAND_TIMEOUT", "120")
+    try:
+        int(timeout_secs)
+    except ValueError:
+        logger.warn(f"Invalid BASH_COMMAND_TIMEOUT value: {timeout_secs!r}, using 120")
+        timeout_secs = "120"
 
     # Move real bash to bash.real
     try:
@@ -1045,6 +1050,11 @@ def setup_command_timeout(config: Config, logger: Logger) -> None:
 
     # Write the wrapper script
     grace_secs = os.environ.get("BASH_COMMAND_TIMEOUT_GRACE", "10")
+    try:
+        int(grace_secs)
+    except ValueError:
+        logger.warn(f"Invalid BASH_COMMAND_TIMEOUT_GRACE value: {grace_secs!r}, using 10")
+        grace_secs = "10"
     wrapper = f"""\
 #!/bin/bash.real
 # egg command timeout wrapper — interposes on /bin/bash to enforce
@@ -1072,8 +1082,15 @@ fi
 # All other invocations pass through unchanged
 exec "$REAL_BASH" "$@"
 """
-    bash_path.write_text(wrapper)
-    os.chmod(str(bash_path), 0o755)  # nosec B103 - executable wrapper script
+    try:
+        bash_path.write_text(wrapper)
+        os.chmod(str(bash_path), 0o755)  # nosec B103 - executable wrapper script
+    except Exception as e:
+        # Restore original bash to avoid leaving the system without /bin/bash
+        logger.warn(f"Failed to write wrapper, restoring original bash: {e}")
+        shutil.move(str(real_bash), str(bash_path))
+        return
+
     os.chmod(str(real_bash), 0o755)  # nosec B103 - executable bash binary
 
     logger.success(f"Command timeout wrapper installed (BASH_COMMAND_TIMEOUT={timeout_secs}s)")

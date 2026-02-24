@@ -1934,7 +1934,16 @@ def _sync_worktree_with_remote(
                 repo_path=str(worktree_repo_path),
                 branch=branch,
             )
-            if not push_ok:
+            if push_ok:
+                # Push succeeded — local and remote are now in sync.
+                # Re-fetch to update the remote tracking ref so that
+                # origin/{branch} reflects the pushed commits.
+                spawner.gateway.fetch_worktree_branch(
+                    pipeline_id=pipeline_id,
+                    repo_path=str(worktree_repo_path),
+                )
+                return  # Already in sync — no reset needed
+            else:
                 logger.warning(
                     "Failed to push local-ahead commits (continuing with reset)",
                     pipeline_id=pipeline_id,
@@ -5075,6 +5084,11 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                 # Record branch tip SHA for completion signal verification.
                 # This allows the completion handler to detect if a commit
                 # was pushed to a different branch than expected.
+                # NOTE: Intentional TOCTOU — the SHA is captured before
+                # acquiring the state lock, so a push between rev-parse and
+                # lock acquisition could make it stale.  Acceptable because
+                # phase_start_sha is only used for advisory "no new commits"
+                # logging, not for correctness decisions.
                 phase_start_sha: str | None = None
                 try:
                     _sha_result = subprocess.run(

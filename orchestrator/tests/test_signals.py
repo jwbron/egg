@@ -391,10 +391,10 @@ class TestCompletionBranchVerification:
         mock_create_dispatcher.return_value = mock_dispatcher
 
         # subprocess.run calls: fetch succeeds, branch --contains returns origin/egg/issue-42
+        # (no rev-parse for progress check — mock_pipeline has no phase_start_sha)
         mock_subprocess_run.side_effect = [
             _make_subprocess_result(returncode=0),  # fetch
             _make_subprocess_result(stdout="  origin/egg/issue-42\n"),  # branch --contains
-            _make_subprocess_result(stdout="abc1234def\n"),  # rev-parse for progress check
         ]
 
         with app.app_context():

@@ -70,8 +70,8 @@ class TestSyncWorktreeWithRemote:
             _sync_worktree_with_remote(spawner, "pipe-1", Path("/tmp/repo"))
             assert mock_run.call_count == 2
 
-    def test_local_ahead_prior_succeeded_pushes_then_resets(self):
-        """(a) local ahead + prior phase succeeded → pushes then resets."""
+    def test_local_ahead_prior_succeeded_pushes_and_returns(self):
+        """(a) local ahead + prior phase succeeded → pushes, re-fetches, returns."""
         spawner = _make_spawner(push_ok=True)
         with patch("routes.pipelines.subprocess.run") as mock_run:
             mock_run.side_effect = [
@@ -81,8 +81,6 @@ class TestSyncWorktreeWithRemote:
                 _make_subprocess_result(returncode=0),
                 # Step 3b: local is 2 ahead, 0 behind
                 _make_subprocess_result(stdout="2\t0\n"),
-                # Step 4: reset succeeds
-                _make_subprocess_result(returncode=0),
             ]
             _sync_worktree_with_remote(
                 spawner,
@@ -92,11 +90,10 @@ class TestSyncWorktreeWithRemote:
             )
             # Should have pushed to remote
             spawner.gateway.push_worktree_branch.assert_called_once()
-            # Should have proceeded to reset (step 4)
-            assert mock_run.call_count == 4
-            reset_call = mock_run.call_args_list[3]
-            assert "reset" in reset_call[0][0]
-            assert "--hard" in reset_call[0][0]
+            # Should have re-fetched to update tracking ref
+            assert spawner.gateway.fetch_worktree_branch.call_count == 2
+            # Should NOT have proceeded to reset (early return after push)
+            assert mock_run.call_count == 3
 
     def test_local_ahead_prior_failed_discards_and_resets(self):
         """(b) local ahead + prior phase failed → resets without pushing."""
@@ -348,13 +345,14 @@ class TestSyncWorktreeWithRemote:
                 _make_subprocess_result(returncode=0),
                 # Step 3b: local is 1 ahead, 0 behind
                 _make_subprocess_result(stdout="1\t0\n"),
-                # Step 4: reset succeeds
-                _make_subprocess_result(returncode=0),
             ]
             # Call without prior_phase_succeeded param (defaults to True)
             _sync_worktree_with_remote(spawner, "pipe-1", Path("/tmp/repo"))
             # Should have attempted push (default True)
             spawner.gateway.push_worktree_branch.assert_called_once()
+            # Push succeeded → re-fetch + early return (no reset)
+            assert spawner.gateway.fetch_worktree_branch.call_count == 2
+            assert mock_run.call_count == 3
 
     def test_rev_list_check_fails_proceeds_to_reset(self):
         """Rev-list check subprocess failure proceeds to reset."""
