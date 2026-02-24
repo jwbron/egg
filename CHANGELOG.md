@@ -27,7 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Architecture Decision Records (ADRs) for all major design choices
 
 ### Changed
-- N/A
+- `.egg-state` files now use per-pipeline namespacing to prevent merge conflicts. Agent output files use `{identifier}-{role}-output.json` (e.g., `871-coder-output.json`) instead of `{role}-output.json`. Check results use `{identifier}-implement-results.json`. Backward compatibility maintained via fallback to old paths when namespaced files don't exist.
 
 ### Fixed
 - N/A
