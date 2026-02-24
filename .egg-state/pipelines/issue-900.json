@@ -122,14 +122,14 @@
         "approve",
         "request changes"
       ],
-      "status": "pending",
+      "status": "cancelled",
       "created_at": "2026-02-24T20:46:40.880340",
-      "resolved_at": null,
+      "resolved_at": "2026-02-24T20:51:08.160116",
       "resolution": null
     }
   ],
   "created_at": "2026-02-24T20:33:45.850326",
-  "updated_at": "2026-02-24T20:51:08.130682",
+  "updated_at": "2026-02-24T20:51:08.161836",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
@@ -137,5 +137,5 @@
   "error": null,
   "plan_phase_waves": null,
   "plan_phase_names": null,
-  "version": 17
+  "version": 18
 }
