@@ -21,10 +21,10 @@
   "phases": {
     "refine": {
       "phase": "refine",
-      "status": "running",
+      "status": "complete",
       "started_at": "2026-02-24T15:56:53.617176",
       "work_started_at": "2026-02-24T15:56:53.636785",
-      "completed_at": null,
+      "completed_at": "2026-02-24T16:08:07.618430",
       "containers": [
         {
           "container_id": "128090f9bee9571b0be7ee561ae9fddb78e9ab88713855a500fdc49a62861cc7",
@@ -114,13 +114,13 @@
   },
   "decisions": [],
   "created_at": "2026-02-24T15:56:53.359677",
-  "updated_at": "2026-02-24T16:08:07.599653",
+  "updated_at": "2026-02-24T16:08:07.627579",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
-  "complexity_tier": "mid",
+  "complexity_tier": "high",
   "error": null,
   "plan_phase_waves": null,
   "plan_phase_names": null,
-  "version": 13
+  "version": 14
 }
