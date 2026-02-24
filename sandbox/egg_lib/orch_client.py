@@ -195,6 +195,42 @@ class OrchClient:
             body={"resolution": resolution},
         )
 
+    def create_decision(
+        self,
+        pipeline_id: str,
+        question: str,
+        options: list[str] | None = None,
+        decision_type: str = "choice",
+        questions: list[dict[str, str]] | None = None,
+        context: str = "",
+    ) -> dict[str, Any]:
+        """Create a new HITL decision for a pipeline.
+
+        Args:
+            pipeline_id: Pipeline ID.
+            question: Decision question for the human.
+            options: Available options (empty for free-form).
+            decision_type: Type of decision ('phase_gate', 'choice', or 'feedback').
+            questions: Structured feedback questions (list of dicts with id, question, answer).
+            context: Additional context for the decision.
+
+        Returns:
+            Created decision dict from the orchestrator API.
+        """
+        body: dict[str, Any] = {"question": question, "context": context}
+        if options:
+            body["options"] = options
+        if decision_type != "choice":
+            body["decision_type"] = decision_type
+        if questions:
+            body["questions"] = questions
+        data = self._request(
+            "POST",
+            f"/api/v1/pipelines/{pipeline_id}/decisions",
+            body=body,
+        )
+        return cast(dict[str, Any], data.get("data", {}).get("decision", data))
+
     def cancel_pipeline(self, pipeline_id: str) -> dict[str, Any]:
         """Cancel a running pipeline."""
         return self._request(

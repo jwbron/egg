@@ -88,6 +88,48 @@ class TestHITLDecision:
         assert len(decision.options) == 2
         assert decision.resolution is None
 
+    def test_decision_type_default(self):
+        """Test that decision_type defaults to 'choice'."""
+        decision = HITLDecision(
+            id="decision-1",
+            question="Pick one?",
+        )
+        assert decision.decision_type == "choice"
+
+    def test_decision_type_phase_gate(self):
+        """Test creating a phase_gate decision."""
+        decision = HITLDecision(
+            id="decision-1",
+            question="Approve the plan?",
+            decision_type="phase_gate",
+            options=["approve", "request changes"],
+        )
+        assert decision.decision_type == "phase_gate"
+
+    def test_questions_default_empty(self):
+        """Test that questions defaults to empty list."""
+        decision = HITLDecision(
+            id="decision-1",
+            question="Pick one?",
+        )
+        assert decision.questions == []
+
+    def test_questions_with_feedback(self):
+        """Test creating a feedback decision with structured questions."""
+        questions = [
+            {"id": "q-1", "question": "What is the expected volume?", "answer": ""},
+            {"id": "q-2", "question": "Any performance requirements?", "answer": ""},
+        ]
+        decision = HITLDecision(
+            id="decision-1",
+            question="Please provide feedback",
+            decision_type="feedback",
+            questions=questions,
+        )
+        assert decision.decision_type == "feedback"
+        assert len(decision.questions) == 2
+        assert decision.questions[0]["id"] == "q-1"
+
 
 class TestPhaseExecution:
     """Tests for PhaseExecution model."""
@@ -365,6 +407,82 @@ class TestPipeline:
         )
         restored = Pipeline.model_validate_json(raw)
         assert restored.network_mode is None
+
+    def test_add_decision_with_decision_type(self):
+        """Test adding a decision with decision_type parameter."""
+        pipeline = Pipeline(
+            id="issue-496",
+            issue_number=496,
+            repo="owner/repo",
+            branch="egg/issue-496",
+        )
+        decision = pipeline.add_decision(
+            question="Approve the plan?",
+            options=["approve", "request changes"],
+            decision_type="phase_gate",
+        )
+        assert decision.decision_type == "phase_gate"
+
+    def test_add_decision_with_questions(self):
+        """Test adding a decision with questions parameter."""
+        pipeline = Pipeline(
+            id="issue-496",
+            issue_number=496,
+            repo="owner/repo",
+            branch="egg/issue-496",
+        )
+        questions = [{"id": "q-1", "question": "Why?", "answer": ""}]
+        decision = pipeline.add_decision(
+            question="Feedback needed",
+            decision_type="feedback",
+            questions=questions,
+        )
+        assert decision.decision_type == "feedback"
+        assert len(decision.questions) == 1
+
+    def test_add_decision_default_type(self):
+        """Test that add_decision defaults to decision_type='choice'."""
+        pipeline = Pipeline(
+            id="issue-496",
+            issue_number=496,
+            repo="owner/repo",
+            branch="egg/issue-496",
+        )
+        decision = pipeline.add_decision(question="Pick one?", options=["A", "B"])
+        assert decision.decision_type == "choice"
+        assert decision.questions == []
+
+    def test_backward_compat_old_format_dict(self):
+        """Test that old-format dict without decision_type/questions parses correctly."""
+        import json
+
+        raw = json.dumps(
+            {
+                "id": "issue-496",
+                "issue_number": 496,
+                "repo": "owner/repo",
+                "branch": "egg/issue-496",
+                "mode": "issue",
+                "status": "pending",
+                "current_phase": "refine",
+                "decisions": [
+                    {
+                        "id": "decision-1",
+                        "question": "Approve?",
+                        "context": "",
+                        "options": ["approve"],
+                        "status": "pending",
+                        "created_at": "2024-01-01T00:00:00",
+                        "resolved_at": None,
+                        "resolution": None,
+                    }
+                ],
+            }
+        )
+        restored = Pipeline.model_validate_json(raw)
+        assert len(restored.decisions) == 1
+        assert restored.decisions[0].decision_type == "choice"
+        assert restored.decisions[0].questions == []
 
 
 class TestAgentRole:

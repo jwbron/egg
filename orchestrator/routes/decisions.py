@@ -112,6 +112,8 @@ def list_decisions(pipeline_id: str) -> tuple[Response, int]:
                 "question": d.question,
                 "context": d.context,
                 "options": d.options,
+                "decision_type": d.decision_type,
+                "questions": d.questions,
                 "status": d.status.value,
                 "created_at": d.created_at.isoformat(),
                 "resolved_at": d.resolved_at.isoformat() if d.resolved_at else None,
@@ -171,6 +173,8 @@ def queue_decision(pipeline_id: str) -> tuple[Response, int]:
             question=question,
             context=data.get("context", ""),
             options=data.get("options"),
+            decision_type=data.get("decision_type", "choice"),
+            questions=data.get("questions"),
         )
 
         logger.info(
@@ -185,6 +189,8 @@ def queue_decision(pipeline_id: str) -> tuple[Response, int]:
                 "decision": {
                     "id": decision.id,
                     "question": decision.question,
+                    "decision_type": decision.decision_type,
+                    "questions": decision.questions,
                     "status": decision.status.value,
                     "created_at": decision.created_at.isoformat(),
                 }
@@ -232,6 +238,8 @@ def get_decision(pipeline_id: str, decision_id: str) -> tuple[Response, int]:
                     "question": decision.question,
                     "context": decision.context,
                     "options": decision.options,
+                    "decision_type": decision.decision_type,
+                    "questions": decision.questions,
                     "status": decision.status.value,
                     "created_at": decision.created_at.isoformat(),
                     "resolved_at": decision.resolved_at.isoformat()

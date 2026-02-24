@@ -29,6 +29,7 @@ class _StubHandler(BaseHTTPRequestHandler):
     # Set by each test via the _serve() context manager
     responses: dict = {}  # path → (status, body_dict)
     last_path: str = ""  # full path including query string from last request
+    last_body: dict | None = None  # parsed JSON body from last request
 
     def do_GET(self):
         self._handle()
@@ -41,6 +42,16 @@ class _StubHandler(BaseHTTPRequestHandler):
 
     def _handle(self):
         _StubHandler.last_path = self.path
+        # Read and parse request body if present
+        content_length = int(self.headers.get("Content-Length", 0))
+        if content_length > 0:
+            raw_body = self.rfile.read(content_length)
+            try:
+                _StubHandler.last_body = json.loads(raw_body)
+            except json.JSONDecodeError:
+                _StubHandler.last_body = None
+        else:
+            _StubHandler.last_body = None
         key = self.path.split("?")[0]
         status, body = self.responses.get(key, (404, {"message": "not found"}))
         payload = json.dumps(body).encode()
@@ -74,6 +85,7 @@ def stub_server():
 
     server.shutdown()
     _StubHandler.responses = {}
+    _StubHandler.last_body = None
 
 
 # ---------------------------------------------------------------------------
@@ -299,3 +311,124 @@ class TestRequestErrorHandling:
         set_resp({"/api/v1/pipelines/bad": (400, {"message": "bad request"})})
         with pytest.raises(OrchestratorError, match="bad request"):
             client.get_pipeline("bad")
+
+
+class TestCreateDecision:
+    """Tests for OrchClient.create_decision() method."""
+
+    def test_success_with_all_params(self, stub_server):
+        """create_decision sends correct POST with all parameters."""
+        client, set_resp = stub_server
+        decision_resp = {"id": "decision-1", "decision_type": "feedback"}
+        set_resp({
+            "/api/v1/pipelines/p1/decisions": (
+                200,
+                {"data": {"decision": decision_resp}},
+            )
+        })
+
+        questions = [{"id": "q-1", "question": "Why?", "answer": ""}]
+        result = client.create_decision(
+            pipeline_id="p1",
+            question="Please provide feedback",
+            options=["A", "B"],
+            decision_type="feedback",
+            questions=questions,
+            context="Some context",
+        )
+
+        assert result["id"] == "decision-1"
+        assert result["decision_type"] == "feedback"
+
+        # Verify the request body
+        body = _StubHandler.last_body
+        assert body is not None
+        assert body["question"] == "Please provide feedback"
+        assert body["options"] == ["A", "B"]
+        assert body["decision_type"] == "feedback"
+        assert body["questions"] == questions
+        assert body["context"] == "Some context"
+
+    def test_default_params(self, stub_server):
+        """create_decision with defaults omits decision_type='choice' from body."""
+        client, set_resp = stub_server
+        decision_resp = {"id": "decision-1"}
+        set_resp({
+            "/api/v1/pipelines/p1/decisions": (
+                200,
+                {"data": {"decision": decision_resp}},
+            )
+        })
+
+        result = client.create_decision(
+            pipeline_id="p1",
+            question="Pick one?",
+        )
+
+        assert result["id"] == "decision-1"
+
+        # With default decision_type='choice', it should not be in body
+        body = _StubHandler.last_body
+        assert body is not None
+        assert body["question"] == "Pick one?"
+        assert "decision_type" not in body  # Default omitted
+        assert "questions" not in body  # None omitted
+        assert "options" not in body  # None omitted
+
+    def test_response_parsing(self, stub_server):
+        """create_decision returns the decision dict from the response."""
+        client, set_resp = stub_server
+        decision_resp = {
+            "id": "decision-1",
+            "question": "Test?",
+            "decision_type": "phase_gate",
+            "questions": [],
+            "status": "pending",
+        }
+        set_resp({
+            "/api/v1/pipelines/p1/decisions": (
+                200,
+                {"data": {"decision": decision_resp}},
+            )
+        })
+
+        result = client.create_decision(
+            pipeline_id="p1",
+            question="Test?",
+            decision_type="phase_gate",
+        )
+
+        assert result == decision_resp
+
+    def test_error_handling(self, stub_server):
+        """create_decision raises OrchestratorError on HTTP error."""
+        client, set_resp = stub_server
+        set_resp({
+            "/api/v1/pipelines/p1/decisions": (
+                400,
+                {"message": "Missing question"},
+            )
+        })
+
+        with pytest.raises(OrchestratorError, match="Missing question"):
+            client.create_decision(
+                pipeline_id="p1",
+                question="",
+            )
+
+    def test_server_error(self, stub_server):
+        """create_decision raises OrchestratorError on 500."""
+        client, set_resp = stub_server
+        set_resp({
+            "/api/v1/pipelines/p1/decisions": (
+                500,
+                {"message": "Internal server error"},
+            )
+        })
+
+        with pytest.raises(OrchestratorError) as exc_info:
+            client.create_decision(
+                pipeline_id="p1",
+                question="Test?",
+            )
+        assert exc_info.value.status_code == 500

@@ -1,5 +1,6 @@
 """Tests for sandbox/egg_lib/sdlc_hitl.py - HITL checkpoint handling."""
 
+import json
 import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -316,12 +317,20 @@ class TestHandleHitlCheckpoint:
     @patch("egg_lib.sdlc_hitl._find_repo_path")
     @patch("builtins.input")
     def test_eof_cancels(self, mock_input, mock_repo, tmp_path, capsys):
-        """EOFError during input defaults to cancel (option 5)."""
+        """EOFError during input defaults to cancel via universal 'c' option.
+
+        _prompt_choice returns 'c' on EOF/interrupt.  We route through a
+        type-aware handler (choice with options) where 'c' is in the valid
+        set so it triggers _handle_universal_option → cancel.
+        """
         mock_repo.return_value = tmp_path
         mock_input.side_effect = EOFError
 
         client = self._make_client()
-        decision = self._make_decision()
+        decision = self._make_decision(
+            decision_type="choice",
+            options=["Option A", "Option B"],
+        )
 
         result = handle_hitl_checkpoint(
             client,
@@ -588,3 +597,387 @@ class TestLaunchClaude:
         # Phase and issue should not appear in the prompt
         assert "Current phase:" not in prompt_text
         assert "Issue: #" not in prompt_text
+
+
+# ---------------------------------------------------------------------------
+# Type-aware terminal handler tests
+# ---------------------------------------------------------------------------
+
+
+class TestHandlePhaseGate:
+    """Tests for phase_gate decision type rendering."""
+
+    def _make_decision(self, **overrides):
+        base = {
+            "id": "d1",
+            "question": "The refine phase has completed. Please review the analysis.",
+            "context": "Draft content here",
+            "decision_type": "phase_gate",
+            "options": ["approve", "request changes"],
+        }
+        base.update(overrides)
+        return base
+
+    def _make_client(self):
+        client = MagicMock(spec=["resolve_decision", "cancel_pipeline"])
+        client.resolve_decision.return_value = {"status": "resolved"}
+        client.cancel_pipeline.return_value = {"status": "cancelled"}
+        return client
+
+    @patch("egg_lib.sdlc_hitl._find_repo_path")
+    @patch("builtins.input")
+    def test_approve_sends_json(self, mock_input, mock_repo, tmp_path, capsys):
+        """Phase gate approve sends JSON {"action": "approve"}."""
+        mock_repo.return_value = tmp_path
+        mock_input.return_value = "3"
+
+        client = self._make_client()
+        result = handle_hitl_checkpoint(
+            client, "issue-42", self._make_decision(),
+            pipeline_mode="issue", issue_number=42,
+        )
+
+        assert result == "resolved"
+        call_args = client.resolve_decision.call_args
+        resolution = json.loads(call_args[0][2])
+        assert resolution["action"] == "approve"
+
+    @patch("egg_lib.sdlc_hitl._find_repo_path")
+    @patch("builtins.input")
+    def test_request_changes_sends_json(self, mock_input, mock_repo, tmp_path, capsys):
+        """Phase gate request changes sends JSON with feedback."""
+        mock_repo.return_value = tmp_path
+        # "4" = request changes, then feedback text, then empty line to finish
+        mock_input.side_effect = ["4", "Fix the error handling", ""]
+
+        client = self._make_client()
+        result = handle_hitl_checkpoint(
+            client, "issue-42", self._make_decision(),
+            pipeline_mode="issue", issue_number=42,
+        )
+
+        assert result == "resolved"
+        call_args = client.resolve_decision.call_args
+        resolution = json.loads(call_args[0][2])
+        assert resolution["action"] == "request_changes"
+        assert resolution["feedback"] == "Fix the error handling"
+
+    @patch("egg_lib.sdlc_hitl._find_repo_path")
+    @patch("builtins.input")
+    def test_shows_draft_preview(self, mock_input, mock_repo, tmp_path, capsys):
+        """Phase gate shows draft preview."""
+        mock_repo.return_value = tmp_path
+        mock_input.return_value = "3"
+
+        client = self._make_client()
+        handle_hitl_checkpoint(
+            client, "issue-42", self._make_decision(),
+            pipeline_mode="issue", issue_number=42,
+        )
+
+        captured = capsys.readouterr()
+        assert "Draft Preview" in captured.out
+
+    @patch("egg_lib.sdlc_hitl._find_repo_path")
+    @patch("builtins.input")
+    def test_confirmation_displayed(self, mock_input, mock_repo, tmp_path, capsys):
+        """Phase gate shows confirmation after approve."""
+        mock_repo.return_value = tmp_path
+        mock_input.return_value = "3"
+
+        client = self._make_client()
+        handle_hitl_checkpoint(
+            client, "issue-42", self._make_decision(),
+            pipeline_mode="issue", issue_number=42,
+        )
+
+        captured = capsys.readouterr()
+        assert "Approved" in captured.out
+
+
+class TestHandleChoice:
+    """Tests for choice decision type rendering."""
+
+    def _make_decision(self, **overrides):
+        base = {
+            "id": "d1",
+            "question": "Which database should we use?",
+            "context": "",
+            "decision_type": "choice",
+            "options": ["PostgreSQL", "MongoDB", "SQLite"],
+        }
+        base.update(overrides)
+        return base
+
+    def _make_client(self):
+        client = MagicMock(spec=["resolve_decision", "cancel_pipeline"])
+        client.resolve_decision.return_value = {"status": "resolved"}
+        client.cancel_pipeline.return_value = {"status": "cancelled"}
+        return client
+
+    @patch("egg_lib.sdlc_hitl._find_repo_path")
+    @patch("builtins.input")
+    def test_renders_options_as_numbered_list(self, mock_input, mock_repo, tmp_path, capsys):
+        """Choice type renders options as numbered list."""
+        mock_repo.return_value = tmp_path
+        mock_input.return_value = "1"
+
+        client = self._make_client()
+        handle_hitl_checkpoint(
+            client, "issue-42", self._make_decision(),
+            pipeline_mode="issue", issue_number=42,
+        )
+
+        captured = capsys.readouterr()
+        assert "PostgreSQL" in captured.out
+        assert "MongoDB" in captured.out
+        assert "SQLite" in captured.out
+
+    @patch("egg_lib.sdlc_hitl._find_repo_path")
+    @patch("builtins.input")
+    def test_selection_sends_json(self, mock_input, mock_repo, tmp_path, capsys):
+        """Choice selection sends JSON {"action": "select", "selected": "..."}."""
+        mock_repo.return_value = tmp_path
+        mock_input.return_value = "2"
+
+        client = self._make_client()
+        result = handle_hitl_checkpoint(
+            client, "issue-42", self._make_decision(),
+            pipeline_mode="issue", issue_number=42,
+        )
+
+        assert result == "resolved"
+        call_args = client.resolve_decision.call_args
+        resolution = json.loads(call_args[0][2])
+        assert resolution["action"] == "select"
+        assert resolution["selected"] == "MongoDB"
+
+    @patch("egg_lib.sdlc_hitl._find_repo_path")
+    @patch("builtins.input")
+    def test_confirmation_shows_selected(self, mock_input, mock_repo, tmp_path, capsys):
+        """Choice shows confirmation with selected option."""
+        mock_repo.return_value = tmp_path
+        mock_input.return_value = "1"
+
+        client = self._make_client()
+        handle_hitl_checkpoint(
+            client, "issue-42", self._make_decision(),
+            pipeline_mode="issue", issue_number=42,
+        )
+
+        captured = capsys.readouterr()
+        assert "Selected: PostgreSQL" in captured.out
+
+
+class TestHandleFeedback:
+    """Tests for feedback decision type rendering."""
+
+    def _make_decision(self, **overrides):
+        base = {
+            "id": "d1",
+            "question": "Please provide feedback",
+            "context": "",
+            "decision_type": "feedback",
+            "questions": [
+                {"id": "q-1", "question": "What is expected volume?", "answer": ""},
+                {"id": "q-2", "question": "Any performance reqs?", "answer": ""},
+            ],
+        }
+        base.update(overrides)
+        return base
+
+    def _make_client(self):
+        client = MagicMock(spec=["resolve_decision", "cancel_pipeline"])
+        client.resolve_decision.return_value = {"status": "resolved"}
+        client.cancel_pipeline.return_value = {"status": "cancelled"}
+        return client
+
+    @patch("egg_lib.sdlc_hitl._find_repo_path")
+    @patch("builtins.input")
+    def test_prompts_each_question(self, mock_input, mock_repo, tmp_path, capsys):
+        """Feedback type prompts each question individually."""
+        mock_repo.return_value = tmp_path
+        # Answer q1, answer q2, then 's' to submit
+        mock_input.side_effect = ["High volume", "Under 100ms", "s"]
+
+        client = self._make_client()
+        result = handle_hitl_checkpoint(
+            client, "issue-42", self._make_decision(),
+            pipeline_mode="issue", issue_number=42,
+        )
+
+        assert result == "resolved"
+        call_args = client.resolve_decision.call_args
+        resolution = json.loads(call_args[0][2])
+        assert resolution["action"] == "submit_feedback"
+        assert resolution["answers"]["q-1"] == "High volume"
+        assert resolution["answers"]["q-2"] == "Under 100ms"
+
+    @patch("egg_lib.sdlc_hitl._find_repo_path")
+    @patch("builtins.input")
+    def test_redo_question(self, mock_input, mock_repo, tmp_path, capsys):
+        """Feedback type supports redoing a question via [r]."""
+        mock_repo.return_value = tmp_path
+        # Answer q1, answer q2, 'r' to redo, pick question 1, new answer, 's' to submit
+        mock_input.side_effect = ["First", "Second", "r", "1", "Updated first", "s"]
+
+        client = self._make_client()
+        result = handle_hitl_checkpoint(
+            client, "issue-42", self._make_decision(),
+            pipeline_mode="issue", issue_number=42,
+        )
+
+        assert result == "resolved"
+        call_args = client.resolve_decision.call_args
+        resolution = json.loads(call_args[0][2])
+        assert resolution["answers"]["q-1"] == "Updated first"
+        assert resolution["answers"]["q-2"] == "Second"
+
+    @patch("egg_lib.sdlc_hitl._find_repo_path")
+    @patch("builtins.input")
+    def test_empty_questions_falls_back_to_freetext(self, mock_input, mock_repo, tmp_path, capsys):
+        """Feedback with empty questions falls back to single free-text input."""
+        mock_repo.return_value = tmp_path
+        mock_input.side_effect = ["My feedback here", ""]
+
+        client = self._make_client()
+        decision = self._make_decision(questions=[])
+        result = handle_hitl_checkpoint(
+            client, "issue-42", decision,
+            pipeline_mode="issue", issue_number=42,
+        )
+
+        assert result == "resolved"
+        call_args = client.resolve_decision.call_args
+        resolution = json.loads(call_args[0][2])
+        assert resolution["action"] == "submit_feedback"
+        assert "response" in resolution["answers"]
+
+    @patch("egg_lib.sdlc_hitl._find_repo_path")
+    @patch("builtins.input")
+    def test_confirmation_shows_answer_count(self, mock_input, mock_repo, tmp_path, capsys):
+        """Feedback shows confirmation with answer count."""
+        mock_repo.return_value = tmp_path
+        mock_input.side_effect = ["Answer 1", "Answer 2", "s"]
+
+        client = self._make_client()
+        handle_hitl_checkpoint(
+            client, "issue-42", self._make_decision(),
+            pipeline_mode="issue", issue_number=42,
+        )
+
+        captured = capsys.readouterr()
+        assert "2 answer" in captured.out
+
+
+class TestUniversalOptions:
+    """Tests for universal options available on all decision types."""
+
+    def _make_client(self):
+        client = MagicMock(spec=["resolve_decision", "cancel_pipeline"])
+        client.resolve_decision.return_value = {"status": "resolved"}
+        client.cancel_pipeline.return_value = {"status": "cancelled"}
+        return client
+
+    @patch("egg_lib.sdlc_hitl._find_repo_path")
+    @patch("builtins.input")
+    def test_cancel_on_phase_gate(self, mock_input, mock_repo, tmp_path):
+        """Cancel option works on phase_gate."""
+        mock_repo.return_value = tmp_path
+        mock_input.return_value = "c"
+
+        client = self._make_client()
+        decision = {
+            "id": "d1",
+            "question": "Approve the plan?",
+            "context": "",
+            "decision_type": "phase_gate",
+            "options": ["approve", "request changes"],
+        }
+        result = handle_hitl_checkpoint(
+            client, "issue-42", decision,
+            pipeline_mode="issue", issue_number=42,
+        )
+        assert result == "cancelled"
+        client.cancel_pipeline.assert_called_once()
+
+    @patch("egg_lib.sdlc_hitl._find_repo_path")
+    @patch("builtins.input")
+    def test_cancel_on_choice(self, mock_input, mock_repo, tmp_path):
+        """Cancel option works on choice."""
+        mock_repo.return_value = tmp_path
+        mock_input.return_value = "c"
+
+        client = self._make_client()
+        decision = {
+            "id": "d1",
+            "question": "Pick one?",
+            "context": "",
+            "decision_type": "choice",
+            "options": ["A", "B"],
+        }
+        result = handle_hitl_checkpoint(
+            client, "issue-42", decision,
+            pipeline_mode="issue", issue_number=42,
+        )
+        assert result == "cancelled"
+
+    @patch("egg_lib.sdlc_hitl._find_repo_path")
+    @patch("builtins.input")
+    def test_change_approach_sends_json(self, mock_input, mock_repo, tmp_path):
+        """Change approach option sends JSON resolution."""
+        mock_repo.return_value = tmp_path
+        # 'a' = change approach, then feedback text, then empty line
+        mock_input.side_effect = ["a", "Use a different architecture", ""]
+
+        client = self._make_client()
+        decision = {
+            "id": "d1",
+            "question": "Approve the plan?",
+            "context": "",
+            "decision_type": "phase_gate",
+            "options": ["approve", "request changes"],
+        }
+        result = handle_hitl_checkpoint(
+            client, "issue-42", decision,
+            pipeline_mode="issue", issue_number=42,
+        )
+
+        assert result == "resolved"
+        call_args = client.resolve_decision.call_args
+        resolution = json.loads(call_args[0][2])
+        assert resolution["action"] == "change_approach"
+        assert "different architecture" in resolution["feedback"]
+
+
+class TestFallbackGenericMenu:
+    """Tests for fallback to generic menu for unknown decision_type."""
+
+    def _make_client(self):
+        client = MagicMock(spec=["resolve_decision", "cancel_pipeline"])
+        client.resolve_decision.return_value = {"status": "resolved"}
+        client.cancel_pipeline.return_value = {"status": "cancelled"}
+        return client
+
+    @patch("egg_lib.sdlc_hitl._find_repo_path")
+    @patch("builtins.input")
+    def test_unknown_type_falls_back(self, mock_input, mock_repo, tmp_path):
+        """Unknown decision_type falls back to generic menu."""
+        mock_repo.return_value = tmp_path
+        mock_input.return_value = "3"  # Approve in generic menu
+
+        client = self._make_client()
+        decision = {
+            "id": "d1",
+            "question": "Approve the refine analysis?",
+            "context": "Some context",
+            "decision_type": "unknown_type",
+        }
+        result = handle_hitl_checkpoint(
+            client, "issue-42", decision,
+            pipeline_mode="issue", issue_number=42,
+        )
+
+        assert result == "resolved"
+        # Generic menu uses bare "Approved" string
+        client.resolve_decision.assert_called_once_with("issue-42", "d1", "Approved")

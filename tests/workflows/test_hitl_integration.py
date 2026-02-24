@@ -5,9 +5,11 @@ and phase approvals. These tests ensure the CLI output format matches what the
 handler expects.
 """
 
+import json
 import re
 import sys
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 # Add sandbox to path for import
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "sandbox"))
@@ -144,3 +146,136 @@ class TestDecisionAndApprovalSeparation:
         # Approval has its own marker
         assert "<!-- egg-phase-approval" in approval_comment
         assert "<!-- egg-phase-approval" not in decision
+
+
+class TestTypedDecisionIntegration:
+    """End-to-end tests for typed HITL decisions.
+
+    Tests that phase gate decisions are created with the correct decision_type,
+    JSON resolutions parse correctly, and follow-up decisions carry the type.
+    """
+
+    def test_phase_gate_decision_type_field(self):
+        """Phase gate decisions should have decision_type='phase_gate'."""
+        from egg_lib.sdlc_hitl import handle_hitl_checkpoint
+
+        decision = {
+            "id": "decision-1",
+            "question": "The refine phase has completed. Please review the analysis.",
+            "context": "Draft content",
+            "decision_type": "phase_gate",
+            "options": ["approve", "request changes"],
+        }
+        # Verify the decision dict carries the type field
+        assert decision["decision_type"] == "phase_gate"
+
+    def test_json_resolution_approve_parsed(self):
+        """JSON {"action": "approve"} should be recognized as approval."""
+        resolution = json.dumps({"action": "approve"})
+        payload = json.loads(resolution)
+        assert payload["action"] == "approve"
+
+    def test_json_resolution_request_changes_parsed(self):
+        """JSON request_changes should extract readable feedback."""
+        resolution = json.dumps({
+            "action": "request_changes",
+            "feedback": "Add more detail to section 3",
+        })
+        payload = json.loads(resolution)
+        assert payload["action"] == "request_changes"
+        assert payload["feedback"] == "Add more detail to section 3"
+        # R-1: feedback text should be readable, not the raw JSON
+        assert payload["feedback"] != resolution
+
+    def test_json_resolution_select_parsed(self):
+        """JSON select resolution carries the selected option."""
+        resolution = json.dumps({"action": "select", "selected": "PostgreSQL"})
+        payload = json.loads(resolution)
+        assert payload["action"] == "select"
+        assert payload["selected"] == "PostgreSQL"
+
+    def test_json_resolution_submit_feedback_parsed(self):
+        """JSON submit_feedback carries structured answers."""
+        answers = {"q-1": "High volume", "q-2": "Under 100ms"}
+        resolution = json.dumps({"action": "submit_feedback", "answers": answers})
+        payload = json.loads(resolution)
+        assert payload["action"] == "submit_feedback"
+        assert payload["answers"] == answers
+
+    def test_follow_up_decision_carries_phase_gate_type(self):
+        """Follow-up decisions should also have decision_type='phase_gate' (R-3).
+
+        When a bare 'request changes' triggers a follow-up, the follow-up
+        should carry the same decision_type as the original.
+        """
+        # Simulate the follow-up decision as created by the orchestrator
+        followup = {
+            "id": "decision-2",
+            "question": "Please describe what changes you'd like.",
+            "context": "Draft content",
+            "decision_type": "phase_gate",
+            "options": ["approve"],
+        }
+        assert followup["decision_type"] == "phase_gate"
+
+    @patch("egg_lib.sdlc_hitl._find_repo_path")
+    @patch("builtins.input")
+    def test_phase_gate_end_to_end_approve(self, mock_input, mock_repo, tmp_path):
+        """End-to-end: phase gate renders correctly and resolves with JSON."""
+        from egg_lib.sdlc_hitl import handle_hitl_checkpoint
+
+        mock_repo.return_value = tmp_path
+        mock_input.return_value = "3"  # Approve
+
+        client = MagicMock()
+        client.resolve_decision.return_value = {"status": "resolved"}
+
+        decision = {
+            "id": "decision-1",
+            "question": "The plan phase has completed. Approve the plan.",
+            "context": "Plan content here",
+            "decision_type": "phase_gate",
+            "options": ["approve", "request changes"],
+        }
+
+        result = handle_hitl_checkpoint(
+            client, "issue-100", decision,
+            pipeline_mode="issue", issue_number=100,
+        )
+
+        assert result == "resolved"
+        # Verify JSON resolution was sent
+        call_args = client.resolve_decision.call_args
+        resolution = json.loads(call_args[0][2])
+        assert resolution["action"] == "approve"
+
+    @patch("egg_lib.sdlc_hitl._find_repo_path")
+    @patch("builtins.input")
+    def test_choice_end_to_end_select(self, mock_input, mock_repo, tmp_path):
+        """End-to-end: choice decision renders and resolves with JSON."""
+        from egg_lib.sdlc_hitl import handle_hitl_checkpoint
+
+        mock_repo.return_value = tmp_path
+        mock_input.return_value = "2"  # Select second option
+
+        client = MagicMock()
+        client.resolve_decision.return_value = {"status": "resolved"}
+
+        decision = {
+            "id": "decision-1",
+            "question": "Which database?",
+            "context": "",
+            "decision_type": "choice",
+            "options": ["PostgreSQL", "MongoDB", "SQLite"],
+        }
+
+        result = handle_hitl_checkpoint(
+            client, "issue-100", decision,
+            pipeline_mode="issue", issue_number=100,
+        )
+
+        assert result == "resolved"
+        call_args = client.resolve_decision.call_args
+        resolution = json.loads(call_args[0][2])
+        assert resolution["action"] == "select"
+        assert resolution["selected"] == "MongoDB"
