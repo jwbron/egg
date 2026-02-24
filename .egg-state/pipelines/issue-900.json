@@ -107,10 +107,23 @@
       "created_at": "2026-02-24T21:49:44.827814",
       "resolved_at": null,
       "resolution": null
+    },
+    {
+      "id": "decision-4",
+      "question": "Should the legacy string-resolution fallback in the orchestrator be permanent or time-limited?",
+      "context": "",
+      "options": [
+        "Permanent fallback (always try JSON parse, fall back to string matching)",
+        "Time-limited (deprecate after 2-3 releases, then require JSON only)"
+      ],
+      "status": "pending",
+      "created_at": "2026-02-24T21:49:47.009990",
+      "resolved_at": null,
+      "resolution": null
     }
   ],
   "created_at": "2026-02-24T21:42:50.271543",
-  "updated_at": "2026-02-24T21:49:44.829742",
+  "updated_at": "2026-02-24T21:49:47.011753",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
@@ -118,5 +131,5 @@
   "error": null,
   "plan_phase_waves": null,
   "plan_phase_names": null,
-  "version": 10
+  "version": 11
 }
