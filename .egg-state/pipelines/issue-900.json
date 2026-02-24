@@ -121,10 +121,23 @@
       "created_at": "2026-02-24T21:28:59.885314",
       "resolved_at": null,
       "resolution": null
+    },
+    {
+      "id": "decision-5",
+      "question": "Should agents in local mode be able to create typed decisions via OrchClient.create_decision() in this issue, or defer to a follow-up?",
+      "context": "",
+      "options": [
+        "Include in this issue (full scope)",
+        "Defer to follow-up (focus on terminal UX only)"
+      ],
+      "status": "pending",
+      "created_at": "2026-02-24T21:29:03.644353",
+      "resolved_at": null,
+      "resolution": null
     }
   ],
   "created_at": "2026-02-24T21:25:23.358616",
-  "updated_at": "2026-02-24T21:28:59.886590",
+  "updated_at": "2026-02-24T21:29:03.647057",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
@@ -132,5 +145,5 @@
   "error": null,
   "plan_phase_waves": null,
   "plan_phase_names": null,
-  "version": 11
+  "version": 12
 }
