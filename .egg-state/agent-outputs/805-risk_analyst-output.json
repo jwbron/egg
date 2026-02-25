@@ -1,0 +1,378 @@
+{
+  "issue": 805,
+  "phase": "plan",
+  "agent": "risk_analyst",
+  "revision": 0,
+  "revision_reason": null,
+  "title": "Risk assessment: per-session allowed_files with warn-then-block escalation",
+  "summary": "The architect's recommended approach (Option A: session-scoped allowed_files) is sound and follows established codebase patterns. Overall risk is LOW-MEDIUM. The primary risks are (1) inconsistent pattern matching semantics across three existing validation layers that the new Layer 2.5 must harmonize, (2) the fail-open import fallback in post_agent_commit.py silently disabling per-session filtering, and (3) the global config allowlist being too broad for parallel agents modifying shared files like pyproject.toml. All risks are mitigable with the proposed strategies. No blocking risks identified.",
+
+  "architect_approach_assessment": {
+    "recommended_approach": "Option A: Session-scoped allowed_files with warn-then-block escalation",
+    "assessment": "The approach is architecturally sound. It extends the existing session-based enforcement model (phase, agent_role, complexity_tier) with a natural new field. The orchestrator-computes-gateway-enforces separation is correct. The warn-then-block escalation mirrors the proven EGG_AGENT_RESTRICTIONS_ENFORCE pattern. The rollout strategy (warn-only first) is appropriately conservative.",
+    "agreement_with_architect": true,
+    "disagreements": [
+      {
+        "architect_claim": "AD-4 states directory-sibling expansion is 'one level deep' and that listing src/auth/login.py allows all files in src/auth/ but not src/auth/utils/. The implementation plan says 'add its parent directory as a prefix pattern (e.g., src/auth/login.py → also allow src/auth/)'.",
+        "issue": "Using prefix matching (file.startswith('src/auth/')) DOES match subdirectories like src/auth/utils/helpers.py because 'src/auth/utils/helpers.py'.startswith('src/auth/') is True. To enforce one-level-only expansion, the matching must check that the file is directly in the directory (no additional path separators after the prefix), not just use startswith(). The architect's description and the proposed implementation are inconsistent — the description says one-level, but prefix matching gives recursive.",
+        "severity": "medium",
+        "correction": "The implementation must either (a) accept that directory expansion is recursive (simpler, more generous, arguably better aligned with 'guide, don't cage') and update the documentation, or (b) implement explicit one-level checking by verifying the file path after the directory prefix contains no '/' separators. Option (a) is recommended as it's simpler and more forgiving.",
+        "recommendation": "Update AD-4 to acknowledge that prefix matching gives recursive directory access. If one-level-only is truly desired, TASK-2-1 must use path-depth checking instead of prefix matching."
+      },
+      {
+        "architect_claim": "AD-5 lists a hardcoded global config allowlist including package-lock.json and yarn.lock.",
+        "issue": "Lock files (package-lock.json, yarn.lock, go.sum) are deterministic outputs of package manager runs. In Tier 3 parallel dispatch, two agents independently running npm install can produce conflicting package-lock.json changes. Including lock files in the global allowlist creates a guaranteed merge conflict scenario for parallel agents that add different dependencies.",
+        "severity": "low",
+        "correction": "Lock files should be excluded from the global config allowlist unless the planner explicitly lists them. Agents that need to modify lock files should have them in their task's files_affected. This forces the planner to be intentional about which agent owns dependency changes.",
+        "recommendation": "Remove package-lock.json, yarn.lock, and go.sum from the default global config allowlist. Keep go.mod, pyproject.toml, requirements.txt since those are typically edited manually and merge more cleanly."
+      }
+    ]
+  },
+
+  "risks": [
+    {
+      "id": "R-1",
+      "category": "correctness",
+      "title": "Inconsistent pattern matching semantics across validation layers",
+      "status": "NEW",
+      "description": "The codebase has three different _matches_pattern() implementations with subtly different semantics: (1) AgentFilePattern._matches_pattern() in agent_restrictions.py:123 uses posixpath.normpath + split-based '..' rejection + fnmatch with special ** handling. (2) PhaseFileRestriction._matches_pattern() in phase_filter.py:231 uses prefix matching for directories and fnmatch for wildcards, with a different normalization approach (ValueError-based rejection). (3) FileRestriction._normalize_path() in phase_filter.py uses startswith-based '../' rejection. The new Layer 2.5 validation must choose which matching semantics to use. If it picks AgentFilePattern's implementation (as the architect suggests), there's a risk that patterns which match in the planner's intent don't match at enforcement time due to normalization differences.",
+      "likelihood": "medium",
+      "impact": "medium",
+      "impact_detail": "If pattern matching is subtly wrong, agents get blocked on files they should be allowed to modify (false positive), or worse, allowed to modify files they shouldn't (false negative). False positives are more likely given the allowlist model and would cause agent spin.",
+      "affected_files": [
+        "gateway/agent_restrictions.py:123-165 (_matches_pattern)",
+        "gateway/phase_filter.py:231-250 (_matches_pattern)",
+        "gateway/gateway.py (new Layer 2.5 validation function)"
+      ],
+      "mitigation": "Extract a shared _matches_pattern() function into a common module (e.g., gateway/file_matching.py) that both existing layers and the new Layer 2.5 can use. Alternatively, explicitly reuse AgentFilePattern._matches_pattern() and add comprehensive unit tests covering the exact patterns the planner generates (directory prefixes, globs, ** patterns). The test suite in TASK-7-1 should include cross-layer consistency tests.",
+      "residual_risk": "Low after mitigation. Different layers may still use different normalization, but the matching logic itself would be consistent.",
+      "verification": "Run the same set of pattern/path pairs through all three matching functions and assert identical results. Include edge cases: trailing slashes, leading ./, paths with .., ** patterns.",
+      "rollback": "Revert the new validation layer. Existing three layers remain unaffected.",
+      "human_review_needed": false
+    },
+    {
+      "id": "R-2",
+      "category": "correctness",
+      "title": "Directory-sibling expansion semantics inconsistent with documentation",
+      "status": "NEW",
+      "description": "AD-4 states directory expansion is 'one level deep' — listing src/auth/login.py allows src/auth/ but not src/auth/utils/. However, the proposed implementation uses parent directory as a prefix pattern (src/auth/login.py → allow src/auth/). Python's str.startswith('src/auth/') returns True for src/auth/utils/helpers.py, making the expansion recursive, not one-level. This inconsistency means either the documentation or the implementation will be wrong.",
+      "likelihood": "high",
+      "impact": "low",
+      "impact_detail": "If recursive (which prefix matching gives), the expansion is more generous than documented but aligns better with 'guide, don't cage'. If one-level-only is enforced, agents creating subdirectories get blocked unexpectedly. The impact is low because the expansion being too generous is a minor weakening of the restriction, not a security issue.",
+      "affected_files": [
+        "orchestrator/container_spawner.py (compute_session_allowed_files)"
+      ],
+      "mitigation": "Accept recursive expansion as the behavior and update AD-4 documentation to match. Recursive is simpler to implement and more forgiving. If strict one-level is needed, implement depth checking: after stripping the directory prefix from the file path, verify no '/' remains.",
+      "residual_risk": "Very low. Recursive expansion is strictly more generous than one-level, so no agent gets incorrectly blocked.",
+      "verification": "Unit test: given allowed file src/auth/login.py, verify that src/auth/utils/helper.py is allowed (recursive) and document this behavior.",
+      "rollback": "N/A — this is a design clarification, not a runtime risk.",
+      "human_review_needed": false
+    },
+    {
+      "id": "R-3",
+      "category": "implementation",
+      "title": "Fail-open import fallback in post_agent_commit.py bypasses per-session filtering",
+      "status": "NEW",
+      "description": "post_agent_commit.py:184-190 has a fail-open pattern: if importing check_phase_file_restrictions fails, all files are committed. The architect's plan (TASK-4-1) adds allowed_files as a parameter to auto_commit_worktree(), but the existing fail-open import pattern could still silently skip per-session filtering if the import of the matching function fails. More critically, the session cleanup path (_capture_and_cleanup_session at session_manager.py:88-110) calls auto_commit_worktree with parameters from the Session object. If session.allowed_files is None due to a persistence round-trip issue (e.g., gateway restart during pipeline run where from_persistence() doesn't load allowed_files for older sessions), the per-session filter is silently skipped.",
+      "likelihood": "low",
+      "impact": "medium",
+      "impact_detail": "An agent's auto-committed files could include out-of-scope modifications that weren't caught during push validation (if the push happened before the gateway restart). This is mitigated by the fact that auto-commit is a last-resort safety net, not a primary code path.",
+      "affected_files": [
+        "gateway/post_agent_commit.py:183-206",
+        "gateway/session_manager.py:85-110 (_capture_and_cleanup_session)"
+      ],
+      "mitigation": "In auto_commit_worktree(), apply per-session filtering as a separate step after phase filtering (not as a replacement). The allowed_files check should be independent of the phase_filter import. If allowed_files is provided, filter changed_files against it using a local implementation of the matching logic (no dynamic import needed). Log clearly when per-session filtering is active vs skipped.",
+      "residual_risk": "Very low. The push-time gateway validation remains the authoritative gate. Post-agent-commit is defense-in-depth.",
+      "verification": "Test: call auto_commit_worktree with phase=None but allowed_files=['src/auth/'] and verify only src/auth/ files are committed.",
+      "rollback": "Remove the allowed_files parameter from auto_commit_worktree. Phase-only filtering continues to work.",
+      "human_review_needed": false
+    },
+    {
+      "id": "R-4",
+      "category": "compatibility",
+      "title": "Backward compatibility: sessions persisted without allowed_files",
+      "status": "MITIGATED_IN_PLAN",
+      "description": "Existing sessions persisted to disk (to_dict_for_persistence) don't include allowed_files. After a gateway restart, from_persistence() must handle missing allowed_files gracefully by defaulting to None (no per-file restriction).",
+      "likelihood": "mitigated",
+      "impact": "low",
+      "impact_detail": "If from_persistence() doesn't handle the missing field, sessions loaded from disk would crash. However, the existing pattern (data.get('field_name')) already handles this correctly for all optional fields.",
+      "affected_files": [
+        "gateway/session_manager.py:256-317"
+      ],
+      "mitigation_in_plan": "The architect's plan (TASK-1-1) explicitly notes 'Existing sessions without allowed_files load successfully with None.' The from_persistence pattern uses data.get() which returns None for missing keys.",
+      "residual_risk": "Very low. Well-established pattern in the codebase.",
+      "verification": "Test: persist a Session without allowed_files, load it back, verify allowed_files is None.",
+      "rollback": "N/A.",
+      "human_review_needed": false
+    },
+    {
+      "id": "R-5",
+      "category": "correctness",
+      "title": "file_violation_warnings lost on gateway restart resets warn-then-block state",
+      "status": "ACCEPTED",
+      "description": "The architect's plan stores file_violation_warnings as an in-memory set on the Session object, not persisted to disk. If the gateway restarts mid-pipeline, all warning state is lost and agents get fresh warnings for files they've already been warned about. This means an agent could push the same out-of-scope file repeatedly: push once (warned), gateway restarts, push again (warned again instead of blocked).",
+      "likelihood": "low",
+      "impact": "low",
+      "impact_detail": "Gateway restarts during active pipeline runs are rare (typically only for deployments). The worst case is that an agent gets one extra warning instead of a block. Given the 'guide, don't cage' philosophy, this fail-open behavior is acceptable.",
+      "affected_files": [
+        "gateway/session_manager.py (new file_violation_warnings field)"
+      ],
+      "mitigation": "Accepted as-is. The architect explicitly notes this is intentional fail-open behavior. If stricter enforcement is needed later, persist file_violation_warnings in to_dict_for_persistence().",
+      "residual_risk": "Low. Acceptable for a 'guide' system.",
+      "verification": "Document in code comments that file_violation_warnings is intentionally not persisted.",
+      "rollback": "N/A.",
+      "human_review_needed": false
+    },
+    {
+      "id": "R-6",
+      "category": "correctness",
+      "title": "Interaction between agent-role blocked_patterns and per-session allowed_files",
+      "status": "NEW",
+      "description": "The architect states all layers use intersection semantics (most restrictive wins). However, there's a subtle interaction: the coder role in agent_restrictions.py blocks **/README.md and **/*.md. If a task explicitly lists docs/API.md in files_affected, the per-session allowlist would include it, but the agent-role layer (Layer 2) would still block it. This is correct behavior (intersection), but the error message from Layer 2 would not mention the per-session allowlist, potentially confusing the agent. The agent might try egg-contract request-file for a file that's blocked by a higher-priority layer, which would succeed (adding it to the session allowlist) but the push would still be blocked by Layer 2.",
+      "likelihood": "medium",
+      "impact": "low",
+      "impact_detail": "Agent confusion: request-file succeeds but push still blocked. Agent spins trying different approaches. No data integrity risk.",
+      "affected_files": [
+        "gateway/gateway.py:743-791 (Layer 2 agent-role check)",
+        "gateway/gateway.py (new Layer 2.5 per-session check)",
+        "sandbox/egg_lib/contract_cli.py (request-file command)"
+      ],
+      "mitigation": "The request-file endpoint should validate that the requested file is not blocked by agent-role restrictions before adding it to the session allowlist. If it's blocked by a higher layer, return an error explaining which layer blocks it. Alternatively, the Layer 2 error message should include a note about checking the task plan if the session has allowed_files set.",
+      "residual_risk": "Low. Agent-role enforcement is warn-only by default, so this only manifests when EGG_AGENT_RESTRICTIONS_ENFORCE=true.",
+      "verification": "Integration test: session with allowed_files=['docs/API.md'], agent_role='coder', push docs/API.md → verify blocked by Layer 2 with clear error, not by Layer 2.5.",
+      "rollback": "Remove Layer 2.5. Existing layers continue to work independently.",
+      "human_review_needed": false
+    },
+    {
+      "id": "R-7",
+      "category": "correctness",
+      "title": "Global config allowlist enables parallel agent conflicts on shared files",
+      "status": "NEW",
+      "description": "AD-5 includes package-lock.json, yarn.lock, go.sum in the global config allowlist. In Tier 3 parallel dispatch, Agent A adds dependency X (modifying package-lock.json) and Agent B adds dependency Y (also modifying package-lock.json). Both pushes succeed because package-lock.json is globally allowed. When branches merge, the lock file has a guaranteed conflict. Unlike source code conflicts (which are usually resolvable), lock file conflicts require re-running the package manager to resolve — the integrator agent cannot do this automatically.",
+      "likelihood": "medium",
+      "impact": "medium",
+      "impact_detail": "Merge conflicts in lock files block the integrator and require manual intervention (running npm install/go mod tidy) or re-running one agent's work. This is the exact cross-contamination scenario the feature is designed to prevent.",
+      "affected_files": [
+        "orchestrator/container_spawner.py (global config allowlist definition)"
+      ],
+      "mitigation": "Remove lock files (package-lock.json, yarn.lock, go.sum) from the global config allowlist. Keep the source-of-truth files (package.json, go.mod, pyproject.toml) since those merge more cleanly. If a task needs to add dependencies, the planner should explicitly list the lock file in that task's files_affected. This scopes lock file changes to one agent per parallel dispatch.",
+      "residual_risk": "Low after mitigation. Planners might forget to include lock files, but the agent gets a warning (not a hard block) on first push.",
+      "verification": "Unit test: verify lock files are NOT in the default global allowlist. Integration test: Tier 3 dispatch with two agents adding dependencies, verify only the agent with lock file in files_affected can push it.",
+      "rollback": "Add lock files back to the global allowlist if the restriction causes too many false positives.",
+      "human_review_needed": true,
+      "human_review_reason": "Product decision: should lock files be globally allowed (simpler but enables conflicts) or require explicit listing (stricter but could block agents)?"
+    },
+    {
+      "id": "R-8",
+      "category": "security",
+      "title": "Escape hatch auto-approve bypasses restriction intent",
+      "status": "ACCEPTED_WITH_CAVEAT",
+      "description": "AD-7 specifies that egg-contract request-file auto-approves by default, permanently adding the file to the session's allowed_files. An agent that discovers the escape hatch could systematically request-file for every file it wants to touch, effectively disabling the restriction. The escape hatch provides observability (logging) but no enforcement.",
+      "likelihood": "low",
+      "impact": "low",
+      "impact_detail": "The restriction is bypassed but all file requests are logged and visible in checkpoints. The 'guide, don't cage' philosophy explicitly accepts this trade-off. The risk is that the observability data is not monitored, making violations invisible in practice.",
+      "affected_files": [
+        "gateway/gateway.py (request-file endpoint)",
+        "sandbox/egg_lib/contract_cli.py (request-file CLI)"
+      ],
+      "mitigation": "Accepted for default mode. Ensure request-file events are: (1) logged as structured audit events, (2) included in checkpoint data, (3) surfaced in PR description by the integrator. Consider adding a rate limit: if an agent requests more than N files in a session, escalate to HITL decision. The strict mode (future) addresses this by queuing HITL decisions instead of auto-approving.",
+      "residual_risk": "Low. The feature's goal is observability, not prevention. The rollout strategy (warn-only first) further reduces risk.",
+      "verification": "Verify audit logs capture every request-file call with path, reason, and session ID. Verify checkpoint includes the data.",
+      "rollback": "Disable the request-file endpoint. Agents that need out-of-scope files will be blocked after the warning.",
+      "human_review_needed": false
+    },
+    {
+      "id": "R-9",
+      "category": "implementation",
+      "title": "Container spawner access to phase task data requires plumbing through orchestrator routes",
+      "status": "NEW",
+      "description": "TASK-2-2 states that the container spawner must access the contract's phase tasks to compute allowed_files. Currently, spawn_agent_container() receives phase and pipeline_id but not the list of tasks. The orchestrator routes (pipelines.py) load the contract and iterate over phases, but task data is used to build prompts — not passed to the spawner. Plumbing task data from _run_tier3_implement() → spawn_agent_container() → register_session() requires modifying the function signature chain across orchestrator/routes/pipelines.py → orchestrator/container_spawner.py → orchestrator/gateway_client.py. This is a moderate refactoring with risk of breaking existing non-implement callers of spawn_agent_container().",
+      "likelihood": "medium",
+      "impact": "medium",
+      "impact_detail": "If the signature change is not backward-compatible, non-implement phase spawns (tester, documenter, integrator) could break. The spawner is called from multiple code paths.",
+      "affected_files": [
+        "orchestrator/container_spawner.py:350-364 (register_session call)",
+        "orchestrator/routes/pipelines.py (multiple spawn call sites)",
+        "orchestrator/gateway_client.py (register_session method)"
+      ],
+      "mitigation": "Make allowed_files an optional parameter defaulting to None at every level (spawn_agent_container, register_session, gateway endpoint). Only compute and pass it for implement-phase coder agents. All other callers continue passing None. Use keyword arguments throughout to avoid positional breakage. Add type annotations for clarity.",
+      "residual_risk": "Low after mitigation. Optional parameters with None defaults are backward-compatible by definition.",
+      "verification": "Existing container spawner tests must continue passing after the signature change. Run orchestrator/tests/test_container_spawner.py as a regression gate.",
+      "rollback": "Remove the allowed_files parameter. Spawner reverts to current behavior.",
+      "human_review_needed": false
+    },
+    {
+      "id": "R-10",
+      "category": "operational",
+      "title": "EGG_TASK_FILE_RESTRICTIONS env var adds a third enforcement toggle",
+      "status": "NEW",
+      "description": "The codebase already has two enforcement toggles: EGG_AGENT_RESTRICTIONS_ENFORCE (agent-role layer) and the phase-based restrictions (always enforced). Adding EGG_TASK_FILE_RESTRICTIONS ('warn', 'enforce', 'off') creates a third toggle with different semantics — the agent-role toggle is boolean (warn/enforce), while this new toggle is ternary (warn/enforce/off). This inconsistency increases cognitive load for operators and creates potential for misconfiguration.",
+      "likelihood": "low",
+      "impact": "low",
+      "impact_detail": "Operator confusion about which env var controls which restriction layer. Misconfiguration (e.g., setting EGG_AGENT_RESTRICTIONS_ENFORCE=true but EGG_TASK_FILE_RESTRICTIONS=off) could produce unexpected behavior where agent-role restrictions block but per-task restrictions don't.",
+      "affected_files": [
+        "gateway/gateway.py (env var reading in new Layer 2.5)"
+      ],
+      "mitigation": "Document the three enforcement layers and their toggles clearly in the gateway README. Consider aligning semantics: make the existing EGG_AGENT_RESTRICTIONS_ENFORCE also support 'off' (disabled), 'warn' (default), 'enforce' (block). This is a future improvement, not blocking for this PR.",
+      "residual_risk": "Very low. Operators who don't set the env var get the safe default (warn).",
+      "verification": "Test all three modes: off (no per-session check), warn (warn-only), enforce (block-on-first). Document the expected behavior matrix in the test file.",
+      "rollback": "Remove the env var. Per-session checks fall back to always-warn.",
+      "human_review_needed": false
+    },
+    {
+      "id": "R-11",
+      "category": "test_coverage",
+      "title": "Custom module loader in gateway tests complicates new test file creation",
+      "status": "NEW",
+      "description": "Gateway tests use a custom module loader in conftest.py due to the hyphenated package name. New test files (test_session_file_restrictions.py per TASK-7-1) must follow this loader pattern. The loader loads modules in strict dependency order, and any new module (or import path) must be registered. If the new validation logic is added to gateway.py (which is already loaded), it works. But if a separate module is created (e.g., gateway/session_file_restrictions.py), it must be added to the loader's dependency chain.",
+      "likelihood": "medium",
+      "impact": "low",
+      "impact_detail": "Tests fail to import the new module, requiring debugging of the custom loader. This slows implementation but doesn't affect production behavior.",
+      "affected_files": [
+        "gateway/tests/conftest.py",
+        "gateway/tests/test_session_file_restrictions.py (new)"
+      ],
+      "mitigation": "Add the new validation logic directly to gateway.py (as the plan suggests for TASK-3-1) rather than creating a separate module. This avoids loader changes. The new test file only needs to import gateway and session_manager, which are already in the loader. If a separate module is needed, add it to conftest.py's loading order before gateway.py.",
+      "residual_risk": "Very low. Straightforward if the implementer follows the existing pattern.",
+      "verification": "New test file runs successfully in the gateway test suite: pytest gateway/tests/test_session_file_restrictions.py",
+      "rollback": "N/A.",
+      "human_review_needed": false
+    },
+    {
+      "id": "R-12",
+      "category": "behavioral",
+      "title": "Planner generating insufficiently generous file lists causes frequent false-positive blocks",
+      "status": "MITIGATED_IN_PLAN",
+      "description": "The effectiveness of per-task file restrictions depends entirely on the planner listing files generously. If the planner model generates minimal file lists (only the files it expects to modify), agents will frequently hit the restriction on helper files, imports, and other legitimate side effects.",
+      "likelihood": "medium",
+      "impact": "medium",
+      "impact_detail": "Agents get blocked, trigger warnings, use escape hatches, and slow down. In the worst case, the feature generates so much noise that operators disable it (EGG_TASK_FILE_RESTRICTIONS=off), negating the investment.",
+      "affected_files": [
+        "docs/templates/plan.md (TASK-6-1)"
+      ],
+      "mitigation_in_plan": "TASK-6-1 updates the plan template to document enforcement semantics and guide generous listing. Directory-sibling expansion provides a safety net. Global config allowlist covers common config files. Warn-only default mode catches problem patterns before enforcement.",
+      "residual_risk": "Medium. Planner behavior is model-dependent and may regress across model versions. Ongoing monitoring of warning rates is needed.",
+      "verification": "Run the planner on 5-10 historical issues and compare generated file lists against actual files modified by implement agents. Identify gaps.",
+      "rollback": "Set EGG_TASK_FILE_RESTRICTIONS=off to disable per-session enforcement.",
+      "human_review_needed": false
+    },
+    {
+      "id": "R-13",
+      "category": "implementation",
+      "title": "Post-agent-commit push triggers full 4-layer gateway validation including per-session check",
+      "status": "NEW",
+      "description": "auto_commit_worktree() pushes via the gateway API (_push_via_gateway at post_agent_commit.py:75-123), which routes through the full git_push handler in gateway.py. This means the post-agent-commit's local allowed_files filtering is followed by a second allowed_files check at the gateway. These two checks use the same allowlist but may produce different results if: (a) the session's allowed_files was modified via request-file between the agent's last push and the auto-commit, or (b) the matching logic has subtle differences between the local and gateway implementations.",
+      "likelihood": "low",
+      "impact": "low",
+      "impact_detail": "Double filtering is defense-in-depth and is fine as long as both checks agree. If they disagree, the push fails and the auto-commit is local-only. This is logged but the WIP work is not lost (it's committed locally).",
+      "affected_files": [
+        "gateway/post_agent_commit.py:75-123 (_push_via_gateway)",
+        "gateway/gateway.py (Layer 2.5 in git_push handler)"
+      ],
+      "mitigation": "Ensure both the local filtering in auto_commit_worktree() and the gateway's Layer 2.5 use identical matching logic. If the local filter is a subset of the gateway filter (i.e., local is more conservative), this is fine. Add a comment explaining the intentional double-check.",
+      "residual_risk": "Very low. Defense-in-depth is beneficial, not harmful.",
+      "verification": "Integration test: auto-commit with a mix of in-scope and out-of-scope files, verify local filter removes out-of-scope files before push, and gateway accepts the filtered push.",
+      "rollback": "N/A.",
+      "human_review_needed": false
+    }
+  ],
+
+  "risk_summary": {
+    "overall_risk": "LOW-MEDIUM",
+    "critical_risks": 0,
+    "high_risks": 0,
+    "medium_risks": 4,
+    "low_risks": 9,
+    "mitigated_in_plan": 2,
+    "blocking_risks": 0,
+    "justification": "No critical or high-severity risks identified. The approach follows established patterns (session-based metadata, warn-then-block escalation, multi-layer validation) and the codebase is well-structured for this extension. The four medium risks relate to pattern matching consistency (R-1), planner behavior dependence (R-12), lock file conflicts (R-7), and container spawner plumbing (R-9) — all mitigable with targeted implementation changes. The warn-only default rollout strategy provides a strong safety net: even if matching or planner behavior has issues, no agent is hard-blocked until explicit opt-in to enforce mode."
+  },
+
+  "areas_requiring_human_review": [
+    {
+      "area": "Global config allowlist: lock file inclusion",
+      "reason": "Lock files in the global allowlist create guaranteed merge conflicts in Tier 3 parallel dispatch when multiple agents modify dependencies. This is a product decision about the trade-off between agent convenience and merge safety.",
+      "urgency": "non-blocking",
+      "recommendation": "Exclude lock files from the default global allowlist. Require the planner to list them explicitly in files_affected for tasks that modify dependencies."
+    },
+    {
+      "area": "Directory expansion depth: recursive vs one-level",
+      "reason": "The architect's documentation says one-level but the proposed implementation gives recursive. This affects how restrictive the enforcement is. Recursive is simpler and more forgiving but less precise.",
+      "urgency": "non-blocking",
+      "recommendation": "Accept recursive expansion (prefix matching) as the behavior. It's simpler, more aligned with 'guide, don't cage', and avoids surprising agents that create subdirectories."
+    }
+  ],
+
+  "rollback_plan": {
+    "strategy": "Feature flag + single-PR revert",
+    "description": "The EGG_TASK_FILE_RESTRICTIONS env var provides three-state control: 'off' (disabled), 'warn' (default), 'enforce' (block). Setting to 'off' immediately disables all per-session file checking without a code change. For a full rollback, revert the PR — all changes are additive (new fields, new validation layer, new endpoint) and removing them restores previous behavior. No data migration is needed since file_violation_warnings is in-memory only and allowed_files persisted on sessions is ignored when the feature is off.",
+    "data_impact": "None. No schema changes, no database migrations, no persistent state changes. Session persistence uses optional fields that are silently ignored when not present.",
+    "partial_rollback_options": [
+      {
+        "scope": "Disable per-session enforcement only",
+        "steps": "Set EGG_TASK_FILE_RESTRICTIONS=off. Per-session file checking is skipped. All other layers (role-based, agent-role, phase-based) continue working.",
+        "time_to_effect": "Immediate (env var change, no restart needed if read per-request)"
+      },
+      {
+        "scope": "Disable blocking, keep warnings",
+        "steps": "Set EGG_TASK_FILE_RESTRICTIONS=warn (default). Out-of-scope files produce warnings but are never blocked.",
+        "time_to_effect": "Immediate"
+      },
+      {
+        "scope": "Disable escape hatch",
+        "steps": "Remove the request-file endpoint from gateway.py. Agents cannot self-approve out-of-scope files.",
+        "time_to_effect": "Requires code change and gateway restart"
+      },
+      {
+        "scope": "Full revert",
+        "steps": "Revert the PR. Remove allowed_files from Session, Layer 2.5 from gateway, allowed_files from auto_commit_worktree, compute_session_allowed_files from spawner, request-file endpoint and CLI command.",
+        "time_to_effect": "Requires PR revert, gateway and orchestrator restart"
+      }
+    ]
+  },
+
+  "implementation_recommendations": [
+    {
+      "id": "IR-1",
+      "title": "Unify pattern matching logic across validation layers",
+      "status": "NEW",
+      "description": "The three existing _matches_pattern() implementations have subtle semantic differences. TASK-3-1 should extract a shared matching function or explicitly document which implementation is used and test cross-layer consistency. This prevents bugs where patterns that work in one layer fail in another.",
+      "priority": "recommended"
+    },
+    {
+      "id": "IR-2",
+      "title": "Remove lock files from global config allowlist",
+      "status": "NEW",
+      "description": "package-lock.json, yarn.lock, and go.sum should not be in the global config allowlist. These files are deterministic outputs that conflict in parallel dispatch. Keep go.mod, pyproject.toml, requirements.txt (human-editable, merge-friendly). This prevents the exact cross-contamination scenario the feature is designed to prevent.",
+      "priority": "recommended"
+    },
+    {
+      "id": "IR-3",
+      "title": "Clarify directory expansion as recursive (not one-level)",
+      "status": "NEW",
+      "description": "Update AD-4 to state that directory expansion is recursive: listing src/auth/login.py allows all files under src/auth/ (including subdirectories). This matches the natural behavior of prefix matching and is more forgiving. The alternative (one-level-only) requires explicit depth checking and adds implementation complexity for marginal benefit.",
+      "priority": "recommended"
+    },
+    {
+      "id": "IR-4",
+      "title": "Rate limit request-file escape hatch",
+      "status": "NEW",
+      "description": "Add a soft rate limit to the request-file endpoint: if a session requests more than 10 files, log a warning. If more than 20, queue a HITL decision. This prevents systematic bypass while keeping the default auto-approve for legitimate one-off needs.",
+      "priority": "recommended"
+    },
+    {
+      "id": "IR-5",
+      "title": "Validate request-file against agent-role restrictions",
+      "status": "NEW",
+      "description": "The request-file endpoint should check if the requested file is blocked by a higher-priority layer (agent-role, role-based). If so, return an error explaining which layer blocks it, rather than silently adding it to allowed_files where the push will still be blocked. This prevents agent confusion and wasted escape hatch attempts.",
+      "priority": "recommended"
+    },
+    {
+      "id": "IR-6",
+      "title": "Read EGG_TASK_FILE_RESTRICTIONS per-request, not at startup",
+      "status": "NEW",
+      "description": "The env var should be read in the request handler (like EGG_AGENT_RESTRICTIONS_ENFORCE is at gateway.py:754), not cached at module load time. This allows runtime toggling without gateway restart, which is critical for the partial rollback strategy.",
+      "priority": "required"
+    }
+  ]
+}
