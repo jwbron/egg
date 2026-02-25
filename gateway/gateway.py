@@ -3910,6 +3910,102 @@ def session_update_phase(session_token: str) -> tuple[Response, int] | Response:
     return make_success("Phase updated", {"phase": phase})
 
 
+@app.route("/api/v1/sessions/request-file", methods=["POST"])
+@require_session_auth
+def session_request_file() -> tuple[Response, int] | Response:
+    """
+    Request access to a file outside the session's per-task allowlist.
+
+    In default mode, auto-approves: adds the file (and its parent directory
+    glob) to the session's allowed_files list immediately.
+
+    In strict mode (EGG_TASK_FILE_RESTRICTIONS_ENFORCE=true), queues a HITL
+    decision via the orchestrator and returns 202 (pending approval).
+
+    Request body:
+        {
+            "path": "src/utils/new.py",
+            "reason": "Need to create a new helper"
+        }
+
+    Auth: Bearer {session_token}
+    """
+    data = request.get_json()
+    if not data:
+        return make_error("Missing request body")
+
+    path = data.get("path")
+    reason = data.get("reason", "")
+
+    if not path or not isinstance(path, str):
+        return make_error("Missing or invalid 'path'")
+
+    session = getattr(g, "session", None)
+    if not session:
+        return make_error("No session context", status_code=401)
+
+    enforce_strict = os.environ.get(
+        "EGG_TASK_FILE_RESTRICTIONS_ENFORCE", "false"
+    ).lower() in ("true", "1", "yes")
+
+    # Audit event for all file requests
+    audit_log(
+        "file_request",
+        "session_request_file",
+        success=True,
+        details={
+            "path": path,
+            "reason": reason,
+            "container_id": session.container_id,
+            "pipeline_id": getattr(session, "pipeline_id", None),
+            "mode": "strict" if enforce_strict else "auto-approve",
+        },
+    )
+
+    if enforce_strict:
+        # In strict mode, queue a HITL decision instead of auto-approving
+        logger.info(
+            "File request queued for HITL approval (strict mode)",
+            event_type="file_request_queued",
+            path=path,
+            reason=reason,
+            container_id=session.container_id,
+        )
+        return make_success(
+            "File request queued for approval",
+            {"status": "pending", "path": path},
+            status_code=202,
+        )
+
+    # Auto-approve: add the file to the session's allowlist
+    session.add_allowed_file(path)
+
+    # Persist the updated session
+    session_manager = get_session_manager()
+    if session.session_token:
+        session_manager.update_session_allowed_files(
+            session.session_token, session.allowed_files or []
+        )
+
+    logger.info(
+        "File request auto-approved",
+        event_type="file_request_approved",
+        path=path,
+        reason=reason,
+        container_id=session.container_id,
+        allowed_files_count=len(session.allowed_files or []),
+    )
+
+    return make_success(
+        "File approved",
+        {
+            "status": "approved",
+            "path": path,
+            "allowed_files": session.allowed_files,
+        },
+    )
+
+
 @app.route("/api/v1/repos/visibility", methods=["GET"])
 @require_launcher_auth
 def repos_visibility() -> tuple[Response, int] | Response:

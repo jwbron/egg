@@ -966,6 +966,45 @@ def cmd_agent_next(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_request_file(args: argparse.Namespace) -> int:
+    """Request access to a file outside the task's allowlist.
+
+    Calls the gateway's request-file endpoint to add a file to the
+    session's allowed_files list. In default mode, the file is auto-approved.
+    In strict mode, a HITL decision is queued for human approval.
+    """
+    if not args.path:
+        print("Error: --path is required", file=sys.stderr)
+        return 1
+    if not args.reason:
+        print("Error: --reason is required", file=sys.stderr)
+        return 1
+
+    result = make_gateway_request(
+        "/api/v1/sessions/request-file",
+        method="POST",
+        data={
+            "path": args.path,
+            "reason": args.reason,
+        },
+    )
+
+    if result.get("success"):
+        status = result.get("data", {}).get("status", "approved")
+        if status == "pending":
+            print(f"File request queued for approval: {args.path}")
+            print("A human must approve this request before the file is allowed.")
+        else:
+            print(f"File approved: {args.path}")
+            allowed_files = result.get("data", {}).get("allowed_files", [])
+            if allowed_files:
+                print(f"Updated allowlist ({len(allowed_files)} entries)")
+        return 0
+    else:
+        print(f"Error: {result.get('message')}", file=sys.stderr)
+        return 1
+
+
 def cmd_add_feedback(args: argparse.Namespace) -> int:
     """Create a feedback comment for open-ended questions.
 
@@ -1138,6 +1177,18 @@ def create_parser() -> argparse.ArgumentParser:
         help="Output format: json (default) or markdown (for GitHub comments)",
     )
     feedback_parser.set_defaults(func=cmd_add_feedback)
+
+    # request-file command
+    request_file_parser = subparsers.add_parser(
+        "request-file", help="Request access to a file outside the task's allowlist"
+    )
+    request_file_parser.add_argument(
+        "--path", required=True, help="File path to request access to"
+    )
+    request_file_parser.add_argument(
+        "--reason", required=True, help="Reason for requesting access"
+    )
+    request_file_parser.set_defaults(func=cmd_request_file)
 
     # Agent orchestration commands
     # agent-status command
