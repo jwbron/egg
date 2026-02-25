@@ -11,9 +11,12 @@ from egg_lib.orch_client import OrchestratorError
 from egg_lib.sdlc_hitl import (
     _detect_phase,
     _find_repo_path,
+    _get_contract_key,
     _get_draft_path,
     _launch_claude,
+    _load_pending_contract_decisions,
     _read_draft,
+    _resolve_contract_decision,
     handle_hitl_checkpoint,
 )
 
@@ -2004,3 +2007,270 @@ class TestDefaultDecisionType:
 
         assert result == "resolved"
         client.resolve_decision.assert_called_once_with("issue-42", "d1", "Approved")
+
+
+# ---------------------------------------------------------------------------
+# Contract decision bridge
+# ---------------------------------------------------------------------------
+
+
+class TestContractDecisionBridge:
+    """Tests for the contract decision bridge (local-mode HITL)."""
+
+    def _write_contract(self, tmp_path, key, decisions):
+        """Helper: write a contract JSON with the given decisions list."""
+        contracts_dir = tmp_path / ".egg-state" / "contracts"
+        contracts_dir.mkdir(parents=True, exist_ok=True)
+        contract = {
+            "schemaVersion": "1.0",
+            "issue": {"number": int(key) if key.isdigit() else 0},
+            "decisions": decisions,
+        }
+        path = contracts_dir / f"{key}.json"
+        path.write_text(json.dumps(contract, indent=2))
+        return path
+
+    # -- _get_contract_key --
+
+    def test_get_contract_key_issue_mode(self):
+        """Issue mode returns str(issue_number)."""
+        assert _get_contract_key("issue", issue_number=42) == "42"
+
+    def test_get_contract_key_issue_mode_no_number(self):
+        """Issue mode with no issue_number returns None."""
+        assert _get_contract_key("issue") is None
+
+    def test_get_contract_key_local_mode(self):
+        """Local mode returns pipeline_id."""
+        assert _get_contract_key("local", pipeline_id="my-pipeline") == "my-pipeline"
+
+    def test_get_contract_key_local_mode_no_pipeline(self):
+        """Local mode with no pipeline_id returns None."""
+        assert _get_contract_key("local") is None
+
+    # -- _load_pending_contract_decisions --
+
+    def test_no_contract_file(self, tmp_path):
+        """Returns [] when contract file does not exist."""
+        assert _load_pending_contract_decisions(tmp_path, "999") == []
+
+    def test_empty_decisions(self, tmp_path):
+        """Returns [] when decisions array is empty."""
+        self._write_contract(tmp_path, "42", [])
+        assert _load_pending_contract_decisions(tmp_path, "42") == []
+
+    def test_all_resolved(self, tmp_path):
+        """Filters out resolved decisions."""
+        self._write_contract(
+            tmp_path,
+            "42",
+            [
+                {
+                    "id": "decision-1",
+                    "question": "Which DB?",
+                    "type": "hitl",
+                    "resolved": True,
+                    "resolution": "PostgreSQL",
+                    "options": [],
+                },
+            ],
+        )
+        assert _load_pending_contract_decisions(tmp_path, "42") == []
+
+    def test_pending_decisions(self, tmp_path):
+        """Returns only unresolved HITL decisions."""
+        self._write_contract(
+            tmp_path,
+            "42",
+            [
+                {
+                    "id": "decision-1",
+                    "question": "Which DB?",
+                    "type": "hitl",
+                    "resolved": False,
+                    "resolution": None,
+                    "options": [
+                        {"id": "opt-1", "label": "PostgreSQL"},
+                        {"id": "opt-2", "label": "MongoDB"},
+                    ],
+                },
+                {
+                    "id": "decision-2",
+                    "question": "Done?",
+                    "type": "auto",
+                    "resolved": False,
+                    "resolution": None,
+                    "options": [],
+                },
+                {
+                    "id": "decision-3",
+                    "question": "Cache?",
+                    "type": "hitl",
+                    "resolved": True,
+                    "resolution": "Redis",
+                    "options": [],
+                },
+            ],
+        )
+        result = _load_pending_contract_decisions(tmp_path, "42")
+        assert len(result) == 1
+        assert result[0]["id"] == "decision-1"
+
+    def test_malformed_json(self, tmp_path):
+        """Returns [] on malformed JSON."""
+        contracts_dir = tmp_path / ".egg-state" / "contracts"
+        contracts_dir.mkdir(parents=True, exist_ok=True)
+        (contracts_dir / "42.json").write_text("not json{")
+        assert _load_pending_contract_decisions(tmp_path, "42") == []
+
+    # -- _resolve_contract_decision --
+
+    def test_resolve_decision(self, tmp_path):
+        """Sets resolved/resolution/resolved_by/resolved_at, atomic write."""
+        self._write_contract(
+            tmp_path,
+            "42",
+            [
+                {
+                    "id": "decision-1",
+                    "question": "Which DB?",
+                    "type": "hitl",
+                    "resolved": False,
+                    "resolution": None,
+                    "options": [],
+                },
+            ],
+        )
+        ok = _resolve_contract_decision(tmp_path, "42", "decision-1", "PostgreSQL")
+        assert ok is True
+
+        # Verify the file was updated
+        contract_path = tmp_path / ".egg-state" / "contracts" / "42.json"
+        data = json.loads(contract_path.read_text())
+        d = data["decisions"][0]
+        assert d["resolved"] is True
+        assert d["resolution"] == "PostgreSQL"
+        assert d["resolved_by"] == "human"
+        assert d["resolved_at"] is not None
+
+    def test_resolve_nonexistent(self, tmp_path):
+        """Returns False for unknown decision ID."""
+        self._write_contract(
+            tmp_path,
+            "42",
+            [
+                {
+                    "id": "decision-1",
+                    "question": "Which DB?",
+                    "type": "hitl",
+                    "resolved": False,
+                    "resolution": None,
+                    "options": [],
+                },
+            ],
+        )
+        ok = _resolve_contract_decision(tmp_path, "42", "decision-999", "anything")
+        assert ok is False
+
+    def test_resolve_missing_file(self, tmp_path):
+        """Returns False when contract file does not exist."""
+        ok = _resolve_contract_decision(tmp_path, "999", "decision-1", "anything")
+        assert ok is False
+
+    # -- Phase gate integration --
+
+    @patch("egg_lib.sdlc_hitl._find_repo_path")
+    @patch("builtins.input")
+    def test_phase_gate_shows_q_option(self, mock_input, mock_repo, tmp_path, capsys):
+        """[q] appears when pending contract decisions exist."""
+        mock_repo.return_value = tmp_path
+        # User selects "3" to approve, then "y" to confirm despite pending
+        mock_input.side_effect = ["3", "y"]
+
+        self._write_contract(
+            tmp_path,
+            "42",
+            [
+                {
+                    "id": "decision-1",
+                    "question": "Which DB?",
+                    "type": "hitl",
+                    "resolved": False,
+                    "resolution": None,
+                    "options": [],
+                },
+            ],
+        )
+
+        client = MagicMock(spec=["resolve_decision", "cancel_pipeline"])
+        client.resolve_decision.return_value = {"status": "resolved"}
+        decision = {
+            "id": "d1",
+            "question": "The refine phase has completed.",
+            "context": "",
+            "decision_type": "phase_gate",
+        }
+        handle_hitl_checkpoint(client, "issue-42", decision, pipeline_mode="issue", issue_number=42)
+
+        captured = capsys.readouterr()
+        assert "[q]" in captured.out
+        assert "1 pending" in captured.out
+
+    @patch("egg_lib.sdlc_hitl._find_repo_path")
+    @patch("builtins.input")
+    def test_phase_gate_no_q_without_decisions(self, mock_input, mock_repo, tmp_path, capsys):
+        """[q] absent when no pending contract decisions exist."""
+        mock_repo.return_value = tmp_path
+        mock_input.return_value = "3"
+
+        client = MagicMock(spec=["resolve_decision", "cancel_pipeline"])
+        client.resolve_decision.return_value = {"status": "resolved"}
+        decision = {
+            "id": "d1",
+            "question": "The refine phase has completed.",
+            "context": "",
+            "decision_type": "phase_gate",
+        }
+        handle_hitl_checkpoint(client, "issue-42", decision, pipeline_mode="issue", issue_number=42)
+
+        captured = capsys.readouterr()
+        assert "[q]" not in captured.out
+
+    @patch("egg_lib.sdlc_hitl._find_repo_path")
+    @patch("builtins.input")
+    def test_approve_with_pending_warns(self, mock_input, mock_repo, tmp_path, capsys):
+        """Warning shown on approve with unanswered questions."""
+        mock_repo.return_value = tmp_path
+        # "3" to approve, "n" to cancel, then "3" again, "y" to confirm
+        mock_input.side_effect = ["3", "n", "3", "y"]
+
+        self._write_contract(
+            tmp_path,
+            "42",
+            [
+                {
+                    "id": "decision-1",
+                    "question": "Which DB?",
+                    "type": "hitl",
+                    "resolved": False,
+                    "resolution": None,
+                    "options": [],
+                },
+            ],
+        )
+
+        client = MagicMock(spec=["resolve_decision", "cancel_pipeline"])
+        client.resolve_decision.return_value = {"status": "resolved"}
+        decision = {
+            "id": "d1",
+            "question": "The refine phase has completed.",
+            "context": "",
+            "decision_type": "phase_gate",
+        }
+        result = handle_hitl_checkpoint(
+            client, "issue-42", decision, pipeline_mode="issue", issue_number=42
+        )
+
+        captured = capsys.readouterr()
+        assert "still unanswered" in captured.out
+        assert result == "resolved"
