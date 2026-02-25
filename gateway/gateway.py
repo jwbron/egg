@@ -880,7 +880,8 @@ def git_push() -> tuple[Response, int] | Response:
     # When a session has allowed_files set (from the plan's files_affected),
     # enforce that pushes only contain files within the allowlist.
     # Uses warn-then-block semantics: first violation warns, subsequent block.
-    # Checkpoint pushes and non-implement phases are exempt.
+    # Checkpoint pushes are exempt. Non-implement phases are implicitly exempt
+    # because the orchestrator only sets allowed_files for implement-phase sessions.
     if not is_checkpoint_push and hasattr(g, "session") and g.session:
         session_allowed_files = getattr(g.session, "allowed_files", None)
         if session_allowed_files and session_phase:
@@ -3938,6 +3939,13 @@ def session_request_file() -> tuple[Response, int] | Response:
 
     if not path or not isinstance(path, str):
         return make_error("Missing or invalid 'path'")
+
+    # Defense in depth: reject path traversal and absolute paths
+    if ".." in path.split("/") or path.startswith("/"):
+        return make_error(
+            "Invalid path: must be a relative path without '..' components",
+            status_code=400,
+        )
 
     session = getattr(g, "session", None)
     if not session:

@@ -484,6 +484,7 @@ class TestGitPush:
         mock_session.container_id = "test-container"
         mock_session.expires_at = None
         mock_session.agent_role = "reviewer"
+        mock_session.allowed_files = None
 
         mock_result = SessionValidationResult(valid=True, session=mock_session)
 
@@ -585,6 +586,7 @@ class TestGitPush:
         mock_session.container_id = "test-container"
         mock_session.expires_at = None
         mock_session.agent_role = "implementer"
+        mock_session.allowed_files = None
 
         mock_result = SessionValidationResult(valid=True, session=mock_session)
 

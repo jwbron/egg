@@ -86,18 +86,23 @@ def compute_allowed_files_from_contract(
     repo_path: str,
     issue_number: int | None,
     phase: str | None,
+    plan_phase_id: str | None = None,
 ) -> list[str] | None:
     """Compute the per-session allowed_files list from the contract's plan tasks.
 
     For implement-phase agents, reads the contract and collects the union of
-    `files_affected` across all tasks in all plan phases. For each file entry
-    that is not already a glob pattern, adds a parent directory glob (one level
-    deep) for sibling expansion.
+    `files_affected` from tasks in the agent's assigned plan phase (if
+    ``plan_phase_id`` is provided), or from all plan phases otherwise.
+    For each file entry that is not already a glob pattern, adds a parent
+    directory glob (one level deep) for sibling expansion.
 
     Args:
         repo_path: Path to the repository (orchestrator-local)
         issue_number: GitHub issue number
         phase: Current pipeline phase
+        plan_phase_id: If provided, only collect files from this plan phase
+            (e.g., "phase-1"). Used in Tier 3 dispatch to scope each agent
+            to its assigned plan phase.
 
     Returns:
         List of allowed file patterns, or None if no restrictions apply.
@@ -116,6 +121,11 @@ def compute_allowed_files_from_contract(
 
         all_files: list[str] = []
         for plan_phase in getattr(contract, "phases", []) or []:
+            # If plan_phase_id is specified, only collect files from that phase
+            if plan_phase_id is not None:
+                phase_id = getattr(plan_phase, "id", None)
+                if phase_id != plan_phase_id:
+                    continue
             for task in getattr(plan_phase, "tasks", []) or []:
                 files = getattr(task, "files", None) or getattr(task, "files_affected", None) or []
                 all_files.extend(files)
@@ -278,6 +288,7 @@ class ContainerSpawner:
         certs_volume: str | None = None,
         branch: str | None = None,
         complexity_tier: str | None = None,
+        plan_phase_id: str | None = None,
     ) -> SpawnedContainer:
         """Spawn a container for an agent.
 
@@ -424,6 +435,7 @@ class ContainerSpawner:
                     repo_path=first_local_path,
                     issue_number=issue_number,
                     phase=phase,
+                    plan_phase_id=plan_phase_id,
                 )
                 if allowed_files:
                     logger.info(

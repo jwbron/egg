@@ -962,9 +962,10 @@ class TestPhaseFileRestrictions:
         """Blocked patterns take priority over allowed patterns."""
         from phase_filter import PhaseFileRestriction
 
+        # Use ** for recursive matching across directory levels
         restriction = PhaseFileRestriction(
-            allowed_patterns=[".egg-state/*"],
-            blocked_patterns=[".egg-state/secrets/*"],
+            allowed_patterns=[".egg-state/**"],
+            blocked_patterns=[".egg-state/secrets/**"],
         )
 
         allowed, _ = restriction.is_file_allowed(".egg-state/contracts/123.json")

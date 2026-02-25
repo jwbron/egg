@@ -4110,6 +4110,7 @@ def _spawn_and_wait(
         certs_volume=certs_volume,
         branch=branch,
         complexity_tier=complexity_tier,
+        plan_phase_id=plan_phase_id,
     )
 
     # Record container and agent in phase execution state

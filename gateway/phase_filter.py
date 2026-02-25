@@ -16,6 +16,27 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
+# Global config files that are always allowed in session-level file restrictions.
+# These are commonly touched as side effects of implementation (dependency updates,
+# build config changes) and blocking them would cause agents to spin.
+# See AD-5 in architect output.
+GLOBAL_CONFIG_ALLOWLIST: list[str] = [
+    "pyproject.toml",
+    "setup.py",
+    "setup.cfg",
+    "package.json",
+    "package-lock.json",
+    "yarn.lock",
+    "Makefile",
+    "requirements.txt",
+    "requirements-dev.txt",
+    ".gitignore",
+    "tsconfig.json",
+    "Cargo.toml",
+    "go.mod",
+    "go.sum",
+]
+
 
 class OperationType(StrEnum):
     """Types of operations that can be filtered."""
@@ -233,15 +254,25 @@ class PhaseFileRestriction:
 
         Supports:
         - Exact prefix match (e.g., ".egg-state/contracts/" matches ".egg-state/contracts/foo.json")
-        - Wildcard suffix match (e.g., ".egg-state/drafts/*analysis*" matches "*-analysis.md")
+        - Single wildcard (e.g., "src/auth/*") matches one directory level only
+        - Double wildcard (e.g., "tests/**") matches across directory separators
         - Full wildcard ("*" matches everything)
         """
         if pattern == "*":
             return True
 
-        # If pattern ends with *, use fnmatch for glob matching
-        if "*" in pattern:
+        if "**" in pattern:
+            # Double-star: match across directory separators (use fnmatch)
             return fnmatch.fnmatch(file_path, pattern)
+
+        if "*" in pattern:
+            # Single-star: must NOT match across directory separators.
+            # Split both pattern and path into segments and match component-by-component.
+            pat_parts = pattern.split("/")
+            path_parts = file_path.split("/")
+            if len(path_parts) != len(pat_parts):
+                return False
+            return all(fnmatch.fnmatch(p, pp) for p, pp in zip(path_parts, pat_parts, strict=True))
 
         # Otherwise, use prefix matching (for directory patterns)
         if pattern.endswith("/"):
@@ -773,6 +804,18 @@ class PhaseFilter:
             return permissions.exit_requires
         return None
 
+    def get_phase_file_restriction(self, phase: PipelinePhase) -> PhaseFileRestriction | None:
+        """Get the phase-level file restriction for a given phase.
+
+        Args:
+            phase: The pipeline phase
+
+        Returns:
+            PhaseFileRestriction for the phase, or None if not configured
+        """
+        self._load_permissions()
+        return self._phase_file_restrictions.get(phase)
+
 
 # Module-level instance for convenience
 _filter: PhaseFilter | None = None
@@ -898,6 +941,10 @@ def build_session_file_restriction(
     blocked_patterns to enforce intersection semantics: phase blocks always win,
     and within the phase's allowed space, only the session's listed files are permitted.
 
+    Global config files (pyproject.toml, Makefile, etc.) are implicitly added
+    to the allowed patterns to prevent agents from being blocked on dependency
+    updates and build config changes.
+
     Args:
         allowed_files: Per-session file allowlist patterns (globs supported)
         phase: Current pipeline phase
@@ -905,27 +952,32 @@ def build_session_file_restriction(
     Returns:
         PhaseFileRestriction with combined restrictions
     """
+    # Merge session allowlist with global config allowlist
+    combined_allowed = list(allowed_files)
+    for config_file in GLOBAL_CONFIG_ALLOWLIST:
+        if config_file not in combined_allowed:
+            combined_allowed.append(config_file)
+
     if isinstance(phase, str):
         try:
             phase = PipelinePhase(phase)
         except ValueError:
             # Unknown phase — return restriction with just allowed_files
             return PhaseFileRestriction(
-                allowed_patterns=list(allowed_files),
+                allowed_patterns=combined_allowed,
                 description="Session-level file restriction (unknown phase)",
             )
 
-    # Get the existing phase-level blocked patterns
+    # Get the existing phase-level blocked patterns via public API
     pf = get_phase_filter()
-    pf._load_permissions()
-    phase_restriction = pf._phase_file_restrictions.get(phase)
+    phase_restriction = pf.get_phase_file_restriction(phase)
 
     blocked_patterns: list[str] = []
     if phase_restriction:
         blocked_patterns = list(phase_restriction.blocked_patterns)
 
     return PhaseFileRestriction(
-        allowed_patterns=list(allowed_files),
+        allowed_patterns=combined_allowed,
         blocked_patterns=blocked_patterns,
         description=f"Session-level file restriction for phase '{phase.value}'",
     )

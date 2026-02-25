@@ -675,12 +675,10 @@ class TestSessionFileRestrictionEdgeCases:
             "implement",
             ["src/deep/nested/file.py"],
         )
-        # Single star matches one level only with strict glob semantics
-        # However, PhaseFileRestriction may use prefix matching
-        # This test documents whatever the current behavior is
-        # (documenting rather than asserting specific behavior)
-        if not result.allowed:
-            assert "src/deep/nested/file.py" in result.blocked_files
+        # Single star matches one directory level only — it should NOT
+        # match paths with additional directory separators.
+        assert not result.allowed
+        assert "src/deep/nested/file.py" in result.blocked_files
 
     def test_root_level_file_in_allowlist(self):
         """Root-level file (no directory) should work in allowlist."""
