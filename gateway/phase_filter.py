@@ -253,7 +253,8 @@ class PhaseFileRestriction:
         """Check if a file path matches a glob-like pattern.
 
         Supports:
-        - Exact prefix match (e.g., ".egg-state/contracts/" matches ".egg-state/contracts/foo.json")
+        - Directory prefix match (e.g., ".egg-state/contracts/" matches ".egg-state/contracts/foo.json")
+        - Exact file match (e.g., "pyproject.toml" matches only "pyproject.toml")
         - Single wildcard (e.g., "src/auth/*") matches one directory level only
         - Double wildcard (e.g., "tests/**") matches across directory separators
         - Full wildcard ("*" matches everything)

@@ -511,7 +511,7 @@ class TestBuildSessionFileRestrictionEdgeCases:
         assert result.allowed
 
     def test_exact_file_match(self):
-        """Exact file path (no glob) matches via prefix matching."""
+        """Exact file path (no glob) matches via exact match."""
         result = check_session_file_restrictions(
             ["pyproject.toml"], "implement", ["pyproject.toml"]
         )
