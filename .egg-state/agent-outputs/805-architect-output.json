@@ -1,0 +1,500 @@
+{
+  "issue": 805,
+  "phase": "plan",
+  "agent": "architect",
+  "revision": 0,
+  "revision_reason": null,
+  "title": "Enforce per-task file restrictions from planner: session-scoped allowed_files with warn-then-block escalation",
+  "summary": "Add per-session file restriction enforcement to the gateway so that implement-phase agents are scoped to only the files listed in their assigned plan tasks. The orchestrator computes a union of files_affected from all tasks in the agent's plan phase, auto-expands to directory-level, and passes the allowlist to register_session(). The gateway enforces via a new validation layer between agent-role and phase-based checks, using warn-on-first/block-on-repeat escalation. Post-agent auto-commit respects the same restrictions. An escape hatch (egg-contract request-file) provides observability without hard blocking.",
+  "review_feedback_addressed": null,
+  "risk_analyst_feedback_incorporated": null,
+  "problem_statement": {
+    "description": "The SDLC pipeline's implement phase currently enforces phase-level file restrictions (implement agents cannot modify .egg-state/ directories) but has no task-level enforcement. When the planner specifies files: per task, this metadata is passed to agents only as informational context in their prompt. In Tier 3 (parallel agent) dispatch, multiple implement agents working on different plan phases can accidentally modify files outside their assigned scope, causing cross-contamination between agents working in parallel.",
+    "root_causes": [
+      "Session model has no field for per-session allowed files — only phase, agent_role, and complexity_tier",
+      "Gateway three-layer push validation has no per-session or per-task file scoping layer",
+      "Container spawner passes phase and agent_role but does not pass task-level file lists to session registration",
+      "Post-agent auto-commit uses phase-level restrictions only, with no session-specific file context",
+      "Plan parser extracts files_affected correctly, but the data stops at the prompt level — never reaches the gateway"
+    ],
+    "impact": "In Tier 3 dispatch, Agent A (working on phase 1: src/auth/) can silently modify src/payments/ which belongs to Agent B (phase 2), causing merge conflicts, test failures, or subtle bugs when both branches converge."
+  },
+  "current_architecture": {
+    "data_flow": {
+      "description": "Plan YAML → plan_parser → Task.files_affected → contract JSON → orchestrator prompt builder → agent prompt (informational only). The gateway never sees per-task file lists.",
+      "key_files": [
+        "shared/egg_contracts/plan_parser.py — extracts files_affected from YAML tasks",
+        "shared/egg_contracts/models.py:130 — Task.files_affected: list[str]",
+        "orchestrator/routes/pipelines.py:2917-3004 — _build_phase_scoped_prompt() embeds files as text",
+        "orchestrator/container_spawner.py:350-364 — register_session() call, no files_affected param"
+      ]
+    },
+    "push_validation_layers": {
+      "description": "Three sequential validation layers in gateway/gateway.py:680-875",
+      "layers": [
+        {
+          "name": "Layer 1: Role-based file restrictions",
+          "location": "gateway/gateway.py:717-741",
+          "function": "check_file_restrictions(session_role, changed_files)",
+          "behavior": "Blocks implementer role from .egg-state/contracts/. Always enforced."
+        },
+        {
+          "name": "Layer 2: Agent-role restrictions",
+          "location": "gateway/gateway.py:743-791",
+          "function": "check_agent_restrictions(session_role, changed_files, complexity_tier)",
+          "behavior": "Per-role file access (coder/tester/documenter). Default: warn-only. EGG_AGENT_RESTRICTIONS_ENFORCE=true to enforce."
+        },
+        {
+          "name": "Layer 3: Phase-based restrictions",
+          "location": "gateway/gateway.py:801-875",
+          "function": "check_phase_file_restrictions(session_phase, changed_files)",
+          "behavior": "Phase-level patterns. Implement blocks .egg-state/ dirs. Always enforced."
+        }
+      ]
+    },
+    "session_model": {
+      "location": "gateway/session_manager.py:209-317",
+      "current_fields": "session_token, session_token_hash, container_id, container_ip, mode, phase, agent_role, pipeline_id, complexity_tier, issue_number, pr_number, assigned_branch, etc.",
+      "missing": "No allowed_files field, no per-session violation tracking"
+    },
+    "post_agent_commit": {
+      "location": "gateway/post_agent_commit.py:160-280",
+      "behavior": "Applies check_phase_file_restrictions(phase, changed_files). Restores blocked files via git checkout. No per-session file context.",
+      "parameter_access": "Receives phase, session_token, gateway_url as explicit parameters. No session lookup."
+    },
+    "agent_restriction_patterns": {
+      "location": "gateway/agent_restrictions.py",
+      "key_classes": "AgentFilePattern (allowed_patterns + blocked_patterns), AgentRole constants",
+      "matching": "_matches_pattern() supports exact match, prefix match (dir/), wildcard (*.py), double wildcard (**/*.py). Path normalization rejects traversal.",
+      "precedent": "warn-only by default, configurable enforcement via EGG_AGENT_RESTRICTIONS_ENFORCE env var"
+    }
+  },
+  "approaches": [
+    {
+      "id": "A",
+      "title": "Session-scoped allowed_files (recommended)",
+      "description": "Add allowed_files: list[str] | None to Session. Orchestrator reads files_affected from contract tasks assigned to the agent's plan phase, computes union, auto-expands directory-siblings, passes to register_session(). Gateway builds per-session restriction and enforces with warn-then-block escalation as a new Layer 2.5 between agent-role and phase checks. Post-agent-commit receives allowed_files via explicit parameter.",
+      "pros": [
+        "Follows existing architecture patterns (session metadata, PhaseFileRestriction, three-layer validation)",
+        "Clean separation of concerns: orchestrator computes allowlist, gateway enforces it",
+        "Minimal new API surface — one new field on existing endpoint plus one new CLI command",
+        "Reuses proven warn-then-block pattern from agent restrictions",
+        "Session persistence already handles optional fields gracefully",
+        "Post-agent-commit can access data via explicit parameter or persisted session"
+      ],
+      "cons": [
+        "Session-level scoping means all tasks in a phase share one allowlist (no per-task isolation within a single agent)",
+        "Directory-sibling expansion adds matching complexity",
+        "Violation state (warned files) needs in-memory tracking on Session"
+      ],
+      "complexity": "medium",
+      "risk": "low"
+    },
+    {
+      "id": "B",
+      "title": "Gateway-side plan-aware validation",
+      "description": "Gateway directly reads contract JSON to determine file restrictions per session, looking up pipeline ID → contract → assigned phase → files_affected.",
+      "pros": [
+        "No changes to session registration API",
+        "Gateway has full contract context for rich error messages"
+      ],
+      "cons": [
+        "Breaks separation of concerns — gateway would need to understand contract schema",
+        "Couples gateway to contract schema, creating tight dependency across modules",
+        "Contract files may be readonly-mounted during implement phase",
+        "Harder to test (requires contract fixtures)",
+        "Doesn't work for non-orchestrated sessions"
+      ],
+      "complexity": "medium-high",
+      "risk": "medium"
+    },
+    {
+      "id": "C",
+      "title": "Filesystem-level enforcement (readonly mounts)",
+      "description": "Use Docker volume mounts to make directories outside the task's scope readonly, similar to how .egg-state/ is already readonly-mounted.",
+      "pros": [
+        "Strongest enforcement — kernel-level, impossible to bypass",
+        "No gateway changes needed"
+      ],
+      "cons": [
+        "Extremely rigid — no warn-then-block, no escape hatch, no graceful fallback",
+        "Requires dynamic mount point computation per-container, complex with many tasks and scattered files",
+        "Cannot support glob patterns or directory-sibling expansion",
+        "Mount changes require container recreation — no runtime adjustment",
+        "Directly contradicts 'guide, don't cage' philosophy",
+        "Files not in the plan but legitimately needed would completely block the agent"
+      ],
+      "complexity": "high",
+      "risk": "high"
+    },
+    {
+      "id": "D",
+      "title": "Environment-variable-based hints (prompt-only enforcement)",
+      "description": "Pass allowed_files as an environment variable (e.g., EGG_ALLOWED_FILES) and rely on the agent prompt + CLAUDE.md rules to enforce. No gateway changes.",
+      "pros": [
+        "Zero infrastructure changes",
+        "Quick to implement"
+      ],
+      "cons": [
+        "No actual enforcement — LLM agents can ignore prompt instructions",
+        "No observability into violations",
+        "Doesn't address the cross-contamination problem reliably",
+        "Cannot be escalated to hard enforcement later without building Option A anyway"
+      ],
+      "complexity": "low",
+      "risk": "high"
+    }
+  ],
+  "recommended_approach": {
+    "id": "A",
+    "title": "Session-scoped allowed_files with warn-then-block escalation",
+    "justification": "Option A is the natural extension of the existing session-based enforcement architecture. It follows the same patterns used for phase, agent_role, and complexity_tier — metadata flows from orchestrator through register_session() to the gateway, which enforces it during push validation. The warn-then-block escalation mirrors the proven EGG_AGENT_RESTRICTIONS_ENFORCE pattern. The 'guide, don't cage' philosophy is honored by warning first, expanding directories generously, and providing an escape hatch.",
+    "key_design_decisions": [
+      "Per-phase granularity, not per-task: Each agent container handles one plan phase, so the allowlist is the union of all tasks' files_affected for that phase. This avoids unnecessary complexity since there's no intra-agent task boundary to enforce.",
+      "Warn-on-first, block-on-second per file: In-memory set of warned files on Session. First push with an out-of-scope file logs a structured warning and proceeds. Second push with the same file returns 403. This gives agents one chance to self-correct.",
+      "Directory-sibling expansion: Listing src/auth/login.py implicitly allows all files in src/auth/ (one level only). This covers the common case of creating helper files alongside listed files without requiring exhaustive listing.",
+      "Global config file allowlist: Common config files (pyproject.toml, package.json, Makefile, requirements.txt, .gitignore, tsconfig.json) are always allowed to prevent agents from spinning on dependency updates.",
+      "Graceful fallback: Empty or missing files_affected = no per-file restriction. Only sessions with non-empty allowed_files get per-file enforcement.",
+      "Escape hatch via egg-contract request-file: New CLI command logs the request and auto-approves by default (adds file to session allowlist via gateway API). In strict mode (future), queues a HITL decision instead."
+    ],
+    "rollout_strategy": "Phase 1 deploys warn-only (no blocking). Phase 2 enables warn-then-block after validation in production. The EGG_TASK_FILE_RESTRICTIONS env var controls mode: 'warn' (default), 'enforce', or 'off'."
+  },
+  "architecture_decisions": [
+    {
+      "id": "AD-1",
+      "decision": "Add allowed_files and file_violation_warnings to Session model",
+      "rationale": "The Session dataclass is the natural home for per-session state. allowed_files: list[str] | None stores the allowlist. file_violation_warnings: set[str] tracks which files have been warned (in-memory only, not persisted — fail-open on gateway restart is acceptable for a warn-first system). Both fields are optional for backward compatibility.",
+      "alternatives_considered": "Separate violation tracking table — rejected as over-engineering for a per-session concern."
+    },
+    {
+      "id": "AD-2",
+      "decision": "Insert per-session file restriction as Layer 2.5 (between agent-role and phase checks)",
+      "rationale": "The three existing layers have clear responsibilities. Per-session file restrictions are more specific than agent-role restrictions but less fundamental than phase restrictions. Inserting between layers 2 and 3 means: (1) role-based blocks still catch .egg-state/contracts/ first, (2) per-session scoping narrows the allowed files, (3) phase-based blocks provide the final safety net. This ordering ensures the most specific restriction doesn't accidentally override broader security boundaries.",
+      "alternatives_considered": "Adding as Layer 4 after phase checks — rejected because phase checks should be the final authoritative gate. Merging into Layer 3 — rejected because it would conflate session-specific state with static phase configuration."
+    },
+    {
+      "id": "AD-3",
+      "decision": "Orchestrator computes the allowlist, not the gateway",
+      "rationale": "The orchestrator already owns the contract data and task assignment logic. Having it compute the union of files_affected and pass it through register_session() maintains the clean boundary: orchestrator knows what to restrict, gateway knows how to restrict. This avoids coupling the gateway to the contract schema.",
+      "alternatives_considered": "Gateway reads contract directly (Option B) — rejected per approach analysis."
+    },
+    {
+      "id": "AD-4",
+      "decision": "Directory-sibling expansion: one level deep from listed files",
+      "rationale": "If the plan lists src/auth/login.py, the agent needs to create src/auth/login_helpers.py (sibling in same directory). Expanding to directory-level covers this without being too broad. Subdirectory expansion (src/auth/utils/helpers.py) is not included by default — the planner should list directories explicitly if subdirectories are in scope. Implementation: for each file path in allowed_files, add its parent directory as a prefix pattern (e.g., src/auth/login.py → also allow src/auth/).",
+      "alternatives_considered": "No expansion (exact match only) — too rigid, contradicts 'guide, don't cage'. Recursive expansion (all descendants) — too broad, undermines the restriction."
+    },
+    {
+      "id": "AD-5",
+      "decision": "Global config file allowlist is hardcoded with an override mechanism",
+      "rationale": "Files like pyproject.toml, package.json, Makefile, requirements.txt are frequently touched as side effects of implementation. Blocking these would cause agents to spin. A hardcoded default list with an optional per-repo override in .egg/config.yaml balances convenience with customizability. The default list: pyproject.toml, setup.py, setup.cfg, package.json, package-lock.json, yarn.lock, Makefile, requirements.txt, requirements-dev.txt, .gitignore, tsconfig.json, Cargo.toml, go.mod, go.sum.",
+      "alternatives_considered": "Require planner to list config files in every task — burdensome and error-prone. No global allowlist — agents will consistently fail on dependency updates."
+    },
+    {
+      "id": "AD-6",
+      "decision": "Post-agent-commit receives allowed_files as explicit parameter",
+      "rationale": "auto_commit_worktree() already receives phase and session_token as parameters. Adding allowed_files: list[str] | None follows the same pattern. The function is called from session cleanup code that has access to the Session object, so the data is readily available. This is simpler than having post-agent-commit look up the session from disk or call the gateway API.",
+      "alternatives_considered": "Session lookup from persisted disk data — adds complexity and a dependency on session persistence format. Gateway API call — adds a network round-trip during cleanup."
+    },
+    {
+      "id": "AD-7",
+      "decision": "Escape hatch: egg-contract request-file auto-approves by default",
+      "rationale": "The goal of the escape hatch is observability, not hard blocking. When an agent genuinely needs a file outside its allowlist, it calls egg-contract request-file --path <file> --reason <why>. This calls a new gateway endpoint POST /api/v1/sessions/{token}/request-file that adds the file to the session's allowed_files and logs the event. In strict mode (future), this queues a HITL decision instead. The auto-approve default aligns with the 'guide, don't cage' philosophy.",
+      "alternatives_considered": "Always queue HITL decision — too slow for default mode, would block agents. No escape hatch — agents with legitimate needs would be stuck."
+    },
+    {
+      "id": "AD-8",
+      "decision": "Glob patterns in files_affected are supported using existing matching infrastructure",
+      "rationale": "The plan parser already extracts files_affected as list[str]. AgentFilePattern._matches_pattern() already supports exact, prefix, wildcard, and ** patterns via fnmatch. The same matching logic should be reused for per-session restrictions. This means planners can write files: ['tests/**', 'src/auth/*.py'] and it works without additional implementation. PhaseFileRestriction._matches_pattern() has identical semantics — either can be reused."
+    }
+  ],
+  "implementation_plan": {
+    "phases": [
+      {
+        "id": 1,
+        "name": "Session model and gateway client changes",
+        "description": "Add allowed_files and file_violation_warnings to Session. Update register_session() on both gateway and orchestrator sides to accept and pass the new field. Update session persistence (to_dict_for_persistence, from_persistence) and the /api/v1/sessions/create endpoint.",
+        "tasks": [
+          {
+            "id": "TASK-1-1",
+            "description": "Add allowed_files: list[str] | None and file_violation_warnings: set[str] fields to Session dataclass. Update to_dict_for_persistence() to serialize allowed_files (not warnings — those are in-memory only). Update from_persistence() to deserialize allowed_files.",
+            "files": ["gateway/session_manager.py"],
+            "acceptance": "Session round-trips allowed_files through persistence. file_violation_warnings defaults to empty set. Existing sessions without allowed_files load successfully with None."
+          },
+          {
+            "id": "TASK-1-2",
+            "description": "Update gateway /api/v1/sessions/create endpoint to accept allowed_files in request body and pass to Session creation. Add request-file endpoint POST /api/v1/sessions/{token}/request-file that appends a file to the session's allowed_files.",
+            "files": ["gateway/gateway.py"],
+            "acceptance": "register_session API accepts allowed_files. request-file endpoint adds file to session and returns success. Both log structured events."
+          },
+          {
+            "id": "TASK-1-3",
+            "description": "Update GatewayClient.register_session() to accept and pass allowed_files parameter. Update SessionInfo if needed.",
+            "files": ["orchestrator/gateway_client.py"],
+            "acceptance": "register_session() passes allowed_files to gateway API. None/empty is not sent (backward compatible)."
+          }
+        ]
+      },
+      {
+        "id": 2,
+        "name": "Allowlist computation in container spawner",
+        "description": "When spawning an implement agent, collect files_affected from all tasks in the agent's assigned plan phase, apply directory-sibling expansion and global config allowlist, and pass to register_session().",
+        "tasks": [
+          {
+            "id": "TASK-2-1",
+            "description": "Add compute_session_allowed_files(phase_tasks: list[Task]) -> list[str] function that: (1) unions all files_affected across tasks, (2) for each file entry, adds its parent directory as a prefix pattern, (3) appends global config file patterns. Returns the combined list, or None if all tasks have empty files_affected.",
+            "files": ["orchestrator/container_spawner.py"],
+            "acceptance": "Function correctly unions, expands directories, adds config files. Returns None when all files_affected are empty. Glob patterns in files_affected are passed through unchanged."
+          },
+          {
+            "id": "TASK-2-2",
+            "description": "Call compute_session_allowed_files() in spawn_agent_container() for implement-phase coder agents and pass the result to gateway.register_session(allowed_files=...).",
+            "files": ["orchestrator/container_spawner.py", "orchestrator/routes/pipelines.py"],
+            "acceptance": "Implement-phase coder sessions include allowed_files. Non-implement phases and non-coder roles pass None. The contract's phase tasks are available in the spawn call path."
+          }
+        ]
+      },
+      {
+        "id": 3,
+        "name": "Gateway push validation (Layer 2.5)",
+        "description": "Add per-session file restriction enforcement in gateway push validation, between agent-role and phase-based checks. Implements warn-on-first, block-on-second escalation.",
+        "tasks": [
+          {
+            "id": "TASK-3-1",
+            "description": "Add validate_session_file_restrictions(session, changed_files) function that checks each file against session.allowed_files using AgentFilePattern._matches_pattern() semantics. For files not matching: if file not in session.file_violation_warnings, log warning and add to set (allow push). If file already in warnings, return block result. Controlled by EGG_TASK_FILE_RESTRICTIONS env var ('warn'=default, 'enforce'=block-on-first, 'off'=skip).",
+            "files": ["gateway/gateway.py"],
+            "acceptance": "Function correctly validates files against session allowlist. Warn-then-block escalation works per file. Returns allow/block result with actionable error message."
+          },
+          {
+            "id": "TASK-3-2",
+            "description": "Insert per-session file restriction check into git_push() handler between the agent-role check (line ~791) and phase-based check (line ~801). Only applies when session has non-None allowed_files and phase is 'implement'.",
+            "files": ["gateway/gateway.py"],
+            "acceptance": "Push validation runs 4 layers in order: role-based → agent-role → per-session → phase-based. Sessions without allowed_files skip the new check. Audit logging captures violations."
+          }
+        ]
+      },
+      {
+        "id": 4,
+        "name": "Post-agent-commit support",
+        "description": "Update auto_commit_worktree() to respect per-session file restrictions when filtering uncommitted changes.",
+        "tasks": [
+          {
+            "id": "TASK-4-1",
+            "description": "Add allowed_files parameter to auto_commit_worktree(). When set, filter changed files against the allowlist (using same matching logic as gateway validation). Files outside allowlist are restored with clear logging. Update session cleanup code to pass allowed_files from Session.",
+            "files": ["gateway/post_agent_commit.py", "gateway/session_manager.py"],
+            "acceptance": "Auto-commit only commits files within the session's allowlist. Blocked files are restored with structured log messages identifying the restriction. Falls back to phase-only filtering when allowed_files is None."
+          }
+        ]
+      },
+      {
+        "id": 5,
+        "name": "Escape hatch CLI command",
+        "description": "Add egg-contract request-file CLI command for agents to request access to files outside their allowlist.",
+        "tasks": [
+          {
+            "id": "TASK-5-1",
+            "description": "Add request-file subcommand to egg-contract CLI. Calls POST /api/v1/sessions/{token}/request-file with path and reason. Logs the request and reports success/failure.",
+            "files": ["sandbox/egg_lib/contract_cli.py"],
+            "acceptance": "egg-contract request-file --path <file> --reason <why> succeeds and adds the file to the session allowlist. Error handling for missing token, gateway unreachable."
+          }
+        ]
+      },
+      {
+        "id": 6,
+        "name": "Plan template and planner prompt updates",
+        "description": "Document that files: is an enforcement boundary. Update planner guidance.",
+        "tasks": [
+          {
+            "id": "TASK-6-1",
+            "description": "Update plan template to clarify files: is enforced, not just informational. Add guidance: list generously, use globs, include test files and config files the task will touch, understand directory-sibling expansion. Update planner prompt references.",
+            "files": ["docs/templates/plan.md"],
+            "acceptance": "Template clearly states enforcement semantics. Examples show glob usage and generous listing."
+          }
+        ]
+      },
+      {
+        "id": 7,
+        "name": "Tests",
+        "description": "Comprehensive test coverage for all new enforcement behavior.",
+        "tasks": [
+          {
+            "id": "TASK-7-1",
+            "description": "Gateway tests: session file restriction enforcement on push, warn-then-block escalation, directory-sibling expansion, glob pattern matching, empty allowed_files fallback, EGG_TASK_FILE_RESTRICTIONS modes.",
+            "files": ["gateway/tests/test_session_file_restrictions.py"],
+            "acceptance": "All enforcement behaviors covered. Tests verify warn-on-first, block-on-second. Tests verify directory expansion. Tests verify empty fallback."
+          },
+          {
+            "id": "TASK-7-2",
+            "description": "Post-agent-commit tests: auto-commit filtering with allowed_files, restore of blocked files, fallback when allowed_files is None.",
+            "files": ["gateway/tests/test_post_agent_commit.py"],
+            "acceptance": "Tests verify files outside allowlist are restored. Tests verify allowed files are committed."
+          },
+          {
+            "id": "TASK-7-3",
+            "description": "Container spawner tests: compute_session_allowed_files() unit tests, integration test that spawn passes allowed_files to gateway.",
+            "files": ["orchestrator/tests/test_container_spawner.py"],
+            "acceptance": "Tests verify union computation, directory expansion, global config allowlist, None fallback for empty files_affected."
+          },
+          {
+            "id": "TASK-7-4",
+            "description": "End-to-end test: Tier 3 pipeline where two agents have disjoint file lists, verify each can only commit their own files.",
+            "files": ["orchestrator/tests/test_tier3_file_restrictions.py"],
+            "acceptance": "Test creates two sessions with disjoint allowed_files, verifies cross-contamination is detected."
+          }
+        ]
+      }
+    ]
+  },
+  "files_affected": [
+    {
+      "path": "gateway/session_manager.py",
+      "change_type": "modify",
+      "description": "Add allowed_files and file_violation_warnings fields to Session. Update persistence methods. Pass allowed_files from session cleanup to post-agent-commit."
+    },
+    {
+      "path": "gateway/gateway.py",
+      "change_type": "modify",
+      "description": "Accept allowed_files in session creation endpoint. Add per-session file restriction validation (Layer 2.5) in push handler. Add request-file endpoint."
+    },
+    {
+      "path": "gateway/post_agent_commit.py",
+      "change_type": "modify",
+      "description": "Add allowed_files parameter. Filter uncommitted changes against session allowlist."
+    },
+    {
+      "path": "gateway/agent_restrictions.py",
+      "change_type": "none",
+      "description": "No changes needed. _matches_pattern() will be imported and reused by the new validation logic."
+    },
+    {
+      "path": "gateway/phase_filter.py",
+      "change_type": "none",
+      "description": "No changes needed. Existing PhaseFileRestriction patterns remain as the authoritative final gate."
+    },
+    {
+      "path": "orchestrator/gateway_client.py",
+      "change_type": "modify",
+      "description": "Add allowed_files parameter to register_session()."
+    },
+    {
+      "path": "orchestrator/container_spawner.py",
+      "change_type": "modify",
+      "description": "Add compute_session_allowed_files(). Call it during implement-phase coder spawn and pass result to register_session()."
+    },
+    {
+      "path": "orchestrator/routes/pipelines.py",
+      "change_type": "modify",
+      "description": "Pass phase tasks to container spawner so it can compute allowed_files."
+    },
+    {
+      "path": "sandbox/egg_lib/contract_cli.py",
+      "change_type": "modify",
+      "description": "Add request-file subcommand for escape hatch."
+    },
+    {
+      "path": "docs/templates/plan.md",
+      "change_type": "modify",
+      "description": "Document that files: is an enforcement boundary with guidance on generous listing."
+    },
+    {
+      "path": "gateway/tests/test_session_file_restrictions.py",
+      "change_type": "create",
+      "description": "Tests for per-session file restriction enforcement, warn-then-block, directory expansion."
+    },
+    {
+      "path": "gateway/tests/test_post_agent_commit.py",
+      "change_type": "modify",
+      "description": "Add tests for allowed_files filtering in post-agent auto-commit."
+    },
+    {
+      "path": "orchestrator/tests/test_container_spawner.py",
+      "change_type": "modify",
+      "description": "Add tests for compute_session_allowed_files() and allowed_files pass-through."
+    },
+    {
+      "path": "orchestrator/tests/test_tier3_file_restrictions.py",
+      "change_type": "create",
+      "description": "End-to-end test for Tier 3 parallel agent file isolation."
+    }
+  ],
+  "risks": [
+    {
+      "id": "R-1",
+      "description": "Agents blocked on legitimate files: Despite generous matching and directory expansion, an agent may need a file not covered by the plan. The warn-then-block escalation and escape hatch mitigate this, but if the agent doesn't know to use egg-contract request-file, it may spin.",
+      "mitigation": "Include escape hatch instructions in the implement-phase prompt. The first warning includes an actionable error message with the request-file command.",
+      "severity": "medium",
+      "likelihood": "medium"
+    },
+    {
+      "id": "R-2",
+      "description": "Planner generates insufficiently generous file lists, causing frequent false-positive blocks.",
+      "mitigation": "Update planner prompt to emphasize generous listing with globs. Directory-sibling expansion provides a safety net. Global config allowlist covers common config files. Start with warn-only mode to identify problem patterns before enforcing.",
+      "severity": "medium",
+      "likelihood": "medium"
+    },
+    {
+      "id": "R-3",
+      "description": "In-memory violation tracking lost on gateway restart, resetting warn-then-block state mid-session.",
+      "mitigation": "Acceptable for a 'guide' system. The gateway rarely restarts during a pipeline run. If it does, the agent gets a fresh warning — this is fail-open behavior consistent with the philosophy.",
+      "severity": "low",
+      "likelihood": "low"
+    },
+    {
+      "id": "R-4",
+      "description": "Global config allowlist too broad — agents can modify shared config files (e.g., pyproject.toml) that affect other agents' builds.",
+      "mitigation": "Config file modifications are visible in PR diff review. The alternative (blocking config updates) is worse because it causes agents to fail on dependency additions. Future enhancement: per-section config file scoping.",
+      "severity": "low",
+      "likelihood": "medium"
+    },
+    {
+      "id": "R-5",
+      "description": "Backward incompatibility: existing sessions without allowed_files could be affected by the new validation layer.",
+      "mitigation": "The new layer only activates when session.allowed_files is not None. All existing sessions (and non-orchestrated sessions) will have allowed_files=None and skip the check entirely.",
+      "severity": "low",
+      "likelihood": "low"
+    },
+    {
+      "id": "R-6",
+      "description": "Performance impact of per-file glob matching on every push with large file lists.",
+      "mitigation": "Typical plan phases have 5-20 files. Even with directory expansion and config files, the allowlist will be under 50 patterns. fnmatch is O(n*m) but with small n and m this is microseconds. No caching needed.",
+      "severity": "low",
+      "likelihood": "low"
+    }
+  ],
+  "open_questions_resolved": [
+    {
+      "question": "Should the warn-then-block threshold be configurable?",
+      "resolution": "No. Fixed at warn-on-first, block-on-second. The EGG_TASK_FILE_RESTRICTIONS env var controls the mode ('warn'=warn-only, 'enforce'=block-on-first, 'off'=disabled). This is simpler than a numeric threshold and covers all practical needs."
+    },
+    {
+      "question": "What constitutes a 'repeated violation for the same file'?",
+      "resolution": "Per-file tracking on the Session object. First push containing out-of-scope file X warns. Any subsequent push containing file X blocks. The tracking is per-file, not per-push."
+    },
+    {
+      "question": "How deep should directory-sibling expansion go?",
+      "resolution": "One level: listing dir/foo.py allows all files in dir/ but not dir/sub/. The planner should list directories explicitly (e.g., dir/sub/) if subdirectories are in scope. This balances convenience with meaningful boundaries."
+    },
+    {
+      "question": "Should there be a global config file allowlist?",
+      "resolution": "Yes. Hardcoded default list of common config files (pyproject.toml, package.json, Makefile, requirements.txt, etc.). Overridable per-repo in .egg/config.yaml in the future."
+    },
+    {
+      "question": "How should per-session allowed_files interact with agent-role restrictions?",
+      "resolution": "Intersection (most restrictive wins). Per-session checks run between agent-role and phase checks. A file must pass all layers. If agent-role allows src/** but per-session only allows src/auth/, only src/auth/ files pass both."
+    },
+    {
+      "question": "How should auto_commit_worktree() access allowed_files?",
+      "resolution": "Explicit parameter. The session cleanup code that calls auto_commit_worktree() has access to the Session object and passes allowed_files directly. This is consistent with how phase is already passed."
+    },
+    {
+      "question": "Should the plan template require files for every task?",
+      "resolution": "No. files_affected remains optional. Empty/missing files_affected means no per-file restriction for that task. The planner is encouraged to list files generously but not required. This handles exploratory tasks gracefully."
+    }
+  ],
+  "interaction_with_existing_features": {
+    "phase_800_restrictions": "Per-session file restrictions augment, not replace, the phase-level restrictions from #800. Phase restrictions remain the authoritative final gate. Per-session restrictions add a finer-grained layer.",
+    "agent_role_restrictions": "Per-session restrictions run independently of agent-role restrictions. Both must pass for a file to be allowed. This means coder-role blocking of test files still applies even if the per-session allowlist includes test files.",
+    "tier_3_dispatch": "Each implement agent in Tier 3 gets a session with allowed_files scoped to its assigned plan phase's tasks. Agents working on different phases have disjoint (or overlapping, if the planner intended it) file lists. Cross-contamination is caught at push time.",
+    "post_agent_commit": "Updated to filter files using allowed_files in addition to phase restrictions. Blocked files are restored and logged clearly so the agent's work is not silently discarded."
+  }
+}
