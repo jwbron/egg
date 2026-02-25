@@ -3250,6 +3250,7 @@ def session_create() -> tuple[Response, int] | Response:
     claude_code_version = data.get("claude_code_version")  # Optional Claude Code version
     branch = data.get("branch")  # Optional git branch for non-pushing sessions
     complexity_tier = data.get("complexity_tier")  # Optional complexity tier for Tier 3 dispatch
+    allowed_files = data.get("allowed_files")  # Optional per-task file allowlist
 
     # Validate required fields
     if not container_id:
@@ -3310,6 +3311,13 @@ def session_create() -> tuple[Response, int] | Response:
             return make_error("Invalid branch: must be a string")
         if len(branch) > 256:
             return make_error("Invalid branch: must be 256 characters or fewer")
+
+    # Validate allowed_files if provided
+    if allowed_files is not None:
+        if not isinstance(allowed_files, list):
+            return make_error("Invalid allowed_files: must be a list of strings")
+        if not all(isinstance(f, str) for f in allowed_files):
+            return make_error("Invalid allowed_files: all entries must be strings")
 
     # Step 1: Query visibility for all repos
     repo_visibilities = {}
@@ -3431,6 +3439,7 @@ def session_create() -> tuple[Response, int] | Response:
         claude_code_version=claude_code_version,
         branch=branch,
         complexity_tier=complexity_tier,
+        allowed_files=allowed_files,
     )
 
     # Pre-populate checkpoint context so non-pushing sessions (reviewers,
@@ -3459,6 +3468,7 @@ def session_create() -> tuple[Response, int] | Response:
             "issue_number": issue_number,
             "pr_number": pr_number,
             "agent_role": agent_role,
+            "allowed_files": allowed_files,
             "filtered_repos": filtered_repos,
             "worktree_count": len(worktrees),
             "worktree_errors": worktree_errors if worktree_errors else None,

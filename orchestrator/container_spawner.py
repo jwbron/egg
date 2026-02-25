@@ -82,6 +82,77 @@ from models import AgentRole, ContainerInfo
 logger = get_logger("orchestrator.spawner")
 
 
+def compute_allowed_files_from_contract(
+    repo_path: str,
+    issue_number: int | None,
+    phase: str | None,
+) -> list[str] | None:
+    """Compute the per-session allowed_files list from the contract's plan tasks.
+
+    For implement-phase agents, reads the contract and collects the union of
+    `files_affected` across all tasks in all plan phases. For each file entry
+    that is not already a glob pattern, adds a parent directory glob (one level
+    deep) for sibling expansion.
+
+    Args:
+        repo_path: Path to the repository (orchestrator-local)
+        issue_number: GitHub issue number
+        phase: Current pipeline phase
+
+    Returns:
+        List of allowed file patterns, or None if no restrictions apply.
+    """
+    if phase != "implement" or issue_number is None:
+        return None
+
+    try:
+        from egg_contracts.loader import load_contract
+
+        contract = load_contract(issue_number, repo_path=repo_path)
+        if contract is None:
+            return None
+
+        all_files: list[str] = []
+        for plan_phase in getattr(contract, "phases", []) or []:
+            for task in getattr(plan_phase, "tasks", []) or []:
+                files = getattr(task, "files", None) or getattr(task, "files_affected", None) or []
+                all_files.extend(files)
+
+        if not all_files:
+            return None
+
+        # Deduplicate and expand with directory siblings
+        import posixpath
+
+        expanded: list[str] = []
+        seen: set[str] = set()
+        for f in all_files:
+            if f not in seen:
+                seen.add(f)
+                expanded.append(f)
+            # Add parent directory glob for non-glob entries
+            if "*" not in f:
+                parent = posixpath.dirname(f)
+                if parent:
+                    dir_glob = f"{parent}/*"
+                    if dir_glob not in seen:
+                        seen.add(dir_glob)
+                        expanded.append(dir_glob)
+
+        return expanded if expanded else None
+
+    except ImportError:
+        logger.debug("egg_contracts not available, skipping allowed_files computation")
+        return None
+    except Exception as e:
+        logger.warning(
+            "Failed to compute allowed_files from contract",
+            issue_number=issue_number,
+            error=str(e),
+        )
+        return None
+
+
 @dataclass
 class SpawnedContainer:
     """Information about a spawned container with gateway session."""
@@ -340,6 +411,26 @@ class ContainerSpawner:
         session_info = None
         container = None
 
+        # Compute per-task file allowlist from contract for implement-phase agents.
+        allowed_files: list[str] | None = None
+        if phase == "implement" and repo_volumes:
+            local_vols = _host_to_local_volumes(repo_volumes)
+            # Use the first repo's local path for contract loading
+            first_local_path = next(iter(local_vols.values()), None)
+            if first_local_path:
+                allowed_files = compute_allowed_files_from_contract(
+                    repo_path=first_local_path,
+                    issue_number=issue_number,
+                    phase=phase,
+                )
+                if allowed_files:
+                    logger.info(
+                        "Computed per-task file allowlist for session",
+                        pipeline_id=pipeline_id,
+                        agent_role=agent_role.value,
+                        allowed_files_count=len(allowed_files),
+                    )
+
         try:
             # Register gateway session so the container gets a session token.
             # Even local-mode containers need a session: the sandbox git/gh
@@ -361,6 +452,7 @@ class ContainerSpawner:
                     claude_code_version=os.environ.get("CLAUDE_CODE_VERSION"),
                     branch=branch,
                     complexity_tier=complexity_tier,
+                    allowed_files=allowed_files,
                 )
                 session_token = session_info.session_token
 

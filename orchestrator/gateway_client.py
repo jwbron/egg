@@ -243,6 +243,7 @@ class GatewayClient:
         claude_code_version: str | None = None,
         branch: str | None = None,
         complexity_tier: str | None = None,
+        allowed_files: list[str] | None = None,
     ) -> SessionInfo:
         """Register a session for a container.
 
@@ -262,6 +263,7 @@ class GatewayClient:
             pr_number: Optional GitHub PR number for checkpoint linkage
             claude_code_version: Optional Claude Code version string
             branch: Optional git branch for non-pushing session metadata
+            allowed_files: Optional per-task file allowlist for implement phase
 
         Returns:
             SessionInfo with the created session
@@ -296,6 +298,8 @@ class GatewayClient:
             request_data["branch"] = branch
         if complexity_tier is not None:
             request_data["complexity_tier"] = complexity_tier
+        if allowed_files is not None:
+            request_data["allowed_files"] = allowed_files
 
         result = self._make_request(
             "/api/v1/sessions/create",

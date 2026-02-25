@@ -243,6 +243,13 @@ class Session:
     assigned_branch: str | None = None  # Worktree branch locked to this session
     auto_commit_sha: str | None = None  # SHA from post-agent auto-commit
     complexity_tier: str | None = None  # Complexity tier ('low', 'mid', 'high') for Tier 3 dispatch
+    allowed_files: list[str] | None = None  # Per-task file allowlist for implement phase
+
+    def __post_init__(self) -> None:
+        """Initialize non-persisted tracking state."""
+        # Per-file violation counter for warn-then-block semantics.
+        # Not persisted — resets on gateway restart (fail-open).
+        self._warned_files: dict[str, int] = {}
 
     def is_expired(self) -> bool:
         """Check if session has expired."""
@@ -252,6 +259,30 @@ class Session:
         """Extend session TTL (heartbeat)."""
         self.last_seen = datetime.now(UTC)
         self.expires_at = self.last_seen + timedelta(hours=hours)
+
+    def add_allowed_file(self, path: str) -> None:
+        """Add a file (and its directory glob) to the session's allowed_files list.
+
+        Deduplicates entries. If allowed_files is None, initializes it.
+
+        Args:
+            path: File path to add (e.g., "src/utils/new.py")
+        """
+        import posixpath
+
+        if self.allowed_files is None:
+            self.allowed_files = []
+
+        entries_to_add = [path]
+        # Add parent directory glob for sibling expansion
+        parent = posixpath.dirname(path)
+        if parent:
+            dir_glob = f"{parent}/*"
+            entries_to_add.append(dir_glob)
+
+        for entry in entries_to_add:
+            if entry not in self.allowed_files:
+                self.allowed_files.append(entry)
 
     def to_dict_for_persistence(self) -> dict[str, Any]:
         """Convert to dictionary for persistence (excludes raw token)."""
@@ -288,6 +319,8 @@ class Session:
             result["auto_commit_sha"] = self.auto_commit_sha
         if self.complexity_tier is not None:
             result["complexity_tier"] = self.complexity_tier
+        if self.allowed_files is not None:
+            result["allowed_files"] = self.allowed_files
         return result
 
     @classmethod
@@ -314,6 +347,7 @@ class Session:
             assigned_branch=data.get("assigned_branch"),
             auto_commit_sha=data.get("auto_commit_sha"),
             complexity_tier=data.get("complexity_tier"),
+            allowed_files=data.get("allowed_files"),
         )
 
 
@@ -463,6 +497,7 @@ class SessionManager:
         claude_code_version: str | None = None,
         branch: str | None = None,
         complexity_tier: str | None = None,
+        allowed_files: list[str] | None = None,
     ) -> tuple[str, Session]:
         """
         Register a new session for a container.
@@ -479,6 +514,7 @@ class SessionManager:
             claude_code_version: Optional Claude Code version string
             branch: Optional git branch for non-pushing pipeline sessions
             complexity_tier: Optional complexity tier ('low', 'mid', 'high') for Tier 3 dispatch
+            allowed_files: Optional per-task file allowlist for implement phase enforcement
 
         Returns:
             Tuple of (session_token, Session)
@@ -504,6 +540,7 @@ class SessionManager:
             agent_role=agent_role,
             claude_code_version=claude_code_version,
             complexity_tier=complexity_tier,
+            allowed_files=allowed_files,
         )
 
         if branch:
@@ -771,6 +808,36 @@ class SessionManager:
                 container_id=session.container_id,
                 old_phase=old_phase,
                 new_phase=phase,
+            )
+
+            return True
+
+    def update_session_allowed_files(self, token: str, files: list[str]) -> bool:
+        """Update the allowed_files list for a session and persist.
+
+        Args:
+            token: The session token
+            files: The new allowed_files list
+
+        Returns:
+            True if session was updated, False if session not found
+        """
+        token_hash = self._token_to_hash.get(token) or _hash_token(token)
+
+        with self._lock:
+            session = self._sessions.get(token_hash)
+            if not session or session.is_expired():
+                return False
+
+            session.allowed_files = files
+            self._save_to_disk()
+
+            logger.info(
+                "Session allowed_files updated",
+                event_type="session_allowed_files_updated",
+                session_token_hash=token_hash[:16],
+                container_id=session.container_id,
+                allowed_files_count=len(files),
             )
 
             return True
