@@ -362,11 +362,7 @@ class TestDecisionTypeValidation:
         assert response.status_code == 200
         # Verify default 'choice' was passed to queue_decision
         call_kwargs = mock_queue.queue_decision.call_args
-        assert (
-            call_kwargs[1]["decision_type"] == "choice" or call_kwargs[0][3] == "choice"
-            if len(call_kwargs[0]) > 3
-            else True
-        )
+        assert call_kwargs[1]["decision_type"] == "choice"
 
 
 class TestQueueDecisionValidation:
