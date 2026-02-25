@@ -2617,3 +2617,76 @@ class TestContractDecisionBridge:
         # After answering, approve should not warn about pending questions
         captured = capsys.readouterr()
         assert "still unanswered" not in captured.out
+
+    # -- EOF handling in option-based questions --
+
+    @patch("builtins.input")
+    def test_handle_questions_eof_during_option_based(self, mock_input, tmp_path, capsys):
+        """EOFError during option-based question returns quit (not ValueError)."""
+        self._write_contract(
+            tmp_path,
+            "42",
+            [
+                {
+                    "id": "decision-1",
+                    "question": "Which DB?",
+                    "type": "hitl",
+                    "resolved": False,
+                    "resolution": None,
+                    "options": [
+                        {"id": "opt-1", "label": "PostgreSQL"},
+                        {"id": "opt-2", "label": "MongoDB"},
+                    ],
+                },
+            ],
+        )
+        pending = _load_pending_contract_decisions(tmp_path, "42")
+        mock_input.side_effect = EOFError
+
+        result = _handle_contract_questions(tmp_path, "42", pending)
+
+        assert result == "quit"
+
+    # -- Multi-question test --
+
+    @patch("builtins.input")
+    def test_handle_questions_multi_answer_one_skip_one(self, mock_input, tmp_path, capsys):
+        """Multiple questions: answer the first, skip the second."""
+        self._write_contract(
+            tmp_path,
+            "42",
+            [
+                {
+                    "id": "decision-1",
+                    "question": "Which DB?",
+                    "type": "hitl",
+                    "resolved": False,
+                    "resolution": None,
+                    "options": [
+                        {"id": "opt-1", "label": "PostgreSQL"},
+                        {"id": "opt-2", "label": "MongoDB"},
+                    ],
+                },
+                {
+                    "id": "decision-2",
+                    "question": "Expected volume?",
+                    "type": "hitl",
+                    "resolved": False,
+                    "resolution": None,
+                    "options": [],
+                },
+            ],
+        )
+        pending = _load_pending_contract_decisions(tmp_path, "42")
+        # "1" selects PostgreSQL for the first question, "/s" skips the second
+        mock_input.side_effect = ["1", "/s"]
+
+        result = _handle_contract_questions(tmp_path, "42", pending)
+
+        assert result == "answered"
+        data = json.loads((tmp_path / ".egg-state" / "contracts" / "42.json").read_text())
+        # First decision resolved
+        assert data["decisions"][0]["resolved"] is True
+        assert data["decisions"][0]["resolution"] == "PostgreSQL"
+        # Second decision skipped (still unresolved)
+        assert data["decisions"][1]["resolved"] is False

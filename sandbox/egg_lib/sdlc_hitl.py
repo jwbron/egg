@@ -257,7 +257,7 @@ def _handle_contract_questions(
             valid = valid_nums | {"s", "q"}
             choice = _prompt_choice(f"    {BOLD}Choose:{RESET} ", valid)
 
-            if choice == "q":
+            if choice in ("q", "c"):
                 return "quit"
             if choice == "s":
                 continue
