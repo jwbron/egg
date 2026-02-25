@@ -1186,7 +1186,7 @@ egg-sdlc
 **Features:**
 - Real-time DAG visualization (reuses `egg-pipeline-watch` SSE patterns)
 - Type-aware HITL checkpoints that render differently based on `decision_type`:
-  - **Phase gate** (`phase_gate`): Draft preview with edit, approve, and request-changes options
+  - **Phase gate** (`phase_gate`): Draft preview with edit, approve, and request-changes options; surfaces pending contract decisions via `[q]` option
   - **Choice** (`choice`): Numbered options for discrete selection
   - **Feedback** (`feedback`): Per-question prompts with review-before-submit
   - **Generic fallback**: Legacy 5-option menu for unknown decision types

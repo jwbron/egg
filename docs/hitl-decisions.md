@@ -214,9 +214,13 @@ In local mode (`egg-sdlc`), the HITL checkpoint handler (`sandbox/egg_lib/sdlc_h
 
 | Type | Field Value | Terminal Behavior |
 |------|-------------|-------------------|
-| Phase gate | `phase_gate` | Shows draft preview, offers edit/approve/request-changes |
+| Phase gate | `phase_gate` | Shows draft preview, offers edit/approve/request-changes, and surfaces pending contract decisions via `[q]` option |
 | Choice | `choice` | Renders numbered options for selection |
 | Feedback | `feedback` | Prompts for each question individually, supports review-before-submit |
+
+### Contract Decision Bridge
+
+Contract decisions created by agents via `egg-contract add-decision` are automatically bridged to the phase gate menu in local mode. When unanswered decisions exist in the contract JSON, the phase gate displays a `[q] Answer open questions` option that lets humans respond directly from the terminal. Approving a phase gate with unanswered questions triggers a warning prompt.
 
 Every decision type also includes universal options:
 - **General feedback** (`[f]`) — free-text input attached alongside the primary resolution
