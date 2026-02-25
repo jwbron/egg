@@ -1182,12 +1182,8 @@ def create_parser() -> argparse.ArgumentParser:
     request_file_parser = subparsers.add_parser(
         "request-file", help="Request access to a file outside the task's allowlist"
     )
-    request_file_parser.add_argument(
-        "--path", required=True, help="File path to request access to"
-    )
-    request_file_parser.add_argument(
-        "--reason", required=True, help="Reason for requesting access"
-    )
+    request_file_parser.add_argument("--path", required=True, help="File path to request access to")
+    request_file_parser.add_argument("--reason", required=True, help="Reason for requesting access")
     request_file_parser.set_defaults(func=cmd_request_file)
 
     # Agent orchestration commands
