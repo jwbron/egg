@@ -11,14 +11,10 @@ from datetime import datetime, timedelta
 from unittest.mock import MagicMock, patch
 
 import pytest
-from container_spawner import (
-    ContainerSpawner,
-    compute_allowed_files_from_contract,
-)
+from container_spawner import ContainerSpawner, compute_allowed_files_from_contract
 from docker_client import ContainerNotFoundError
 from gateway_client import GatewayHealth, SessionInfo
 from models import AgentRole, ContainerInfo, ContainerStatus
-
 
 # --- Fixtures ---
 
@@ -106,11 +102,15 @@ class TestComputeAllowedFilesFromContract:
     @patch("egg_contracts.loader.load_contract")
     def test_basic_files_affected(self, mock_load):
         """Collects files_affected from contract tasks."""
-        mock_load.return_value = _make_contract([
-            _make_phase([
-                _make_task(files_affected=["src/auth/login.py", "src/auth/logout.py"]),
-            ]),
-        ])
+        mock_load.return_value = _make_contract(
+            [
+                _make_phase(
+                    [
+                        _make_task(files_affected=["src/auth/login.py", "src/auth/logout.py"]),
+                    ]
+                ),
+            ]
+        )
         result = compute_allowed_files_from_contract("/repo", 123, "implement")
         assert result is not None
         assert "src/auth/login.py" in result
@@ -119,11 +119,15 @@ class TestComputeAllowedFilesFromContract:
     @patch("egg_contracts.loader.load_contract")
     def test_directory_sibling_expansion(self, mock_load):
         """Each non-glob file entry gets a parent directory glob."""
-        mock_load.return_value = _make_contract([
-            _make_phase([
-                _make_task(files_affected=["src/auth/login.py"]),
-            ]),
-        ])
+        mock_load.return_value = _make_contract(
+            [
+                _make_phase(
+                    [
+                        _make_task(files_affected=["src/auth/login.py"]),
+                    ]
+                ),
+            ]
+        )
         result = compute_allowed_files_from_contract("/repo", 123, "implement")
         assert "src/auth/login.py" in result
         assert "src/auth/*" in result
@@ -131,11 +135,15 @@ class TestComputeAllowedFilesFromContract:
     @patch("egg_contracts.loader.load_contract")
     def test_glob_entries_no_expansion(self, mock_load):
         """Entries with * are not expanded (already globs)."""
-        mock_load.return_value = _make_contract([
-            _make_phase([
-                _make_task(files_affected=["src/components/*.tsx", "tests/**"]),
-            ]),
-        ])
+        mock_load.return_value = _make_contract(
+            [
+                _make_phase(
+                    [
+                        _make_task(files_affected=["src/components/*.tsx", "tests/**"]),
+                    ]
+                ),
+            ]
+        )
         result = compute_allowed_files_from_contract("/repo", 123, "implement")
         assert "src/components/*.tsx" in result
         assert "tests/**" in result
@@ -145,15 +153,21 @@ class TestComputeAllowedFilesFromContract:
     @patch("egg_contracts.loader.load_contract")
     def test_union_across_tasks(self, mock_load):
         """Files from multiple tasks across phases are unioned."""
-        mock_load.return_value = _make_contract([
-            _make_phase([
-                _make_task(files_affected=["src/auth/login.py"]),
-                _make_task(files_affected=["src/db/models.py"]),
-            ]),
-            _make_phase([
-                _make_task(files_affected=["tests/test_auth.py"]),
-            ]),
-        ])
+        mock_load.return_value = _make_contract(
+            [
+                _make_phase(
+                    [
+                        _make_task(files_affected=["src/auth/login.py"]),
+                        _make_task(files_affected=["src/db/models.py"]),
+                    ]
+                ),
+                _make_phase(
+                    [
+                        _make_task(files_affected=["tests/test_auth.py"]),
+                    ]
+                ),
+            ]
+        )
         result = compute_allowed_files_from_contract("/repo", 123, "implement")
         assert "src/auth/login.py" in result
         assert "src/db/models.py" in result
@@ -162,12 +176,16 @@ class TestComputeAllowedFilesFromContract:
     @patch("egg_contracts.loader.load_contract")
     def test_deduplication(self, mock_load):
         """Duplicate entries across tasks are deduplicated."""
-        mock_load.return_value = _make_contract([
-            _make_phase([
-                _make_task(files_affected=["src/auth/login.py"]),
-                _make_task(files_affected=["src/auth/login.py", "src/auth/logout.py"]),
-            ]),
-        ])
+        mock_load.return_value = _make_contract(
+            [
+                _make_phase(
+                    [
+                        _make_task(files_affected=["src/auth/login.py"]),
+                        _make_task(files_affected=["src/auth/login.py", "src/auth/logout.py"]),
+                    ]
+                ),
+            ]
+        )
         result = compute_allowed_files_from_contract("/repo", 123, "implement")
         assert result.count("src/auth/login.py") == 1
 
@@ -181,11 +199,15 @@ class TestComputeAllowedFilesFromContract:
     @patch("egg_contracts.loader.load_contract")
     def test_empty_files_affected_returns_none(self, mock_load):
         """Returns None when tasks have no files_affected."""
-        mock_load.return_value = _make_contract([
-            _make_phase([
-                _make_task(files_affected=[], files=None),
-            ]),
-        ])
+        mock_load.return_value = _make_contract(
+            [
+                _make_phase(
+                    [
+                        _make_task(files_affected=[], files=None),
+                    ]
+                ),
+            ]
+        )
         result = compute_allowed_files_from_contract("/repo", 123, "implement")
         assert result is None
 
@@ -211,9 +233,11 @@ class TestComputeAllowedFilesFromContract:
         task = MagicMock()
         task.files = ["src/utils.py"]
         task.files_affected = None
-        mock_load.return_value = _make_contract([
-            _make_phase([task]),
-        ])
+        mock_load.return_value = _make_contract(
+            [
+                _make_phase([task]),
+            ]
+        )
         result = compute_allowed_files_from_contract("/repo", 123, "implement")
         assert result is not None
         assert "src/utils.py" in result
@@ -221,11 +245,15 @@ class TestComputeAllowedFilesFromContract:
     @patch("egg_contracts.loader.load_contract")
     def test_root_level_file_no_parent_glob(self, mock_load):
         """Root-level files (no directory) don't generate broken globs."""
-        mock_load.return_value = _make_contract([
-            _make_phase([
-                _make_task(files_affected=["Makefile", "pyproject.toml"]),
-            ]),
-        ])
+        mock_load.return_value = _make_contract(
+            [
+                _make_phase(
+                    [
+                        _make_task(files_affected=["Makefile", "pyproject.toml"]),
+                    ]
+                ),
+            ]
+        )
         result = compute_allowed_files_from_contract("/repo", 123, "implement")
         assert "Makefile" in result
         assert "pyproject.toml" in result
@@ -297,9 +325,7 @@ class TestSpawnerAllowedFilesWiring:
         assert call_kwargs.get("allowed_files") is None
 
     @patch("container_spawner.compute_allowed_files_from_contract")
-    def test_no_repo_volumes_skips_computation(
-        self, mock_compute, spawner, mock_gateway_client
-    ):
+    def test_no_repo_volumes_skips_computation(self, mock_compute, spawner, mock_gateway_client):
         """Without repo_volumes, allowed_files computation is skipped."""
         spawner.spawn_agent_container(
             pipeline_id="issue-805",

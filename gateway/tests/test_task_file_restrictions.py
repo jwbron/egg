@@ -5,14 +5,7 @@ including warn-then-block semantics, strict mode, glob matching, directory
 expansion, escape hatch, and phase blocked pattern intersection.
 """
 
-import json
-import os
-import sys
-from unittest.mock import MagicMock, patch
-
-import pytest
 from phase_filter import (
-    FileRestrictionResult,
     PhaseFileRestriction,
     build_session_file_restriction,
     check_session_file_restrictions,
@@ -41,9 +34,7 @@ class TestBuildSessionFileRestriction:
 
     def test_allowed_file_in_phase_blocked_dir_is_blocked(self):
         """Phase blocked patterns always win, even if in session allowlist."""
-        restriction = build_session_file_restriction(
-            [".egg-state/contracts/*"], "implement"
-        )
+        restriction = build_session_file_restriction([".egg-state/contracts/*"], "implement")
         # The file should be blocked because phase blocks take priority
         allowed, reason = restriction.is_file_allowed(".egg-state/contracts/foo.json")
         assert not allowed
@@ -51,25 +42,19 @@ class TestBuildSessionFileRestriction:
 
     def test_unknown_phase_uses_allowed_only(self):
         """Unknown phase creates restriction with just allowed_files."""
-        restriction = build_session_file_restriction(
-            ["src/auth/*"], "unknown_phase"
-        )
+        restriction = build_session_file_restriction(["src/auth/*"], "unknown_phase")
         assert "src/auth/*" in restriction.allowed_patterns
         assert restriction.blocked_patterns == []
 
     def test_file_in_allowlist_is_allowed(self):
         """Files matching allowlist patterns should be allowed."""
-        restriction = build_session_file_restriction(
-            ["src/auth/*", "tests/**"], "implement"
-        )
+        restriction = build_session_file_restriction(["src/auth/*", "tests/**"], "implement")
         allowed, _ = restriction.is_file_allowed("src/auth/login.py")
         assert allowed
 
     def test_file_outside_allowlist_is_blocked(self):
         """Files not matching any allowlist pattern should be blocked."""
-        restriction = build_session_file_restriction(
-            ["src/auth/*"], "implement"
-        )
+        restriction = build_session_file_restriction(["src/auth/*"], "implement")
         allowed, _ = restriction.is_file_allowed("src/other/foo.py")
         assert not allowed
 
@@ -96,9 +81,7 @@ class TestCheckSessionFileRestrictions:
 
     def test_file_out_of_scope_blocked(self):
         """File not matching any allowed pattern should be blocked."""
-        result = check_session_file_restrictions(
-            ["src/auth/*"], "implement", ["src/other/foo.py"]
-        )
+        result = check_session_file_restrictions(["src/auth/*"], "implement", ["src/other/foo.py"])
         assert not result.allowed
         assert "src/other/foo.py" in result.blocked_files
 
@@ -347,9 +330,7 @@ class TestSessionAllowedFilesPersistence:
             allowed_files=["src/*"],
         )
         # Update
-        success = manager.update_session_allowed_files(
-            token, ["src/*", "tests/*", "docs/*"]
-        )
+        success = manager.update_session_allowed_files(token, ["src/*", "tests/*", "docs/*"])
         assert success
 
         # Verify updated
@@ -510,17 +491,13 @@ class TestBuildSessionFileRestrictionEdgeCases:
 
     def test_pr_phase_no_blocked_patterns(self):
         """PR phase has no blocked patterns, so all allowed_files work."""
-        restriction = build_session_file_restriction(
-            ["src/auth/*"], "pr"
-        )
+        restriction = build_session_file_restriction(["src/auth/*"], "pr")
         # PR phase uses allowed_patterns=["*"], so no blocked patterns
         assert restriction.blocked_patterns == []
 
     def test_refine_phase_blocked_patterns(self):
         """Refine phase blocks code files (only allows .egg-state)."""
-        restriction = build_session_file_restriction(
-            ["src/auth/*"], "refine"
-        )
+        restriction = build_session_file_restriction(["src/auth/*"], "refine")
         # Refine has allowed_patterns (not blocked_patterns) so blocked_patterns may be empty
         # The key behavior: files outside refine's allowlist are blocked
         allowed, _ = restriction.is_file_allowed("src/auth/login.py")
@@ -564,7 +541,5 @@ class TestBuildSessionFileRestrictionEdgeCases:
 
     def test_empty_string_in_allowed_files(self):
         """Empty string in allowed_files does not cause errors."""
-        result = check_session_file_restrictions(
-            ["", "src/*"], "implement", ["src/file.py"]
-        )
+        result = check_session_file_restrictions(["", "src/*"], "implement", ["src/file.py"])
         assert result.allowed

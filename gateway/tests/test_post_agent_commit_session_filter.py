@@ -7,10 +7,8 @@ Validates that auto_commit_worktree respects session-level allowed_files:
 - Clear logging for session-blocked files
 """
 
-import types
 from unittest.mock import MagicMock, patch
 
-import pytest
 from post_agent_commit import auto_commit_worktree
 
 
@@ -66,9 +64,7 @@ class TestSessionFilterBasic:
 
     @patch("post_agent_commit._load_session_allowed_files")
     @patch("post_agent_commit.subprocess.run")
-    def test_no_session_token_skips_session_filter(
-        self, mock_run, mock_load_session, tmp_path
-    ):
+    def test_no_session_token_skips_session_filter(self, mock_run, mock_load_session, tmp_path):
         """Without session_token, session filtering is skipped."""
         mock_run.side_effect = [
             MagicMock(returncode=0, stdout=" M src/any.py\n", stderr=""),
@@ -88,9 +84,7 @@ class TestSessionFilterBasic:
 
     @patch("post_agent_commit._load_session_allowed_files")
     @patch("post_agent_commit.subprocess.run")
-    def test_no_phase_skips_session_filter(
-        self, mock_run, mock_load_session, tmp_path
-    ):
+    def test_no_phase_skips_session_filter(self, mock_run, mock_load_session, tmp_path):
         """Without phase, session filtering is skipped."""
         mock_run.side_effect = [
             MagicMock(returncode=0, stdout=" M src/any.py\n", stderr=""),
@@ -110,9 +104,7 @@ class TestSessionFilterBasic:
 
     @patch("post_agent_commit._load_session_allowed_files")
     @patch("post_agent_commit.subprocess.run")
-    def test_session_returns_none_allows_all(
-        self, mock_run, mock_load_session, tmp_path
-    ):
+    def test_session_returns_none_allows_all(self, mock_run, mock_load_session, tmp_path):
         """When session has no allowed_files (None), all files pass."""
         mock_run.side_effect = [
             MagicMock(
@@ -147,18 +139,14 @@ class TestSessionAndPhaseFilterCombination:
 
     @patch("post_agent_commit._load_session_allowed_files")
     @patch("post_agent_commit.subprocess.run")
-    def test_both_phase_and_session_block_files(
-        self, mock_run, mock_load_session, tmp_path
-    ):
+    def test_both_phase_and_session_block_files(self, mock_run, mock_load_session, tmp_path):
         """Phase blocks .egg-state, session blocks out-of-scope code files."""
         mock_run.side_effect = [
             # git status: 3 files
             MagicMock(
                 returncode=0,
                 stdout=(
-                    " M src/auth/login.py\n"
-                    " M src/other/secret.py\n"
-                    " M .egg-state/contracts/c.json\n"
+                    " M src/auth/login.py\n M src/other/secret.py\n M .egg-state/contracts/c.json\n"
                 ),
                 stderr="",
             ),
@@ -187,9 +175,7 @@ class TestSessionAndPhaseFilterCombination:
 
     @patch("post_agent_commit._load_session_allowed_files")
     @patch("post_agent_commit.subprocess.run")
-    def test_all_files_blocked_by_session_skips_commit(
-        self, mock_run, mock_load_session, tmp_path
-    ):
+    def test_all_files_blocked_by_session_skips_commit(self, mock_run, mock_load_session, tmp_path):
         """When session blocks all files, no commit is made."""
         mock_run.side_effect = [
             # git status

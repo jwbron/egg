@@ -912,9 +912,7 @@ def git_push() -> tuple[Response, int] | Response:
                 enforce_strict = os.environ.get(
                     "EGG_TASK_FILE_RESTRICTIONS_ENFORCE", "false"
                 ).lower() in ("true", "1", "yes")
-                warn_threshold = int(
-                    os.environ.get("EGG_TASK_FILE_WARN_THRESHOLD", "1")
-                )
+                warn_threshold = int(os.environ.get("EGG_TASK_FILE_WARN_THRESHOLD", "1"))
 
                 if enforce_strict:
                     # Strict mode: block immediately
@@ -931,8 +929,7 @@ def git_push() -> tuple[Response, int] | Response:
                         },
                     )
                     return make_error(
-                        f"Push denied: files outside task allowlist. "
-                        f"{session_result.message}",
+                        f"Push denied: files outside task allowlist. {session_result.message}",
                         status_code=403,
                         details={
                             "blocked_files": session_result.blocked_files,
@@ -968,8 +965,7 @@ def git_push() -> tuple[Response, int] | Response:
                         },
                     )
                     return make_error(
-                        f"Push denied: repeated out-of-scope files. "
-                        f"{session_result.message}",
+                        f"Push denied: repeated out-of-scope files. {session_result.message}",
                         status_code=403,
                         details={
                             "blocked_files": session_result.blocked_files,
@@ -3944,9 +3940,11 @@ def session_request_file() -> tuple[Response, int] | Response:
     if not session:
         return make_error("No session context", status_code=401)
 
-    enforce_strict = os.environ.get(
-        "EGG_TASK_FILE_RESTRICTIONS_ENFORCE", "false"
-    ).lower() in ("true", "1", "yes")
+    enforce_strict = os.environ.get("EGG_TASK_FILE_RESTRICTIONS_ENFORCE", "false").lower() in (
+        "true",
+        "1",
+        "yes",
+    )
 
     # Audit event for all file requests
     audit_log(
@@ -3971,10 +3969,11 @@ def session_request_file() -> tuple[Response, int] | Response:
             reason=reason,
             container_id=session.container_id,
         )
-        return make_success(
+        return make_response(
+            True,
             "File request queued for approval",
             {"status": "pending", "path": path},
-            status_code=202,
+            202,
         )
 
     # Auto-approve: add the file to the session's allowlist

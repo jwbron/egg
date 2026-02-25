@@ -241,7 +241,7 @@ def auto_commit_worktree(
         session_blocked_files: list[str] = []
         if session_token and phase and commit_allowed_files:
             try:
-                from phase_filter import check_session_file_restrictions  # type: ignore[import-untyped]  # noqa: I001
+                from phase_filter import check_session_file_restrictions  # noqa: I001
             except ImportError:
                 try:
                     from gateway.phase_filter import check_session_file_restrictions
