@@ -1080,6 +1080,86 @@ class TestFallbackGenericMenu:
 
     @patch("egg_lib.sdlc_hitl._find_repo_path")
     @patch("builtins.input")
+    def test_generic_eof_returns_cancelled(self, mock_input, mock_repo, tmp_path):
+        """EOF on generic menu input returns 'c' which cancels the pipeline.
+
+        When stdin is exhausted, _prompt_choice returns 'c'. The generic menu
+        must handle 'c' as a cancel option (same as '5') rather than looping
+        infinitely.
+        """
+        mock_repo.return_value = tmp_path
+        mock_input.side_effect = EOFError()
+
+        client = self._make_client()
+        decision = {
+            "id": "d1",
+            "question": "Approve the refine analysis?",
+            "context": "",
+            "decision_type": "unknown_type",
+        }
+        result = handle_hitl_checkpoint(
+            client,
+            "issue-42",
+            decision,
+            pipeline_mode="issue",
+            issue_number=42,
+        )
+
+        assert result == "cancelled"
+        client.cancel_pipeline.assert_called_once_with("issue-42")
+
+    @patch("egg_lib.sdlc_hitl._find_repo_path")
+    @patch("builtins.input")
+    def test_generic_keyboard_interrupt_returns_cancelled(self, mock_input, mock_repo, tmp_path):
+        """KeyboardInterrupt on generic menu input cancels the pipeline."""
+        mock_repo.return_value = tmp_path
+        mock_input.side_effect = KeyboardInterrupt()
+
+        client = self._make_client()
+        decision = {
+            "id": "d1",
+            "question": "Approve the refine analysis?",
+            "context": "",
+            "decision_type": "unknown_type",
+        }
+        result = handle_hitl_checkpoint(
+            client,
+            "issue-42",
+            decision,
+            pipeline_mode="issue",
+            issue_number=42,
+        )
+
+        assert result == "cancelled"
+        client.cancel_pipeline.assert_called_once_with("issue-42")
+
+    @patch("egg_lib.sdlc_hitl._find_repo_path")
+    @patch("builtins.input")
+    def test_generic_c_option_cancels(self, mock_input, mock_repo, tmp_path):
+        """Explicit 'c' input on generic menu cancels the pipeline."""
+        mock_repo.return_value = tmp_path
+        mock_input.return_value = "c"
+
+        client = self._make_client()
+        decision = {
+            "id": "d1",
+            "question": "Approve the refine analysis?",
+            "context": "",
+            "decision_type": "unknown_type",
+        }
+        result = handle_hitl_checkpoint(
+            client,
+            "issue-42",
+            decision,
+            pipeline_mode="issue",
+            issue_number=42,
+        )
+
+        assert result == "cancelled"
+        client.cancel_pipeline.assert_called_once_with("issue-42")
+
+    @patch("egg_lib.sdlc_hitl._find_repo_path")
+    @patch("builtins.input")
     def test_generic_feedback_then_approve(self, mock_input, mock_repo, tmp_path):
         """Generic menu option 4 collects feedback, then resolves."""
         mock_repo.return_value = tmp_path

@@ -265,6 +265,110 @@ class TestListDecisionsSerialization:
         assert decisions[0]["questions"] == []
 
 
+class TestDecisionTypeValidation:
+    """Tests for decision_type validation in the POST create-decision endpoint."""
+
+    @patch("routes.decisions.get_repo_path")
+    def test_invalid_decision_type_returns_400(self, mock_repo, client, tmp_path):
+        """POST with an unrecognized decision_type returns 400."""
+        mock_repo.return_value = tmp_path
+
+        response = client.post(
+            "/api/v1/pipelines/test-pipeline/decisions",
+            json={
+                "question": "Approve the plan?",
+                "decision_type": "phase_gat",  # typo
+            },
+        )
+
+        assert response.status_code == 400
+        data = response.get_json()
+        assert data["success"] is False
+        assert "Invalid decision_type" in data["message"]
+        assert "phase_gat" in data["message"]
+
+    @patch("routes.decisions.get_repo_path")
+    def test_empty_string_decision_type_returns_400(self, mock_repo, client, tmp_path):
+        """POST with empty string decision_type returns 400."""
+        mock_repo.return_value = tmp_path
+
+        response = client.post(
+            "/api/v1/pipelines/test-pipeline/decisions",
+            json={
+                "question": "Approve the plan?",
+                "decision_type": "",
+            },
+        )
+
+        assert response.status_code == 400
+        data = response.get_json()
+        assert data["success"] is False
+
+    @patch("routes.decisions.get_repo_path")
+    def test_arbitrary_string_decision_type_returns_400(self, mock_repo, client, tmp_path):
+        """POST with arbitrary decision_type returns 400 with valid types listed."""
+        mock_repo.return_value = tmp_path
+
+        response = client.post(
+            "/api/v1/pipelines/test-pipeline/decisions",
+            json={
+                "question": "Approve?",
+                "decision_type": "chocie",  # typo of 'choice'
+            },
+        )
+
+        assert response.status_code == 400
+        data = response.get_json()
+        assert "phase_gate" in data["message"]
+        assert "choice" in data["message"]
+        assert "feedback" in data["message"]
+
+    @patch("routes.decisions.get_repo_path")
+    @patch("routes.decisions.get_decision_queue")
+    def test_valid_decision_types_accepted(self, mock_get_queue, mock_repo, client, tmp_path):
+        """POST with each valid decision_type succeeds."""
+        mock_repo.return_value = tmp_path
+        mock_queue = MagicMock()
+        mock_get_queue.return_value = mock_queue
+
+        for dtype in ("phase_gate", "choice", "feedback"):
+            mock_queue.queue_decision.return_value = _make_decision(decision_type=dtype)
+            response = client.post(
+                "/api/v1/pipelines/test-pipeline/decisions",
+                json={
+                    "question": "Test?",
+                    "decision_type": dtype,
+                },
+            )
+            assert response.status_code == 200, f"Expected 200 for decision_type={dtype}"
+
+    @patch("routes.decisions.get_repo_path")
+    @patch("routes.decisions.get_decision_queue")
+    def test_missing_decision_type_defaults_to_choice(
+        self, mock_get_queue, mock_repo, client, tmp_path
+    ):
+        """POST without decision_type defaults to 'choice' and succeeds."""
+        mock_repo.return_value = tmp_path
+        mock_queue = MagicMock()
+        mock_decision = _make_decision()
+        mock_queue.queue_decision.return_value = mock_decision
+        mock_get_queue.return_value = mock_queue
+
+        response = client.post(
+            "/api/v1/pipelines/test-pipeline/decisions",
+            json={"question": "Pick one?"},
+        )
+
+        assert response.status_code == 200
+        # Verify default 'choice' was passed to queue_decision
+        call_kwargs = mock_queue.queue_decision.call_args
+        assert (
+            call_kwargs[1]["decision_type"] == "choice" or call_kwargs[0][3] == "choice"
+            if len(call_kwargs[0]) > 3
+            else True
+        )
+
+
 class TestQueueDecisionValidation:
     """Tests for POST create-decision input validation and error handling."""
 

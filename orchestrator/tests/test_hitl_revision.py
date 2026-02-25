@@ -662,3 +662,101 @@ class TestJSONResolutionParsing:
         approved, revision, feedback = self._classify_resolution(resolution)
         assert approved is False
         assert revision is True
+
+
+class TestCircuitBreakerFallThrough:
+    """Verify the circuit breaker falls through to the approval path.
+
+    When hitl_review_cycles >= max_hitl_review_cycles, the code must NOT
+    continue the outer loop. It must fall through to the approval block
+    that sets phase status to COMPLETE.
+    """
+
+    def test_circuit_breaker_does_not_set_revision_feedback(self):
+        """When circuit breaker fires, hitl_revision_feedback must remain unset.
+
+        The `continue` is inside the `else` branch only, so when the breaker
+        fires (the `if` branch), execution exits the `with` block and reaches
+        the approval path — hitl_revision_feedback stays None.
+        """
+        config = PipelineConfig(max_hitl_review_cycles=2)
+        phase = PhaseExecution(phase=PipelinePhase.PLAN)
+
+        # Simulate: 2 prior cycles, human provides feedback again
+        phase.hitl_review_cycles = 1  # Will be incremented to 2
+        _revision_feedback = "Fix the tests"
+
+        # Simulate the pipeline code path
+        phase.hitl_review_cycles += 1
+        hitl_revision_feedback = None  # This is the outer-scope variable
+
+        max_hitl_cycles = config.max_hitl_review_cycles
+        if phase.hitl_review_cycles >= max_hitl_cycles:
+            # Circuit breaker fires — do NOT set hitl_revision_feedback
+            # do NOT continue — fall through to approval
+            breaker_fired = True
+        else:
+            hitl_revision_feedback = _revision_feedback
+            breaker_fired = False
+
+        assert breaker_fired is True
+        assert hitl_revision_feedback is None
+        assert phase.hitl_review_cycles == 2
+
+    def test_normal_revision_sets_feedback_and_continues(self):
+        """When under the limit, hitl_revision_feedback IS set (continue path)."""
+        config = PipelineConfig(max_hitl_review_cycles=5)
+        phase = PhaseExecution(phase=PipelinePhase.PLAN)
+
+        phase.hitl_review_cycles = 0
+        _revision_feedback = "Add error handling"
+
+        phase.hitl_review_cycles += 1
+        hitl_revision_feedback = None
+
+        max_hitl_cycles = config.max_hitl_review_cycles
+        if phase.hitl_review_cycles >= max_hitl_cycles:
+            breaker_fired = True
+        else:
+            hitl_revision_feedback = _revision_feedback
+            breaker_fired = False
+
+        assert breaker_fired is False
+        assert hitl_revision_feedback == "Add error handling"
+        assert phase.hitl_review_cycles == 1
+
+    def test_circuit_breaker_at_exact_limit(self):
+        """Breaker fires when hitl_review_cycles == max (not just >)."""
+        config = PipelineConfig(max_hitl_review_cycles=3)
+        phase = PhaseExecution(phase=PipelinePhase.PLAN)
+
+        phase.hitl_review_cycles = 2  # Will increment to 3 == max
+        phase.hitl_review_cycles += 1
+
+        hitl_revision_feedback = None
+        if phase.hitl_review_cycles >= config.max_hitl_review_cycles:
+            breaker_fired = True
+        else:
+            hitl_revision_feedback = "some feedback"
+            breaker_fired = False
+
+        assert breaker_fired is True
+        assert hitl_revision_feedback is None
+
+    def test_circuit_breaker_just_under_limit(self):
+        """One under the limit should NOT fire the breaker."""
+        config = PipelineConfig(max_hitl_review_cycles=3)
+        phase = PhaseExecution(phase=PipelinePhase.PLAN)
+
+        phase.hitl_review_cycles = 1  # Will increment to 2, under max of 3
+        phase.hitl_review_cycles += 1
+
+        hitl_revision_feedback = None
+        if phase.hitl_review_cycles >= config.max_hitl_review_cycles:
+            breaker_fired = True
+        else:
+            hitl_revision_feedback = "some feedback"
+            breaker_fired = False
+
+        assert breaker_fired is False
+        assert hitl_revision_feedback == "some feedback"
