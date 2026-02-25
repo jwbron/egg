@@ -888,6 +888,93 @@ def check_phase_file_restrictions(
     return get_phase_filter().check_phase_file_restrictions(phase, files)
 
 
+def build_session_file_restriction(
+    allowed_files: list[str],
+    phase: str | PipelinePhase,
+) -> PhaseFileRestriction:
+    """Build a PhaseFileRestriction from a session's allowed_files list.
+
+    Combines the session-level allowed_files with the existing phase-level
+    blocked_patterns to enforce intersection semantics: phase blocks always win,
+    and within the phase's allowed space, only the session's listed files are permitted.
+
+    Args:
+        allowed_files: Per-session file allowlist patterns (globs supported)
+        phase: Current pipeline phase
+
+    Returns:
+        PhaseFileRestriction with combined restrictions
+    """
+    if isinstance(phase, str):
+        try:
+            phase = PipelinePhase(phase)
+        except ValueError:
+            # Unknown phase — return restriction with just allowed_files
+            return PhaseFileRestriction(
+                allowed_patterns=list(allowed_files),
+                description="Session-level file restriction (unknown phase)",
+            )
+
+    # Get the existing phase-level blocked patterns
+    pf = get_phase_filter()
+    pf._load_permissions()
+    phase_restriction = pf._phase_file_restrictions.get(phase)
+
+    blocked_patterns: list[str] = []
+    if phase_restriction:
+        blocked_patterns = list(phase_restriction.blocked_patterns)
+
+    return PhaseFileRestriction(
+        allowed_patterns=list(allowed_files),
+        blocked_patterns=blocked_patterns,
+        description=f"Session-level file restriction for phase '{phase.value}'",
+    )
+
+
+def check_session_file_restrictions(
+    allowed_files: list[str],
+    phase: str | PipelinePhase,
+    files: list[str],
+) -> FileRestrictionResult:
+    """Check if files are allowed by the session's per-task allowlist.
+
+    This is separate from phase-level restrictions. It implements the
+    per-session file boundary enforcement (intersection semantics with phase).
+
+    Args:
+        allowed_files: Per-session file allowlist patterns
+        phase: Current pipeline phase
+        files: List of file paths being modified
+
+    Returns:
+        FileRestrictionResult indicating whether the files are allowed
+    """
+    if not allowed_files or not files:
+        return FileRestrictionResult.allow("No session file restrictions or no files to check")
+
+    restriction = build_session_file_restriction(allowed_files, phase)
+
+    blocked_files: list[str] = []
+    blocked_reasons: list[str] = []
+
+    for file_path in files:
+        allowed, reason = restriction.is_file_allowed(file_path)
+        if not allowed:
+            blocked_files.append(file_path)
+            if reason not in blocked_reasons:
+                blocked_reasons.append(reason)
+
+    if blocked_files:
+        return FileRestrictionResult.block(
+            message=f"Session file restriction: {', '.join(blocked_files)}",
+            role="session:task-allowlist",
+            blocked_files=blocked_files,
+            blocked_reason="; ".join(blocked_reasons),
+        )
+
+    return FileRestrictionResult.allow("All files allowed by session allowlist")
+
+
 def check_agent_restrictions(
     agent_role: str,
     files: list[str],

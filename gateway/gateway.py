@@ -92,6 +92,7 @@ try:
         check_agent_restrictions,
         check_file_restrictions,
         check_phase_file_restrictions,
+        check_session_file_restrictions,
         filter_operation,
     )
     from .policy import (
@@ -152,6 +153,7 @@ except ImportError:
         check_agent_restrictions,
         check_file_restrictions,
         check_phase_file_restrictions,
+        check_session_file_restrictions,
         filter_operation,
     )
     from policy import (  # type: ignore[no-redef, import-untyped]
@@ -873,6 +875,120 @@ def git_push() -> tuple[Response, int] | Response:
                     "hint": hint,
                 },
             )
+
+    # SECURITY: Per-session file restrictions (task-level file boundaries).
+    # When a session has allowed_files set (from the plan's files_affected),
+    # enforce that pushes only contain files within the allowlist.
+    # Uses warn-then-block semantics: first violation warns, subsequent block.
+    # Checkpoint pushes and non-implement phases are exempt.
+    if not is_checkpoint_push and hasattr(g, "session") and g.session:
+        session_allowed_files = getattr(g.session, "allowed_files", None)
+        if session_allowed_files and session_phase:
+            # Ensure we have the changed files list
+            if changed_files is None:
+                changed_files, check_error = get_changed_files_in_push(exec_path, remote, branch)
+                if check_error:
+                    audit_log(
+                        "push_denied_file_check_failed",
+                        "git_push",
+                        success=False,
+                        details={
+                            "repo": repo,
+                            "branch": branch,
+                            "error": check_error,
+                            "context": "session_file_restrictions",
+                        },
+                    )
+                    return make_error(
+                        f"Push denied: Could not verify file changes: {check_error}",
+                        status_code=500,
+                    )
+
+            session_result = check_session_file_restrictions(
+                session_allowed_files, session_phase, changed_files
+            )
+            if not session_result.allowed:
+                # Warn-then-block semantics
+                enforce_strict = os.environ.get(
+                    "EGG_TASK_FILE_RESTRICTIONS_ENFORCE", "false"
+                ).lower() in ("true", "1", "yes")
+                warn_threshold = int(
+                    os.environ.get("EGG_TASK_FILE_WARN_THRESHOLD", "1")
+                )
+
+                if enforce_strict:
+                    # Strict mode: block immediately
+                    audit_log(
+                        "push_denied_session_file_restrictions",
+                        "git_push",
+                        success=False,
+                        details={
+                            "repo": repo,
+                            "branch": branch,
+                            "blocked_files": session_result.blocked_files,
+                            "allowed_files": session_allowed_files,
+                            "mode": "strict",
+                        },
+                    )
+                    return make_error(
+                        f"Push denied: files outside task allowlist. "
+                        f"{session_result.message}",
+                        status_code=403,
+                        details={
+                            "blocked_files": session_result.blocked_files,
+                            "allowed_files": session_allowed_files,
+                            "hint": "Use `egg-contract request-file --path <file> "
+                            "--reason <why>` to request access to additional files.",
+                        },
+                    )
+
+                # Check warn counts per file
+                should_block = False
+                newly_warned: list[str] = []
+                for bf in session_result.blocked_files or []:
+                    count = g.session._warned_files.get(bf, 0) + 1
+                    g.session._warned_files[bf] = count
+                    if count > warn_threshold:
+                        should_block = True
+                    else:
+                        newly_warned.append(bf)
+
+                if should_block:
+                    audit_log(
+                        "push_denied_session_file_restrictions",
+                        "git_push",
+                        success=False,
+                        details={
+                            "repo": repo,
+                            "branch": branch,
+                            "blocked_files": session_result.blocked_files,
+                            "allowed_files": session_allowed_files,
+                            "mode": "warn-then-block",
+                            "warned_files": dict(g.session._warned_files),
+                        },
+                    )
+                    return make_error(
+                        f"Push denied: repeated out-of-scope files. "
+                        f"{session_result.message}",
+                        status_code=403,
+                        details={
+                            "blocked_files": session_result.blocked_files,
+                            "allowed_files": session_allowed_files,
+                            "hint": "Use `egg-contract request-file --path <file> "
+                            "--reason <why>` to request access to additional files.",
+                        },
+                    )
+                else:
+                    # Warn only — allow the push
+                    logger.warning(
+                        "Session file restriction would block push (warn-only)",
+                        event_type="session_file_restriction_warning",
+                        repo=repo,
+                        branch=branch,
+                        blocked_files=session_result.blocked_files,
+                        allowed_files=session_allowed_files,
+                        warned_files=dict(g.session._warned_files),
+                    )
 
     # Get authentication token using shared helper
     token_str, auth_mode, token_error = get_token_for_repo(repo)

@@ -123,6 +123,37 @@ def _push_via_gateway(
         return False
 
 
+def _load_session_allowed_files(session_token: str) -> list[str] | None:
+    """Load the allowed_files list from a persisted session.
+
+    Tries to load the session from the session manager to retrieve
+    the per-task file allowlist. Returns None if the session can't
+    be loaded or has no allowed_files set.
+
+    Args:
+        session_token: Gateway session token
+
+    Returns:
+        List of allowed file patterns, or None
+    """
+    try:
+        try:
+            from session_manager import get_session_manager  # type: ignore[import-untyped]  # noqa: I001
+        except ImportError:
+            from gateway.session_manager import get_session_manager
+
+        sm = get_session_manager()
+        session = sm.get_session(session_token)
+        if session:
+            return getattr(session, "allowed_files", None)
+    except Exception as e:
+        logger.debug(
+            "Could not load session for allowed_files",
+            error=str(e),
+        )
+    return None
+
+
 def auto_commit_worktree(
     worktree_path: str,
     container_id: str,
@@ -177,7 +208,7 @@ def auto_commit_worktree(
         # (same function used by push-time validation in gateway.py) to ensure
         # consistent enforcement.  If the import fails, all files are allowed
         # (fail-open) since push-time validation remains the authoritative gate.
-        allowed_files = list(changed_files)
+        commit_allowed_files = list(changed_files)
         blocked_files: list[str] = []
 
         if phase and changed_files:
@@ -193,16 +224,55 @@ def auto_commit_worktree(
                 result = check_phase_file_restrictions(phase, changed_files)
                 if not result.allowed:
                     blocked_files = result.blocked_files or []
-                    allowed_files = [f for f in changed_files if f not in blocked_files]
+                    commit_allowed_files = [f for f in changed_files if f not in blocked_files]
 
                     logger.info(
                         "Phase restrictions filter auto-commit files",
                         event_type="post_agent_phase_filter",
                         phase=phase,
                         blocked_files=blocked_files,
-                        allowed_count=len(allowed_files),
+                        allowed_count=len(commit_allowed_files),
                         container_id=container_id,
                     )
+
+        # Per-session file restriction filtering (task-level boundaries).
+        # Load the persisted session to get allowed_files, then filter
+        # uncommitted files against the session's allowlist.
+        session_blocked_files: list[str] = []
+        if session_token and phase and commit_allowed_files:
+            try:
+                from phase_filter import check_session_file_restrictions  # type: ignore[import-untyped]  # noqa: I001
+            except ImportError:
+                try:
+                    from gateway.phase_filter import check_session_file_restrictions
+                except ImportError:
+                    check_session_file_restrictions = None  # type: ignore[assignment, unused-ignore]
+
+            if check_session_file_restrictions is not None:
+                # Load the session's allowed_files from persisted session data
+                session_allowed_files = _load_session_allowed_files(session_token)
+                if session_allowed_files:
+                    session_result = check_session_file_restrictions(
+                        session_allowed_files, phase, commit_allowed_files
+                    )
+                    if not session_result.allowed:
+                        session_blocked_files = session_result.blocked_files or []
+                        commit_allowed_files = [
+                            f for f in commit_allowed_files if f not in session_blocked_files
+                        ]
+
+                        for sbf in session_blocked_files:
+                            logger.info(
+                                "Restored %s: outside task allowlist (allowed: %s)",
+                                sbf,
+                                session_allowed_files,
+                                event_type="post_agent_session_filter",
+                                phase=phase,
+                                container_id=container_id,
+                            )
+
+        # Combine all blocked files
+        blocked_files = blocked_files + session_blocked_files
 
         # Restore blocked files to their committed state.
         if blocked_files:
@@ -217,7 +287,7 @@ def auto_commit_worktree(
                     )
 
         # If no allowed files remain after filtering, nothing to commit.
-        if not allowed_files:
+        if not commit_allowed_files:
             logger.info(
                 "All changed files blocked by phase restrictions, skipping auto-commit",
                 event_type="post_agent_auto_commit_skipped",
@@ -228,7 +298,7 @@ def auto_commit_worktree(
             return None
 
         # Stage only allowed files (not git add -A which stages everything).
-        add_result = _git("add", "--", *allowed_files, cwd=worktree_path)
+        add_result = _git("add", "--", *commit_allowed_files, cwd=worktree_path)
         if add_result.returncode != 0:
             logger.warning(
                 "Failed to stage changes for auto-commit",
@@ -278,7 +348,7 @@ def auto_commit_worktree(
             pipeline_id=pipeline_id,
             phase=phase,
             commit_sha=sha,
-            allowed_files=allowed_files,
+            allowed_files=commit_allowed_files,
             blocked_files=blocked_files,
         )
 
