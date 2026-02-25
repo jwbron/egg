@@ -7,7 +7,7 @@ Central coordination engine for egg's SDLC pipeline execution, container lifecyc
 The orchestrator manages the end-to-end SDLC pipeline that turns GitHub issues into reviewed pull requests. It:
 
 - **Manages pipeline state** — persists phase transitions, agent executions, and decisions on a git-backed state branch
-- **Spawns and monitors containers** — creates sandbox containers with proper configuration via the gateway sidecar
+- **Spawns and monitors containers** — creates sandbox containers with proper configuration via the gateway sidecar, including per-task file allowlists computed from the plan contract
 - **Coordinates multi-agent execution** — runs specialized agents (coder, tester, documenter, etc.) in dependency-ordered waves
 - **Handles HITL decisions** — queues questions for human reviewers and blocks until resolved
 - **Streams real-time status** — provides SSE streams and DAG visualizations for pipeline monitoring

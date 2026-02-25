@@ -168,8 +168,16 @@ def auto_commit_worktree(
     When a ``phase`` is provided, files are checked against phase-based
     file restrictions using ``check_phase_file_restrictions``.  Blocked
     files are restored via ``git checkout`` and only allowed files are
-    committed.  If a ``session_token`` and ``gateway_url`` are provided,
-    the commit is pushed through the gateway API.
+    committed.
+
+    When a ``session_token`` is provided alongside a ``phase``, the
+    session's per-task ``allowed_files`` are loaded and used as an
+    additional filter via ``check_session_file_restrictions``.  Files
+    outside the task allowlist are restored (not committed) and logged
+    explicitly to avoid silent drops.
+
+    If a ``session_token`` and ``gateway_url`` are provided, the commit
+    is pushed through the gateway API.
 
     Args:
         worktree_path: Absolute path to the worktree directory.
@@ -177,7 +185,8 @@ def auto_commit_worktree(
         agent_role: Agent role (e.g., "coder") for the commit message.
         pipeline_id: Pipeline ID for the commit message.
         phase: SDLC phase for file restriction filtering.
-        session_token: Gateway session token for pushing.
+        session_token: Gateway session token for pushing and loading
+            per-task allowed_files for session-level filtering.
         gateway_url: Gateway base URL (e.g., ``http://egg-gateway:<port>``).
 
     Returns:

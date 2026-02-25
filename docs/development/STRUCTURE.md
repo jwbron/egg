@@ -57,7 +57,7 @@ gateway/
 ├── checkpoint_handler.py   # Checkpoint capture (commit and session-end triggers)
 ├── transcript_buffer.py    # API proxy transcript capture buffer
 ├── worktree_manager.py     # Git worktree lifecycle
-├── session_manager.py      # Agent session management (branch lock, auto-commit trigger)
+├── session_manager.py      # Agent session management (branch lock, auto-commit trigger, per-task allowed_files)
 ├── post_agent_commit.py    # Post-agent auto-commit for uncommitted worktree changes
 ├── repo_parser.py          # Repository config parsing
 ├── repo_visibility.py      # Repository visibility logic
@@ -79,7 +79,7 @@ The orchestrator manages local SDLC pipeline execution. It creates isolated git 
 orchestrator/
 ├── api.py                  # REST API server (Flask)
 ├── cli.py                  # CLI for pipeline management
-├── container_spawner.py    # Sandbox container lifecycle
+├── container_spawner.py    # Sandbox container lifecycle, per-task allowed_files computation
 ├── container_monitor.py    # Container health monitoring
 ├── dag_visualizer.py       # ASCII DAG visualization for pipeline status (incl. Tier 3 sub-phase rendering)
 ├── decision_queue.py       # HITL decision queue

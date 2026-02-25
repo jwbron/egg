@@ -494,6 +494,7 @@ gateway/
 │   ├── test_phase_worktree.py
 │   ├── test_assigned_branch.py  # Push-target enforcement and branch lock tests
 │   ├── test_task_file_restrictions.py  # Per-task session file restriction tests
+│   ├── test_post_agent_commit_session_filter.py  # Post-agent auto-commit session filtering tests
 │   ├── integration_test.sh
 │   └── README-integration.md
 └── README.md               # This file
