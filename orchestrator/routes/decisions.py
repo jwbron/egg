@@ -167,13 +167,20 @@ def queue_decision(pipeline_id: str) -> tuple[Response, int]:
     if not question:
         return make_error_response("Missing question")
 
+    VALID_DECISION_TYPES = ("phase_gate", "choice", "feedback")
+    decision_type = data.get("decision_type", "choice")
+    if decision_type not in VALID_DECISION_TYPES:
+        return make_error_response(
+            f"Invalid decision_type '{decision_type}'. Must be one of: {', '.join(VALID_DECISION_TYPES)}"
+        )
+
     try:
         queue = get_decision_queue(pipeline_id, repo_path)
         decision = queue.queue_decision(
             question=question,
             context=data.get("context", ""),
             options=data.get("options"),
-            decision_type=data.get("decision_type", "choice"),
+            decision_type=decision_type,
             questions=data.get("questions"),
         )
 

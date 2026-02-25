@@ -5945,9 +5945,20 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                         phase=current_phase.value,
                         resolution=resolution,
                     )
+                    # Extract a human-friendly label from the resolution for the
+                    # follow-up prompt (avoid displaying raw JSON to the user).
+                    try:
+                        _parsed = json.loads(resolution)
+                        display_resolution = (
+                            _parsed.get("action", resolution).replace("_", " ")
+                            if isinstance(_parsed, dict)
+                            else resolution
+                        )
+                    except (json.JSONDecodeError, TypeError, AttributeError):
+                        display_resolution = resolution
                     followup = dq.queue_decision(
                         question=(
-                            f'You selected "{resolution}" but didn\'t provide specific feedback. '
+                            f'You selected "{display_resolution}" but didn\'t provide specific feedback. '
                             f"Please describe what changes you'd like to see in the {phase_label}, "
                             f"or approve to continue."
                         ),
@@ -6026,13 +6037,13 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                         else:
                             hitl_revision_feedback = _revision_feedback
                             store.save_pipeline(pipeline)
-                        report_pipeline_status(
-                            pipeline,
-                            event_type="phase.revision_requested",
-                            message=f"Human requested changes to {current_phase.value}",
-                        )
-                        _emit_pipeline_event(pipeline, "phase.revision_requested")
-                        continue  # Re-enter outer loop → re-run phase with feedback
+                            report_pipeline_status(
+                                pipeline,
+                                event_type="phase.revision_requested",
+                                message=f"Human requested changes to {current_phase.value}",
+                            )
+                            _emit_pipeline_event(pipeline, "phase.revision_requested")
+                            continue  # Re-enter outer loop → re-run phase with feedback
 
                 # Approved — resume and advance
                 with get_pipeline_state_lock(pipeline_id):

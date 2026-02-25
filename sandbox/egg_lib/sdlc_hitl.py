@@ -466,8 +466,8 @@ def _handle_feedback(
 
     def _collect_answers() -> bool:
         """Collect answers for all questions. Returns False if cancelled."""
-        for q in questions:
-            q_id = q.get("id", f"q-{len(answers) + 1}")
+        for i, q in enumerate(questions):
+            q_id = q.get("id", f"q-{i + 1}")
             q_text = q.get("question", "Question")
             if q_id in answers:
                 # Already answered (e.g. during resume after interrupt)
@@ -594,7 +594,7 @@ def _handle_generic(
         print(f"  {CYAN}[4]{RESET} Provide feedback (text input)")
         print(f"  {CYAN}[5]{RESET} Cancel pipeline")
 
-        choice = _prompt_choice(f"\n  {BOLD}Choose [1-5]:{RESET} ", {"1", "2", "3", "4", "5"})
+        choice = _prompt_choice(f"\n  {BOLD}Choose [1-5]:{RESET} ", {"1", "2", "3", "4", "5", "c"})
 
         if choice == "1":
             if draft_path:
@@ -644,7 +644,7 @@ def _handle_generic(
                 print(f"\n  {RED}Failed to resolve decision: {e}{RESET}")
                 continue
 
-        elif choice == "5":
+        elif choice in ("5", "c"):
             try:
                 client.cancel_pipeline(pipeline_id)
                 print(f"\n  {YELLOW}Pipeline cancelled.{RESET}")

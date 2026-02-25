@@ -11,7 +11,7 @@ import time
 from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 # Add shared directory to path for logging
 _shared_path = Path(__file__).parent.parent / "shared"
@@ -128,7 +128,7 @@ class DecisionQueue:
         question: str,
         context: str = "",
         options: list[str] | None = None,
-        decision_type: str = "choice",
+        decision_type: Literal["phase_gate", "choice", "feedback"] = "choice",
         questions: list[dict[str, str]] | None = None,
     ) -> HITLDecision:
         """Queue a new decision for human review.

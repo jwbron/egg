@@ -7,7 +7,7 @@ including container state, HITL decisions, and agent coordination.
 
 from datetime import datetime
 from enum import StrEnum
-from typing import Any, NamedTuple
+from typing import Any, Literal, NamedTuple
 
 from pydantic import BaseModel, Field
 
@@ -175,7 +175,7 @@ class HITLDecision(BaseModel):
     options: list[str] = Field(
         default_factory=list, description="Available options (empty for free-form)"
     )
-    decision_type: str = Field(
+    decision_type: Literal["phase_gate", "choice", "feedback"] = Field(
         default="choice",
         description="Type of decision: 'phase_gate', 'choice', or 'feedback'",
     )
@@ -339,7 +339,7 @@ class Pipeline(BaseModel):
         self,
         question: str,
         options: list[str] | None = None,
-        decision_type: str = "choice",
+        decision_type: Literal["phase_gate", "choice", "feedback"] = "choice",
         questions: list[dict[str, str]] | None = None,
     ) -> HITLDecision:
         """Add a new HITL decision request."""
