@@ -10,6 +10,8 @@ import re
 import shlex
 import subprocess
 import sys
+import tempfile
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -118,6 +120,179 @@ def _read_draft(repo_path: Path, draft_rel: str | None) -> str | None:
         return draft_path.read_text()
     except Exception:
         return None
+
+
+def _get_contract_key(
+    pipeline_mode: str,
+    issue_number: int | None = None,
+    pipeline_id: str | None = None,
+) -> str | None:
+    """Return the contract file key for the current pipeline.
+
+    Issue mode uses the issue number as key; local mode uses the pipeline ID.
+    Returns None if the required identifier is missing.
+    """
+    if pipeline_mode == "local":
+        return pipeline_id if pipeline_id else None
+    # issue mode (default)
+    return str(issue_number) if issue_number else None
+
+
+def _load_pending_contract_decisions(
+    repo_path: Path,
+    contract_key: str,
+) -> list[dict[str, Any]]:
+    """Load pending HITL decisions from a contract JSON file.
+
+    Returns decisions where type=="hitl" and resolved==False.
+    Returns [] on missing file, parse error, or unexpected structure.
+    """
+    contract_path = repo_path / ".egg-state" / "contracts" / f"{contract_key}.json"
+    if not contract_path.exists():
+        return []
+    try:
+        data = json.loads(contract_path.read_text())
+    except (json.JSONDecodeError, OSError):
+        return []
+    decisions = data.get("decisions", [])
+    if not isinstance(decisions, list):
+        return []
+    return [
+        d
+        for d in decisions
+        if isinstance(d, dict) and d.get("type") == "hitl" and d.get("resolved") is False
+    ]
+
+
+def _resolve_contract_decision(
+    repo_path: Path,
+    contract_key: str,
+    decision_id: str,
+    resolution: str,
+) -> bool:
+    """Resolve a contract decision by ID via atomic JSON rewrite.
+
+    Sets resolved=True, resolution, resolved_by="human", resolved_at=<now>.
+    Returns True on success, False if the decision was not found or on error.
+
+    Note: This uses a read-modify-write cycle without file locking (TOCTOU).
+    If an agent mutates the contract file (via the gateway) between our read
+    and write, the agent's changes will be lost. This is acceptable for now
+    because the CLI is the only writer during human review, and the gateway's
+    ``/api/v1/contract/mutate`` endpoint could be used instead for full
+    concurrency safety in the future.
+    """
+    contract_path = repo_path / ".egg-state" / "contracts" / f"{contract_key}.json"
+    if not contract_path.exists():
+        return False
+    try:
+        data = json.loads(contract_path.read_text())
+    except (json.JSONDecodeError, OSError):
+        return False
+
+    decisions = data.get("decisions", [])
+    found = False
+    for d in decisions:
+        if isinstance(d, dict) and d.get("id") == decision_id:
+            d["resolved"] = True
+            d["resolution"] = resolution
+            d["resolved_by"] = "human"
+            d["resolved_at"] = datetime.now(UTC).isoformat()
+            found = True
+            break
+
+    if not found:
+        return False
+
+    # Atomic write: write to temp file then rename
+    try:
+        contract_dir = contract_path.parent
+        fd, tmp_path = tempfile.mkstemp(dir=str(contract_dir), suffix=".tmp")
+        try:
+            with os.fdopen(fd, "w") as f:
+                json.dump(data, f, indent=2)
+                f.write("\n")
+            os.replace(tmp_path, str(contract_path))
+        except Exception:
+            # Clean up temp file on failure
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+            raise
+    except OSError:
+        return False
+
+    return True
+
+
+def _handle_contract_questions(
+    repo_path: Path,
+    contract_key: str,
+    pending: list[dict[str, Any]],
+) -> str:
+    """Interactively handle pending contract decisions.
+
+    For each decision: options → numbered choice, no options → free-text.
+    User can skip (s) individual questions or return to menu (q).
+    Returns "answered" when done (some or all answered), "quit" to return to menu.
+    """
+    print(f"\n{BOLD}  Open Questions ({len(pending)}){RESET}")
+
+    for idx, decision in enumerate(pending):
+        d_id = decision.get("id", "unknown")
+        question = decision.get("question", "No question text")
+        options = decision.get("options", [])
+
+        print(f"\n  {BOLD}[{idx + 1}/{len(pending)}] {question}{RESET}")
+
+        if options:
+            # Numbered choice
+            for i, opt in enumerate(options, 1):
+                label = opt.get("label", opt) if isinstance(opt, dict) else str(opt)
+                print(f"    {CYAN}[{i}]{RESET} {label}")
+            print(f"    {DIM}[s] Skip  [q] Return to menu{RESET}")
+
+            valid_nums = {str(i) for i in range(1, len(options) + 1)}
+            valid = valid_nums | {"s", "q"}
+            choice = _prompt_choice(f"    {BOLD}Choose:{RESET} ", valid)
+
+            if choice in ("q", "c"):
+                return "quit"
+            if choice == "s":
+                continue
+
+            selected_opt = options[int(choice) - 1]
+            label = (
+                selected_opt.get("label", selected_opt)
+                if isinstance(selected_opt, dict)
+                else str(selected_opt)
+            )
+            if _resolve_contract_decision(repo_path, contract_key, d_id, label):
+                _print_confirmation(f"Answered: {label}")
+            else:
+                print(f"    {RED}Failed to save answer.{RESET}")
+        else:
+            # Free-text input — use /s and /q prefixes to avoid intercepting
+            # legitimate single-letter answers like "q" or "s".
+            print(f"    {DIM}/s Skip  /q Return to menu{RESET}")
+            try:
+                answer = input(f"    {BOLD}Answer:{RESET} ").strip()
+            except (EOFError, KeyboardInterrupt):
+                print()
+                return "quit"
+
+            if answer.lower() == "/q":
+                return "quit"
+            if answer.lower() == "/s" or not answer:
+                continue
+
+            if _resolve_contract_decision(repo_path, contract_key, d_id, answer):
+                _print_confirmation("Answer saved")
+            else:
+                print(f"    {RED}Failed to save answer.{RESET}")
+
+    return "answered"
 
 
 def _display_draft_preview(content: str, max_lines: int = 40) -> None:
@@ -312,6 +487,8 @@ def _handle_phase_gate(
     draft_content: str | None,
     phase: str,
     issue_number: int | None,
+    *,
+    pipeline_mode: str = "issue",
 ) -> str:
     """Handle a phase_gate decision with draft review options."""
     decision_id = decision.get("id", "unknown")
@@ -319,15 +496,29 @@ def _handle_phase_gate(
     phase_label = "analysis" if phase == "refine" else phase
 
     while True:
+        # Load pending contract decisions each iteration (may change after answering).
+        # pipeline_id doubles as contract key in local mode (e.g., "local-a1b2c3d4").
+        contract_key = _get_contract_key(pipeline_mode, issue_number, pipeline_id)
+        pending_contract = (
+            _load_pending_contract_decisions(repo_path, contract_key) if contract_key else []
+        )
+
         print(f"\n  {BOLD}Options:{RESET}")
         print(f"  {CYAN}[1]{RESET} Edit with $EDITOR ({os.environ.get('EDITOR', 'vim')})")
         print(f"  {CYAN}[2]{RESET} Start Claude for AI-assisted editing")
         print(f"  {CYAN}[3]{RESET} Approve and advance to next phase")
         print(f"  {CYAN}[4]{RESET} Request changes")
         _display_universal_options()
+        if pending_contract:
+            n = len(pending_contract)
+            print(f"\n  {YELLOW}[q]{RESET} Answer open questions ({n} pending)")
 
         valid = {"1", "2", "3", "4", "f", "a", "c"}
-        choice = _prompt_choice(f"\n  {BOLD}Choose [1-4/f/a/c]:{RESET} ", valid)
+        if pending_contract:
+            valid.add("q")
+        choice = _prompt_choice(
+            f"\n  {BOLD}Choose [1-4/f/a/c{'/' + 'q' if pending_contract else ''}]:{RESET} ", valid
+        )
 
         # Check universal options first
         result = _handle_universal_option(choice, client, pipeline_id, decision_id)
@@ -358,7 +549,18 @@ def _handle_phase_gate(
             )
             draft_content = _read_draft(repo_path, draft_rel)
 
+        elif choice == "q" and contract_key:
+            _handle_contract_questions(repo_path, contract_key, pending_contract)
+            continue
+
         elif choice == "3":
+            # Warn if there are still unanswered contract questions
+            if pending_contract:
+                n = len(pending_contract)
+                print(f"\n  {YELLOW}Warning: {n} question(s) still unanswered.{RESET}")
+                confirm = _prompt_choice(f"  {BOLD}Approve anyway? [y/n]:{RESET} ", {"y", "n"})
+                if confirm != "y":
+                    continue
             if _resolve_with_json(client, pipeline_id, decision_id, {"action": "approve"}):
                 _print_confirmation(f"Approved: advancing from {phase_label}")
                 return "resolved"
@@ -717,6 +919,7 @@ def handle_hitl_checkpoint(
             draft_content,
             phase,
             issue_number,
+            pipeline_mode=pipeline_mode,
         )
     elif decision_type == "choice":
         options = decision.get("options", [])
