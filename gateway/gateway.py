@@ -3983,11 +3983,13 @@ def session_request_file() -> tuple[Response, int] | Response:
             import urllib.request
 
             decision_url = f"{orchestrator_url}/api/v1/pipelines/{pipeline_id}/decisions"
-            decision_body = json.dumps({
-                "question": f"Allow file access outside task allowlist: {path}",
-                "options": ["Approve", "Deny"],
-                "context": f"Agent requested access to '{path}'. Reason: {reason or 'none provided'}",
-            }).encode("utf-8")
+            decision_body = json.dumps(
+                {
+                    "question": f"Allow file access outside task allowlist: {path}",
+                    "options": ["Approve", "Deny"],
+                    "context": f"Agent requested access to '{path}'. Reason: {reason or 'none provided'}",
+                }
+            ).encode("utf-8")
 
             try:
                 req = urllib.request.Request(

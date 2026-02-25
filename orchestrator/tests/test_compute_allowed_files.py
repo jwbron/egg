@@ -356,7 +356,11 @@ class TestComputeAllowedFilesIntegration:
         contracts_dir.mkdir(parents=True)
         contract_data = {
             "schemaVersion": "1.0",
-            "issue": {"number": 999, "title": "Test", "url": "https://github.com/test/test/issues/999"},
+            "issue": {
+                "number": 999,
+                "title": "Test",
+                "url": "https://github.com/test/test/issues/999",
+            },
             "current_phase": "implement",
             "phases": [
                 {

@@ -16,13 +16,12 @@ from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock, patch
 
 import pytest
-
-# conftest.py loads all gateway modules via importlib
-import gateway
 import session_manager
 from policy import PolicyResult
 from session_manager import Session, SessionValidationResult, _hash_token
 
+# conftest.py loads all gateway modules via importlib
+import gateway
 
 # --- Fixtures ---
 
@@ -233,19 +232,23 @@ class TestSessionRequestFileStrictMode:
 
         # Mock urllib.request.urlopen to simulate orchestrator response
         mock_resp = MagicMock()
-        mock_resp.read.return_value = json.dumps({
-            "data": {"decision": {"id": "dec-123"}}
-        }).encode("utf-8")
+        mock_resp.read.return_value = json.dumps({"data": {"decision": {"id": "dec-123"}}}).encode(
+            "utf-8"
+        )
         mock_resp.__enter__ = MagicMock(return_value=mock_resp)
         mock_resp.__exit__ = MagicMock(return_value=False)
 
         with (
             patch_validate,
             patch_policy,
-            patch.dict(os.environ, {
-                "EGG_TASK_FILE_RESTRICTIONS_ENFORCE": "true",
-                "EGG_ORCHESTRATOR_URL": "http://egg-orchestrator:9849",
-            }, clear=False),
+            patch.dict(
+                os.environ,
+                {
+                    "EGG_TASK_FILE_RESTRICTIONS_ENFORCE": "true",
+                    "EGG_ORCHESTRATOR_URL": "http://egg-orchestrator:9849",
+                },
+                clear=False,
+            ),
             patch("urllib.request.urlopen", return_value=mock_resp) as mock_urlopen,
         ):
             response = client.post(
@@ -275,9 +278,13 @@ class TestSessionRequestFileStrictMode:
             patch_validate,
             patch_policy,
             patch.object(gateway, "get_session_manager", return_value=mock_sm),
-            patch.dict(os.environ, {
-                "EGG_TASK_FILE_RESTRICTIONS_ENFORCE": "true",
-            }, clear=False),
+            patch.dict(
+                os.environ,
+                {
+                    "EGG_TASK_FILE_RESTRICTIONS_ENFORCE": "true",
+                },
+                clear=False,
+            ),
         ):
             # Ensure EGG_ORCHESTRATOR_URL is not set
             os.environ.pop("EGG_ORCHESTRATOR_URL", None)
@@ -304,10 +311,14 @@ class TestSessionRequestFileStrictMode:
             patch_validate,
             patch_policy,
             patch.object(gateway, "get_session_manager", return_value=mock_sm),
-            patch.dict(os.environ, {
-                "EGG_TASK_FILE_RESTRICTIONS_ENFORCE": "true",
-                "EGG_ORCHESTRATOR_URL": "http://egg-orchestrator:9849",
-            }, clear=False),
+            patch.dict(
+                os.environ,
+                {
+                    "EGG_TASK_FILE_RESTRICTIONS_ENFORCE": "true",
+                    "EGG_ORCHESTRATOR_URL": "http://egg-orchestrator:9849",
+                },
+                clear=False,
+            ),
             patch("urllib.request.urlopen", side_effect=Exception("Connection refused")),
         ):
             response = client.post(
@@ -347,13 +358,15 @@ class TestSessionCreateAllowedFilesValidation:
         response = client.post(
             "/api/v1/sessions/create",
             headers=launcher_headers,
-            data=json.dumps({
-                "container_id": "c1",
-                "container_ip": "1.2.3.4",
-                "repos": ["owner/repo"],
-                "mode": "public",
-                "allowed_files": "not-a-list",
-            }),
+            data=json.dumps(
+                {
+                    "container_id": "c1",
+                    "container_ip": "1.2.3.4",
+                    "repos": ["owner/repo"],
+                    "mode": "public",
+                    "allowed_files": "not-a-list",
+                }
+            ),
             content_type="application/json",
         )
 
@@ -369,13 +382,15 @@ class TestSessionCreateAllowedFilesValidation:
         response = client.post(
             "/api/v1/sessions/create",
             headers=launcher_headers,
-            data=json.dumps({
-                "container_id": "c1",
-                "container_ip": "1.2.3.4",
-                "repos": ["owner/repo"],
-                "mode": "public",
-                "allowed_files": ["src/*", 42, None],
-            }),
+            data=json.dumps(
+                {
+                    "container_id": "c1",
+                    "container_ip": "1.2.3.4",
+                    "repos": ["owner/repo"],
+                    "mode": "public",
+                    "allowed_files": ["src/*", 42, None],
+                }
+            ),
             content_type="application/json",
         )
 
@@ -394,13 +409,15 @@ class TestSessionCreateAllowedFilesValidation:
         response = client.post(
             "/api/v1/sessions/create",
             headers=launcher_headers,
-            data=json.dumps({
-                "container_id": "c1",
-                "container_ip": "1.2.3.4",
-                "repos": ["owner/repo"],
-                "mode": "public",
-                "allowed_files": [],
-            }),
+            data=json.dumps(
+                {
+                    "container_id": "c1",
+                    "container_ip": "1.2.3.4",
+                    "repos": ["owner/repo"],
+                    "mode": "public",
+                    "allowed_files": [],
+                }
+            ),
             content_type="application/json",
         )
 
@@ -472,11 +489,13 @@ class TestPushSessionRestrictionIntegration:
         return client.post(
             "/api/v1/git/push",
             headers=headers,
-            data=json.dumps({
-                "repo_path": repo_path,
-                "remote": "origin",
-                "refspec": "egg/test-branch",
-            }),
+            data=json.dumps(
+                {
+                    "repo_path": repo_path,
+                    "remote": "origin",
+                    "refspec": "egg/test-branch",
+                }
+            ),
             content_type="application/json",
         )
 
@@ -493,13 +512,19 @@ class TestPushSessionRestrictionIntegration:
         with (
             patch_validate,
             patch_policy,
-            patch.dict(os.environ, {
-                "EGG_TASK_FILE_RESTRICTIONS_ENFORCE": "false",
-                "EGG_TASK_FILE_WARN_THRESHOLD": "1",
-            }, clear=False),
+            patch.dict(
+                os.environ,
+                {
+                    "EGG_TASK_FILE_RESTRICTIONS_ENFORCE": "false",
+                    "EGG_TASK_FILE_WARN_THRESHOLD": "1",
+                },
+                clear=False,
+            ),
             patch("subprocess.run") as mock_run,
             patch.object(gateway, "get_policy_engine") as mock_policy_engine,
-            patch.object(gateway, "get_changed_files_in_push", return_value=(["src/other/bad.py"], None)),
+            patch.object(
+                gateway, "get_changed_files_in_push", return_value=(["src/other/bad.py"], None)
+            ),
             patch.object(gateway, "check_phase_file_restrictions") as mock_phase_check,
             patch.object(gateway, "get_token_for_repo", return_value=("token", "app", None)),
         ):
@@ -512,6 +537,7 @@ class TestPushSessionRestrictionIntegration:
 
             # Phase check passes
             from phase_filter import FileRestrictionResult
+
             mock_phase_check.return_value = FileRestrictionResult.allow("Phase OK")
 
             # Remote URL
@@ -545,12 +571,18 @@ class TestPushSessionRestrictionIntegration:
         with (
             patch_validate,
             patch_policy,
-            patch.dict(os.environ, {
-                "EGG_TASK_FILE_RESTRICTIONS_ENFORCE": "true",
-            }, clear=False),
+            patch.dict(
+                os.environ,
+                {
+                    "EGG_TASK_FILE_RESTRICTIONS_ENFORCE": "true",
+                },
+                clear=False,
+            ),
             patch("subprocess.run") as mock_run,
             patch.object(gateway, "get_policy_engine") as mock_policy_engine,
-            patch.object(gateway, "get_changed_files_in_push", return_value=(["src/other/bad.py"], None)),
+            patch.object(
+                gateway, "get_changed_files_in_push", return_value=(["src/other/bad.py"], None)
+            ),
             patch.object(gateway, "check_phase_file_restrictions") as mock_phase_check,
         ):
             mock_engine = MagicMock()
@@ -560,6 +592,7 @@ class TestPushSessionRestrictionIntegration:
             mock_policy_engine.return_value = mock_engine
 
             from phase_filter import FileRestrictionResult
+
             mock_phase_check.return_value = FileRestrictionResult.allow("Phase OK")
 
             mock_run.return_value = MagicMock(
@@ -574,7 +607,10 @@ class TestPushSessionRestrictionIntegration:
 
         assert response.status_code == 403
         data = json.loads(response.data)
-        assert "outside task allowlist" in data["message"].lower() or "task allowlist" in data["message"].lower()
+        assert (
+            "outside task allowlist" in data["message"].lower()
+            or "task allowlist" in data["message"].lower()
+        )
 
 
 # --- Tests: Session file restriction edge cases ---
@@ -706,5 +742,3 @@ class TestAddAllowedFileSecurity:
         # Should not raise
         session.add_allowed_file("src/file\x00.py")
         assert "src/file\x00.py" in session.allowed_files
-
-
