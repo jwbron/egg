@@ -415,3 +415,92 @@ class TestComputeAllowedFilesIntegration:
 
         result = compute_allowed_files_from_contract(str(tmp_path), 888, "implement")
         assert result is None
+
+
+# --- Edge case tests for compute_allowed_files_from_contract ---
+
+
+class TestComputeAllowedFilesEdgeCases:
+    """Additional edge case tests for compute_allowed_files_from_contract."""
+
+    @patch("egg_contracts.loader.load_contract")
+    def test_contract_with_none_phases(self, mock_load):
+        """Contract with phases=None doesn't crash."""
+        mock_contract = MagicMock()
+        mock_contract.phases = None
+        mock_load.return_value = mock_contract
+
+        result = compute_allowed_files_from_contract("/repo", 123, "implement")
+        assert result is None
+
+    @patch("egg_contracts.loader.load_contract")
+    def test_phase_with_none_tasks(self, mock_load):
+        """Phase with tasks=None doesn't crash."""
+        mock_phase = MagicMock()
+        mock_phase.tasks = None
+        mock_contract = MagicMock()
+        mock_contract.phases = [mock_phase]
+        mock_load.return_value = mock_contract
+
+        result = compute_allowed_files_from_contract("/repo", 123, "implement")
+        assert result is None
+
+    @patch("egg_contracts.loader.load_contract")
+    def test_task_with_neither_files_nor_files_affected(self, mock_load):
+        """Task with neither files nor files_affected doesn't crash."""
+        mock_task = MagicMock(spec=[])  # No attributes at all
+        mock_phase = MagicMock()
+        mock_phase.tasks = [mock_task]
+        mock_contract = MagicMock()
+        mock_contract.phases = [mock_phase]
+        mock_load.return_value = mock_contract
+
+        result = compute_allowed_files_from_contract("/repo", 123, "implement")
+        assert result is None
+
+    @patch("egg_contracts.loader.load_contract")
+    def test_very_large_file_list(self, mock_load):
+        """Large file lists are handled without error."""
+        files = [f"src/module{i}/file{j}.py" for i in range(50) for j in range(10)]
+        mock_task = MagicMock()
+        mock_task.files_affected = files
+        mock_task.files = None
+        mock_phase = MagicMock()
+        mock_phase.tasks = [mock_task]
+        mock_contract = MagicMock()
+        mock_contract.phases = [mock_phase]
+        mock_load.return_value = mock_contract
+
+        result = compute_allowed_files_from_contract("/repo", 123, "implement")
+        assert result is not None
+        # Should have original files + directory globs
+        assert len(result) > len(files)
+
+    @patch("egg_contracts.loader.load_contract")
+    def test_mixed_glob_and_regular_files(self, mock_load):
+        """Mix of glob patterns and regular files handled correctly."""
+        mock_task = MagicMock()
+        mock_task.files_affected = [
+            "src/auth/*.py",
+            "tests/**",
+            "src/db/models.py",
+            "README.md",
+        ]
+        mock_task.files = None
+        mock_phase = MagicMock()
+        mock_phase.tasks = [mock_task]
+        mock_contract = MagicMock()
+        mock_contract.phases = [mock_phase]
+        mock_load.return_value = mock_contract
+
+        result = compute_allowed_files_from_contract("/repo", 123, "implement")
+        assert result is not None
+        # Glob entries kept as-is
+        assert "src/auth/*.py" in result
+        assert "tests/**" in result
+        # Regular entries get sibling expansion
+        assert "src/db/models.py" in result
+        assert "src/db/*" in result
+        assert "README.md" in result
+        # No expansion for globs (no parent dir glob added)
+        assert result.count("src/auth/*") <= 1  # Only from expansion of *.py if any
