@@ -912,7 +912,10 @@ def git_push() -> tuple[Response, int] | Response:
                 enforce_strict = os.environ.get(
                     "EGG_TASK_FILE_RESTRICTIONS_ENFORCE", "false"
                 ).lower() in ("true", "1", "yes")
-                warn_threshold = int(os.environ.get("EGG_TASK_FILE_WARN_THRESHOLD", "1"))
+                try:
+                    warn_threshold = int(os.environ.get("EGG_TASK_FILE_WARN_THRESHOLD", "1"))
+                except (ValueError, TypeError):
+                    warn_threshold = 1
 
                 if enforce_strict:
                     # Strict mode: block immediately
@@ -3961,20 +3964,64 @@ def session_request_file() -> tuple[Response, int] | Response:
     )
 
     if enforce_strict:
-        # In strict mode, queue a HITL decision instead of auto-approving
-        logger.info(
-            "File request queued for HITL approval (strict mode)",
-            event_type="file_request_queued",
-            path=path,
-            reason=reason,
-            container_id=session.container_id,
-        )
-        return make_response(
-            True,
-            "File request queued for approval",
-            {"status": "pending", "path": path},
-            202,
-        )
+        # In strict mode, queue a HITL decision via the orchestrator
+        pipeline_id = getattr(session, "pipeline_id", None)
+        orchestrator_url = os.environ.get("EGG_ORCHESTRATOR_URL")
+
+        if not pipeline_id or not orchestrator_url:
+            # Cannot queue HITL without orchestrator — auto-approve with audit note
+            logger.warning(
+                "Strict mode requested but HITL queueing unavailable "
+                "(missing pipeline_id or orchestrator URL), falling back to auto-approve",
+                event_type="file_request_strict_fallback",
+                path=path,
+                pipeline_id=pipeline_id,
+                orchestrator_configured=bool(orchestrator_url),
+            )
+            # Fall through to auto-approve below
+        else:
+            import urllib.request
+
+            decision_url = f"{orchestrator_url}/api/v1/pipelines/{pipeline_id}/decisions"
+            decision_body = json.dumps({
+                "question": f"Allow file access outside task allowlist: {path}",
+                "options": ["Approve", "Deny"],
+                "context": f"Agent requested access to '{path}'. Reason: {reason or 'none provided'}",
+            }).encode("utf-8")
+
+            try:
+                req = urllib.request.Request(
+                    decision_url,
+                    data=decision_body,
+                    headers={"Content-Type": "application/json"},
+                    method="POST",
+                )
+                with urllib.request.urlopen(req, timeout=5) as resp:
+                    resp_data = json.loads(resp.read().decode())
+
+                decision_id = resp_data.get("data", {}).get("decision", {}).get("id")
+                logger.info(
+                    "File request queued for HITL approval (strict mode)",
+                    event_type="file_request_queued",
+                    path=path,
+                    reason=reason,
+                    container_id=session.container_id,
+                    decision_id=decision_id,
+                )
+                return make_response(
+                    True,
+                    "File request queued for approval",
+                    {"status": "pending", "path": path, "decision_id": decision_id},
+                    202,
+                )
+            except Exception as e:
+                logger.error(
+                    "Failed to queue HITL decision, falling back to auto-approve",
+                    event_type="file_request_hitl_error",
+                    error=str(e),
+                    path=path,
+                )
+                # Fall through to auto-approve below
 
     # Auto-approve: add the file to the session's allowlist
     session.add_allowed_file(path)

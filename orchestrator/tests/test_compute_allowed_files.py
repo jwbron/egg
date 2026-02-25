@@ -335,3 +335,83 @@ class TestSpawnerAllowedFilesWiring:
         )
 
         mock_compute.assert_not_called()
+
+
+# --- Integration test: real load_contract call ---
+
+
+class TestComputeAllowedFilesIntegration:
+    """Integration tests that exercise the real load_contract call path.
+
+    These tests use a real contract JSON file on disk instead of mocking
+    load_contract, to catch argument mismatches (e.g., repo_path vs repo_root).
+    """
+
+    def test_load_contract_kwarg_matches_signature(self, tmp_path):
+        """compute_allowed_files_from_contract passes repo_root (not repo_path) to load_contract."""
+        import json
+
+        # Create a minimal valid contract file at the expected path
+        contracts_dir = tmp_path / ".egg-state" / "contracts"
+        contracts_dir.mkdir(parents=True)
+        contract_data = {
+            "schemaVersion": "1.0",
+            "issue": {"number": 999, "title": "Test", "url": "https://github.com/test/test/issues/999"},
+            "current_phase": "implement",
+            "phases": [
+                {
+                    "id": "phase-1",
+                    "name": "Implementation",
+                    "tasks": [
+                        {
+                            "id": "task-1",
+                            "description": "Add auth",
+                            "files_affected": ["src/auth/login.py", "tests/test_auth.py"],
+                        }
+                    ],
+                }
+            ],
+        }
+        (contracts_dir / "999.json").write_text(json.dumps(contract_data))
+
+        # Call with real load_contract (no mock) — would fail with TypeError
+        # if repo_path was used instead of repo_root
+        result = compute_allowed_files_from_contract(str(tmp_path), 999, "implement")
+
+        assert result is not None
+        assert "src/auth/login.py" in result
+        assert "tests/test_auth.py" in result
+
+    def test_missing_contract_returns_none(self, tmp_path):
+        """Returns None when the contract file doesn't exist on disk."""
+        result = compute_allowed_files_from_contract(str(tmp_path), 9999, "implement")
+        assert result is None
+
+    def test_empty_files_affected_returns_none(self, tmp_path):
+        """Returns None when real contract has no files_affected."""
+        import json
+
+        contracts_dir = tmp_path / ".egg-state" / "contracts"
+        contracts_dir.mkdir(parents=True)
+        contract_data = {
+            "schemaVersion": "1.0",
+            "issue": {"number": 888, "title": "Empty", "url": "https://github.com/t/t/issues/888"},
+            "current_phase": "implement",
+            "phases": [
+                {
+                    "id": "phase-1",
+                    "name": "Phase",
+                    "tasks": [
+                        {
+                            "id": "task-1",
+                            "description": "No files",
+                            "files_affected": [],
+                        }
+                    ],
+                }
+            ],
+        }
+        (contracts_dir / "888.json").write_text(json.dumps(contract_data))
+
+        result = compute_allowed_files_from_contract(str(tmp_path), 888, "implement")
+        assert result is None

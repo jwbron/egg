@@ -106,9 +106,11 @@ def compute_allowed_files_from_contract(
         return None
 
     try:
+        from pathlib import Path
+
         from egg_contracts.loader import load_contract
 
-        contract = load_contract(issue_number, repo_path=repo_path)
+        contract = load_contract(issue_number, repo_root=Path(repo_path))
         if contract is None:
             return None
 
