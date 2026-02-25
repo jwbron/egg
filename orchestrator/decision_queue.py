@@ -11,7 +11,7 @@ import time
 from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 # Add shared directory to path for logging
 _shared_path = Path(__file__).parent.parent / "shared"
@@ -128,6 +128,8 @@ class DecisionQueue:
         question: str,
         context: str = "",
         options: list[str] | None = None,
+        decision_type: Literal["phase_gate", "choice", "feedback"] = "choice",
+        questions: list[dict[str, str]] | None = None,
     ) -> HITLDecision:
         """Queue a new decision for human review.
 
@@ -135,6 +137,8 @@ class DecisionQueue:
             question: Decision question
             context: Additional context
             options: Available options (empty for free-form)
+            decision_type: Type of decision ('phase_gate', 'choice', or 'feedback')
+            questions: Structured feedback questions (list of dicts with id, question, answer)
 
         Returns:
             Created HITLDecision
@@ -146,6 +150,8 @@ class DecisionQueue:
             decision = pipeline.add_decision(
                 question=question,
                 options=options or [],
+                decision_type=decision_type,
+                questions=questions or [],
             )
 
             # Update with additional fields

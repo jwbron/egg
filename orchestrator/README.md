@@ -77,7 +77,17 @@ Before each pipeline phase starts, the orchestrator syncs the agent worktree wit
 
 ### HITL Decisions
 
-The orchestrator queues blocking decisions for human input (architecture choices, go/no-go gates) and pauses pipeline execution until resolved. Decisions are tracked with timeout management and handler notifications.
+The orchestrator queues blocking decisions for human input and pauses pipeline execution until resolved. Decisions are typed via the `decision_type` field to enable context-appropriate rendering:
+
+| Type | Purpose | Example |
+|------|---------|---------|
+| `phase_gate` | Phase approval with draft review | "Approve this analysis?" |
+| `choice` | Select from discrete options | "Which database?" |
+| `feedback` | Collect structured multi-question answers | "What is the expected traffic volume?" |
+
+Decisions also support a `questions` field (list of `{id, question, answer}` dicts) for structured feedback collection. In local mode, the terminal handler (`sdlc_hitl.py`) dispatches to type-specific UIs; in issue mode, decisions flow through GitHub comments.
+
+Resolution payloads are JSON objects with an `action` field (`approve`, `select`, `submit_feedback`, `request_changes`, `change_approach`), enabling the pipeline to distinguish between approval, selection, feedback submission, and revision requests. Legacy bare-string resolutions are still supported for backward compatibility.
 
 ## API Endpoints
 
@@ -180,13 +190,13 @@ See [Architecture: Deployment Modes](../docs/architecture/orchestrator.md#deploy
 orchestrator/
 ├── api.py                  # Flask REST API server with blueprint registration
 ├── cli.py                  # CLI interface (serve, health, pipelines commands)
-├── models.py               # Pydantic models (Pipeline, AgentExecution, ReviewVerdict, AggregatedReviewResult, etc.)
+├── models.py               # Pydantic models (Pipeline, AgentExecution, HITLDecision, ReviewVerdict, etc.)
 ├── state_store.py          # Git-backed persistent state storage
 ├── container_spawner.py    # Container spawning with gateway session integration
 ├── container_monitor.py    # Container state monitoring and lifecycle tracking
 ├── multi_agent.py          # Wave-based parallel agent execution
 ├── dispatch.py             # Dispatch logic bridging orchestrator and egg_contracts
-├── decision_queue.py       # HITL decision queue management
+├── decision_queue.py       # HITL decision queue management (supports typed decisions)
 ├── handoffs.py             # Agent-to-agent data handoff mechanism
 ├── devserver.py            # Docker-in-Docker devserver management
 ├── gateway_client.py       # Gateway API client for session management

@@ -5859,6 +5859,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                     question=question,
                     context=draft_content or "",
                     options=["approve", "request changes"],
+                    decision_type="phase_gate",
                 )
 
                 # Reload pipeline to pick up the decision persisted by queue_decision(),
@@ -5886,80 +5887,156 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                 resolved_decision = dq.get_decision(decision.id)
                 resolution = (resolved_decision.resolution or "").strip()
 
-                if resolution.lower() not in _APPROVE_KEYWORDS:
-                    # If the resolution is just a bare option label (e.g. "request changes")
-                    # with no actionable feedback, re-queue asking for specifics.
-                    if resolution.lower() in _BARE_OPTION_LABELS:
-                        logger.info(
-                            "HITL gate: bare option label without feedback, requesting specifics",
-                            pipeline_id=pipeline_id,
-                            phase=current_phase.value,
-                            resolution=resolution,
+                # JSON-first resolution parsing: try structured payload before
+                # falling back to keyword matching for legacy bare-string resolutions.
+                _is_approved = False
+                _needs_revision = False
+                _revision_feedback: str | None = None
+
+                try:
+                    payload = json.loads(resolution)
+                    if isinstance(payload, dict) and "action" in payload:
+                        action = payload["action"]
+                        feedback_text = payload.get("feedback", "")
+
+                        if action == "approve":
+                            _is_approved = True
+                        elif action == "select":
+                            # Selection from a choice menu — treat as approval
+                            _is_approved = True
+                        elif action == "submit_feedback":
+                            # Feedback submission — treat as approval (info collected)
+                            _is_approved = True
+                        elif action in ("request_changes", "change_approach"):
+                            if feedback_text:
+                                # R-1: Extract readable feedback, not raw JSON
+                                _needs_revision = True
+                                _revision_feedback = feedback_text
+                            else:
+                                # JSON request_changes without feedback — same as bare label
+                                _needs_revision = True
+                                _revision_feedback = None
+                        else:
+                            # Unknown action — fall through to legacy matching
+                            raise json.JSONDecodeError("unknown action", resolution, 0)
+                    else:
+                        # Valid JSON but no action field — fall through to legacy
+                        raise json.JSONDecodeError("no action field", resolution, 0)
+                except (json.JSONDecodeError, TypeError, AttributeError):
+                    # Legacy bare-string resolution — existing keyword matching
+                    if resolution.lower() in _APPROVE_KEYWORDS:
+                        _is_approved = True
+                    elif resolution.lower() in _BARE_OPTION_LABELS:
+                        # Bare "request changes" without feedback
+                        _needs_revision = True
+                        _revision_feedback = None
+                    elif resolution:
+                        # Free-text feedback
+                        _needs_revision = True
+                        _revision_feedback = resolution
+
+                if _needs_revision and _revision_feedback is None:
+                    # Bare request without actionable feedback — ask for specifics.
+                    # This handles both legacy "request changes" and JSON
+                    # {"action":"request_changes"} without feedback text.
+                    logger.info(
+                        "HITL gate: bare option label without feedback, requesting specifics",
+                        pipeline_id=pipeline_id,
+                        phase=current_phase.value,
+                        resolution=resolution,
+                    )
+                    # Extract a human-friendly label from the resolution for the
+                    # follow-up prompt (avoid displaying raw JSON to the user).
+                    try:
+                        _parsed = json.loads(resolution)
+                        display_resolution = (
+                            _parsed.get("action", resolution).replace("_", " ")
+                            if isinstance(_parsed, dict)
+                            else resolution
                         )
-                        followup = dq.queue_decision(
-                            question=(
-                                f'You selected "{resolution}" but didn\'t provide specific feedback. '
-                                f"Please describe what changes you'd like to see in the {phase_label}, "
-                                f"or approve to continue."
-                            ),
-                            context=draft_content or "",
-                            options=["approve"],
-                        )
-                        dq.wait_for_decision(followup.id)
-                        resolved_followup = dq.get_decision(followup.id)
-                        resolution = (resolved_followup.resolution or "").strip()
-                        # If the follow-up is also bare or an approval, just approve
+                    except (json.JSONDecodeError, TypeError, AttributeError):
+                        display_resolution = resolution
+                    followup = dq.queue_decision(
+                        question=(
+                            f'You selected "{display_resolution}" but didn\'t provide specific feedback. '
+                            f"Please describe what changes you'd like to see in the {phase_label}, "
+                            f"or approve to continue."
+                        ),
+                        context=draft_content or "",
+                        options=["approve"],
+                        decision_type="phase_gate",
+                    )
+                    dq.wait_for_decision(followup.id)
+                    resolved_followup = dq.get_decision(followup.id)
+                    followup_resolution = (resolved_followup.resolution or "").strip()
+
+                    # Parse follow-up resolution (also JSON-first)
+                    try:
+                        fp = json.loads(followup_resolution)
+                        if isinstance(fp, dict) and "action" in fp:
+                            fa = fp["action"]
+                            if fa == "approve":
+                                _is_approved = True
+                                _needs_revision = False
+                            elif fa in ("request_changes", "change_approach"):
+                                ft = fp.get("feedback", "")
+                                if ft:
+                                    _revision_feedback = ft
+                                else:
+                                    _is_approved = True
+                                    _needs_revision = False
+                            else:
+                                raise json.JSONDecodeError("unknown", followup_resolution, 0)
+                        else:
+                            raise json.JSONDecodeError("no action", followup_resolution, 0)
+                    except (json.JSONDecodeError, TypeError, AttributeError):
                         if (
-                            resolution.lower() in _APPROVE_KEYWORDS
-                            or resolution.lower() in _BARE_OPTION_LABELS
+                            followup_resolution.lower() in _APPROVE_KEYWORDS
+                            or followup_resolution.lower() in _BARE_OPTION_LABELS
                         ):
                             logger.info(
                                 "HITL follow-up: no actionable feedback, treating as approval",
                                 pipeline_id=pipeline_id,
                                 phase=current_phase.value,
                             )
-                            # Fall through to approval path below
+                            _is_approved = True
+                            _needs_revision = False
+                        elif followup_resolution:
+                            _revision_feedback = followup_resolution
+
+                if _needs_revision and _revision_feedback:
+                    # Human provided feedback — re-run the phase with corrections
+                    logger.info(
+                        "HITL gate: changes requested, re-running phase",
+                        pipeline_id=pipeline_id,
+                        phase=current_phase.value,
+                        feedback_preview=_revision_feedback[:200],
+                    )
+                    with get_pipeline_state_lock(pipeline_id):
+                        pipeline = store.load_pipeline(pipeline_id)
+                        pipeline.status = PipelineStatus.RUNNING
+                        phase_execution = pipeline.get_phase_execution(current_phase)
+                        phase_execution.status = PipelineStatus.RUNNING
+                        phase_execution.completed_at = None  # Reset — phase is re-running
+                        phase_execution.hitl_review_cycles += 1
+
+                        # Circuit breaker: don't allow unbounded HITL revision loops.
+                        # Uses a dedicated counter so agentic review cycles don't
+                        # consume the human's revision budget.
+                        max_hitl_cycles = pipeline.config.max_hitl_review_cycles
+                        if phase_execution.hitl_review_cycles >= max_hitl_cycles:
+                            logger.warning(
+                                "HITL revision circuit breaker — advancing despite feedback",
+                                pipeline_id=pipeline_id,
+                                phase=current_phase.value,
+                                hitl_review_cycles=phase_execution.hitl_review_cycles,
+                                max_hitl_review_cycles=max_hitl_cycles,
+                            )
+                            store.save_pipeline(pipeline)
+                            # Fall through to the approval path below
                         else:
-                            # Got real feedback on the follow-up — proceed to revision
-                            pass  # Fall through to the revision block below
-
-                    # Re-check: resolution may have been updated by the follow-up path
-                    if (
-                        resolution.lower() not in _APPROVE_KEYWORDS
-                        and resolution.lower() not in _BARE_OPTION_LABELS
-                    ):
-                        # Human provided feedback — re-run the phase with corrections
-                        logger.info(
-                            "HITL gate: changes requested, re-running phase",
-                            pipeline_id=pipeline_id,
-                            phase=current_phase.value,
-                            feedback_preview=resolution[:200],
-                        )
-                        with get_pipeline_state_lock(pipeline_id):
-                            pipeline = store.load_pipeline(pipeline_id)
-                            pipeline.status = PipelineStatus.RUNNING
-                            phase_execution = pipeline.get_phase_execution(current_phase)
-                            phase_execution.status = PipelineStatus.RUNNING
-                            phase_execution.completed_at = None  # Reset — phase is re-running
-                            phase_execution.hitl_review_cycles += 1
-
-                            # Circuit breaker: don't allow unbounded HITL revision loops.
-                            # Uses a dedicated counter so agentic review cycles don't
-                            # consume the human's revision budget.
-                            max_hitl_cycles = pipeline.config.max_hitl_review_cycles
-                            if phase_execution.hitl_review_cycles >= max_hitl_cycles:
-                                logger.warning(
-                                    "HITL revision circuit breaker — advancing despite feedback",
-                                    pipeline_id=pipeline_id,
-                                    phase=current_phase.value,
-                                    hitl_review_cycles=phase_execution.hitl_review_cycles,
-                                    max_hitl_review_cycles=max_hitl_cycles,
-                                )
-                                store.save_pipeline(pipeline)
-                                # Fall through to the approval path below
-                            else:
-                                hitl_revision_feedback = resolution
-                                store.save_pipeline(pipeline)
+                            hitl_revision_feedback = _revision_feedback
+                            store.save_pipeline(pipeline)
                             report_pipeline_status(
                                 pipeline,
                                 event_type="phase.revision_requested",

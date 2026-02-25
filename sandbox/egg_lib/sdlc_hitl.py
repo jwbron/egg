@@ -4,6 +4,7 @@ When a pipeline reaches an awaiting_human state, this module presents
 the draft document and offers interactive options for resolution.
 """
 
+import json
 import os
 import re
 import shlex
@@ -195,7 +196,7 @@ def _prompt_choice(prompt: str, valid: set[str]) -> str:
             choice = input(prompt).strip()
         except (EOFError, KeyboardInterrupt):
             print()
-            return "5"  # Cancel on EOF/interrupt
+            return "c"  # Cancel on EOF/interrupt
         if choice in valid:
             return choice
         print(f"  {RED}Invalid choice. Enter one of: {', '.join(sorted(valid))}{RESET}")
@@ -216,6 +217,443 @@ def _prompt_text(prompt: str) -> str:
     return "\n".join(lines)
 
 
+def _resolve_with_json(
+    client: OrchClient,
+    pipeline_id: str,
+    decision_id: str,
+    payload: dict[str, Any],
+) -> bool:
+    """Resolve a decision with a JSON payload. Returns True on success."""
+    try:
+        client.resolve_decision(pipeline_id, decision_id, json.dumps(payload))
+        return True
+    except OrchestratorError as e:
+        print(f"\n  {RED}Failed to resolve decision: {e}{RESET}")
+        return False
+
+
+def _print_confirmation(message: str) -> None:
+    """Print a confirmation message with a checkmark."""
+    print(f"\n  {GREEN}✓ {message}{RESET}")
+
+
+def _display_universal_options() -> None:
+    """Display universal options available on every decision type."""
+    print(f"\n  {DIM}--- Universal ---{RESET}")
+    print(f"  {CYAN}[f]{RESET} General feedback")
+    print(f"  {CYAN}[a]{RESET} Change approach / suggest different approach")
+    print(f"  {CYAN}[c]{RESET} Cancel pipeline")
+
+
+def _handle_universal_option(
+    choice: str,
+    client: OrchClient,
+    pipeline_id: str,
+    decision_id: str,
+) -> str | None:
+    """Handle a universal option. Returns 'resolved'/'cancelled' or None if not a universal option."""
+    if choice == "f":
+        feedback = _prompt_text(f"\n  {BOLD}Enter general feedback (empty line to finish):{RESET}")
+        if not feedback.strip():
+            print(f"  {DIM}No feedback entered.{RESET}")
+            return None
+        # General feedback is attached to an approve action
+        if _resolve_with_json(
+            client,
+            pipeline_id,
+            decision_id,
+            {
+                "action": "approve",
+                "feedback": feedback,
+            },
+        ):
+            _print_confirmation("Approved with feedback")
+            return "resolved"
+        return None
+
+    elif choice == "a":
+        feedback = _prompt_text(
+            f"\n  {BOLD}Describe the approach change you'd like (empty line to finish):{RESET}"
+        )
+        if not feedback.strip():
+            print(f"  {DIM}No feedback entered.{RESET}")
+            return None
+        if _resolve_with_json(
+            client,
+            pipeline_id,
+            decision_id,
+            {
+                "action": "change_approach",
+                "feedback": feedback,
+            },
+        ):
+            _print_confirmation("Change approach requested")
+            return "resolved"
+        return None
+
+    elif choice == "c":
+        try:
+            client.cancel_pipeline(pipeline_id)
+            _print_confirmation("Pipeline cancelled")
+            return "cancelled"
+        except OrchestratorError as e:
+            print(f"\n  {RED}Failed to cancel pipeline: {e}{RESET}")
+            return "cancelled"
+
+    return None
+
+
+def _handle_phase_gate(
+    client: OrchClient,
+    pipeline_id: str,
+    decision: dict[str, Any],
+    repo_path: Path,
+    draft_rel: str | None,
+    draft_content: str | None,
+    phase: str,
+    issue_number: int | None,
+) -> str:
+    """Handle a phase_gate decision with draft review options."""
+    decision_id = decision.get("id", "unknown")
+    draft_path = repo_path / draft_rel if draft_rel else None
+    phase_label = "analysis" if phase == "refine" else phase
+
+    while True:
+        print(f"\n  {BOLD}Options:{RESET}")
+        print(f"  {CYAN}[1]{RESET} Edit with $EDITOR ({os.environ.get('EDITOR', 'vim')})")
+        print(f"  {CYAN}[2]{RESET} Start Claude for AI-assisted editing")
+        print(f"  {CYAN}[3]{RESET} Approve and advance to next phase")
+        print(f"  {CYAN}[4]{RESET} Request changes")
+        _display_universal_options()
+
+        valid = {"1", "2", "3", "4", "f", "a", "c"}
+        choice = _prompt_choice(f"\n  {BOLD}Choose [1-4/f/a/c]:{RESET} ", valid)
+
+        # Check universal options first
+        result = _handle_universal_option(choice, client, pipeline_id, decision_id)
+        if result:
+            return result
+
+        if choice == "1":
+            if draft_path:
+                if not draft_path.exists():
+                    draft_path.parent.mkdir(parents=True, exist_ok=True)
+                    draft_path.write_text(
+                        draft_content if draft_content else f"# Draft: {phase}\n\n"
+                    )
+                print(f"\n  Opening {draft_path.name} in editor...")
+                if _launch_editor(draft_path):
+                    print(f"  {GREEN}File saved. You can now approve or continue editing.{RESET}")
+                    draft_content = _read_draft(repo_path, draft_rel)
+                else:
+                    print(f"  {RED}Editor exited with error.{RESET}")
+            else:
+                print(f"  {RED}No draft file available to edit.{RESET}")
+
+        elif choice == "2":
+            print("\n  Launching Claude Code... (type /exit to return)")
+            _launch_claude(repo_path, draft_rel, phase, issue_number)
+            print(
+                f"\n  {GREEN}Returned from Claude. You can now approve or continue editing.{RESET}"
+            )
+            draft_content = _read_draft(repo_path, draft_rel)
+
+        elif choice == "3":
+            if _resolve_with_json(client, pipeline_id, decision_id, {"action": "approve"}):
+                _print_confirmation(f"Approved: advancing from {phase_label}")
+                return "resolved"
+
+        elif choice == "4":
+            feedback = _prompt_text(
+                f"\n  {BOLD}Describe changes needed (empty line to finish):{RESET}"
+            )
+            if not feedback.strip():
+                print(f"  {DIM}No feedback entered.{RESET}")
+                continue
+            if _resolve_with_json(
+                client,
+                pipeline_id,
+                decision_id,
+                {
+                    "action": "request_changes",
+                    "feedback": feedback,
+                },
+            ):
+                _print_confirmation(f"Changes requested for {phase_label}")
+                return "resolved"
+
+
+def _handle_choice(
+    client: OrchClient,
+    pipeline_id: str,
+    decision: dict[str, Any],
+) -> str:
+    """Handle a choice decision with numbered options."""
+    decision_id = decision.get("id", "unknown")
+    options = decision.get("options", [])
+
+    while True:
+        print(f"\n  {BOLD}Options:{RESET}")
+        for i, opt in enumerate(options, 1):
+            print(f"  {CYAN}[{i}]{RESET} {opt}")
+        _display_universal_options()
+
+        valid_nums = {str(i) for i in range(1, len(options) + 1)}
+        valid = valid_nums | {"f", "a", "c"}
+        choice = _prompt_choice(f"\n  {BOLD}Choose [1-{len(options)}/f/a/c]:{RESET} ", valid)
+
+        # Check universal options first
+        result = _handle_universal_option(choice, client, pipeline_id, decision_id)
+        if result:
+            return result
+
+        if choice in valid_nums:
+            selected = options[int(choice) - 1]
+            if _resolve_with_json(
+                client,
+                pipeline_id,
+                decision_id,
+                {
+                    "action": "select",
+                    "selected": selected,
+                },
+            ):
+                _print_confirmation(f"Selected: {selected}")
+                return "resolved"
+
+
+def _handle_feedback(
+    client: OrchClient,
+    pipeline_id: str,
+    decision: dict[str, Any],
+) -> str:
+    """Handle a feedback decision with structured question prompts."""
+    decision_id = decision.get("id", "unknown")
+    questions = decision.get("questions", [])
+
+    # If no structured questions, fall back to single free-text input
+    if not questions:
+        while True:
+            _display_universal_options()
+            feedback = _prompt_text(f"\n  {BOLD}Enter your response (empty line to finish):{RESET}")
+            if not feedback.strip():
+                print(f"  {DIM}No response entered.{RESET}")
+                # Show universal options for empty input
+                valid = {"f", "a", "c", "r"}
+                print(f"  {CYAN}[r]{RESET} Retry input")
+                choice = _prompt_choice(f"\n  {BOLD}Choose [r/f/a/c]:{RESET} ", valid)
+                if choice == "r":
+                    continue
+                result = _handle_universal_option(choice, client, pipeline_id, decision_id)
+                if result:
+                    return result
+                continue
+            if _resolve_with_json(
+                client,
+                pipeline_id,
+                decision_id,
+                {
+                    "action": "submit_feedback",
+                    "answers": {"response": feedback},
+                },
+            ):
+                _print_confirmation("Feedback submitted")
+                return "resolved"
+            continue
+
+    # Collect answers for each question
+    answers: dict[str, str] = {}
+
+    def _collect_answers() -> bool:
+        """Collect answers for all questions. Returns False if cancelled."""
+        for i, q in enumerate(questions):
+            q_id = q.get("id", f"q-{i + 1}")
+            q_text = q.get("question", "Question")
+            if q_id in answers:
+                # Already answered (e.g. during resume after interrupt)
+                continue
+            print(f"\n  {BOLD}Q: {q_text}{RESET}")
+            try:
+                answer = input("  > ").strip()
+            except (EOFError, KeyboardInterrupt):
+                print()
+                return False
+            answers[q_id] = answer
+        return True
+
+    while True:
+        answers.clear()
+        if not _collect_answers():
+            # Interrupted mid-collection — show partial answers with recovery
+            print(
+                f"\n  {YELLOW}Input interrupted. {len(answers)}/{len(questions)} answers collected.{RESET}"
+            )
+            if answers:
+                print(f"\n  {BOLD}Partial answers:{RESET}")
+                for i, q in enumerate(questions):
+                    q_id = q.get("id", f"q-{i + 1}")
+                    q_text = q.get("question", "Question")
+                    if q_id in answers:
+                        print(f"  {DIM}{i + 1}.{RESET} {q_text}: {answers[q_id]}")
+                    else:
+                        print(f"  {DIM}{i + 1}.{RESET} {q_text}: {RED}(unanswered){RESET}")
+            valid = {"s", "r", "c"}
+            print(f"\n  {CYAN}[s]{RESET} Submit partial answers")
+            print(f"  {CYAN}[r]{RESET} Resume from last question")
+            print(f"  {CYAN}[c]{RESET} Discard all")
+            choice = _prompt_choice(f"\n  {BOLD}Choose [s/r/c]:{RESET} ", valid)
+            if choice == "s" and answers:
+                break  # Submit what we have
+            elif choice == "r":
+                # Resume: keep existing answers, re-enter _collect_answers
+                if _collect_answers():
+                    break  # All collected, proceed to review
+                continue  # Interrupted again
+            else:
+                # Discard — return to caller to re-enter
+                return (
+                    _handle_universal_option("c", client, pipeline_id, decision_id) or "cancelled"
+                )
+        else:
+            break
+
+    # Review-and-submit loop
+    while True:
+        print(f"\n  {BOLD}Review your answers:{RESET}")
+        for i, q in enumerate(questions):
+            q_id = q.get("id", f"q-{i + 1}")
+            q_text = q.get("question", "Question")
+            answer = answers.get(q_id, "(unanswered)")
+            print(f"  {DIM}{i + 1}.{RESET} {q_text}")
+            print(f"     {answer}")
+
+        print(f"\n  {CYAN}[s]{RESET} Submit answers")
+        print(f"  {CYAN}[r]{RESET} Redo a question")
+        _display_universal_options()
+
+        valid = {"s", "r", "f", "a", "c"}
+        choice = _prompt_choice(f"\n  {BOLD}Choose [s/r/f/a/c]:{RESET} ", valid)
+
+        # Check universal options
+        result = _handle_universal_option(choice, client, pipeline_id, decision_id)
+        if result:
+            return result
+
+        if choice == "s":
+            if _resolve_with_json(
+                client,
+                pipeline_id,
+                decision_id,
+                {
+                    "action": "submit_feedback",
+                    "answers": answers,
+                },
+            ):
+                _print_confirmation(f"Feedback submitted ({len(answers)} answer(s))")
+                return "resolved"
+
+        elif choice == "r":
+            try:
+                num_str = input(f"  Which question? (1-{len(questions)}): ").strip()
+                num = int(num_str)
+                if 1 <= num <= len(questions):
+                    q = questions[num - 1]
+                    q_id = q.get("id", f"q-{num}")
+                    q_text = q.get("question", "Question")
+                    print(f"\n  {BOLD}Q: {q_text}{RESET}")
+                    try:
+                        answer = input("  > ").strip()
+                        answers[q_id] = answer
+                    except (EOFError, KeyboardInterrupt):
+                        print()
+                else:
+                    print(f"  {RED}Invalid question number.{RESET}")
+            except (ValueError, EOFError, KeyboardInterrupt):
+                print(f"  {RED}Invalid input.{RESET}")
+
+
+def _handle_generic(
+    client: OrchClient,
+    pipeline_id: str,
+    decision: dict[str, Any],
+    repo_path: Path,
+    draft_rel: str | None,
+    draft_content: str | None,
+    phase: str,
+    issue_number: int | None,
+) -> str:
+    """Fallback generic menu for unknown decision types (backward compatibility)."""
+    decision_id = decision.get("id", "unknown")
+    draft_path = repo_path / draft_rel if draft_rel else None
+
+    while True:
+        print(f"\n  {BOLD}Options:{RESET}")
+        print(f"  {CYAN}[1]{RESET} Edit with $EDITOR ({os.environ.get('EDITOR', 'vim')})")
+        print(f"  {CYAN}[2]{RESET} Start Claude for AI-assisted editing")
+        print(f"  {CYAN}[3]{RESET} Approve and advance to next phase")
+        print(f"  {CYAN}[4]{RESET} Provide feedback (text input)")
+        print(f"  {CYAN}[5]{RESET} Cancel pipeline")
+
+        choice = _prompt_choice(f"\n  {BOLD}Choose [1-5]:{RESET} ", {"1", "2", "3", "4", "5", "c"})
+
+        if choice == "1":
+            if draft_path:
+                if not draft_path.exists():
+                    draft_path.parent.mkdir(parents=True, exist_ok=True)
+                    draft_path.write_text(
+                        draft_content if draft_content else f"# Draft: {phase}\n\n"
+                    )
+                print(f"\n  Opening {draft_path.name} in editor...")
+                if _launch_editor(draft_path):
+                    print(f"  {GREEN}File saved. You can now approve or continue editing.{RESET}")
+                    draft_content = _read_draft(repo_path, draft_rel)
+                else:
+                    print(f"  {RED}Editor exited with error.{RESET}")
+            else:
+                print(f"  {RED}No draft file available to edit.{RESET}")
+            continue
+
+        elif choice == "2":
+            print("\n  Launching Claude Code... (type /exit to return)")
+            _launch_claude(repo_path, draft_rel, phase, issue_number)
+            print(
+                f"\n  {GREEN}Returned from Claude. You can now approve or continue editing.{RESET}"
+            )
+            draft_content = _read_draft(repo_path, draft_rel)
+            continue
+
+        elif choice == "3":
+            try:
+                client.resolve_decision(pipeline_id, decision_id, "Approved")
+                print(f"\n  {GREEN}Decision resolved: Approved{RESET}")
+                return "resolved"
+            except OrchestratorError as e:
+                print(f"\n  {RED}Failed to resolve decision: {e}{RESET}")
+                continue
+
+        elif choice == "4":
+            feedback = _prompt_text(f"\n  {BOLD}Enter feedback (empty line to finish):{RESET}")
+            if not feedback.strip():
+                print(f"  {DIM}No feedback entered.{RESET}")
+                continue
+            try:
+                client.resolve_decision(pipeline_id, decision_id, feedback)
+                print(f"\n  {GREEN}Decision resolved with feedback.{RESET}")
+                return "resolved"
+            except OrchestratorError as e:
+                print(f"\n  {RED}Failed to resolve decision: {e}{RESET}")
+                continue
+
+        elif choice in ("5", "c"):
+            try:
+                client.cancel_pipeline(pipeline_id)
+                print(f"\n  {YELLOW}Pipeline cancelled.{RESET}")
+                return "cancelled"
+            except OrchestratorError as e:
+                print(f"\n  {RED}Failed to cancel pipeline: {e}{RESET}")
+                return "cancelled"
+
+
 def handle_hitl_checkpoint(
     client: OrchClient,
     pipeline_id: str,
@@ -225,13 +663,19 @@ def handle_hitl_checkpoint(
 ) -> str:
     """Handle a HITL checkpoint interactively.
 
+    Dispatches to type-specific handlers based on decision_type:
+    - phase_gate: Draft review with approve/request changes
+    - choice: Numbered option selection
+    - feedback: Structured question prompts
+    - (unknown): Falls back to generic menu
+
     Returns:
         "resolved" if the decision was resolved (pipeline should continue),
         "cancelled" if the pipeline was cancelled.
     """
-    decision_id = decision.get("id", "unknown")
     question = decision.get("question", "Decision required")
     context = decision.get("context", "")
+    decision_type = decision.get("decision_type", "choice")
 
     # Determine current phase from the question or context
     phase = _detect_phase(question, context)
@@ -240,7 +684,6 @@ def handle_hitl_checkpoint(
     repo_path = _find_repo_path()
     draft_rel = _get_draft_path(phase, pipeline_mode, issue_number, pipeline_id)
     draft_content = _read_draft(repo_path, draft_rel)
-    draft_path = repo_path / draft_rel if draft_rel else None
 
     # Fall back to decision context if local draft file not found.
     # The draft lives in the agent's worktree which may not be mounted
@@ -256,88 +699,49 @@ def handle_hitl_checkpoint(
     print(f"  {BOLD}Phase:{RESET}    {phase}")
     print(f"  {BOLD}Question:{RESET} {question}")
 
-    # Show draft preview if available
-    if draft_content:
+    # Show draft preview for phase gates
+    if decision_type == "phase_gate":
+        if draft_content:
+            _display_draft_preview(draft_content)
+        elif draft_rel:
+            print(f"\n  {DIM}Draft file: {draft_rel} (not found){RESET}")
+
+    # Dispatch to type-specific handler
+    if decision_type == "phase_gate":
+        return _handle_phase_gate(
+            client,
+            pipeline_id,
+            decision,
+            repo_path,
+            draft_rel,
+            draft_content,
+            phase,
+            issue_number,
+        )
+    elif decision_type == "choice":
+        options = decision.get("options", [])
+        if options:
+            return _handle_choice(client, pipeline_id, decision)
+        # No options — fall through to generic
+    elif decision_type == "feedback":
+        return _handle_feedback(client, pipeline_id, decision)
+
+    # Unknown type or choice without options — generic fallback
+    if draft_content and decision_type != "phase_gate":
         _display_draft_preview(draft_content)
-    elif draft_rel:
+    elif draft_rel and decision_type != "phase_gate":
         print(f"\n  {DIM}Draft file: {draft_rel} (not found){RESET}")
 
-    # Interactive menu loop
-    while True:
-        print(f"\n  {BOLD}Options:{RESET}")
-        print(f"  {CYAN}[1]{RESET} Edit with $EDITOR ({os.environ.get('EDITOR', 'vim')})")
-        print(f"  {CYAN}[2]{RESET} Start Claude for AI-assisted editing")
-        print(f"  {CYAN}[3]{RESET} Approve and advance to next phase")
-        print(f"  {CYAN}[4]{RESET} Provide feedback (text input)")
-        print(f"  {CYAN}[5]{RESET} Cancel pipeline")
-
-        choice = _prompt_choice(f"\n  {BOLD}Choose [1-5]:{RESET} ", {"1", "2", "3", "4", "5"})
-
-        if choice == "1":
-            # Edit with $EDITOR
-            if draft_path:
-                if not draft_path.exists():
-                    # Write draft content (from context) so the editor
-                    # opens with the actual draft, not a stub.
-                    draft_path.parent.mkdir(parents=True, exist_ok=True)
-                    draft_path.write_text(
-                        draft_content if draft_content else f"# Draft: {phase}\n\n"
-                    )
-                print(f"\n  Opening {draft_path.name} in editor...")
-                if _launch_editor(draft_path):
-                    print(f"  {GREEN}File saved. You can now approve or continue editing.{RESET}")
-                    # Re-read for preview
-                    draft_content = _read_draft(repo_path, draft_rel)
-                else:
-                    print(f"  {RED}Editor exited with error.{RESET}")
-            else:
-                print(f"  {RED}No draft file available to edit.{RESET}")
-            continue  # Return to menu
-
-        elif choice == "2":
-            # Launch Claude
-            print("\n  Launching Claude Code... (type /exit to return)")
-            _launch_claude(repo_path, draft_rel, phase, issue_number)
-            print(
-                f"\n  {GREEN}Returned from Claude. You can now approve or continue editing.{RESET}"
-            )
-            # Re-read draft in case Claude modified it
-            draft_content = _read_draft(repo_path, draft_rel)
-            continue  # Return to menu
-
-        elif choice == "3":
-            # Approve
-            try:
-                client.resolve_decision(pipeline_id, decision_id, "Approved")
-                print(f"\n  {GREEN}Decision resolved: Approved{RESET}")
-                return "resolved"
-            except OrchestratorError as e:
-                print(f"\n  {RED}Failed to resolve decision: {e}{RESET}")
-                continue
-
-        elif choice == "4":
-            # Feedback
-            feedback = _prompt_text(f"\n  {BOLD}Enter feedback (empty line to finish):{RESET}")
-            if not feedback.strip():
-                print(f"  {DIM}No feedback entered.{RESET}")
-                continue
-            try:
-                client.resolve_decision(pipeline_id, decision_id, feedback)
-                print(f"\n  {GREEN}Decision resolved with feedback.{RESET}")
-                return "resolved"
-            except OrchestratorError as e:
-                print(f"\n  {RED}Failed to resolve decision: {e}{RESET}")
-                continue
-
-        elif choice == "5":
-            # Cancel
-            try:
-                client.cancel_pipeline(pipeline_id)
-                print(f"\n  {YELLOW}Pipeline cancelled.{RESET}")
-                return "cancelled"
-            except OrchestratorError as e:
-                print(f"\n  {RED}Failed to cancel pipeline: {e}{RESET}")
-                return "cancelled"
+    return _handle_generic(
+        client,
+        pipeline_id,
+        decision,
+        repo_path,
+        draft_rel,
+        draft_content,
+        phase,
+        issue_number,
+    )
 
 
 def _detect_phase(question: str, context: str | None = None) -> str:

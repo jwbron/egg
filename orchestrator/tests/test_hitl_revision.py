@@ -10,6 +10,7 @@ Covers:
 - Mock-based integration tests for HITL revision flow paths
 """
 
+import json
 import sys
 from unittest.mock import MagicMock
 
@@ -502,3 +503,260 @@ class TestHITLRevisionFlowIntegration:
         assert phase.hitl_review_cycles == 3
         assert len(collected_feedback) == 3
         assert collected_feedback == feedbacks
+
+
+class TestJSONResolutionParsing:
+    """Test JSON-first resolution parsing for HITL decisions.
+
+    Simulates the branching logic in _run_pipeline's HITL gate block.
+    JSON resolutions are tried first via json.loads; on JSONDecodeError,
+    falls back to keyword matching.
+    """
+
+    def _classify_resolution(self, resolution_str):
+        """Simulate the JSON-first resolution parsing logic.
+
+        Returns (is_approved, needs_revision, revision_feedback).
+        """
+        _is_approved = False
+        _needs_revision = False
+        _revision_feedback = None
+
+        try:
+            payload = json.loads(resolution_str)
+            if isinstance(payload, dict) and "action" in payload:
+                action = payload["action"]
+                feedback_text = payload.get("feedback", "")
+
+                if action == "approve":
+                    _is_approved = True
+                elif action == "select":
+                    _is_approved = True
+                elif action == "submit_feedback":
+                    _is_approved = True
+                elif action in ("request_changes", "change_approach"):
+                    if feedback_text:
+                        _needs_revision = True
+                        _revision_feedback = feedback_text
+                    else:
+                        _needs_revision = True
+                        _revision_feedback = None
+                else:
+                    raise json.JSONDecodeError("unknown action", resolution_str, 0)
+            else:
+                raise json.JSONDecodeError("no action field", resolution_str, 0)
+        except (json.JSONDecodeError, TypeError, AttributeError):
+            if resolution_str.lower() in _APPROVE_KEYWORDS:
+                _is_approved = True
+            elif resolution_str.lower() in _BARE_OPTION_LABELS:
+                _needs_revision = True
+                _revision_feedback = None
+            elif resolution_str:
+                _needs_revision = True
+                _revision_feedback = resolution_str
+
+        return _is_approved, _needs_revision, _revision_feedback
+
+    def test_json_approve(self):
+        """JSON {"action": "approve"} routes to approval."""
+        approved, revision, feedback = self._classify_resolution('{"action": "approve"}')
+        assert approved is True
+        assert revision is False
+        assert feedback is None
+
+    def test_json_request_changes_with_feedback(self):
+        """JSON request_changes with feedback routes to revision with readable text."""
+        resolution = json.dumps({"action": "request_changes", "feedback": "Fix error handling"})
+        approved, revision, feedback = self._classify_resolution(resolution)
+        assert approved is False
+        assert revision is True
+        # R-1: feedback must be the readable text, NOT the raw JSON string
+        assert feedback == "Fix error handling"
+        assert feedback != resolution
+
+    def test_json_request_changes_without_feedback(self):
+        """JSON request_changes without feedback needs follow-up (no feedback text)."""
+        resolution = json.dumps({"action": "request_changes"})
+        approved, revision, feedback = self._classify_resolution(resolution)
+        assert approved is False
+        assert revision is True
+        assert feedback is None
+
+    def test_json_select(self):
+        """JSON {"action": "select", "selected": "MongoDB"} routes to approval."""
+        resolution = json.dumps({"action": "select", "selected": "MongoDB"})
+        approved, revision, feedback = self._classify_resolution(resolution)
+        assert approved is True
+        assert revision is False
+
+    def test_json_change_approach(self):
+        """JSON change_approach with feedback routes to revision."""
+        resolution = json.dumps({"action": "change_approach", "feedback": "Use REST instead"})
+        approved, revision, feedback = self._classify_resolution(resolution)
+        assert approved is False
+        assert revision is True
+        assert feedback == "Use REST instead"
+
+    def test_json_submit_feedback(self):
+        """JSON submit_feedback routes to approval."""
+        resolution = json.dumps({"action": "submit_feedback", "answers": {"q-1": "Yes"}})
+        approved, revision, feedback = self._classify_resolution(resolution)
+        assert approved is True
+        assert revision is False
+
+    def test_bare_string_approved(self):
+        """Bare string 'Approved' routes to approval (backward compat)."""
+        approved, revision, feedback = self._classify_resolution("Approved")
+        assert approved is True
+        assert revision is False
+
+    def test_bare_string_approve(self):
+        """Bare string 'approve' routes to approval (backward compat)."""
+        approved, revision, feedback = self._classify_resolution("approve")
+        assert approved is True
+
+    def test_bare_string_lgtm(self):
+        """Bare string 'lgtm' routes to approval (backward compat)."""
+        approved, revision, feedback = self._classify_resolution("lgtm")
+        assert approved is True
+
+    def test_bare_string_request_changes(self):
+        """Bare string 'request changes' triggers follow-up (no feedback)."""
+        approved, revision, feedback = self._classify_resolution("request changes")
+        assert approved is False
+        assert revision is True
+        assert feedback is None  # Bare label, needs follow-up
+
+    def test_bare_string_feedback_text(self):
+        """Bare feedback text routes to revision with the text as feedback."""
+        approved, revision, feedback = self._classify_resolution("Fix the tests please")
+        assert approved is False
+        assert revision is True
+        assert feedback == "Fix the tests please"
+
+    def test_malformed_json_falls_back(self):
+        """Malformed JSON falls back to string matching."""
+        approved, revision, feedback = self._classify_resolution("{bad json")
+        assert approved is False
+        assert revision is True
+        assert feedback == "{bad json"
+
+    def test_empty_string_is_approval(self):
+        """Empty string is approval (backward compat)."""
+        approved, revision, feedback = self._classify_resolution("")
+        assert approved is True
+
+    def test_json_unknown_action_falls_back(self):
+        """JSON with unknown action falls back to string matching."""
+        resolution = json.dumps({"action": "unknown_thing"})
+        # The raw JSON string won't match approval or bare labels,
+        # so it becomes free-text feedback
+        approved, revision, feedback = self._classify_resolution(resolution)
+        assert approved is False
+        assert revision is True
+        assert feedback == resolution  # Raw JSON treated as text
+
+    def test_json_no_action_field_falls_back(self):
+        """JSON without action field falls back to string matching."""
+        resolution = json.dumps({"something": "else"})
+        approved, revision, feedback = self._classify_resolution(resolution)
+        assert approved is False
+        assert revision is True
+
+
+class TestCircuitBreakerFallThrough:
+    """Verify the circuit breaker falls through to the approval path.
+
+    When hitl_review_cycles >= max_hitl_review_cycles, the code must NOT
+    continue the outer loop. It must fall through to the approval block
+    that sets phase status to COMPLETE.
+    """
+
+    def test_circuit_breaker_does_not_set_revision_feedback(self):
+        """When circuit breaker fires, hitl_revision_feedback must remain unset.
+
+        The `continue` is inside the `else` branch only, so when the breaker
+        fires (the `if` branch), execution exits the `with` block and reaches
+        the approval path — hitl_revision_feedback stays None.
+        """
+        config = PipelineConfig(max_hitl_review_cycles=2)
+        phase = PhaseExecution(phase=PipelinePhase.PLAN)
+
+        # Simulate: 2 prior cycles, human provides feedback again
+        phase.hitl_review_cycles = 1  # Will be incremented to 2
+        _revision_feedback = "Fix the tests"
+
+        # Simulate the pipeline code path
+        phase.hitl_review_cycles += 1
+        hitl_revision_feedback = None  # This is the outer-scope variable
+
+        max_hitl_cycles = config.max_hitl_review_cycles
+        if phase.hitl_review_cycles >= max_hitl_cycles:
+            # Circuit breaker fires — do NOT set hitl_revision_feedback
+            # do NOT continue — fall through to approval
+            breaker_fired = True
+        else:
+            hitl_revision_feedback = _revision_feedback
+            breaker_fired = False
+
+        assert breaker_fired is True
+        assert hitl_revision_feedback is None
+        assert phase.hitl_review_cycles == 2
+
+    def test_normal_revision_sets_feedback_and_continues(self):
+        """When under the limit, hitl_revision_feedback IS set (continue path)."""
+        config = PipelineConfig(max_hitl_review_cycles=5)
+        phase = PhaseExecution(phase=PipelinePhase.PLAN)
+
+        phase.hitl_review_cycles = 0
+        _revision_feedback = "Add error handling"
+
+        phase.hitl_review_cycles += 1
+        hitl_revision_feedback = None
+
+        max_hitl_cycles = config.max_hitl_review_cycles
+        if phase.hitl_review_cycles >= max_hitl_cycles:
+            breaker_fired = True
+        else:
+            hitl_revision_feedback = _revision_feedback
+            breaker_fired = False
+
+        assert breaker_fired is False
+        assert hitl_revision_feedback == "Add error handling"
+        assert phase.hitl_review_cycles == 1
+
+    def test_circuit_breaker_at_exact_limit(self):
+        """Breaker fires when hitl_review_cycles == max (not just >)."""
+        config = PipelineConfig(max_hitl_review_cycles=3)
+        phase = PhaseExecution(phase=PipelinePhase.PLAN)
+
+        phase.hitl_review_cycles = 2  # Will increment to 3 == max
+        phase.hitl_review_cycles += 1
+
+        hitl_revision_feedback = None
+        if phase.hitl_review_cycles >= config.max_hitl_review_cycles:
+            breaker_fired = True
+        else:
+            hitl_revision_feedback = "some feedback"
+            breaker_fired = False
+
+        assert breaker_fired is True
+        assert hitl_revision_feedback is None
+
+    def test_circuit_breaker_just_under_limit(self):
+        """One under the limit should NOT fire the breaker."""
+        config = PipelineConfig(max_hitl_review_cycles=3)
+        phase = PhaseExecution(phase=PipelinePhase.PLAN)
+
+        phase.hitl_review_cycles = 1  # Will increment to 2, under max of 3
+        phase.hitl_review_cycles += 1
+
+        hitl_revision_feedback = None
+        if phase.hitl_review_cycles >= config.max_hitl_review_cycles:
+            breaker_fired = True
+        else:
+            hitl_revision_feedback = "some feedback"
+            breaker_fired = False
+
+        assert breaker_fired is False
+        assert hitl_revision_feedback == "some feedback"

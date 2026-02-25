@@ -1,0 +1,330 @@
+{
+  "issue": 900,
+  "phase": "plan",
+  "agent": "risk_analyst",
+  "revision": 2,
+  "revision_reason": "Revised to reflect the architect's revision 2 plan, which incorporated previous risk recommendations (R-1, R-2, R-3, R-4, R-9). Also addresses three plan review feedback items: (1) missing test task for decision endpoints (now TASK-3-5), (2) missing test for OrchClient.create_decision() (now TASK-3-6), (3) underspecified TASK-2-4 UX (now uses collect-all-then-review-and-submit pattern). Re-assessed all risks, retired mitigated items, identified new risks from the expanded scope.",
+  "title": "Risk assessment: Type-aware HITL rendering for decisions, feedback, and phase approval (revision 2)",
+
+  "summary": "The architect's revision 2 plan successfully incorporates all five previous risk recommendations (R-1, R-2, R-3, R-4, R-9) and addresses all three plan review feedback items. The overall risk profile has improved from LOW-MEDIUM to LOW. The highest remaining risks are: (1) the circuit breaker silently dropping explicit 'change_approach' actions — now more jarring with structured payloads, (2) the collect-all-then-review-and-submit UX for feedback introducing a more complex input state machine with interruption edge cases, and (3) the continued absence of `resolution.strip()` in the keyword matching fallback path. No blocking risks identified. The plan is well-structured with clear task boundaries and test coverage for all identified risk areas.",
+
+  "review_feedback_assessment": [
+    {
+      "feedback_id": 1,
+      "feedback": "Missing test task for decision endpoints",
+      "resolution_adequate": true,
+      "assessment": "TASK-3-5 covers POST with decision_type/questions, POST without new fields (defaults), and GET serialization — all three scenarios from the test strategy. This is the correct scope. The task is correctly placed in Phase 3 and will catch the R-2 serialization omission risk."
+    },
+    {
+      "feedback_id": 2,
+      "feedback": "Missing test coverage for OrchClient.create_decision()",
+      "resolution_adequate": true,
+      "assessment": "TASK-3-6 is correctly separated from TASK-3-4 (they target different test suites — sandbox vs workflow). The task covers request body construction, default parameters, response parsing, and error handling. This will catch regressions in the HTTP client layer."
+    },
+    {
+      "feedback_id": 3,
+      "feedback": "TASK-2-4 'edit answers before submitting' is underspecified",
+      "resolution_adequate": true,
+      "assessment": "The architect specified a concrete UX: collect-all → numbered summary → [s] Submit / [r] Redo question N / [c] Cancel. This is implementable with standard input() calls. The error handling spec (try/except on each input, partial answer recovery) is practical. One minor concern: the 'redo' flow re-prompts a single question and returns to summary, but there's no limit on redo iterations — this is fine since the human controls the loop. The acceptance criteria are testable."
+    }
+  ],
+
+  "architect_revision_2_assessment": {
+    "recommended_approach": "A — Explicit decision_type field on HITLDecision (unchanged)",
+    "assessment": "The revision 2 plan is significantly improved. All five previously flagged risks are now explicitly addressed in the task descriptions with specific implementation guidance (JSON-first ordering in TASK-1-5, payload.get('feedback') extraction in TASK-1-5, both serialization sites in TASK-1-3, follow-up decision_type in TASK-1-4, atomic update in TASK-1-1/TASK-1-2). The addition of TASK-3-5 (decision endpoint tests) and TASK-3-6 (OrchClient tests) closes the two test coverage gaps. The TASK-2-4 UX specification is clear and implementable.",
+    "agreement_with_architect": true,
+    "remaining_concerns": [
+      {
+        "id": "RC-1",
+        "topic": "Resolution string normalization before keyword matching",
+        "description": "The keyword fallback at pipelines.py:5889 does resolution.lower() but does NOT .strip(). At line 5887, resolution is stripped: resolution = (resolved_decision.resolution or '').strip(). However, if the JSON-first parsing path is added before this line (as TASK-1-5 requires), the code structure matters: json.loads() must operate on the already-stripped resolution, not raw. The current code strips at line 5887, so json.loads() at the new path would receive a stripped value. This is correct — just noting the dependency for the coder.",
+        "severity": "informational"
+      },
+      {
+        "id": "RC-2",
+        "topic": "Circuit breaker continues despite 'continue' at line 5969",
+        "description": "At pipelines.py:5958-5969, when the circuit breaker fires (hitl_review_cycles >= max), the code saves the pipeline and then falls through to 'continue' at line 5969. This 'continue' re-enters the phase execution outer loop, which re-runs the phase WITHOUT hitl_revision_feedback (since it was never set). The phase re-runs with no feedback (essentially a clean re-run), then hits the HITL gate again, incrementing the counter again. This is a pre-existing issue — the circuit breaker counter increment + continue creates a live loop. In practice it's bounded by the outer loop's phase sequence, but the intent (force-approve when circuit breaker fires) is not achieved because the 'continue' bypasses the approval path. The new JSON resolution handling should not change this behavior, but the coder should be aware of this pre-existing bug.",
+        "severity": "low",
+        "recommendation": "Out of scope for this issue. Document as a known behavior. The fix would be to break (or set hitl_revision_feedback=None and fall through to approval) when the circuit breaker fires, instead of continuing."
+      }
+    ]
+  },
+
+  "risks": [
+    {
+      "id": "R-1",
+      "category": "correctness",
+      "title": "JSON resolution string injected raw into agent prompts",
+      "status": "MITIGATED_IN_PLAN",
+      "description": "The phase gate resolution handler at pipelines.py:5961 assigns hitl_revision_feedback = resolution where resolution is the raw string. This string flows to the agent prompt builder. If the terminal sends JSON resolutions, agents would receive raw JSON instead of readable feedback.",
+      "likelihood": "mitigated",
+      "impact": "high",
+      "mitigation_in_plan": "TASK-1-5 now explicitly requires: 'set hitl_revision_feedback = payload.get(\"feedback\", resolution) — do NOT assign raw JSON to hitl_revision_feedback'. TASK-3-2 includes a test verifying agents receive readable feedback text.",
+      "residual_risk": "Low — the task description is explicit and the test requirement catches the failure mode. The only gap would be if the coder writes the JSON parsing but forgets the feedback extraction, and the test is written to pass trivially.",
+      "verification": "TASK-3-2 must test that after a JSON resolution with action='request_changes' and feedback='Fix the auth flow', the value passed as review_feedback to the prompt builder equals 'Fix the auth flow' (not the raw JSON string)."
+    },
+    {
+      "id": "R-2",
+      "category": "correctness",
+      "title": "Manual API serialization omits new model fields",
+      "status": "MITIGATED_IN_PLAN",
+      "description": "The list-decisions endpoint (decisions.py:109-121) and create-decision response (decisions.py:182-191) use hand-built dicts with 8 and 4 explicitly listed fields respectively. New fields are not automatically included.",
+      "likelihood": "mitigated",
+      "impact": "medium",
+      "mitigation_in_plan": "TASK-1-3 now says 'CRITICAL (R-2): update BOTH serialization sites'. TASK-3-5 (new in revision 2) specifically tests GET serialization returns new fields.",
+      "residual_risk": "Low — the coder has explicit guidance on both sites and a test to catch omission. The create-response site (lines 182-191) is lower priority since the terminal handler uses list_decisions(), but should still be updated for API consistency.",
+      "verification": "TASK-3-5 must test that GET /decisions returns decision_type and questions for a decision created with those fields."
+    },
+    {
+      "id": "R-3",
+      "category": "correctness",
+      "title": "Follow-up decision created without decision_type defaults to 'choice'",
+      "status": "MITIGATED_IN_PLAN",
+      "description": "The follow-up decision at pipelines.py:5899-5907 is created when the human selects bare 'request changes'. Without decision_type='phase_gate', it renders as a choice menu instead of a phase gate menu.",
+      "likelihood": "mitigated",
+      "impact": "medium",
+      "mitigation_in_plan": "TASK-1-4 now explicitly requires: 'Also update the follow-up decision at line 5899 to pass decision_type=\"phase_gate\" and carry through the same context (draft_content).'",
+      "residual_risk": "Low. The coder has explicit line-number guidance. However, the follow-up flow only fires for legacy bare-string 'request changes' resolutions. With JSON resolutions, TASK-1-5 skips the follow-up when feedback is included. The follow-up path becomes a backwards-compatibility fallback only.",
+      "verification": "A test should create a phase gate, resolve with bare 'request changes' string, and verify the follow-up decision has decision_type='phase_gate'."
+    },
+    {
+      "id": "R-4",
+      "category": "correctness",
+      "title": "JSON parsing order — must be JSON-first, keyword-second",
+      "status": "MITIGATED_IN_PLAN",
+      "description": "If keyword matching runs before JSON parsing, JSON approvals ({\"action\":\"approve\"}) would be misclassified as feedback since the raw JSON string won't match _APPROVE_KEYWORDS.",
+      "likelihood": "mitigated",
+      "impact": "high",
+      "mitigation_in_plan": "TASK-1-5 now says 'JSON-FIRST ordering (critical)' with explicit step numbering: (1) try json.loads, (2) dispatch on action, (3) fall back on JSONDecodeError.",
+      "residual_risk": "Low — the task description is unambiguous. TASK-3-2 tests both JSON and bare string resolution paths, which would catch ordering errors.",
+      "verification": "TASK-3-2 must test that {\"action\":\"approve\"} routes to the approval path, not the feedback/revision path."
+    },
+    {
+      "id": "R-5",
+      "category": "backwards_compatibility",
+      "title": "Old pipeline state files without decision_type deserialize as 'choice'",
+      "status": "ACCEPTED",
+      "description": "Existing .egg-state/pipelines/*.json files lack decision_type and questions. Pydantic defaults produce decision_type='choice'. Phase gates created before the upgrade would render as choice menus if re-opened after upgrade.",
+      "likelihood": "low",
+      "impact": "low",
+      "impact_detail": "Only affects pending decisions in pipeline state files created before upgrade and resumed after. Pipelines rarely survive across deployments. The worst case is a phase gate rendering as a choice menu, which is functionally correct (options are still 'approve' and 'request changes').",
+      "mitigation": "Accepted. Pydantic defaults handle deserialization. The terminal handler's fallback for unknown/missing decision_type renders the generic menu, which is the pre-existing behavior. No migration needed.",
+      "human_review_needed": false
+    },
+    {
+      "id": "R-6",
+      "category": "robustness",
+      "title": "Multi-question feedback flow vulnerable to interruption",
+      "status": "MITIGATED_IN_PLAN",
+      "description": "The sequential input() calls for multi-question feedback can be interrupted by Ctrl+C or EOF. Partial answers would be lost.",
+      "likelihood": "medium",
+      "impact": "low",
+      "mitigation_in_plan": "TASK-2-4 now specifies: 'Wrap each input() in try/except (EOFError, KeyboardInterrupt) — on interruption mid-collection, show partial answers with options: [s] Submit partial, [r] Resume from last, [c] Discard all.'",
+      "residual_risk": "Minimal. The recovery UX is well-specified. The 'resume from last' option might be tricky to implement cleanly (tracking which question was last answered), but is straightforward with an index counter.",
+      "verification": "TASK-3-3 should include a test that simulates KeyboardInterrupt mid-collection and verifies the partial-answer recovery menu appears.",
+      "human_review_needed": false
+    },
+    {
+      "id": "R-7",
+      "category": "correctness",
+      "title": "Circuit breaker silently drops explicit 'change approach' actions",
+      "status": "ACCEPTED_WITH_CAVEAT",
+      "description": "The circuit breaker at pipelines.py:5950 fires when hitl_review_cycles >= max_hitl_review_cycles (default 3). When it fires, the code continues to the next loop iteration without setting hitl_revision_feedback, effectively producing a clean re-run. With structured JSON resolutions that include an explicit 'change_approach' action, the human's explicit intent to redirect is silently ignored. Pre-existing issue, but more jarring with structured payloads.",
+      "likelihood": "low",
+      "impact": "medium",
+      "impact_detail": "After 3 revision cycles, the human's change-approach request is dropped. The pipeline continues as though approved (eventually). This is rare in practice (most phases resolve in 1-2 cycles).",
+      "mitigation": "Out of scope for this issue. The architect's plan explicitly defers 'Circuit breaker UX improvement for explicit change_approach' to a follow-up issue. For now, the existing behavior is preserved. The circuit breaker counter still increments and the warning is logged.",
+      "recommendation": "When implementing TASK-1-5, add a log line when the circuit breaker fires on a JSON resolution with action='change_approach' to make the dropped intent visible in logs.",
+      "human_review_needed": false
+    },
+    {
+      "id": "R-8",
+      "category": "test_coverage",
+      "title": "Existing test_sdlc_hitl.py tests tightly coupled to 5-option menu",
+      "status": "MITIGATED_IN_PLAN",
+      "description": "tests/sandbox/test_sdlc_hitl.py (~591 lines) tests the current 5-option menu with mocked input() expecting choices '1'-'5'. Handler refactoring will break these tests.",
+      "likelihood": "certain",
+      "impact": "medium",
+      "mitigation_in_plan": "TASK-3-3 says 'Existing generic menu tests preserved for backward compatibility.' The approach is correct: decisions without decision_type should fall through to the generic menu, so existing tests become backwards-compatibility tests. New tests cover type-specific flows.",
+      "residual_risk": "Low. The coder needs to understand that existing tests should NOT be deleted — they should be updated to pass decisions without decision_type (or with decision_type='choice' for the existing generic behavior). If existing tests are deleted instead of preserved, backwards-compatibility coverage is lost.",
+      "verification": "After implementation, run the full test suite. Verify that test count increased (new tests added), not decreased (old tests removed).",
+      "human_review_needed": false
+    },
+    {
+      "id": "R-9",
+      "category": "correctness",
+      "title": "Pipeline.add_decision() and DecisionQueue.queue_decision() must be updated atomically",
+      "status": "MITIGATED_IN_PLAN",
+      "description": "If queue_decision() passes decision_type to add_decision() but add_decision() doesn't accept it, Pydantic's defaults silently produce decision_type='choice' for all decisions. The failure is silent.",
+      "likelihood": "mitigated",
+      "impact": "medium",
+      "mitigation_in_plan": "TASK-1-1 and TASK-1-2 both say 'must be updated atomically' and 'must be committed together'. TASK-3-1 includes a test that creates a typed decision and verifies the stored type.",
+      "residual_risk": "Low. The task descriptions are clear. The existing code pattern (decision_queue.py:145-153) shows that queue_decision() creates the decision via pipeline.add_decision() and then mutates it post-construction (e.g., decision.context = context at line 152). The coder might follow this pattern and set decision.decision_type = decision_type after creation instead of passing it to add_decision(). This would work but is fragile. Recommend passing through the constructor instead.",
+      "verification": "TASK-3-1 test must verify that after queue_decision(decision_type='phase_gate'), the stored decision has decision_type='phase_gate', not 'choice'.",
+      "human_review_needed": false
+    },
+    {
+      "id": "R-10",
+      "category": "security",
+      "title": "JSON resolution payload construction from terminal input",
+      "status": "ACCEPTED",
+      "description": "The terminal handler constructs JSON resolution payloads from human input using json.dumps(). json.dumps() handles escaping automatically (quotes, backslashes, unicode). The orchestrator parses with json.loads() inside try/except. The human terminal user is the trusted operator. This is not a security risk.",
+      "likelihood": "low",
+      "impact": "low",
+      "mitigation": "json.dumps() for construction and json.loads() with try/except for parsing are standard practices. The fallback to keyword matching on JSONDecodeError provides a safety net. Add a test with feedback containing special characters (quotes, newlines, unicode).",
+      "human_review_needed": false
+    },
+    {
+      "id": "R-11",
+      "category": "correctness",
+      "title": "Feedback answer review loop has no bounded iteration limit",
+      "status": "NEW",
+      "description": "The TASK-2-4 UX specification allows the human to [r] Redo any question repeatedly from the summary view. There is no iteration limit on redo cycles. While this is intentional (the human controls the loop), a malformed input loop (e.g., automated test harness feeding 'r' repeatedly) could create an unbounded loop in the handler.",
+      "likelihood": "very_low",
+      "impact": "low",
+      "impact_detail": "Only occurs if the terminal input is automated or in a test scenario that doesn't properly terminate. In normal interactive use, the human controls the loop. The handler is single-threaded and doesn't consume significant resources per iteration.",
+      "mitigation": "Accept. The human-in-the-loop nature of this code means the human can always break the loop via Ctrl+C. Tests should use finite input sequences. No code change needed.",
+      "human_review_needed": false
+    },
+    {
+      "id": "R-12",
+      "category": "correctness",
+      "title": "Post-construction mutation pattern in queue_decision() may lead to inconsistent field threading",
+      "status": "NEW",
+      "description": "The existing code at decision_queue.py:145-153 creates a decision via pipeline.add_decision(question, options) and then mutates it: decision.context = context (line 152). The coder might follow this pattern for the new fields: create via add_decision() then do decision.decision_type = decision_type and decision.questions = questions. While this works (the decision object is mutable and is saved afterward), it means the add_decision() method signature doesn't reflect the full set of required fields. If a future caller uses add_decision() directly (bypassing queue_decision()), they won't be prompted to provide decision_type.",
+      "likelihood": "medium",
+      "impact": "low",
+      "impact_detail": "The post-construction mutation pattern already exists (for context). Adding more post-construction mutations is consistent but makes the API surface less self-documenting. Future callers of add_decision() would need to know to also set decision_type and questions.",
+      "mitigation": "The recommended approach (per the architect) is to pass decision_type and questions through to add_decision() constructor params. If the coder follows the existing mutation pattern instead, it still works but is less clean. TASK-3-1's test (verify stored type after queue_decision) catches both patterns.",
+      "recommendation": "The coder should prefer passing all fields to add_decision() constructor rather than mutating after creation. Update add_decision() signature to: add_decision(self, question, options=None, decision_type='choice', questions=None).",
+      "human_review_needed": false
+    },
+    {
+      "id": "R-13",
+      "category": "correctness",
+      "title": "JSON resolution with 'select' action on phase gate decisions",
+      "status": "NEW",
+      "description": "The architect's plan maps JSON action 'select' to the approval path (TASK-1-5). However, the current phase gate options include 'request changes', and the choice handler resolves with {\"action\":\"select\",\"selected\":\"<option>\"}. If a phase gate is somehow resolved with {\"action\":\"select\",\"selected\":\"request changes\"}, it would route to the approval path instead of the revision path. This is unlikely in practice because phase gates use _handle_phase_gate() which resolves with 'approve' or 'request_changes' actions, not 'select'. But if the wrong handler is invoked (e.g., a phase gate decision with decision_type not set, falling through to choice handler), this could occur.",
+      "likelihood": "very_low",
+      "impact": "low",
+      "impact_detail": "A phase gate accidentally resolved via the choice handler's 'select' action would route to approval even if the human selected 'request changes' from the choice list. This only happens if decision_type is wrong.",
+      "mitigation": "The fallback behavior for unknown/missing decision_type renders the generic menu (not the choice menu), so this path is extremely unlikely. TASK-1-4 ensures all phase gates have decision_type='phase_gate'. No additional mitigation needed.",
+      "human_review_needed": false
+    },
+    {
+      "id": "R-14",
+      "category": "correctness",
+      "title": "General feedback [f] alongside primary action may produce ambiguous resolution payloads",
+      "status": "NEW",
+      "description": "TASK-2-5 specifies that universal option [f] collects general feedback that accompanies the primary action. The resolution payload includes this as a 'feedback' field: e.g., {\"action\":\"approve\", \"feedback\":\"also check error handling\"}. The orchestrator's TASK-1-5 resolution parsing dispatches on 'action' — if action is 'approve', it routes to the approval path. But the approval path at pipelines.py:5971-5980 does NOT read the 'feedback' field. Advisory feedback on approval is explicitly deferred to a follow-up issue (per the architect). However, if both 'request_changes' and [f] general feedback are combined, the payload has {\"action\":\"request_changes\", \"feedback\":\"specific changes\", \"general_feedback\":\"also note...\"}. TASK-1-5 extracts payload.get('feedback') for hitl_revision_feedback. The 'general_feedback' field is silently ignored.",
+      "likelihood": "medium",
+      "impact": "low",
+      "impact_detail": "General feedback provided via [f] alongside a request_changes action is silently dropped — only the 'feedback' field from the request_changes prompt is passed to the agent. The 'general_feedback' field is preserved in the resolution JSON for logging but not forwarded. This is acceptable given the explicit deferral of advisory feedback forwarding.",
+      "mitigation": "Accept for now. The architect's plan explicitly defers advisory feedback forwarding. The resolution JSON preserves general_feedback for future use. Document the limitation: [f] general feedback is recorded but not forwarded to agents in the current implementation.",
+      "recommendation": "The terminal handler should inform the human: 'Note: General feedback is recorded but not forwarded to the agent in the current version.' This sets expectations.",
+      "human_review_needed": false
+    }
+  ],
+
+  "risk_summary": {
+    "overall_risk": "LOW",
+    "critical_risks": 0,
+    "high_risks": 0,
+    "medium_risks": 1,
+    "low_risks": 8,
+    "mitigated_in_plan": 5,
+    "blocking_risks": 0,
+    "justification": "The architect's revision 2 successfully addresses all five high/medium risks identified in revision 1 (R-1 through R-4, R-9). Each risk now has explicit implementation guidance in task descriptions and corresponding test coverage. The remaining risks are either accepted low-impact items (R-5, R-7, R-10, R-11) or new informational items identified during deeper analysis (R-12, R-13, R-14). The only medium-severity remaining risk is R-7 (circuit breaker dropping change_approach), which is explicitly deferred to a follow-up issue and is a pre-existing limitation.",
+    "comparison_to_revision_1": {
+      "revision_1_overall_risk": "LOW-MEDIUM",
+      "revision_2_overall_risk": "LOW",
+      "improvement": "All five recommendations incorporated. Two new test tasks added. TASK-2-4 UX specified. Risk profile improved."
+    }
+  },
+
+  "areas_needing_human_review": [
+    {
+      "area": "Circuit breaker behavior with structured resolutions",
+      "reason": "The circuit breaker at pipelines.py:5946-5969 has a pre-existing issue: when it fires, the code continues (line 5969) without setting hitl_revision_feedback, producing a clean re-run instead of force-approving. With structured JSON resolutions, the human may explicitly say 'change_approach' on the 3rd+ cycle, and this explicit intent is silently dropped. The architect defers this to a follow-up issue, which is reasonable. However, the human reviewer should be aware of this pre-existing behavior when reviewing the PR.",
+      "recommendation": "Accept the deferral. Verify during PR review that the circuit breaker behavior is not accidentally changed by the new JSON parsing code."
+    },
+    {
+      "area": "Advisory feedback on approval is silently dropped",
+      "reason": "When a human approves with general feedback ({\"action\":\"approve\", \"feedback\":\"...\"}), the feedback field is preserved in the resolution JSON but has no consumer. The approval path at pipelines.py:5971+ does not read it. The architect explicitly defers advisory feedback forwarding. The human reviewer should confirm this is the intended behavior for v1.",
+      "recommendation": "Accept the deferral. No code changes needed. The resolution JSON preserves the data for future implementation."
+    }
+  ],
+
+  "rollback_plan": {
+    "strategy": "Single-PR revert",
+    "description": "All changes are additive: new model fields with Pydantic defaults, new JSON parsing with string fallback, new terminal rendering with generic-menu fallback. Reverting the PR restores all prior behavior. No data migration is needed in either direction.",
+    "data_migration": "None. New fields have defaults for forward compatibility. Old code ignores extra fields via Pydantic's default handling. Pipeline state files created with new fields are loadable by old code (extra fields are ignored).",
+    "partial_rollback_options": [
+      {
+        "component": "Terminal handler only",
+        "description": "Revert sdlc_hitl.py changes. The orchestrator still accepts decision_type and questions via the API, but the terminal renders the generic menu. JSON resolution payloads are still parsed correctly (JSON-first fallback). Useful if the terminal UX has issues but the data model is fine."
+      },
+      {
+        "component": "Resolution parsing only",
+        "description": "Revert the JSON resolution parsing in pipelines.py. The terminal still sends JSON, but the orchestrator's keyword matching treats JSON strings as feedback text. Approve ({\"action\":\"approve\"}) would NOT match _APPROVE_KEYWORDS and would be treated as feedback, triggering a re-run. This is a degraded state — not recommended as a partial rollback."
+      }
+    ]
+  },
+
+  "implementation_recommendations": [
+    {
+      "id": "IR-1",
+      "title": "Resolution parsing must be JSON-first, keyword-second",
+      "status": "INCORPORATED_IN_PLAN",
+      "description": "TASK-1-5 now explicitly requires this ordering with numbered steps."
+    },
+    {
+      "id": "IR-2",
+      "title": "Extract feedback from JSON before assigning to hitl_revision_feedback",
+      "status": "INCORPORATED_IN_PLAN",
+      "description": "TASK-1-5 now explicitly requires payload.get('feedback', resolution)."
+    },
+    {
+      "id": "IR-3",
+      "title": "Update both API serialization sites in decisions.py",
+      "status": "INCORPORATED_IN_PLAN",
+      "description": "TASK-1-3 identifies both sites with line numbers. TASK-3-5 tests GET serialization."
+    },
+    {
+      "id": "IR-4",
+      "title": "Set decision_type='phase_gate' on follow-up decisions",
+      "status": "INCORPORATED_IN_PLAN",
+      "description": "TASK-1-4 explicitly requires this with line-number reference."
+    },
+    {
+      "id": "IR-5",
+      "title": "Update Pipeline.add_decision() and DecisionQueue.queue_decision() atomically",
+      "status": "INCORPORATED_IN_PLAN",
+      "description": "TASK-1-1 and TASK-1-2 both say 'must be committed together'."
+    },
+    {
+      "id": "IR-6",
+      "title": "Keep existing tests as backwards-compatibility regression tests",
+      "status": "INCORPORATED_IN_PLAN",
+      "description": "TASK-3-3 says 'Existing generic menu tests preserved for backward compatibility.'"
+    },
+    {
+      "id": "IR-7",
+      "title": "Prefer constructor params over post-construction mutation for new fields",
+      "status": "NEW",
+      "description": "When implementing TASK-1-1 (add_decision) and TASK-1-2 (queue_decision), pass decision_type and questions through the add_decision() constructor rather than mutating the returned object. The existing code sets decision.context after creation (decision_queue.py:152), which works but is fragile. For the new fields, update the add_decision() signature to accept them directly. This makes the API self-documenting and prevents future callers from forgetting to set the fields."
+    },
+    {
+      "id": "IR-8",
+      "title": "Log when circuit breaker drops structured feedback",
+      "status": "NEW",
+      "description": "When implementing TASK-1-5, if the circuit breaker fires AND the resolution is JSON with action='change_approach' or 'request_changes', add a logger.warning with the dropped feedback content. This makes the dropped intent visible for debugging without changing the circuit breaker behavior."
+    },
+    {
+      "id": "IR-9",
+      "title": "Terminal handler should note general feedback limitation",
+      "status": "NEW",
+      "description": "When implementing TASK-2-5 universal options, after collecting [f] general feedback, display a note: 'Note: General feedback is recorded but advisory forwarding on approval is not yet implemented.' This sets user expectations and avoids confusion about why feedback provided with an approve action doesn't appear in the agent prompt."
+    }
+  ]
+}

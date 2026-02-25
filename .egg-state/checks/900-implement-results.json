@@ -1,0 +1,20 @@
+{
+  "all_passed": true,
+  "checks": [
+    {
+      "name": "lint",
+      "passed": true,
+      "output": "==> Ruff check...\nAll checks passed!\n==> Ruff format check...\n435 files already formatted\n==> Mypy...\nSuccess: no issues found in 120 source files\n==> Shellcheck...\n==> Yamllint...\nSKIP: yamllint not installed\n==> Hadolint...\nSKIP: hadolint not installed\n==> Actionlint...\nSKIP: actionlint not installed\n==> Custom checks...\n  bin-symlinks...\nOK: All 2 bin/ symlinks are valid\n  claude-imports...\nWarning: host-services directory not found at /home/egg/repos/egg/host-services\n  container-host-boundary...\nOK: No forbidden host-services imports found in sandbox\n  container-paths...\nOK: No problematic sys.path patterns found\n  docker-and-claude-invocations...\nOK: No docker/claude invocation violations found\n  gh-cli-usage...\nWarning: host-services directory not found at /home/egg/repos/egg/host-services\n  hardcoded-ports...\nOK: No hardcoded port numbers found\n  llm-api-calls...\nOK: No direct LLM API usage found outside sandbox\n  model-versions...\nOK: No non-alias Claude model references found\n  reviewer-job-names...\nOK: All reviewer jobs use the required naming prefix\n  workflow-secrets...\nOK: No untrusted script execution with secrets found in workflows"
+    },
+    {
+      "name": "test",
+      "passed": true,
+      "output": "==> Running unit tests...\npytest tests/ gateway/tests/ orchestrator/tests/ -v\n============================= test session starts ==============================\nplatform linux -- Python 3.11.14, pytest-9.0.2, pluggy-1.6.0\ncachedir: .pytest_cache\nhypothesis profile 'default'\nrootdir: /home/egg/repos/egg\nconfigfile: pyproject.toml\nplugins: hypothesis-6.151.9, xdist-3.8.0, asyncio-1.3.0, anyio-4.12.1, cov-7.0.0\nasyncio: mode=Mode.STRICT\ncollected 7036 items\n\n=========== 6951 passed, 85 skipped, 4 warnings in 77.99s (0:01:17) ============"
+    },
+    {
+      "name": "security",
+      "passed": true,
+      "output": "==> Running security scan...\nSKIP: bandit not installed"
+    }
+  ]
+}
