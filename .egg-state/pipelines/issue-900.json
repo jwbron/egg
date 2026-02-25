@@ -503,7 +503,7 @@
         {
           "cycle": 0,
           "started_at": "2026-02-24T22:50:29.254077",
-          "completed_at": null,
+          "completed_at": "2026-02-25T00:04:11.236011",
           "commit_sha": null
         }
       ],
@@ -621,7 +621,7 @@
     }
   ],
   "created_at": "2026-02-24T21:42:50.271543",
-  "updated_at": "2026-02-25T00:04:01.970368",
+  "updated_at": "2026-02-25T00:04:11.236576",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
@@ -629,5 +629,5 @@
   "error": null,
   "plan_phase_waves": null,
   "plan_phase_names": null,
-  "version": 74
+  "version": 75
 }
