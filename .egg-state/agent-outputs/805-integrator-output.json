@@ -1,0 +1,74 @@
+{
+  "issue": 805,
+  "pipeline_id": "issue-805",
+  "phase": "implement",
+  "agent": "integrator",
+  "status": "pass",
+  "summary": "All 7076 tests pass. Three code review blocking issues were already fixed by coder in commit cf0b860fc. Integrator fixed lint (import ordering) and formatting (ruff format) issues in 3 files. All lint checks pass including ruff check, ruff format, mypy, shellcheck, and custom checks.",
+  "integration_commit": "ddc0f2ac2",
+  "test_results": {
+    "total": 7076,
+    "passed": 7076,
+    "failed": 0,
+    "skipped": 85,
+    "warnings": 4,
+    "duration_seconds": 78.87
+  },
+  "lint_results": {
+    "ruff_check": "pass",
+    "ruff_format": "pass",
+    "mypy": "pass",
+    "shellcheck": "pass",
+    "custom_checks": "pass"
+  },
+  "review_feedback_verification": {
+    "blocking_1_keyword_arg_mismatch": {
+      "status": "resolved",
+      "fix_commit": "cf0b860fc",
+      "description": "load_contract() call in container_spawner.py:113 now uses repo_root=Path(repo_path) matching the function signature at loader.py:60.",
+      "verified": true
+    },
+    "blocking_2_valueerror_handling": {
+      "status": "resolved",
+      "fix_commit": "cf0b860fc",
+      "description": "EGG_TASK_FILE_WARN_THRESHOLD int() parsing at gateway.py:915-918 is now wrapped in try/except (ValueError, TypeError) with fallback to 1.",
+      "verified": true
+    },
+    "blocking_3_strict_mode_hitl": {
+      "status": "resolved",
+      "fix_commit": "cf0b860fc",
+      "description": "Strict mode in session_request_file (gateway.py:3966-4024) now posts to orchestrator /api/v1/pipelines/{id}/decisions endpoint. Falls back to auto-approve with audit logging when orchestrator is unavailable.",
+      "verified": true
+    }
+  },
+  "issues_found": [
+    {
+      "severity": "low",
+      "component": "tests",
+      "description": "Import ordering violation (ruff I001) in gateway/tests/test_session_file_restriction_endpoints.py — import gateway was out of sort order.",
+      "fix": "Applied ruff --fix to sort imports.",
+      "files": ["gateway/tests/test_session_file_restriction_endpoints.py"]
+    },
+    {
+      "severity": "low",
+      "component": "formatting",
+      "description": "Ruff format violations in 3 files: gateway/gateway.py, gateway/tests/test_session_file_restriction_endpoints.py, orchestrator/tests/test_compute_allowed_files.py.",
+      "fix": "Applied ruff format to all 3 files.",
+      "files": ["gateway/gateway.py", "gateway/tests/test_session_file_restriction_endpoints.py", "orchestrator/tests/test_compute_allowed_files.py"]
+    },
+    {
+      "severity": "info",
+      "component": "push",
+      "description": "Push to remote blocked because branch contains .egg-state/ files from prior pipeline phases. Post-agent auto-commit will handle pushing code changes at container exit.",
+      "fix": "No action needed — gateway post-agent commit filters phase-restricted files.",
+      "files": []
+    }
+  ],
+  "files_changed_by_integrator": [
+    "gateway/gateway.py",
+    "gateway/tests/test_session_file_restriction_endpoints.py",
+    "orchestrator/tests/test_compute_allowed_files.py"
+  ],
+  "regressions": "none",
+  "integration_issues": "none"
+}
