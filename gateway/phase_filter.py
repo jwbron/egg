@@ -274,11 +274,14 @@ class PhaseFileRestriction:
                 return False
             return all(fnmatch.fnmatch(p, pp) for p, pp in zip(path_parts, pat_parts, strict=True))
 
-        # Otherwise, use prefix matching (for directory patterns)
+        # Directory patterns use prefix matching
         if pattern.endswith("/"):
             return file_path.startswith(pattern)
 
-        return file_path.startswith(pattern)
+        # Exact file patterns use exact match (not startswith) to avoid
+        # "pyproject.toml" matching "pyproject.toml.bak" or "Makefile"
+        # matching "MakefileFoo".
+        return file_path == pattern
 
 
 @dataclass

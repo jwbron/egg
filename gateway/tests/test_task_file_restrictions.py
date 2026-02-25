@@ -519,16 +519,11 @@ class TestBuildSessionFileRestrictionEdgeCases:
 
     def test_exact_file_does_not_match_similar_name(self):
         """Exact file path should not match a different filename starting with same prefix."""
-        # "pyproject.toml" should not match "pyproject.toml.bak" in prefix mode
-        # However, PhaseFileRestriction uses startswith for non-glob patterns
         result = check_session_file_restrictions(
             ["pyproject.toml"], "implement", ["pyproject.toml.bak"]
         )
-        # Note: the current implementation uses startswith for non-glob patterns,
-        # so "pyproject.toml" matches "pyproject.toml.bak". This is a known
-        # behavior of the prefix matching strategy.
-        # This test documents the current behavior.
-        assert result.allowed  # prefix matching allows this
+        assert not result.allowed
+        assert "pyproject.toml.bak" in result.blocked_files
 
     def test_directory_glob_matches_all_children(self):
         """Directory glob src/components/* matches files in that directory."""
