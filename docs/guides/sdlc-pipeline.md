@@ -20,10 +20,11 @@ Agents cannot be trusted to self-police via prompts alone. The pipeline enforces
 - **Push-time operation filtering**: The gateway blocks operations not permitted in the current phase
 - **Push-target enforcement**: Pipeline agents must push to their assigned branch only—the gateway rejects pushes to any other branch (HTTP 403), preventing agents from improvising branch names on push failure. Killswitch: `PUSH_TARGET_ENFORCEMENT=false`
 - **Agent-role file restrictions**: Each agent role (coder, tester, documenter, integrator, etc.) has allowed and blocked file patterns enforced at push time. Controlled by the `EGG_AGENT_RESTRICTIONS_ENFORCE` environment variable (default: warn-only mode with audit logging; set to `true` to block violating pushes)
+- **Per-task file restrictions**: The planner's `files:` entries are enforced as per-session file boundaries during the implement phase. The orchestrator computes the union of `files_affected` from all plan tasks and passes it as `allowed_files` to the gateway session. Pushes containing out-of-scope files trigger warn-then-block escalation (configurable via `EGG_TASK_FILE_RESTRICTIONS_ENFORCE`). Agents can request access to additional files via `egg-contract request-file`. See [gateway/README.md](../../gateway/README.md#per-task-file-restrictions-session-level) for full details
 - **Role-based field ownership**: Contract mutations are validated against caller role
 - **Completion signal branch verification**: When an agent signals completion with a commit SHA, the orchestrator verifies the commit exists on the pipeline's expected branch (HTTP 409 on mismatch)
 - **Per-command timeout**: Shell commands in the sandbox are wrapped with a configurable timeout (default 120s) to prevent runaway commands like `grep -rn / ` from hanging the container. Configurable via `BASH_COMMAND_TIMEOUT`
-- **Post-agent auto-commit**: Uncommitted work is automatically preserved when agent containers exit, with phase-restricted files restored (not committed) using `check_phase_file_restrictions()` and allowed files pushed via the gateway API
+- **Post-agent auto-commit**: Uncommitted work is automatically preserved when agent containers exit, with phase-restricted and session-restricted files restored (not committed) using `check_phase_file_restrictions()` and `check_session_file_restrictions()`, and allowed files pushed via the gateway API
 - **Separate context windows**: Each agent invocation runs in a separate GitHub Actions job with fresh context
 
 ### 2. Contract-as-Code
@@ -364,6 +365,9 @@ The gateway enforces file access patterns for each agent role via `gateway/agent
 
 **Handoff Data:**
 Agents communicate via handoff data stored in `.egg-state/agent-outputs/{identifier}-{role}-output.json` (where `{identifier}` is the issue number or pipeline ID). For example, the Coder agent outputs a list of changed files, which the Tester and Documenter agents read to focus their work. The identifier prefix prevents merge conflicts when concurrent pipelines merge to main.
+
+**Per-Task File Boundaries:**
+When spawning implement-phase agents, the container spawner reads `files_affected` from the contract's plan tasks and computes a per-session `allowed_files` list. This is passed to the gateway at session registration. Directory-sibling expansion is applied automatically: listing `src/auth/login.py` implicitly allows all files in `src/auth/`. If no `files_affected` are defined, no per-file restriction is applied (graceful fallback). The escape hatch `egg-contract request-file --path <file> --reason <why>` lets agents request additional files at runtime.
 
 **Orchestration:**
 Multi-agent orchestration is managed by the local orchestrator (`orchestrator/container_spawner.py`). The orchestrator reads the contract state, determines which agents can run based on dependencies, and dispatches them in parallel where possible.

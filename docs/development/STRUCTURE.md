@@ -46,7 +46,7 @@ gateway/
 ├── policy.py               # Branch ownership, push policies, reviewer identity management
 ├── fork_policy.py          # Fork access policies
 ├── private_repo_policy.py  # Private/public repo access
-├── phase_filter.py         # Phase-based operation filtering, file restrictions
+├── phase_filter.py         # Phase-based operation filtering, file restrictions, per-session allowlists
 ├── agent_restrictions.py   # Agent role-based file access enforcement
 ├── phase_transition.py     # Phase transition validation
 ├── phase_api.py            # Phase API endpoints
@@ -68,7 +68,7 @@ gateway/
 ├── Dockerfile              # Gateway container image
 ├── squid.conf              # Proxy config (private mode)
 ├── scripts/                # Gateway helper scripts
-└── tests/                  # Gateway tests (push-target enforcement, branch lock, 40+ files)
+└── tests/                  # Gateway tests (push-target enforcement, branch lock, task file restrictions, 40+ files)
 ```
 
 ## Orchestrator Structure

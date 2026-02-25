@@ -89,6 +89,43 @@ The gateway enforces file-level access restrictions to prevent certain roles fro
 - `Push denied: Role 'X' cannot modify: <files>. <reason>` (HTTP 403) - File blocked by restriction
 - `Push denied: Could not verify file changes for security check: <error>` (HTTP 500) - Detection failure
 
+### Per-Task File Restrictions (Session-Level)
+
+Beyond phase-level and role-level restrictions, the gateway enforces **per-task file boundaries** during the implement phase. When the planner's `files:` entries are present in the contract, the orchestrator computes a per-session `allowed_files` list and passes it to the gateway during session creation. This prevents agents from accidentally modifying files that belong to a different task — critical when multiple agents work in parallel (Tier 3 dispatch).
+
+**How it works:**
+1. The **container spawner** (`orchestrator/container_spawner.py`) reads `files_affected` from the contract's plan tasks and computes a union of all file patterns. For each concrete file path, a parent directory glob is added for sibling expansion (e.g., `src/auth/login.py` → `src/auth/*`).
+2. The combined list is passed as `allowed_files` to the gateway's session registration endpoint.
+3. The **Session** model (`gateway/session_manager.py`) stores `allowed_files` on the session, persisted across restarts.
+4. At **push time**, the gateway checks files against the session's `allowed_files` using `check_session_file_restrictions()` from `phase_filter.py`. Phase-level `blocked_patterns` always take priority (intersection semantics).
+
+**Warn-then-block semantics:**
+- **First violation** per file: The push is allowed with a structured warning in logs (visible in agent checkpoints). The session's `_warned_files` counter is incremented.
+- **Subsequent violations** for the same file: The push is blocked with HTTP 403, including guidance on using the escape hatch.
+- **Strict mode** (`EGG_TASK_FILE_RESTRICTIONS_ENFORCE=true`): Blocks immediately on first violation.
+- Warn threshold is configurable via `EGG_TASK_FILE_WARN_THRESHOLD` (default: 1).
+
+**Escape hatch:**
+If an agent legitimately needs a file outside its allowlist, it can use:
+```
+egg-contract request-file --path <file> --reason <why>
+```
+This calls `POST /api/v1/sessions/request-file` which, in default mode, auto-approves by adding the file (and its parent directory glob) to the session's `allowed_files`. In strict mode, it queues a HITL decision for human approval (returns 202).
+
+**Graceful fallback:**
+- When `files_affected` is empty for all tasks, no per-file restriction is applied.
+- Glob patterns (`*`, `**`) in `files_affected` entries are supported.
+- The `_warned_files` counter is not persisted — it resets on gateway restart (fail-open).
+
+**Post-agent auto-commit integration:**
+The post-agent auto-commit (`gateway/post_agent_commit.py`) also respects session-level file restrictions. When auto-committing uncommitted work, it loads the session's `allowed_files` and filters out files outside the allowlist (restoring them instead of committing). This is logged explicitly to avoid confusion from silent drops.
+
+**Environment variables:**
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `EGG_TASK_FILE_RESTRICTIONS_ENFORCE` | `false` | Set to `true` for strict mode (block on first violation) |
+| `EGG_TASK_FILE_WARN_THRESHOLD` | `1` | Number of warnings before blocking a file |
+
 ### Branch Lock (Pipeline Sessions)
 
 Pipeline sessions are locked to their assigned worktree branch. The gateway blocks `git checkout` (branch-switching) and `git switch` operations to prevent agents from moving off their assigned branch, which would break deterministic post-agent commit/push.
@@ -173,14 +210,23 @@ Phase transitions require specific roles (human, reviewer, implementer) as defin
 
 ```
 POST /api/v1/sessions/create
-  Request: {container_id, container_ip, mode, repos[], uid?, gid?, phase?}
+  Request: {container_id, container_ip, mode, repos[], uid?, gid?, phase?,
+            allowed_files?}
   Auth: Bearer {launcher_secret}
   Description: Create a new session with optional SDLC phase tracking
+               and per-task file allowlist
 
 PATCH /api/v1/sessions/<session_token>/phase
   Request: {phase: "refine"|"plan"|"implement"|"pr"}
   Auth: Bearer {launcher_secret}
   Description: Update the SDLC pipeline phase for a session
+
+POST /api/v1/sessions/request-file
+  Request: {path, reason}
+  Auth: Bearer {session_token}
+  Description: Request access to a file outside the session's per-task
+               allowlist. Auto-approves in default mode; queues HITL
+               decision in strict mode (returns 202)
 ```
 
 ### Git Operations
@@ -447,6 +493,7 @@ gateway/
 │   ├── test_integrator_tier3.py
 │   ├── test_phase_worktree.py
 │   ├── test_assigned_branch.py  # Push-target enforcement and branch lock tests
+│   ├── test_task_file_restrictions.py  # Per-task session file restriction tests
 │   ├── integration_test.sh
 │   └── README-integration.md
 └── README.md               # This file
@@ -471,6 +518,8 @@ gateway/
 8. **Branch lock for pipeline sessions**: Pipeline agents are locked to their worktree branch to ensure deterministic post-agent commit/push. The `Session.assigned_branch` field is set during session creation when a pipeline ID is present.
 
 9. **Push-target enforcement**: Pipeline agents must push to their assigned branch only. When a push to the assigned branch fails (e.g., due to phase file restrictions from branch history contamination), agents must signal an error rather than improvise a new branch name. This prevents commits from landing on unexpected branches where the pipeline cannot find them.
+
+10. **Per-task file restrictions**: The planner's `files:` entries are enforced as per-session file boundaries during the implement phase. The orchestrator computes allowed files from the contract and passes them to the gateway at session creation. Enforcement uses warn-then-block semantics (configurable via `EGG_TASK_FILE_RESTRICTIONS_ENFORCE` for strict mode). An escape hatch (`egg-contract request-file`) provides observability-first flexibility. This prevents cross-contamination when multiple agents work in parallel on different tasks.
 
 ## Testing
 

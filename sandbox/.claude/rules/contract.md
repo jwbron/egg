@@ -11,6 +11,7 @@ When working in the SDLC pipeline, use the `egg-contract` CLI to track progress.
 | `egg-contract update-notes --task <id> --notes <text>` | Add implementation notes |
 | `egg-contract add-decision --question <text>` | Create HITL decision (multiple choice) |
 | `egg-contract add-feedback --question <text>...` | Create feedback comment (open-ended) |
+| `egg-contract request-file --path <file> --reason <why>` | Request access to a file outside the task's allowlist |
 
 ## Workflow
 
@@ -62,6 +63,19 @@ Creates an editable comment with answer sections. Human fills in answers and che
 Both mechanisms use a 30-second debounce to allow humans to edit before processing.
 When submitted, the pipeline resumes with the human input available in your prompt
 context via `get_submitted_feedback()` or the selected decision option.
+
+## File Access Escape Hatch
+
+If you need to modify a file that is not in your task's `files_affected` allowlist,
+use the `request-file` command:
+
+```bash
+egg-contract request-file --path src/utils/new_helper.py --reason "Need to create helper for auth refactor"
+```
+
+In default mode, the file is auto-approved and added to your session's allowlist.
+In strict mode (`EGG_TASK_FILE_RESTRICTIONS_ENFORCE=true`), a HITL decision is
+queued for human approval.
 
 ## Environment
 
