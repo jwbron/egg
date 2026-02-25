@@ -13,6 +13,7 @@ from egg_lib.sdlc_hitl import (
     _find_repo_path,
     _get_contract_key,
     _get_draft_path,
+    _handle_contract_questions,
     _launch_claude,
     _load_pending_contract_decisions,
     _read_draft,
@@ -2274,3 +2275,345 @@ class TestContractDecisionBridge:
         captured = capsys.readouterr()
         assert "still unanswered" in captured.out
         assert result == "resolved"
+
+    # -- _handle_contract_questions unit tests --
+
+    @patch("builtins.input")
+    def test_handle_questions_option_based(self, mock_input, tmp_path, capsys):
+        """Option-based question: user selects numbered choice."""
+        self._write_contract(
+            tmp_path,
+            "42",
+            [
+                {
+                    "id": "decision-1",
+                    "question": "Which DB?",
+                    "type": "hitl",
+                    "resolved": False,
+                    "resolution": None,
+                    "options": [
+                        {"id": "opt-1", "label": "PostgreSQL"},
+                        {"id": "opt-2", "label": "MongoDB"},
+                    ],
+                },
+            ],
+        )
+        pending = _load_pending_contract_decisions(tmp_path, "42")
+        mock_input.return_value = "1"
+
+        result = _handle_contract_questions(tmp_path, "42", pending)
+
+        assert result == "answered"
+        # Verify decision was resolved
+        data = json.loads((tmp_path / ".egg-state" / "contracts" / "42.json").read_text())
+        assert data["decisions"][0]["resolved"] is True
+        assert data["decisions"][0]["resolution"] == "PostgreSQL"
+
+    @patch("builtins.input")
+    def test_handle_questions_free_text(self, mock_input, tmp_path, capsys):
+        """Free-text question: user types an answer."""
+        self._write_contract(
+            tmp_path,
+            "42",
+            [
+                {
+                    "id": "decision-1",
+                    "question": "What is expected volume?",
+                    "type": "hitl",
+                    "resolved": False,
+                    "resolution": None,
+                    "options": [],
+                },
+            ],
+        )
+        pending = _load_pending_contract_decisions(tmp_path, "42")
+        mock_input.return_value = "About 1000 requests per day"
+
+        result = _handle_contract_questions(tmp_path, "42", pending)
+
+        assert result == "answered"
+        data = json.loads((tmp_path / ".egg-state" / "contracts" / "42.json").read_text())
+        assert data["decisions"][0]["resolved"] is True
+        assert data["decisions"][0]["resolution"] == "About 1000 requests per day"
+
+    @patch("builtins.input")
+    def test_handle_questions_skip(self, mock_input, tmp_path, capsys):
+        """User skips a free-text question with /s."""
+        self._write_contract(
+            tmp_path,
+            "42",
+            [
+                {
+                    "id": "decision-1",
+                    "question": "What is expected volume?",
+                    "type": "hitl",
+                    "resolved": False,
+                    "resolution": None,
+                    "options": [],
+                },
+            ],
+        )
+        pending = _load_pending_contract_decisions(tmp_path, "42")
+        mock_input.return_value = "/s"
+
+        result = _handle_contract_questions(tmp_path, "42", pending)
+
+        assert result == "answered"
+        # Decision should NOT be resolved (skipped)
+        data = json.loads((tmp_path / ".egg-state" / "contracts" / "42.json").read_text())
+        assert data["decisions"][0]["resolved"] is False
+
+    @patch("builtins.input")
+    def test_handle_questions_quit_free_text(self, mock_input, tmp_path, capsys):
+        """User quits from free-text question with /q."""
+        self._write_contract(
+            tmp_path,
+            "42",
+            [
+                {
+                    "id": "decision-1",
+                    "question": "What is expected volume?",
+                    "type": "hitl",
+                    "resolved": False,
+                    "resolution": None,
+                    "options": [],
+                },
+            ],
+        )
+        pending = _load_pending_contract_decisions(tmp_path, "42")
+        mock_input.return_value = "/q"
+
+        result = _handle_contract_questions(tmp_path, "42", pending)
+
+        assert result == "quit"
+
+    @patch("builtins.input")
+    def test_handle_questions_quit_option_based(self, mock_input, tmp_path, capsys):
+        """User quits from option-based question with q."""
+        self._write_contract(
+            tmp_path,
+            "42",
+            [
+                {
+                    "id": "decision-1",
+                    "question": "Which DB?",
+                    "type": "hitl",
+                    "resolved": False,
+                    "resolution": None,
+                    "options": [
+                        {"id": "opt-1", "label": "PostgreSQL"},
+                        {"id": "opt-2", "label": "MongoDB"},
+                    ],
+                },
+            ],
+        )
+        pending = _load_pending_contract_decisions(tmp_path, "42")
+        mock_input.return_value = "q"
+
+        result = _handle_contract_questions(tmp_path, "42", pending)
+
+        assert result == "quit"
+
+    @patch("builtins.input")
+    def test_handle_questions_skip_option_based(self, mock_input, tmp_path, capsys):
+        """User skips an option-based question with s."""
+        self._write_contract(
+            tmp_path,
+            "42",
+            [
+                {
+                    "id": "decision-1",
+                    "question": "Which DB?",
+                    "type": "hitl",
+                    "resolved": False,
+                    "resolution": None,
+                    "options": [
+                        {"id": "opt-1", "label": "PostgreSQL"},
+                        {"id": "opt-2", "label": "MongoDB"},
+                    ],
+                },
+            ],
+        )
+        pending = _load_pending_contract_decisions(tmp_path, "42")
+        mock_input.return_value = "s"
+
+        result = _handle_contract_questions(tmp_path, "42", pending)
+
+        assert result == "answered"
+        # Decision should NOT be resolved (skipped)
+        data = json.loads((tmp_path / ".egg-state" / "contracts" / "42.json").read_text())
+        assert data["decisions"][0]["resolved"] is False
+
+    @patch("builtins.input")
+    def test_handle_questions_eof_during_free_text(self, mock_input, tmp_path, capsys):
+        """EOFError during free-text input returns quit."""
+        self._write_contract(
+            tmp_path,
+            "42",
+            [
+                {
+                    "id": "decision-1",
+                    "question": "What is expected volume?",
+                    "type": "hitl",
+                    "resolved": False,
+                    "resolution": None,
+                    "options": [],
+                },
+            ],
+        )
+        pending = _load_pending_contract_decisions(tmp_path, "42")
+        mock_input.side_effect = EOFError
+
+        result = _handle_contract_questions(tmp_path, "42", pending)
+
+        assert result == "quit"
+
+    @patch("builtins.input")
+    def test_handle_questions_keyboard_interrupt(self, mock_input, tmp_path, capsys):
+        """KeyboardInterrupt during free-text input returns quit."""
+        self._write_contract(
+            tmp_path,
+            "42",
+            [
+                {
+                    "id": "decision-1",
+                    "question": "What is expected volume?",
+                    "type": "hitl",
+                    "resolved": False,
+                    "resolution": None,
+                    "options": [],
+                },
+            ],
+        )
+        pending = _load_pending_contract_decisions(tmp_path, "42")
+        mock_input.side_effect = KeyboardInterrupt
+
+        result = _handle_contract_questions(tmp_path, "42", pending)
+
+        assert result == "quit"
+
+    @patch("egg_lib.sdlc_hitl._resolve_contract_decision")
+    @patch("builtins.input")
+    def test_handle_questions_resolve_failure(self, mock_input, mock_resolve, tmp_path, capsys):
+        """When _resolve_contract_decision fails, error message is printed."""
+        pending = [
+            {
+                "id": "decision-1",
+                "question": "Which DB?",
+                "type": "hitl",
+                "resolved": False,
+                "options": [{"label": "PostgreSQL"}, {"label": "MongoDB"}],
+            },
+        ]
+        mock_input.return_value = "1"
+        mock_resolve.return_value = False
+
+        result = _handle_contract_questions(tmp_path, "42", pending)
+
+        assert result == "answered"
+        captured = capsys.readouterr()
+        assert "Failed to save" in captured.out
+
+    @patch("builtins.input")
+    def test_handle_questions_literal_q_in_free_text(self, mock_input, tmp_path, capsys):
+        """Literal 'q' as free-text answer is saved (not intercepted)."""
+        self._write_contract(
+            tmp_path,
+            "42",
+            [
+                {
+                    "id": "decision-1",
+                    "question": "What letter?",
+                    "type": "hitl",
+                    "resolved": False,
+                    "resolution": None,
+                    "options": [],
+                },
+            ],
+        )
+        pending = _load_pending_contract_decisions(tmp_path, "42")
+        mock_input.return_value = "q"
+
+        result = _handle_contract_questions(tmp_path, "42", pending)
+
+        assert result == "answered"
+        data = json.loads((tmp_path / ".egg-state" / "contracts" / "42.json").read_text())
+        assert data["decisions"][0]["resolved"] is True
+        assert data["decisions"][0]["resolution"] == "q"
+
+    @patch("builtins.input")
+    def test_handle_questions_literal_s_in_free_text(self, mock_input, tmp_path, capsys):
+        """Literal 's' as free-text answer is saved (not intercepted)."""
+        self._write_contract(
+            tmp_path,
+            "42",
+            [
+                {
+                    "id": "decision-1",
+                    "question": "What letter?",
+                    "type": "hitl",
+                    "resolved": False,
+                    "resolution": None,
+                    "options": [],
+                },
+            ],
+        )
+        pending = _load_pending_contract_decisions(tmp_path, "42")
+        mock_input.return_value = "s"
+
+        result = _handle_contract_questions(tmp_path, "42", pending)
+
+        assert result == "answered"
+        data = json.loads((tmp_path / ".egg-state" / "contracts" / "42.json").read_text())
+        assert data["decisions"][0]["resolved"] is True
+        assert data["decisions"][0]["resolution"] == "s"
+
+    # -- Full [q] → answer → approve flow --
+
+    @patch("egg_lib.sdlc_hitl._find_repo_path")
+    @patch("builtins.input")
+    def test_q_answer_then_approve_flow(self, mock_input, mock_repo, tmp_path, capsys):
+        """Full flow: [q] to answer questions, then [3] to approve."""
+        mock_repo.return_value = tmp_path
+
+        self._write_contract(
+            tmp_path,
+            "42",
+            [
+                {
+                    "id": "decision-1",
+                    "question": "Which DB?",
+                    "type": "hitl",
+                    "resolved": False,
+                    "resolution": None,
+                    "options": [
+                        {"id": "opt-1", "label": "PostgreSQL"},
+                        {"id": "opt-2", "label": "MongoDB"},
+                    ],
+                },
+            ],
+        )
+
+        # "q" to enter questions, "1" to select PostgreSQL, then "3" to approve
+        mock_input.side_effect = ["q", "1", "3"]
+
+        client = MagicMock(spec=["resolve_decision", "cancel_pipeline"])
+        client.resolve_decision.return_value = {"status": "resolved"}
+        decision = {
+            "id": "d1",
+            "question": "The refine phase has completed.",
+            "context": "",
+            "decision_type": "phase_gate",
+        }
+        result = handle_hitl_checkpoint(
+            client, "issue-42", decision, pipeline_mode="issue", issue_number=42
+        )
+
+        assert result == "resolved"
+        # Verify the contract decision was resolved
+        data = json.loads((tmp_path / ".egg-state" / "contracts" / "42.json").read_text())
+        assert data["decisions"][0]["resolved"] is True
+        assert data["decisions"][0]["resolution"] == "PostgreSQL"
+        # After answering, approve should not warn about pending questions
+        captured = capsys.readouterr()
+        assert "still unanswered" not in captured.out

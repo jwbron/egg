@@ -174,6 +174,13 @@ def _resolve_contract_decision(
 
     Sets resolved=True, resolution, resolved_by="human", resolved_at=<now>.
     Returns True on success, False if the decision was not found or on error.
+
+    Note: This uses a read-modify-write cycle without file locking (TOCTOU).
+    If an agent mutates the contract file (via the gateway) between our read
+    and write, the agent's changes will be lost. This is acceptable for now
+    because the CLI is the only writer during human review, and the gateway's
+    ``/api/v1/contract/mutate`` endpoint could be used instead for full
+    concurrency safety in the future.
     """
     contract_path = repo_path / ".egg-state" / "contracts" / f"{contract_key}.json"
     if not contract_path.exists():
@@ -266,17 +273,18 @@ def _handle_contract_questions(
             else:
                 print(f"    {RED}Failed to save answer.{RESET}")
         else:
-            # Free-text input
-            print(f"    {DIM}[s] Skip  [q] Return to menu{RESET}")
+            # Free-text input — use /s and /q prefixes to avoid intercepting
+            # legitimate single-letter answers like "q" or "s".
+            print(f"    {DIM}/s Skip  /q Return to menu{RESET}")
             try:
                 answer = input(f"    {BOLD}Answer:{RESET} ").strip()
             except (EOFError, KeyboardInterrupt):
                 print()
                 return "quit"
 
-            if answer.lower() == "q":
+            if answer.lower() == "/q":
                 return "quit"
-            if answer.lower() == "s" or not answer:
+            if answer.lower() == "/s" or not answer:
                 continue
 
             if _resolve_contract_decision(repo_path, contract_key, d_id, answer):
@@ -488,7 +496,8 @@ def _handle_phase_gate(
     phase_label = "analysis" if phase == "refine" else phase
 
     while True:
-        # Load pending contract decisions each iteration (may change after answering)
+        # Load pending contract decisions each iteration (may change after answering).
+        # pipeline_id doubles as contract key in local mode (e.g., "local-a1b2c3d4").
         contract_key = _get_contract_key(pipeline_mode, issue_number, pipeline_id)
         pending_contract = (
             _load_pending_contract_decisions(repo_path, contract_key) if contract_key else []
