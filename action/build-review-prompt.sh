@@ -54,6 +54,7 @@ fetch_review_rules() {
 - Null/undefined handling, missing error paths
 - Resource leaks (connections, file handles, memory)
 - Incorrect algorithm complexity for data size
+- End-to-end feature functionality: verify new features work in their real execution environment
 
 **Robustness**:
 - Missing input validation at trust boundaries

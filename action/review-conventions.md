@@ -30,9 +30,11 @@ shell escaping issues. Always write to a file first, then use `--body-file`.
 
 ## When to Approve vs Request Changes
 
-- **Request changes**: Security vulnerabilities, logic errors, correctness issues, missing error handling, resource leaks, breaking changes, violations of codebase patterns. When in doubt, request changes.
+- **Request changes**: Security vulnerabilities, logic errors, correctness issues, non-functional features (core purpose doesn't work end-to-end), missing error handling, resource leaks, breaking changes, violations of codebase patterns. When in doubt, request changes.
 - **Approve**: No blocking issues found after thorough review. Minor advisory suggestions are fine to include. If you include non-blocking suggestions, add `<!-- has-suggestions -->` anywhere in the review body so the feedback-addressing workflow picks them up. The marker is position-independent—it can appear at the beginning, middle, or end of the review body.
 - **Comment**: Non-blocking suggestions, questions, ideas for future improvement.
+
+**Key distinction**: A feature that doesn't work is a correctness issue, not a style issue. If the feature's core functionality is broken — not just degraded or missing edge cases — always request changes, even if the code structure looks reasonable or matches an existing pattern.
 
 ## Self-Authored PRs
 
