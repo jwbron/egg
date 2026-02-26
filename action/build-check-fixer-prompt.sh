@@ -151,8 +151,14 @@ print(json.dumps(result))
 " || {
             # Log warning to stderr (GitHub Actions still picks up ::warning:: from stderr in run blocks)
             echo "::warning::Failed to parse check-fixers.yml config, falling through to LLM for all jobs" >&2
-            # Return valid fallback JSON on stdout
-            echo "{\"non_llm_fixes\":[],\"needs_llm\":true,\"has_non_llm\":false,\"max_retries_reached\":false,\"escalation\":[],\"model\":\"sonnet\",\"jobs_for_llm\":${failed_jobs_json},\"non_llm_jobs\":[],\"all_non_escalated\":${failed_jobs_json}}"
+            # Return valid fallback JSON on stdout — use Python to avoid shell interpolation of JSON
+            JOBS="$failed_jobs_json" python3 -c "
+import json, os
+jobs = json.loads(os.environ['JOBS'])
+print(json.dumps({'non_llm_fixes':[],'needs_llm':True,'has_non_llm':False,
+    'max_retries_reached':False,'escalation':[],'model':'sonnet',
+    'jobs_for_llm':jobs,'non_llm_jobs':[],'all_non_escalated':jobs}))
+"
         })
 
         non_llm_fixes=$(echo "$result" | python3 -c "import json,sys; print(json.dumps(json.load(sys.stdin)['non_llm_fixes']))")
