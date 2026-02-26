@@ -1149,3 +1149,132 @@ class TestSessionEndCheckpointTokenResolution:
         # The explicit token should be passed through
         call_kwargs = mock_handler.store_checkpoint_v2.call_args
         assert call_kwargs[1].get("github_token") == "explicit-token"
+
+
+class TestStoreCheckpointV2FetchRetry:
+    """Tests for store_checkpoint_v2 fetch retry with backoff."""
+
+    def _make_handler_and_checkpoint(self):
+        """Create a handler and checkpoint for retry tests."""
+        import checkpoint_handler
+
+        handler = checkpoint_handler.CheckpointHandler(github_token="test-token")
+        handler._branch_exists = MagicMock(return_value=True)
+
+        from egg_contracts.checkpoints import (
+            CheckpointV2,
+            SessionMetadata,
+            TriggerType,
+        )
+
+        now = datetime.now(UTC)
+        checkpoint = CheckpointV2(
+            id="ckpt-a1b2c3d4e5f67890",
+            trigger_type=TriggerType.COMMIT,
+            session_id="test-container",
+            commit_sha="abc123def456789012345678901234567890abcd",
+            session=SessionMetadata(session_id="test-container", started_at=now),
+            created_at=now,
+            session_started_at=now,
+        )
+        return handler, checkpoint
+
+    @patch("checkpoint_handler.time")
+    @patch("checkpoint_handler.get_checkpoint_handler")
+    def test_fetch_retry_succeeds_on_second_attempt(
+        self, mock_get_handler, mock_time
+    ):
+        """Fetch succeeds on second attempt after initial timeout."""
+        handler, checkpoint = self._make_handler_and_checkpoint()
+
+        git_calls = []
+        call_count = 0
+
+        def track_run_git(cwd, args, **kwargs):
+            nonlocal call_count
+            git_calls.append((cwd, args, kwargs))
+            if "fetch" in args:
+                call_count += 1
+                if call_count == 1:
+                    raise subprocess.TimeoutExpired(cmd=["git", "fetch"], timeout=45)
+            return MagicMock(returncode=0, stdout="", stderr="")
+
+        handler._run_git = track_run_git
+
+        try:
+            handler.store_checkpoint_v2(checkpoint, "/fake/repo")
+        except Exception:
+            pass
+
+        fetch_calls = [c for c in git_calls if "fetch" in c[1]]
+        assert len(fetch_calls) == 2, f"Expected 2 fetch calls, got {len(fetch_calls)}"
+        mock_time.sleep.assert_called_once_with(2)
+
+    @patch("checkpoint_handler.time")
+    @patch("checkpoint_handler.get_checkpoint_handler")
+    def test_fetch_retry_exhaustion_returns_false(
+        self, mock_get_handler, mock_time
+    ):
+        """All fetch attempts timeout — returns False."""
+        handler, checkpoint = self._make_handler_and_checkpoint()
+
+        git_calls = []
+
+        def track_run_git(cwd, args, **kwargs):
+            git_calls.append((cwd, args, kwargs))
+            if "fetch" in args:
+                raise subprocess.TimeoutExpired(cmd=["git", "fetch"], timeout=45)
+            return MagicMock(returncode=0, stdout="", stderr="")
+
+        handler._run_git = track_run_git
+
+        result = handler.store_checkpoint_v2(checkpoint, "/fake/repo")
+
+        assert result is False
+        fetch_calls = [c for c in git_calls if "fetch" in c[1]]
+        assert len(fetch_calls) == 3, f"Expected 3 fetch attempts, got {len(fetch_calls)}"
+
+    @patch("checkpoint_handler.get_checkpoint_handler")
+    def test_no_retry_on_non_timeout_error(self, mock_get_handler):
+        """Non-timeout errors propagate immediately without retry."""
+        import checkpoint_handler
+
+        handler, checkpoint = self._make_handler_and_checkpoint()
+
+        git_calls = []
+
+        def track_run_git(cwd, args, **kwargs):
+            git_calls.append((cwd, args, kwargs))
+            if "fetch" in args:
+                raise checkpoint_handler.CheckpointError("auth failed")
+            return MagicMock(returncode=0, stdout="", stderr="")
+
+        handler._run_git = track_run_git
+
+        result = handler.store_checkpoint_v2(checkpoint, "/fake/repo")
+
+        assert result is False
+        fetch_calls = [c for c in git_calls if "fetch" in c[1]]
+        assert len(fetch_calls) == 1, f"Expected 1 fetch attempt, got {len(fetch_calls)}"
+
+    @patch("checkpoint_handler.time")
+    @patch("checkpoint_handler.get_checkpoint_handler")
+    def test_timeout_logged_distinctly(self, mock_get_handler, mock_time):
+        """Timeout after retries logs distinct message, not generic error."""
+        handler, checkpoint = self._make_handler_and_checkpoint()
+
+        def track_run_git(cwd, args, **kwargs):
+            if "fetch" in args:
+                raise subprocess.TimeoutExpired(cmd=["git", "fetch"], timeout=45)
+            return MagicMock(returncode=0, stdout="", stderr="")
+
+        handler._run_git = track_run_git
+
+        with patch("checkpoint_handler.logger") as mock_logger:
+            handler.store_checkpoint_v2(checkpoint, "/fake/repo")
+
+            # Check that the timeout-specific message was logged
+            error_calls = mock_logger.error.call_args_list
+            error_messages = [call[0][0] for call in error_calls]
+            assert "Checkpoint store timed out after retries" in error_messages
+            assert "Failed to store checkpoint" not in error_messages

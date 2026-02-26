@@ -53,6 +53,7 @@ import os
 import re
 import subprocess
 import sys
+import time
 import tempfile
 import threading
 from datetime import UTC, datetime
@@ -782,11 +783,33 @@ class CheckpointHandler:
                     # The + prefix handles the case where the local branch
                     # has diverged (e.g., from a different remote or
                     # concurrent checkpoint pushes).
-                    self._run_git(
-                        repo_path,
-                        ["fetch", target, f"+{CHECKPOINT_BRANCH}:{CHECKPOINT_BRANCH}"],
-                        github_token=github_token,
-                    )
+                    # Retry with backoff on timeout — fetch may transfer
+                    # objects on first access and is sensitive to network
+                    # latency to the checkpoint repo.
+                    fetch_max_attempts = 3
+                    fetch_timeout = 45
+                    for attempt in range(1, fetch_max_attempts + 1):
+                        try:
+                            self._run_git(
+                                repo_path,
+                                ["fetch", target, f"+{CHECKPOINT_BRANCH}:{CHECKPOINT_BRANCH}"],
+                                github_token=github_token,
+                                timeout=fetch_timeout,
+                            )
+                            break
+                        except subprocess.TimeoutExpired:
+                            if attempt == fetch_max_attempts:
+                                raise
+                            backoff = 2 ** attempt
+                            logger.warning(
+                                "Checkpoint fetch timed out, retrying",
+                                attempt=attempt,
+                                max_attempts=fetch_max_attempts,
+                                timeout=fetch_timeout,
+                                target=target,
+                                backoff_seconds=backoff,
+                            )
+                            time.sleep(backoff)
                     self._run_git(
                         repo_path,
                         [
@@ -890,6 +913,15 @@ class CheckpointHandler:
                         check=False,
                     )
 
+        except subprocess.TimeoutExpired as e:
+            logger.error(
+                "Checkpoint store timed out after retries",
+                timeout=e.timeout,
+                cmd=e.cmd,
+                checkpoint_id=checkpoint.id,
+                checkpoint_repo=checkpoint_repo,
+            )
+            return False
         except Exception as e:
             logger.error(
                 "Failed to store checkpoint",
