@@ -797,3 +797,431 @@ class TestHashBuildCommandWatchFiles:
             _hash_build_command_watch_files(h2)
 
         assert h1.hexdigest() != h2.hexdigest()
+
+
+class TestLoadReposConfig:
+    """Tests for _load_repos_config."""
+
+    def test_returns_empty_when_file_missing(self, tmp_path):
+        """Returns empty dict when repositories.yaml doesn't exist."""
+        from egg_lib.docker import _load_repos_config
+
+        with patch("egg_lib.docker.Config") as mock_config:
+            mock_config.REPOS_CONFIG_FILE = tmp_path / "nonexistent.yaml"
+            result = _load_repos_config()
+
+        assert result == {}
+
+    def test_returns_empty_on_malformed_yaml(self, tmp_path):
+        """Returns empty dict when YAML is invalid."""
+        from egg_lib.docker import _load_repos_config
+
+        bad_yaml = tmp_path / "bad.yaml"
+        bad_yaml.write_text(": : :\n  invalid: [unclosed")
+
+        with patch("egg_lib.docker.Config") as mock_config:
+            mock_config.REPOS_CONFIG_FILE = bad_yaml
+            result = _load_repos_config()
+
+        assert result == {}
+
+    def test_returns_empty_on_empty_file(self, tmp_path):
+        """Returns empty dict when YAML file is empty."""
+        from egg_lib.docker import _load_repos_config
+
+        empty_file = tmp_path / "empty.yaml"
+        empty_file.write_text("")
+
+        with patch("egg_lib.docker.Config") as mock_config:
+            mock_config.REPOS_CONFIG_FILE = empty_file
+            result = _load_repos_config()
+
+        assert result == {}
+
+    def test_loads_valid_config(self, tmp_path):
+        """Successfully loads a valid repositories.yaml."""
+        from egg_lib.docker import _load_repos_config
+
+        config_file = tmp_path / "repos.yaml"
+        config_file.write_text("repo_settings:\n  org/app:\n    build_commands:\n      commands:\n        - make\n")
+
+        with patch("egg_lib.docker.Config") as mock_config:
+            mock_config.REPOS_CONFIG_FILE = config_file
+            result = _load_repos_config()
+
+        assert "repo_settings" in result
+        assert "org/app" in result["repo_settings"]
+
+
+class TestGetLocalRepoPathEdgeCases:
+    """Edge case tests for _get_local_repo_path."""
+
+    def test_non_dict_local_repos_returns_none(self):
+        """Non-dict local_repos value returns None."""
+        from egg_lib.docker import _get_local_repo_path
+
+        config = {"local_repos": "not-a-dict"}
+        result = _get_local_repo_path(config, "org/app")
+        assert result is None
+
+    def test_non_list_paths_returns_none(self):
+        """Non-list paths value returns None."""
+        from egg_lib.docker import _get_local_repo_path
+
+        config = {"local_repos": {"paths": "not-a-list"}}
+        result = _get_local_repo_path(config, "org/app")
+        assert result is None
+
+    def test_case_insensitive_matching(self, tmp_path):
+        """Path matching is case-insensitive."""
+        from egg_lib.docker import _get_local_repo_path
+
+        repo_dir = tmp_path / "MyOrg" / "MyApp"
+        repo_dir.mkdir(parents=True)
+
+        config = {"local_repos": {"paths": [str(repo_dir)]}}
+        result = _get_local_repo_path(config, "myorg/myapp")
+        assert result == repo_dir
+
+    def test_skips_nonexistent_paths(self, tmp_path):
+        """Non-existent paths in the list are skipped."""
+        from egg_lib.docker import _get_local_repo_path
+
+        real_dir = tmp_path / "org" / "app"
+        real_dir.mkdir(parents=True)
+
+        config = {
+            "local_repos": {
+                "paths": [
+                    str(tmp_path / "nonexistent" / "org" / "app"),
+                    str(real_dir),
+                ]
+            }
+        }
+
+        result = _get_local_repo_path(config, "org/app")
+        assert result == real_dir
+
+    def test_single_component_repo_name(self, tmp_path):
+        """Repo name without owner (no slash) is handled."""
+        from egg_lib.docker import _get_local_repo_path
+
+        repo_dir = tmp_path / "myapp"
+        repo_dir.mkdir()
+
+        config = {"local_repos": {"paths": [str(repo_dir)]}}
+        # Single-component name: no fallback matching (len(repo_parts) == 1)
+        result = _get_local_repo_path(config, "myapp")
+        assert result == repo_dir
+
+
+class TestCopyRepoWatchFilesEdgeCases:
+    """Edge case tests for _copy_repo_watch_files."""
+
+    def test_nested_watch_files_preserve_structure(self, tmp_path):
+        """Watch files in subdirectories preserve their directory structure."""
+        from egg_lib.docker import _copy_repo_watch_files
+
+        repo_dir = tmp_path / "org" / "app"
+        repo_dir.mkdir(parents=True)
+        nested_dir = repo_dir / "config"
+        nested_dir.mkdir()
+        (nested_dir / "settings.json").write_text('{"key": "value"}')
+
+        config = {
+            "repo_settings": {
+                "org/app": {
+                    "build_commands": {
+                        "watch_files": ["config/settings.json"],
+                        "commands": ["make deps"],
+                    }
+                }
+            },
+            "local_repos": {"paths": [str(repo_dir)]},
+        }
+
+        build_dir = tmp_path / "build-context"
+        build_dir.mkdir()
+
+        with patch("egg_lib.docker._load_repos_config", return_value=config):
+            with patch("egg_lib.docker.Config") as mock_config:
+                mock_config.CONFIG_DIR = build_dir
+                _copy_repo_watch_files(quiet=True)
+
+        dest = build_dir / "repo-deps" / "org--app" / "config" / "settings.json"
+        assert dest.exists()
+        assert dest.read_text() == '{"key": "value"}'
+
+    def test_cleans_up_stale_repo_deps(self, tmp_path):
+        """Old repo-deps directory is cleaned before copying new files."""
+        from egg_lib.docker import _copy_repo_watch_files
+
+        build_dir = tmp_path / "build-context"
+        build_dir.mkdir()
+
+        # Create stale repo-deps
+        stale_dir = build_dir / "repo-deps" / "old--repo"
+        stale_dir.mkdir(parents=True)
+        (stale_dir / "stale.txt").write_text("old")
+
+        config = {
+            "repo_settings": {
+                "org/app": {"checks": []}
+            }
+        }
+
+        with patch("egg_lib.docker._load_repos_config", return_value=config):
+            with patch("egg_lib.docker.Config") as mock_config:
+                mock_config.CONFIG_DIR = build_dir
+                _copy_repo_watch_files(quiet=True)
+
+        # Stale directory should be removed
+        assert not stale_dir.exists()
+
+    def test_creates_empty_marker_when_no_watch_files_copied(self, tmp_path):
+        """Creates .empty marker when no repos have copyable watch files."""
+        from egg_lib.docker import _copy_repo_watch_files
+
+        build_dir = tmp_path / "build-context"
+        build_dir.mkdir()
+
+        # Config with commands but no local repo path match
+        config = {
+            "repo_settings": {
+                "org/unknown-repo": {
+                    "build_commands": {
+                        "watch_files": ["req.txt"],
+                        "commands": ["pip install -r req.txt"],
+                    }
+                }
+            },
+            "local_repos": {"paths": []},
+        }
+
+        with patch("egg_lib.docker._load_repos_config", return_value=config):
+            with patch("egg_lib.docker.Config") as mock_config:
+                mock_config.CONFIG_DIR = build_dir
+                _copy_repo_watch_files(quiet=True)
+
+        empty_marker = build_dir / "repo-deps" / ".empty"
+        assert empty_marker.exists()
+
+    def test_multiple_repos_copy_separately(self, tmp_path):
+        """Watch files from multiple repos are copied to separate directories."""
+        from egg_lib.docker import _copy_repo_watch_files
+
+        repo_a = tmp_path / "org" / "app-a"
+        repo_a.mkdir(parents=True)
+        (repo_a / "package.json").write_text('{"name": "a"}')
+
+        repo_b = tmp_path / "org" / "app-b"
+        repo_b.mkdir(parents=True)
+        (repo_b / "requirements.txt").write_text("flask\n")
+
+        config = {
+            "repo_settings": {
+                "org/app-a": {
+                    "build_commands": {
+                        "watch_files": ["package.json"],
+                        "commands": ["npm ci"],
+                    }
+                },
+                "org/app-b": {
+                    "build_commands": {
+                        "watch_files": ["requirements.txt"],
+                        "commands": ["pip install -r requirements.txt"],
+                    }
+                },
+            },
+            "local_repos": {"paths": [str(repo_a), str(repo_b)]},
+        }
+
+        build_dir = tmp_path / "build-context"
+        build_dir.mkdir()
+
+        with patch("egg_lib.docker._load_repos_config", return_value=config):
+            with patch("egg_lib.docker.Config") as mock_config:
+                mock_config.CONFIG_DIR = build_dir
+                _copy_repo_watch_files(quiet=True)
+
+        assert (build_dir / "repo-deps" / "org--app-a" / "package.json").exists()
+        assert (build_dir / "repo-deps" / "org--app-b" / "requirements.txt").exists()
+
+    def test_missing_watch_file_is_skipped(self, tmp_path):
+        """Watch file that doesn't exist in local repo is skipped."""
+        from egg_lib.docker import _copy_repo_watch_files
+
+        repo_dir = tmp_path / "org" / "app"
+        repo_dir.mkdir(parents=True)
+        # Don't create the watch file
+
+        config = {
+            "repo_settings": {
+                "org/app": {
+                    "build_commands": {
+                        "watch_files": ["nonexistent.json"],
+                        "commands": ["npm ci"],
+                    }
+                }
+            },
+            "local_repos": {"paths": [str(repo_dir)]},
+        }
+
+        build_dir = tmp_path / "build-context"
+        build_dir.mkdir()
+
+        with patch("egg_lib.docker._load_repos_config", return_value=config):
+            with patch("egg_lib.docker.Config") as mock_config:
+                mock_config.CONFIG_DIR = build_dir
+                _copy_repo_watch_files(quiet=True)
+
+        # Dest directory should exist but be empty (no files copied)
+        dest_dir = build_dir / "repo-deps" / "org--app"
+        assert dest_dir.exists()
+        # The .empty marker should be created since no files were actually copied
+        assert (build_dir / "repo-deps" / ".empty").exists()
+
+
+class TestHashBuildCommandWatchFilesEdgeCases:
+    """Edge case tests for _hash_build_command_watch_files."""
+
+    def test_missing_watch_file_is_skipped(self, tmp_path):
+        """Watch file that doesn't exist is simply skipped in hashing."""
+        from egg_lib.docker import _hash_build_command_watch_files
+
+        repo_dir = tmp_path / "org" / "app"
+        repo_dir.mkdir(parents=True)
+        # Don't create the watch file
+
+        config = {
+            "repo_settings": {
+                "org/app": {
+                    "build_commands": {
+                        "watch_files": ["nonexistent.txt"],
+                        "commands": ["pip install"],
+                    }
+                }
+            },
+            "local_repos": {"paths": [str(repo_dir)]},
+        }
+
+        h = hashlib.sha256()
+        with patch("egg_lib.docker._load_repos_config", return_value=config):
+            _hash_build_command_watch_files(h)
+
+        # Should still update the hash (repo name + commands), just skip the file
+        empty_h = hashlib.sha256()
+        assert h.hexdigest() != empty_h.hexdigest()
+
+    def test_repos_without_commands_are_skipped(self, tmp_path):
+        """Repos with empty commands don't affect the hash."""
+        from egg_lib.docker import _hash_build_command_watch_files
+
+        repo_dir = tmp_path / "org" / "app"
+        repo_dir.mkdir(parents=True)
+        (repo_dir / "req.txt").write_text("flask\n")
+
+        config = {
+            "repo_settings": {
+                "org/app": {
+                    "build_commands": {
+                        "watch_files": ["req.txt"],
+                        "commands": [],
+                    }
+                }
+            },
+            "local_repos": {"paths": [str(repo_dir)]},
+        }
+
+        h = hashlib.sha256()
+        empty_digest = h.hexdigest()
+
+        with patch("egg_lib.docker._load_repos_config", return_value=config):
+            _hash_build_command_watch_files(h)
+
+        # Hash should be unchanged since commands is empty
+        assert h.hexdigest() == empty_digest
+
+    def test_deterministic_multi_repo_ordering(self, tmp_path):
+        """Multiple repos are hashed in sorted order for determinism."""
+        from egg_lib.docker import _hash_build_command_watch_files
+
+        repo_a = tmp_path / "aaa" / "first"
+        repo_a.mkdir(parents=True)
+        (repo_a / "req.txt").write_text("flask\n")
+
+        repo_b = tmp_path / "zzz" / "second"
+        repo_b.mkdir(parents=True)
+        (repo_b / "pkg.json").write_text("{}\n")
+
+        config = {
+            "repo_settings": {
+                "zzz/second": {
+                    "build_commands": {
+                        "watch_files": ["pkg.json"],
+                        "commands": ["npm ci"],
+                    }
+                },
+                "aaa/first": {
+                    "build_commands": {
+                        "watch_files": ["req.txt"],
+                        "commands": ["pip install"],
+                    }
+                },
+            },
+            "local_repos": {"paths": [str(repo_a), str(repo_b)]},
+        }
+
+        # Hash twice — should be identical (deterministic)
+        h1 = hashlib.sha256()
+        with patch("egg_lib.docker._load_repos_config", return_value=config):
+            _hash_build_command_watch_files(h1)
+
+        h2 = hashlib.sha256()
+        with patch("egg_lib.docker._load_repos_config", return_value=config):
+            _hash_build_command_watch_files(h2)
+
+        assert h1.hexdigest() == h2.hexdigest()
+
+    def test_missing_local_repo_path_is_skipped(self, tmp_path):
+        """Repo without a matching local path is skipped."""
+        from egg_lib.docker import _hash_build_command_watch_files
+
+        config = {
+            "repo_settings": {
+                "org/no-local-path": {
+                    "build_commands": {
+                        "watch_files": ["req.txt"],
+                        "commands": ["pip install"],
+                    }
+                }
+            },
+            "local_repos": {"paths": []},
+        }
+
+        h = hashlib.sha256()
+        empty_digest = h.hexdigest()
+
+        with patch("egg_lib.docker._load_repos_config", return_value=config):
+            _hash_build_command_watch_files(h)
+
+        # Hash should be unchanged - repo was skipped entirely
+        assert h.hexdigest() == empty_digest
+
+    def test_non_dict_settings_are_skipped(self):
+        """Non-dict individual settings are silently skipped."""
+        from egg_lib.docker import _hash_build_command_watch_files
+
+        config = {
+            "repo_settings": {
+                "org/broken": "not-a-dict",
+            }
+        }
+
+        h = hashlib.sha256()
+        empty_digest = h.hexdigest()
+
+        with patch("egg_lib.docker._load_repos_config", return_value=config):
+            _hash_build_command_watch_files(h)
+
+        assert h.hexdigest() == empty_digest
