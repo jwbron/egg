@@ -4429,8 +4429,7 @@ def _parse_resolution(resolution: str | None) -> tuple[bool, str | None]:
     """Parse a HITL phase_gate resolution into (is_approved, feedback).
 
     Handles both JSON-structured resolutions and legacy bare-string formats.
-    Used by the main HITL gate in _run_pipeline and the recovery path in
-    start_pipeline to keep the logic in sync.
+    Used by the AWAITING_HUMAN recovery path in start_pipeline.
 
     Returns:
         (is_approved, feedback): is_approved is True for approve/select/submit_feedback
@@ -5401,14 +5400,15 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
         # reviewer's feedback in phase_execution.hitl_feedback so the freshly
         # launched _run_pipeline thread can pass it to the re-running agent.
         try:
-            _recovery_pipeline = store.load_pipeline(pipeline_id)
-            _recovery_phase = _recovery_pipeline.get_phase_execution(
-                _recovery_pipeline.current_phase
-            )
-            if _recovery_phase.hitl_feedback:
-                hitl_revision_feedback = _recovery_phase.hitl_feedback
-                _recovery_phase.hitl_feedback = None
-                store.save_pipeline(_recovery_pipeline)
+            with get_pipeline_state_lock(pipeline_id):
+                _recovery_pipeline = store.load_pipeline(pipeline_id)
+                _recovery_phase = _recovery_pipeline.get_phase_execution(
+                    _recovery_pipeline.current_phase
+                )
+                if _recovery_phase.hitl_feedback:
+                    hitl_revision_feedback = _recovery_phase.hitl_feedback
+                    _recovery_phase.hitl_feedback = None
+                    store.save_pipeline(_recovery_pipeline)
         except Exception:
             pass  # Non-fatal — feedback is best-effort
 

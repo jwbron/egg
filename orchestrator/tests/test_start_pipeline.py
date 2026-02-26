@@ -535,6 +535,8 @@ class TestStartAwaitingHumanPipeline:
         assert phase_exec.started_at is None
         assert pipeline.current_phase == PipelinePhase.REFINE
         assert pipeline.status == PipelineStatus.RUNNING
+        # Feedback should be preserved for the re-running agent
+        assert phase_exec.hitl_feedback == "Try a different strategy"
 
     @patch("routes.pipelines.get_pipeline_state_lock", side_effect=_noop_lock)
     @patch("routes.pipelines._run_pipeline")
