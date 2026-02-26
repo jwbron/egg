@@ -2695,17 +2695,6 @@ def _build_phase_prompt(
                 "",
             ]
         )
-    elif is_local and phase == "pr":
-        lines.extend(
-            [
-                "This is a **local** pipeline entering the PR phase.",
-                "PR operations are enabled for this phase.",
-                "- You CAN push code (git push)",
-                "- You CAN create and edit PRs (gh pr create, gh pr edit)",
-                "- You CANNOT merge PRs (human must merge)",
-                "",
-            ]
-        )
     else:
         if phase in ("refine", "plan"):
             lines.extend(
@@ -5343,6 +5332,13 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                     pipeline_id=pipeline_id,
                 )
 
+                # Record phase timing so metrics are accurate even without agent spawn
+                with get_pipeline_state_lock(pipeline_id):
+                    pipeline = store.load_pipeline(pipeline_id)
+                    phase_execution = pipeline.get_phase_execution(current_phase)
+                    phase_execution.work_started_at = datetime.utcnow()
+                    store.save_pipeline(pipeline)
+
                 # Push latest commits before creating PR
                 if pipeline.branch and worktree_repo_path != repo_path:
                     try:
@@ -5352,8 +5348,8 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                             branch=pipeline.branch,
                         )
                     except Exception as push_err:
-                        logger.warning(
-                            "Pre-PR push failed (continuing with PR creation)",
+                        logger.error(
+                            "Pre-PR push failed — PR may reference stale code",
                             pipeline_id=pipeline_id,
                             error=str(push_err),
                         )

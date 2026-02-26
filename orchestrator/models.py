@@ -244,6 +244,11 @@ class ComplexityTier(StrEnum):
 class PipelineConfig(BaseModel):
     """Configuration for pipeline execution."""
 
+    auto_create_pr: bool = Field(
+        default=True,
+        description="Deprecated: PR creation is now always handled by the orchestrator. "
+        "This field is retained for backwards compatibility with existing pipeline configs.",
+    )
     multi_agent: bool = Field(
         default=True, description="Use multi-agent execution in implement and plan phases"
     )

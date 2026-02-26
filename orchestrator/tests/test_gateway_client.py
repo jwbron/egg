@@ -265,8 +265,6 @@ class MockGatewayHandler(BaseHTTPRequestHandler):
             return
 
         repo = data.get("repo", "")
-        data.get("title", "")
-        data.get("head", "")
 
         self._send_json(
             {
@@ -871,7 +869,7 @@ class TestCreatePR:
             )
             mock_reg.assert_called_once()
             call_kwargs = mock_reg.call_args
-            assert call_kwargs.kwargs.get("phase") or call_kwargs[1].get("phase") == "pr"
+            assert call_kwargs.kwargs.get("phase") == "pr" or call_kwargs[1].get("phase") == "pr"
 
 
 class TestSingletonClient:
