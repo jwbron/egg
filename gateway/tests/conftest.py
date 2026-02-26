@@ -267,6 +267,12 @@ phase_api = _load_module_with_replaced_imports(
     },
 )
 
+# file_request_manager has no relative imports
+file_request_manager = _load_module_with_replaced_imports(
+    "file_request_manager",
+    GATEWAY_DIR / "file_request_manager.py",
+)
+
 # gateway imports from all
 gateway = _load_module_with_replaced_imports(
     "gateway",

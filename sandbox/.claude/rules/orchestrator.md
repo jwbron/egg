@@ -27,6 +27,8 @@ Run `egg-orch --help` for full usage. All commands support `--json` for machine-
 | `egg-orch decision create [<id>] --question <text>` | Queue a decision |
 | `egg-orch decision resolve [<id>] <did> --resolution <text>` | Resolve a decision |
 | `egg-orch decision status [<id>]` | Decision queue summary |
+| `egg-orch request-file create --path <file> --reason <why>` | Request access to a blocked file |
+| `egg-orch request-file status <request_id>` | Check file access request status |
 | `egg-orch container list [<id>]` | List containers |
 | `egg-orch container spawn [<id>] --role <role>` | Spawn a container |
 | `egg-orch container logs [<id>] <cid>` | Get container logs |
@@ -68,6 +70,12 @@ egg-orch decision list <pipeline-id>
 egg-orch signal progress --percent 50 --task "Running tests"
 egg-orch signal complete --commit abc1234
 egg-orch signal error --error "Test failure" --recoverable
+```
+
+**Request access to a blocked file (escape hatch):**
+```bash
+egg-orch request-file create --path "docs/README.md" --reason "Need to update docs for new feature"
+egg-orch request-file status file-req-1
 ```
 
 ## Related CLIs

@@ -746,6 +746,65 @@ def cmd_decision_status(args: argparse.Namespace) -> int:
 
 
 # ---------------------------------------------------------------------------
+# File access request commands
+# ---------------------------------------------------------------------------
+
+
+def cmd_request_file_create(args: argparse.Namespace) -> int:
+    """Request human approval to access a blocked file."""
+    data: dict[str, Any] = {
+        "file_path": args.path,
+        "reason": args.reason,
+    }
+    result = gateway_request("/api/v1/sessions/request-file", method="POST", data=data)
+
+    if args.json:
+        print_json(result)
+        return 0
+
+    if result.get("success"):
+        req_data = result.get("data", {})
+        print(f"Request ID: {req_data.get('request_id', '?')}")
+        print(f"Status:     {req_data.get('status', '?')}")
+        print(f"File:       {req_data.get('file_path', '?')}")
+        print()
+        print("A HITL decision has been created. The human reviewer will approve or deny.")
+        print(f"Check status with: egg-orch request-file status {req_data.get('request_id', '?')}")
+        return 0
+    print(f"Error: {result.get('message')}", file=sys.stderr)
+    return 1
+
+
+def cmd_request_file_status(args: argparse.Namespace) -> int:
+    """Check the status of a file access request."""
+    request_id = args.request_id
+    result = gateway_request(f"/api/v1/sessions/request-file/{request_id}")
+
+    if args.json:
+        print_json(result)
+        return 0
+
+    if result.get("success"):
+        req_data = result.get("data", {})
+        status = req_data.get("status", "?")
+        print(f"Request ID: {req_data.get('request_id', '?')}")
+        print(f"Status:     {status}")
+        print(f"File:       {req_data.get('file_path', '?')}")
+        if status == "approved":
+            print()
+            print("File access approved. You can now push changes including this file.")
+        elif status == "denied":
+            print()
+            print("File access denied. You cannot modify this file.")
+        else:
+            print()
+            print("Waiting for human review...")
+        return 0
+    print(f"Error: {result.get('message')}", file=sys.stderr)
+    return 1
+
+
+# ---------------------------------------------------------------------------
 # Container commands
 # ---------------------------------------------------------------------------
 
@@ -1157,6 +1216,23 @@ def create_parser() -> argparse.ArgumentParser:
     dec_status.add_argument("pipeline_id", nargs="?", help="Pipeline ID")
     _add_json_flag(dec_status)
     dec_status.set_defaults(func=cmd_decision_status)
+
+    # -- request-file --
+    rf_parser = subparsers.add_parser("request-file", help="Request access to blocked files")
+    rf_sub = rf_parser.add_subparsers(dest="request_file_command")
+
+    # request-file create
+    rf_create = rf_sub.add_parser("create", help="Request access to a blocked file")
+    rf_create.add_argument("--path", required=True, help="File path to request access for")
+    rf_create.add_argument("--reason", required=True, help="Why access is needed")
+    _add_json_flag(rf_create)
+    rf_create.set_defaults(func=cmd_request_file_create)
+
+    # request-file status
+    rf_status = rf_sub.add_parser("status", help="Check file access request status")
+    rf_status.add_argument("request_id", help="Request ID to check")
+    _add_json_flag(rf_status)
+    rf_status.set_defaults(func=cmd_request_file_status)
 
     # -- container --
     container_parser = subparsers.add_parser("container", help="Container operations")

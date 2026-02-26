@@ -105,6 +105,14 @@ non-assigned branches. Instead, report the error:
 egg-orch signal error --error "Push failed: <error message>" --recoverable
 ```
 
+**If push is blocked by file restrictions**: If you need to modify a file outside your
+role or phase scope, request human approval via the escape hatch:
+```bash
+egg-orch request-file create --path "path/to/file" --reason "Why you need access"
+egg-orch request-file status <request_id>
+```
+Once approved, retry the push — the approved file will bypass restrictions.
+
 ## Network Lockdown Notes
 
 If a tool returns 403 Forbidden, you are likely in private mode. Acknowledge the limitation and proceed with local resources. Package installation and web access are unavailable in private mode — all common dependencies are pre-installed.
