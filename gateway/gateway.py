@@ -719,25 +719,11 @@ def git_push() -> tuple[Response, int] | Response:
                 },
             )
 
-        # Apply session file exceptions — files approved via HITL bypass restrictions.
-        file_exceptions = set(getattr(g.session, "file_exceptions", None) or [])
-        if file_exceptions and changed_files:
-            excepted = [f for f in changed_files if f in file_exceptions]
-            if excepted:
-                audit_log(
-                    "file_exception_applied",
-                    "git_push",
-                    success=True,
-                    details={
-                        "repo": repo,
-                        "branch": branch,
-                        "excepted_files": excepted,
-                        "role": session_role,
-                    },
-                )
-                changed_files = [f for f in changed_files if f not in file_exceptions]
-
-        # Check file restrictions using the PhaseFilter configuration
+        # SECURITY: Check protected-file restrictions BEFORE applying file exceptions.
+        # check_file_restrictions enforces rules like preventing implementers from
+        # modifying contract files in .egg-state/. File exceptions (HITL bypass) must
+        # NOT circumvent these protections — they are designed for per-task and
+        # agent-role restrictions only.
         restriction_result = check_file_restrictions(session_role, changed_files)
         if not restriction_result.allowed:
             audit_log(
@@ -762,6 +748,26 @@ def git_push() -> tuple[Response, int] | Response:
                     "hint": "Use egg-contract CLI commands to update contract state.",
                 },
             )
+
+    # Apply session file exceptions — files approved via HITL bypass agent-role
+    # and per-task restrictions (but NOT protected-file restrictions above).
+    if hasattr(g, "session") and g.session and changed_files:
+        file_exceptions = set(getattr(g.session, "file_exceptions", None) or [])
+        if file_exceptions:
+            excepted = [f for f in changed_files if f in file_exceptions]
+            if excepted:
+                audit_log(
+                    "file_exception_applied",
+                    "git_push",
+                    success=True,
+                    details={
+                        "repo": repo,
+                        "branch": branch,
+                        "excepted_files": excepted,
+                        "role": session_role,
+                    },
+                )
+                changed_files = [f for f in changed_files if f not in file_exceptions]
 
     # Agent-role file restrictions.
     # Checks agent_restrictions rules (coder vs tester vs documenter file scopes).
@@ -849,6 +855,24 @@ def git_push() -> tuple[Response, int] | Response:
                         f"Push denied: Could not verify file changes for per-task check: {check_error}",
                         status_code=500,
                     )
+
+                # Apply file exceptions if changed_files was just fetched (no-role path)
+                file_exceptions = set(getattr(g.session, "file_exceptions", None) or [])
+                if file_exceptions and changed_files:
+                    excepted = [f for f in changed_files if f in file_exceptions]
+                    if excepted:
+                        audit_log(
+                            "file_exception_applied",
+                            "git_push",
+                            success=True,
+                            details={
+                                "repo": repo,
+                                "branch": branch,
+                                "excepted_files": excepted,
+                                "check_type": "per_task_file_restrictions",
+                            },
+                        )
+                        changed_files = [f for f in changed_files if f not in file_exceptions]
 
             if changed_files:
                 task_restriction = PhaseFileRestriction(allowed_patterns=session_allowed_files)
@@ -4148,6 +4172,20 @@ def request_file_create() -> tuple[Response, int] | Response:
     if not reason:
         return make_error("reason is required", status_code=400)
 
+    # Validate file_path to prevent path traversal and injection
+    if ".." in file_path or file_path.startswith("/"):
+        return make_error(
+            "Invalid file_path: path traversal not allowed", status_code=400
+        )
+    if len(file_path) > 512:
+        return make_error(
+            "Invalid file_path: too long (max 512 characters)", status_code=400
+        )
+    if "\x00" in file_path:
+        return make_error(
+            "Invalid file_path: null bytes not allowed", status_code=400
+        )
+
     session = g.session
     pipeline_id = getattr(session, "pipeline_id", None)
     if not pipeline_id:
@@ -4174,6 +4212,15 @@ def request_file_create() -> tuple[Response, int] | Response:
         )
         if not agent_result.allowed:
             is_blocked = True
+
+    # Check per-task allowed_files restrictions
+    if not is_blocked:
+        session_allowed_files = getattr(session, "allowed_files", None)
+        if isinstance(session_allowed_files, list) and session_allowed_files:
+            task_restriction = PhaseFileRestriction(allowed_patterns=session_allowed_files)
+            file_allowed, _reason = task_restriction.is_file_allowed(file_path)
+            if not file_allowed:
+                is_blocked = True
 
     if not is_blocked:
         return make_error(

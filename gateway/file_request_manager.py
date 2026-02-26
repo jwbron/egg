@@ -92,13 +92,15 @@ class FileRequestManager:
             if not req or req.status != "pending":
                 return False
             req.status = "approved" if approved else "denied"
+            resolved_status = req.status
+            resolved_file_path = req.file_path
 
         logger.info(
             "File access request resolved",
             event_type="file_request_resolved",
             request_id=request_id,
-            status=req.status,
-            file_path=req.file_path,
+            status=resolved_status,
+            file_path=resolved_file_path,
         )
         return True
 

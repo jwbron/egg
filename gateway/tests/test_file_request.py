@@ -594,6 +594,260 @@ class TestPushFileExceptions:
                 response = _do_push(client)
                 assert response.status_code == 403
 
+    def test_exception_does_not_bypass_protected_file_check(self, client):
+        """File exceptions must NOT bypass check_file_restrictions (protected files)."""
+        session = _make_pipeline_session()
+        session.file_exceptions = [".egg-state/contracts/912.json"]
+
+        import auth
+
+        mock_result = SessionValidationResult(valid=True, session=session)
+        mock_policy_result = PrivateRepoPolicyResult(
+            allowed=True, reason="Test", visibility="public"
+        )
+
+        auth._session_manager = None
+        auth._rate_limiter = None
+        if "gateway.auth" in sys.modules:
+            sys.modules["gateway.auth"]._session_manager = None
+            sys.modules["gateway.auth"]._rate_limiter = None
+
+        current_sm = sys.modules.get("session_manager", session_manager_module)
+
+        def run_side_effect(*args, **kwargs):
+            result = MagicMock()
+            result.returncode = 0
+            result.stderr = ""
+            cmd = args[0] if args else kwargs.get("args", [])
+            if "remote" in cmd and "get-url" in cmd:
+                result.stdout = "https://github.com/owner/repo.git\n"
+            elif "branch" in cmd and "--show-current" in cmd:
+                result.stdout = "egg-feature\n"
+            elif "push" in cmd:
+                result.stdout = "Everything up-to-date\n"
+            else:
+                result.stdout = ""
+            return result
+
+        # check_file_restrictions blocks the protected file
+        protected_block = FileRestrictionResult.block(
+            message="Blocked",
+            role="coder",
+            blocked_files=[".egg-state/contracts/912.json"],
+            blocked_reason="Protected file",
+        )
+
+        with (
+            patch.object(current_sm, "validate_session_for_request", return_value=mock_result),
+            patch.object(gateway, "check_private_repo_access", return_value=mock_policy_result),
+            patch("subprocess.run", side_effect=run_side_effect),
+            patch.object(
+                gateway,
+                "get_policy_engine",
+                return_value=MagicMock(
+                    check_branch_ownership=MagicMock(
+                        return_value=PolicyResult(
+                            allowed=True, reason="OK", details={"branch": "egg-feature"}
+                        )
+                    ),
+                ),
+            ),
+            patch.object(gateway, "get_token_for_repo", return_value=("test-token", "bot", "")),
+            patch.object(
+                gateway,
+                "get_changed_files_in_push",
+                return_value=([".egg-state/contracts/912.json"], None),
+            ),
+            patch.object(gateway, "check_file_restrictions", return_value=protected_block),
+        ):
+            response = _do_push(client)
+            # Protected file check should block EVEN THOUGH the file is excepted
+            assert response.status_code == 403
+            data = json.loads(response.data)
+            assert ".egg-state/contracts/912.json" in str(data)
+
+
+# ---------------------------------------------------------------------------
+# Tests for path traversal validation in request_file_create
+# ---------------------------------------------------------------------------
+
+
+class TestRequestFilePathValidation:
+    """Tests for file_path input validation in request_file_create."""
+
+    def test_path_traversal_rejected(self, client):
+        """Rejects file paths with '..' traversal."""
+        session = _make_pipeline_session()
+        with _session_auth_patches(session):
+            resp = client.post(
+                "/api/v1/sessions/request-file",
+                headers={"Authorization": "Bearer test-token"},
+                data=json.dumps(
+                    {"file_path": "../../gateway/gateway.py", "reason": "need it"}
+                ),
+                content_type="application/json",
+            )
+            assert resp.status_code == 400
+            assert "path traversal" in json.loads(resp.data)["message"]
+
+    def test_absolute_path_rejected(self, client):
+        """Rejects absolute file paths."""
+        session = _make_pipeline_session()
+        with _session_auth_patches(session):
+            resp = client.post(
+                "/api/v1/sessions/request-file",
+                headers={"Authorization": "Bearer test-token"},
+                data=json.dumps(
+                    {"file_path": "/etc/passwd", "reason": "need it"}
+                ),
+                content_type="application/json",
+            )
+            assert resp.status_code == 400
+            assert "path traversal" in json.loads(resp.data)["message"]
+
+    def test_too_long_path_rejected(self, client):
+        """Rejects excessively long file paths."""
+        session = _make_pipeline_session()
+        with _session_auth_patches(session):
+            resp = client.post(
+                "/api/v1/sessions/request-file",
+                headers={"Authorization": "Bearer test-token"},
+                data=json.dumps(
+                    {"file_path": "a" * 600, "reason": "need it"}
+                ),
+                content_type="application/json",
+            )
+            assert resp.status_code == 400
+            assert "too long" in json.loads(resp.data)["message"]
+
+    def test_null_byte_rejected(self, client):
+        """Rejects file paths with null bytes."""
+        session = _make_pipeline_session()
+        with _session_auth_patches(session):
+            resp = client.post(
+                "/api/v1/sessions/request-file",
+                headers={"Authorization": "Bearer test-token"},
+                data=json.dumps(
+                    {"file_path": "file\x00.py", "reason": "need it"}
+                ),
+                content_type="application/json",
+            )
+            assert resp.status_code == 400
+            assert "null" in json.loads(resp.data)["message"]
+
+    def test_valid_relative_path_accepted(self, client):
+        """Valid relative paths pass validation (may fail on other checks)."""
+        session = _make_pipeline_session()
+        with (
+            _session_auth_patches(session),
+            patch.object(
+                gateway,
+                "check_phase_file_restrictions",
+                return_value=FileRestrictionResult.block(
+                    message="Blocked",
+                    role="coder",
+                    blocked_files=["src/main.py"],
+                    blocked_reason="Phase restriction",
+                ),
+            ),
+            patch.object(
+                gateway,
+                "_orch_create_decision",
+                return_value={"id": "dec-1", "status": "pending"},
+            ),
+            patch("file_request_manager.get_file_request_manager", return_value=MagicMock(
+                create_request=MagicMock(return_value=MagicMock(
+                    request_id="file-req-1",
+                    status="pending",
+                    file_path="src/main.py",
+                ))
+            )),
+        ):
+            resp = client.post(
+                "/api/v1/sessions/request-file",
+                headers={"Authorization": "Bearer test-token"},
+                data=json.dumps(
+                    {"file_path": "src/main.py", "reason": "need it"}
+                ),
+                content_type="application/json",
+            )
+            assert resp.status_code == 200
+
+
+class TestRequestFileAllowedFilesCheck:
+    """Tests that request_file_create checks per-task allowed_files."""
+
+    def test_file_blocked_by_allowed_files(self, client):
+        """File blocked by per-task allowed_files is detected as blocked."""
+        session = _make_pipeline_session()
+        session.allowed_files = ["src/**"]  # Only src/ files allowed
+
+        with (
+            _session_auth_patches(session),
+            patch.object(
+                gateway,
+                "check_phase_file_restrictions",
+                return_value=FileRestrictionResult.allow(),
+            ),
+            patch.object(
+                gateway,
+                "check_agent_restrictions",
+                return_value=FileRestrictionResult.allow(),
+            ),
+            patch.object(
+                gateway,
+                "_orch_create_decision",
+                return_value={"id": "dec-1", "status": "pending"},
+            ),
+            patch("file_request_manager.get_file_request_manager", return_value=MagicMock(
+                create_request=MagicMock(return_value=MagicMock(
+                    request_id="file-req-1",
+                    status="pending",
+                    file_path="docs/README.md",
+                ))
+            )),
+        ):
+            resp = client.post(
+                "/api/v1/sessions/request-file",
+                headers={"Authorization": "Bearer test-token"},
+                data=json.dumps(
+                    {"file_path": "docs/README.md", "reason": "need to update docs"}
+                ),
+                content_type="application/json",
+            )
+            # Should succeed (file IS blocked by allowed_files, so request is valid)
+            assert resp.status_code == 200
+
+    def test_file_not_blocked_by_allowed_files(self, client):
+        """File within allowed_files scope is correctly not blocked."""
+        session = _make_pipeline_session()
+        session.allowed_files = ["src/**"]
+
+        with (
+            _session_auth_patches(session),
+            patch.object(
+                gateway,
+                "check_phase_file_restrictions",
+                return_value=FileRestrictionResult.allow(),
+            ),
+            patch.object(
+                gateway,
+                "check_agent_restrictions",
+                return_value=FileRestrictionResult.allow(),
+            ),
+        ):
+            resp = client.post(
+                "/api/v1/sessions/request-file",
+                headers={"Authorization": "Bearer test-token"},
+                data=json.dumps(
+                    {"file_path": "src/main.py", "reason": "it's in scope anyway"}
+                ),
+                content_type="application/json",
+            )
+            # Should fail because file is not blocked
+            assert resp.status_code == 400
+            assert "not blocked" in json.loads(resp.data)["message"]
+
 
 # ---------------------------------------------------------------------------
 # Post-agent commit file exception tests
