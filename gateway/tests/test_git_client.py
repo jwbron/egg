@@ -322,9 +322,7 @@ class TestValidateGitArgs:
 
     def test_checkout_t_normalizes_to_track(self):
         """git checkout -t should normalize to --track (not --tags)."""
-        valid, _error, normalized = validate_git_args(
-            "checkout", ["-t", "origin/feature"]
-        )
+        valid, _error, normalized = validate_git_args("checkout", ["-t", "origin/feature"])
         assert valid
         assert "--track" in normalized
 
