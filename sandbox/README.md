@@ -190,10 +190,10 @@ Per-repo `build_commands` in `repositories.yaml` allow project-specific dependen
 **Build flow:**
 1. `create_dockerfile()` (in `egg_lib/docker.py`) copies each repo's `watch_files` from local paths into the build context at `repo-deps/<repo-name>/`
 2. The Dockerfile `COPY repo-deps/` layer picks up these files — changes to watch files (e.g., `package-lock.json`) invalidate the Docker cache for this layer
-3. `docker-setup.py` reads `build_commands` from `repositories.yaml` and executes each repo's commands in its watch files directory
+3. `docker-setup.py` reads `build_commands` from a `manifest.json` file in `repo-deps/` (falling back to `repositories.yaml` if available) and executes each repo's commands in its watch files directory
 4. `compute_build_hash()` includes watch file contents, so `egg` automatically detects when a rebuild is needed
 
-**Known limitation:** `docker-setup.py`'s `load_config()` reads from `~/.config/egg/repositories.yaml`, which is not present inside the Docker build context. This means build commands are not yet executed during actual image builds — the caching infrastructure (watch file copying, hash computation) is in place, but command execution requires a follow-up to propagate a build-commands manifest into the build context. This follows the same pattern as `extra_packages`.
+**Config propagation:** During Docker builds, `repositories.yaml` is not available in the build context. Build commands are propagated via a `manifest.json` file that `create_dockerfile()` writes into `repo-deps/`. The `docker-setup.py` script reads this manifest as a fallback when `repositories.yaml` is not found.
 
 See [Configuration README](../config/README.md#per-repo-build-commands-dependency-caching) for configuration details.
 
