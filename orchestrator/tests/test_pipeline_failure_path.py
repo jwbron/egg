@@ -456,12 +456,20 @@ class TestSuccessPathPushesStatefiles:
         # Pipeline should complete successfully (PR is terminal phase)
         assert pipeline.status == PipelineStatus.COMPLETE
 
-        # push_worktree_branch should have been called after phase completion
-        mock_gateway.push_worktree_branch.assert_called_once_with(
-            pipeline_id="issue-42",
-            repo_path=str(worktree_dir),
-            branch="egg/issue-42",
+        # push_worktree_branch should have been called:
+        # - once for auto-PR pre-push (pushes commits before PR creation)
+        # - once after phase completion (pushes statefiles)
+        calls = mock_gateway.push_worktree_branch.call_args_list
+        assert len(calls) == 2, (
+            f"Expected push_worktree_branch to be called twice "
+            f"(auto-PR pre-push + phase completion), got {len(calls)} calls"
         )
+        for call in calls:
+            assert call.kwargs == {
+                "pipeline_id": "issue-42",
+                "repo_path": str(worktree_dir),
+                "branch": "egg/issue-42",
+            }
 
     @patch("routes.pipelines._commit_statefiles_to_worktree")
     @patch(_COMMON_PATCHES[7])
@@ -532,12 +540,13 @@ class TestSuccessPathPushesStatefiles:
         ):
             _run_pipeline("issue-42", Path("/repo"))
 
-        # push_worktree_branch should be called exactly twice:
-        # once after contract initialization and once after phase completion.
+        # push_worktree_branch should be called exactly three times:
+        # once after contract initialization, once for auto-PR pre-push,
+        # and once after phase completion.
         calls = mock_gateway.push_worktree_branch.call_args_list
-        assert len(calls) == 2, (
-            f"Expected push_worktree_branch to be called twice "
-            f"(contract init + phase completion), got {len(calls)} calls"
+        assert len(calls) == 3, (
+            f"Expected push_worktree_branch to be called three times "
+            f"(contract init + auto-PR pre-push + phase completion), got {len(calls)} calls"
         )
         # Verify arguments match for every call
         for call in calls:

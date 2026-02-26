@@ -2144,6 +2144,147 @@ def _commit_statefiles_to_worktree(
     )
 
 
+def _build_pr_body(
+    pipeline: Pipeline,
+    worktree_repo_path: Path,
+) -> tuple[str, str]:
+    """Build a PR title and body from contract state and git log.
+
+    Uses the planner-generated PR metadata from the contract when available,
+    falling back to the issue title and git log.
+
+    Args:
+        pipeline: The pipeline state
+        worktree_repo_path: Path to the worktree repo directory
+
+    Returns:
+        Tuple of (title, body)
+    """
+    identifier = _pipeline_identifier(pipeline.issue_number, pipeline.id)
+    pr_title: str | None = None
+    pr_description: str | None = None
+
+    # Try to load PR metadata from the contract (populated by the plan agent)
+    try:
+        from egg_contracts.loader import load_contract
+
+        contract = load_contract(identifier, worktree_repo_path)
+        if contract.pr:
+            pr_title = contract.pr.title
+            pr_description = contract.pr.description
+
+        # Fall back to issue title if no PR title from contract
+        if not pr_title and contract.issue:
+            pr_title = contract.issue.title
+    except Exception as e:
+        logger.debug(
+            "Could not load contract for PR metadata",
+            pipeline_id=pipeline.id,
+            error=str(e),
+        )
+
+    # Final fallback for title
+    if not pr_title:
+        pr_title = f"Implementation for pipeline {pipeline.id}"
+
+    # Build commit log
+    commit_log = ""
+    try:
+        result = subprocess.run(
+            ["git", "log", "--oneline", "origin/main..HEAD"],
+            capture_output=True,
+            text=True,
+            cwd=str(worktree_repo_path),
+            timeout=10,
+            check=False,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            commit_log = result.stdout.strip()
+    except Exception:
+        pass
+
+    # Build diff stats
+    diff_stats = ""
+    try:
+        result = subprocess.run(
+            ["git", "diff", "--stat", "origin/main...HEAD"],
+            capture_output=True,
+            text=True,
+            cwd=str(worktree_repo_path),
+            timeout=10,
+            check=False,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            diff_stats = result.stdout.strip()
+    except Exception:
+        pass
+
+    # Assemble body
+    body_parts: list[str] = []
+
+    if pr_description:
+        body_parts.append(pr_description)
+    elif pipeline.issue_number:
+        body_parts.append(f"Closes #{pipeline.issue_number}")
+
+    if commit_log:
+        body_parts.append(f"## Commits\n\n```\n{commit_log}\n```")
+
+    if diff_stats:
+        body_parts.append(f"## Changes\n\n```\n{diff_stats}\n```")
+
+    body_parts.append("Authored-by: egg")
+
+    body = "\n\n".join(body_parts)
+
+    return pr_title, body
+
+
+def _auto_create_pr(
+    pipeline: Pipeline,
+    worktree_repo_path: Path,
+    spawner: "ContainerSpawner",
+) -> str | None:
+    """Auto-create a PR for a pipeline without spawning an agent.
+
+    Builds the PR title/body from contract state and git log, then
+    creates the PR via the gateway.
+
+    Args:
+        pipeline: The pipeline state
+        worktree_repo_path: Path to the worktree repo directory
+        spawner: Container spawner (used to access gateway client)
+
+    Returns:
+        PR URL if creation succeeded, None otherwise
+    """
+    if not pipeline.repo or not pipeline.branch:
+        logger.warning(
+            "Cannot auto-create PR: missing repo or branch",
+            pipeline_id=pipeline.id,
+        )
+        return None
+
+    title, body = _build_pr_body(pipeline, worktree_repo_path)
+
+    try:
+        pr_url = spawner.gateway.create_pr(
+            pipeline_id=pipeline.id,
+            repo=pipeline.repo,
+            title=title,
+            body=body,
+            head=pipeline.branch,
+        )
+        return pr_url
+    except Exception as e:
+        logger.error(
+            "Auto PR creation failed",
+            pipeline_id=pipeline.id,
+            error=str(e),
+        )
+        return None
+
+
 def _build_phase_prompt(
     phase: str,
     pipeline_id: str,
@@ -5220,8 +5361,47 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
             hitl_revision_feedback = None
             tester_gap_summary: str | None = None
 
-            # --- Inner review cycle ---
-            while True:
+            # --- Auto PR creation: skip agent spawn for PR phase ---
+            if current_phase.value == "pr" and pipeline.config.auto_create_pr:
+                logger.info(
+                    "Auto-creating PR (skipping agent spawn)",
+                    pipeline_id=pipeline_id,
+                )
+
+                # Push latest commits before creating PR
+                if pipeline.branch and worktree_repo_path != repo_path:
+                    try:
+                        spawner.gateway.push_worktree_branch(
+                            pipeline_id=pipeline_id,
+                            repo_path=str(worktree_repo_path),
+                            branch=pipeline.branch,
+                        )
+                    except Exception as push_err:
+                        logger.warning(
+                            "Pre-PR push failed (continuing with PR creation)",
+                            pipeline_id=pipeline_id,
+                            error=str(push_err),
+                        )
+
+                pr_url = _auto_create_pr(pipeline, worktree_repo_path, spawner)
+
+                if pr_url:
+                    with get_pipeline_state_lock(pipeline_id):
+                        pipeline = store.load_pipeline(pipeline_id)
+                        phase_execution = pipeline.get_phase_execution(current_phase)
+                        phase_execution.artifacts = {"pr_url": pr_url}
+                        store.save_pipeline(pipeline)
+                else:
+                    logger.warning(
+                        "Auto PR creation returned no URL (PR may still have been created)",
+                        pipeline_id=pipeline_id,
+                    )
+
+                # Fall through to phase completion below (skip inner review cycle)
+
+            # --- Inner review cycle (skipped when auto-creating PR) ---
+            else:
+              while True:
                 # Reset tester gaps each cycle so stale findings don't accumulate
                 tester_gap_summary = None
 

@@ -506,7 +506,7 @@ Each phase has a defined set of permitted operations. The gateway blocks all oth
 **Phase restrictions:**
 - **Refine/Plan phases**: Cannot `git push` or `gh pr create`—prevents code changes before plan approval
 - **Implement phase**: Can `git push` to the branch; draft PR is created automatically by the pipeline (not by agent)
-- **PR phase**: Can `gh pr create/edit` and `git push`; human must merge
+- **PR phase**: PR is auto-created by the orchestrator from contract metadata and git log (no agent spawned). When `auto_create_pr` is disabled, a coder agent is spawned to create the PR manually. Human must merge.
 
 This structural enforcement prevents incidents where agents push code during planning or manually create PRs before implementation is complete.
 
@@ -953,7 +953,7 @@ The orchestrator's pipeline routes (`orchestrator/routes/pipelines.py`):
 
 This happens in the plan phase itself (before human approval) to provide early validation of the plan format. The implement phase also runs task population as a fallback in case the plan phase step failed or was skipped.
 
-The PR metadata (title and description) from the plan is stored in the contract's `pr` field and used when creating the draft PR during the implement phase.
+The PR metadata (title and description) from the plan is stored in the contract's `pr` field and used by the orchestrator to auto-create the PR at the end of the implement phase (when `auto_create_pr` is enabled, which is the default). The orchestrator builds the PR body from the contract's `pr` metadata, the git commit log, and diff stats — no agent is spawned for PR creation.
 
 ## Phase Checks
 
@@ -1018,6 +1018,7 @@ Default checks for each phase are defined in `shared/egg_contracts/phase_default
 
 **PR phase:**
 - No checks
+- PR is auto-created by the orchestrator (no agent spawned) when `auto_create_pr` is enabled (default: `true`). The PR title and description are sourced from the contract's `pr` field (populated by the plan agent), with commit log and diff stats appended automatically.
 
 ### Deployment Validation
 

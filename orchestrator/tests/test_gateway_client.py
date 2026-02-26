@@ -69,6 +69,8 @@ class MockGatewayHandler(BaseHTTPRequestHandler):
             self._handle_git_push(data)
         elif self.path == "/api/v1/git/fetch":
             self._handle_git_fetch(data)
+        elif self.path == "/api/v1/gh/pr/create":
+            self._handle_pr_create(data)
         else:
             self._send_error(404, "Not found")
 
@@ -247,6 +249,34 @@ class MockGatewayHandler(BaseHTTPRequestHandler):
             {
                 "success": True,
                 "message": "Fetch successful",
+            }
+        )
+
+    def _handle_pr_create(self, data):
+        """Handle PR creation (POST /api/v1/gh/pr/create)."""
+        auth_header = self.headers.get("Authorization", "")
+        if not auth_header.startswith("Bearer "):
+            self._send_error(401, "Unauthorized")
+            return
+
+        token = auth_header[7:]
+        if not token:
+            self._send_error(401, "Unauthorized")
+            return
+
+        repo = data.get("repo", "")
+        title = data.get("title", "")
+        head = data.get("head", "")
+
+        self._send_json(
+            {
+                "success": True,
+                "message": "PR created",
+                "data": {
+                    "stdout": f"https://github.com/{repo}/pull/1",
+                    "stderr": "",
+                    "auth_mode": "bot",
+                },
             }
         )
 
@@ -781,6 +811,65 @@ class TestFetchWorktreeBranch:
             )
             # Session should be cleaned up
             mock_delete.assert_called_once_with("test-token-12345")
+
+
+class TestCreatePR:
+    """Tests for create_pr method."""
+
+    def test_create_pr_success(self, gateway_client, mock_gateway_server):
+        """Test successful PR creation returns URL."""
+        result = gateway_client.create_pr(
+            pipeline_id="issue-42",
+            repo="owner/repo",
+            title="Fix the bug",
+            body="This fixes the bug.\n\nCloses #42",
+            head="egg/issue-42",
+        )
+        assert result == "https://github.com/owner/repo/pull/1"
+
+    def test_create_pr_gateway_unreachable(self):
+        """Test PR creation raises when gateway is unreachable."""
+        client = GatewayClient(
+            gateway_host="localhost",
+            gateway_port=19999,
+            launcher_secret="test-secret",
+            timeout=1,
+        )
+
+        with pytest.raises(GatewayError):
+            client.create_pr(
+                pipeline_id="issue-42",
+                repo="owner/repo",
+                title="Fix",
+                body="Body",
+                head="egg/issue-42",
+            )
+
+    def test_create_pr_cleans_up_session(self, gateway_client, mock_gateway_server):
+        """Test that temp session is cleaned up after PR creation."""
+        with patch.object(gateway_client, "delete_session") as mock_delete:
+            gateway_client.create_pr(
+                pipeline_id="issue-42",
+                repo="owner/repo",
+                title="Fix",
+                body="Body",
+                head="egg/issue-42",
+            )
+            mock_delete.assert_called_once_with("test-token-12345")
+
+    def test_create_pr_registers_session_with_pr_phase(self, gateway_client, mock_gateway_server):
+        """Test that session is registered with phase='pr'."""
+        with patch.object(gateway_client, "register_session", wraps=gateway_client.register_session) as mock_reg:
+            gateway_client.create_pr(
+                pipeline_id="issue-42",
+                repo="owner/repo",
+                title="Fix",
+                body="Body",
+                head="egg/issue-42",
+            )
+            mock_reg.assert_called_once()
+            call_kwargs = mock_reg.call_args
+            assert call_kwargs.kwargs.get("phase") or call_kwargs[1].get("phase") == "pr"
 
 
 class TestSingletonClient:
