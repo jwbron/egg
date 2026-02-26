@@ -1084,14 +1084,21 @@ class WorktreeManager:
 
             repo_name = repo_dir.name
             with self._get_repo_lock(repo_name):
-                result = subprocess.run(
-                    git_cmd("worktree", "prune"),
-                    cwd=repo_dir,
-                    capture_output=True,
-                    text=True,
-                    check=False,
-                    timeout=30,
-                )
+                try:
+                    result = subprocess.run(
+                        git_cmd("worktree", "prune"),
+                        cwd=repo_dir,
+                        capture_output=True,
+                        text=True,
+                        check=False,
+                        timeout=30,
+                    )
+                except subprocess.TimeoutExpired:
+                    logger.warning(
+                        "git worktree prune timed out",
+                        repo=repo_name,
+                    )
+                    continue
                 if result.returncode == 0:
                     repos_checked += 1
                 else:

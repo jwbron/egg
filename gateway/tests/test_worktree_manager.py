@@ -1,6 +1,7 @@
 """Tests for worktree_manager.py."""
 
 import shutil
+import subprocess
 import sys
 import tempfile
 from pathlib import Path
@@ -1100,6 +1101,32 @@ class TestPruneStaleWorktrees:
 
         # Should not count failed pruning
         assert pruned == 0
+
+    def test_handles_prune_timeout(self, tmp_path):
+        """Should log warning and continue to next repo when prune times out."""
+        repos_base = tmp_path / "repos"
+        repos_base.mkdir()
+
+        repo1 = repos_base / "repo1"
+        repo1.mkdir()
+        (repo1 / ".git").mkdir()
+
+        repo2 = repos_base / "repo2"
+        repo2.mkdir()
+        (repo2 / ".git").mkdir()
+
+        manager = WorktreeManager(worktree_base=tmp_path / "worktrees", repos_base=repos_base)
+
+        with patch("subprocess.run") as mock_run:
+            # First call times out, second succeeds
+            mock_run.side_effect = [
+                subprocess.TimeoutExpired(cmd="git worktree prune", timeout=30),
+                MagicMock(returncode=0, stdout="", stderr=""),
+            ]
+            pruned = manager.prune_stale_worktrees()
+
+        # Only the second repo should be counted
+        assert pruned == 1
 
 
 class TestStartupCleanupWithPrune:
