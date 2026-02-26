@@ -314,6 +314,8 @@ class TestSetupClaude:
         # Set up directories
         claude_dir = temp_dir / ".claude"
         claude_dir.mkdir()
+        repos_dir = temp_dir / "repos"
+        repos_dir.mkdir()
 
         # Create an existing .claude.json (simulating bind mount scenario)
         user_state_file = temp_dir / ".claude.json"
@@ -322,6 +324,7 @@ class TestSetupClaude:
         config = MagicMock()
         config.user_home = temp_dir
         config.claude_dir = claude_dir
+        config.repos_dir = repos_dir
         config.runtime_uid = 1000
         config.runtime_gid = 1000
         config.quiet = True
@@ -357,10 +360,13 @@ class TestSetupClaude:
         # Set up directories
         claude_dir = temp_dir / ".claude"
         claude_dir.mkdir()
+        repos_dir = temp_dir / "repos"
+        repos_dir.mkdir()
 
         config = MagicMock()
         config.user_home = temp_dir
         config.claude_dir = claude_dir
+        config.repos_dir = repos_dir
         config.runtime_uid = 1000
         config.runtime_gid = 1000
         config.quiet = True

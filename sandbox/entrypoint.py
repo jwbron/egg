@@ -896,6 +896,7 @@ def setup_claude(config: Config, logger: Logger) -> None:
     # Create settings.json
     settings = {
         "defaultPermissionMode": "bypassPermissions",
+        "skipDangerousModePermissionPrompt": True,
         "autoApproveEdits": True,
         "editorMode": "normal",
         "autoUpdate": False,
@@ -915,6 +916,7 @@ def setup_claude(config: Config, logger: Logger) -> None:
         "hasCompletedOnboarding": True,
         "autoUpdates": False,
         "bypassPermissionsModeAccepted": True,
+        "effortCalloutDismissed": True,
     }
     # These are only set on new files, not forced on existing ones
     default_settings: dict[str, Any] = {
@@ -950,6 +952,25 @@ def setup_claude(config: Config, logger: Logger) -> None:
         if key not in existing_config:
             needs_update = True
             existing_config[key] = value
+
+    # Pre-populate per-project trust dialog acceptance for all repos
+    # This prevents the "Do you trust this folder?" prompt on first launch
+    if config.repos_dir.exists():
+        projects = existing_config.setdefault("projects", {})
+        project_trust_settings = {
+            "hasTrustDialogAccepted": True,
+            "hasCompletedProjectOnboarding": True,
+        }
+        # Trust repos_dir itself and any git repos inside it
+        for project_path in [config.repos_dir] + [
+            d for d in config.repos_dir.iterdir() if d.is_dir()
+        ]:
+            project_key = str(project_path)
+            project = projects.setdefault(project_key, {})
+            for key, value in project_trust_settings.items():
+                if project.get(key) != value:
+                    needs_update = True
+                    project[key] = value
 
     # Write back if changes needed (using atomic write to prevent corruption)
     if needs_update:
