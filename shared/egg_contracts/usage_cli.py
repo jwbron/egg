@@ -25,6 +25,9 @@ import tempfile
 from datetime import datetime
 from pathlib import Path
 
+# Checkpoint branch name — shared constant to avoid divergence.
+from egg_config.constants import CHECKPOINT_BRANCH
+
 from .usage import (
     IssueUsage,
     PRUsage,
@@ -41,9 +44,6 @@ from .usage_loader import (
     query_usage_by_session,
     query_usage_by_workflow,
 )
-
-# Checkpoint branch name
-CHECKPOINT_BRANCH = "egg/checkpoints/v2"
 
 # Validation pattern for checkpoint_repo values (must be "owner/repo" format)
 _REPO_PATTERN = re.compile(r"^[a-zA-Z0-9._-]+/[a-zA-Z0-9._-]+$")

@@ -112,8 +112,8 @@ except ImportError:
 
 logger = get_logger("gateway.checkpoint-handler")
 
-# Checkpoint branch name — v2 uses a separate branch from v1
-CHECKPOINT_BRANCH = "egg/checkpoints/v2"
+# Checkpoint branch name — shared constant (also used by gateway.py for push bypass).
+from egg_config.constants import CHECKPOINT_BRANCH
 
 # Index file name
 INDEX_FILE = "index.json"

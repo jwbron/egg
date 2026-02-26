@@ -1138,6 +1138,35 @@ class TestRemoteSync:
 
         assert result is False
 
+    def test_sync_to_remote_async_respects_max_retries(self, state_store):
+        """_sync_to_remote_async skips retry when max retry depth is reached."""
+        import time
+
+        call_count = 0
+        original_in_flight = StateStore._push_in_flight
+        original_pending = StateStore._push_pending
+
+        def slow_sync():
+            nonlocal call_count
+            call_count += 1
+            time.sleep(0.05)
+            # Simulate another commit arriving during every push
+            with StateStore._push_lock:
+                StateStore._push_pending = True
+            return True
+
+        try:
+            with patch.object(state_store, "sync_to_remote", side_effect=slow_sync):
+                state_store._sync_to_remote_async()
+                # Wait for the full retry chain to complete
+                time.sleep(0.5)
+
+            # Should be capped at _MAX_PUSH_RETRIES (3): initial + 2 retries
+            assert call_count == StateStore._MAX_PUSH_RETRIES
+        finally:
+            StateStore._push_in_flight = original_in_flight
+            StateStore._push_pending = original_pending
+
     def test_delete_pipeline_triggers_remote_sync(self, state_store, mock_git):
         """delete_pipeline syncs to remote after committing deletion."""
         state_store.create_pipeline(

@@ -37,6 +37,10 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+# Checkpoint branch name — shared constant to avoid divergence.
+# Explicit re-export (as-alias) so mypy treats it as a public API.
+from egg_config.constants import CHECKPOINT_BRANCH as CHECKPOINT_BRANCH
+
 from .checkpoint_loader import (
     filter_checkpoints_v2,
     get_checkpoint_path,
@@ -49,9 +53,6 @@ from .checkpoints import (
     SessionStatus,
     TriggerType,
 )
-
-# Checkpoint branch name
-CHECKPOINT_BRANCH = "egg/checkpoints/v2"
 
 # Validation pattern for checkpoint_repo values (must be "owner/repo" format)
 _REPO_PATTERN = re.compile(r"^[a-zA-Z0-9._-]+/[a-zA-Z0-9._-]+$")
