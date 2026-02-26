@@ -719,6 +719,96 @@ class TestSetupAgentRules:
         # Note: This test relies on /opt/claude-rules/mission.md not existing
         entrypoint.setup_agent_rules(config, logger)
 
+    @patch("os.chown")
+    def test_cleans_up_stale_single_repo_symlink(self, mock_chown, temp_dir):
+        """Stale CLAUDE.md symlink inside a single repo is cleaned up."""
+        repos_dir = temp_dir / "repos"
+        repos_dir.mkdir()
+        repo = repos_dir / "my-project"
+        repo.mkdir()
+        (repo / ".git").mkdir()
+
+        # Create a stale symlink inside the repo (from a previous container run)
+        stale = repo / "CLAUDE.md"
+        stale.symlink_to(temp_dir / "nonexistent" / "CLAUDE.md")
+        assert stale.is_symlink()
+
+        claude_dir = temp_dir / ".claude"
+        claude_dir.mkdir()
+
+        config = MagicMock()
+        config.user_home = temp_dir
+        config.claude_dir = claude_dir
+        config.repos_dir = repos_dir
+        config.runtime_uid = 1000
+        config.runtime_gid = 1000
+
+        rules_dir = temp_dir / "opt-claude-rules"
+        rules_dir.mkdir()
+        (rules_dir / "mission.md").write_text("# Mission")
+
+        logger = entrypoint.Logger(quiet=True)
+
+        original_path_init = Path.__new__
+
+        def patched_path_new(cls, *args, **kwargs):
+            result = original_path_init(cls, *args, **kwargs)
+            if str(result) == "/opt/claude-rules":
+                return rules_dir
+            return result
+
+        with patch.object(Path, "__new__", patched_path_new):
+            entrypoint.setup_agent_rules(config, logger)
+
+        # Stale symlink should be removed
+        assert not stale.exists()
+        assert not stale.is_symlink()
+
+    @patch("os.chown")
+    def test_preserves_real_claude_md_in_single_repo(self, mock_chown, temp_dir):
+        """Real CLAUDE.md file (not symlink) in a repo is NOT removed by cleanup."""
+        repos_dir = temp_dir / "repos"
+        repos_dir.mkdir()
+        repo = repos_dir / "my-project"
+        repo.mkdir()
+        (repo / ".git").mkdir()
+
+        # Create a real CLAUDE.md file (not a symlink)
+        real_file = repo / "CLAUDE.md"
+        real_file.write_text("# Project rules")
+
+        claude_dir = temp_dir / ".claude"
+        claude_dir.mkdir()
+
+        config = MagicMock()
+        config.user_home = temp_dir
+        config.claude_dir = claude_dir
+        config.repos_dir = repos_dir
+        config.runtime_uid = 1000
+        config.runtime_gid = 1000
+
+        rules_dir = temp_dir / "opt-claude-rules"
+        rules_dir.mkdir()
+        (rules_dir / "mission.md").write_text("# Mission")
+
+        logger = entrypoint.Logger(quiet=True)
+
+        original_path_init = Path.__new__
+
+        def patched_path_new(cls, *args, **kwargs):
+            result = original_path_init(cls, *args, **kwargs)
+            if str(result) == "/opt/claude-rules":
+                return rules_dir
+            return result
+
+        with patch.object(Path, "__new__", patched_path_new):
+            entrypoint.setup_agent_rules(config, logger)
+
+        # Real file should be preserved
+        assert real_file.exists()
+        assert not real_file.is_symlink()
+        assert real_file.read_text() == "# Project rules"
+
 
 class TestSetupEggSymlink:
     """Tests for the setup_egg_symlink function."""
@@ -1335,6 +1425,49 @@ class TestExcludeFromGit:
 
         # No .git/info/exclude created
         assert not (tmp_path / ".git").exists()
+
+    def test_git_file_not_directory_is_noop(self, tmp_path):
+        """When .git is a regular file (not dir or worktree), does nothing.
+
+        In production, .git is a /dev/null bind mount (character device).
+        This test uses a plain file to simulate .git not being a directory
+        and not containing a valid gitdir: pointer.
+        """
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        # .git as a plain file (simulates /dev/null bind mount scenario)
+        (repo / ".git").write_text("")
+
+        target = repo / "CLAUDE.md"
+        target.touch()
+
+        # Should not raise and should not create any exclude file
+        entrypoint._exclude_from_git(target)
+
+        # .git is still just a file, no info/exclude was created
+        assert (repo / ".git").is_file()
+        assert not (repo / ".git").is_dir()
+
+    def test_git_worktree_file_resolves_gitdir(self, tmp_path):
+        """When .git is a worktree file with gitdir: pointer, writes to the real git dir."""
+        repo = tmp_path / "repo"
+        repo.mkdir()
+
+        # Simulate the real git metadata directory (as in a worktree)
+        real_git_dir = tmp_path / "real-git-dir"
+        real_git_dir.mkdir()
+
+        # .git is a file pointing to the real git dir
+        (repo / ".git").write_text(f"gitdir: {real_git_dir}")
+
+        target = repo / "CLAUDE.md"
+        target.touch()
+
+        entrypoint._exclude_from_git(target)
+
+        exclude = real_git_dir / "info" / "exclude"
+        assert exclude.exists()
+        assert "CLAUDE.md" in exclude.read_text().splitlines()
 
 
 class TestSignalOrchestratorCompletion:

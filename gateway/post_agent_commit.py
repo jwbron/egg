@@ -10,6 +10,7 @@ Called from the session cleanup flow in ``session_manager.py``.
 
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -215,6 +216,23 @@ def auto_commit_worktree(
                         stderr=restore.stderr,
                         container_id=container_id,
                     )
+
+        # Filter out symlinks pointing to container-local paths.
+        # The sandbox creates a CLAUDE.md symlink (target: ~/.claude/CLAUDE.md)
+        # inside the repo for Claude Code to detect project rules. This symlink
+        # is a container-local artifact — the target doesn't exist on the host
+        # and committing it would pollute the user's repository with a broken
+        # symlink. Filtering here (on the host side) is the authoritative gate
+        # because the container's .git is shadowed and cannot self-exclude.
+        symlink_files = [f for f in allowed_files if os.path.islink(os.path.join(worktree_path, f))]
+        if symlink_files:
+            logger.info(
+                "Skipping symlinks from auto-commit",
+                event_type="post_agent_symlink_filter",
+                symlink_files=symlink_files,
+                container_id=container_id,
+            )
+            allowed_files = [f for f in allowed_files if f not in symlink_files]
 
         # If no allowed files remain after filtering, nothing to commit.
         if not allowed_files:
