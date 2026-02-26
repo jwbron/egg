@@ -203,6 +203,7 @@ class OrchClient:
         decision_type: str = "choice",
         questions: list[dict[str, str]] | None = None,
         context: str = "",
+        phase: str | None = None,
     ) -> dict[str, Any]:
         """Create a new HITL decision for a pipeline.
 
@@ -213,6 +214,7 @@ class OrchClient:
             decision_type: Type of decision ('phase_gate', 'choice', or 'feedback').
             questions: Structured feedback questions (list of dicts with id, question, answer).
             context: Additional context for the decision.
+            phase: Pipeline phase that created the decision (e.g., 'plan', 'refine').
 
         Returns:
             Created decision dict from the orchestrator API.
@@ -224,6 +226,8 @@ class OrchClient:
             body["decision_type"] = decision_type
         if questions:
             body["questions"] = questions
+        if phase:
+            body["phase"] = phase
         data = self._request(
             "POST",
             f"/api/v1/pipelines/{pipeline_id}/decisions",
