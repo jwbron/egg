@@ -70,7 +70,7 @@ If push fails:
 
 **Post-agent auto-commit:** When your container exits, any uncommitted changes are automatically committed and pushed by the gateway. Phase-restricted files and files outside your task's allowed scope are restored (not committed). You do not need to worry about losing work if you time out.
 
-**Per-task file restrictions:** During the implement phase, your pushes may be scoped to the files listed in your assigned task's `files_affected`. If you push a file outside this scope, the first attempt triggers a warning (push succeeds); a second push with the same file is blocked. Listing any file in a directory grants access to the entire directory subtree. If you need to modify an out-of-scope file, use `egg-contract request-file --path <file> --reason <why>` to request access.
+**Per-task file restrictions:** During the implement phase, your pushes may be scoped to the files listed in your assigned task's `files_affected`. If you push a file outside this scope, the first attempt triggers a warning (push succeeds); a second push with the same file is blocked. Listing any file in a directory grants access to the entire directory subtree. If you need to modify an out-of-scope file, use `egg-contract add-decision --question "Need access to <file> because <reason>" --options "Approve" "Deny"` to request human approval.
 
 ## Services
 

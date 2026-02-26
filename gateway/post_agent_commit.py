@@ -14,6 +14,7 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 
 _shared_path = Path(__file__).parent.parent / "shared"
 if _shared_path.exists() and str(_shared_path) not in sys.path:
@@ -22,6 +23,23 @@ if _shared_path.exists() and str(_shared_path) not in sys.path:
 from egg_logging import get_logger
 
 logger = get_logger("gateway.post-agent-commit")
+
+
+def _import_phase_filter(name: str) -> Any:
+    """Import a name from phase_filter with fallback to gateway.phase_filter.
+
+    post_agent_commit.py runs in different contexts (direct execution vs as
+    a module), so the import path varies. Returns None on failure (fail-open).
+    """
+    try:
+        mod = __import__("phase_filter", fromlist=[name])
+        return getattr(mod, name, None)
+    except ImportError:
+        try:
+            mod = __import__("gateway.phase_filter", fromlist=[name])
+            return getattr(mod, name, None)
+        except ImportError:
+            return None
 
 
 def _git(*args: str, cwd: str, timeout: int = 30) -> subprocess.CompletedProcess[str]:
@@ -186,14 +204,7 @@ def auto_commit_worktree(
         blocked_files: list[str] = []
 
         if phase and changed_files:
-            try:
-                from phase_filter import check_phase_file_restrictions  # type: ignore[import-untyped]  # noqa: I001
-            except ImportError:
-                try:
-                    from gateway.phase_filter import check_phase_file_restrictions
-                except ImportError:
-                    check_phase_file_restrictions = None  # type: ignore[assignment, unused-ignore]
-
+            check_phase_file_restrictions = _import_phase_filter("check_phase_file_restrictions")
             if check_phase_file_restrictions is not None:
                 result = check_phase_file_restrictions(phase, changed_files)
                 if not result.allowed:
@@ -212,14 +223,7 @@ def auto_commit_worktree(
         # Per-task file restriction filtering (allowed_files from planner).
         # Applied after phase filtering — both layers AND together.
         if allowed_files and committable_files:
-            try:
-                from phase_filter import PhaseFileRestriction  # noqa: I001
-            except ImportError:
-                try:
-                    from gateway.phase_filter import PhaseFileRestriction
-                except ImportError:
-                    PhaseFileRestriction = None
-
+            PhaseFileRestriction = _import_phase_filter("PhaseFileRestriction")
             if PhaseFileRestriction is not None:
                 task_restriction = PhaseFileRestriction(allowed_patterns=allowed_files)
                 task_blocked: list[str] = []

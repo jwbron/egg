@@ -232,26 +232,35 @@ class TestWarnThenBlockWithThreshold:
         assert out_of_scope == ["config/settings.py", "docs/readme.md"]
 
     def test_warn_escalation_across_multiple_pushes(self):
-        """Full simulation: first push warns, second push blocks same file."""
+        """Full simulation: first push warns, second push blocks same file.
+
+        Uses two-pass approach: counters only increment if no files are blocked.
+        This prevents files from being marked as "warned" on a rejected push.
+        """
         warned_files: dict[str, int] = {}
         warn_threshold = 1
 
-        # Push 1: file_a and file_b are out of scope
+        # Push 1: file_a and file_b are out of scope — all warned (no blocks)
         out_of_scope_push1 = ["file_a.py", "file_b.py"]
         blocked_push1 = []
         warned_push1 = []
+        # First pass: classify
         for f in out_of_scope_push1:
             count = warned_files.get(f, 0)
             if count >= warn_threshold:
                 blocked_push1.append(f)
             else:
-                warned_files[f] = count + 1
                 warned_push1.append(f)
+        # No blocks, so second pass: increment counters
+        assert blocked_push1 == []
+        for f in warned_push1:
+            warned_files[f] = warned_files.get(f, 0) + 1
 
         assert warned_push1 == ["file_a.py", "file_b.py"]
-        assert blocked_push1 == []
 
-        # Push 2: file_a again (should block), file_c new (should warn)
+        # Push 2: file_a again (should block), file_c new (would warn)
+        # Because file_a is blocked, the entire push is rejected and
+        # file_c's counter is NOT incremented.
         out_of_scope_push2 = ["file_a.py", "file_c.py"]
         blocked_push2 = []
         warned_push2 = []
@@ -260,11 +269,13 @@ class TestWarnThenBlockWithThreshold:
             if count >= warn_threshold:
                 blocked_push2.append(f)
             else:
-                warned_files[f] = count + 1
                 warned_push2.append(f)
 
         assert blocked_push2 == ["file_a.py"]
         assert warned_push2 == ["file_c.py"]
+        # Push rejected — do NOT increment counters
+        # file_c remains at 0, so a future push with just file_c would warn (not block)
+        assert warned_files.get("file_c.py", 0) == 0
 
 
 class TestEmptyVsNoneAllowedPatterns:

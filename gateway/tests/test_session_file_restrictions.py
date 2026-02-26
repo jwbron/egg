@@ -94,23 +94,30 @@ class TestWarnThenBlockLogic:
     """Tests for the warn-then-block pattern using _warned_files on Session."""
 
     def test_first_violation_warns(self):
-        """First out-of-scope file increments counter but doesn't block."""
+        """First out-of-scope file increments counter but doesn't block.
+
+        Two-pass approach: classify first, then increment only if no blocks.
+        """
         warned_files: dict[str, int] = {}
         out_of_scope = ["config/settings.py"]
         warn_threshold = 1
 
         blocked = []
         warned = []
+        # First pass: classify
         for f in out_of_scope:
             count = warned_files.get(f, 0)
             if count >= warn_threshold:
                 blocked.append(f)
             else:
-                warned_files[f] = count + 1
                 warned.append(f)
 
         assert warned == ["config/settings.py"]
         assert blocked == []
+        # Second pass: no blocks, so increment counters
+        for f in warned:
+            warned_files[f] = warned_files.get(f, 0) + 1
+
         assert warned_files["config/settings.py"] == 1
 
     def test_second_violation_blocks(self):
@@ -120,33 +127,43 @@ class TestWarnThenBlockLogic:
         warn_threshold = 1
 
         blocked = []
-        for f in out_of_scope:
-            count = warned_files.get(f, 0)
-            if count >= warn_threshold:
-                blocked.append(f)
-            else:
-                warned_files[f] = count + 1
-
-        assert blocked == ["config/settings.py"]
-
-    def test_different_files_tracked_independently(self):
-        """Each file has its own violation counter."""
-        warned_files: dict[str, int] = {"file_a.py": 1}
-        out_of_scope = ["file_a.py", "file_b.py"]
-        warn_threshold = 1
-
-        blocked = []
         warned = []
         for f in out_of_scope:
             count = warned_files.get(f, 0)
             if count >= warn_threshold:
                 blocked.append(f)
             else:
-                warned_files[f] = count + 1
+                warned.append(f)
+
+        assert blocked == ["config/settings.py"]
+        assert warned == []
+
+    def test_different_files_tracked_independently(self):
+        """Each file has its own violation counter.
+
+        Two-pass approach: when any file is blocked, counters are not
+        incremented for any file in the push. file_b is classified as
+        "would warn" but its counter stays at 0 because file_a causes
+        the push to be rejected.
+        """
+        warned_files: dict[str, int] = {"file_a.py": 1}
+        out_of_scope = ["file_a.py", "file_b.py"]
+        warn_threshold = 1
+
+        blocked = []
+        warned = []
+        # First pass: classify without incrementing
+        for f in out_of_scope:
+            count = warned_files.get(f, 0)
+            if count >= warn_threshold:
+                blocked.append(f)
+            else:
                 warned.append(f)
 
         assert blocked == ["file_a.py"]
         assert warned == ["file_b.py"]
+        # Push rejected due to blocked files — counters not incremented
+        assert warned_files.get("file_b.py", 0) == 0
 
     def test_strict_mode_blocks_immediately(self):
         """When enforce_strict=True, all out-of-scope files are blocked immediately."""

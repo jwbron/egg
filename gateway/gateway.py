@@ -834,7 +834,10 @@ def git_push() -> tuple[Response, int] | Response:
                     enforce_strict = os.environ.get(
                         "EGG_TASK_FILE_RESTRICTIONS_ENFORCE", "false"
                     ).lower() in ("true", "1", "yes")
-                    warn_threshold = int(os.environ.get("EGG_TASK_FILE_WARN_THRESHOLD", "1"))
+                    try:
+                        warn_threshold = int(os.environ.get("EGG_TASK_FILE_WARN_THRESHOLD", "1"))
+                    except (ValueError, TypeError):
+                        warn_threshold = 1
 
                     if enforce_strict:
                         audit_log(
@@ -862,29 +865,24 @@ def git_push() -> tuple[Response, int] | Response:
                             },
                         )
 
-                    # Warn-then-block: check per-file violation counts
+                    # Warn-then-block: check per-file violation counts.
+                    # Two-pass approach: first check for blocks, then increment
+                    # counters only if the push won't be rejected. This prevents
+                    # files from being marked as "warned" on a push that fails
+                    # due to other blocked files in the same push.
                     warned_files = getattr(g.session, "_warned_files", {})
                     blocked_files_task: list[str] = []
                     warned_files_task: list[str] = []
 
+                    # First pass: classify files as blocked or warned
                     for f in out_of_scope:
                         count = warned_files.get(f, 0)
                         if count >= warn_threshold:
                             blocked_files_task.append(f)
                         else:
-                            warned_files[f] = count + 1
                             warned_files_task.append(f)
 
-                    if warned_files_task:
-                        logger.warning(
-                            "Per-task file restriction warning (files outside task scope)",
-                            event_type="task_file_restriction_warning",
-                            repo=repo,
-                            branch=branch,
-                            warned_files=warned_files_task,
-                            allowed_patterns=session_allowed_files,
-                        )
-
+                    # If any files are blocked, reject without incrementing counters
                     if blocked_files_task:
                         audit_log(
                             "push_denied_task_file_restrictions",
@@ -910,6 +908,20 @@ def git_push() -> tuple[Response, int] | Response:
                                     "Only modify files listed in your task's files_affected."
                                 ),
                             },
+                        )
+
+                    # Second pass: no blocks, safe to increment warn counters
+                    for f in warned_files_task:
+                        warned_files[f] = warned_files.get(f, 0) + 1
+
+                    if warned_files_task:
+                        logger.warning(
+                            "Per-task file restriction warning (files outside task scope)",
+                            event_type="task_file_restriction_warning",
+                            repo=repo,
+                            branch=branch,
+                            warned_files=warned_files_task,
+                            allowed_patterns=session_allowed_files,
                         )
 
     # SECURITY: Check phase-based file restrictions for local mode sessions.
@@ -3438,10 +3450,16 @@ def session_create() -> tuple[Response, int] | Response:
     if allowed_files is not None:
         if not isinstance(allowed_files, list):
             return make_error("Invalid allowed_files: must be a list of strings")
+        if len(allowed_files) > 1000:
+            return make_error("Invalid allowed_files: too many entries (max 1000)")
         for i, entry in enumerate(allowed_files):
             if not isinstance(entry, str) or not entry:
                 return make_error(
                     f"Invalid allowed_files[{i}]: each entry must be a non-empty string"
+                )
+            if len(entry) > 512:
+                return make_error(
+                    f"Invalid allowed_files[{i}]: entry too long (max 512 characters)"
                 )
 
     # Step 1: Query visibility for all repos
