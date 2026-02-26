@@ -29,6 +29,8 @@ detect_distro = docker_setup.detect_distro
 get_arch = docker_setup.get_arch
 load_config = docker_setup.load_config
 get_extra_packages = docker_setup.get_extra_packages
+get_build_commands = docker_setup.get_build_commands
+run_build_commands = docker_setup.run_build_commands
 
 
 class TestRun:
@@ -293,6 +295,303 @@ class TestConfigureSystem:
 
         captured = capsys.readouterr()
         assert "inotify" in captured.out.lower()
+
+
+class TestGetBuildCommands:
+    """Tests for build_commands extraction from config."""
+
+    def test_returns_build_commands(self):
+        """Test extracting build_commands from repo_settings."""
+        config = {
+            "repo_settings": {
+                "org/web-app": {
+                    "build_commands": {
+                        "watch_files": ["package-lock.json"],
+                        "commands": ["npm ci"],
+                    }
+                },
+                "org/python-svc": {
+                    "build_commands": {
+                        "watch_files": ["requirements.txt"],
+                        "commands": ["pip install -r requirements.txt"],
+                    }
+                },
+            }
+        }
+        result = get_build_commands(config)
+        assert len(result) == 2
+        repos = [r["repo"] for r in result]
+        assert "org/web-app" in repos
+        assert "org/python-svc" in repos
+
+    def test_returns_empty_for_no_build_commands(self):
+        """Test empty list when no build_commands configured."""
+        config = {
+            "repo_settings": {"org/app": {"checks": [{"name": "test", "command": "make test"}]}}
+        }
+        result = get_build_commands(config)
+        assert result == []
+
+    def test_returns_empty_for_empty_config(self):
+        """Test empty list with empty config."""
+        result = get_build_commands({})
+        assert result == []
+
+    def test_skips_repos_with_empty_commands(self):
+        """Test that repos with empty commands are skipped."""
+        config = {
+            "repo_settings": {
+                "org/app": {
+                    "build_commands": {
+                        "watch_files": ["package.json"],
+                        "commands": [],
+                    }
+                }
+            }
+        }
+        result = get_build_commands(config)
+        assert result == []
+
+    def test_handles_missing_watch_files(self):
+        """Test build_commands without watch_files key."""
+        config = {
+            "repo_settings": {
+                "org/app": {
+                    "build_commands": {
+                        "commands": ["make deps"],
+                    }
+                }
+            }
+        }
+        result = get_build_commands(config)
+        assert len(result) == 1
+        assert result[0]["watch_files"] == []
+        assert result[0]["commands"] == ["make deps"]
+
+    def test_handles_invalid_types(self):
+        """Test graceful handling of invalid config types."""
+        config = {"repo_settings": {"org/app": {"build_commands": "not-a-dict"}}}
+        result = get_build_commands(config)
+        assert result == []
+
+
+class TestRunBuildCommands:
+    """Tests for run_build_commands function."""
+
+    @patch("subprocess.run")
+    def test_runs_commands(self, mock_run, tmp_path, capsys):
+        """Test that build commands are executed."""
+        mock_run.return_value = MagicMock(returncode=0)
+
+        # Create the work directory that run_build_commands expects
+        work_dir = Path("/tmp/repo-deps/org--app")
+        work_dir.mkdir(parents=True, exist_ok=True)
+
+        build_commands = [
+            {
+                "repo": "org/app",
+                "watch_files": ["package.json"],
+                "commands": ["npm ci", "npm run build"],
+            }
+        ]
+
+        try:
+            run_build_commands(build_commands)
+        finally:
+            # Clean up
+            import shutil
+
+            shutil.rmtree("/tmp/repo-deps", ignore_errors=True)
+
+        # Should have called subprocess.run twice (one per command)
+        assert mock_run.call_count == 2
+        captured = capsys.readouterr()
+        assert "Build commands" in captured.out
+        assert "org/app" in captured.out
+
+    @patch("subprocess.run")
+    def test_empty_commands_is_noop(self, mock_run, capsys):
+        """Test that empty build_commands list does nothing."""
+        run_build_commands([])
+        mock_run.assert_not_called()
+        captured = capsys.readouterr()
+        assert captured.out == ""
+
+    @patch("subprocess.run")
+    def test_handles_command_failure(self, mock_run, tmp_path, capsys):
+        """Test that failed commands produce warnings but don't crash."""
+        mock_run.return_value = MagicMock(returncode=1)
+
+        work_dir = tmp_path / "repo-deps" / "org--app"
+        work_dir.mkdir(parents=True)
+
+        build_commands = [
+            {
+                "repo": "org/app",
+                "watch_files": [],
+                "commands": ["false"],
+            }
+        ]
+
+        # Just run it - should not raise
+        run_build_commands(build_commands)
+
+        captured = capsys.readouterr()
+        assert "Build commands" in captured.out
+
+
+class TestGetBuildCommandsEdgeCases:
+    """Edge case tests for get_build_commands."""
+
+    def test_non_dict_repo_settings_returns_empty(self):
+        """Non-dict repo_settings returns empty list."""
+        config = {"repo_settings": "not-a-dict"}
+        result = get_build_commands(config)
+        assert result == []
+
+    def test_skips_non_dict_settings_entries(self):
+        """Non-dict individual repo settings are skipped."""
+        config = {
+            "repo_settings": {
+                "org/broken": "not-a-dict",
+                "org/valid": {
+                    "build_commands": {
+                        "commands": ["make deps"],
+                    }
+                },
+            }
+        }
+        result = get_build_commands(config)
+        assert len(result) == 1
+        assert result[0]["repo"] == "org/valid"
+
+    def test_non_list_watch_files_returns_empty(self):
+        """Non-list watch_files defaults to empty list."""
+        config = {
+            "repo_settings": {
+                "org/app": {
+                    "build_commands": {
+                        "watch_files": "just-a-string",
+                        "commands": ["make deps"],
+                    }
+                }
+            }
+        }
+        result = get_build_commands(config)
+        assert len(result) == 1
+        assert result[0]["watch_files"] == []
+        assert result[0]["commands"] == ["make deps"]
+
+    def test_non_list_commands_returns_empty(self):
+        """Non-list commands causes the repo to be skipped."""
+        config = {
+            "repo_settings": {
+                "org/app": {
+                    "build_commands": {
+                        "watch_files": ["req.txt"],
+                        "commands": "single-command",
+                    }
+                }
+            }
+        }
+        result = get_build_commands(config)
+        assert result == []
+
+
+class TestRunBuildCommandsEdgeCases:
+    """Edge case tests for run_build_commands."""
+
+    @patch("subprocess.run")
+    def test_fallback_to_tmp_when_work_dir_missing(self, mock_run, capsys):
+        """When repo work_dir doesn't exist, falls back to /tmp."""
+        mock_run.return_value = MagicMock(returncode=0)
+
+        build_commands = [
+            {
+                "repo": "org/nonexistent-repo-xyz-12345",
+                "watch_files": [],
+                "commands": ["echo hello"],
+            }
+        ]
+
+        run_build_commands(build_commands)
+
+        # Verify it ran with /tmp as cwd
+        call_args = mock_run.call_args
+        assert call_args.kwargs["cwd"] == "/tmp"
+        captured = capsys.readouterr()
+        assert "does not exist" in captured.out
+
+    @patch("subprocess.run")
+    def test_subprocess_exception_does_not_crash(self, mock_run, capsys):
+        """Subprocess raising an exception is caught and warned about."""
+        mock_run.side_effect = OSError("command not found")
+
+        build_commands = [
+            {
+                "repo": "org/app",
+                "watch_files": [],
+                "commands": ["nonexistent-command"],
+            }
+        ]
+
+        # Should not raise
+        run_build_commands(build_commands)
+
+        captured = capsys.readouterr()
+        assert "Command failed" in captured.out
+        assert "command not found" in captured.out
+
+    @patch("subprocess.run")
+    def test_warning_message_includes_exit_code(self, mock_run, tmp_path, capsys):
+        """Failed commands report the exit code in the warning."""
+        mock_run.return_value = MagicMock(returncode=127)
+
+        work_dir = Path("/tmp/repo-deps/org--app")
+        work_dir.mkdir(parents=True, exist_ok=True)
+
+        build_commands = [
+            {
+                "repo": "org/app",
+                "watch_files": [],
+                "commands": ["bad-command"],
+            }
+        ]
+
+        try:
+            run_build_commands(build_commands)
+        finally:
+            import shutil
+
+            shutil.rmtree("/tmp/repo-deps", ignore_errors=True)
+
+        captured = capsys.readouterr()
+        assert "127" in captured.out
+
+    @patch("subprocess.run")
+    def test_multiple_repos_run_sequentially(self, mock_run, capsys):
+        """Multiple repos' commands all execute."""
+        mock_run.return_value = MagicMock(returncode=0)
+
+        build_commands = [
+            {
+                "repo": "org/app-a",
+                "watch_files": [],
+                "commands": ["cmd-a1", "cmd-a2"],
+            },
+            {
+                "repo": "org/app-b",
+                "watch_files": [],
+                "commands": ["cmd-b1"],
+            },
+        ]
+
+        run_build_commands(build_commands)
+
+        assert mock_run.call_count == 3
+        captured = capsys.readouterr()
+        assert "org/app-a" in captured.out
+        assert "org/app-b" in captured.out
 
 
 class TestMain:

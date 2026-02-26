@@ -482,3 +482,281 @@ class TestGetRepoChecks:
 
         checks = get_repo_checks("testuser/my-app")
         assert checks == []
+
+
+class TestGetRepoBuildCommands:
+    """Tests for get_repo_build_commands function."""
+
+    def test_returns_configured_build_commands(self, temp_dir, monkeypatch):
+        """Test returning build_commands for a repo."""
+        from config.repo_config import get_repo_build_commands
+
+        config_file = temp_dir / "repositories.yaml"
+        config_file.write_text(
+            "github_username: testuser\n"
+            "repo_settings:\n"
+            "  testuser/web-app:\n"
+            "    build_commands:\n"
+            "      watch_files:\n"
+            "        - package-lock.json\n"
+            "        - requirements.txt\n"
+            "      commands:\n"
+            "        - npm ci\n"
+            "        - pip install -r requirements.txt\n"
+        )
+        monkeypatch.setenv("EGG_REPO_CONFIG", str(config_file))
+
+        result = get_repo_build_commands("testuser/web-app")
+        assert result["watch_files"] == ["package-lock.json", "requirements.txt"]
+        assert result["commands"] == ["npm ci", "pip install -r requirements.txt"]
+
+    def test_returns_empty_dict_when_not_configured(self, temp_dir, monkeypatch):
+        """Test returning empty dict when no build_commands configured."""
+        from config.repo_config import get_repo_build_commands
+
+        config_file = temp_dir / "repositories.yaml"
+        config_file.write_text(
+            "github_username: testuser\n"
+            "repo_settings:\n"
+            "  testuser/web-app:\n"
+            "    checks:\n"
+            "      - name: test\n"
+            "        command: npm test\n"
+        )
+        monkeypatch.setenv("EGG_REPO_CONFIG", str(config_file))
+
+        result = get_repo_build_commands("testuser/web-app")
+        assert result == {}
+
+    def test_returns_empty_dict_for_unknown_repo(self, temp_dir, monkeypatch):
+        """Test returning empty dict for unknown repo."""
+        from config.repo_config import get_repo_build_commands
+
+        config_file = temp_dir / "repositories.yaml"
+        config_file.write_text("github_username: testuser\n")
+        monkeypatch.setenv("EGG_REPO_CONFIG", str(config_file))
+
+        result = get_repo_build_commands("testuser/unknown")
+        assert result == {}
+
+    def test_handles_empty_watch_files(self, temp_dir, monkeypatch):
+        """Test build_commands with no watch_files."""
+        from config.repo_config import get_repo_build_commands
+
+        config_file = temp_dir / "repositories.yaml"
+        config_file.write_text(
+            "github_username: testuser\n"
+            "repo_settings:\n"
+            "  testuser/web-app:\n"
+            "    build_commands:\n"
+            "      commands:\n"
+            "        - make deps\n"
+        )
+        monkeypatch.setenv("EGG_REPO_CONFIG", str(config_file))
+
+        result = get_repo_build_commands("testuser/web-app")
+        assert result["watch_files"] == []
+        assert result["commands"] == ["make deps"]
+
+    def test_handles_invalid_build_commands_type(self, temp_dir, monkeypatch):
+        """Test that non-dict build_commands returns empty dict."""
+        from config.repo_config import get_repo_build_commands
+
+        config_file = temp_dir / "repositories.yaml"
+        config_file.write_text(
+            "github_username: testuser\n"
+            "repo_settings:\n"
+            "  testuser/web-app:\n"
+            "    build_commands: not-a-dict\n"
+        )
+        monkeypatch.setenv("EGG_REPO_CONFIG", str(config_file))
+
+        result = get_repo_build_commands("testuser/web-app")
+        assert result == {}
+
+
+class TestGetAllBuildCommands:
+    """Tests for get_all_build_commands function."""
+
+    def test_returns_all_repos_with_build_commands(self, temp_dir, monkeypatch):
+        """Test returning build_commands for all configured repos."""
+        from config.repo_config import get_all_build_commands
+
+        config_file = temp_dir / "repositories.yaml"
+        config_file.write_text(
+            "github_username: testuser\n"
+            "repo_settings:\n"
+            "  testuser/web-app:\n"
+            "    build_commands:\n"
+            "      watch_files:\n"
+            "        - package-lock.json\n"
+            "      commands:\n"
+            "        - npm ci\n"
+            "  testuser/python-svc:\n"
+            "    build_commands:\n"
+            "      watch_files:\n"
+            "        - requirements.txt\n"
+            "      commands:\n"
+            "        - pip install -r requirements.txt\n"
+            "  testuser/no-build:\n"
+            "    checks:\n"
+            "      - name: test\n"
+            "        command: make test\n"
+        )
+        monkeypatch.setenv("EGG_REPO_CONFIG", str(config_file))
+
+        result = get_all_build_commands()
+        assert len(result) == 2
+        assert "testuser/web-app" in result
+        assert "testuser/python-svc" in result
+        assert "testuser/no-build" not in result
+
+    def test_skips_repos_with_empty_commands(self, temp_dir, monkeypatch):
+        """Test that repos with empty commands list are excluded."""
+        from config.repo_config import get_all_build_commands
+
+        config_file = temp_dir / "repositories.yaml"
+        config_file.write_text(
+            "github_username: testuser\n"
+            "repo_settings:\n"
+            "  testuser/web-app:\n"
+            "    build_commands:\n"
+            "      watch_files:\n"
+            "        - package-lock.json\n"
+            "      commands: []\n"
+        )
+        monkeypatch.setenv("EGG_REPO_CONFIG", str(config_file))
+
+        result = get_all_build_commands()
+        assert result == {}
+
+    def test_returns_empty_when_no_repo_settings(self, temp_dir, monkeypatch):
+        """Test returning empty dict when no repo_settings section."""
+        from config.repo_config import get_all_build_commands
+
+        config_file = temp_dir / "repositories.yaml"
+        config_file.write_text("github_username: testuser\n")
+        monkeypatch.setenv("EGG_REPO_CONFIG", str(config_file))
+
+        result = get_all_build_commands()
+        assert result == {}
+
+
+class TestGetRepoBuildCommandsEdgeCases:
+    """Additional edge case tests for get_repo_build_commands."""
+
+    def test_non_list_watch_files_returns_empty_list(self, temp_dir, monkeypatch):
+        """When watch_files is a string instead of a list, return empty list."""
+        from config.repo_config import get_repo_build_commands
+
+        config_file = temp_dir / "repositories.yaml"
+        config_file.write_text(
+            "github_username: testuser\n"
+            "repo_settings:\n"
+            "  testuser/app:\n"
+            "    build_commands:\n"
+            "      watch_files: just-a-string\n"
+            "      commands:\n"
+            "        - make deps\n"
+        )
+        monkeypatch.setenv("EGG_REPO_CONFIG", str(config_file))
+
+        result = get_repo_build_commands("testuser/app")
+        assert result["watch_files"] == []
+        assert result["commands"] == ["make deps"]
+
+    def test_non_list_commands_returns_empty_list(self, temp_dir, monkeypatch):
+        """When commands is a string instead of a list, return empty list."""
+        from config.repo_config import get_repo_build_commands
+
+        config_file = temp_dir / "repositories.yaml"
+        config_file.write_text(
+            "github_username: testuser\n"
+            "repo_settings:\n"
+            "  testuser/app:\n"
+            "    build_commands:\n"
+            "      watch_files:\n"
+            "        - requirements.txt\n"
+            "      commands: single-command\n"
+        )
+        monkeypatch.setenv("EGG_REPO_CONFIG", str(config_file))
+
+        result = get_repo_build_commands("testuser/app")
+        assert result["watch_files"] == ["requirements.txt"]
+        assert result["commands"] == []
+
+    def test_non_string_items_are_coerced(self, temp_dir, monkeypatch):
+        """Non-string items in watch_files/commands are coerced to strings."""
+        from config.repo_config import get_repo_build_commands
+
+        config_file = temp_dir / "repositories.yaml"
+        config_file.write_text(
+            "github_username: testuser\n"
+            "repo_settings:\n"
+            "  testuser/app:\n"
+            "    build_commands:\n"
+            "      watch_files:\n"
+            "        - 123\n"
+            "        - true\n"
+            "      commands:\n"
+            "        - 456\n"
+        )
+        monkeypatch.setenv("EGG_REPO_CONFIG", str(config_file))
+
+        result = get_repo_build_commands("testuser/app")
+        assert result["watch_files"] == ["123", "True"]
+        assert result["commands"] == ["456"]
+
+
+class TestGetAllBuildCommandsEdgeCases:
+    """Additional edge case tests for get_all_build_commands."""
+
+    def test_skips_non_dict_settings_entries(self, temp_dir, monkeypatch):
+        """Repos with non-dict settings values are skipped."""
+        from config.repo_config import get_all_build_commands
+
+        config_file = temp_dir / "repositories.yaml"
+        config_file.write_text(
+            "github_username: testuser\n"
+            "repo_settings:\n"
+            "  testuser/broken: not-a-dict\n"
+            "  testuser/valid:\n"
+            "    build_commands:\n"
+            "      commands:\n"
+            "        - make deps\n"
+        )
+        monkeypatch.setenv("EGG_REPO_CONFIG", str(config_file))
+
+        result = get_all_build_commands()
+        assert len(result) == 1
+        assert "testuser/valid" in result
+        assert "testuser/broken" not in result
+
+    def test_non_dict_repo_settings_returns_empty(self, temp_dir, monkeypatch):
+        """Non-dict repo_settings value returns empty dict."""
+        from config.repo_config import get_all_build_commands
+
+        config_file = temp_dir / "repositories.yaml"
+        config_file.write_text("github_username: testuser\nrepo_settings: not-a-dict\n")
+        monkeypatch.setenv("EGG_REPO_CONFIG", str(config_file))
+
+        result = get_all_build_commands()
+        assert result == {}
+
+    def test_only_includes_repos_with_non_empty_commands(self, temp_dir, monkeypatch):
+        """Repos with watch_files but no commands are excluded."""
+        from config.repo_config import get_all_build_commands
+
+        config_file = temp_dir / "repositories.yaml"
+        config_file.write_text(
+            "github_username: testuser\n"
+            "repo_settings:\n"
+            "  testuser/app:\n"
+            "    build_commands:\n"
+            "      watch_files:\n"
+            "        - requirements.txt\n"
+        )
+        monkeypatch.setenv("EGG_REPO_CONFIG", str(config_file))
+
+        result = get_all_build_commands()
+        assert result == {}

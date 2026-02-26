@@ -56,11 +56,17 @@ RUN apt-get update && \
 RUN pip3 install --no-cache-dir pyyaml
 
 # Install development tools (configurable via repositories.yaml)
+# Copy watch files for build_commands BEFORE docker-setup.py so that
+# changes to dependency files (e.g., package-lock.json) invalidate
+# the cache for this layer, triggering a rebuild of dependencies.
+# The repo-deps directory is created by create_dockerfile() from local repo paths.
+COPY repo-deps/ /tmp/repo-deps/
 COPY sandbox/docker-setup.py /tmp/docker-setup.py
 RUN chmod +x /tmp/docker-setup.py && \
     apt-get update && \
     python3 /tmp/docker-setup.py && \
-    rm /tmp/docker-setup.py
+    rm /tmp/docker-setup.py && \
+    rm -rf /tmp/repo-deps
 
 # Install Python dependencies for egg components
 # These are required by scripts in /opt/egg-runtime/ (copied from sandbox/)
