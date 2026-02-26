@@ -81,6 +81,42 @@ def reconcile_stale_containers(store: object, docker_client: object) -> int:
             )
             continue
 
+        # Handle AWAITING_HUMAN pipelines orphaned by a restart.
+        # If all decisions are resolved (0 pending) the polling thread that
+        # would have picked up the resolution is gone.  Mark FAILED so that
+        # start_pipeline can recover it with the correct phase transition.
+        if pipeline.status == PipelineStatus.AWAITING_HUMAN:
+            pending = pipeline.get_pending_decisions()
+            if len(pending) == 0:
+                pipeline.status = PipelineStatus.FAILED
+                pipeline.error = (
+                    "Pipeline marked FAILED at orchestrator startup: "
+                    "AWAITING_HUMAN with no pending decisions (likely orphaned "
+                    "after a restart). Restart via POST /pipelines/{id}/start."
+                )
+                try:
+                    store.save_pipeline(pipeline)  # type: ignore[attr-defined]
+                    recovered += 1
+                    logger.warning(
+                        "Startup reconciliation: AWAITING_HUMAN pipeline with "
+                        "0 pending decisions marked FAILED",
+                        pipeline_id=pipeline_id,
+                    )
+                except Exception as e:
+                    logger.warning(
+                        "Startup reconciliation: could not save pipeline",
+                        pipeline_id=pipeline_id,
+                        error=str(e),
+                    )
+            else:
+                logger.info(
+                    "Startup reconciliation: AWAITING_HUMAN pipeline has "
+                    "pending decisions, leaving as-is",
+                    pipeline_id=pipeline_id,
+                    pending_count=len(pending),
+                )
+            continue
+
         if pipeline.status != PipelineStatus.RUNNING:
             continue
 

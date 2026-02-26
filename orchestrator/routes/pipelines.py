@@ -6591,9 +6591,134 @@ def start_pipeline(pipeline_id: str) -> tuple[Response, int]:
             )
 
         if pipeline.status == PipelineStatus.AWAITING_HUMAN:
-            return make_error_response(
-                f"Pipeline {pipeline_id} is awaiting human approval",
-                status_code=409,
+            pending = pipeline.get_pending_decisions()
+            if len(pending) > 0:
+                return make_error_response(
+                    f"Pipeline {pipeline_id} is awaiting human approval "
+                    f"({len(pending)} pending decision(s))",
+                    status_code=409,
+                )
+
+            # No pending decisions — the polling thread died (e.g. restart)
+            # but the human already resolved everything.  Recover based on
+            # the latest phase_gate decision's resolution.
+            from routes.phases import get_phase_transitions
+
+            with get_pipeline_state_lock(pipeline_id):
+                pipeline = store.load_pipeline(pipeline_id)
+
+                # Find the latest resolved phase_gate decision
+                phase_gate_decisions = [
+                    d
+                    for d in reversed(pipeline.decisions)
+                    if d.decision_type == "phase_gate"
+                    and d.status.value == "resolved"
+                ]
+                latest_resolution = (
+                    phase_gate_decisions[0].resolution if phase_gate_decisions else None
+                )
+
+                # Determine if approved or request_changes
+                is_approved = True
+                if latest_resolution:
+                    try:
+                        import json as _json
+
+                        parsed = _json.loads(latest_resolution)
+                        action = parsed.get("action", "")
+                        if action == "request_changes":
+                            is_approved = False
+                    except (ValueError, TypeError, AttributeError):
+                        pass
+
+                if is_approved:
+                    # Mark current phase COMPLETE and advance
+                    phase_execution = pipeline.get_phase_execution(pipeline.current_phase)
+                    phase_execution.status = PipelineStatus.COMPLETE
+                    if phase_execution.completed_at is None:
+                        phase_execution.completed_at = datetime.utcnow()
+
+                    pipeline_mode = getattr(pipeline, "mode", "issue")
+                    transitions = get_phase_transitions(pipeline_mode)
+                    current_phase = pipeline.current_phase
+                    next_phases = transitions.get(current_phase, [])
+
+                    # Handle short-circuit: refine → implement (skip plan)
+                    if pipeline.short_circuit and current_phase.value == "refine":
+                        next_phases = [PipelinePhase.IMPLEMENT]
+
+                    if not next_phases:
+                        # Terminal phase — pipeline complete
+                        pipeline.status = PipelineStatus.COMPLETE
+                        pipeline.created_at = datetime.utcnow()
+                        store.save_pipeline(pipeline)
+                        return make_success_response(
+                            "Pipeline recovered and completed",
+                            data={
+                                "pipeline_id": pipeline_id,
+                                "status": "complete",
+                                "current_phase": pipeline.current_phase.value,
+                            },
+                        )
+
+                    # Advance to next phase
+                    next_phase = next_phases[0]
+                    pipeline.current_phase = next_phase
+
+                    # Mark plan phase as skipped if short-circuit
+                    if pipeline.short_circuit and current_phase.value == "refine":
+                        plan_execution = pipeline.get_phase_execution(PipelinePhase.PLAN)
+                        plan_execution.status = PipelineStatus.COMPLETE
+                        plan_execution.completed_at = datetime.utcnow()
+                        plan_execution.error = "skipped: short-circuit"
+
+                else:
+                    # request_changes — reset phase for re-run (like FAILED restart)
+                    phase_execution = pipeline.get_phase_execution(pipeline.current_phase)
+                    if phase_execution.status in (
+                        PipelineStatus.COMPLETE,
+                        PipelineStatus.FAILED,
+                        PipelineStatus.RUNNING,
+                        PipelineStatus.AWAITING_HUMAN,
+                    ):
+                        phase_execution.status = PipelineStatus.PENDING
+                        phase_execution.started_at = None
+                        phase_execution.work_started_at = None
+                        phase_execution.completed_at = None
+                        phase_execution.error = None
+                        phase_execution.review_cycles = 0
+                        phase_execution.hitl_review_cycles = 0
+                        phase_execution.containers = []
+                        phase_execution.agents = []
+                        phase_execution.artifacts = {}
+
+                pipeline.error = None
+                pipeline.created_at = datetime.utcnow()
+                pipeline.status = PipelineStatus.RUNNING
+                store.save_pipeline(pipeline)
+
+            # Launch runner thread
+            thread = threading.Thread(
+                target=_run_pipeline,
+                args=(pipeline_id, repo_path),
+                daemon=True,
+                name=f"pipeline-{pipeline_id}",
+            )
+            thread.start()
+
+            logger.info(
+                "Pipeline recovered from AWAITING_HUMAN",
+                pipeline_id=pipeline_id,
+                recovery_action="advance" if is_approved else "rerun",
+            )
+
+            return make_success_response(
+                "Pipeline recovered and started",
+                data={
+                    "pipeline_id": pipeline_id,
+                    "status": "running",
+                    "current_phase": pipeline.current_phase.value,
+                },
             )
 
         if pipeline.status == PipelineStatus.COMPLETE:

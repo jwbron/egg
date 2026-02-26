@@ -35,6 +35,7 @@ from decision_queue import (
     DecisionNotFoundError,
     get_decision_queue,
 )
+from events import EventType, emit_event
 from models import PipelinePhase
 from state_store import InvalidPipelineIdError
 
@@ -323,6 +324,23 @@ def resolve_decision(pipeline_id: str, decision_id: str) -> tuple[Response, int]
             pipeline_id=pipeline_id,
             decision_id=decision_id,
         )
+
+        try:
+            emit_event(
+                EventType.DECISION_RESOLVED,
+                pipeline_id=pipeline_id,
+                data={
+                    "decision_id": decision_id,
+                    "resolution": decision.resolution,
+                },
+            )
+        except Exception:
+            logger.warning(
+                "Failed to emit DECISION_RESOLVED event",
+                pipeline_id=pipeline_id,
+                decision_id=decision_id,
+                exc_info=True,
+            )
 
         return make_success_response(
             "Decision resolved",

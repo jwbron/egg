@@ -23,7 +23,14 @@ sys.modules.setdefault("docker", MagicMock())
 sys.modules.setdefault("docker.errors", MagicMock())
 sys.modules.setdefault("docker.types", MagicMock())
 
-from models import AgentExecution, Pipeline, PipelinePhase, PipelineStatus
+from models import (
+    AgentExecution,
+    DecisionStatus,
+    HITLDecision,
+    Pipeline,
+    PipelinePhase,
+    PipelineStatus,
+)
 
 
 @contextmanager
@@ -300,3 +307,209 @@ class TestStartCancelledPipeline:
         assert resp.status_code == 409
         data = json.loads(resp.data)
         assert "cancelled" in data["message"].lower()
+
+
+# ---------------------------------------------------------------------------
+# Helpers for AWAITING_HUMAN tests
+# ---------------------------------------------------------------------------
+
+
+def _make_awaiting_pipeline(
+    phase=PipelinePhase.REFINE,
+    pending_decisions=0,
+    resolution='{"action": "approve"}',
+    decision_type="phase_gate",
+    short_circuit=False,
+):
+    """Create an AWAITING_HUMAN pipeline with configurable decisions."""
+    pipeline = Pipeline(
+        id="issue-42",
+        issue_number=42,
+        repo="owner/repo",
+        branch="egg/test",
+        mode="issue",
+        status=PipelineStatus.AWAITING_HUMAN,
+        current_phase=phase,
+        short_circuit=short_circuit,
+    )
+    # Mark current phase as COMPLETE (as it would be when HITL gate fires)
+    phase_exec = pipeline.get_phase_execution(phase)
+    phase_exec.status = PipelineStatus.COMPLETE
+    phase_exec.started_at = datetime.utcnow()
+    phase_exec.completed_at = datetime.utcnow()
+    phase_exec.agents = [AgentExecution(role="coder", container_id="old-container")]
+    phase_exec.artifacts = {"pr_url": "https://github.com/old/pr"}
+
+    # Add a resolved phase_gate decision
+    pipeline.decisions.append(
+        HITLDecision(
+            id="decision-1",
+            question="Approve phase?",
+            decision_type=decision_type,
+            status=DecisionStatus.RESOLVED,
+            resolution=resolution,
+        )
+    )
+    # Add pending decisions if requested
+    for i in range(pending_decisions):
+        pipeline.decisions.append(
+            HITLDecision(
+                id=f"decision-pending-{i + 1}",
+                question="Approve?",
+                decision_type="phase_gate",
+                status=DecisionStatus.PENDING,
+            )
+        )
+    return pipeline
+
+
+class TestStartAwaitingHumanPipeline:
+    """Recovery of AWAITING_HUMAN pipelines with no pending decisions."""
+
+    @patch("routes.pipelines._resolve_pipeline")
+    @patch("routes.pipelines.get_repo_path")
+    def test_409_when_pending_decisions_exist(self, mock_get_repo, mock_resolve, client):
+        """AWAITING_HUMAN with pending decisions returns 409."""
+        pipeline = _make_awaiting_pipeline(pending_decisions=1)
+        mock_get_repo.return_value = Path("/repo")
+        mock_store = MagicMock()
+        mock_store.repo_path = Path("/repo")
+        mock_resolve.return_value = (mock_store, pipeline)
+
+        resp = client.post("/api/v1/pipelines/issue-42/start")
+
+        assert resp.status_code == 409
+        data = json.loads(resp.data)
+        assert "pending decision" in data["message"].lower()
+
+    @patch("routes.pipelines.get_pipeline_state_lock", side_effect=_noop_lock)
+    @patch("routes.pipelines._run_pipeline")
+    @patch("routes.pipelines._resolve_pipeline")
+    @patch("routes.pipelines.get_repo_path")
+    def test_recovery_approved_advances_phase(
+        self, mock_get_repo, mock_resolve, mock_run, mock_lock, client
+    ):
+        """Approved resolution advances to the next phase and starts runner."""
+        pipeline = _make_awaiting_pipeline(
+            phase=PipelinePhase.REFINE,
+            resolution='{"action": "approve"}',
+        )
+        mock_store = _setup_mocks(mock_get_repo, mock_resolve, pipeline)
+
+        resp = client.post("/api/v1/pipelines/issue-42/start")
+
+        assert resp.status_code == 200
+        data = json.loads(resp.data)
+        assert data["data"]["status"] == "running"
+        # REFINE → PLAN
+        assert pipeline.current_phase == PipelinePhase.PLAN
+        assert pipeline.status == PipelineStatus.RUNNING
+
+    @patch("routes.pipelines.get_pipeline_state_lock", side_effect=_noop_lock)
+    @patch("routes.pipelines._run_pipeline")
+    @patch("routes.pipelines._resolve_pipeline")
+    @patch("routes.pipelines.get_repo_path")
+    def test_recovery_request_changes_resets_phase(
+        self, mock_get_repo, mock_resolve, mock_run, mock_lock, client
+    ):
+        """request_changes resolution resets the phase for re-run."""
+        pipeline = _make_awaiting_pipeline(
+            phase=PipelinePhase.REFINE,
+            resolution='{"action": "request_changes", "feedback": "Fix tests"}',
+        )
+        mock_store = _setup_mocks(mock_get_repo, mock_resolve, pipeline)
+
+        resp = client.post("/api/v1/pipelines/issue-42/start")
+
+        assert resp.status_code == 200
+        # Phase should be reset to PENDING
+        phase_exec = pipeline.get_phase_execution(PipelinePhase.REFINE)
+        assert phase_exec.status == PipelineStatus.PENDING
+        assert phase_exec.started_at is None
+        assert phase_exec.agents == []
+        assert phase_exec.artifacts == {}
+        # Pipeline should still be on REFINE (not advanced)
+        assert pipeline.current_phase == PipelinePhase.REFINE
+        assert pipeline.status == PipelineStatus.RUNNING
+
+    @patch("routes.pipelines.get_pipeline_state_lock", side_effect=_noop_lock)
+    @patch("routes.pipelines._run_pipeline")
+    @patch("routes.pipelines._resolve_pipeline")
+    @patch("routes.pipelines.get_repo_path")
+    def test_recovery_bumps_created_at(
+        self, mock_get_repo, mock_resolve, mock_run, mock_lock, client
+    ):
+        """Recovery bumps created_at to signal old thread to skip cleanup."""
+        pipeline = _make_awaiting_pipeline()
+        original_created_at = pipeline.created_at
+        _setup_mocks(mock_get_repo, mock_resolve, pipeline)
+
+        client.post("/api/v1/pipelines/issue-42/start")
+
+        assert pipeline.created_at > original_created_at
+
+    @patch("routes.pipelines.get_pipeline_state_lock", side_effect=_noop_lock)
+    @patch("routes.pipelines._run_pipeline")
+    @patch("routes.pipelines._resolve_pipeline")
+    @patch("routes.pipelines.get_repo_path")
+    def test_recovery_launches_runner_thread(
+        self, mock_get_repo, mock_resolve, mock_run, mock_lock, client
+    ):
+        """Recovery launches _run_pipeline in a background thread."""
+        pipeline = _make_awaiting_pipeline()
+        _setup_mocks(mock_get_repo, mock_resolve, pipeline)
+
+        client.post("/api/v1/pipelines/issue-42/start")
+
+        for t in threading.enumerate():
+            if t.name == "pipeline-issue-42":
+                t.join(timeout=1)
+                break
+
+        mock_run.assert_called_once_with("issue-42", Path("/repo"))
+
+    @patch("routes.pipelines.get_pipeline_state_lock", side_effect=_noop_lock)
+    @patch("routes.pipelines._run_pipeline")
+    @patch("routes.pipelines._resolve_pipeline")
+    @patch("routes.pipelines.get_repo_path")
+    def test_terminal_phase_marks_complete(
+        self, mock_get_repo, mock_resolve, mock_run, mock_lock, client
+    ):
+        """Approved at terminal phase (PR) marks pipeline COMPLETE."""
+        pipeline = _make_awaiting_pipeline(
+            phase=PipelinePhase.PR,
+            resolution='{"action": "approve"}',
+        )
+        _setup_mocks(mock_get_repo, mock_resolve, pipeline)
+
+        resp = client.post("/api/v1/pipelines/issue-42/start")
+
+        assert resp.status_code == 200
+        data = json.loads(resp.data)
+        assert data["data"]["status"] == "complete"
+        assert pipeline.status == PipelineStatus.COMPLETE
+
+    @patch("routes.pipelines.get_pipeline_state_lock", side_effect=_noop_lock)
+    @patch("routes.pipelines._run_pipeline")
+    @patch("routes.pipelines._resolve_pipeline")
+    @patch("routes.pipelines.get_repo_path")
+    def test_short_circuit_skips_plan(
+        self, mock_get_repo, mock_resolve, mock_run, mock_lock, client
+    ):
+        """Short-circuit pipeline skips plan phase (refine → implement)."""
+        pipeline = _make_awaiting_pipeline(
+            phase=PipelinePhase.REFINE,
+            resolution='{"action": "approve"}',
+            short_circuit=True,
+        )
+        _setup_mocks(mock_get_repo, mock_resolve, pipeline)
+
+        resp = client.post("/api/v1/pipelines/issue-42/start")
+
+        assert resp.status_code == 200
+        # Should skip PLAN and go to IMPLEMENT
+        assert pipeline.current_phase == PipelinePhase.IMPLEMENT
+        # PLAN phase should be marked as skipped
+        plan_exec = pipeline.get_phase_execution(PipelinePhase.PLAN)
+        assert plan_exec.status == PipelineStatus.COMPLETE
+        assert plan_exec.error == "skipped: short-circuit"
