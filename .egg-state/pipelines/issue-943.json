@@ -128,10 +128,26 @@
       "resolved_at": null,
       "resolution": null,
       "phase": "refine"
+    },
+    {
+      "id": "decision-5",
+      "question": "The Pipeline model default is currently ComplexityTier.MID. After removing MID, should the default change to the new tier 2 value (whatever it's called), or should it remain conceptually 'standard'?",
+      "context": "",
+      "options": [
+        "Default to the new tier 2 value (current behavior, just renamed)",
+        "Default to LOW and require explicit tier selection for complex tasks"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-02-26T15:57:54.180992",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine"
     }
   ],
   "created_at": "2026-02-26T15:53:05.810690",
-  "updated_at": "2026-02-26T15:57:42.005621",
+  "updated_at": "2026-02-26T15:57:54.182642",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
@@ -139,5 +155,5 @@
   "error": null,
   "plan_phase_waves": null,
   "plan_phase_names": null,
-  "version": 12
+  "version": 13
 }
