@@ -117,12 +117,44 @@ RUN mkdir -p /opt/claude-rules
 COPY sandbox/claude-rules/*.md /opt/claude-rules/
 RUN chmod 644 /opt/claude-rules/*.md
 
+# Create tmp directory in image (not mounted - container-only scratch space)
+RUN mkdir -p /tmp/agent-tmp && chmod 1777 /tmp/agent-tmp
+
+# Create fixed container user 'egg' with default UID/GID 1000
+# The entrypoint will adjust UID/GID at runtime to match host user for proper file permissions
+# Placed BEFORE the frequently-changing COPY layer so user creation is cached
+RUN groupadd -g 1000 egg && \
+    useradd -m -u 1000 -g 1000 -s /bin/bash egg && \
+    echo "egg ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/010-egg-nopasswd && \
+    chmod 0440 /etc/sudoers.d/010-egg-nopasswd && \
+    # Create .config directory with proper ownership for uv and other tools
+    mkdir -p /home/egg/.config && chown egg:egg /home/egg/.config
+
+# Install Claude Code CLI (native installer) for the egg user
+# ARG is used (not ENV) so that changing the version busts Docker's cache
+# The egg script checks for new versions and passes the latest version here
+# Placed BEFORE the COPY layer so source changes don't trigger a ~550s reinstall
+ARG CLAUDE_CODE_VERSION=stable
+RUN su - egg -c "curl -fsSL https://claude.ai/install.sh | bash -s -- $CLAUDE_CODE_VERSION" && \
+    # Save installed version for update checks
+    /home/egg/.local/bin/claude --version 2>/dev/null | head -1 > /home/egg/.local/VERSION || true && \
+    # Replace bundled ripgrep with system ripgrep to avoid ARM64 crashes on Asahi Linux
+    CLAUDE_RG=$(find /home/egg/.local -name "rg" -type f 2>/dev/null | grep -E "ripgrep.*linux" | head -1) && \
+    if [ -n "$CLAUDE_RG" ]; then \
+        ln -sf /usr/bin/rg "$CLAUDE_RG" && \
+        echo "Patched ripgrep: $CLAUDE_RG -> /usr/bin/rg"; \
+    else \
+        echo "Note: No bundled ripgrep found to patch (may not be needed)"; \
+    fi
+
 # Copy sandbox runtime scripts and tools to /opt/egg-runtime
 # This provides container-resident executables available in PATH
 # The bin/ directory contains symlinks to all executables
 # Structure:
 #   /opt/egg-runtime/sandbox/{bin,scripts,tools}
 #   /opt/egg-runtime/shared/
+# This layer changes frequently with source edits — keep it AFTER the slow
+# Claude Code install so source changes don't bust that cache
 COPY . /opt/egg-runtime/
 RUN chmod +x /opt/egg-runtime/sandbox/bin/* 2>/dev/null || true && \
     chmod +x /opt/egg-runtime/sandbox/scripts/* 2>/dev/null || true && \
@@ -140,34 +172,6 @@ RUN mkdir -p /opt/.egg-internal && \
 # Make sandbox and shared modules importable via PYTHONPATH
 # This is simpler than pip install and doesn't require pyproject.toml
 ENV PYTHONPATH="/opt/egg-runtime/sandbox:/opt/egg-runtime/shared"
-
-# Create tmp directory in image (not mounted - container-only scratch space)
-RUN mkdir -p /tmp/agent-tmp && chmod 1777 /tmp/agent-tmp
-
-# Create fixed container user 'egg' with default UID/GID 1000
-# The entrypoint will adjust UID/GID at runtime to match host user for proper file permissions
-RUN groupadd -g 1000 egg && \
-    useradd -m -u 1000 -g 1000 -s /bin/bash egg && \
-    echo "egg ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/010-egg-nopasswd && \
-    chmod 0440 /etc/sudoers.d/010-egg-nopasswd && \
-    # Create .config directory with proper ownership for uv and other tools
-    mkdir -p /home/egg/.config && chown egg:egg /home/egg/.config
-
-# Install Claude Code CLI (native installer) for the egg user
-# ARG is used (not ENV) so that changing the version busts Docker's cache
-# The egg script checks for new versions and passes the latest version here
-ARG CLAUDE_CODE_VERSION=stable
-RUN su - egg -c "curl -fsSL https://claude.ai/install.sh | bash -s -- $CLAUDE_CODE_VERSION" && \
-    # Save installed version for update checks
-    /home/egg/.local/bin/claude --version 2>/dev/null | head -1 > /home/egg/.local/VERSION || true && \
-    # Replace bundled ripgrep with system ripgrep to avoid ARM64 crashes on Asahi Linux
-    CLAUDE_RG=$(find /home/egg/.local -name "rg" -type f 2>/dev/null | grep -E "ripgrep.*linux" | head -1) && \
-    if [ -n "$CLAUDE_RG" ]; then \
-        ln -sf /usr/bin/rg "$CLAUDE_RG" && \
-        echo "Patched ripgrep: $CLAUDE_RG -> /usr/bin/rg"; \
-    else \
-        echo "Note: No bundled ripgrep found to patch (may not be needed)"; \
-    fi
 
 # Copy entrypoint script (Python for maintainability)
 COPY sandbox/entrypoint.py /usr/local/bin/entrypoint.py
