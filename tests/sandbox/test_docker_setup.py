@@ -30,6 +30,7 @@ get_arch = docker_setup.get_arch
 load_config = docker_setup.load_config
 get_extra_packages = docker_setup.get_extra_packages
 get_build_commands = docker_setup.get_build_commands
+load_build_commands_manifest = docker_setup.load_build_commands_manifest
 run_build_commands = docker_setup.run_build_commands
 
 
@@ -592,6 +593,94 @@ class TestRunBuildCommandsEdgeCases:
         captured = capsys.readouterr()
         assert "org/app-a" in captured.out
         assert "org/app-b" in captured.out
+
+
+class TestLoadBuildCommandsManifest:
+    """Tests for loading build commands from manifest.json."""
+
+    def test_loads_valid_manifest(self, tmp_path):
+        """Test loading a valid manifest.json."""
+        import json
+
+        manifest = [
+            {
+                "repo": "org/web-app",
+                "watch_files": ["package-lock.json"],
+                "commands": ["npm ci"],
+            },
+            {
+                "repo": "org/python-svc",
+                "watch_files": ["requirements.txt"],
+                "commands": ["pip install -r requirements.txt"],
+            },
+        ]
+        manifest_file = tmp_path / "manifest.json"
+        manifest_file.write_text(json.dumps(manifest))
+
+        result = load_build_commands_manifest(str(manifest_file))
+        assert len(result) == 2
+        repos = [r["repo"] for r in result]
+        assert "org/web-app" in repos
+        assert "org/python-svc" in repos
+
+    def test_returns_empty_for_missing_file(self, tmp_path):
+        """Test empty list when manifest file doesn't exist."""
+        result = load_build_commands_manifest(str(tmp_path / "nonexistent.json"))
+        assert result == []
+
+    def test_returns_empty_for_invalid_json(self, tmp_path):
+        """Test empty list when manifest contains invalid JSON."""
+        manifest_file = tmp_path / "manifest.json"
+        manifest_file.write_text("not valid json {{{")
+        result = load_build_commands_manifest(str(manifest_file))
+        assert result == []
+
+    def test_returns_empty_for_non_list(self, tmp_path):
+        """Test empty list when manifest is not a JSON array."""
+        import json
+
+        manifest_file = tmp_path / "manifest.json"
+        manifest_file.write_text(json.dumps({"not": "a list"}))
+        result = load_build_commands_manifest(str(manifest_file))
+        assert result == []
+
+    def test_skips_entries_without_commands(self, tmp_path):
+        """Test that entries without commands are skipped."""
+        import json
+
+        manifest = [
+            {"repo": "org/app", "watch_files": ["f.txt"]},  # no commands
+            {"repo": "org/other", "commands": ["make"], "watch_files": []},
+        ]
+        manifest_file = tmp_path / "manifest.json"
+        manifest_file.write_text(json.dumps(manifest))
+
+        result = load_build_commands_manifest(str(manifest_file))
+        assert len(result) == 1
+        assert result[0]["repo"] == "org/other"
+
+    def test_skips_entries_with_empty_commands(self, tmp_path):
+        """Test that entries with empty commands list are skipped."""
+        import json
+
+        manifest = [{"repo": "org/app", "commands": [], "watch_files": []}]
+        manifest_file = tmp_path / "manifest.json"
+        manifest_file.write_text(json.dumps(manifest))
+
+        result = load_build_commands_manifest(str(manifest_file))
+        assert result == []
+
+    def test_skips_non_dict_entries(self, tmp_path):
+        """Test that non-dict entries in the list are skipped."""
+        import json
+
+        manifest = ["not-a-dict", {"repo": "org/app", "commands": ["make"], "watch_files": []}]
+        manifest_file = tmp_path / "manifest.json"
+        manifest_file.write_text(json.dumps(manifest))
+
+        result = load_build_commands_manifest(str(manifest_file))
+        assert len(result) == 1
+        assert result[0]["repo"] == "org/app"
 
 
 class TestMain:

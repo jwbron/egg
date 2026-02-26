@@ -665,6 +665,108 @@ class TestCopyRepoWatchFiles:
         assert dest.exists()
         assert dest.read_text() == '{"lockfileVersion": 3}'
 
+    def test_writes_manifest_json(self, tmp_path):
+        """Writes manifest.json with build commands into repo-deps."""
+        import json
+
+        from egg_lib.docker import _copy_repo_watch_files
+
+        repo_dir = tmp_path / "org" / "web-app"
+        repo_dir.mkdir(parents=True)
+        (repo_dir / "package-lock.json").write_text("{}")
+
+        config = {
+            "repo_settings": {
+                "org/web-app": {
+                    "build_commands": {
+                        "watch_files": ["package-lock.json"],
+                        "commands": ["npm ci"],
+                    }
+                }
+            },
+            "local_repos": {"paths": [str(repo_dir)]},
+        }
+
+        build_dir = tmp_path / "build-context"
+        build_dir.mkdir()
+
+        with patch("egg_lib.docker._load_repos_config", return_value=config):
+            with patch("egg_lib.docker.Config") as mock_config:
+                mock_config.CONFIG_DIR = build_dir
+                _copy_repo_watch_files(quiet=True)
+
+        manifest_path = build_dir / "repo-deps" / "manifest.json"
+        assert manifest_path.exists()
+        manifest = json.loads(manifest_path.read_text())
+        assert len(manifest) == 1
+        assert manifest[0]["repo"] == "org/web-app"
+        assert manifest[0]["commands"] == ["npm ci"]
+        assert manifest[0]["watch_files"] == ["package-lock.json"]
+
+    def test_manifest_includes_multiple_repos(self, tmp_path):
+        """Manifest includes all repos with build_commands."""
+        import json
+
+        from egg_lib.docker import _copy_repo_watch_files
+
+        repo_a = tmp_path / "org" / "app-a"
+        repo_a.mkdir(parents=True)
+        repo_b = tmp_path / "org" / "app-b"
+        repo_b.mkdir(parents=True)
+
+        config = {
+            "repo_settings": {
+                "org/app-a": {
+                    "build_commands": {
+                        "commands": ["make deps"],
+                    }
+                },
+                "org/app-b": {
+                    "build_commands": {
+                        "watch_files": ["go.sum"],
+                        "commands": ["go mod download"],
+                    }
+                },
+                "org/no-build": {
+                    "checks": [{"name": "test"}],
+                },
+            },
+            "local_repos": {"paths": [str(repo_a), str(repo_b)]},
+        }
+
+        build_dir = tmp_path / "build-context"
+        build_dir.mkdir()
+
+        with patch("egg_lib.docker._load_repos_config", return_value=config):
+            with patch("egg_lib.docker.Config") as mock_config:
+                mock_config.CONFIG_DIR = build_dir
+                _copy_repo_watch_files(quiet=True)
+
+        manifest_path = build_dir / "repo-deps" / "manifest.json"
+        assert manifest_path.exists()
+        manifest = json.loads(manifest_path.read_text())
+        assert len(manifest) == 2
+        repos = [m["repo"] for m in manifest]
+        assert "org/app-a" in repos
+        assert "org/app-b" in repos
+
+    def test_no_manifest_when_no_build_commands(self, tmp_path):
+        """No manifest.json when no repos have build_commands."""
+        from egg_lib.docker import _copy_repo_watch_files
+
+        config = {"repo_settings": {"org/app": {"checks": []}}}
+
+        build_dir = tmp_path / "build-context"
+        build_dir.mkdir()
+
+        with patch("egg_lib.docker._load_repos_config", return_value=config):
+            with patch("egg_lib.docker.Config") as mock_config:
+                mock_config.CONFIG_DIR = build_dir
+                _copy_repo_watch_files(quiet=True)
+
+        manifest_path = build_dir / "repo-deps" / "manifest.json"
+        assert not manifest_path.exists()
+
     def test_skips_when_no_build_commands(self, tmp_path):
         """Does nothing when no repos have build_commands."""
         from egg_lib.docker import _copy_repo_watch_files
@@ -956,8 +1058,10 @@ class TestCopyRepoWatchFilesEdgeCases:
         # Stale directory should be removed
         assert not stale_dir.exists()
 
-    def test_creates_empty_marker_when_no_watch_files_copied(self, tmp_path):
-        """Creates .empty marker when no repos have copyable watch files."""
+    def test_writes_manifest_when_no_watch_files_copied(self, tmp_path):
+        """Writes manifest.json even when no watch files are copyable (local path not found)."""
+        import json
+
         from egg_lib.docker import _copy_repo_watch_files
 
         build_dir = tmp_path / "build-context"
@@ -981,8 +1085,15 @@ class TestCopyRepoWatchFilesEdgeCases:
                 mock_config.CONFIG_DIR = build_dir
                 _copy_repo_watch_files(quiet=True)
 
-        empty_marker = build_dir / "repo-deps" / ".empty"
-        assert empty_marker.exists()
+        # Manifest should still be written so build commands execute during Docker build
+        manifest_path = build_dir / "repo-deps" / "manifest.json"
+        assert manifest_path.exists()
+        manifest = json.loads(manifest_path.read_text())
+        assert len(manifest) == 1
+        assert manifest[0]["repo"] == "org/unknown-repo"
+        assert manifest[0]["commands"] == ["pip install -r req.txt"]
+        # .empty should NOT exist since manifest was written
+        assert not (build_dir / "repo-deps" / ".empty").exists()
 
     def test_multiple_repos_copy_separately(self, tmp_path):
         """Watch files from multiple repos are copied to separate directories."""
@@ -1027,6 +1138,8 @@ class TestCopyRepoWatchFilesEdgeCases:
 
     def test_missing_watch_file_is_skipped(self, tmp_path):
         """Watch file that doesn't exist in local repo is skipped."""
+        import json
+
         from egg_lib.docker import _copy_repo_watch_files
 
         repo_dir = tmp_path / "org" / "app"
@@ -1056,8 +1169,12 @@ class TestCopyRepoWatchFilesEdgeCases:
         # Dest directory should exist but be empty (no files copied)
         dest_dir = build_dir / "repo-deps" / "org--app"
         assert dest_dir.exists()
-        # The .empty marker should be created since no files were actually copied
-        assert (build_dir / "repo-deps" / ".empty").exists()
+        # Manifest should still be written so build commands execute
+        manifest_path = build_dir / "repo-deps" / "manifest.json"
+        assert manifest_path.exists()
+        manifest = json.loads(manifest_path.read_text())
+        assert len(manifest) == 1
+        assert manifest[0]["commands"] == ["npm ci"]
 
 
 class TestHashBuildCommandWatchFilesEdgeCases:
