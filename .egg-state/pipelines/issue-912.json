@@ -115,10 +115,26 @@
       "created_at": "2026-02-26T02:06:08.052288",
       "resolved_at": null,
       "resolution": null
+    },
+    {
+      "id": "decision-4",
+      "question": "Should the egg-contract request-file escape hatch be included in this issue's implementation?",
+      "context": "",
+      "options": [
+        "Yes — full escape hatch with auto-approve (CLI + gateway endpoint + session update)",
+        "Partial — CLI command for observability only (logs request, no enforcement change)",
+        "Defer — skip escape hatch entirely, implement in a follow-up issue"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-02-26T02:06:09.084261",
+      "resolved_at": null,
+      "resolution": null
     }
   ],
   "created_at": "2026-02-26T01:58:52.746480",
-  "updated_at": "2026-02-26T02:06:08.054712",
+  "updated_at": "2026-02-26T02:06:09.086355",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
@@ -126,5 +142,5 @@
   "error": null,
   "plan_phase_waves": null,
   "plan_phase_names": null,
-  "version": 10
+  "version": 11
 }
