@@ -286,11 +286,12 @@ def watch_pipeline(
                         # Show phase draft once before non-phase_gate decisions
                         # so the human has context when answering agent questions
                         if decision_type != "phase_gate":
-                            draft_rel, draft_content = resolve_phase_draft(
+                            draft_rel, draft_content, _phase = resolve_phase_draft(
                                 decision,
                                 pipeline_mode=pipeline_mode,
                                 issue_number=issue_number,
                                 pipeline_id=pipeline_id,
+                                client=client,
                             )
                             if draft_content and draft_rel != _shown_draft:
                                 _display_in_pager(draft_content)

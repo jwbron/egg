@@ -733,8 +733,6 @@ def _handle_feedback(
     # If no structured questions, fall back to single free-text input
     if not questions:
         while True:
-            if draft_content:
-                print(f"  {CYAN}[v]{RESET} View full document")
             _display_universal_options()
             feedback = _prompt_text(f"\n  {BOLD}Enter your response (empty line to finish):{RESET}")
             if not feedback.strip():
@@ -743,8 +741,10 @@ def _handle_feedback(
                 valid = {"f", "a", "c", "r"}
                 if draft_content:
                     valid.add("v")
+                    print(f"  {CYAN}[v]{RESET} View full document")
                 print(f"  {CYAN}[r]{RESET} Retry input")
-                choice = _prompt_choice(f"\n  {BOLD}Choose [r/f/a/c]:{RESET} ", valid)
+                v_hint = "/v" if draft_content else ""
+                choice = _prompt_choice(f"\n  {BOLD}Choose [r{v_hint}/f/a/c]:{RESET} ", valid)
                 if choice == "v" and draft_content:
                     _display_in_pager(draft_content)
                     continue
@@ -842,7 +842,8 @@ def _handle_feedback(
         valid = {"s", "r", "f", "a", "c"}
         if draft_content:
             valid.add("v")
-        choice = _prompt_choice(f"\n  {BOLD}Choose [s/r/f/a/c]:{RESET} ", valid)
+        v_hint = "/v" if draft_content else ""
+        choice = _prompt_choice(f"\n  {BOLD}Choose [s/r{v_hint}/f/a/c]:{RESET} ", valid)
 
         if choice == "v" and draft_content:
             _display_in_pager(draft_content)
@@ -973,23 +974,44 @@ def resolve_phase_draft(
     pipeline_mode: str = "issue",
     issue_number: int | None = None,
     pipeline_id: str | None = None,
-) -> tuple[str | None, str | None]:
+    client: OrchClient | None = None,
+) -> tuple[str | None, str | None, str]:
     """Resolve the phase draft document for a decision.
 
     Extracts draft resolution logic (phase detection, draft path, draft content)
     into a reusable function for use by both handle_hitl_checkpoint() and the
     CLI watch loop (sdlc_cli.py).
 
+    Args:
+        decision: The HITL decision dict.
+        pipeline_mode: "issue" or "pipeline".
+        issue_number: Issue number for issue-mode pipelines.
+        pipeline_id: Pipeline ID for pipeline-mode pipelines.
+        client: Optional OrchClient for pipeline API fallback when phase
+            detection via regex fails.
+
     Returns:
-        (draft_rel, draft_content) tuple where draft_rel is the relative path
-        to the draft file and draft_content is its text content. Either or both
-        may be None.
+        (draft_rel, draft_content, phase) tuple where draft_rel is the relative
+        path to the draft file, draft_content is its text content, and phase is
+        the detected/resolved phase string. draft_rel and draft_content may be
+        None.
     """
     question = decision.get("question", "")
     context = decision.get("context", "")
 
     raw_phase = decision.get("phase")
     phase = raw_phase if raw_phase is not None else _detect_phase(question, context)
+
+    # If phase is still unknown and we have a client, try fetching from the
+    # pipeline's current state (API fallback).
+    if phase == "unknown" and client and pipeline_id:
+        try:
+            pipeline_info = client.get_pipeline(pipeline_id)
+            pipeline_phase = pipeline_info.get("pipeline", pipeline_info).get("current_phase")
+            if pipeline_phase:
+                phase = pipeline_phase
+        except Exception:
+            logger.debug("Failed to fetch pipeline phase for decision display", exc_info=True)
 
     repo_path = _find_repo_path()
     draft_rel = _get_draft_path(phase, pipeline_mode, issue_number, pipeline_id)
@@ -999,7 +1021,7 @@ def resolve_phase_draft(
     if not draft_content and context:
         draft_content = context
 
-    return draft_rel, draft_content
+    return draft_rel, draft_content, phase
 
 
 def handle_hitl_checkpoint(
@@ -1022,33 +1044,17 @@ def handle_hitl_checkpoint(
         "cancelled" if the pipeline was cancelled.
     """
     question = decision.get("question", "Decision required")
-    context = decision.get("context", "")
     decision_type = decision.get("decision_type", "choice")
 
-    # Use explicit phase from decision if available, fall back to regex detection
-    raw_phase = decision.get("phase")
-    phase = raw_phase if raw_phase is not None else _detect_phase(question, context)
-
-    # If phase is still unknown, try fetching from the pipeline's current state
-    if phase == "unknown":
-        try:
-            pipeline_info = client.get_pipeline(pipeline_id)
-            pipeline_phase = pipeline_info.get("pipeline", pipeline_info).get("current_phase")
-            if pipeline_phase:
-                phase = pipeline_phase
-        except Exception:
-            logger.debug("Failed to fetch pipeline phase for decision display", exc_info=True)
-
-    # Find and read the draft
+    # Resolve draft via shared helper (includes API fallback for unknown phase)
+    draft_rel, draft_content, phase = resolve_phase_draft(
+        decision,
+        pipeline_mode=pipeline_mode,
+        issue_number=issue_number,
+        pipeline_id=pipeline_id,
+        client=client,
+    )
     repo_path = _find_repo_path()
-    draft_rel = _get_draft_path(phase, pipeline_mode, issue_number, pipeline_id)
-    draft_content = _read_draft(repo_path, draft_rel)
-
-    # Fall back to decision context if local draft file not found.
-    # The draft lives in the agent's worktree which may not be mounted
-    # here, but the orchestrator reads it and attaches it as context.
-    if not draft_content and context:
-        draft_content = context
 
     # Display decision info
     print(f"\n{BOLD}{YELLOW}{'=' * 60}{RESET}")

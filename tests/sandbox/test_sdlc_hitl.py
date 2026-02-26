@@ -3128,12 +3128,13 @@ class TestResolvePhaseDraft:
             "question": "Approve the refine analysis?",
             "context": "",
         }
-        draft_rel, draft_content = resolve_phase_draft(
+        draft_rel, draft_content, phase = resolve_phase_draft(
             decision, pipeline_mode="issue", issue_number=42
         )
 
         assert draft_rel == ".egg-state/drafts/42-analysis.md"
         assert draft_content == "# Analysis\nContent"
+        assert phase == "refine"
 
     @patch("egg_lib.sdlc_hitl._find_repo_path")
     def test_returns_draft_for_plan(self, mock_repo, tmp_path):
@@ -3148,12 +3149,13 @@ class TestResolvePhaseDraft:
             "question": "Approve the plan?",
             "context": "",
         }
-        draft_rel, draft_content = resolve_phase_draft(
+        draft_rel, draft_content, phase = resolve_phase_draft(
             decision, pipeline_mode="issue", issue_number=10
         )
 
         assert draft_rel == ".egg-state/drafts/10-plan.md"
         assert draft_content == "# Plan\nSteps"
+        assert phase == "plan"
 
     @patch("egg_lib.sdlc_hitl._find_repo_path")
     def test_falls_back_to_context(self, mock_repo, tmp_path):
@@ -3165,12 +3167,13 @@ class TestResolvePhaseDraft:
             "question": "Approve the refine analysis?",
             "context": "Fallback context content",
         }
-        draft_rel, draft_content = resolve_phase_draft(
+        draft_rel, draft_content, phase = resolve_phase_draft(
             decision, pipeline_mode="issue", issue_number=42
         )
 
         assert draft_rel == ".egg-state/drafts/42-analysis.md"
         assert draft_content == "Fallback context content"
+        assert phase == "refine"
 
     @patch("egg_lib.sdlc_hitl._find_repo_path")
     def test_returns_none_for_implement(self, mock_repo, tmp_path):
@@ -3182,7 +3185,7 @@ class TestResolvePhaseDraft:
             "question": "Ready to implement?",
             "context": "",
         }
-        draft_rel, draft_content = resolve_phase_draft(
+        draft_rel, draft_content, phase = resolve_phase_draft(
             decision, pipeline_mode="issue", issue_number=42
         )
 
@@ -3203,12 +3206,63 @@ class TestResolvePhaseDraft:
             "context": "",
             "phase": "plan",
         }
-        draft_rel, draft_content = resolve_phase_draft(
+        draft_rel, draft_content, phase = resolve_phase_draft(
             decision, pipeline_mode="issue", issue_number=42
         )
 
         assert draft_rel == ".egg-state/drafts/42-plan.md"
         assert draft_content == "# Plan"
+        assert phase == "plan"
+
+    @patch("egg_lib.sdlc_hitl._find_repo_path")
+    def test_api_fallback_for_unknown_phase(self, mock_repo, tmp_path):
+        """Falls back to pipeline API when regex-based phase detection returns unknown."""
+        mock_repo.return_value = tmp_path
+        draft_dir = tmp_path / ".egg-state" / "drafts"
+        draft_dir.mkdir(parents=True)
+        (draft_dir / "42-plan.md").write_text("# Plan from API")
+
+        client = MagicMock()
+        client.get_pipeline.return_value = {"pipeline": {"current_phase": "plan"}}
+
+        decision = {
+            "id": "d1",
+            "question": "Something that doesn't match any regex",
+            "context": "",
+        }
+        draft_rel, draft_content, phase = resolve_phase_draft(
+            decision,
+            pipeline_mode="issue",
+            issue_number=42,
+            pipeline_id="issue-42",
+            client=client,
+        )
+
+        assert phase == "plan"
+        assert draft_rel == ".egg-state/drafts/42-plan.md"
+        assert draft_content == "# Plan from API"
+        client.get_pipeline.assert_called_once_with("issue-42")
+
+    @patch("egg_lib.sdlc_hitl._find_repo_path")
+    def test_api_fallback_not_called_when_phase_known(self, mock_repo, tmp_path):
+        """API fallback is skipped when regex detection finds a known phase."""
+        mock_repo.return_value = tmp_path
+        client = MagicMock()
+
+        decision = {
+            "id": "d1",
+            "question": "Approve the refine analysis?",
+            "context": "",
+        }
+        resolve_phase_draft(
+            decision,
+            pipeline_mode="issue",
+            issue_number=42,
+            pipeline_id="issue-42",
+            client=client,
+        )
+
+        client.get_pipeline.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
@@ -3329,9 +3383,11 @@ class TestFeedbackViewOption:
 
     @patch("egg_lib.sdlc_hitl._display_in_pager")
     @patch("builtins.input")
-    def test_v_option_in_freetext_mode(self, mock_input, mock_pager, capsys):
-        """[v] option appears in free-text feedback mode when draft_content is present."""
-        mock_input.side_effect = ["My feedback", ""]
+    def test_v_option_in_freetext_empty_input(self, mock_input, mock_pager, capsys):
+        """[v] option appears after empty input in free-text feedback mode."""
+        # Enter empty text to reach the choice menu, select 'v' to view,
+        # then enter empty again and 'r' to retry, then provide real feedback
+        mock_input.side_effect = ["", "v", "", "r", "My feedback", ""]
         client = self._make_client()
         decision = {
             "id": "d1",
@@ -3343,6 +3399,7 @@ class TestFeedbackViewOption:
         result = _handle_feedback(client, "issue-42", decision, draft_content="# Plan\nSteps")
 
         assert result == "resolved"
+        mock_pager.assert_called_once_with("# Plan\nSteps")
         captured = capsys.readouterr()
         assert "[v]" in captured.out
 
