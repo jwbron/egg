@@ -53,7 +53,10 @@ build_prompt() {
 
     # Parse failed jobs (JSON array from caller)
     local failed_jobs_json="${FAILED_JOBS:-[]}"
-    local autofix_state_json="${AUTOFIX_STATE:-{}}"
+    local autofix_state_json="${AUTOFIX_STATE}"
+    if [[ -z "$autofix_state_json" ]]; then
+        autofix_state_json='{}'
+    fi
 
     # If no failed jobs provided, we can't build a focused prompt
     if [[ "$failed_jobs_json" == "[]" ]]; then
@@ -149,7 +152,7 @@ print(json.dumps(result))
             # Log warning to stderr (GitHub Actions still picks up ::warning:: from stderr in run blocks)
             echo "::warning::Failed to parse check-fixers.yml config, falling through to LLM for all jobs" >&2
             # Return valid fallback JSON on stdout
-            echo '{"non_llm_fixes":[],"needs_llm":true,"has_non_llm":false,"max_retries_reached":false,"escalation":[],"model":"sonnet","jobs_for_llm":[],"non_llm_jobs":[],"all_non_escalated":[]}'
+            echo "{\"non_llm_fixes\":[],\"needs_llm\":true,\"has_non_llm\":false,\"max_retries_reached\":false,\"escalation\":[],\"model\":\"sonnet\",\"jobs_for_llm\":${failed_jobs_json},\"non_llm_jobs\":[],\"all_non_escalated\":${failed_jobs_json}}"
         })
 
         non_llm_fixes=$(echo "$result" | python3 -c "import json,sys; print(json.dumps(json.load(sys.stdin)['non_llm_fixes']))")
