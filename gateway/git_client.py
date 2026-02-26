@@ -878,7 +878,7 @@ FLAG_NORMALIZATION = {
         "-k": "--killed",
     },
     "clean": {"-f": "--force", "-n": "--dry-run", "-q": "--quiet"},
-    "rm": {"-f": "--force", "-n": "--dry-run", "-r": "-r", "-q": "--quiet"},
+    "rm": {"-f": "--force", "-n": "--dry-run", "-q": "--quiet"},
     "mv": {"-f": "--force", "-n": "--dry-run", "-v": "--verbose"},
     "merge": {"-m": "--message", "-v": "--verbose", "-q": "--quiet"},
     "rebase": {"-v": "--verbose", "-q": "--quiet"},
@@ -893,19 +893,20 @@ FLAG_NORMALIZATION = {
     },
     "branch": {"-a": "--all", "-r": "--remotes", "-v": "--verbose"},
     "remote": {"-v": "--verbose"},
+    "worktree": {"-v": "--verbose"},
+    "ls-remote": {"-q": "--quiet"},
+    "update-index": {"-q": "--quiet"},
+    # Subcommands with no short-flag normalization needed (included for completeness):
     "status": {},
     "log": {},
     "diff": {},
     "show": {},
     "rev-parse": {},
     "ls-tree": {},
-    "worktree": {"-v": "--verbose"},
-    "ls-remote": {"-q": "--quiet"},
     "describe": {},
     "config": {},
     "merge-base": {},
     "reflog": {},
-    "update-index": {"-q": "--quiet"},
 }
 
 
