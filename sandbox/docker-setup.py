@@ -6,6 +6,7 @@ Installs common development utilities in the Docker container.
 For additional packages, configure extra_packages in ~/.config/egg/repositories.yaml.
 """
 
+import json
 import os
 import subprocess
 import sys
@@ -190,6 +191,45 @@ def get_build_commands(config: dict[str, Any]) -> list[dict[str, Any]]:
     return result
 
 
+def load_build_commands_manifest(
+    manifest_path: str = "/tmp/repo-deps/manifest.json",
+) -> list[dict[str, Any]]:
+    """Load build commands from the manifest file written by create_dockerfile().
+
+    During Docker builds, repositories.yaml is not available in the build context.
+    Instead, the host-side create_dockerfile() writes a manifest.json into repo-deps/
+    containing the build commands. This function reads that manifest.
+
+    Args:
+        manifest_path: Path to the manifest file (default: /tmp/repo-deps/manifest.json)
+
+    Returns:
+        List of dicts with 'repo', 'watch_files', and 'commands' keys.
+    """
+    path = Path(manifest_path)
+    if not path.exists():
+        return []
+    try:
+        with path.open() as f:
+            data = json.load(f)
+        if not isinstance(data, list):
+            return []
+        # Validate each entry has required fields
+        result = []
+        for entry in data:
+            if not isinstance(entry, dict):
+                continue
+            if "repo" not in entry or "commands" not in entry:
+                continue
+            commands = entry["commands"]
+            if not isinstance(commands, list) or not commands:
+                continue
+            result.append(entry)
+        return result
+    except (json.JSONDecodeError, OSError):
+        return []
+
+
 def run_build_commands(build_commands: list[dict[str, Any]]) -> None:
     """Execute build commands for each repo during Docker image build.
 
@@ -292,7 +332,11 @@ def main() -> None:
         configure_system(distro)
 
         # Run per-repo build commands (dependency installation)
+        # Try config first, then fall back to manifest.json written by create_dockerfile()
+        # (repositories.yaml is not available during Docker builds)
         build_commands = get_build_commands(config)
+        if not build_commands:
+            build_commands = load_build_commands_manifest()
         run_build_commands(build_commands)
 
         print()

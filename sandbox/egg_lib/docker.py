@@ -5,6 +5,7 @@ Dockerfile creation, and related utilities.
 """
 
 import hashlib
+import json
 import os
 import shutil
 import subprocess
@@ -358,6 +359,38 @@ def _copy_repo_watch_files(quiet: bool = False) -> None:
             has_any = True
             if not quiet:
                 info(f"Copied watch files for {repo_name}")
+
+    # Write a manifest.json with build commands so docker-setup.py can read it
+    # during the Docker build (repositories.yaml is not available in the build context)
+    manifest = []
+    for repo_name, settings in repo_settings.items():
+        if not isinstance(settings, dict):
+            continue
+        build_cmds = settings.get("build_commands")
+        if not isinstance(build_cmds, dict):
+            continue
+        commands = build_cmds.get("commands", [])
+        if not isinstance(commands, list) or not commands:
+            continue
+        watch_files = build_cmds.get("watch_files", [])
+        if not isinstance(watch_files, list):
+            watch_files = []
+        manifest.append(
+            {
+                "repo": repo_name,
+                "watch_files": [str(f) for f in watch_files],
+                "commands": [str(c) for c in commands],
+            }
+        )
+
+    if manifest:
+        repo_deps_dir.mkdir(parents=True, exist_ok=True)
+        manifest_path = repo_deps_dir / "manifest.json"
+        with manifest_path.open("w") as f:
+            json.dump(manifest, f, indent=2)
+        if not quiet:
+            info(f"Wrote build commands manifest ({len(manifest)} repos)")
+        has_any = True
 
     if not has_any:
         # Always create repo-deps with an empty marker so Dockerfile COPY doesn't fail
