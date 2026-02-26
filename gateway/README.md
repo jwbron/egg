@@ -173,9 +173,11 @@ Phase transitions require specific roles (human, reviewer, implementer) as defin
 
 ```
 POST /api/v1/sessions/create
-  Request: {container_id, container_ip, mode, repos[], uid?, gid?, phase?}
+  Request: {container_id, container_ip, mode, repos[]?, uid?, gid?, phase?}
   Auth: Bearer {launcher_secret}
   Description: Create a new session with optional SDLC phase tracking
+  Note: repos[] is required for private/public modes (visibility filtering + worktree creation)
+        but optional for local mode (orchestrator-internal temp sessions for git auth only)
 
 PATCH /api/v1/sessions/<session_token>/phase
   Request: {phase: "refine"|"plan"|"implement"|"pr"}
