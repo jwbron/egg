@@ -930,3 +930,14 @@ class TestCmdSearchHttp:
         assert result == 0
         output = capsys.readouterr().out
         assert "No checkpoints found with transcript matching" in output
+
+    @patch.dict("os.environ", {"EGG_CHECKPOINT_REPO": "bad format"})
+    def test_http_search_invalid_env_var_returns_error(self, capsys):
+        """HTTP search returns error when EGG_CHECKPOINT_REPO has invalid format."""
+        parser = create_parser()
+        args = parser.parse_args(["search", "--text", "test"])
+        result = _cmd_search_http(args, f"http://gateway:{GATEWAY_PORT}")
+
+        assert result == 1
+        err = capsys.readouterr().err
+        assert "Invalid checkpoint_repo format" in err
