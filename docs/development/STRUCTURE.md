@@ -168,6 +168,7 @@ sandbox/
 │   ├── orch_client.py      # Orchestrator API client
 │   ├── sdlc_cli.py         # SDLC pipeline CLI
 │   ├── sdlc_hitl.py        # SDLC human-in-the-loop support
+│   ├── data/               # Static data files (HITL editing rules)
 │   └── self_improvement/   # Self-improvement data collection
 ├── llm/                    # Claude Code / Agent SDK integration
 ├── tools/                  # Interactive tools

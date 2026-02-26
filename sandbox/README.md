@@ -20,7 +20,7 @@ sandbox/
 ├── statusbar.py            # Status bar display
 ├── egg                     # Main egg CLI script
 ├── Dockerfile              # Sandbox container image
-├── docker-setup.py         # In-container tool installation
+├── docker-setup.py         # Build-time tool installation and per-repo dependency setup
 ├── pyproject.toml          # Package configuration
 │
 ├── egg_lib/                # Container utility libraries
@@ -28,7 +28,7 @@ sandbox/
 │   ├── config.py           # Configuration management
 │   ├── auth.py             # Authentication handling
 │   ├── gateway.py          # Gateway communication
-│   ├── docker.py           # Docker operations
+│   ├── docker.py           # Docker image build, Dockerfile generation, dependency caching
 │   ├── context.py          # Context management
 │   ├── runtime.py          # Runtime utilities
 │   ├── setup_flow.py       # Setup workflow
@@ -37,7 +37,7 @@ sandbox/
 │   ├── timing.py           # Timing utilities
 │   ├── output.py           # Output formatting
 │   ├── compose.py          # Docker Compose operations
-│   ├── checkpoint_cli.py   # Checkpoint CLI for saving/restoring state
+│   ├── checkpoint_cli.py   # Checkpoint CLI implementation
 │   ├── contract_cli.py     # SDLC contract CLI (egg-contract)
 │   ├── orchestration.py    # Multi-agent orchestration support
 │   ├── orch_cli.py         # Orchestrator CLI (egg-orch)
