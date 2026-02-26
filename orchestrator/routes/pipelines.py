@@ -1620,11 +1620,16 @@ def _build_review_prompt(
         lines.append(
             "4. Trace data flow from input to output, especially for security-sensitive paths"
         )
-        lines.append("5. Research when uncertain — look up library behavior, check documentation")
-        lines.append("6. Consider edge cases the author may not have tested")
-        lines.append("7. Evaluate against the criteria below")
-        lines.append(f"8. Write your verdict to `{verdict_path}` as JSON")
-        lines.append("9. Commit the verdict file")
+        lines.append(
+            "5. Verify end-to-end functionality — for new features, trace the complete "
+            "execution path in the real deployment environment. Check that config files, "
+            "environment variables, and dependencies are actually available where the code runs"
+        )
+        lines.append("6. Research when uncertain — look up library behavior, check documentation")
+        lines.append("7. Consider edge cases the author may not have tested")
+        lines.append("8. Evaluate against the criteria below")
+        lines.append(f"9. Write your verdict to `{verdict_path}` as JSON")
+        lines.append("10. Commit the verdict file")
     elif draft_path:
         # Expanded procedural steps for draft-based (non-code) reviewers
         lines.append("2. Read the draft thoroughly — do not skim")
@@ -1676,6 +1681,34 @@ def _build_review_prompt(
     lines.append(
         "5. **Provide context.** Explain *why* something is an issue — the impact, "
         "the risk, or the principle being violated."
+    )
+    lines.append("")
+
+    # Verdict classification — aligned with PR reviewer's review-conventions.md
+    lines.append("### When to Use `needs_revision` vs `approved`\n")
+    lines.append(
+        "**Use `needs_revision` for**: Security vulnerabilities, logic errors, correctness "
+        "issues, non-functional features (core purpose doesn't work end-to-end), missing "
+        "error handling, resource leaks, breaking changes, violations of codebase patterns. "
+        "When in doubt, use `needs_revision`."
+    )
+    lines.append(
+        "**Use `approved` for**: No blocking issues found after thorough review. "
+        "Non-blocking suggestions belong in the `suggestions` field."
+    )
+    lines.append("")
+    lines.append(
+        "**Key distinction**: A feature that doesn't work is a correctness issue, not a "
+        "style issue. If the feature's core functionality is broken — not just degraded or "
+        "missing edge cases — always use `needs_revision`, even if the code structure looks "
+        "reasonable or matches an existing pattern."
+    )
+    lines.append(
+        "**Pre-existing issues are still blocking**: If the code being reviewed modifies "
+        "areas with existing broken or inconsistent behavior, use `needs_revision` — do not "
+        'dismiss it as "not a regression." The code is already being changed in that area, '
+        "making it the natural place to fix the issue. Code that adds new paths through "
+        "already-broken logic makes the problem worse."
     )
     lines.append("")
 
