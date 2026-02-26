@@ -1110,6 +1110,116 @@ class TestChdirToSingleRepo:
         assert Path.cwd() == repo
         assert os.environ["EGG_REPO_PATH"] == str(repo)
 
+    def test_single_repo_creates_claude_md_symlink(self, tmp_path, monkeypatch):
+        """With a global CLAUDE.md, symlink is created in the repo directory."""
+        repos_dir = tmp_path / "repos"
+        repos_dir.mkdir()
+        repo = repos_dir / "my-project"
+        repo.mkdir()
+        (repo / ".git").mkdir()
+
+        claude_dir = tmp_path / ".claude"
+        claude_dir.mkdir()
+        global_claude_md = claude_dir / "CLAUDE.md"
+        global_claude_md.write_text("# Rules")
+
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("RUNTIME_UID", "1000")
+        monkeypatch.setenv("RUNTIME_GID", "1000")
+        monkeypatch.delenv("EGG_REPO_PATH", raising=False)
+
+        config = entrypoint.Config()
+        monkeypatch.setattr(type(config), "repos_dir", property(lambda self: repos_dir))
+        monkeypatch.setattr(type(config), "claude_dir", property(lambda self: claude_dir))
+
+        entrypoint._chdir_to_single_repo(config)
+
+        symlink = repo / "CLAUDE.md"
+        assert symlink.is_symlink()
+        assert symlink.resolve() == global_claude_md.resolve()
+
+    def test_existing_claude_md_not_overwritten(self, tmp_path, monkeypatch):
+        """Existing CLAUDE.md in repo is not replaced with a symlink."""
+        repos_dir = tmp_path / "repos"
+        repos_dir.mkdir()
+        repo = repos_dir / "my-project"
+        repo.mkdir()
+        (repo / ".git").mkdir()
+        existing = repo / "CLAUDE.md"
+        existing.write_text("# Existing project rules")
+
+        claude_dir = tmp_path / ".claude"
+        claude_dir.mkdir()
+        (claude_dir / "CLAUDE.md").write_text("# Global rules")
+
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("RUNTIME_UID", "1000")
+        monkeypatch.setenv("RUNTIME_GID", "1000")
+        monkeypatch.delenv("EGG_REPO_PATH", raising=False)
+
+        config = entrypoint.Config()
+        monkeypatch.setattr(type(config), "repos_dir", property(lambda self: repos_dir))
+        monkeypatch.setattr(type(config), "claude_dir", property(lambda self: claude_dir))
+
+        entrypoint._chdir_to_single_repo(config)
+
+        assert not existing.is_symlink()
+        assert existing.read_text() == "# Existing project rules"
+
+    def test_multi_repo_creates_claude_md_symlink(self, tmp_path, monkeypatch):
+        """With multiple repos, symlink is created in repos_dir (CWD)."""
+        repos_dir = tmp_path / "repos"
+        repos_dir.mkdir()
+        for name in ("repo-a", "repo-b"):
+            repo = repos_dir / name
+            repo.mkdir()
+            (repo / ".git").mkdir()
+
+        claude_dir = tmp_path / ".claude"
+        claude_dir.mkdir()
+        global_claude_md = claude_dir / "CLAUDE.md"
+        global_claude_md.write_text("# Rules")
+
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("RUNTIME_UID", "1000")
+        monkeypatch.setenv("RUNTIME_GID", "1000")
+        monkeypatch.delenv("EGG_REPO_PATH", raising=False)
+
+        config = entrypoint.Config()
+        monkeypatch.setattr(type(config), "repos_dir", property(lambda self: repos_dir))
+        monkeypatch.setattr(type(config), "claude_dir", property(lambda self: claude_dir))
+
+        entrypoint._chdir_to_single_repo(config)
+
+        symlink = repos_dir / "CLAUDE.md"
+        assert symlink.is_symlink()
+        assert symlink.resolve() == global_claude_md.resolve()
+
+    def test_no_symlink_when_global_claude_md_missing(self, tmp_path, monkeypatch):
+        """No symlink created when global CLAUDE.md doesn't exist."""
+        repos_dir = tmp_path / "repos"
+        repos_dir.mkdir()
+        repo = repos_dir / "my-project"
+        repo.mkdir()
+        (repo / ".git").mkdir()
+
+        claude_dir = tmp_path / ".claude"
+        claude_dir.mkdir()
+        # No CLAUDE.md in claude_dir
+
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("RUNTIME_UID", "1000")
+        monkeypatch.setenv("RUNTIME_GID", "1000")
+        monkeypatch.delenv("EGG_REPO_PATH", raising=False)
+
+        config = entrypoint.Config()
+        monkeypatch.setattr(type(config), "repos_dir", property(lambda self: repos_dir))
+        monkeypatch.setattr(type(config), "claude_dir", property(lambda self: claude_dir))
+
+        entrypoint._chdir_to_single_repo(config)
+
+        assert not (repo / "CLAUDE.md").exists()
+
 
 class TestSignalOrchestratorCompletion:
     """Tests for signal_orchestrator_completion function."""

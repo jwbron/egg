@@ -1616,6 +1616,10 @@ def _chdir_to_single_repo(config: Config) -> None:
     If repos_dir contains exactly one git repository, chdir into it and set
     EGG_REPO_PATH so git/gh commands auto-detect the repository context.
     Falls back to user home if repos_dir doesn't exist.
+
+    After setting CWD, creates a project-level CLAUDE.md symlink pointing to
+    the global ~/.claude/CLAUDE.md so Claude Code detects it in the working
+    directory (suppresses the "Run /init" welcome message).
     """
     if config.repos_dir.exists():
         os.chdir(config.repos_dir)
@@ -1626,6 +1630,14 @@ def _chdir_to_single_repo(config: Config) -> None:
             os.environ["EGG_REPO_PATH"] = str(subdirs[0])
     else:
         os.chdir(config.user_home)
+
+    # Create project-level CLAUDE.md symlink so Claude Code detects it
+    # in the working directory (suppresses "Run /init" welcome message).
+    # The actual rules live in ~/.claude/CLAUDE.md (global config).
+    cwd_claude_md = Path.cwd() / "CLAUDE.md"
+    global_claude_md = config.claude_dir / "CLAUDE.md"
+    if global_claude_md.exists() and not cwd_claude_md.exists():
+        cwd_claude_md.symlink_to(global_claude_md)
 
 
 def run_interactive(config: Config, logger: Logger) -> int:
