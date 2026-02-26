@@ -682,6 +682,85 @@ class GatewayClient:
                 except Exception:
                     pass
 
+    def create_pr(
+        self,
+        pipeline_id: str,
+        repo: str,
+        title: str,
+        body: str,
+        head: str,
+        base: str = "main",
+    ) -> str | None:
+        """Create a pull request via the gateway using a temporary session.
+
+        Registers a temp session with phase="pr" (so the gateway allows the
+        operation), creates the PR, then cleans up the session.
+
+        Args:
+            pipeline_id: Pipeline ID (used as container_id for the temp session)
+            repo: Repository in owner/name format
+            title: PR title
+            body: PR body/description
+            head: Head branch name
+            base: Base branch name (default: "main")
+
+        Returns:
+            PR URL if creation succeeded, None otherwise
+
+        Raises:
+            GatewayError: On request failure. Unlike push_worktree_branch/
+                delete_remote_branch/fetch_worktree_branch (which catch errors
+                internally and return bool), this method lets errors propagate
+                so the caller can decide whether a failed PR creation should
+                abort the phase.
+        """
+        temp_container_id = f"{pipeline_id}-auto-pr"
+        session_token: str | None = None
+        try:
+            session = self.register_session(
+                container_id=temp_container_id,
+                container_ip="127.0.0.1",
+                mode="local",
+                pipeline_id=pipeline_id,
+                phase="pr",
+                repos=[repo],
+            )
+            session_token = session.session_token
+
+            result = self._make_request(
+                "/api/v1/gh/pr/create",
+                method="POST",
+                data={
+                    "repo": repo,
+                    "title": title,
+                    "body": body,
+                    "base": base,
+                    "head": head,
+                },
+                bearer_token=session_token,
+            )
+
+            pr_url: str | None = None
+            stdout = result.get("data", {}).get("stdout", "")
+            if stdout:
+                # gh pr create outputs the PR URL on stdout
+                pr_url = stdout.strip()
+
+            logger.info(
+                "Auto-created PR via gateway",
+                pipeline_id=pipeline_id,
+                repo=repo,
+                head=head,
+                pr_url=pr_url,
+            )
+            return pr_url
+        finally:
+            if session_token:
+                try:
+                    self.delete_session(session_token)
+                except Exception:
+                    pass
+
     def fetch_worktree_branch(
         self,
         pipeline_id: str,

@@ -209,7 +209,6 @@ class TestPipelineConfig:
     def test_defaults(self):
         """Test default configuration values."""
         config = PipelineConfig()
-        assert config.auto_create_pr is True
         assert config.multi_agent is True
         assert config.parallel_agents is True
         assert config.max_review_cycles == 3
@@ -218,11 +217,9 @@ class TestPipelineConfig:
     def test_custom_config(self):
         """Test custom configuration."""
         config = PipelineConfig(
-            auto_create_pr=False,
             multi_agent=False,
             max_review_cycles=5,
         )
-        assert config.auto_create_pr is False
         assert config.multi_agent is False
         assert config.max_review_cycles == 5
 
