@@ -385,7 +385,7 @@ jobs:
           for job in attempted:
               key = f'{workflow}/{job}'
               state[key] = state.get(key, 0) + 1
-          print(json.dumps(state, indent=2))
+          print(json.dumps(state))
           ")
 
           BODY="<!-- egg-autofix-state -->
@@ -489,7 +489,7 @@ jobs:
           for job in attempted:
               key = f'{workflow}/{job}'
               state[key] = state.get(key, 0) + 1
-          print(json.dumps(state, indent=2))
+          print(json.dumps(state))
           ")
 
           BODY="<!-- egg-autofix-state -->
