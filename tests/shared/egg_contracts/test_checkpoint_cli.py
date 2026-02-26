@@ -7,7 +7,9 @@ from datetime import UTC, datetime
 from unittest.mock import patch
 
 import pytest
+from egg_config.constants import TEST_GATEWAY_PORT
 from egg_contracts.checkpoint_cli import (
+    _cmd_search_http,
     _get_checkpoint_repo_from_args,
     _search_checkpoint_transcript,
     cmd_cost,
@@ -15,6 +17,8 @@ from egg_contracts.checkpoint_cli import (
     create_parser,
     main,
 )
+
+_TEST_GATEWAY_URL = f"http://gateway:{TEST_GATEWAY_PORT}"
 from egg_contracts.checkpoints import (
     AgentType,
     CheckpointIndexV2,
@@ -263,6 +267,11 @@ class TestCostCommand:
 class TestGetCheckpointRepoFromArgs:
     """Tests for auto-detection of checkpoint_repo from repo config."""
 
+    @pytest.fixture(autouse=True)
+    def _clear_checkpoint_env(self, monkeypatch):
+        """Ensure EGG_CHECKPOINT_REPO is unset unless a test explicitly sets it."""
+        monkeypatch.delenv("EGG_CHECKPOINT_REPO", raising=False)
+
     def _make_args(self, **kwargs) -> argparse.Namespace:
         defaults = {"checkpoint_repo": None, "repo_path": "/tmp/test-repo"}
         defaults.update(kwargs)
@@ -391,11 +400,20 @@ class TestGetCheckpointRepoFromArgs:
         assert source_repo is None
 
     @patch.dict("os.environ", {"EGG_CHECKPOINT_REPO": "bad format"})
-    def test_env_var_validates_format(self):
-        """EGG_CHECKPOINT_REPO with invalid format raises ValueError."""
-        args = self._make_args()
-        with pytest.raises(ValueError, match="Invalid checkpoint_repo format"):
-            _get_checkpoint_repo_from_args(args)
+    def test_env_var_invalid_format_falls_through(self):
+        """EGG_CHECKPOINT_REPO with invalid format is ignored (falls through)."""
+        with patch("egg_contracts.checkpoint_cli.run_git") as mock_git:
+            mock_git.return_value = subprocess.CompletedProcess(
+                args=[],
+                returncode=1,
+                stdout="",
+                stderr="fatal: not a git repo",
+            )
+            args = self._make_args()
+            checkpoint_repo, source_repo = _get_checkpoint_repo_from_args(args)
+            # Invalid env var is ignored, falls through to git remote (which also fails)
+            assert checkpoint_repo is None
+            assert source_repo is None
 
     @patch.dict("os.environ", {}, clear=False)
     def test_env_var_not_set_falls_through(self):
@@ -734,3 +752,62 @@ class TestCmdSearch:
             mock_ref.return_value = None
             result = main(["search", "--text", "test"])
             assert result == 0
+
+    @patch("egg_contracts.checkpoint_cli._get_checkpoint_repo_from_args", return_value=(None, None))
+    @patch("egg_contracts.checkpoint_cli._http_get")
+    def test_search_http_finds_matching_checkpoint(self, mock_http, _mock_repo, capsys):
+        """_cmd_search_http finds and displays matching checkpoints via HTTP."""
+        # First call: list checkpoints
+        mock_http.side_effect = [
+            {"data": {"checkpoints": [{"id": "ckpt-http1111", "session_id": "s1"}]}},
+            # Second call: show checkpoint detail with transcript
+            {
+                "data": {
+                    "checkpoint": {
+                        "id": "ckpt-http1111",
+                        "transcript": {
+                            "messages": [
+                                {"role": "user", "content": "Fix issue 898 in the auth module"},
+                            ]
+                        },
+                    }
+                }
+            },
+        ]
+
+        parser = create_parser()
+        args = parser.parse_args(["search", "--text", "issue 898"])
+        result = _cmd_search_http(args, _TEST_GATEWAY_URL)
+
+        assert result == 0
+        output = capsys.readouterr().out
+        assert "issue 898" in output
+        assert "1 checkpoints matched" in output
+
+    @patch("egg_contracts.checkpoint_cli._get_checkpoint_repo_from_args", return_value=(None, None))
+    @patch("egg_contracts.checkpoint_cli._http_get")
+    def test_search_http_no_matches(self, mock_http, _mock_repo, capsys):
+        """_cmd_search_http reports when no transcripts match."""
+        mock_http.side_effect = [
+            {"data": {"checkpoints": [{"id": "ckpt-http2222", "session_id": "s1"}]}},
+            {
+                "data": {
+                    "checkpoint": {
+                        "id": "ckpt-http2222",
+                        "transcript": {
+                            "messages": [
+                                {"role": "user", "content": "Something unrelated"},
+                            ]
+                        },
+                    }
+                }
+            },
+        ]
+
+        parser = create_parser()
+        args = parser.parse_args(["search", "--text", "nonexistent"])
+        result = _cmd_search_http(args, _TEST_GATEWAY_URL)
+
+        assert result == 0
+        output = capsys.readouterr().out
+        assert "No checkpoints found with transcript matching" in output
