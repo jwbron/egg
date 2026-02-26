@@ -61,6 +61,7 @@
 - Logic errors that produce incorrect results
 - Breaking changes to existing functionality
 - Resource leaks or crashes
+- Pre-existing broken or inconsistent behavior in code the PR modifies — if the PR touches code that already has bugs, incorrect behavior, or inconsistencies (e.g., different code paths producing different results for the same input), request changes to fix it. The PR is already in the area; this is the right time.
 
 **Non-blocking** (suggestions):
 - Code quality improvements (naming, structure, duplication)
@@ -68,6 +69,8 @@
 - Missing edge case handling that doesn't affect the core feature
 - Documentation gaps
 - Style or convention deviations not caught by linters
+
+**Do not dismiss issues as "not a regression"**: If a PR modifies code that has existing broken or inconsistent behavior, the issue is blocking even if the PR didn't introduce it. A PR that adds a new code path through already-inconsistent logic makes the inconsistency worse — it's not acceptable to ship it just because the bug was there before. The fact that the PR is already changing this code makes it the natural place to fix it.
 
 **Beware of false analogies**: When comparing new code to existing patterns, verify the analogy holds at the execution-model level. Two features may look structurally similar in config but have completely different execution paths. If the existing pattern works via mechanism A but the new code relies on mechanism B that doesn't exist, the comparison is invalid — classify based on actual functionality, not superficial similarity.
 

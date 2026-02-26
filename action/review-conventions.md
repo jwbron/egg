@@ -36,6 +36,8 @@ shell escaping issues. Always write to a file first, then use `--body-file`.
 
 **Key distinction**: A feature that doesn't work is a correctness issue, not a style issue. If the feature's core functionality is broken — not just degraded or missing edge cases — always request changes, even if the code structure looks reasonable or matches an existing pattern.
 
+**Pre-existing issues are still blocking**: If a PR modifies code that already has broken or inconsistent behavior, request changes to fix it — do not dismiss it as "not a regression." The PR is already in the area, making it the natural place to fix the issue. A PR that adds new code paths through already-broken logic makes the problem worse.
+
 ## Self-Authored PRs
 
 When reviewing a PR authored by the same bot account, **use `--comment` instead of
