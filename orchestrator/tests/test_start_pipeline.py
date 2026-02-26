@@ -394,7 +394,7 @@ class TestStartAwaitingHumanPipeline:
             phase=PipelinePhase.REFINE,
             resolution='{"action": "approve"}',
         )
-        mock_store = _setup_mocks(mock_get_repo, mock_resolve, pipeline)
+        _setup_mocks(mock_get_repo, mock_resolve, pipeline)
 
         resp = client.post("/api/v1/pipelines/issue-42/start")
 
@@ -417,7 +417,7 @@ class TestStartAwaitingHumanPipeline:
             phase=PipelinePhase.REFINE,
             resolution='{"action": "request_changes", "feedback": "Fix tests"}',
         )
-        mock_store = _setup_mocks(mock_get_repo, mock_resolve, pipeline)
+        _setup_mocks(mock_get_repo, mock_resolve, pipeline)
 
         resp = client.post("/api/v1/pipelines/issue-42/start")
 

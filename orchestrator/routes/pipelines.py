@@ -6611,8 +6611,7 @@ def start_pipeline(pipeline_id: str) -> tuple[Response, int]:
                 phase_gate_decisions = [
                     d
                     for d in reversed(pipeline.decisions)
-                    if d.decision_type == "phase_gate"
-                    and d.status.value == "resolved"
+                    if d.decision_type == "phase_gate" and d.status.value == "resolved"
                 ]
                 latest_resolution = (
                     phase_gate_decisions[0].resolution if phase_gate_decisions else None
