@@ -34,11 +34,11 @@ def _import_phase_filter(name: str) -> Any:
     try:
         mod = __import__("phase_filter", fromlist=[name])
         return getattr(mod, name, None)
-    except ImportError:
+    except Exception:
         try:
             mod = __import__("gateway.phase_filter", fromlist=[name])
             return getattr(mod, name, None)
-        except ImportError:
+        except Exception:
             return None
 
 

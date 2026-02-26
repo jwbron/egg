@@ -178,17 +178,32 @@ class TestWarnThenBlockLogic:
         assert blocked == ["config/settings.py"]
 
 
-class TestCheckpointBypass:
-    """Tests that checkpoint pushes should bypass per-task restrictions."""
+class TestInfrastructureBranchBypass:
+    """Tests that infrastructure branch pushes bypass per-task restrictions."""
 
     def test_checkpoint_branch_identified(self):
         """Checkpoint branch name matches the bypass condition."""
-        branch = "egg/checkpoints/v2"
-        is_checkpoint_push = branch == "egg/checkpoints/v2"
-        assert is_checkpoint_push is True
+        from egg_config.constants import CHECKPOINT_BRANCH, PIPELINE_STATE_BRANCH
 
-    def test_non_checkpoint_branch(self):
-        """Non-checkpoint branch does not trigger bypass."""
+        INFRASTRUCTURE_BRANCHES = {CHECKPOINT_BRANCH, PIPELINE_STATE_BRANCH}
+        branch = "egg/checkpoints/v2"
+        is_infrastructure_push = branch in INFRASTRUCTURE_BRANCHES
+        assert is_infrastructure_push is True
+
+    def test_pipeline_state_branch_identified(self):
+        """Pipeline state branch name matches the bypass condition."""
+        from egg_config.constants import CHECKPOINT_BRANCH, PIPELINE_STATE_BRANCH
+
+        INFRASTRUCTURE_BRANCHES = {CHECKPOINT_BRANCH, PIPELINE_STATE_BRANCH}
+        branch = "egg/pipeline-state"
+        is_infrastructure_push = branch in INFRASTRUCTURE_BRANCHES
+        assert is_infrastructure_push is True
+
+    def test_non_infrastructure_branch(self):
+        """Non-infrastructure branch does not trigger bypass."""
+        from egg_config.constants import CHECKPOINT_BRANCH, PIPELINE_STATE_BRANCH
+
+        INFRASTRUCTURE_BRANCHES = {CHECKPOINT_BRANCH, PIPELINE_STATE_BRANCH}
         branch = "egg/issue-912"
-        is_checkpoint_push = branch == "egg/checkpoints/v2"
-        assert is_checkpoint_push is False
+        is_infrastructure_push = branch in INFRASTRUCTURE_BRANCHES
+        assert is_infrastructure_push is False
