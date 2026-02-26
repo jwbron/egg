@@ -2,8 +2,8 @@
   "issue": 904,
   "phase": "plan",
   "agent": "architect",
-  "revision": 1,
-  "revision_reason": null,
+  "revision": 2,
+  "revision_reason": "Address two blocking review items: (1) Add path traversal validation to TASK-2-1 per risk analyst R-6, (2) Resolve TASK-3-2 Dockerfile ambiguity by committing to option (a) — a second RUN of docker-setup.py with --build-commands flag.",
   "title": "Architecture analysis: Build-time dependency installation via build_commands in repositories.yaml",
 
   "summary": "Add a `build_commands` configuration section to per-repo settings in `repositories.yaml` that allows users to specify dependency installation commands (e.g. `npm ci`, `pip install -r requirements.txt`) to run during the Docker image build phase. Watch files (e.g. lockfiles) are copied into the build context to enable Docker layer caching — deps only rebuild when watch files change. All repos' dependencies coexist in the single `egg` image. The recommended approach extends the existing `docker-setup.py` build script to handle `build_commands` for each repo, adds a new Dockerfile layer that copies watch files before running the build script, and extends `compute_build_hash()` to include watch file contents.",
@@ -16,7 +16,8 @@
       "Only watch files (not full repos) are copied during build — full repos are mounted at runtime",
       "Backwards compatible — repos without `build_commands` are unaffected",
       "Commands run as root during build, same as existing `docker-setup.py` execution context",
-      "Must work with the existing build hash system to detect when rebuilds are needed"
+      "Must work with the existing build hash system to detect when rebuilds are needed",
+      "Watch file paths must be validated to prevent path traversal outside the repo directory"
     ]
   },
 
@@ -33,7 +34,7 @@
         "name": "create_dockerfile()",
         "file": "sandbox/egg_lib/docker.py",
         "lines": "210-313",
-        "description": "Stages build context into ~/.cache/egg/. Copies sandbox files (docker-setup.py, claude-commands, claude-rules, runtime dirs, entrypoint.py, Dockerfile) and shared/ directory. Does NOT currently copy any repo-specific files."
+        "description": "Stages build context into ~/.cache/egg/. Copies sandbox files (docker-setup.py, claude-commands, claude-rules, runtime dirs, entrypoint.py, Dockerfile) and shared/ directory. Uses _copy_directory_atomic() with retry logic for race-condition safety. Does NOT currently copy any repo-specific files."
       },
       {
         "name": "build_image()",
@@ -45,19 +46,13 @@
         "name": "docker-setup.py",
         "file": "sandbox/docker-setup.py",
         "lines": "1-247",
-        "description": "Build-time script that installs core + extra OS packages. Reads repositories.yaml for docker_setup.extra_packages. Runs as root during docker build. Has load_config() and get_extra_packages() functions."
+        "description": "Build-time script that installs core + extra OS packages. Reads repositories.yaml for docker_setup.extra_packages. Runs as root during docker build. Has load_config(), get_extra_packages(), install_core_packages(), install_extra_packages(), and configure_system() functions. Called from Dockerfile lines 58-63."
       },
       {
         "name": "Dockerfile",
         "file": "sandbox/Dockerfile",
         "lines": "1-194",
-        "description": "Ubuntu 22.04 base. Installs dev tools → gh CLI → Python 3.11 → pyyaml → docker-setup.py → Python deps → Claude commands/rules → user creation → Claude Code CLI → runtime COPY → git/gh relocation → entrypoint. The docker-setup.py layer is near the top (line 58-63) for caching stability."
-      },
-      {
-        "name": "get_extra_packages()",
-        "file": "config/repo_config.py",
-        "lines": "n/a (function not present — extra_packages only parsed by docker-setup.py)",
-        "description": "docker-setup.py independently parses repositories.yaml for docker_setup.extra_packages. repo_config.py does not expose this — the build script loads config directly."
+        "description": "Ubuntu 22.04 base. Layer order: core utils (7-31) → gh CLI (33-39) → Python 3.11 (41-53) → pyyaml (55-56) → docker-setup.py for OS packages (58-63) → core Python deps (65-77) → PyPI pre-installs (79-104) → Claude commands/rules (110-118) → user creation (120-131) → Claude Code CLI (133-148) → runtime COPY (150-161) → git/gh relocation (163-170) → PYTHONPATH (172-174) → entrypoint (176-182). The docker-setup.py layer is near the top for caching stability."
       },
       {
         "name": "get_local_repos()",
@@ -78,7 +73,7 @@
     {
       "id": "A",
       "name": "Extend docker-setup.py to handle build_commands (Recommended)",
-      "description": "Extend the existing docker-setup.py build-time script to also read and execute `build_commands` from all `repo_settings` entries. Watch files are copied into the build context by `create_dockerfile()` from local repo paths. A new Dockerfile layer copies these watch files and runs docker-setup.py with a --build-commands flag (or a separate build-deps phase). The build hash includes watch file contents.",
+      "description": "Extend the existing docker-setup.py build-time script to also read and execute `build_commands` from a build-commands.json manifest. Watch files are copied into the build context by `create_dockerfile()` from local repo paths. A NEW Dockerfile layer (after the existing docker-setup.py layer and all toolchain installations) COPYs the watch files and manifest, then runs `docker-setup.py --build-commands` as a second invocation. The first docker-setup.py invocation (line 58-63) remains unchanged, preserving cache for OS packages.",
       "changes": [
         {
           "file": "config/repositories.yaml.example",
@@ -90,19 +85,19 @@
         },
         {
           "file": "sandbox/egg_lib/docker.py :: create_dockerfile()",
-          "description": "Extend to copy watch files from local repo paths into the build context. For each repo with build_commands, copy watch_files from local_repos.paths into ~/.cache/egg/repo-deps/<repo-name>/. Must resolve repo name to local path."
+          "description": "Extend to: (1) copy watch files from local repo paths into build context with path traversal validation, (2) generate build-commands.json manifest with explicit field allowlisting"
         },
         {
           "file": "sandbox/egg_lib/docker.py :: compute_build_hash()",
-          "description": "Extend to hash watch file contents from the build context (the copied repo-deps/ directory). Also hash the build_commands config itself so command changes trigger rebuild."
+          "description": "Extend to hash watch file contents from the build context (repo-deps/ directory) and the build_commands config (serialized JSON)"
         },
         {
           "file": "sandbox/docker-setup.py",
-          "description": "Add install_build_commands() function that iterates repo_settings, changes to each repo's watch-file directory (as a working dir stand-in), and runs each command. Add get_build_commands() to parse the config."
+          "description": "Add --build-commands CLI flag, install_build_commands() function that reads the manifest, and get_build_commands() to parse it. When invoked with --build-commands, ONLY runs build commands (not OS packages)."
         },
         {
           "file": "sandbox/Dockerfile",
-          "description": "Add a new layer after the existing docker-setup.py layer that: (1) COPYs the repo-deps/ directory, (2) runs docker-setup.py --build-commands (or a separate script) to execute build commands. This layer must come AFTER Python/Node/Go are installed but BEFORE the frequently-changing COPY . layer."
+          "description": "Add a new layer after the PyPI pre-installs (after line 104) that: (1) COPYs repo-deps/ to /tmp/repo-deps/, (2) COPYs build-commands.json to /tmp/, (3) COPYs docker-setup.py again, (4) RUNs docker-setup.py --build-commands && rm docker-setup.py build-commands.json. This is a SECOND invocation of docker-setup.py, separate from the existing one at line 58-63."
         },
         {
           "file": "sandbox/README.md",
@@ -112,13 +107,15 @@
       "pros": [
         "Minimally invasive — extends existing patterns (docker-setup.py already reads config and installs packages)",
         "Docker layer caching works naturally — watch files are COPYd before RUN, so Docker only rebuilds when files change",
-        "Single build script handles both OS packages and project dependencies",
+        "Existing docker-setup.py layer (OS packages) is completely unchanged — cache preserved",
+        "The second invocation is a clean separation: OS packages vs project dependencies",
         "No new scripts or binaries needed",
         "Build hash system naturally extends to include watch files"
       ],
       "cons": [
         "docker-setup.py grows in complexity (but still manageable at ~350 lines total)",
-        "Watch file resolution requires mapping repo name → local path, which means create_dockerfile() needs to read config"
+        "Watch file resolution requires mapping repo name to local path, which means create_dockerfile() needs to read config",
+        "docker-setup.py is COPYd twice in the Dockerfile (once for OS packages, once for build commands)"
       ],
       "risk": "low"
     },
@@ -126,36 +123,6 @@
       "id": "B",
       "name": "New dedicated build-deps.py script",
       "description": "Create a new sandbox/build-deps.py script specifically for project-level dependency installation. This script would be separate from docker-setup.py (which stays focused on OS packages). The Dockerfile would have a dedicated layer that runs build-deps.py after docker-setup.py.",
-      "changes": [
-        {
-          "file": "config/repositories.yaml.example",
-          "description": "Same as Approach A"
-        },
-        {
-          "file": "config/repo_config.py",
-          "description": "Same as Approach A"
-        },
-        {
-          "file": "sandbox/egg_lib/docker.py :: create_dockerfile()",
-          "description": "Same as Approach A, plus copy build-deps.py to build context"
-        },
-        {
-          "file": "sandbox/egg_lib/docker.py :: compute_build_hash()",
-          "description": "Same as Approach A, plus include build-deps.py in hash"
-        },
-        {
-          "file": "sandbox/build-deps.py (NEW)",
-          "description": "New script that reads config, iterates repos with build_commands, and executes commands in the watch-file directories"
-        },
-        {
-          "file": "sandbox/Dockerfile",
-          "description": "Add COPY + RUN layer for build-deps.py"
-        },
-        {
-          "file": "sandbox/README.md",
-          "description": "Document the build_commands feature"
-        }
-      ],
       "pros": [
         "Clean separation of concerns — OS packages vs project dependencies",
         "Easier to test independently",
@@ -172,40 +139,16 @@
     {
       "id": "C",
       "name": "Dynamic Dockerfile generation with per-repo COPY+RUN layers",
-      "description": "Instead of a static Dockerfile, dynamically generate Dockerfile content in create_dockerfile() that includes per-repo COPY and RUN instructions. Each repo's watch files would get their own COPY layer, and each repo's commands would get their own RUN layer. This maximizes cache granularity — changing repo A's lockfile only rebuilds repo A's deps.",
-      "changes": [
-        {
-          "file": "config/repositories.yaml.example",
-          "description": "Same as Approach A"
-        },
-        {
-          "file": "config/repo_config.py",
-          "description": "Same as Approach A"
-        },
-        {
-          "file": "sandbox/egg_lib/docker.py :: create_dockerfile()",
-          "description": "Major rework: instead of copying a static Dockerfile, generate Dockerfile content dynamically. Read config, for each repo with build_commands, emit COPY + RUN lines."
-        },
-        {
-          "file": "sandbox/egg_lib/docker.py :: compute_build_hash()",
-          "description": "Same as Approach A"
-        },
-        {
-          "file": "sandbox/Dockerfile",
-          "description": "Convert to a template or generate entirely in Python"
-        }
-      ],
+      "description": "Instead of a static Dockerfile, dynamically generate Dockerfile content in create_dockerfile() that includes per-repo COPY and RUN instructions.",
       "pros": [
         "Maximum cache granularity — per-repo layers",
-        "Changing one repo's deps doesn't rebuild another's",
         "Most Docker-native approach"
       ],
       "cons": [
         "Significantly more complex — Dockerfile becomes dynamically generated",
         "Harder to debug (generated Dockerfiles are opaque)",
         "Breaks the current pattern of static Dockerfile copied to build context",
-        "Over-engineering for the typical 1-3 repos case",
-        "Template rendering adds fragility"
+        "Over-engineering for the typical 1-3 repos case"
       ],
       "risk": "medium"
     }
@@ -219,7 +162,7 @@
       {
         "id": "task-1",
         "title": "Add build_commands to config schema and parser",
-        "description": "Add build_commands (with watch_files and commands sub-keys) to repo_settings in repositories.yaml.example. Add get_repo_build_commands(repo) and get_all_build_commands() to config/repo_config.py. Include validation (watch_files must be a list of strings, commands must be a list of strings).",
+        "description": "Add build_commands (with watch_files and commands sub-keys) to repo_settings in repositories.yaml.example. Add get_repo_build_commands(repo) and get_all_build_commands() to config/repo_config.py. Include validation (watch_files must be a list of strings, commands must be a list of strings). Emit clear errors for type mismatches.",
         "files": [
           "config/repositories.yaml.example",
           "config/repo_config.py"
@@ -228,18 +171,18 @@
       },
       {
         "id": "task-2",
-        "title": "Copy watch files into build context",
-        "description": "Extend create_dockerfile() to: (1) read build_commands config for all repos, (2) resolve each repo name to a local path via local_repos.paths (matching by repo name == directory name), (3) copy each repo's watch_files from the local path into ~/.cache/egg/repo-deps/<repo-name>/. Handle missing watch files gracefully (warn but don't fail). The repo-deps/ directory in the build context will be the working directory during build commands.",
+        "title": "Copy watch files into build context with path traversal validation",
+        "description": "Extend create_dockerfile() to: (1) read build_commands config for all repos, (2) resolve each repo name to a local path via local_repos.paths (matching by repo name == directory name), (3) VALIDATE that all watch_files paths, after resolution against the repo's local directory, remain within that directory using Path.resolve() and is_relative_to(repo_base_path) — reject paths that escape with a clear error, (4) copy each repo's validated watch_files from the local path into ~/.cache/egg/repo-deps/<repo-name>/, (5) generate a build-commands.json manifest with explicit field allowlisting (repo name, commands, workdir only — no other repo_settings fields). Handle missing watch files gracefully (warn but don't fail). Use _copy_directory_atomic() or equivalent atomic pattern for race-condition safety.",
         "files": [
           "sandbox/egg_lib/docker.py"
         ],
         "estimated_complexity": "medium",
-        "design_notes": "Mapping repo name (e.g., 'your-org/web-app') to a local path requires scanning local_repos.paths for a directory whose name matches the repo part after '/'. If a repo is in repo_settings but not in local_repos.paths, skip it with a warning (it won't have watch files to copy)."
+        "design_notes": "PATH TRAVERSAL VALIDATION (R-6, DD-8): For each watch_file path, compute `(repo_local_path / watch_file).resolve()` and verify `resolved.is_relative_to(repo_local_path.resolve())`. If a path escapes (e.g., '../../etc/passwd'), reject it with a clear error message naming the offending path and repo. Also reject paths containing null bytes. MANIFEST SECURITY (R-3, DD-6): The build-commands.json manifest must be constructed by explicitly selecting only {repo_name, watch_files, commands} — use an allowlist, not a denylist."
       },
       {
         "id": "task-3",
         "title": "Extend build hash to include watch files and build_commands config",
-        "description": "Extend compute_build_hash() to: (1) hash the contents of all watch files copied to the build context (repo-deps/ directory), (2) hash the build_commands configuration itself (serialized as JSON). This ensures that changes to either the watch files or the commands trigger a rebuild.",
+        "description": "Extend compute_build_hash() to: (1) hash the contents of all watch files copied to the build context (repo-deps/ directory), (2) hash the build_commands configuration itself (serialized as stable JSON — sorted keys). This ensures that changes to either the watch files or the commands trigger a rebuild.",
         "files": [
           "sandbox/egg_lib/docker.py"
         ],
@@ -247,28 +190,28 @@
       },
       {
         "id": "task-4",
-        "title": "Extend docker-setup.py to execute build_commands",
-        "description": "Add install_build_commands() function to docker-setup.py. It should: (1) read build_commands from all repo_settings entries, (2) for each repo with build_commands, cd to /tmp/repo-deps/<repo-name>/ (where watch files were copied), (3) execute each command sequentially via subprocess, (4) handle failures gracefully (log and continue or fail depending on a strict flag). Also add get_build_commands() to parse the config. The main() function should call install_build_commands() after install_extra_packages().",
+        "title": "Extend docker-setup.py to execute build_commands via --build-commands flag",
+        "description": "Add a --build-commands CLI flag to docker-setup.py. When invoked with this flag, the script ONLY runs build commands (not OS packages). Add get_build_commands() function that reads /tmp/build-commands.json manifest. Add install_build_commands(entries) function that iterates entries, cd's to workdir, and runs each command via subprocess.run(shell=True, check=False) with logging. Log failures prominently. Print summary at end. The main() function dispatches based on --build-commands flag.",
         "files": [
           "sandbox/docker-setup.py"
         ],
         "estimated_complexity": "medium",
-        "design_notes": "Commands run as root during build. The working directory is the watch-file directory, which has the dependency files (package-lock.json, requirements.txt, etc.) but NOT the full repo source. Commands like 'npm ci' or 'pip install -r requirements.txt' work fine with just these files. Commands like 'make deps' that need a Makefile would need that file listed in watch_files. Installed packages go to system paths (/usr/lib, /usr/local/lib, node_modules may need special handling — see design decisions)."
+        "design_notes": "The --build-commands flag creates a clean dispatch: FIRST invocation (Dockerfile line 58-63) runs without flag → OS packages. SECOND invocation (new layer) runs with --build-commands → project dependencies. Existing code path is unchanged."
       },
       {
         "id": "task-5",
         "title": "Add Dockerfile layer for repo dependency installation",
-        "description": "Add a new layer to the Dockerfile that: (1) COPYs repo-deps/ directory into /tmp/repo-deps/ (before the RUN command, enabling Docker layer caching on watch file contents), (2) runs docker-setup.py with a --build-commands flag (or unconditionally — it can detect if there are build_commands to run). This layer should be placed after Python/Node/Go toolchains are installed (after the existing docker-setup.py layer and Python deps layers) but before the frequently-changing COPY . layer.",
+        "description": "Add a new layer to the Dockerfile after the PyPI pre-installs (after line 104, before Claude commands COPY at line 110). Exact Dockerfile addition:\n\n# --- Phase: Project dependency installation (build_commands) ---\nCOPY sandbox/repo-deps/ /tmp/repo-deps/\nCOPY sandbox/build-commands.json /tmp/build-commands.json\nCOPY sandbox/docker-setup.py /tmp/docker-setup.py\nRUN python3 /tmp/docker-setup.py --build-commands \\\n    && rm -f /tmp/docker-setup.py /tmp/build-commands.json\n\nThis is a SECOND invocation of docker-setup.py. The existing invocation at lines 58-63 is unchanged.",
         "files": [
           "sandbox/Dockerfile"
         ],
         "estimated_complexity": "low",
-        "design_notes": "The repo-deps/ COPY must come before the RUN so Docker can cache on file content changes. If no repos have build_commands, the directory will be empty and the layer will be a no-op (fast). The existing docker-setup.py execution (line 58-63) installs OS packages. The new layer runs dependency commands after toolchains are available."
+        "design_notes": "docker-setup.py is COPYd twice intentionally: once for the OS package layer (stable cache), once for the build-commands layer (changes when deps change). Two separate cache layers with different invalidation triggers. If no repos have build_commands, the repo-deps/ and manifest are empty — the layer is a fast no-op."
       },
       {
         "id": "task-6",
         "title": "Add tests for new functionality",
-        "description": "Add tests for: (1) get_repo_build_commands() and get_all_build_commands() in config, (2) watch file copying logic in create_dockerfile(), (3) build hash changes when watch files or build_commands change, (4) docker-setup.py get_build_commands() and install_build_commands() (mocked subprocess). Follow existing test patterns in tests/sandbox/test_docker.py and tests/sandbox/test_docker_setup.py.",
+        "description": "Add tests for: (1) get_repo_build_commands() and get_all_build_commands() config parsing and validation, (2) watch file copying in create_dockerfile() including path traversal rejection, (3) build hash changes when watch files or build_commands change, (4) docker-setup.py --build-commands dispatch, get_build_commands(), and install_build_commands() (mocked subprocess), (5) SECURITY TEST: watch_files with '../../etc/passwd' must be rejected with error — verify the file is NOT copied to the build context.",
         "files": [
           "tests/config/test_repo_config.py",
           "tests/sandbox/test_docker.py",
@@ -295,8 +238,8 @@
     {
       "id": "DD-1",
       "question": "How to map repo names to local paths for watch file copying",
-      "decision": "Match the repo name (part after '/') against local_repos.paths directory names. For 'your-org/web-app', look for a directory named 'web-app' in local_repos.paths. If multiple matches exist, use the first. If no match, skip with a warning.",
-      "rationale": "This is the simplest approach that works for the common case. The local_repos.paths list already contains the local paths to repos. Directory names conventionally match the repo name. Edge cases (same repo name in different orgs) are rare and can be handled later if needed.",
+      "decision": "Match the repo name (part after '/') against local_repos.paths directory names. For 'your-org/web-app', look for a directory named 'web-app' in local_repos.paths. If multiple matches exist, use the first. If no match, skip with a prominent warning including the repo name and paths searched.",
+      "rationale": "Simplest approach for the common case. Directory names conventionally match the repo name.",
       "alternatives_considered": [
         "Add an explicit local_path to repo_settings — more explicit but adds config burden",
         "Use git remote to match — requires git access during build which isn't available"
@@ -305,62 +248,91 @@
     {
       "id": "DD-2",
       "question": "Where do dependency artifacts go (node_modules, venv, etc.)",
-      "decision": "Dependencies install to system-global paths during build. npm ci installs to /tmp/repo-deps/<repo>/node_modules (then the actual node_modules is populated at runtime when the repo is mounted). pip install goes to system site-packages. The build is about pre-populating caches and system packages, not about creating working directories.",
-      "rationale": "The repos are mounted at runtime, not during build. Build commands that produce directory-local artifacts (like node_modules in the repo directory) won't persist because the build directory is /tmp/repo-deps/. For pip, this works naturally (packages go to system site-packages). For npm, users should use --global or the npm cache will be warm so runtime install is fast. For Python venvs, pip install to system packages is the intended use.",
-      "note": "This is a key UX consideration: users need to understand that build_commands operate in a directory with ONLY the watch files, not the full repo. Commands should install to system paths. Document this clearly."
+      "decision": "Dependencies install to system-global paths during build. pip install goes to system site-packages. npm ci warms the npm cache. Document the pip vs npm asymmetry and the --prefer-offline pattern for npm.",
+      "rationale": "Repos are mounted at runtime, not during build. pip works naturally (system site-packages). npm requires cache-warming + runtime --prefer-offline.",
+      "note": "Key UX consideration: document that build_commands operate in a directory with ONLY the watch files (CC-1)."
     },
     {
       "id": "DD-3",
       "question": "Should build_commands failure be fatal?",
-      "decision": "Default to non-fatal (warn and continue), matching the existing extra_packages behavior (check=False on line 152 of docker-setup.py). Log the failure clearly but don't abort the entire build.",
-      "rationale": "Build failures for one repo shouldn't prevent the container from starting. The user will see the warning in build output and can fix their commands. This matches the existing extra_packages behavior."
+      "decision": "Default to non-fatal (warn and continue). Log failures prominently with command, exit code, and stderr. Print summary at end listing all failed commands.",
+      "rationale": "Consistent with existing extra_packages behavior (check=False). Prominent logging addresses R-5."
     },
     {
       "id": "DD-4",
       "question": "Where to place the new Dockerfile layer",
-      "decision": "Place after the Python dependencies layer (after line 104) and before the Claude commands COPY (line 111). This ensures Python, Node (if installed via extra_packages), and other toolchains are available when build commands run.",
-      "rationale": "Build commands like 'pip install -r requirements.txt' need Python available. Commands like 'npm ci' need Node available (installed via extra_packages). Placing the layer after all toolchain installations but before the frequently-changing layers maximizes caching benefit."
+      "decision": "After PyPI pre-installs (line 104), before Claude commands COPY (line 110).",
+      "rationale": "All toolchains (Python, pip, and any extra_packages runtimes) are available. Maximizes cache reuse."
     },
     {
       "id": "DD-5",
       "question": "How to pass config to docker-setup.py for the build_commands phase",
-      "decision": "docker-setup.py already loads config via load_config(). For build_commands, it reads from the same config. The repo-deps/ directory is at a known path (/tmp/repo-deps/) inside the container during build. No additional config mechanism needed.",
-      "rationale": "Reuses the existing config loading pattern. The config file is already accessible during build (repositories.yaml is in the host's ~/.config/egg/ and can be mounted or copied to build context if needed).",
-      "note": "Important consideration: during docker build, repositories.yaml may not be at the standard path. Currently docker-setup.py tries multiple paths including ~/repos/egg/config/repositories.yaml. We may need to COPY the config into the build context (create_dockerfile would handle this) or pass build_commands as a build arg."
+      "decision": "Superseded by DD-6. Use the build-commands.json manifest approach.",
+      "rationale": "repositories.yaml may not be at the standard path during docker build."
     },
     {
       "id": "DD-6",
       "question": "How to pass build_commands configuration into the Docker build",
-      "decision": "Write a build-commands.json manifest to the build context (alongside Dockerfile) that contains all repos' build_commands. docker-setup.py reads this file instead of parsing repositories.yaml for build commands. create_dockerfile() generates this manifest.",
-      "rationale": "repositories.yaml may not be available during docker build (it's a host-side config file). Rather than COPYing the entire config (which contains tokens and sensitive info), we generate a minimal manifest with only the build-relevant data. This also decouples the build script from the full config schema. The manifest approach is already used for other build-time data passing."
+      "decision": "Write a build-commands.json manifest containing ONLY {repo_name, watch_files, commands} per repo. Explicit field allowlisting — never serialize the full repo_settings. Manifest is deleted after the build layer (rm in the RUN command).",
+      "rationale": "Avoids copying sensitive data from repositories.yaml into Docker image layers. Allowlist approach prevents accidental leakage."
+    },
+    {
+      "id": "DD-7",
+      "question": "How to structure the Dockerfile for build_commands execution",
+      "decision": "Add a SECOND invocation of docker-setup.py with a --build-commands flag in a new Dockerfile layer. The existing docker-setup.py layer (lines 58-63, OS packages) is completely unchanged.",
+      "rationale": "Cleanest approach: (1) existing OS package layer cache is fully preserved, (2) two invocations have different cache characteristics (OS packages rarely change; watch files change when deps update), (3) COPYing docker-setup.py again is standard Docker pattern for multi-use scripts, (4) --build-commands flag creates clean dispatch without affecting existing code path.",
+      "dockerfile_pseudocode": "# After line 104 (PyPI pre-installs), before line 110 (Claude commands):\n# --- Project dependency installation (build_commands) ---\nCOPY sandbox/repo-deps/ /tmp/repo-deps/\nCOPY sandbox/build-commands.json /tmp/build-commands.json\nCOPY sandbox/docker-setup.py /tmp/docker-setup.py\nRUN python3 /tmp/docker-setup.py --build-commands \\\n    && rm -f /tmp/docker-setup.py /tmp/build-commands.json"
+    },
+    {
+      "id": "DD-8",
+      "question": "How to validate watch_files paths against path traversal",
+      "decision": "For each watch_file path, compute (repo_local_path / watch_file).resolve() and verify resolved.is_relative_to(repo_local_path.resolve()). Reject paths that escape with a clear error. Also reject paths containing null bytes.",
+      "rationale": "Standard path traversal prevention (R-6). Without validation, paths like '../../.ssh/id_rsa' could copy arbitrary host files into Docker image layers. is_relative_to() (Python 3.9+) is the canonical containment check.",
+      "implementation_pattern": "repo_base = repo_local_path.resolve()\nfor watch_file in watch_files:\n    if '\\x00' in str(watch_file):\n        raise ValueError(f'Null byte in watch_file path: {watch_file}')\n    resolved = (repo_local_path / watch_file).resolve()\n    if not resolved.is_relative_to(repo_base):\n        raise ValueError(\n            f'Watch file path escapes repo directory: {watch_file} '\n            f'(resolved to {resolved}, repo base is {repo_base})'\n        )"
     }
   ],
 
   "risks_and_mitigations": [
     {
+      "risk": "Path traversal via watch_files (R-6)",
+      "severity": "high",
+      "status": "mitigated_in_plan",
+      "mitigation": "ADDRESSED IN REVISION 2. TASK-2 requires Path.resolve() + is_relative_to() validation for all watch_files paths. Paths escaping the repo directory are rejected with a clear error. DD-8 specifies the implementation pattern. TASK-6 includes path traversal test cases. Acceptance criteria for TASK-2: 'Watch file paths that escape the repo directory (e.g., ../../etc/passwd) are rejected with an error.'"
+    },
+    {
+      "risk": "Sensitive data leakage via build-commands.json manifest (R-3)",
+      "severity": "high",
+      "mitigation": "Manifest generation uses explicit field allowlisting: only {repo_name, watch_files, commands}. DD-6 specifies this. Code review should verify no other repo_settings fields leak."
+    },
+    {
       "risk": "Build commands may fail in the watch-file-only directory",
       "severity": "medium",
-      "mitigation": "Document clearly that the working directory contains only watch_files, not the full repo. Provide examples showing which commands work (pip install -r, npm ci) vs which don't (make with source deps). Consider adding a note about 'npm ci --ignore-scripts' for Node projects that have post-install scripts requiring source."
+      "mitigation": "Document clearly that the working directory contains only watch_files. Provide examples of what works (pip install -r, npm ci) vs what doesn't."
     },
     {
-      "risk": "Stale watch files if user forgets to rebuild after changing deps",
-      "severity": "low",
-      "mitigation": "The build hash system handles this automatically — compute_build_hash() will include watch file contents, so running egg will detect changes and trigger a rebuild."
-    },
-    {
-      "risk": "Config not available during Docker build",
+      "risk": "npm/node_modules artifacts lost at runtime mount (R-1)",
       "severity": "medium",
-      "mitigation": "Use the build-commands.json manifest approach (DD-6). create_dockerfile() generates the manifest from host-side config. The manifest is COPY'd into the build context. docker-setup.py reads the manifest, not the raw config."
+      "mitigation": "Document pip vs npm asymmetry. For npm, document cache-warming and --prefer-offline pattern."
     },
     {
-      "risk": "Node.js/Go/other runtimes may not be installed when build_commands run",
-      "severity": "medium",
-      "mitigation": "Document that runtimes must be installed first (via docker_setup.extra_packages or the Dockerfile base layers). The Dockerfile layer order ensures Python is always available. For Node, users need to add nodejs to extra_packages.apt. Consider adding a validation warning at build time if a build command uses a tool that isn't in the image."
-    },
-    {
-      "risk": "Security — arbitrary command execution during build",
+      "risk": "Stale watch files if user forgets to rebuild",
       "severity": "low",
-      "mitigation": "Commands come from the user's own repositories.yaml, which is a trusted configuration file. This is no different from the existing extra_packages feature which runs apt install with user-specified packages. The build runs in Docker with no access to host secrets beyond the config file."
+      "mitigation": "Build hash system handles this automatically."
+    },
+    {
+      "risk": "Build hash may miss command-only changes (R-7)",
+      "severity": "medium",
+      "mitigation": "Hash the full build_commands config as serialized JSON (sorted keys), not just watch file contents."
+    },
+    {
+      "risk": "Silent failure of build commands (R-5)",
+      "severity": "medium",
+      "mitigation": "Log failures prominently with command, exit code, stderr. Print summary listing all failed commands."
+    },
+    {
+      "risk": "Concurrent egg instances race on build context (R-10)",
+      "severity": "low",
+      "mitigation": "Use _copy_directory_atomic() or equivalent for watch file copying."
     }
   ],
 
@@ -376,15 +348,15 @@
       },
       {
         "file": "sandbox/egg_lib/docker.py",
-        "reason": "Extend create_dockerfile() to copy watch files and generate manifest; extend compute_build_hash() to include watch files and build commands"
+        "reason": "Extend create_dockerfile() to copy watch files (with path traversal validation) and generate manifest; extend compute_build_hash() to include watch files and build commands"
       },
       {
         "file": "sandbox/docker-setup.py",
-        "reason": "Add build_commands execution logic (install_build_commands, get_build_commands)"
+        "reason": "Add --build-commands flag, get_build_commands(), and install_build_commands()"
       },
       {
         "file": "sandbox/Dockerfile",
-        "reason": "Add repo-deps COPY layer and build-commands RUN layer"
+        "reason": "Add repo-deps COPY + build-commands.json COPY + docker-setup.py --build-commands RUN layer"
       }
     ],
     "should_modify": [
@@ -398,21 +370,17 @@
       },
       {
         "file": "tests/sandbox/test_docker.py",
-        "reason": "Add tests for watch file copying and build hash extension"
+        "reason": "Add tests for watch file copying, path traversal rejection, manifest generation, and build hash extension"
       },
       {
         "file": "tests/sandbox/test_docker_setup.py",
-        "reason": "Add tests for build_commands parsing and execution"
+        "reason": "Add tests for --build-commands dispatch, get_build_commands(), and install_build_commands()"
       }
     ],
     "may_need_modification": [
       {
         "file": "shared/egg_config/config.py",
         "reason": "May need a helper to resolve repo name to local path if the mapping logic is shared"
-      },
-      {
-        "file": "shared/egg_config/validators.py",
-        "reason": "May want to add validate_build_commands() for consistent validation"
       }
     ]
   },
@@ -421,14 +389,14 @@
     {
       "id": "OQ-1",
       "question": "Should npm dependencies be installed globally or should we use a persistent npm cache?",
-      "context": "npm ci installs to ./node_modules relative to the working directory. During build, the working directory is /tmp/repo-deps/<repo>/ which has package.json and package-lock.json. The resulting node_modules won't be in the right place at runtime when the actual repo is mounted. Options: (a) install to a global npm prefix, (b) warm the npm cache so runtime 'npm ci' is fast, (c) install to a well-known path and symlink at container startup.",
-      "recommendation": "Option (b) — warm the npm cache. Run 'npm ci' during build (even though node_modules goes to /tmp/repo-deps/), which populates the npm cache. Then at runtime, 'npm ci' reads from cache and is near-instant. This is the most robust approach."
+      "context": "npm ci installs to ./node_modules relative to the working directory. The build directory won't persist at runtime when the actual repo is mounted.",
+      "recommendation": "Option (b) — warm the npm cache. Run 'npm ci' during build to populate the cache. At runtime, 'npm ci --prefer-offline' reads from cache. Document this pattern clearly."
     },
     {
       "id": "OQ-2",
-      "question": "Should we support a 'run_as' option for build commands (root vs user)?",
-      "context": "docker-setup.py runs as root. Some package managers (npm) prefer non-root execution. pip works fine as root. Go modules work as either.",
-      "recommendation": "Start with root-only (matching existing pattern). Add run_as support later if users request it. Root is simpler and works for all common cases."
+      "question": "Should we support a 'run_as' option for build commands?",
+      "context": "docker-setup.py runs as root. Some package managers prefer non-root.",
+      "recommendation": "Start with root-only. Add run_as support later if requested."
     }
   ],
 
@@ -437,17 +405,45 @@
       "Config parsing: get_repo_build_commands returns correct structure for valid config, empty for missing config, handles malformed entries",
       "get_all_build_commands: collects build_commands from all repo_settings entries",
       "Watch file copying: create_dockerfile copies correct watch files to build context, handles missing files gracefully",
-      "Build hash: hash changes when watch files change, hash changes when build_commands change, hash stable when nothing changes",
-      "docker-setup.py: get_build_commands parses manifest correctly, install_build_commands runs commands in correct directory"
+      "Path traversal rejection: watch_files with '../../etc/passwd' are rejected with ValueError. Paths with '../sibling-repo/file' are rejected. Valid relative paths within repo directory are accepted. Paths with null bytes are rejected.",
+      "Manifest generation: build-commands.json contains only {repo_name, watch_files, commands} — no other fields from repo_settings",
+      "Build hash: hash changes when watch files change, hash changes when build_commands change (commands list, watch_files list, new repo added), hash stable when nothing changes",
+      "docker-setup.py --build-commands: dispatches to install_build_commands() and does NOT run install_core_packages or install_extra_packages",
+      "docker-setup.py (no flag): existing behavior is unchanged",
+      "install_build_commands: runs commands in correct directory, logs failures prominently, continues on failure"
     ],
     "integration_tests": [
       "Full build with build_commands config: verify image contains installed dependencies",
       "Cache invalidation: modify watch file, verify rebuild triggers"
     ],
     "manual_tests": [
-      "Configure build_commands for a Python project, verify pip packages are available in container",
+      "Configure build_commands for a Python project, verify pip packages available in container",
       "Configure build_commands for a Node project, verify npm cache is warm",
-      "Remove build_commands config, verify backwards compatibility"
+      "Remove build_commands config, verify backwards compatibility",
+      "Configure watch_files with path traversal attempt, verify rejection"
     ]
-  }
+  },
+
+  "revision_changelog": [
+    {
+      "revision": 2,
+      "changes": [
+        {
+          "area": "TASK-2 (watch file copying) + DD-8",
+          "change": "Added explicit path traversal validation requirement. All watch_files paths must be validated with Path.resolve() + is_relative_to(repo_base_path). Paths escaping the repo directory are rejected with a clear error. Added DD-8 design decision with implementation pattern. Added path traversal test cases to TASK-6 and testing_strategy. Added acceptance criteria: 'Watch file paths that escape the repo directory (e.g., ../../etc/passwd) are rejected with an error.'",
+          "reason": "Risk analyst flagged R-6 as blocking for human review. Plan reviewer required this be addressed."
+        },
+        {
+          "area": "TASK-5 (Dockerfile layer) + DD-7",
+          "change": "Resolved Dockerfile approach ambiguity. Committed to option (a): a SECOND RUN of docker-setup.py with --build-commands flag in a new Dockerfile layer. Added DD-7 with explicit Dockerfile pseudo-code. Updated TASK-4 to describe --build-commands flag dispatch. Updated TASK-5 with exact Dockerfile pseudo-code.",
+          "reason": "Plan reviewer flagged the 'or' language between restructuring vs adding a second RUN as blocking ambiguity."
+        },
+        {
+          "area": "Constraints + Risks",
+          "change": "Added path traversal constraint to problem_statement.constraints. Updated R-6 risk to status 'mitigated_in_plan'.",
+          "reason": "Security constraint was implicit; now explicit."
+        }
+      ]
+    }
+  ]
 }
