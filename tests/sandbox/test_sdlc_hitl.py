@@ -566,30 +566,43 @@ class TestLaunchClaude:
     """Unit tests for _launch_claude command construction."""
 
     @patch("egg_lib.sdlc_hitl.subprocess.run")
-    def test_with_draft_context(self, mock_run, tmp_path):
-        """When draft_rel is provided, --append-system-prompt is added."""
+    @patch("llm.runner.shutil.which", return_value="/usr/bin/claude")
+    def test_with_draft_context(self, mock_which, mock_run, tmp_path):
+        """When draft_rel is provided, --append-system-prompt includes rules and context."""
         _launch_claude(tmp_path, draft_rel="drafts/42-analysis.md", phase="refine", issue_number=42)
         mock_run.assert_called_once()
         cmd = mock_run.call_args[0][0]
-        assert cmd[0] == "claude"
+        assert cmd[0] == "/usr/bin/claude"
+        assert "--dangerously-skip-permissions" in cmd
         assert "--append-system-prompt" in cmd
         prompt_idx = cmd.index("--append-system-prompt")
         prompt_text = cmd[prompt_idx + 1]
+        # Rules text should be included
+        assert "HITL Draft Editing Session" in prompt_text
+        # Context-specific parts
         assert "refine" in prompt_text
         assert "#42" in prompt_text
         assert "drafts/42-analysis.md" in prompt_text
 
     @patch("egg_lib.sdlc_hitl.subprocess.run")
-    def test_without_draft_context(self, mock_run, tmp_path):
-        """When draft_rel is None, bare 'claude' command is used."""
+    @patch("llm.runner.shutil.which", return_value="/usr/bin/claude")
+    def test_without_draft_context(self, mock_which, mock_run, tmp_path):
+        """When draft_rel is None, command still includes rules via --append-system-prompt."""
         _launch_claude(tmp_path, draft_rel=None, phase="implement", issue_number=10)
         mock_run.assert_called_once()
         cmd = mock_run.call_args[0][0]
-        assert cmd == ["claude"]
+        assert cmd[0] == "/usr/bin/claude"
+        assert "--dangerously-skip-permissions" in cmd
+        # Rules are still injected even without a draft
+        assert "--append-system-prompt" in cmd
+        prompt_idx = cmd.index("--append-system-prompt")
+        prompt_text = cmd[prompt_idx + 1]
+        assert "HITL Draft Editing Session" in prompt_text
         assert mock_run.call_args[1]["cwd"] == str(tmp_path)
 
     @patch("egg_lib.sdlc_hitl.subprocess.run")
-    def test_with_draft_but_no_phase_or_issue(self, mock_run, tmp_path):
+    @patch("llm.runner.shutil.which", return_value="/usr/bin/claude")
+    def test_with_draft_but_no_phase_or_issue(self, mock_which, mock_run, tmp_path):
         """When draft_rel is set but phase/issue are None, prompt still includes draft."""
         _launch_claude(tmp_path, draft_rel="drafts/1-plan.md", phase=None, issue_number=None)
         mock_run.assert_called_once()
@@ -601,6 +614,15 @@ class TestLaunchClaude:
         # Phase and issue should not appear in the prompt
         assert "Current phase:" not in prompt_text
         assert "Issue: #" not in prompt_text
+
+    @patch("egg_lib.sdlc_hitl.subprocess.run")
+    @patch("llm.runner.shutil.which", return_value=None)
+    def test_claude_not_found(self, mock_which, mock_run, tmp_path, capsys):
+        """When claude binary is not found, prints error and returns."""
+        _launch_claude(tmp_path, draft_rel="drafts/1-plan.md")
+        mock_run.assert_not_called()
+        captured = capsys.readouterr()
+        assert "Claude CLI not found" in captured.out
 
 
 # ---------------------------------------------------------------------------

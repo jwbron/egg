@@ -335,20 +335,36 @@ def _launch_claude(
     issue_number: int | None = None,
 ) -> None:
     """Launch an interactive Claude Code session with draft context."""
-    cmd = ["claude"]
+    from llm.runner import build_claude_cmd
 
-    # Inject context so Claude knows which draft to edit
+    try:
+        cmd = build_claude_cmd()
+    except FileNotFoundError:
+        print(f"{RED}Claude CLI not found. Is it installed?{RESET}")
+        return
+
+    # Load HITL editing rules
+    rules_path = Path(__file__).parent / "data" / "hitl_editing_rules.md"
+    rules_text = rules_path.read_text() if rules_path.exists() else ""
+
+    # Build context-specific prompt
+    prompt_parts: list[str] = []
+    if rules_text:
+        prompt_parts.append(rules_text)
     if draft_rel:
-        parts = ["You are helping review/edit a draft in an SDLC pipeline."]
+        context_parts = []
         if phase:
-            parts.append(f"Current phase: {phase}.")
+            context_parts.append(f"Current phase: {phase}.")
         if issue_number:
-            parts.append(f"Issue: #{issue_number}.")
-        parts.append(
+            context_parts.append(f"Issue: #{issue_number}.")
+        context_parts.append(
             f"Draft file: {draft_rel}. "
             f"Start by reading `{draft_rel}` and showing its content to the user."
         )
-        cmd.extend(["--append-system-prompt", " ".join(parts)])
+        prompt_parts.append(" ".join(context_parts))
+
+    if prompt_parts:
+        cmd.extend(["--append-system-prompt", "\n\n".join(prompt_parts)])
 
     try:
         subprocess.run(
@@ -358,8 +374,6 @@ def _launch_claude(
             stdout=sys.stdout,
             stderr=sys.stderr,
         )
-    except FileNotFoundError:
-        print(f"{RED}Claude CLI not found. Is it installed?{RESET}")
     except Exception as e:
         print(f"{RED}Failed to launch Claude: {e}{RESET}")
 
