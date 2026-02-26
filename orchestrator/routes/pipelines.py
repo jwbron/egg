@@ -140,6 +140,11 @@ pipelines_bp = Blueprint("pipelines", __name__, url_prefix="/api/v1/pipelines")
 
 from routes import get_repo_path  # noqa: E402 — shared helper
 
+try:
+    from gateway_client import get_gateway_client
+except ImportError:
+    from orchestrator.gateway_client import get_gateway_client  # type: ignore
+
 # Import status reporter for real-time updates
 try:
     from status_reporter import get_status_reporter, report_pipeline_status
@@ -678,6 +683,42 @@ def update_pipeline(pipeline_id: str) -> tuple[Response, int]:
         )
 
 
+def _cleanup_remote_branches(
+    pipeline_id: str,
+    pipeline: "Pipeline",
+    repo_path: Path,
+) -> None:
+    """Best-effort cleanup of remote worktree branches for a pipeline.
+
+    Iterates all containers across all phase executions and deletes their
+    remote worktree branches (``egg/{container_id}/work``).  Failures are
+    logged as warnings and do not block pipeline deletion.
+    """
+    branches: set[str] = set()
+    for phase_exec in pipeline.phases.values():
+        for container in phase_exec.containers:
+            branches.add(f"egg/{container.container_id}/work")
+
+    if not branches:
+        return
+
+    gateway_client = get_gateway_client()
+    repo_path_str = str(repo_path)
+
+    deleted = 0
+    for branch in sorted(branches):
+        if gateway_client.delete_remote_branch(pipeline_id, repo_path_str, branch):
+            deleted += 1
+
+    if deleted:
+        logger.info(
+            "Cleaned up remote worktree branches",
+            pipeline_id=pipeline_id,
+            branches_deleted=deleted,
+            branches_total=len(branches),
+        )
+
+
 @pipelines_bp.route("/<pipeline_id>", methods=["DELETE"])
 def delete_pipeline(pipeline_id: str) -> tuple[Response, int]:
     """
@@ -710,6 +751,16 @@ def delete_pipeline(pipeline_id: str) -> tuple[Response, int]:
         except (DockerClientError, DockerException) as e:
             logger.warning(
                 "Failed to clean up pipeline containers",
+                pipeline_id=pipeline_id,
+                error=str(e),
+            )
+
+        # Clean up remote worktree branches (best-effort)
+        try:
+            _cleanup_remote_branches(pipeline_id, _pipeline, repo_path)
+        except Exception as e:
+            logger.warning(
+                "Failed to clean up remote worktree branches",
                 pipeline_id=pipeline_id,
                 error=str(e),
             )

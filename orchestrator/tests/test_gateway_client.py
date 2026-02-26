@@ -706,6 +706,46 @@ class TestPushWorktreeBranch:
             mock_delete.assert_called_once_with("test-token-12345")
 
 
+class TestDeleteRemoteBranch:
+    """Tests for delete_remote_branch method."""
+
+    def test_delete_remote_branch_success(self, gateway_client, mock_gateway_server):
+        """Test successful deletion of a remote branch."""
+        result = gateway_client.delete_remote_branch(
+            pipeline_id="issue-42",
+            repo_path="/home/egg/.egg-worktrees/issue-42/repo",
+            branch="egg/container-abc123/work",
+        )
+        assert result is True
+
+    def test_delete_remote_branch_gateway_unreachable(self):
+        """Test deletion fails gracefully when gateway is unreachable."""
+        client = GatewayClient(
+            gateway_host="localhost",
+            gateway_port=19999,
+            launcher_secret="test-secret",
+            timeout=1,
+        )
+
+        result = client.delete_remote_branch(
+            pipeline_id="issue-42",
+            repo_path="/some/path",
+            branch="egg/container-abc123/work",
+        )
+        assert result is False
+
+    def test_delete_remote_branch_cleans_up_session(self, gateway_client, mock_gateway_server):
+        """Test that temp session is cleaned up after deletion."""
+        with patch.object(gateway_client, "delete_session") as mock_delete:
+            gateway_client.delete_remote_branch(
+                pipeline_id="issue-42",
+                repo_path="/some/path",
+                branch="egg/container-abc123/work",
+            )
+            # Session should be cleaned up
+            mock_delete.assert_called_once_with("test-token-12345")
+
+
 class TestFetchWorktreeBranch:
     """Tests for fetch_worktree_branch method."""
 
