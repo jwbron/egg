@@ -2,323 +2,326 @@
   "issue": 912,
   "phase": "plan",
   "agent": "risk_analyst",
-  "revision": 1,
-  "revision_reason": null,
+  "revision": 2,
+  "revision_reason": "Revised to incorporate review feedback on fnmatch matching semantics (blocking #1) and missing Session model persistence test task (blocking #2). Verified architect's revision 2 addresses both blocking items. Added new risks R-10 (directory expansion scope explosion) and R-11 (warn counter increment timing). Upgraded risk granularity and added concrete disagreements.",
 
   "title": "Risk assessment: Enforce per-task file restrictions from planner in implement phase",
 
-  "summary": "The architect's recommended approach (session-level allowed_files with warn-then-block enforcement) is architecturally sound and builds on existing infrastructure. However, this risk assessment identifies one HIGH-severity correctness bug in the design: Python's fnmatch.fnmatch() treats '*' as matching '/' directory separators, which means the architect's design decision DD-2 (shallow dir/* expansion vs recursive dir/**) is a false distinction — both behave identically. This undermines the containment granularity that is the core purpose of this feature. Additionally, there are MEDIUM risks around warn-then-block state management allowing a single push to contain both warned and blocking files, prefix matching collisions in _matches_pattern(), and the planner producing too-narrow file lists. The overall risk profile is MEDIUM. All risks have clear mitigations. One item requires human review: the fnmatch semantic mismatch must be resolved before implementation begins, as it affects the fundamental matching engine.",
+  "overall_risk_level": "MEDIUM",
+  "risk_summary": "The proposed implementation is well-designed and builds on proven infrastructure. The primary risks are operational (planner file lists too narrow, directory expansion more permissive than intuitive) rather than security (existing path normalization and traversal prevention cover the new code paths). Two new risks identified in this revision: (1) directory expansion can cause 'scope explosion' where a single root-level file grants access to an entire subtree, weakening containment for common layouts; (2) warn-then-block counter increments even on pushes that fail at later validation layers, causing premature blocking. Both are mitigatable with implementation-time fixes.",
 
-  "architect_approach_assessment": {
-    "recommended_approach": "Session-level allowed_files with warn-then-block enforcement (Approach A)",
-    "assessment": "The approach is well-designed and follows established codebase patterns. It correctly reuses PhaseFileRestriction, extends the existing validation chain, and maintains backward compatibility via None defaults. The 5-phase implementation ordering (model → plumbing → enforcement → auto-commit → docs/tests) is logical with proper dependency ordering. The decision to defer the escape hatch (DD-4) is pragmatic. The approach is the right one.",
-    "agreement_with_architect": true,
-    "disagreements": [
-      {
-        "id": "D-1",
-        "topic": "DD-2 (directory-sibling expansion): 'Shallow dir/* vs recursive dir/**' is a false distinction",
-        "architect_claim": "Shallow expansion (dir/*) by default. Listing src/auth/login.py would NOT allow modifying everything under src/auth/ including deeply nested subpackages. If the planner wants recursive access, it can explicitly use src/auth/**.",
-        "correction": "Python's fnmatch.fnmatch() treats '*' as matching '/' directory separators. fnmatch('src/auth/login/deep/file.py', 'src/auth/*') returns True. Therefore dir/* and dir/** produce identical matching behavior. The architect's rationale — that dir/* provides shallow containment while dir/** provides deep access — is incorrect. Both allow arbitrary depth. This is different from POSIX shell globbing (where * does not cross / boundaries) and from pathlib.Path.match() (which also respects / boundaries). The implementation must either: (a) use a different matching function that respects directory boundaries (e.g., pathlib.PurePosixPath.match() or a custom fnmatch variant that splits on /), or (b) acknowledge that directory expansion is always recursive and adjust the design accordingly.",
-        "severity": "high",
-        "recommendation": "Replace fnmatch.fnmatch() with a directory-boundary-aware matcher for per-task restrictions. Options: (1) Split the path and pattern on '/' and match each segment individually using fnmatch on segments, (2) Use pathlib.PurePosixPath(file).match(pattern) which respects directory boundaries in Python 3.12+, (3) If recursive expansion is acceptable for the 'guide don't cage' philosophy, document this explicitly and remove the false shallow/recursive distinction from the design. Option 3 is the simplest and may be sufficient given the generous matching philosophy."
-      },
-      {
-        "id": "D-2",
-        "topic": "DD-3 (config files): No implicit allowlist is too strict for first deployment",
-        "architect_claim": "Planner responsibility with documentation guidance, no implicit allowlist. If this proves too friction-heavy, an implicit allowlist can be added later.",
-        "correction": "The 'guide, don't cage' philosophy from the issue explicitly says 'An agent that can't update pyproject.toml after adding a dependency will spin.' Relying on planner guidance alone for a new enforcement feature is risky — existing plans (pre-#912) have no config files listed, and new plans may forget them. The warn-then-block mechanism provides some protection (first violation succeeds), but the agent would then need to push the same config file a second time and get blocked. For a common file like pyproject.toml that nearly every task touches, this creates predictable friction. A small implicit allowlist of root-level config files provides a safety net without undermining containment.",
-        "severity": "medium",
-        "recommendation": "Add a small implicit allowlist of root-level config files that are always allowed during implement phase when allowed_files is set: ['pyproject.toml', 'package.json', 'package-lock.json', 'Makefile', 'setup.py', 'setup.cfg', 'requirements.txt', 'requirements*.txt']. These files are single-instance root-level files with no containment value (they are shared by definition). The planner can still list additional config files. This can be behind an env var (EGG_TASK_IMPLICIT_CONFIG_ALLOWLIST=true, default true) for operators who want strict mode."
-      },
-      {
-        "id": "D-3",
-        "topic": "DD-10 (validation ordering): Per-task should run AFTER phase checks, not before",
-        "architect_claim": "Per-task restrictions run after agent-role checks (Layer 2) and before phase checks (Layer 3). This ordering allows per-task filtering to narrow scope before phase check.",
-        "correction": "Running per-task before phase checks means a file blocked by per-task restrictions produces a per-task error message even if it would also be blocked by phase restrictions. Phase restrictions are more fundamental (they protect system integrity — .egg-state/contracts/ etc.), so they should be checked first to produce clearer error messages. If a file violates both, the phase error is more actionable ('this file is protected by the pipeline') than the per-task error ('this file is not in your task list'). Additionally, per-task restrictions with warn-then-block are softer than phase restrictions (hard block), so running them after the hard checks ensures hard violations are caught before soft ones.",
-        "severity": "low",
-        "recommendation": "Run per-task checks as Layer 4 (after phase checks), not Layer 3 (before). This preserves the existing layer numbering and ensures the hardest restrictions are checked first. The practical impact is small since all layers run sequentially regardless, but error message clarity improves."
-      }
-    ]
+  "architect_revision_2_assessment": {
+    "blocking_feedback_1_fnmatch_semantics": {
+      "status": "ADEQUATELY_ADDRESSED",
+      "assessment": "The architect chose option (b) from the reviewer's suggestion — explicitly acknowledge recursive matching and update all documentation/tests accordingly. This is the correct choice: changing to segment-aware matching (PurePosixPath.match) would be a breaking change affecting all existing phase restriction patterns (e.g., `.egg-state/contracts/*` currently matches nested files and production relies on this). DD-2 is updated, edge cases are corrected, test task-9 now requires explicit recursive behavior verification including boundary cases, and the plan template task-7 documents the semantics. The key remaining risk is that recursive matching provides coarser containment than the feature name ('per-task file restrictions') implies — see R-10 below.",
+      "verification": "Independently confirmed via Python 3: fnmatch.fnmatch('dir/sub/deep/file.py', 'dir/*') returns True. PurePosixPath('dir/sub/deep/file.py').match('dir/*') returns False. The existing _matches_pattern() at phase_filter.py:243 uses fnmatch for all '*'-containing patterns, confirming this is existing production behavior."
+    },
+    "blocking_feedback_2_session_persistence_tests": {
+      "status": "ADEQUATELY_ADDRESSED",
+      "assessment": "The architect added task-8 (Session model persistence tests) in Phase 5, covering: (a) allowed_files round-trip serialization, (b) backward compatibility for sessions without allowed_files, (c) _warned_files initialization and non-persistence. Tasks were correctly renumbered. The test file (gateway/tests/test_session_manager.py) is added to files_affected. Acceptance criteria are specific and testable."
+    }
   },
 
   "risks": [
     {
       "id": "R-1",
-      "category": "correctness",
-      "title": "fnmatch treats '*' as matching '/' — directory-sibling expansion provides no shallow containment",
-      "description": "The core matching engine (PhaseFileRestriction._matches_pattern) delegates to fnmatch.fnmatch() for glob patterns. In Python's fnmatch, '*' matches any character INCLUDING '/'. This means the architect's design decision DD-2 (shallow dir/* expansion) does not provide shallow containment — dir/* matches dir/sub/deep/file.py. The entire concept of 'shallow vs recursive' expansion is a false distinction when using fnmatch. This affects not just the directory-sibling expansion but ALL glob patterns in files_affected: a planner writing 'src/auth/*' thinking it means 'only direct children of src/auth/' actually allows ALL descendants at any depth.",
-      "likelihood": "certain",
-      "impact": "high",
-      "impact_detail": "The primary goal of per-task file restrictions is containment — preventing Agent A from modifying Agent B's files. If the matching engine is more permissive than intended, the containment boundary is wider than the planner or architect believes. A planner listing 'src/auth/*' expecting it covers only src/auth/*.py actually also covers src/auth/middleware/session.py, src/auth/oauth/provider.py, etc. In a Tier 3 dispatch where two agents have overlapping directory trees, the restriction provides less isolation than expected. This does not cause data loss or security violations (phase restrictions still apply), but it defeats the purpose of the feature.",
-      "affected_files": [
-        "gateway/phase_filter.py:230-250 (_matches_pattern uses fnmatch.fnmatch)",
-        "orchestrator/container_spawner.py (directory-sibling expansion generates dir/* patterns)"
-      ],
-      "mitigation": "Three options, in order of preference: (1) For per-task matching specifically, implement a directory-boundary-aware variant that splits path and pattern on '/' and matches segments individually. This preserves fnmatch for existing phase restriction patterns (where the current behavior is correct and tested) while adding proper containment for per-task patterns. (2) Accept recursive matching as the default behavior and document it clearly. Given the 'guide, don't cage' philosophy, recursive matching within an allowed directory may be acceptable — it just means the containment granularity is at the directory level, not the file level. Adjust design docs and planner guidance accordingly. (3) Use pathlib.PurePosixPath.match() which respects directory boundaries in Python 3.12+, but this would change behavior for existing phase restriction patterns and requires careful regression testing.",
-      "rollback": "No code change — this is a design-time issue. If discovered after implementation, the matching function can be swapped without changing the data model or API.",
-      "human_review_needed": true,
-      "human_review_reason": "This affects the fundamental matching semantics of the feature. The implementer needs clear direction on whether to: (a) build a new directory-boundary-aware matcher, (b) accept recursive matching and adjust expectations, or (c) find a different approach. The planner's file listing guidance also changes based on this decision."
+      "title": "fnmatch recursive matching is coarser containment than feature name implies",
+      "category": "design",
+      "severity": "MEDIUM",
+      "likelihood": "HIGH",
+      "impact": "LOW",
+      "description": "Python's fnmatch.fnmatch() treats `*` as matching `/`, so the directory expansion pattern `dir/*` grants recursive access to the entire `dir/` subtree, not just immediate children. This means per-task file restrictions operate at directory-subtree granularity, not individual file granularity. Users and planners may expect finer control than the system actually provides. For example, listing `src/auth/login.py` grants access to `src/auth/utils/deep/helper.py`.",
+      "mitigation": "Architect's revision 2 correctly acknowledges this and documents it throughout (DD-2, edge cases, tests, plan template). The 'guide, don't cage' philosophy accepts this tradeoff. Tests explicitly verify the recursive behavior. No code change needed — documentation is the mitigation.",
+      "status": "MITIGATED_BY_DESIGN",
+      "changed_in_revision": 2,
+      "previous": "Flagged as HIGH severity in revision 1 when the plan incorrectly claimed shallow matching"
     },
     {
       "id": "R-2",
+      "title": "Warn counter increments on pushes that fail at later validation layers",
       "category": "correctness",
-      "title": "Warn-then-block per-file tracking allows mixed-outcome pushes with confusing behavior",
-      "description": "The architect's design (DD-1) tracks per-file violation counts in _warned_files. A single push can contain multiple out-of-scope files. If file A was previously warned (count=1) and file B is new (count=0), the push contains both a blocking file (A) and a warning file (B). The design says 'a push can contain files A and B, where A was warned before (blocked) and B is new (warned)'. But if A causes the push to be blocked, B's warning is logged but the push fails — the agent never successfully pushed B, so B was never actually 'in the wild'. Should B's counter still be incremented? If yes, the agent gets penalized for a file it never actually pushed. If no, B gets infinite free warnings as long as it's always paired with a blocking file.",
-      "likelihood": "medium",
-      "impact": "medium",
-      "impact_detail": "The agent receives confusing error messages (some files warned, some blocked) and may not understand which files to remove. If warning counters are incremented for unpushed files, the agent loses its 'free pass' unfairly. If not incremented, an agent could repeatedly include the same out-of-scope file in pushes that fail for other reasons, never consuming its warning.",
-      "affected_files": [
-        "gateway/gateway.py (new per-task validation layer)"
-      ],
-      "mitigation": "Adopt a clear policy: (1) Collect all out-of-scope files in the push. (2) If ANY file exceeds its warning threshold, block the entire push. (3) Only increment warning counters for files in pushes that SUCCEED (i.e., only if no file exceeded its threshold). This means a push either fully succeeds (with warnings logged for new violations) or fully fails (with no counter changes). The error message should clearly list which files exceeded their threshold (blocking) and which are new violations (would be warned if blocking files were removed).",
-      "rollback": "Revert the per-task validation layer. No data persistence impact since _warned_files is transient.",
-      "human_review_needed": false
+      "severity": "MEDIUM",
+      "likelihood": "MEDIUM",
+      "impact": "MEDIUM",
+      "description": "The per-task validation layer runs BEFORE phase restrictions (Layer 3 before Layer 4 per DD-10). If a push contains a file that triggers a per-task warning (counter incremented) but the push is then BLOCKED by phase restrictions, the push fails but the warn counter was already incremented. On the next attempt (after fixing the phase issue), the same file would be BLOCKED by per-task restrictions because the counter shows a prior 'warning' that never actually resulted in a successful push. The agent never benefited from the warning but lost its free pass.",
+      "mitigation": "Implementation should only increment _warned_files counters AFTER all validation layers pass (i.e., at the end of the push handler, before forwarding to git). Alternatively, the per-task layer can return a 'pending warning' that the push handler commits to _warned_files only on overall success. This is a ~5 line change: collect pending warnings, apply them after all checks pass.",
+      "recommendation": "MUST FIX during implementation. Add to task-5 acceptance criteria: 'warn counters are only incremented when the push succeeds (all validation layers pass)'.",
+      "status": "REQUIRES_IMPLEMENTATION_FIX",
+      "new_in_revision": 2
     },
     {
       "id": "R-3",
+      "title": "Mixed-outcome push: some files warned, some files blocked",
       "category": "correctness",
-      "title": "Prefix matching without trailing '/' in _matches_pattern allows cross-directory collisions",
-      "description": "PhaseFileRestriction._matches_pattern() uses file_path.startswith(pattern) for non-glob patterns without trailing '/'. If a files_affected entry is 'src/auth' (no trailing slash, no glob), it would match 'src/auth_backup/file.py' and 'src/authentication/file.py' via prefix. While existing phase restriction patterns all use trailing '/' or globs, per-task files_affected entries come from planner-generated YAML where the format is less controlled. A planner listing 'src/auth' as a directory could unintentionally allow access to 'src/auth_helpers/', 'src/auth_v2/', etc.",
-      "likelihood": "low-medium",
-      "impact": "medium",
-      "impact_detail": "Unintended file access due to prefix collision. In a Tier 3 dispatch, if Task A has 'src/auth' and Task B has 'src/auth_v2', Agent A could modify files in src/auth_v2/ because 'src/auth' is a prefix of 'src/auth_v2/file.py'.",
-      "affected_files": [
-        "gateway/phase_filter.py:246-250 (_matches_pattern prefix matching)",
-        "orchestrator/container_spawner.py (directory expansion should produce trailing-/ patterns)"
-      ],
-      "mitigation": "In the directory-sibling expansion logic (_compute_allowed_files), always produce patterns with trailing '/' for directories and '/*' for globs. Additionally, normalize bare directory names from files_affected by appending '/' if they don't contain '*' and don't have a file extension. This is a simple input normalization step that prevents prefix collisions.",
-      "rollback": "Revert expansion logic. No data model impact.",
-      "human_review_needed": false
+      "severity": "LOW",
+      "likelihood": "MEDIUM",
+      "impact": "LOW",
+      "description": "A single push can contain files A (first violation, would warn) and B (second violation, would block). The current design blocks the entire push if ANY file exceeds the threshold. This means file A never gets pushed even though it was only at the warning stage. The agent may be confused about which file caused the block.",
+      "mitigation": "The error message should clearly list which files are at the 'warn' stage and which are at the 'block' stage. The current architect design (DD-8) includes blocked files and allowed patterns in the error, which is sufficient. The agent can self-correct by removing file B from the push.",
+      "status": "ACCEPTABLE_RISK"
     },
     {
       "id": "R-4",
-      "category": "reliability",
-      "title": "Planner produces too-narrow file lists, causing agents to spin on blocked pushes",
-      "description": "This is the highest-likelihood operational risk. The plan template will be updated to document that files: is now enforced, but: (a) existing CLAUDE.md planner instructions may not be updated, (b) LLM planners are not deterministic and may forget to list config files, test helper files, or __init__.py files, (c) the 'generous listing' guidance is subjective. Agents blocked by per-task restrictions after their free warning push will signal errors, retry, or spin — each consuming tokens and compute time.",
-      "likelihood": "high",
-      "impact": "medium",
-      "impact_detail": "Agent token waste (estimated 10-50K tokens per blocked-and-retry cycle), pipeline delays (5-15 minutes per retry), and potential pipeline failure if max retries exceeded. In Tier 3 dispatch, one stuck agent can delay the entire pipeline if downstream phases depend on its output.",
-      "affected_files": [
-        "docs/templates/plan.md",
-        "orchestrator/container_spawner.py (_compute_allowed_files)"
-      ],
-      "mitigation": "Multiple layers of defense: (1) Directory-sibling expansion already provides significant slack — listing one file in a directory allows all files in that directory. (2) Warn-then-block gives agents one free pass per file. (3) Add the implicit config file allowlist (see D-2 disagreement). (4) In the error message when a push is blocked, include specific guidance: 'The following files are outside your task scope: [...]. If you need these files, signal via egg-orch signal error.' (5) Monitor blocked-push rates in production logs and adjust the default warn threshold or add to the implicit allowlist if friction is too high.",
-      "rollback": "Set EGG_TASK_FILE_RESTRICTIONS_ENFORCE=false (or remove the per-task check entirely via feature flag) to revert to current behavior.",
-      "human_review_needed": false
+      "title": "Planner produces too-narrow file lists, causing agents to spin on restrictions",
+      "category": "operational",
+      "severity": "MEDIUM",
+      "likelihood": "HIGH",
+      "impact": "MEDIUM",
+      "description": "Planners (LLM agents) may not anticipate all files an implementation task needs. Common misses: config files (pyproject.toml, package.json, Makefile), __init__.py files in new packages, migration files, generated files (lock files), and helper modules that need modification. With recursive directory expansion, the risk is partially mitigated for files in already-listed directories. But files in completely unlisted directories will trigger warn-then-block.",
+      "mitigation": "Three-layer defense: (1) directory expansion grants recursive subtree access for listed files' directories, (2) warn-then-block gives agents one free pass per file, (3) plan template guidance (task-7) instructs planners to list generously. If still problematic post-launch, add an implicit root-config allowlist as a non-breaking follow-up. The deferred escape hatch (DD-4) is the ultimate safety valve.",
+      "recommendation": "Monitor violation logs post-launch. Track ratio of warned vs blocked pushes. If >20% of implement pushes trigger warnings, the feature is too restrictive and needs adjustment.",
+      "status": "ACCEPTABLE_RISK_WITH_MONITORING"
     },
     {
       "id": "R-5",
+      "title": "Path traversal via malicious allowed_files entries",
       "category": "security",
-      "title": "Path traversal in files_affected entries could widen allowed_files beyond repository",
-      "description": "The files_affected list comes from planner-generated YAML parsed by plan_parser.py. The parser does not validate or sanitize file paths — it stores whatever strings are in the files: list (plan_parser.py:311-315). If a planner (or a malicious plan amendment) includes '../../../etc/passwd' or '/etc/shadow' in files_affected, these would be passed to allowed_files and to PhaseFileRestriction. While _normalize_path() blocks paths starting with '../' or '/' after normalization, the allowed_files list itself would contain the malicious entries. The question is whether PhaseFileRestriction correctly handles these when they appear in allowed_patterns (not file_path being checked).",
-      "likelihood": "low",
-      "impact": "medium",
-      "impact_detail": "If a traversal pattern in allowed_patterns somehow matches a file being checked, it could widen the allowed set. However, since _matches_pattern uses startswith() for non-glob patterns, a pattern like '../foo' would only match file paths that also start with '../' — which are independently blocked by _normalize_path() on the file_path side. The risk is theoretical but worth validating.",
-      "affected_files": [
-        "shared/egg_contracts/plan_parser.py:310-324 (no path validation on files field)",
-        "gateway/phase_filter.py:215-228 (_normalize_path on file_path, not on patterns)",
-        "orchestrator/container_spawner.py (_compute_allowed_files should validate entries)"
-      ],
-      "mitigation": "Add input validation in _compute_allowed_files() before passing entries to allowed_files: (1) reject entries starting with '/' or '../', (2) reject entries containing '..', (3) normalize all entries via posixpath.normpath before use. This is a defense-in-depth measure — _normalize_path on the file_path side already provides the primary protection.",
-      "rollback": "N/A — input validation only, no behavioral impact.",
-      "human_review_needed": false
+      "severity": "LOW",
+      "likelihood": "LOW",
+      "impact": "HIGH",
+      "description": "If the orchestrator passes attacker-controlled paths in allowed_files (e.g., `../../../etc/passwd` or `/etc/shadow`), the PhaseFileRestriction matcher might match unexpected paths. The orchestrator computes allowed_files from the contract's files_affected field, which is populated from plan YAML parsed by the planner agent.",
+      "mitigation": "PhaseFileRestriction._normalize_path() (phase_filter.py:216-228) blocks paths starting with `../` or `/`. The normalization runs on the FILE being pushed, not on the pattern. However, the pattern itself (`allowed_files` entries) is not normalized. A pattern like `../etc/*` would be passed to fnmatch but would never match a normalized file path (since normalized paths can't start with `../`). Additional defense: task-2 acceptance criteria require validation of allowed_files entries at session creation (reject empty strings, non-strings). Recommend also rejecting patterns containing `../` or starting with `/` at the session creation endpoint.",
+      "recommendation": "Add input validation for allowed_files patterns in the /sessions/create handler: reject entries containing `..` or starting with `/`. This is a ~3 line addition to task-2.",
+      "status": "LOW_RISK_WITH_RECOMMENDATION"
     },
     {
       "id": "R-6",
-      "category": "reliability",
-      "title": "Session persistence adds allowed_files to sessions.json — backward/forward compatibility",
-      "description": "Adding allowed_files to Session.to_dict_for_persistence() means the sessions.json file format changes. Older gateway versions reading sessions.json with allowed_files present will see an unknown key. Newer gateway versions reading old sessions.json without allowed_files will use the data.get() default of None. The forward compatibility (new → old) path is more concerning: if a deployment rolls back the gateway to a pre-#912 version while sessions with allowed_files exist, the old Session.from_persistence() will encounter an unknown key in the dict. Since from_persistence uses explicit data['key'] and data.get('key') — not **kwargs — unknown keys are silently ignored. This is safe.",
-      "likelihood": "low",
-      "impact": "low",
-      "impact_detail": "On rollback to pre-#912 gateway: allowed_files is silently ignored, per-task enforcement disappears, behavior reverts to current (no per-task restriction). This is the desired rollback behavior. On upgrade from pre-#912: existing sessions get allowed_files=None, which means no per-task restriction. Also correct.",
-      "affected_files": [
-        "gateway/session_manager.py:256-317 (persistence methods)"
-      ],
-      "mitigation": "No mitigation needed — the existing persistence pattern handles both directions correctly. The architect correctly identified this (approach A pro: 'backward compatible — None means no restriction'). Just ensure _warned_files is NOT persisted (the architect specifies transient, which is correct).",
-      "rollback": "Redeploy pre-#912 gateway. Sessions.json is forward-compatible.",
-      "human_review_needed": false
+      "title": "Session.allowed_files becomes stale if plan is amended after container spawn",
+      "category": "operational",
+      "severity": "LOW",
+      "likelihood": "LOW",
+      "impact": "MEDIUM",
+      "description": "allowed_files is computed once at container spawn time and persisted on the session. If the plan is amended during implementation (e.g., via HITL decision), the session's allowed_files is not updated. The agent operates under stale restrictions.",
+      "mitigation": "Plan amendments during implementation are rare — plans are finalized before the implement phase begins. The architect correctly identifies this as a known limitation (edge case 'Session allowed_files becomes stale'). A session update endpoint is deferred to follow-up. Gateway restart does NOT help because allowed_files is persisted.",
+      "status": "ACCEPTABLE_RISK"
     },
     {
       "id": "R-7",
-      "category": "correctness",
-      "title": "Post-agent auto-commit with allowed_files needs session data at cleanup time",
-      "description": "auto_commit_worktree() in post_agent_commit.py is called during session cleanup (_capture_and_cleanup_session in session_manager.py). At this point, the session object is being deleted. The architect proposes passing allowed_files as a new parameter to auto_commit_worktree(). However, the cleanup flow is: (1) session removed from _sessions dict inside lock (session_manager.py:793), (2) cleanup happens outside lock (line 803), (3) auto_commit_worktree is called as part of cleanup. Since the session is already removed from _sessions, the caller must pass allowed_files explicitly — it cannot be retrieved from the session manager by session_token after removal. This is workable but requires threading allowed_files through the cleanup callback chain.",
-      "likelihood": "medium",
-      "impact": "low",
-      "impact_detail": "If the plumbing is incorrect and allowed_files is not available at auto-commit time, the fallback is no per-task filtering (same as current behavior). The auto-commit push then goes through the gateway API, but the session is already deleted at that point — so the push would fail authentication. Looking more carefully: post_agent_commit.py:296-301 uses the session token for the push. If the session is deleted before the push... actually, examining the flow: _capture_and_cleanup_session receives the session data before deletion (line 98-100 of session_manager.py), so the session object is available as a local variable even after it's removed from _sessions. The allowed_files can be extracted from this local session object.",
-      "affected_files": [
-        "gateway/session_manager.py (cleanup callback chain)",
-        "gateway/post_agent_commit.py (auto_commit_worktree parameter)"
-      ],
-      "mitigation": "The session object is passed to the cleanup function before deletion from _sessions. Extract allowed_files from the session object and pass as parameter to auto_commit_worktree(). The session token for the push API call is similarly available from the local session object. No additional plumbing needed beyond adding the parameter.",
-      "rollback": "Remove allowed_files parameter from auto_commit_worktree(). Falls back to phase-only filtering.",
-      "human_review_needed": false
+      "title": "Gateway restart resets _warned_files (transient counters)",
+      "category": "operational",
+      "severity": "LOW",
+      "likelihood": "LOW",
+      "impact": "LOW",
+      "description": "The _warned_files dict is transient and not persisted. Gateway restarts reset all counters, giving agents fresh warning allowances. An agent that was at the block threshold before restart gets another free pass.",
+      "mitigation": "Fail-open on restart is acceptable per the 'guide, don't cage' philosophy (DD-5). Gateway restarts during agent sessions are rare. The worst case is an extra free pass, which is consistent with the gradual enforcement philosophy.",
+      "status": "ACCEPTED_BY_DESIGN"
     },
     {
       "id": "R-8",
-      "category": "performance",
-      "title": "Large files_affected lists with glob expansion could slow push validation",
-      "description": "The architect estimates 100 patterns × 50 changed files = 5000 comparisons as negligible. However, fnmatch.fnmatch() is not a simple string comparison — it compiles a regex internally. With directory expansion doubling the pattern count, a task with 100 files would produce ~200 patterns. For a push with 100 changed files, that's 20,000 fnmatch calls. Each call compiles a regex (fnmatch caches via lru_cache but only for 256 unique patterns).",
-      "likelihood": "low",
-      "impact": "low",
-      "impact_detail": "fnmatch with regex compilation for 20K calls: approximately 10-50ms on modern hardware. This is negligible compared to the git operations (~100-500ms) and network round-trip (~50-100ms) in the push flow. Only becomes concerning with pathological inputs (1000+ patterns × 1000+ files).",
-      "affected_files": [
-        "gateway/phase_filter.py (is_file_allowed per-file loop)"
-      ],
-      "mitigation": "No mitigation needed for the expected scale. If patterns grow very large, pre-compile the allowed pattern set into a single regex using fnmatch.translate() and re.compile(). This optimization can be added later without API changes.",
-      "rollback": "N/A — performance optimization, not behavioral change.",
-      "human_review_needed": false
+      "title": "Breaking existing Session tests due to new fields",
+      "category": "compatibility",
+      "severity": "LOW",
+      "likelihood": "LOW",
+      "impact": "LOW",
+      "description": "Adding `allowed_files: list[str] | None = None` and `_warned_files: dict[str, int]` to the Session dataclass could break tests that construct Sessions without these fields or that assert on to_dict_for_persistence() output.",
+      "mitigation": "Both fields have defaults (None and {} respectively), so existing Session constructors are backward compatible. to_dict_for_persistence() uses conditional inclusion (`if X is not None`), so existing test assertions on the output won't see unexpected keys when allowed_files is None. _warned_files is not persisted at all. Task-8 explicitly tests backward compatibility. Risk is minimal.",
+      "status": "MITIGATED_BY_DESIGN"
     },
     {
       "id": "R-9",
-      "category": "correctness",
-      "title": "Warned push succeeds and pushes out-of-scope file — file is now permanently in git history",
-      "description": "The warn-then-block design intentionally allows the first push with an out-of-scope file to succeed. This means the out-of-scope file is now in the remote branch's git history. Even if the agent self-corrects on the next push (removes the file), the file remains in git history. In a Tier 3 dispatch, if Agent A accidentally pushes a file belonging to Agent B's scope, that file is now on Agent A's branch. When the integrator merges branches, the file could create a merge conflict with Agent B's legitimate changes.",
-      "likelihood": "medium",
-      "impact": "medium",
-      "impact_detail": "Merge conflicts during integration phase when two agents have both modified the same file (one intentionally, one via the warned-but-allowed push). The integrator agent would need to resolve these conflicts, adding complexity and potential for errors. In the worst case, the wrong version of the file is kept.",
-      "affected_files": [
-        "gateway/gateway.py (warn-then-block validation)",
-        "orchestrator/routes/pipelines.py (_run_tier3_implement integration logic)"
-      ],
-      "mitigation": "Three mitigations: (1) The structured warning log includes the file path, agent role, and session ID — the integrator can use this to identify and prioritize the legitimate change. (2) Post-agent auto-commit filtering provides a second chance to remove out-of-scope files from uncommitted changes. (3) Document in the plan template that the integrator should check for per-task restriction warnings in agent logs before merging. (4) In the long term, the escape hatch (egg-contract request-file) provides a proper channel for legitimate cross-scope access.",
-      "rollback": "Switch to immediate block mode (EGG_TASK_FILE_RESTRICTIONS_ENFORCE=true). All out-of-scope files are blocked on first attempt.",
-      "human_review_needed": false
+      "title": "Warned push succeeds — out-of-scope file is permanently in git history",
+      "category": "data integrity",
+      "severity": "LOW",
+      "likelihood": "MEDIUM",
+      "impact": "LOW",
+      "description": "When the per-task layer warns on the first violation, the push succeeds and the out-of-scope file is committed to the branch. This file is now in git history. Even if the agent self-corrects on subsequent pushes, the file from the warned push remains. The integrator or reviewer would need to clean it up.",
+      "mitigation": "This is intentional per the 'guide, don't cage' philosophy. The post-agent auto-commit (task-6) provides a safety net for uncommitted out-of-scope files. For committed files, the integrator agent in the Tier 3 cycle already reviews cross-contamination. The alternative (blocking on first attempt) would frequently block agents on planner oversights.",
+      "status": "ACCEPTED_BY_DESIGN"
     },
     {
       "id": "R-10",
-      "category": "compatibility",
-      "title": "Existing plans without files_affected entries fall back to no restriction — expected but worth monitoring",
-      "description": "The architect correctly identifies that empty files_affected → allowed_files=None → no per-task restriction (graceful fallback). However, during the rollout period, ALL existing plans and many new plans will have empty or incomplete files_affected. This means the feature effectively does nothing until planners consistently produce file lists. There is no mechanism to detect or alert when fallback is triggered.",
-      "likelihood": "certain",
-      "impact": "low",
-      "impact_detail": "Feature provides no value until planner behavior changes. No negative impact — just delayed value realization. The risk is that the feature ships, appears to work (no errors), but actually does nothing because all sessions have allowed_files=None.",
-      "affected_files": [
-        "orchestrator/container_spawner.py (_compute_allowed_files fallback path)"
-      ],
-      "mitigation": "Add structured logging when allowed_files is computed: (a) log 'per_task_restrictions_active' with the pattern count when allowed_files is non-empty, (b) log 'per_task_restrictions_inactive' with reason (empty files_affected, non-coder agent, non-implement phase) when allowed_files is None. Monitor these logs to track adoption. Consider adding a metric or counter for observability.",
-      "rollback": "N/A — fallback path is the current behavior.",
-      "human_review_needed": false
+      "title": "Directory expansion scope explosion for shallow directory files",
+      "category": "design",
+      "severity": "MEDIUM",
+      "likelihood": "MEDIUM",
+      "impact": "MEDIUM",
+      "description": "Directory expansion converts each explicit file path `dir/file.py` to the pattern `dir/*`. Because fnmatch is recursive, this grants access to the ENTIRE `dir/` subtree. For files in shallow directories, this creates disproportionately broad access. Example: if a task lists `src/constants.py`, expansion adds `src/*` which matches `src/auth/login.py`, `src/payments/checkout.py`, and every other file under `src/`. A single root-level file in a common directory effectively neutralizes per-task restrictions for that entire subtree. Independently verified: fnmatch.fnmatch('src/payments/checkout.py', 'src/*') returns True.",
+      "mitigation": "The architect acknowledges recursive matching but does not call out this specific 'scope explosion' scenario. The practical impact depends on project layout: monorepos with deep directory structures (src/auth/, src/payments/) get useful containment even with recursive matching, because the expansion is at the leaf directory level. Projects with files directly under src/ get weaker containment. Two possible implementation-time mitigations: (1) Only expand to `dir/*` for the IMMEDIATE parent directory of each listed file (already the plan), which naturally scopes to leaf directories for deep paths. (2) Consider adding only the explicit file paths WITHOUT directory expansion when the parent is a top-level source directory (e.g., `src/`). Option (2) is more complex and may not be worth it for v1.",
+      "recommendation": "Add a test case in task-9 that explicitly demonstrates this scope explosion scenario (file at `src/constants.py` granting access to `src/deep/nested/thing.py`). This ensures the behavior is documented and consciously accepted, not accidentally overlooked. Consider logging a structured warning when directory expansion produces a pattern with fewer than 2 path segments (e.g., `src/*`) since these are disproportionately broad.",
+      "status": "REQUIRES_AWARENESS",
+      "new_in_revision": 2
+    },
+    {
+      "id": "R-11",
+      "title": "Concurrent push handling and _warned_files thread safety",
+      "category": "correctness",
+      "severity": "LOW",
+      "likelihood": "LOW",
+      "impact": "LOW",
+      "description": "The _warned_files dict on the Session object is modified during push handling. If the gateway runs with multiple threads (e.g., Flask with threaded=True), concurrent pushes from the same session could race on dict read/modify/write. However, concurrent pushes from a single agent session are extremely rare — Claude Code makes sequential git pushes.",
+      "mitigation": "Flask's default development server is single-threaded. The production gateway likely uses a WSGI server that may be multi-threaded, but concurrent pushes from the same session are improbable (agents push sequentially). If this becomes a concern, a threading.Lock per session or using collections.Counter (atomic increment) would resolve it. Not worth adding complexity for v1.",
+      "status": "ACCEPTABLE_RISK"
+    },
+    {
+      "id": "R-12",
+      "title": "Error message confusion between validation layers",
+      "category": "usability",
+      "severity": "LOW",
+      "likelihood": "LOW",
+      "impact": "MEDIUM",
+      "description": "With 4 validation layers (role-based, agent-role, per-task, phase), agents may receive errors from different layers on successive pushes, making it hard to understand which restriction to address. For example, fixing a per-task violation might expose an underlying phase restriction that was masked.",
+      "mitigation": "DD-10 orders layers from most-specific to least-specific, and each layer has distinct error messages. The per-task error specifically mentions 'per-task file restriction' and includes allowed_files patterns. Phase errors mention the phase name. Agent-role errors mention the role. The agent should be able to distinguish them.",
+      "status": "ACCEPTABLE_RISK"
+    },
+    {
+      "id": "R-13",
+      "title": "Large allowed_files lists from complex plans",
+      "category": "performance",
+      "severity": "LOW",
+      "likelihood": "LOW",
+      "impact": "LOW",
+      "description": "Plans with many tasks and many files per task could produce large allowed_files lists (100+ entries). Each push validation iterates all patterns for each changed file.",
+      "mitigation": "Architect correctly estimates 100 patterns x 50 files = 5000 comparisons as negligible (<10ms). Session persistence adds a small JSON field. No optimization needed.",
+      "status": "ACCEPTABLE_RISK"
     }
   ],
 
-  "risk_summary": {
-    "total_risks": 10,
-    "by_severity": {
-      "high": 1,
-      "medium": 5,
-      "low": 4
+  "disagreements_with_architect": [
+    {
+      "id": "D-1",
+      "severity": "MEDIUM",
+      "topic": "Warn counter increment timing (R-2)",
+      "architect_position": "DD-1 specifies warn on first push, block on second. No mention of interaction with subsequent validation layers.",
+      "risk_analyst_position": "The implementation MUST ensure warn counters are only incremented when the overall push succeeds. Otherwise, pushes that fail at later layers (phase restrictions) consume the agent's warning allowance without providing any benefit. This is a correctness issue that should be added to task-5 acceptance criteria.",
+      "recommendation": "Add to task-5 acceptance: 'Warn counters (_warned_files) are only incremented after all validation layers pass. The per-task layer returns pending warnings that are committed by the push handler on overall success.'",
+      "resolution_needed": "IMPLEMENTATION_TIME"
     },
-    "by_category": {
-      "correctness": 5,
-      "security": 1,
-      "reliability": 2,
-      "performance": 1,
-      "compatibility": 1
+    {
+      "id": "D-2",
+      "severity": "LOW",
+      "topic": "No implicit config file allowlist (DD-3)",
+      "architect_position": "Planner responsibility with documentation guidance. No implicit allowlist.",
+      "risk_analyst_position": "Acceptable for v1 given the warn-then-block safety net, but this will likely need revisiting. Root-level config files (pyproject.toml, package.json, Makefile, tsconfig.json) are modified by many tasks but rarely listed in files_affected because they're 'infrastructure' rather than 'feature' files. The first few production pipeline runs will likely show high warning rates on config files. Recommend tracking this metric.",
+      "recommendation": "If >30% of per-task warnings are for root-level config files in the first 2 weeks, create a follow-up issue for an implicit config allowlist.",
+      "resolution_needed": "POST_LAUNCH_MONITORING"
     },
-    "overall_risk_level": "MEDIUM",
-    "blocking_risks": ["R-1 (fnmatch semantics must be resolved before implementation)"],
-    "human_review_items": ["R-1: fnmatch '*' matches '/' — decide on matching strategy before implementation"]
+    {
+      "id": "D-3",
+      "severity": "LOW",
+      "topic": "Validation layer ordering (DD-10)",
+      "architect_position": "Per-task checks run after agent-role (Layer 2) and before phase (Layer 3).",
+      "risk_analyst_position": "Running per-task checks BEFORE phase checks means per-task warnings fire even for files that would be blocked by phase restrictions anyway. While the counter-increment fix (D-1) prevents the worst outcome, agents would still see confusing per-task warning messages for files that are fundamentally blocked by phase. Running per-task AFTER phase would avoid this: phase blocks first, then per-task only checks files that passed phase. However, the architect's ordering has the advantage of showing per-task violations early, which helps agents learn their scope. Acceptable either way.",
+      "recommendation": "The ordering is acceptable if R-2 (counter increment timing) is fixed. If not fixed, this becomes a blocking issue.",
+      "resolution_needed": "CONDITIONAL_ON_R2"
+    }
+  ],
+
+  "security_assessment": {
+    "overall": "LOW_RISK",
+    "path_traversal": {
+      "status": "MITIGATED",
+      "details": "PhaseFileRestriction._normalize_path() (phase_filter.py:216-228) blocks paths with `../` or leading `/`. This runs on pushed files. Recommend also validating allowed_files patterns at session creation (task-2) to reject patterns containing `..` as defense-in-depth."
+    },
+    "privilege_escalation": {
+      "status": "NOT_APPLICABLE",
+      "details": "Per-task restrictions only NARROW access (additive to phase restrictions per DD-6). They cannot grant access beyond what phase restrictions allow. A file must pass ALL layers."
+    },
+    "injection_via_allowed_files": {
+      "status": "LOW_RISK",
+      "details": "allowed_files entries are used as fnmatch patterns. Fnmatch patterns do not support regex or shell injection. Malformed patterns (e.g., `[`, `]`) would cause fnmatch to fail to match, resulting in a more restrictive (not less restrictive) behavior. The worst case is a pattern that matches nothing, which blocks all files — fail-closed."
+    },
+    "bypass_via_gateway_restart": {
+      "status": "ACCEPTED",
+      "details": "Gateway restart resets _warned_files counters (DD-5). Fail-open by design. An attacker with gateway restart access has broader control anyway."
+    }
+  },
+
+  "compatibility_assessment": {
+    "backward_compatibility": {
+      "status": "SAFE",
+      "details": "All new fields have defaults (allowed_files=None, _warned_files={}). Session.from_persistence() uses .get() for optional fields. Existing sessions load correctly. to_dict_for_persistence() conditionally includes allowed_files only when non-None. No API contract changes for existing callers."
+    },
+    "forward_compatibility": {
+      "status": "GOOD",
+      "details": "The design supports future extensions: (1) escape hatch via session update endpoint (DD-4), (2) implicit config allowlist (DD-3 follow-up), (3) segment-aware matching behind feature flag (DD-2 follow-up), (4) per-task restrictions for other agent roles. None of these require breaking changes."
+    },
+    "existing_test_impact": {
+      "status": "MINIMAL",
+      "details": "Existing tests construct Sessions without allowed_files — backward compatible due to None default. Existing phase restriction tests in test_phase_filter_restrictions.py are unaffected (different code path). Post-agent commit tests may need minor updates if the function signature changes (new allowed_files parameter)."
+    }
   },
 
   "rollback_plan": {
     "strategy": "Feature flag with phased rollout",
-    "steps": [
-      "Phase 1 (deploy): Ship with EGG_TASK_FILE_RESTRICTIONS_ENFORCE=false (default). Per-task checks run but only warn, never block. This validates the plumbing (session model, spawner, validation layer) without breaking any agents.",
-      "Phase 2 (validate): Monitor structured logs for 'per_task_restrictions_active' and warning events. Verify that warned files are files the agent should not have touched. Check for false positives (files that should be allowed but triggered warnings).",
-      "Phase 3 (enforce): After 1-2 weeks of clean warnings, switch to warn-then-block (current default behavior in the design). Monitor for blocked pushes and agent retry rates.",
-      "Phase 4 (strict): For operators who want immediate enforcement, set EGG_TASK_FILE_RESTRICTIONS_ENFORCE=true."
-    ],
-    "emergency_rollback": "Set EGG_TASK_FILE_RESTRICTIONS_ENFORCE=false or deploy pre-#912 gateway. Sessions.json is forward/backward compatible. No data migration needed. Post-agent auto-commit falls back to phase-only filtering when allowed_files parameter is missing.",
-    "blast_radius": "Only affects implement-phase coder agents in pipeline mode with non-empty files_affected. All other sessions (non-pipeline, non-coder, non-implement, empty files_affected) are completely unaffected."
+    "immediate_disable": "Set EGG_TASK_FILE_WARN_THRESHOLD=999 to effectively disable blocking (warn threshold never reached). This preserves logging for monitoring.",
+    "full_disable": "Stop passing allowed_files from the spawner (_compute_allowed_files returns None). No code revert needed — the enforcement layers gracefully handle None.",
+    "strict_mode_revert": "Set EGG_TASK_FILE_RESTRICTIONS_ENFORCE=false (the default) to return to warn-then-block from strict mode.",
+    "phased_rollout_recommendation": [
+      "Week 1: Deploy with warn-only (default config). Monitor violation logs. Measure warning rates per pipeline.",
+      "Week 2: If warning rates are acceptable (<20% of pushes), keep default threshold=1. If high, investigate planner guidance or add config allowlist.",
+      "Week 3+: Consider enabling strict mode (ENFORCE=true) for mature planners that consistently produce complete file lists."
+    ]
   },
 
-  "testing_recommendations": [
+  "areas_requiring_human_review": [
     {
-      "id": "T-1",
-      "priority": "critical",
-      "description": "Test fnmatch behavior with directory separators",
-      "detail": "Verify that the chosen matching strategy correctly distinguishes between shallow and deep paths. Test cases: (a) pattern 'src/auth/*' should NOT match 'src/auth/sub/file.py' (if shallow matching is intended), (b) pattern 'src/auth/**' SHOULD match 'src/auth/sub/file.py', (c) pattern 'src/auth/' (directory prefix) should match 'src/auth/anything.py' but NOT 'src/auth_v2/file.py'. This test MUST be written before any other implementation work.",
-      "affected_risk": "R-1"
+      "area": "Scope explosion risk (R-10)",
+      "reason": "The automatic directory expansion (`dir/*`) from explicit file paths can create disproportionately broad access for files in shallow directories. Human should decide if this tradeoff is acceptable or if expansion should be depth-limited.",
+      "decision_needed": "Accept recursive expansion for all directory depths, or add special handling for shallow directories (e.g., skip expansion when parent has fewer than 2 path segments)?"
     },
     {
-      "id": "T-2",
-      "priority": "high",
-      "description": "Test warn-then-block counter behavior with mixed-outcome pushes",
-      "detail": "Verify: (a) push with one new out-of-scope file succeeds with warning and counter increments, (b) push with one previously-warned file is blocked and counter does NOT increment further, (c) push containing both a new and a previously-warned file is blocked (the previously-warned file triggers block) and the new file's counter is NOT incremented (push didn't succeed), (d) after a blocked push, retrying with only the new file succeeds with warning.",
-      "affected_risk": "R-2"
+      "area": "Warn counter timing (R-2, D-1)",
+      "reason": "The architect's design doesn't specify when counters increment relative to other validation layers. Implementation must handle this correctly or agents lose warning allowances on failed pushes.",
+      "decision_needed": "Confirm that task-5 implementation should only increment counters after all layers pass."
     },
     {
-      "id": "T-3",
-      "priority": "high",
-      "description": "Test prefix matching with directory name collisions",
-      "detail": "Verify: (a) pattern 'src/auth/' does NOT match 'src/auth_backup/file.py', (b) pattern 'src/auth' (no trailing slash) — decide on intended behavior and test accordingly, (c) expanded directory patterns always have trailing '/' or '/*'.",
-      "affected_risk": "R-3"
-    },
-    {
-      "id": "T-4",
-      "priority": "medium",
-      "description": "Test path traversal in allowed_patterns",
-      "detail": "Verify: (a) allowed_files containing '../etc/passwd' is rejected during _compute_allowed_files validation, (b) allowed_files containing '/etc/shadow' is rejected, (c) allowed_files containing 'foo/../../bar' is normalized and rejected if it escapes the repo root.",
-      "affected_risk": "R-5"
-    },
-    {
-      "id": "T-5",
-      "priority": "medium",
-      "description": "Test auto-commit filtering with allowed_files at session cleanup time",
-      "detail": "Verify: (a) auto_commit_worktree with allowed_files=['src/auth/*'] only commits files matching the pattern, (b) files outside allowed_files are restored via git checkout, (c) when allowed_files is None, all changed files (within phase restrictions) are committed, (d) the session object is available with allowed_files at cleanup time even after removal from _sessions.",
-      "affected_risk": "R-7"
-    },
-    {
-      "id": "T-6",
-      "priority": "medium",
-      "description": "End-to-end: Tier 3 with disjoint file scopes and deliberate cross-contamination",
-      "detail": "Spawn two coder agents with disjoint file lists. Have Agent A attempt to modify a file in Agent B's scope. Verify: (a) first push succeeds with warning, (b) second push with same file is blocked, (c) Agent B's push to the same file succeeds normally, (d) post-agent auto-commit for Agent A does not include the out-of-scope file.",
-      "affected_risk": "R-9"
+      "area": "Config file handling (D-2)",
+      "reason": "The 'planner responsibility' decision may cause friction in practice. Root-level config files are commonly modified but rarely listed explicitly.",
+      "decision_needed": "Accept planner-only approach for v1, or add a small implicit allowlist of common root config files?"
     }
   ],
 
-  "files_requiring_careful_review": [
-    {
-      "file": "gateway/phase_filter.py",
-      "reason": "Core matching engine. The fnmatch semantic issue (R-1) must be resolved here. Any change to _matches_pattern affects ALL file restriction checking, not just per-task. Changes must be backward-compatible with existing phase restriction patterns.",
-      "review_focus": "Ensure new matching logic does not break existing phase restriction tests. Consider adding a separate method for per-task matching if the semantics need to differ."
-    },
-    {
-      "file": "gateway/gateway.py",
-      "reason": "Push validation is the security-critical enforcement point. Adding a 4th/5th layer must not introduce regressions in existing layers. The warn-then-block logic with _warned_files mutation must be carefully sequenced relative to the push success/failure outcome.",
-      "review_focus": "Thread safety of _warned_files access (multiple concurrent pushes for the same session), correct counter increment timing (only on push success), and clear error messages."
-    },
-    {
-      "file": "orchestrator/container_spawner.py",
-      "reason": "The _compute_allowed_files function bridges contract data with gateway enforcement. Incorrect computation here silently widens or narrows the enforcement boundary.",
-      "review_focus": "Input validation on files_affected entries, correct union computation across tasks, directory expansion pattern format (trailing / or /*), and the implement-phase+coder-only guard."
-    }
-  ],
-
-  "architect_assessment_correctness": {
-    "accurate_claims": [
-      "Session model persistence pattern (to_dict/from_persistence) handles new optional fields correctly",
-      "PhaseFileRestriction.is_file_allowed() can be reused for per-task patterns (modulo R-1 matching issue)",
-      "Approach B (contract query at push time) correctly identified as adding latency and availability risk",
-      "Approach C (readonly mounts) correctly identified as too rigid for the use case",
-      "Post-agent auto-commit's dual filter (phase + per-task) is the right pattern",
-      "Deferring escape hatch to follow-up is pragmatic",
-      "Checkpoint push bypass is correct (checkpoints are not code files)"
-    ],
-    "inaccurate_claims": [
+  "test_coverage_assessment": {
+    "coverage_gaps_identified": 0,
+    "assessment": "The architect's revision 2 addresses both blocking test gaps from the reviewer. The test plan is comprehensive: Session persistence round-trip (task-8), push validation with explicit recursive matching verification (task-9), post-agent commit filtering (task-10), orchestrator compute_allowed_files (task-11), and integration tier-3 dispatch (test plan entry). Recommend adding two additional test cases.",
+    "additional_test_recommendations": [
       {
-        "claim": "DD-2: Shallow expansion (dir/*) limits to immediate children only",
-        "reality": "Python fnmatch.fnmatch('a/b/c', 'a/*') returns True — '*' matches '/' in Python's fnmatch. dir/* and dir/** are functionally identical.",
-        "severity": "high",
-        "risk_id": "R-1"
+        "task": "task-9",
+        "test": "Scope explosion: file at src/constants.py expands to src/* which matches src/deep/nested/thing.py",
+        "reason": "Documents and verifies the R-10 risk explicitly, ensuring the behavior is conscious and not accidental"
       },
       {
-        "claim": "DD-10: Per-task restrictions 'more specific than phase restrictions but less fundamental'",
-        "reality": "Both are fundamental — phase restrictions protect system integrity (.egg-state/), per-task restrictions prevent cross-contamination. The ordering claim ('running before phase restrictions means per-task filtering has already narrowed the scope before the phase check runs') is incorrect — both layers independently check the full changed_files list, not the filtered output of the prior layer. They don't narrow each other; they AND together.",
-        "severity": "low",
-        "risk_id": "D-3"
+        "task": "task-5",
+        "test": "Warn counter not incremented when push fails at phase restriction layer",
+        "reason": "Verifies R-2 fix: counters should only increment on overall push success"
       }
+    ]
+  },
+
+  "implementation_complexity_assessment": {
+    "overall": "MEDIUM",
+    "highest_risk_tasks": [
+      {
+        "task": "task-5 (push validation warn-then-block layer)",
+        "complexity": "MEDIUM",
+        "reason": "Core enforcement logic with multiple interaction points: counter management, deferred counter commits (R-2 fix), strict mode toggle, checkpoint bypass, error message formatting. Most complex single task."
+      },
+      {
+        "task": "task-4 (_compute_allowed_files helper)",
+        "complexity": "MEDIUM",
+        "reason": "Requires loading contract, filtering tasks by plan_phase_id, computing union, applying directory expansion. The plan_phase_id plumbing through _spawn_and_wait to spawn_agent_container adds cross-file coordination."
+      }
+    ],
+    "lowest_risk_tasks": [
+      "task-1 (Session model field addition)",
+      "task-2 (Gateway endpoint accepts new field)",
+      "task-3 (GatewayClient parameter addition)",
+      "task-7 (Plan template documentation)"
+    ]
+  },
+
+  "final_recommendation": {
+    "proceed": true,
+    "conditions": [
+      "R-2 (warn counter timing) must be fixed at implementation time — add to task-5 acceptance criteria",
+      "R-5 (path traversal in patterns) — add pattern validation to task-2 (reject entries with `..`)",
+      "R-10 (scope explosion) — add explicit test case documenting the behavior"
+    ],
+    "monitoring_requirements": [
+      "Track per-task warning rate (warned pushes / total pushes per pipeline)",
+      "Track per-task block rate (blocked pushes / total pushes per pipeline)",
+      "Log which files trigger warnings most frequently (identify planner training gaps)",
+      "Alert if >20% of implement-phase pushes trigger per-task warnings in the first 2 weeks"
     ]
   }
 }
