@@ -2839,8 +2839,10 @@ class TestPhaseGateViewOption:
         mock_pager.assert_not_called()
         # Prompt text should not advertise [v] when there is no draft
         captured = capsys.readouterr()
-        assert "/v/" not in captured.out
-        assert "[v]" not in captured.out
+        assert "[v]" not in captured.out  # menu item not printed
+        # Verify the prompt string passed to input() also omits /v
+        prompt_args = [call.args[0] for call in mock_input.call_args_list if call.args]
+        assert all("/v" not in p for p in prompt_args)
 
     @patch("egg_lib.sdlc_hitl._find_repo_path")
     @patch("egg_lib.sdlc_hitl._display_in_pager")
