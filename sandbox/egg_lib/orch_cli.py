@@ -1152,9 +1152,9 @@ def create_parser() -> argparse.ArgumentParser:
     dec_create.add_argument(
         "--decision-type",
         dest="decision_type",
-        choices=["choice", "feedback"],
+        choices=["phase_gate", "choice", "feedback"],
         default=None,
-        help="Decision type (default: choice)",
+        help="Decision type (default: choice). phase_gate is typically created by the orchestrator but can be used for manual debugging/recovery.",
     )
     _add_json_flag(dec_create)
     dec_create.set_defaults(func=cmd_decision_create)
