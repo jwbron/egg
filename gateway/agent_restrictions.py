@@ -2,15 +2,18 @@
 Agent-role-based file restrictions for multi-agent orchestration.
 
 This module extends the phase_filter system to enforce file access patterns
-for specialized agents (Coder, Tester, Documenter, Integrator). Each agent
+for specialized agents. Each agent
 role has specific file paths it can read and write to, preventing agents
 from modifying files outside their responsibility.
 
 Security model:
+- Architect/Task Planner/Risk Analyst: Can write drafts and agent-outputs only, blocked from source code, docs, contracts, reviews
 - Coder: Can write source code, blocked from docs and contracts
 - Tester: Can write test files only
 - Documenter: Can write docs and markdown only
 - Integrator: Can only write handoff output (read-only otherwise)
+- Refiner: Can write drafts and agent-outputs only, blocked from source code and contracts
+- Reviewers: Can write reviews and agent-outputs only
 
 The gateway uses these restrictions during git push to validate that
 commits only modify files allowed for the agent's role.
