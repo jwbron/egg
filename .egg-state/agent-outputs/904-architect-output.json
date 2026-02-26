@@ -1,0 +1,412 @@
+{
+  "issue": 904,
+  "phase": "plan",
+  "agent": "architect",
+  "revision": 1,
+  "revision_reason": null,
+  "title": "Architecture analysis: Build-time dependency installation with Docker layer caching",
+
+  "summary": "Support build-time dependency installation via user-configured commands (e.g., `npm ci`, `pip install -r requirements.txt`) that run during `docker build` and are baked into the single `egg` image. The recommended approach dynamically generates per-repo COPY+RUN Dockerfile layers from `build_commands` config in `repositories.yaml`, maximizing Docker layer caching. This also fixes the existing `extra_packages` bug where config is inaccessible during build. Key design decisions include: running build commands as root in a staging directory (not the runtime repo path), failing the build on command failure, and documenting the volume-overlay limitation for local-installing package managers (npm) with a startup-copy workaround for advanced users.",
+
+  "problem_statement": {
+    "description": "In private mode, the sandbox container has no network access beyond the Anthropic API. Runtime dependency installation (`pip install`, `npm install`, `make deps`) fails. The existing `docker_setup.extra_packages` config only supports OS-level packages (apt/dnf) and is itself non-functional because `repositories.yaml` is not available in the Docker build context. There is no mechanism for running project-specific dependency installation commands at image build time with proper Docker layer caching.",
+    "root_causes": [
+      {
+        "id": "RC-1",
+        "title": "No build_commands config or execution path",
+        "description": "The config schema has no way to specify per-repo build commands. The Dockerfile and docker-setup.py only handle OS-level package installation via apt/dnf, not project-level dependency managers (pip, npm, go, cargo)."
+      },
+      {
+        "id": "RC-2",
+        "title": "Config inaccessible during Docker build",
+        "description": "create_dockerfile() at docker.py:210 does not copy repositories.yaml into the build context. During `docker build`, docker-setup.py's load_config() searches paths that don't exist inside the build environment (HOME is /root, no ~/repos/egg mount). This means extra_packages is silently ignored — a pre-existing bug.",
+        "location": "sandbox/docker-setup.py:44-75, sandbox/egg_lib/docker.py:210-313"
+      },
+      {
+        "id": "RC-3",
+        "title": "Build hash excludes dependency files",
+        "description": "compute_build_hash() at docker.py:417 hashes only egg source files (Dockerfile, scripts, shared modules). It does not include user dependency files (package-lock.json, requirements.txt), so changes to these files don't trigger image rebuilds.",
+        "location": "sandbox/egg_lib/docker.py:417-488"
+      },
+      {
+        "id": "RC-4",
+        "title": "Volume overlay hides build-time local installs",
+        "description": "Local repos are volume-mounted at runtime at /home/egg/repos/<name> (compose.py:236), which overlays anything placed at those paths during build. Package managers that install locally (npm → node_modules/) lose their build-time artifacts at runtime. System-path installers (pip, go) are unaffected.",
+        "location": "sandbox/egg_lib/compose.py:192-250"
+      }
+    ]
+  },
+
+  "current_architecture": {
+    "build_flow": "The image build is orchestrated by sandbox/egg_lib/docker.py. build_image() calls should_rebuild_image() (compares SHA256 hash of all build files against label stored on image), then create_dockerfile() (copies egg source to ~/.cache/egg/ build context), then compute_build_hash(), then runs `docker build`. The Dockerfile is static — copied as-is from sandbox/Dockerfile to the build context.",
+    "key_components": [
+      {
+        "name": "build_image()",
+        "file": "sandbox/egg_lib/docker.py",
+        "lines": "555-640",
+        "description": "Entry point for image builds. Checks if rebuild needed, syncs build context, computes hash, runs docker build with build-args (USER_NAME, USER_UID, USER_GID, CLAUDE_CODE_VERSION) and label (org.egg.build-hash)."
+      },
+      {
+        "name": "create_dockerfile()",
+        "file": "sandbox/egg_lib/docker.py",
+        "lines": "210-313",
+        "description": "Copies egg source files to ~/.cache/egg/ build context: docker-setup.py, claude-commands/, claude-rules/, runtime dirs (bin, egg_lib, llm, tools, scripts), shared/, pyproject.toml files, entrypoint.py, and the static Dockerfile."
+      },
+      {
+        "name": "compute_build_hash()",
+        "file": "sandbox/egg_lib/docker.py",
+        "lines": "417-488",
+        "description": "SHA256 hash of UID/GID, Dockerfile, entrypoint.py, docker-setup.py, pyproject.toml, and directories (claude-commands, claude-rules, bin, egg_lib, llm, tools, scripts, .claude/hooks, shared). Does NOT include user config or dependency files."
+      },
+      {
+        "name": "docker-setup.py",
+        "file": "sandbox/docker-setup.py",
+        "lines": "1-247",
+        "description": "Runs during Docker build (Dockerfile line 59-63). Detects distro, loads config (unsuccessfully — bug), installs core packages (git, curl, build-essential, etc.) and user-configured extra packages. Config search: EGG_REPO_CONFIG env → ~/.config/egg/repositories.yaml → ~/repos/egg/config/repositories.yaml."
+      },
+      {
+        "name": "Dockerfile",
+        "file": "sandbox/Dockerfile",
+        "lines": "1-190",
+        "description": "Static Dockerfile: Ubuntu 22.04 → system packages → gh CLI → Python 3.11 → docker-setup.py (core/extra packages) → pip dependencies (base + private-mode pre-installs) → claude commands/rules → runtime scripts → git/gh gateway hijack → user creation → Claude Code CLI → entrypoint."
+      },
+      {
+        "name": "generate_compose_override()",
+        "file": "sandbox/egg_lib/compose.py",
+        "lines": "192-261",
+        "description": "Generates docker-compose.override.yml with per-repo volume mounts from local_repos.paths. Mounts each repo at /home/egg/repos/<name>. This is what causes the volume overlay that hides build-time local installs."
+      },
+      {
+        "name": "get_local_repos()",
+        "file": "sandbox/egg_lib/config.py",
+        "lines": "141-180",
+        "description": "Loads local_repos.paths from repositories.yaml, resolves to absolute Path objects. Used by compose.py for volume mounts and will be needed by build_commands to locate watch files."
+      },
+      {
+        "name": "Config class",
+        "file": "sandbox/egg_lib/config.py",
+        "lines": "72-80",
+        "description": "CONFIG_DIR = ~/.cache/egg/ (XDG-compliant). DOCKERFILE = CONFIG_DIR / 'Dockerfile'. IMAGE_NAME = 'egg'. This is the build staging directory."
+      },
+      {
+        "name": "repo_config.py",
+        "file": "config/repo_config.py",
+        "lines": "244-263",
+        "description": "get_repo_setting(repo, setting, default) — generic per-repo config accessor. Loads from repo_settings in repositories.yaml with case-insensitive lookup."
+      }
+    ]
+  },
+
+  "approaches": [
+    {
+      "id": "A",
+      "title": "Extend docker-setup.py with config in build context",
+      "description": "Copy repositories.yaml (or a subset) into the build context. Extend docker-setup.py to read build_commands from config and execute them. Copy all watch files in a single COPY layer. Run all build commands in a single RUN layer via docker-setup.py.",
+      "pros": [
+        "Minimal changes to the static Dockerfile (one new COPY + RUN layer)",
+        "Reuses existing config loading pattern in docker-setup.py",
+        "Fixes extra_packages bug as a side effect",
+        "Simple mental model — docker-setup.py handles all build-time setup"
+      ],
+      "cons": [
+        "Poor per-repo caching: one COPY layer for all watch files means any change rebuilds all repos' deps",
+        "Single RUN layer for all commands prevents independent caching",
+        "docker-setup.py becomes overloaded, mixing OS packages with project-level deps",
+        "Potentially copies sensitive data from repositories.yaml into the image (tokens are in secrets.env, but still a concern)"
+      ],
+      "risk": "medium",
+      "effort": "low"
+    },
+    {
+      "id": "B",
+      "title": "Dynamic Dockerfile generation with per-repo COPY+RUN layers",
+      "description": "create_dockerfile() reads build_commands from config and appends per-repo COPY+RUN instructions to the static Dockerfile template. Each repo gets independent layers: COPY repo-deps/<name>/ /tmp/repo-deps/<name>/ then RUN cd /tmp/repo-deps/<name> && <commands>. Watch files are copied from local_repos.paths into the build context at repo-deps/<name>/.",
+      "pros": [
+        "Optimal per-repo Docker layer caching — changing one repo's lockfile only rebuilds that repo's deps",
+        "Standard Docker best practice (COPY dependency files → RUN install before COPY source)",
+        "Clean separation — each repo's deps are independent layers",
+        "No config parsing at build time — commands are directly in Dockerfile",
+        "No sensitive config data in the image"
+      ],
+      "cons": [
+        "Shifts from static to dynamically generated Dockerfile",
+        "Dockerfile in build context diverges from what's in the repo — could confuse debugging",
+        "Must handle empty build_commands case (produce original static Dockerfile)",
+        "User-provided commands need careful shell escaping in generated RUN lines"
+      ],
+      "risk": "low",
+      "effort": "medium"
+    },
+    {
+      "id": "C",
+      "title": "Separate generated build script (minimal Dockerfile changes)",
+      "description": "create_dockerfile() generates a build-deps.sh shell script embedding all repos' commands. The static Dockerfile gets two new lines: COPY build-deps.sh + RUN build-deps.sh. Watch files are still copied individually for each repo.",
+      "pros": [
+        "No dynamic Dockerfile generation — only a generated shell script",
+        "Dockerfile changes are minimal (2 lines)",
+        "Easy to debug (inspect build-deps.sh in the image)"
+      ],
+      "cons": [
+        "Same poor per-repo caching as Option A (single RUN layer for all repos)",
+        "Introduces new generated build artifact pattern",
+        "Must handle shell escaping of user-provided commands",
+        "Watch file changes still invalidate the single RUN layer for all repos"
+      ],
+      "risk": "low",
+      "effort": "low"
+    }
+  ],
+
+  "recommended_approach": {
+    "id": "B",
+    "title": "Dynamic Dockerfile generation with per-repo COPY+RUN layers",
+    "justification": "The primary value of this feature is Docker layer caching — if deps haven't changed, skip reinstalling them. Option B maximizes this by giving each repo independent COPY+RUN layers, so changing one repo's lockfile doesn't invalidate another's dependency layer. This is the standard Docker pattern for dependency caching. The dynamic Dockerfile generation is a manageable complexity increase to create_dockerfile(), which already assembles a complex build context. The generated lines are simple string concatenation appended to the static template, keeping the core Dockerfile readable in the repo. Options A and C sacrifice per-repo caching (the core feature value) for marginal simplicity gains.",
+    "risk_assessment": "Low risk. The change is additive — repos without build_commands get the exact same static Dockerfile. Dynamic generation only appends lines. The static template in the repo remains the source of truth. All changes are in the host-side build tooling, not in the container runtime, so failures are caught at build time (not silently at runtime)."
+  },
+
+  "design_decisions": [
+    {
+      "id": "DD-1",
+      "title": "Volume overlay strategy for local-installing package managers",
+      "decision": "Document the limitation and provide an opt-in startup-copy workaround",
+      "rationale": "Package managers that install to local directories (npm → node_modules/, Bundler → vendor/bundle/) will have build-time installs hidden by runtime volume mounts. For MVP, document this as a known limitation and recommend: (a) use system-path installers when possible (pip installs globally as root, go modules use GOMODCACHE), (b) for npm, configure build_commands to install with `--prefix /opt/deps/<name>` and set NODE_PATH, or (c) use the `--global-style` npm flag. An opt-in `install_path` per-repo config can be added later for explicit staging + startup copy.",
+      "alternatives_considered": [
+        "Automatic startup copy from staging path — adds startup latency, complex to implement correctly",
+        "Docker named volumes for node_modules — breaks the single-volume-per-repo model, complex compose generation",
+        "Overlay mounts (overlayfs) — requires privileged container, security concern"
+      ]
+    },
+    {
+      "id": "DD-2",
+      "title": "Build command execution context",
+      "decision": "Run as root in /tmp/repo-deps/<name>/, the standard Docker build context",
+      "rationale": "The Dockerfile runs all build steps as root before creating the egg user (line 147). Build commands should follow the same pattern. The working directory /tmp/repo-deps/<name>/ contains only the watch files. System-path installers (pip, go) install to global locations, which is the desired behavior. Commands that need specific user context can use `su -c`. Environment variables can be set via an optional `env` field in the config.",
+      "alternatives_considered": [
+        "Run as egg user — egg user doesn't exist yet at the point where dep layers should be inserted (before line 147)",
+        "Run in /home/egg/repos/<name> — this path is overlaid by volume mounts at runtime; misleading"
+      ]
+    },
+    {
+      "id": "DD-3",
+      "title": "Build command failure handling",
+      "decision": "Fail the Docker build on command failure (standard Docker behavior)",
+      "rationale": "Build commands are user-configured for their specific projects. A failing command likely means broken dependencies, which would cause agent failures at runtime. Unlike extra_packages (which uses check=False for resilience against missing packages), build_commands represent explicit user intent — if `npm ci` fails, the image should not be built. Users can add `|| true` to individual commands if they want to ignore failures.",
+      "alternatives_considered": [
+        "Log warning and continue (like extra_packages) — hides real failures, defeats the purpose of pre-installing deps",
+        "Per-command configurable — over-engineering for the MVP"
+      ]
+    },
+    {
+      "id": "DD-4",
+      "title": "Config accessibility fix for extra_packages",
+      "decision": "Copy a minimal config subset into the build context alongside the build_commands fix",
+      "rationale": "The existing extra_packages feature is non-functional because docker-setup.py can't find repositories.yaml during build. Rather than copying the full config (which could contain sensitive data), create_dockerfile() should extract the docker_setup section and write it as a minimal YAML file to the build context. This fixes the pre-existing bug and follows the principle of least privilege for build context data.",
+      "alternatives_considered": [
+        "Copy full repositories.yaml — might contain sensitive per-repo settings",
+        "Embed extra_packages as build args — messy for complex package lists",
+        "Generate apt/dnf install commands directly in Dockerfile — duplicates docker-setup.py logic"
+      ]
+    },
+    {
+      "id": "DD-5",
+      "title": "Watch files to local_repos.paths mapping",
+      "decision": "Use explicit repo-name matching between repo_settings keys and local_repos.paths basenames, with validation",
+      "rationale": "The mapping between repo_settings keys (owner/repo format) and local_repos.paths (filesystem paths) is by directory basename matching the repo portion of the key. create_dockerfile() should: (1) parse the repo name from the settings key (e.g., 'web-app' from 'your-org/web-app'), (2) find the matching path in local_repos.paths by basename, (3) warn and skip if no matching local path exists (cloud-only repos can't have build_commands since there are no local files to copy). This uses the existing convention from compose.py.",
+      "alternatives_considered": [
+        "Add explicit path mapping in config — adds complexity, redundant with local_repos.paths",
+        "Allow build_commands without local_repos — impossible since watch files must exist locally"
+      ]
+    },
+    {
+      "id": "DD-6",
+      "title": "Dockerfile generation strategy",
+      "decision": "Append generated lines before the COPY . /opt/egg-runtime/ line (Dockerfile line 126)",
+      "rationale": "Dependency installation layers should come after system packages and Python pip installs (so that system-level tools like gcc, make, node are available) but before the runtime scripts copy (so that runtime script changes don't invalidate dependency layers). The current Dockerfile has a natural insertion point: after the pip install blocks (line 104) and before the COPY . /opt/egg-runtime/ (line 126). create_dockerfile() reads the static Dockerfile, finds this insertion point, injects the per-repo COPY+RUN blocks, and writes the result.",
+      "alternatives_considered": [
+        "Append at the end — runs after user creation, Claude Code install; deps would be cached poorly since user-creation layer changes with UID/GID",
+        "Insert before pip installs — pip might be needed by build commands (e.g., pip install -r requirements.txt)",
+        "Use Dockerfile ONBUILD — deprecated pattern, poor compatibility"
+      ]
+    }
+  ],
+
+  "implementation_plan": {
+    "tasks": [
+      {
+        "id": "task-1",
+        "title": "Extend config schema with build_commands",
+        "description": "Add `build_commands` section under `repo_settings` in the config schema. Structure: `build_commands: { watch_files: [str], commands: [str], env: {str: str} (optional) }`. Update `config/repositories.yaml.example` with documented examples. Add accessor functions to `config/repo_config.py`: `get_repo_build_commands(repo)` returning the build_commands dict, and `get_all_build_commands()` returning a dict of repo→build_commands for all repos with the setting.",
+        "files": [
+          "config/repositories.yaml.example",
+          "config/repo_config.py"
+        ],
+        "dependencies": [],
+        "effort": "small"
+      },
+      {
+        "id": "task-2",
+        "title": "Copy watch files into Docker build context",
+        "description": "Extend `create_dockerfile()` in `docker.py` to: (1) load build_commands config for all repos, (2) resolve watch file paths by matching repo_settings keys to local_repos.paths basenames, (3) copy watch files from local repo paths into the build context at `~/.cache/egg/repo-deps/<repo-name>/`. Validate that watch files exist and warn if missing. Skip repos with no matching local path.",
+        "files": [
+          "sandbox/egg_lib/docker.py"
+        ],
+        "dependencies": ["task-1"],
+        "effort": "medium"
+      },
+      {
+        "id": "task-3",
+        "title": "Generate per-repo Dockerfile layers",
+        "description": "Extend `create_dockerfile()` to dynamically inject per-repo COPY+RUN instructions into the Dockerfile. Read the static Dockerfile template, find the insertion point (after pip installs, before COPY . /opt/egg-runtime/), and inject: `COPY repo-deps/<name>/ /tmp/repo-deps/<name>/` followed by `RUN cd /tmp/repo-deps/<name> && set -e && <cmd1> && <cmd2> ...` for each repo with build_commands. Handle shell escaping of user-provided commands. Write the modified Dockerfile to the build context.",
+        "files": [
+          "sandbox/egg_lib/docker.py"
+        ],
+        "dependencies": ["task-2"],
+        "effort": "medium"
+      },
+      {
+        "id": "task-4",
+        "title": "Extend build hash to include watch files",
+        "description": "Extend `compute_build_hash()` to include: (1) content of all watch files from all repos with build_commands, (2) the build_commands config itself (commands and env). This ensures that dependency file changes (e.g., updated package-lock.json) trigger image rebuilds, and command changes also trigger rebuilds.",
+        "files": [
+          "sandbox/egg_lib/docker.py"
+        ],
+        "dependencies": ["task-1"],
+        "effort": "small"
+      },
+      {
+        "id": "task-5",
+        "title": "Fix extra_packages config accessibility",
+        "description": "In `create_dockerfile()`, extract the `docker_setup` section from repositories.yaml and write it as a minimal YAML file (`~/.cache/egg/sandbox/docker-setup-config.yaml`) in the build context. Update the Dockerfile's docker-setup.py COPY+RUN to also copy this config file. Update docker-setup.py's `load_config()` to check for the build-context config path (`/tmp/docker-setup-config.yaml`) as an additional search location.",
+        "files": [
+          "sandbox/egg_lib/docker.py",
+          "sandbox/docker-setup.py",
+          "sandbox/Dockerfile"
+        ],
+        "dependencies": [],
+        "effort": "small"
+      },
+      {
+        "id": "task-6",
+        "title": "Add tests for build_commands config and Dockerfile generation",
+        "description": "Add unit tests for: (1) config accessor functions (get_repo_build_commands, get_all_build_commands), (2) watch file copying logic (matching repo names to local paths, handling missing files), (3) Dockerfile generation (correct insertion point, proper escaping, empty build_commands produces unchanged Dockerfile), (4) build hash includes watch file contents. Extend existing test_docker.py and test_docker_setup.py.",
+        "files": [
+          "tests/sandbox/test_docker.py",
+          "tests/sandbox/test_docker_setup.py",
+          "tests/config/test_repo_config.py"
+        ],
+        "dependencies": ["task-1", "task-2", "task-3", "task-4", "task-5"],
+        "effort": "medium"
+      },
+      {
+        "id": "task-7",
+        "title": "Update documentation",
+        "description": "Update: (1) config/repositories.yaml.example with build_commands examples (covered by task-1), (2) sandbox/README.md with build_commands documentation including the volume overlay limitation and workarounds, (3) config/README.md if it references docker_setup.",
+        "files": [
+          "sandbox/README.md",
+          "config/README.md"
+        ],
+        "dependencies": ["task-1", "task-2", "task-3"],
+        "effort": "small"
+      }
+    ],
+    "ordering": "Tasks 1 and 5 can be done in parallel (independent). Tasks 2-3 depend on task 1 (config accessors needed). Task 4 depends on task 1. Task 6 depends on all implementation tasks. Task 7 depends on implementation being stable.",
+    "critical_path": "task-1 → task-2 → task-3 (config → watch files → Dockerfile generation)"
+  },
+
+  "constraints": [
+    "Single image — all repos' dependencies must coexist in one `egg` image, no per-repo images",
+    "Volume overlay — runtime volume mounts at /home/egg/repos/<name> hide build-time contents at those paths",
+    "No full repo at build time — only watch files are available; full repos are mounted at runtime",
+    "Backwards compatible — repos without build_commands must produce the exact same Dockerfile and image",
+    "Static Dockerfile remains in repo — dynamic generation only in the build context copy, not the source",
+    "Build hash must include watch file contents to trigger rebuilds on dependency changes",
+    "Docker layer caching order — dependency COPY+RUN must come after system tool installs but before frequently-changing layers",
+    "Private mode primary use case — no network at runtime, deps must be pre-installed in the image"
+  ],
+
+  "dependencies": {
+    "internal": [
+      "sandbox/egg_lib/docker.py — main build orchestration (create_dockerfile, compute_build_hash, build_image)",
+      "sandbox/docker-setup.py — build-time package installation script",
+      "sandbox/Dockerfile — image definition template",
+      "config/repo_config.py — per-repo config accessors",
+      "sandbox/egg_lib/config.py — get_local_repos() for resolving repo paths",
+      "sandbox/egg_lib/compose.py — volume mount generation (not modified, but constrains design)"
+    ],
+    "external": [
+      "Docker BuildKit layer caching — per-repo COPY+RUN caching behavior",
+      "repositories.yaml — user configuration file (schema extension)"
+    ]
+  },
+
+  "open_questions": [
+    {
+      "id": "OQ-1",
+      "title": "Environment variable support for build commands",
+      "description": "Should the config support an optional `env` map for setting environment variables during build commands? Examples: NODE_ENV=production, PIP_NO_CACHE_DIR=1, GOPATH=/opt/go. The proposed schema includes this as optional, but it could be deferred to a follow-up if not needed for MVP.",
+      "blocking": false,
+      "recommendation": "Include env support in the schema but make it optional. Implementation is trivial (add ENV lines before RUN in generated Dockerfile). Defer if it adds scope."
+    },
+    {
+      "id": "OQ-2",
+      "title": "Dockerfile insertion point marker",
+      "description": "The dynamic generation inserts lines at a specific point in the Dockerfile. Should we add a comment marker (e.g., `# === BUILD_COMMANDS_INSERT_POINT ===`) to make the insertion point explicit, or rely on content matching (e.g., find the 'COPY . /opt/egg-runtime/' line)?",
+      "blocking": false,
+      "recommendation": "Use a comment marker. It's explicit, resilient to Dockerfile refactoring, and self-documenting. Add `# === DEPENDENCY_LAYERS ===` as a marker in the static Dockerfile."
+    },
+    {
+      "id": "OQ-3",
+      "title": "Forced rebuild of dependency layers",
+      "description": "Should there be a `--rebuild-deps` flag (separate from --rebuild) to force rebuild only the dependency layers without rebuilding the entire image?",
+      "blocking": false,
+      "recommendation": "Defer. The existing `--rebuild` flag (which does --no-cache) is sufficient for now. Per-layer cache invalidation would require BuildKit cache mounts, which is a larger change."
+    }
+  ],
+
+  "file_inventory": {
+    "modified": [
+      {
+        "file": "sandbox/egg_lib/docker.py",
+        "changes": "Extend create_dockerfile() to copy watch files and generate per-repo Dockerfile layers. Extend compute_build_hash() to include watch file contents and build_commands config. Fix config accessibility for docker-setup.py."
+      },
+      {
+        "file": "sandbox/docker-setup.py",
+        "changes": "Add build-context config path to load_config() search order to fix extra_packages bug."
+      },
+      {
+        "file": "sandbox/Dockerfile",
+        "changes": "Add insertion point marker comment. Add COPY+RUN for docker-setup config file."
+      },
+      {
+        "file": "config/repo_config.py",
+        "changes": "Add get_repo_build_commands() and get_all_build_commands() accessor functions."
+      },
+      {
+        "file": "config/repositories.yaml.example",
+        "changes": "Add build_commands configuration examples with documentation."
+      },
+      {
+        "file": "sandbox/README.md",
+        "changes": "Document build_commands feature, volume overlay limitation, and workarounds."
+      }
+    ],
+    "created": [],
+    "test_files": [
+      {
+        "file": "tests/sandbox/test_docker.py",
+        "changes": "Add tests for watch file copying, Dockerfile generation, and build hash extension."
+      },
+      {
+        "file": "tests/sandbox/test_docker_setup.py",
+        "changes": "Add tests for build-context config loading fix."
+      },
+      {
+        "file": "tests/config/test_repo_config.py",
+        "changes": "Add tests for get_repo_build_commands() and get_all_build_commands()."
+      }
+    ]
+  },
+
+  "generated_at": "2026-02-26T03:30:00Z",
+  "authored_by": "egg"
+}
