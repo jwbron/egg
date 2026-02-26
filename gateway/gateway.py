@@ -3371,12 +3371,17 @@ def session_create() -> tuple[Response, int] | Response:
             )
 
     # Step 3: Create worktrees for filtered repos
-    manager = get_worktree_manager()
     worktrees = {}
     worktree_errors = []
     first_worktree_path: str | None = None  # Gateway-side path for checkpoint context
     first_repo: str | None = None  # First filtered repo in "owner/repo" format
     worktree_branch: str | None = None  # Worktree branch name for branch lock
+
+    # Only initialise the worktree manager when there are repos to process.
+    # Local-mode sessions (no repos) skip worktree creation entirely, so
+    # avoid hitting the filesystem for the worktree base directory.
+    if filtered_repos:
+        manager = get_worktree_manager()
 
     for repo in filtered_repos:
         # Extract repo name from owner/repo format
