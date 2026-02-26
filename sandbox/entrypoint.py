@@ -826,14 +826,23 @@ def setup_agent_rules(config: Config, logger: Logger) -> None:
     claude_md.write_text("\n\n---\n\n".join(content_parts))
     os.chown(claude_md, config.runtime_uid, config.runtime_gid)
 
-    # Clean up stale files from previous location (~/CLAUDE.md, ~/repos/CLAUDE.md symlink)
-    # to prevent duplicate rules when upgrading on persistent volumes.
+    # Clean up stale CLAUDE.md files from previous container runs.
+    # _chdir_to_single_repo() re-creates a symlink at CWD/CLAUDE.md later
+    # when the session starts; this cleanup ensures a fresh state.
+    # Covers all three CWD scenarios: home, repos_dir, and single-repo.
     stale_home = config.user_home / "CLAUDE.md"
     if stale_home.exists() or stale_home.is_symlink():
         stale_home.unlink()
     stale_repos = config.repos_dir / "CLAUDE.md"
     if stale_repos.exists() or stale_repos.is_symlink():
         stale_repos.unlink()
+    # Single-repo case: symlink is inside repos_dir/<repo>/CLAUDE.md
+    if config.repos_dir.exists():
+        for subdir in config.repos_dir.iterdir():
+            if subdir.is_dir() and (subdir / ".git").exists():
+                stale_repo = subdir / "CLAUDE.md"
+                if stale_repo.is_symlink():
+                    stale_repo.unlink()
 
     logger.success("AI agent rules installed: ~/.claude/CLAUDE.md (global)")
     logger.info(f"  Combined {len(rules_order)} rule files (index-based per LLM Doc ADR)")
@@ -1610,12 +1619,83 @@ def _read_subprocess_stderr_tail(max_lines: int = 20) -> str:
     return ""
 
 
+def _exclude_from_git(file_path: Path) -> None:
+    """Add a file to .git/info/exclude so git ignores it without modifying .gitignore.
+
+    Walks up from file_path to find the nearest .git entry (directory or
+    worktree file). If found, appends the relative path to the git metadata
+    directory's info/exclude file (a repo-local ignore mechanism that is not
+    committed).
+
+    Handles both regular repos (.git is a directory) and worktrees (.git is
+    a file containing ``gitdir: <path>``).
+
+    Note: In production containers, .git is typically shadowed with /dev/null
+    (orchestrator mode) or a tmpfs (CLI mode), so this function may be a no-op.
+    The authoritative symlink filter is in gateway/post_agent_commit.py which
+    runs on the host side. This function provides defense-in-depth for cases
+    where .git is accessible (e.g., testing, future environments).
+
+    Silently does nothing if no .git entry is found or if .git is not a
+    directory or worktree file (e.g., /dev/null bind mount).
+    """
+    parent = file_path.parent
+    while parent != parent.parent:
+        git_entry = parent / ".git"
+        git_meta_dir: Path | None = None
+
+        if git_entry.is_dir():
+            git_meta_dir = git_entry
+        elif git_entry.is_file():
+            # Worktree: .git is a file containing "gitdir: <path>"
+            try:
+                content = git_entry.read_text().strip()
+                if content.startswith("gitdir:"):
+                    gitdir_path = content[len("gitdir:") :].strip()
+                    resolved = Path(gitdir_path)
+                    if not resolved.is_absolute():
+                        resolved = (parent / resolved).resolve()
+                    if resolved.is_dir():
+                        git_meta_dir = resolved
+            except (OSError, ValueError):
+                pass
+
+        if git_meta_dir is not None:
+            exclude_file = git_meta_dir / "info" / "exclude"
+            exclude_file.parent.mkdir(parents=True, exist_ok=True)
+            rel_path = str(file_path.relative_to(parent))
+            # Check if already excluded
+            if exclude_file.exists():
+                existing = exclude_file.read_text()
+                if rel_path in existing.splitlines():
+                    return
+            with open(exclude_file, "a") as f:
+                f.write(f"\n{rel_path}\n")
+            return
+        parent = parent.parent
+
+
 def _chdir_to_single_repo(config: Config) -> None:
     """Change to repos directory, entering the single repo if exactly one exists.
 
     If repos_dir contains exactly one git repository, chdir into it and set
     EGG_REPO_PATH so git/gh commands auto-detect the repository context.
     Falls back to user home if repos_dir doesn't exist.
+
+    After setting CWD, creates a project-level CLAUDE.md symlink pointing to
+    the global ~/.claude/CLAUDE.md so Claude Code detects it in the working
+    directory (suppresses the "Run /init" welcome message).
+
+    The symlink is a container-local artifact and must not be committed to
+    user repositories. The authoritative filter is in gateway/post_agent_commit.py
+    which skips symlinks during auto-commit on the host side. As defense-in-depth,
+    _exclude_from_git() also writes to .git/info/exclude when accessible.
+
+    Known limitation: the auto-commit filter does not protect against the agent
+    explicitly committing the symlink via ``git add CLAUDE.md && git commit``.
+    The gateway's commit-time phase validation does not check for symlinks.
+    Risk is low (agent instructions use ``git add <files>``, not ``git add -A``)
+    but nonzero. See gateway/post_agent_commit.py for details.
     """
     if config.repos_dir.exists():
         os.chdir(config.repos_dir)
@@ -1626,6 +1706,23 @@ def _chdir_to_single_repo(config: Config) -> None:
             os.environ["EGG_REPO_PATH"] = str(subdirs[0])
     else:
         os.chdir(config.user_home)
+
+    # Create project-level CLAUDE.md symlink so Claude Code detects it
+    # in the working directory (suppresses "Run /init" welcome message).
+    # The actual rules live in ~/.claude/CLAUDE.md (global config).
+    #
+    # Note: setup_agent_rules() cleans up stale CLAUDE.md files from previous
+    # container runs earlier in startup. This symlink is re-created fresh each
+    # time the session starts — the cleanup and creation are intentionally
+    # separate phases.
+    cwd_claude_md = Path.cwd() / "CLAUDE.md"
+    global_claude_md = config.claude_dir / "CLAUDE.md"
+    if global_claude_md.exists() and not cwd_claude_md.exists() and not cwd_claude_md.is_symlink():
+        cwd_claude_md.symlink_to(global_claude_md)
+        # If CWD is inside a git repo, exclude the symlink from git tracking
+        # to prevent it from being committed (the symlink target is a
+        # container-local absolute path that would be broken elsewhere).
+        _exclude_from_git(cwd_claude_md)
 
 
 def run_interactive(config: Config, logger: Logger) -> int:

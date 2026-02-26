@@ -10,6 +10,7 @@ Called from the session cleanup flow in ``session_manager.py``.
 
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -216,14 +217,41 @@ def auto_commit_worktree(
                         container_id=container_id,
                     )
 
+        # Filter out symlinks pointing to container-local paths.
+        # The sandbox creates a CLAUDE.md symlink (target: ~/.claude/CLAUDE.md)
+        # inside the repo for Claude Code to detect project rules. This symlink
+        # is a container-local artifact — the target doesn't exist on the host
+        # and committing it would pollute the user's repository with a broken
+        # symlink. Filtering here (on the host side) is the authoritative gate
+        # because the container's .git is shadowed and cannot self-exclude.
+        #
+        # Known limitation: this filter only protects the auto-commit path
+        # (post-agent container exit). If the agent explicitly runs
+        # `git add CLAUDE.md && git commit`, the gateway's commit-time
+        # validation (phase_filter) does not block symlinks — it only checks
+        # phase-restricted paths. The risk is low because agent instructions
+        # use `git add <files>` (not `git add -A`), but a misbehaving agent
+        # could still commit the symlink. Gateway-level symlink filtering
+        # at commit/push time would close this gap if needed.
+        symlink_files = [f for f in allowed_files if os.path.islink(os.path.join(worktree_path, f))]
+        if symlink_files:
+            logger.info(
+                "Skipping symlinks from auto-commit",
+                event_type="post_agent_symlink_filter",
+                symlink_files=symlink_files,
+                container_id=container_id,
+            )
+            allowed_files = [f for f in allowed_files if f not in symlink_files]
+
         # If no allowed files remain after filtering, nothing to commit.
         if not allowed_files:
             logger.info(
-                "All changed files blocked by phase restrictions, skipping auto-commit",
+                "All changed files filtered, skipping auto-commit",
                 event_type="post_agent_auto_commit_skipped",
                 container_id=container_id,
                 phase=phase,
                 blocked_files=blocked_files,
+                symlink_files=symlink_files,
             )
             return None
 
