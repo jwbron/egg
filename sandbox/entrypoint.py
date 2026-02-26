@@ -1690,6 +1690,12 @@ def _chdir_to_single_repo(config: Config) -> None:
     user repositories. The authoritative filter is in gateway/post_agent_commit.py
     which skips symlinks during auto-commit on the host side. As defense-in-depth,
     _exclude_from_git() also writes to .git/info/exclude when accessible.
+
+    Known limitation: the auto-commit filter does not protect against the agent
+    explicitly committing the symlink via ``git add CLAUDE.md && git commit``.
+    The gateway's commit-time phase validation does not check for symlinks.
+    Risk is low (agent instructions use ``git add <files>``, not ``git add -A``)
+    but nonzero. See gateway/post_agent_commit.py for details.
     """
     if config.repos_dir.exists():
         os.chdir(config.repos_dir)

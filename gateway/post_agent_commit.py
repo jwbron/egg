@@ -224,6 +224,15 @@ def auto_commit_worktree(
         # and committing it would pollute the user's repository with a broken
         # symlink. Filtering here (on the host side) is the authoritative gate
         # because the container's .git is shadowed and cannot self-exclude.
+        #
+        # Known limitation: this filter only protects the auto-commit path
+        # (post-agent container exit). If the agent explicitly runs
+        # `git add CLAUDE.md && git commit`, the gateway's commit-time
+        # validation (phase_filter) does not block symlinks — it only checks
+        # phase-restricted paths. The risk is low because agent instructions
+        # use `git add <files>` (not `git add -A`), but a misbehaving agent
+        # could still commit the symlink. Gateway-level symlink filtering
+        # at commit/push time would close this gap if needed.
         symlink_files = [f for f in allowed_files if os.path.islink(os.path.join(worktree_path, f))]
         if symlink_files:
             logger.info(
