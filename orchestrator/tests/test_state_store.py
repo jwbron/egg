@@ -1137,3 +1137,26 @@ class TestRemoteSync:
             result = state_store._restore_from_remote()
 
         assert result is False
+
+    def test_delete_pipeline_triggers_remote_sync(self, state_store, mock_git):
+        """delete_pipeline syncs to remote after committing deletion."""
+        state_store.create_pipeline(
+            issue_number=500,
+            repo="owner/repo",
+            branch="egg/issue-500",
+        )
+
+        # Make 'diff --cached --quiet' return non-zero (staged changes exist)
+        original_side_effect = mock_git.side_effect
+
+        def git_side_effect(*args, **kwargs):
+            if args and "diff" in args and "--cached" in args and "--quiet" in args:
+                return MagicMock(stdout="", returncode=1)
+            return MagicMock(stdout="abc1234\n", returncode=0)
+
+        mock_git.side_effect = git_side_effect
+
+        with patch.object(state_store, "_sync_to_remote_async") as mock_sync:
+            state_store.delete_pipeline("issue-500")
+
+        mock_sync.assert_called_once()

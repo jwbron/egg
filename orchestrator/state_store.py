@@ -749,6 +749,8 @@ class StateStore:
                         f"Delete pipeline: {pipeline_id}",
                         cwd=wt,
                     )
+                    # Sync deletion to remote (mirrors _commit_state behavior)
+                    self._sync_to_remote_async()
 
     def list_pipelines(self) -> list[str]:
         """List all pipeline IDs.
