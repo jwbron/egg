@@ -4,7 +4,6 @@ Tests for pipeline API endpoints.
 Covers branch cleanup during pipeline deletion.
 """
 
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
