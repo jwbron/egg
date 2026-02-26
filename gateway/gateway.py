@@ -565,28 +565,31 @@ def git_push() -> tuple[Response, int] | Response:
     session_mode = getattr(g, "session_mode", None)
     session_phase = getattr(g, "session_phase", None)
 
-    # Checkpoint branch bypass: pushes to the checkpoint branch always succeed
-    # regardless of session mode or phase (checkpoints can be created at any time)
-    CHECKPOINT_BRANCH = "egg/checkpoints/v2"
-    is_checkpoint_push = branch == CHECKPOINT_BRANCH
+    # Infrastructure branch bypass: pushes to infrastructure branches always succeed
+    # regardless of session mode or phase (checkpoints and pipeline state can be
+    # written at any time).
+    from egg_config.constants import CHECKPOINT_BRANCH, PIPELINE_STATE_BRANCH
+
+    INFRASTRUCTURE_BRANCHES = {CHECKPOINT_BRANCH, PIPELINE_STATE_BRANCH}
+    is_infrastructure_push = branch in INFRASTRUCTURE_BRANCHES
 
     repo_info = parse_owner_repo(repo)
     if repo_info:
-        # Checkpoint operations are infrastructure — always accessible regardless of
-        # session mode. This covers both dedicated checkpoint repos and checkpoint
-        # branch pushes to the source repo itself.
-        if is_checkpoint_push or is_checkpoint_repo(repo_info.owner, repo_info.repo):
+        # Infrastructure operations — always accessible regardless of
+        # session mode. This covers dedicated checkpoint repos and
+        # infrastructure branch pushes (checkpoints, pipeline state).
+        if is_infrastructure_push or is_checkpoint_repo(repo_info.owner, repo_info.repo):
             audit_log(
-                "push_checkpoint_exempt",
+                "push_infrastructure_exempt",
                 "git_push",
                 success=True,
                 details={
                     "repo": repo,
                     "branch": branch,
-                    "reason": "Checkpoint operation exempt from private mode policy",
+                    "reason": "Infrastructure operation exempt from private mode policy",
                     "exempt_type": "checkpoint_repo"
                     if is_checkpoint_repo(repo_info.owner, repo_info.repo)
-                    else "checkpoint_branch",
+                    else "infrastructure_branch",
                 },
             )
         else:
@@ -620,7 +623,7 @@ def git_push() -> tuple[Response, int] | Response:
     # In pipeline mode, agents must push only to their assigned branch.
     # This prevents agents from improvising branch names on push failure.
     # Killswitch: set PUSH_TARGET_ENFORCEMENT=false to disable.
-    if not is_checkpoint_push:
+    if not is_infrastructure_push:
         push_target_enforcement = os.environ.get("PUSH_TARGET_ENFORCEMENT", "true").lower() not in (
             "false",
             "0",
@@ -747,7 +750,7 @@ def git_push() -> tuple[Response, int] | Response:
     # Default: warn-only (logs but allows push).
     # Set EGG_AGENT_RESTRICTIONS_ENFORCE=true to block pushes that violate
     # agent-role boundaries.
-    if session_role and changed_files and not is_checkpoint_push:
+    if session_role and changed_files and not is_infrastructure_push:
         session_complexity_tier = getattr(g.session, "complexity_tier", None)
         agent_result = check_agent_restrictions(
             session_role, changed_files, complexity_tier=session_complexity_tier
@@ -931,8 +934,8 @@ def git_push() -> tuple[Response, int] | Response:
     # - implement: Can push code but not .egg-state/ (except checkpoints)
     # - pr: Can push everything
     #
-    # Checkpoint branch pushes always bypass this check (see is_checkpoint_push above).
-    if session_phase and not is_checkpoint_push:
+    # Checkpoint branch pushes always bypass this check (see is_infrastructure_push above).
+    if session_phase and not is_infrastructure_push:
         # Get the list of files being pushed (reuse if already fetched for role check)
         if changed_files is None:
             changed_files, check_error = get_changed_files_in_push(exec_path, remote, branch)

@@ -728,6 +728,51 @@ class WorktreeManager:
         branch_name = f"egg/{container_id}/work"
 
         if not worktree_path.exists():
+            # Directory already gone (e.g., Docker cleanup), but git may still
+            # have a stale worktree registration in .git/worktrees/.  Clean it
+            # up so `git worktree list` doesn't show the dead entry and branch
+            # checkout isn't blocked.  See: https://github.com/jwbron/egg/issues/929
+            if main_repo.exists():
+                with self._get_repo_lock(repo_name):
+                    admin_dir = self._find_worktree_git_dir(main_repo, worktree_path)
+                    had_admin_dir = admin_dir.exists()
+                    shutil.rmtree(admin_dir, ignore_errors=True)
+                    if had_admin_dir:
+                        logger.info(
+                            "Removed stale worktree admin dir (directory already gone)",
+                            admin_dir=str(admin_dir),
+                            container_id=container_id,
+                            repo=repo_name,
+                        )
+
+                    if delete_branch:
+                        result.branch_deleted = self._delete_worktree_branch(
+                            main_repo, branch_name, force=True
+                        )
+
+            # Clean up container directory if empty
+            container_dir = self.worktree_base / container_id
+            if container_dir.exists() and not any(container_dir.iterdir()):
+                with contextlib.suppress(OSError):
+                    container_dir.rmdir()
+
+            # Remove from memory tracking
+            with self._lock:
+                if container_id in self._active_worktrees:
+                    self._active_worktrees[container_id] = [
+                        wt
+                        for wt in self._active_worktrees[container_id]
+                        if wt.repo_name != repo_name
+                    ]
+                    if not self._active_worktrees[container_id]:
+                        del self._active_worktrees[container_id]
+
+            logger.info(
+                "Stale worktree cleaned up (directory already removed)",
+                container_id=container_id,
+                repo=repo_name,
+                branch_deleted=result.branch_deleted,
+            )
             result.success = True
             return result
 
@@ -1010,6 +1055,67 @@ class WorktreeManager:
 
         return removed
 
+    def prune_stale_worktrees(self) -> int:
+        """
+        Run ``git worktree prune`` on every repo to remove registrations
+        whose working directories no longer exist.
+
+        This is a defense-in-depth measure intended to be called at gateway
+        startup (after orphan cleanup), when the set of active containers is
+        known and Docker mount races are not a concern.  It catches any stale
+        entries that slipped past ``remove_worktree`` — for example if the
+        gateway crashed before cleanup could run.
+
+        Returns:
+            Number of repos where ``git worktree prune`` ran successfully.
+        """
+        repos_checked = 0
+        if not self.repos_base.exists():
+            return repos_checked
+
+        for repo_dir in self.repos_base.iterdir():
+            if not repo_dir.is_dir():
+                continue
+            git_dir = repo_dir / ".git"
+            # Only prune actual repos (with a .git directory, not a .git file
+            # which would indicate a worktree itself)
+            if not git_dir.is_dir():
+                continue
+
+            repo_name = repo_dir.name
+            with self._get_repo_lock(repo_name):
+                try:
+                    result = subprocess.run(
+                        git_cmd("worktree", "prune"),
+                        cwd=repo_dir,
+                        capture_output=True,
+                        text=True,
+                        check=False,
+                        timeout=30,
+                    )
+                except subprocess.TimeoutExpired:
+                    logger.warning(
+                        "git worktree prune timed out",
+                        repo=repo_name,
+                    )
+                    continue
+                if result.returncode == 0:
+                    repos_checked += 1
+                else:
+                    logger.warning(
+                        "git worktree prune failed",
+                        repo=repo_name,
+                        stderr=result.stderr.strip(),
+                    )
+
+        if repos_checked > 0:
+            logger.info(
+                "Ran git worktree prune on repos",
+                repos_checked=repos_checked,
+            )
+
+        return repos_checked
+
     def get_worktree_paths(self, container_id: str, repo_name: str) -> tuple[Path, Path]:
         """
         Get worktree paths for path mapping.
@@ -1090,5 +1196,13 @@ def startup_cleanup(
 
     if removed > 0:
         logger.info(f"Cleaned up {removed} orphaned worktree(s)")
+
+    # Defense-in-depth: prune any remaining stale git worktree registrations
+    # whose working directories no longer exist.  Safe at startup because the
+    # set of active containers is known and no Docker mount races can occur.
+    try:
+        manager.prune_stale_worktrees()
+    except Exception as e:
+        logger.warning("git worktree prune failed during startup", error=str(e))
 
     return removed

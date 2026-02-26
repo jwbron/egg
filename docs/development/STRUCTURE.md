@@ -166,7 +166,7 @@ sandbox/
 ```
 shared/
 ├── egg_config/             # Configuration utilities
-│   ├── constants.py        # Centralized constants (ports, networks, container names, devserver resource limits)
+│   ├── constants.py        # Centralized constants (ports, networks, container names, devserver resource limits, infrastructure branch names)
 │   └── validators.py       # Validation functions (URLs, emails, tokens, check commands)
 ├── egg_container/          # Shared container-launch config builder
 │   └── __init__.py         # build_sandbox_config(), build_sandbox_docker_cmd(), git_shadow_mounts(), phase_readonly_mounts(), ensure_egg_state_dirs(), to_dockerpy_kwargs()

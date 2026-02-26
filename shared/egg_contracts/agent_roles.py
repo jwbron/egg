@@ -52,6 +52,7 @@ class AgentRole(StrEnum):
     REVIEWER_AGENT_DESIGN = "reviewer_agent_design"
     REVIEWER_REFINE = "reviewer_refine"
     REVIEWER_PLAN = "reviewer_plan"
+    REVIEWER_UNIFIED = "reviewer_unified"  # Vestigial: kept for backwards compatibility with persisted pipeline state
 
 
 class AgentStatus(StrEnum):

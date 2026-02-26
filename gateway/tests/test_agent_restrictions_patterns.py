@@ -319,6 +319,9 @@ class TestArchitectRole:
     def test_cannot_write_contracts(self, pattern):
         assert pattern.can_write(".egg-state/contracts/123.json") is False
 
+    def test_cannot_write_reviews(self, pattern):
+        assert pattern.can_write(".egg-state/reviews/904-review.json") is False
+
 
 class TestReviewerRoles:
     """Verify reviewer agents can only write reviews and agent-outputs."""

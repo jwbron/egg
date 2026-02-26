@@ -145,7 +145,9 @@ class DependencyGraph:
             roles: Specific roles to include (None = all roles)
         """
         if roles is None:
-            roles = list(AgentRole)
+            from .agent_roles import AGENT_ROLES
+
+            roles = [r for r in AgentRole if r in AGENT_ROLES]
 
         # Add all nodes first
         for role in roles:

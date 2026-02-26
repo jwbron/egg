@@ -2,15 +2,18 @@
 Agent-role-based file restrictions for multi-agent orchestration.
 
 This module extends the phase_filter system to enforce file access patterns
-for specialized agents (Coder, Tester, Documenter, Integrator). Each agent
+for specialized agents. Each agent
 role has specific file paths it can read and write to, preventing agents
 from modifying files outside their responsibility.
 
 Security model:
+- Architect/Task Planner/Risk Analyst: Can write drafts and agent-outputs only, blocked from source code, docs, contracts, reviews
 - Coder: Can write source code, blocked from docs and contracts
 - Tester: Can write test files only
 - Documenter: Can write docs and markdown only
 - Integrator: Can only write handoff output (read-only otherwise)
+- Refiner: Can write drafts and agent-outputs only, blocked from source code and contracts
+- Reviewers: Can write reviews and agent-outputs only
 
 The gateway uses these restrictions during git push to validate that
 commits only modify files allowed for the agent's role.
@@ -50,6 +53,7 @@ class AgentRole:
     REVIEWER_AGENT_DESIGN = "reviewer_agent_design"
     REVIEWER_REFINE = "reviewer_refine"
     REVIEWER_PLAN = "reviewer_plan"
+    REVIEWER_UNIFIED = "reviewer_unified"  # Vestigial: kept for backwards compatibility with persisted pipeline state
 
 
 @dataclass
@@ -362,6 +366,7 @@ _PLAN_AGENT_BLOCKED = [
     "tests/",
     "test/",
     ".egg-state/contracts/",
+    ".egg-state/reviews/",
     ".github/",
 ]
 
@@ -476,6 +481,13 @@ REVIEWER_PLAN_PATTERNS = AgentFilePattern(
     blocked_patterns=_REVIEWER_BLOCKED,
 )
 
+REVIEWER_UNIFIED_PATTERNS = AgentFilePattern(
+    role=AgentRole.REVIEWER_UNIFIED,
+    description="Unified reviewer agent (vestigial): reviews and agent-outputs only",
+    allowed_patterns=_REVIEWER_ALLOWED,
+    blocked_patterns=_REVIEWER_BLOCKED,
+)
+
 # Registry of all agent patterns
 AGENT_PATTERNS: dict[str, AgentFilePattern] = {
     AgentRole.CODER: CODER_PATTERNS,
@@ -491,6 +503,7 @@ AGENT_PATTERNS: dict[str, AgentFilePattern] = {
     AgentRole.REFINER: REFINER_PATTERNS,
     AgentRole.REVIEWER_REFINE: REVIEWER_REFINE_PATTERNS,
     AgentRole.REVIEWER_PLAN: REVIEWER_PLAN_PATTERNS,
+    AgentRole.REVIEWER_UNIFIED: REVIEWER_UNIFIED_PATTERNS,
 }
 
 

@@ -37,7 +37,7 @@ Before complex tasks, **read `$EGG_REPO_PATH/docs/index.md`** — it is continuo
 ## GitHub Operations
 
 - **Push code**: `git push origin <branch>` (HTTPS only, GitHub App token)
-- **Create PRs**: `gh pr create --title "..." --body "..." --base main`
+- **Create PRs**: `gh pr create --head <remote-branch> --title "..." --body "..." --base main`
 - **Get owner/repo**: Check `git remote -v` first - don't assume
 
 ## Workflow
@@ -55,9 +55,11 @@ Before complex tasks, **read `$EGG_REPO_PATH/docs/index.md`** — it is continuo
 **Commit & PR**:
 ```bash
 git add <files> && git commit -m "Brief description"
-git push origin egg/<description>
-gh pr create --title "Brief description" --body "..." --base main
+git push origin HEAD:egg/<description>
+gh pr create --head egg/<description> --title "Brief description" --body "..." --base main
 ```
+
+**CRITICAL: Always use `--head`** with `gh pr create`. In worktree mode, the local branch name (e.g., `egg/egg-20260225-.../work`) differs from the remote branch. Without `--head`, `gh` uses the local name, which doesn't exist on the remote and fails with "Head sha can't be blank".
 
 **Commit Attribution**: Author is `egg <egg@localhost>`. NEVER include "Claude Code" or "Co-Authored-By: Claude".
 
