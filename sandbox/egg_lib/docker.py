@@ -256,7 +256,7 @@ def _get_local_repo_path(config: dict[str, Any], repo_name: str) -> Path | None:
         # e.g., /home/user/repos/org/repo -> parts [-2:] = ["org", "repo"]
         path_parts = [p.lower() for p in path.parts]
         if len(path_parts) >= len(repo_parts):
-            if path_parts[-len(repo_parts):] == repo_parts:
+            if path_parts[-len(repo_parts) :] == repo_parts:
                 return path
         # Also try matching just the repo name (without owner)
         if len(repo_parts) > 1 and path.name.lower() == repo_parts[-1]:

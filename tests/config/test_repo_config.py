@@ -737,10 +737,7 @@ class TestGetAllBuildCommandsEdgeCases:
         from config.repo_config import get_all_build_commands
 
         config_file = temp_dir / "repositories.yaml"
-        config_file.write_text(
-            "github_username: testuser\n"
-            "repo_settings: not-a-dict\n"
-        )
+        config_file.write_text("github_username: testuser\nrepo_settings: not-a-dict\n")
         monkeypatch.setenv("EGG_REPO_CONFIG", str(config_file))
 
         result = get_all_build_commands()

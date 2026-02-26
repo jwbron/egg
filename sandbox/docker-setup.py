@@ -180,11 +180,13 @@ def get_build_commands(config: dict[str, Any]) -> list[dict[str, Any]]:
         watch_files = build_cmds.get("watch_files", [])
         if not isinstance(watch_files, list):
             watch_files = []
-        result.append({
-            "repo": repo_name,
-            "watch_files": [str(f) for f in watch_files],
-            "commands": [str(c) for c in commands],
-        })
+        result.append(
+            {
+                "repo": repo_name,
+                "watch_files": [str(f) for f in watch_files],
+                "commands": [str(c) for c in commands],
+            }
+        )
     return result
 
 
@@ -212,8 +214,10 @@ def run_build_commands(build_commands: list[dict[str, Any]]) -> None:
         print(f"\n--- Build commands for {repo} ---")
 
         if not work_dir.exists():
-            print(f"  Warning: Watch files directory {work_dir} does not exist, "
-                  f"running commands in /tmp")
+            print(
+                f"  Warning: Watch files directory {work_dir} does not exist, "
+                f"running commands in /tmp"
+            )
             work_dir = Path("/tmp")
 
         for cmd in commands:

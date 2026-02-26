@@ -592,11 +592,7 @@ class TestGetLocalRepoPath:
         repo_dir = tmp_path / "org" / "my-app"
         repo_dir.mkdir(parents=True)
 
-        config = {
-            "local_repos": {
-                "paths": [str(repo_dir)]
-            }
-        }
+        config = {"local_repos": {"paths": [str(repo_dir)]}}
 
         result = _get_local_repo_path(config, "org/my-app")
         assert result == repo_dir
@@ -608,11 +604,7 @@ class TestGetLocalRepoPath:
         repo_dir = tmp_path / "my-app"
         repo_dir.mkdir(parents=True)
 
-        config = {
-            "local_repos": {
-                "paths": [str(repo_dir)]
-            }
-        }
+        config = {"local_repos": {"paths": [str(repo_dir)]}}
 
         result = _get_local_repo_path(config, "org/my-app")
         assert result == repo_dir
@@ -621,11 +613,7 @@ class TestGetLocalRepoPath:
         """Returns None when repo not in local_repos."""
         from egg_lib.docker import _get_local_repo_path
 
-        config = {
-            "local_repos": {
-                "paths": [str(tmp_path / "other-repo")]
-            }
-        }
+        config = {"local_repos": {"paths": [str(tmp_path / "other-repo")]}}
 
         result = _get_local_repo_path(config, "org/my-app")
         assert result is None
@@ -660,9 +648,7 @@ class TestCopyRepoWatchFiles:
                     }
                 }
             },
-            "local_repos": {
-                "paths": [str(repo_dir)]
-            },
+            "local_repos": {"paths": [str(repo_dir)]},
         }
 
         # Mock the config loading and Config.CONFIG_DIR
@@ -683,11 +669,7 @@ class TestCopyRepoWatchFiles:
         """Does nothing when no repos have build_commands."""
         from egg_lib.docker import _copy_repo_watch_files
 
-        config = {
-            "repo_settings": {
-                "org/app": {"checks": []}
-            }
-        }
+        config = {"repo_settings": {"org/app": {"checks": []}}}
 
         build_dir = tmp_path / "build-context"
         build_dir.mkdir()
@@ -723,9 +705,7 @@ class TestHashBuildCommandWatchFiles:
                     }
                 }
             },
-            "local_repos": {
-                "paths": [str(repo_dir)]
-            },
+            "local_repos": {"paths": [str(repo_dir)]},
         }
 
         h1 = hashlib.sha256()
@@ -843,7 +823,9 @@ class TestLoadReposConfig:
         from egg_lib.docker import _load_repos_config
 
         config_file = tmp_path / "repos.yaml"
-        config_file.write_text("repo_settings:\n  org/app:\n    build_commands:\n      commands:\n        - make\n")
+        config_file.write_text(
+            "repo_settings:\n  org/app:\n    build_commands:\n      commands:\n        - make\n"
+        )
 
         with patch("egg_lib.docker.Config") as mock_config:
             mock_config.REPOS_CONFIG_FILE = config_file
@@ -964,11 +946,7 @@ class TestCopyRepoWatchFilesEdgeCases:
         stale_dir.mkdir(parents=True)
         (stale_dir / "stale.txt").write_text("old")
 
-        config = {
-            "repo_settings": {
-                "org/app": {"checks": []}
-            }
-        }
+        config = {"repo_settings": {"org/app": {"checks": []}}}
 
         with patch("egg_lib.docker._load_repos_config", return_value=config):
             with patch("egg_lib.docker.Config") as mock_config:

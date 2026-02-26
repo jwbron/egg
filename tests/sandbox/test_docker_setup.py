@@ -327,11 +327,7 @@ class TestGetBuildCommands:
     def test_returns_empty_for_no_build_commands(self):
         """Test empty list when no build_commands configured."""
         config = {
-            "repo_settings": {
-                "org/app": {
-                    "checks": [{"name": "test", "command": "make test"}]
-                }
-            }
+            "repo_settings": {"org/app": {"checks": [{"name": "test", "command": "make test"}]}}
         }
         result = get_build_commands(config)
         assert result == []
@@ -374,13 +370,7 @@ class TestGetBuildCommands:
 
     def test_handles_invalid_types(self):
         """Test graceful handling of invalid config types."""
-        config = {
-            "repo_settings": {
-                "org/app": {
-                    "build_commands": "not-a-dict"
-                }
-            }
-        }
+        config = {"repo_settings": {"org/app": {"build_commands": "not-a-dict"}}}
         result = get_build_commands(config)
         assert result == []
 
@@ -397,17 +387,20 @@ class TestRunBuildCommands:
         work_dir = Path("/tmp/repo-deps/org--app")
         work_dir.mkdir(parents=True, exist_ok=True)
 
-        build_commands = [{
-            "repo": "org/app",
-            "watch_files": ["package.json"],
-            "commands": ["npm ci", "npm run build"],
-        }]
+        build_commands = [
+            {
+                "repo": "org/app",
+                "watch_files": ["package.json"],
+                "commands": ["npm ci", "npm run build"],
+            }
+        ]
 
         try:
             run_build_commands(build_commands)
         finally:
             # Clean up
             import shutil
+
             shutil.rmtree("/tmp/repo-deps", ignore_errors=True)
 
         # Should have called subprocess.run twice (one per command)
@@ -432,11 +425,13 @@ class TestRunBuildCommands:
         work_dir = tmp_path / "repo-deps" / "org--app"
         work_dir.mkdir(parents=True)
 
-        build_commands = [{
-            "repo": "org/app",
-            "watch_files": [],
-            "commands": ["false"],
-        }]
+        build_commands = [
+            {
+                "repo": "org/app",
+                "watch_files": [],
+                "commands": ["false"],
+            }
+        ]
 
         # Just run it - should not raise
         run_build_commands(build_commands)
@@ -511,11 +506,13 @@ class TestRunBuildCommandsEdgeCases:
         """When repo work_dir doesn't exist, falls back to /tmp."""
         mock_run.return_value = MagicMock(returncode=0)
 
-        build_commands = [{
-            "repo": "org/nonexistent-repo-xyz-12345",
-            "watch_files": [],
-            "commands": ["echo hello"],
-        }]
+        build_commands = [
+            {
+                "repo": "org/nonexistent-repo-xyz-12345",
+                "watch_files": [],
+                "commands": ["echo hello"],
+            }
+        ]
 
         run_build_commands(build_commands)
 
@@ -530,11 +527,13 @@ class TestRunBuildCommandsEdgeCases:
         """Subprocess raising an exception is caught and warned about."""
         mock_run.side_effect = OSError("command not found")
 
-        build_commands = [{
-            "repo": "org/app",
-            "watch_files": [],
-            "commands": ["nonexistent-command"],
-        }]
+        build_commands = [
+            {
+                "repo": "org/app",
+                "watch_files": [],
+                "commands": ["nonexistent-command"],
+            }
+        ]
 
         # Should not raise
         run_build_commands(build_commands)
@@ -551,16 +550,19 @@ class TestRunBuildCommandsEdgeCases:
         work_dir = Path("/tmp/repo-deps/org--app")
         work_dir.mkdir(parents=True, exist_ok=True)
 
-        build_commands = [{
-            "repo": "org/app",
-            "watch_files": [],
-            "commands": ["bad-command"],
-        }]
+        build_commands = [
+            {
+                "repo": "org/app",
+                "watch_files": [],
+                "commands": ["bad-command"],
+            }
+        ]
 
         try:
             run_build_commands(build_commands)
         finally:
             import shutil
+
             shutil.rmtree("/tmp/repo-deps", ignore_errors=True)
 
         captured = capsys.readouterr()
