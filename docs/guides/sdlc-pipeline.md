@@ -820,7 +820,7 @@ Pipeline decisions made during refine and plan phases are automatically synced t
 **What gets synced:**
 
 - Resolved decisions with `decision_type != "phase_gate"` (substantive choices, not process gates)
-- Decision question, options, resolution, resolved_by, and resolved_at are preserved
+- Decision question, options, resolution, and resolved_at are carried over; resolved_by is set to `"human"`
 - Decisions already present in the contract (matched by question text) are skipped to avoid duplicates
 
 **Key files:**
