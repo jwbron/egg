@@ -1,4 +1,4 @@
-"""Tests for checkpoint CLI cost subcommand."""
+"""Tests for checkpoint CLI."""
 
 import argparse
 import json
@@ -6,9 +6,12 @@ import subprocess
 from datetime import UTC, datetime
 from unittest.mock import patch
 
+import pytest
 from egg_contracts.checkpoint_cli import (
     _get_checkpoint_repo_from_args,
+    _search_checkpoint_transcript,
     cmd_cost,
+    cmd_search,
     create_parser,
     main,
 )
@@ -17,9 +20,12 @@ from egg_contracts.checkpoints import (
     CheckpointIndexV2,
     CheckpointSummaryV2,
     CheckpointV2,
+    Message,
+    MessageRole,
     SessionMetadata,
     SessionStatus,
     TokenUsage,
+    Transcript,
     TriggerType,
 )
 
@@ -367,3 +373,364 @@ class TestGetCheckpointRepoFromArgs:
         checkpoint_repo, source_repo = _get_checkpoint_repo_from_args(args)
         assert checkpoint_repo is None
         assert source_repo is None
+
+    @patch.dict("os.environ", {"EGG_CHECKPOINT_REPO": "org/checkpoints"})
+    def test_env_var_takes_priority_over_config(self):
+        """EGG_CHECKPOINT_REPO env var is used when no CLI flag is given."""
+        args = self._make_args()
+        checkpoint_repo, source_repo = _get_checkpoint_repo_from_args(args)
+        assert checkpoint_repo == "org/checkpoints"
+        assert source_repo is None
+
+    @patch.dict("os.environ", {"EGG_CHECKPOINT_REPO": "org/checkpoints"})
+    def test_cli_flag_takes_priority_over_env_var(self):
+        """--checkpoint-repo flag overrides EGG_CHECKPOINT_REPO env var."""
+        args = self._make_args(checkpoint_repo="owner/explicit-repo")
+        checkpoint_repo, source_repo = _get_checkpoint_repo_from_args(args)
+        assert checkpoint_repo == "owner/explicit-repo"
+        assert source_repo is None
+
+    @patch.dict("os.environ", {"EGG_CHECKPOINT_REPO": "bad format"})
+    def test_env_var_validates_format(self):
+        """EGG_CHECKPOINT_REPO with invalid format raises ValueError."""
+        args = self._make_args()
+        with pytest.raises(ValueError, match="Invalid checkpoint_repo format"):
+            _get_checkpoint_repo_from_args(args)
+
+    @patch.dict("os.environ", {}, clear=False)
+    def test_env_var_not_set_falls_through(self):
+        """When EGG_CHECKPOINT_REPO is not set, falls through to config lookup."""
+        # Remove EGG_CHECKPOINT_REPO if present
+        import os
+
+        os.environ.pop("EGG_CHECKPOINT_REPO", None)
+        with (
+            patch("egg_contracts.checkpoint_cli.run_git") as mock_git,
+            patch(
+                "config.repo_config.get_checkpoint_repo",
+                return_value="org/cp",
+            ),
+        ):
+            mock_git.return_value = subprocess.CompletedProcess(
+                args=[],
+                returncode=0,
+                stdout="https://github.com/org/repo.git\n",
+                stderr="",
+            )
+            args = self._make_args()
+            checkpoint_repo, source_repo = _get_checkpoint_repo_from_args(args)
+            assert checkpoint_repo == "org/cp"
+            assert source_repo == "org/repo"
+
+
+class TestSearchParser:
+    """Tests for the search subcommand parser."""
+
+    def test_search_parser_registered(self):
+        """search subcommand is registered in the parser."""
+        parser = create_parser()
+        args = parser.parse_args(["search", "--text", "hello"])
+        assert args.command == "search"
+        assert args.text == "hello"
+
+    def test_search_parser_default_limit(self):
+        """search subcommand defaults to limit 20."""
+        parser = create_parser()
+        args = parser.parse_args(["search", "--text", "test"])
+        assert args.limit == 20
+
+    def test_search_parser_all_filter_flags(self):
+        """search subcommand accepts all list filter flags."""
+        parser = create_parser()
+        args = parser.parse_args(
+            [
+                "search",
+                "--text",
+                "query",
+                "--issue",
+                "42",
+                "--pr",
+                "10",
+                "--branch",
+                "egg/feature",
+                "--pipeline",
+                "issue-42",
+                "--agent-type",
+                "coder",
+                "--phase",
+                "implement",
+                "--status",
+                "completed",
+                "--limit",
+                "5",
+                "--json",
+            ]
+        )
+        assert args.text == "query"
+        assert args.issue == 42
+        assert args.pr == 10
+        assert args.branch == "egg/feature"
+        assert args.pipeline == "issue-42"
+        assert args.agent_type == "coder"
+        assert args.phase == "implement"
+        assert args.status == "completed"
+        assert args.limit == 5
+        assert args.json is True
+
+    def test_search_parser_text_required(self):
+        """search subcommand requires --text."""
+        parser = create_parser()
+        with pytest.raises(SystemExit):
+            parser.parse_args(["search"])
+
+
+def _make_transcript_checkpoint(
+    checkpoint_id: str,
+    messages: list[Message] | None = None,
+) -> CheckpointV2:
+    """Create a checkpoint with transcript data for search testing."""
+    transcript = None
+    if messages is not None:
+        transcript = Transcript(
+            messages=messages,
+            message_count=len(messages),
+        )
+    return CheckpointV2(
+        id=checkpoint_id,
+        trigger_type=TriggerType.SESSION_END,
+        session_status=SessionStatus.COMPLETED,
+        session_id="session-1",
+        session=SessionMetadata(
+            session_id="session-1",
+            started_at=datetime(2026, 1, 15, 12, 0, 0, tzinfo=UTC),
+        ),
+        transcript=transcript,
+        created_at=datetime(2026, 1, 15, 12, 30, 0, tzinfo=UTC),
+        session_started_at=datetime(2026, 1, 15, 12, 0, 0, tzinfo=UTC),
+    )
+
+
+class TestSearchCheckpointTranscript:
+    """Tests for _search_checkpoint_transcript."""
+
+    def test_match_found(self):
+        """Finds matching text in message content."""
+        messages = [
+            Message(
+                role=MessageRole.USER,
+                content="Please fix issue 898 in the auth module",
+                timestamp=datetime(2026, 1, 15, 12, 0, 0, tzinfo=UTC),
+            ),
+        ]
+        cp = _make_transcript_checkpoint("ckpt-aa00aa00", messages=messages)
+        snippets = _search_checkpoint_transcript(cp, "issue 898")
+        assert len(snippets) == 1
+        assert "issue 898" in snippets[0]
+        assert "[user]" in snippets[0]
+
+    def test_case_insensitive(self):
+        """Search is case-insensitive."""
+        messages = [
+            Message(
+                role=MessageRole.ASSISTANT,
+                content="Looking at Issue 898 now",
+                timestamp=datetime(2026, 1, 15, 12, 0, 0, tzinfo=UTC),
+            ),
+        ]
+        cp = _make_transcript_checkpoint("ckpt-bb00bb00", messages=messages)
+        snippets = _search_checkpoint_transcript(cp, "issue 898")
+        assert len(snippets) == 1
+
+    def test_no_transcript(self):
+        """Returns empty list when checkpoint has no transcript."""
+        cp = _make_transcript_checkpoint("ckpt-cc00cc00", messages=None)
+        snippets = _search_checkpoint_transcript(cp, "anything")
+        assert snippets == []
+
+    def test_no_match(self):
+        """Returns empty list when text is not found."""
+        messages = [
+            Message(
+                role=MessageRole.USER,
+                content="Something unrelated",
+                timestamp=datetime(2026, 1, 15, 12, 0, 0, tzinfo=UTC),
+            ),
+        ]
+        cp = _make_transcript_checkpoint("ckpt-dd00dd00", messages=messages)
+        snippets = _search_checkpoint_transcript(cp, "issue 898")
+        assert snippets == []
+
+    def test_content_summary_fallback(self):
+        """Falls back to content_summary when content is None."""
+        messages = [
+            Message(
+                role=MessageRole.ASSISTANT,
+                content=None,
+                content_summary="Worked on issue 898 auth fix",
+                timestamp=datetime(2026, 1, 15, 12, 0, 0, tzinfo=UTC),
+            ),
+        ]
+        cp = _make_transcript_checkpoint("ckpt-ee00ee00", messages=messages)
+        snippets = _search_checkpoint_transcript(cp, "issue 898")
+        assert len(snippets) == 1
+        assert "issue 898" in snippets[0]
+
+    def test_multiple_matches(self):
+        """Returns multiple snippets when text appears in multiple messages."""
+        messages = [
+            Message(
+                role=MessageRole.USER,
+                content="Fix issue 898",
+                timestamp=datetime(2026, 1, 15, 12, 0, 0, tzinfo=UTC),
+            ),
+            Message(
+                role=MessageRole.ASSISTANT,
+                content="Working on issue 898 now",
+                timestamp=datetime(2026, 1, 15, 12, 1, 0, tzinfo=UTC),
+            ),
+        ]
+        cp = _make_transcript_checkpoint("ckpt-ff00ff00", messages=messages)
+        snippets = _search_checkpoint_transcript(cp, "issue 898")
+        assert len(snippets) == 2
+
+
+class TestCmdSearch:
+    """Integration tests for cmd_search."""
+
+    @patch("egg_contracts.checkpoint_cli._get_gateway_url", return_value=None)
+    @patch("egg_contracts.checkpoint_cli.load_checkpoint_from_ref")
+    @patch("egg_contracts.checkpoint_cli.filter_checkpoints_v2")
+    @patch("egg_contracts.checkpoint_cli.load_index_from_ref")
+    @patch("egg_contracts.checkpoint_cli.ensure_checkpoint_ref")
+    def test_search_finds_matching_checkpoint(
+        self, mock_ref, mock_index, mock_filter, mock_load, _mock_gw, capsys
+    ):
+        """search command finds and displays matching checkpoints."""
+        mock_ref.return_value = "origin/egg/checkpoints/v2"
+        mock_index.return_value = CheckpointIndexV2(
+            schemaVersion="2.0",
+            checkpoints=[],
+            last_updated=datetime(2026, 1, 15, 12, 0, 0, tzinfo=UTC),
+        )
+
+        summaries = [_make_summary("ckpt-aaa11111")]
+        mock_filter.return_value = summaries
+
+        messages = [
+            Message(
+                role=MessageRole.USER,
+                content="Please fix issue 898",
+                timestamp=datetime(2026, 1, 15, 12, 0, 0, tzinfo=UTC),
+            ),
+        ]
+        checkpoint = _make_transcript_checkpoint("ckpt-aaa11111", messages=messages)
+        mock_load.return_value = checkpoint
+
+        parser = create_parser()
+        args = parser.parse_args(["search", "--text", "issue 898"])
+        result = cmd_search(args)
+
+        assert result == 0
+        output = capsys.readouterr().out
+        assert "issue 898" in output
+        assert "1 checkpoints matched" in output
+
+    @patch("egg_contracts.checkpoint_cli._get_gateway_url", return_value=None)
+    @patch("egg_contracts.checkpoint_cli.load_checkpoint_from_ref")
+    @patch("egg_contracts.checkpoint_cli.filter_checkpoints_v2")
+    @patch("egg_contracts.checkpoint_cli.load_index_from_ref")
+    @patch("egg_contracts.checkpoint_cli.ensure_checkpoint_ref")
+    def test_search_no_matches(
+        self, mock_ref, mock_index, mock_filter, mock_load, _mock_gw, capsys
+    ):
+        """search command reports when no transcripts match."""
+        mock_ref.return_value = "origin/egg/checkpoints/v2"
+        mock_index.return_value = CheckpointIndexV2(
+            schemaVersion="2.0",
+            checkpoints=[],
+            last_updated=datetime(2026, 1, 15, 12, 0, 0, tzinfo=UTC),
+        )
+
+        summaries = [_make_summary("ckpt-bbb22222")]
+        mock_filter.return_value = summaries
+
+        messages = [
+            Message(
+                role=MessageRole.USER,
+                content="Something completely different",
+                timestamp=datetime(2026, 1, 15, 12, 0, 0, tzinfo=UTC),
+            ),
+        ]
+        checkpoint = _make_transcript_checkpoint("ckpt-bbb22222", messages=messages)
+        mock_load.return_value = checkpoint
+
+        parser = create_parser()
+        args = parser.parse_args(["search", "--text", "nonexistent"])
+        result = cmd_search(args)
+
+        assert result == 0
+        output = capsys.readouterr().out
+        assert "No checkpoints found with transcript matching" in output
+
+    @patch("egg_contracts.checkpoint_cli._get_gateway_url", return_value=None)
+    @patch("egg_contracts.checkpoint_cli.ensure_checkpoint_ref")
+    def test_search_no_checkpoint_branch(self, mock_ref, _mock_gw, capsys):
+        """search returns 0 with message when no checkpoint branch exists."""
+        mock_ref.return_value = None
+
+        parser = create_parser()
+        args = parser.parse_args(["search", "--text", "test"])
+        result = cmd_search(args)
+
+        assert result == 0
+        output = capsys.readouterr().out
+        assert "No checkpoints found" in output
+
+    @patch("egg_contracts.checkpoint_cli._get_gateway_url", return_value=None)
+    @patch("egg_contracts.checkpoint_cli.load_checkpoint_from_ref")
+    @patch("egg_contracts.checkpoint_cli.filter_checkpoints_v2")
+    @patch("egg_contracts.checkpoint_cli.load_index_from_ref")
+    @patch("egg_contracts.checkpoint_cli.ensure_checkpoint_ref")
+    def test_search_json_output(
+        self, mock_ref, mock_index, mock_filter, mock_load, _mock_gw, capsys
+    ):
+        """search --json outputs structured JSON with matching snippets."""
+        mock_ref.return_value = "origin/egg/checkpoints/v2"
+        mock_index.return_value = CheckpointIndexV2(
+            schemaVersion="2.0",
+            checkpoints=[],
+            last_updated=datetime(2026, 1, 15, 12, 0, 0, tzinfo=UTC),
+        )
+
+        summaries = [_make_summary("ckpt-ccc33333")]
+        mock_filter.return_value = summaries
+
+        messages = [
+            Message(
+                role=MessageRole.USER,
+                content="Working on issue 898",
+                timestamp=datetime(2026, 1, 15, 12, 0, 0, tzinfo=UTC),
+            ),
+        ]
+        checkpoint = _make_transcript_checkpoint("ckpt-ccc33333", messages=messages)
+        mock_load.return_value = checkpoint
+
+        parser = create_parser()
+        args = parser.parse_args(["search", "--text", "issue 898", "--json"])
+        result = cmd_search(args)
+
+        assert result == 0
+        output = capsys.readouterr().out
+        data = json.loads(output)
+        assert len(data) == 1
+        assert data[0]["id"] == "ckpt-ccc33333"
+        assert "matching_snippets" in data[0]
+        assert len(data[0]["matching_snippets"]) > 0
+
+    @patch("egg_contracts.checkpoint_cli._get_gateway_url", return_value=None)
+    def test_search_via_main(self, _mock_gw):
+        """search subcommand is reachable via main()."""
+        with patch("egg_contracts.checkpoint_cli.ensure_checkpoint_ref") as mock_ref:
+            mock_ref.return_value = None
+            result = main(["search", "--text", "test"])
+            assert result == 0
