@@ -44,6 +44,7 @@ Key restrictions enforced by the gateway:
 - `git worktree add/remove`: **Unsupported** — use `git checkout -b` instead
 - `git checkout/switch` (branch): **Blocked in pipeline mode** — you are locked to your worktree branch
 - `git commit`: **Phase-validated** — staged files must comply with phase restrictions
+- `git push`: **Per-task scoped** — in implement phase, pushes may be restricted to files listed in your assigned task's `files_affected` (warn on first violation, block on repeat)
 - `gh pr merge`: **Blocked** — human must merge via GitHub UI
 
 ## Git Push
@@ -67,7 +68,9 @@ If push fails:
 
 **Pipeline readonly directories:** During the implement phase, `.egg-state/drafts/`, `.egg-state/contracts/`, `.egg-state/pipelines/`, and `.egg-state/reviews/` are mounted readonly. Check for `.egg-readonly` marker files to understand restrictions. Attempting to write to these directories will produce an EROFS (read-only filesystem) error.
 
-**Post-agent auto-commit:** When your container exits, any uncommitted changes are automatically committed and pushed by the gateway. Phase-restricted files are restored (not committed). You do not need to worry about losing work if you time out.
+**Post-agent auto-commit:** When your container exits, any uncommitted changes are automatically committed and pushed by the gateway. Phase-restricted files and files outside your task's allowed scope are restored (not committed). You do not need to worry about losing work if you time out.
+
+**Per-task file restrictions:** During the implement phase, your pushes may be scoped to the files listed in your assigned task's `files_affected`. If you push a file outside this scope, the first attempt triggers a warning (push succeeds); a second push with the same file is blocked. Listing any file in a directory grants access to the entire directory subtree. If you need to modify an out-of-scope file, use `egg-contract request-file --path <file> --reason <why>` to request access.
 
 ## Services
 

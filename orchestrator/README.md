@@ -62,7 +62,7 @@ Pipeline state is stored on a dedicated `egg/pipeline-state` orphan branch acces
 Agents execute in dependency-ordered waves:
 
 - **Tier 2** (standard): Coder → Tester + Documenter (parallel) → Integrator
-- **Tier 3** (high complexity): Each plan phase gets its own implement cycle (Coder → Tester → Documenter → Checker → Code Reviewer), with independent phases running in parallel. An Integrator with expanded write access runs after all phase cycles complete. The DAG visualization renders Tier 3 pipelines with individual sub-phase boxes arranged by dependency wave, connected by fan-out/fan-in connectors for parallel phases.
+- **Tier 3** (high complexity): Each plan phase gets its own implement cycle (Coder → Tester → Documenter → Checker → Code Reviewer), with independent phases running in parallel. Each coder agent is scoped to its plan phase's `files_affected` union via per-task file restrictions (see gateway README), preventing cross-contamination between parallel agents. An Integrator with expanded write access runs after all phase cycles complete. The DAG visualization renders Tier 3 pipelines with individual sub-phase boxes arranged by dependency wave, connected by fan-out/fan-in connectors for parallel phases.
 
 Reviewers always run as a separate step after all workers complete, spawning in parallel with a configurable concurrency limit.
 
@@ -192,7 +192,7 @@ orchestrator/
 ├── cli.py                  # CLI interface (serve, health, pipelines commands)
 ├── models.py               # Pydantic models (Pipeline, AgentExecution, HITLDecision, ReviewVerdict, etc.)
 ├── state_store.py          # Git-backed persistent state storage
-├── container_spawner.py    # Container spawning with gateway session integration
+├── container_spawner.py    # Container spawning with gateway session integration and per-task file scoping
 ├── container_monitor.py    # Container state monitoring and lifecycle tracking
 ├── multi_agent.py          # Wave-based parallel agent execution
 ├── dispatch.py             # Dispatch logic bridging orchestrator and egg_contracts

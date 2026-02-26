@@ -89,6 +89,29 @@ The gateway enforces file-level access restrictions to prevent certain roles fro
 - `Push denied: Role 'X' cannot modify: <files>. <reason>` (HTTP 403) - File blocked by restriction
 - `Push denied: Could not verify file changes for security check: <error>` (HTTP 500) - Detection failure
 
+### Per-Task File Restrictions (Implement Phase)
+
+When the planner defines `files:` per task, the gateway enforces these as a push-time boundary for implement-phase coder agents. This prevents agents from accidentally modifying files outside their assigned task scope — critical for Tier 3 parallel dispatch where multiple coders work concurrently.
+
+**How it works:**
+- The orchestrator collects the union of `files_affected` from all tasks assigned to a coder agent and passes them as `allowed_files` during session creation
+- For each listed file with a directory component (e.g., `src/auth/login.py`), the directory is auto-expanded to `src/auth/*`, granting recursive sibling access via `fnmatch` matching
+- Glob patterns in the file list (e.g., `tests/**`) pass through unchanged
+- On push, changed files are checked against the session's `allowed_files` using `PhaseFileRestriction.is_file_allowed()`
+
+**Warn-then-block escalation:**
+- First push containing an out-of-scope file: **warning** logged (push allowed)
+- Second push with the same file: **blocked** (HTTP 403)
+- Violation counts are tracked per-file on the `Session._warned_files` dict (transient, not persisted)
+
+**Strict mode:** Set `EGG_TASK_FILE_RESTRICTIONS_ENFORCE=true` to block immediately on first violation (no warning phase). The warning threshold is configurable via `EGG_TASK_FILE_WARN_THRESHOLD` (default: `1`).
+
+**Graceful fallback:** When `allowed_files` is `None` or empty (non-pipeline sessions, non-coder roles, or tasks without `files_affected`), no per-task restriction is applied — only phase-level enforcement.
+
+**Post-agent auto-commit:** The auto-commit path (`post_agent_commit.py`) applies the same per-task filtering. Files outside the task's allowlist are restored (not committed) with clear logging via `post_agent_task_filter` events.
+
+**Files:** `gateway/gateway.py` (push validation), `gateway/session_manager.py` (`allowed_files` field), `gateway/post_agent_commit.py` (auto-commit filtering)
+
 ### Branch Lock (Pipeline Sessions)
 
 Pipeline sessions are locked to their assigned worktree branch. The gateway blocks `git checkout` (branch-switching) and `git switch` operations to prevent agents from moving off their assigned branch, which would break deterministic post-agent commit/push.
@@ -173,9 +196,9 @@ Phase transitions require specific roles (human, reviewer, implementer) as defin
 
 ```
 POST /api/v1/sessions/create
-  Request: {container_id, container_ip, mode, repos[], uid?, gid?, phase?}
+  Request: {container_id, container_ip, mode, repos[], uid?, gid?, phase?, allowed_files?}
   Auth: Bearer {launcher_secret}
-  Description: Create a new session with optional SDLC phase tracking
+  Description: Create a new session with optional SDLC phase tracking and per-task file restrictions
 
 PATCH /api/v1/sessions/<session_token>/phase
   Request: {phase: "refine"|"plan"|"implement"|"pr"}
@@ -447,6 +470,8 @@ gateway/
 │   ├── test_integrator_tier3.py
 │   ├── test_phase_worktree.py
 │   ├── test_assigned_branch.py  # Push-target enforcement and branch lock tests
+│   ├── test_session_file_restrictions.py  # Per-task file restriction enforcement tests
+│   ├── test_post_agent_commit.py  # Post-agent auto-commit with task filtering tests
 │   ├── integration_test.sh
 │   └── README-integration.md
 └── README.md               # This file
@@ -471,6 +496,8 @@ gateway/
 8. **Branch lock for pipeline sessions**: Pipeline agents are locked to their worktree branch to ensure deterministic post-agent commit/push. The `Session.assigned_branch` field is set during session creation when a pipeline ID is present.
 
 9. **Push-target enforcement**: Pipeline agents must push to their assigned branch only. When a push to the assigned branch fails (e.g., due to phase file restrictions from branch history contamination), agents must signal an error rather than improvise a new branch name. This prevents commits from landing on unexpected branches where the pipeline cannot find them.
+
+10. **Per-task file restrictions**: In Tier 3 parallel dispatch, multiple coder agents work on different plan phases concurrently. The planner's `files:` field per task is enforced as a push-time boundary (not just informational context). The warn-then-block escalation prevents accidental cross-contamination while avoiding hard blocks on first attempt. Directory-sibling expansion (listing `dir/foo.py` grants access to `dir/*`) ensures agents aren't caged by overly precise file lists.
 
 ## Testing
 

@@ -34,6 +34,7 @@ See the [main README](../../README.md) for the architecture diagram.
 - Filesystem-level readonly mounts (phase-protected `.egg-state/` directories mounted readonly)
 - Commit-time validation (staged files checked against phase restrictions before commit)
 - Agent role-based file access (Coder, Tester, Documenter, Integrator have distinct write permissions; default warn-only, configurable to enforce via `EGG_AGENT_RESTRICTIONS_ENFORCE`)
+- Per-task file restrictions (planner's `files:` enforced as push-time boundary for implement-phase coders; warn-then-block escalation with directory-sibling expansion; critical for Tier 3 parallel agent isolation)
 - Role-based contract mutations (implementer, reviewer, human roles with field-level permissions)
 - No merge capability (gateway has no merge endpoint)
 - Force push and destructive operations blocked
