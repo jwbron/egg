@@ -150,7 +150,7 @@ Phase approval is a simpler mechanism for advancing the pipeline at HITL gates.
 3. When the human checks the `[x] Approve` checkbox, the orchestrator detects the change
 4. The contract phase is updated and the next pipeline phase is triggered
 
-In **local mode**, the orchestrator handles phase approval via its decision queue with `decision_type="phase_gate"`. The terminal renders a draft preview and offers edit, approve, and request-changes options. A circuit breaker (`max_hitl_review_cycles`, default 3) prevents unbounded revision loops.
+In **local mode**, the orchestrator handles phase approval via its decision queue with `decision_type="phase_gate"`. The terminal displays the full document in a pager (default: `less -R`) and offers view, edit, approve, and request-changes options. A circuit breaker (`max_hitl_review_cycles`, default 3) prevents unbounded revision loops.
 
 ### Key Differences from Decisions
 
@@ -214,7 +214,7 @@ In local mode (`egg-sdlc`), the HITL checkpoint handler (`sandbox/egg_lib/sdlc_h
 
 | Type | Field Value | Terminal Behavior |
 |------|-------------|-------------------|
-| Phase gate | `phase_gate` | Shows draft preview, offers edit/approve/request-changes, and surfaces pending contract decisions via `[q]` option |
+| Phase gate | `phase_gate` | Displays full document in pager, offers view/edit/approve/request-changes options, and surfaces pending contract decisions via `[q]` option |
 | Choice | `choice` | Renders numbered options for selection |
 | Feedback | `feedback` | Prompts for each question individually, supports review-before-submit |
 

@@ -32,7 +32,6 @@ import os
 import re
 import subprocess
 import sys
-from collections.abc import Sequence
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -510,7 +509,7 @@ def _get_checkpoint_repo_from_args(
     """
     checkpoint_repo: str | None = getattr(args, "checkpoint_repo", None)
     if checkpoint_repo:
-        return checkpoint_repo, None
+        return _validate_checkpoint_repo(checkpoint_repo), None
     # Check environment variable
     env_repo = os.environ.get("EGG_CHECKPOINT_REPO")
     if env_repo:
@@ -533,7 +532,7 @@ def _get_checkpoint_repo_from_args(
 
 
 def _print_repo_hint() -> None:
-    """Print a hint to stderr about checkpoint repo configuration."""
+    """Print a hint to stderr about configuring checkpoint_repo."""
     print(_CHECKPOINT_REPO_HINT, file=sys.stderr)
 
 
@@ -1313,23 +1312,12 @@ def cmd_cost(args: argparse.Namespace) -> int:
 def _extract_snippet(searchable: str, text: str, text_lower: str) -> str | None:
     """Extract a context snippet around the first match of *text* in *searchable*.
 
-    Only the first occurrence per string is extracted.  This is intentional —
-    a single representative snippet per message is sufficient for search
-    result display, and avoids flooding output for long messages with many
-    repeated matches.
-
-    Args:
-        searchable: The full text to search within.
-        text: The original search text (used for length calculation).
-        text_lower: Lowercased search text (pre-computed for efficiency).
-
-    Returns:
-        A snippet string with ``...`` ellipsis markers, or ``None`` if no match.
+    Returns ``None`` when *text* is not found (case-insensitive).
     """
-    lower = searchable.lower()
-    if text_lower not in lower:
+    searchable_lower = searchable.lower()
+    if text_lower not in searchable_lower:
         return None
-    idx = lower.index(text_lower)
+    idx = searchable_lower.index(text_lower)
     start = max(0, idx - 80)
     end = min(len(searchable), idx + len(text) + 80)
     snippet = searchable[start:end].replace("\n", " ").strip()
@@ -1348,7 +1336,8 @@ def _search_checkpoint_transcript(checkpoint: CheckpointV2, text: str) -> list[s
         text: Case-insensitive substring to search for.
 
     Returns:
-        List of matching snippet strings with context.
+        List of matching snippet strings with context.  Only the first
+        occurrence per message is returned.
     """
     if not checkpoint.transcript or not checkpoint.transcript.messages:
         return []
@@ -1368,7 +1357,7 @@ def _search_checkpoint_transcript(checkpoint: CheckpointV2, text: str) -> list[s
 
 
 def _print_search_results(
-    matches: Sequence[tuple[CheckpointSummaryV2 | dict[str, Any], list[str]]],
+    matches: list[tuple[CheckpointSummaryV2 | dict[str, Any], list[str]]],
     text: str,
     args: argparse.Namespace,
 ) -> None:
@@ -1410,7 +1399,7 @@ def _cmd_search_http(args: argparse.Namespace, gateway_url: str) -> int:
         print("No checkpoints found matching filters")
         return 0
 
-    matches: list[tuple[dict[str, Any], list[str]]] = []
+    matches: list[tuple[CheckpointSummaryV2 | dict[str, Any], list[str]]] = []
     text = args.text
     text_lower = text.lower()
     repo_path = args.repo_path or get_repo_path()
@@ -1494,16 +1483,16 @@ def cmd_search(args: argparse.Namespace) -> int:
     # Filter by metadata first to narrow the search space
     summaries = filter_checkpoints_v2(
         index,
-        issue_number=args.issue,
-        pr_number=args.pr,
-        branch=args.branch,
-        session_id=args.session,
-        trigger_type=args.trigger,
-        session_status=args.status,
-        agent_type=args.agent_type,
-        pipeline_phase=args.phase,
-        pipeline_id=args.pipeline,
-        repo=args.repo,
+        issue_number=getattr(args, "issue", None),
+        pr_number=getattr(args, "pr", None),
+        branch=getattr(args, "branch", None),
+        session_id=getattr(args, "session", None),
+        trigger_type=getattr(args, "trigger", None),
+        session_status=getattr(args, "status", None),
+        agent_type=getattr(args, "agent_type", None),
+        pipeline_phase=getattr(args, "phase", None),
+        pipeline_id=getattr(args, "pipeline", None),
+        repo=getattr(args, "repo", None),
         limit=args.limit,
     )
 
@@ -1515,7 +1504,7 @@ def cmd_search(args: argparse.Namespace) -> int:
 
     # Load each full checkpoint and search its transcript
     text = args.text
-    matches: list[tuple[CheckpointSummaryV2, list[str]]] = []
+    matches: list[tuple[CheckpointSummaryV2 | dict[str, Any], list[str]]] = []
     for s in summaries:
         checkpoint = load_checkpoint_from_ref(s.id, ref, repo_path)
         if not checkpoint:
