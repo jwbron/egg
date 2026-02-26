@@ -1181,9 +1181,7 @@ class TestStoreCheckpointV2FetchRetry:
 
     @patch("checkpoint_handler.time")
     @patch("checkpoint_handler.get_checkpoint_handler")
-    def test_fetch_retry_succeeds_on_second_attempt(
-        self, mock_get_handler, mock_time
-    ):
+    def test_fetch_retry_succeeds_on_second_attempt(self, mock_get_handler, mock_time):
         """Fetch succeeds on second attempt after initial timeout."""
         handler, checkpoint = self._make_handler_and_checkpoint()
 
@@ -1212,9 +1210,7 @@ class TestStoreCheckpointV2FetchRetry:
 
     @patch("checkpoint_handler.time")
     @patch("checkpoint_handler.get_checkpoint_handler")
-    def test_fetch_retry_exhaustion_returns_false(
-        self, mock_get_handler, mock_time
-    ):
+    def test_fetch_retry_exhaustion_returns_false(self, mock_get_handler, mock_time):
         """All fetch attempts timeout — returns False."""
         handler, checkpoint = self._make_handler_and_checkpoint()
 

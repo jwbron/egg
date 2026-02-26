@@ -53,9 +53,9 @@ import os
 import re
 import subprocess
 import sys
-import time
 import tempfile
 import threading
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -800,7 +800,7 @@ class CheckpointHandler:
                         except subprocess.TimeoutExpired:
                             if attempt == fetch_max_attempts:
                                 raise
-                            backoff = 2 ** attempt
+                            backoff = 2**attempt
                             logger.warning(
                                 "Checkpoint fetch timed out, retrying",
                                 attempt=attempt,
