@@ -975,11 +975,12 @@ class WorktreeManager:
                 try:
                     session = session_manager.get_session_by_container(container_id)
                     if session:
+                        from checkpoint_handler import SESSION_END_CAPTURE_TIMEOUT  # type: ignore[import-untyped]  # noqa: I001
                         from session_manager import _capture_and_cleanup_session  # type: ignore[import-untyped]  # noqa: I001
 
                         checkpoint_event = _capture_and_cleanup_session(session, "failed")
                         if checkpoint_event is not None:
-                            checkpoint_event.wait(timeout=180)
+                            checkpoint_event.wait(timeout=SESSION_END_CAPTURE_TIMEOUT)
                 except Exception as e:
                     logger.warning(
                         "Failed to capture checkpoint for orphaned container",
