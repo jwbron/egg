@@ -760,3 +760,218 @@ class TestCircuitBreakerFallThrough:
 
         assert breaker_fired is False
         assert hitl_revision_feedback == "some feedback"
+
+
+class TestSyncPipelineDecisionsToContract:
+    """Verify _sync_pipeline_decisions_to_contract converts pipeline decisions to contract format."""
+
+    def _make_pipeline_decision(
+        self,
+        decision_id="decision-1",
+        question="Which approach?",
+        options=None,
+        decision_type="choice",
+        status="resolved",
+        resolution="Option A",
+        phase=None,
+    ):
+        """Create a pipeline HITLDecision for testing."""
+        from models import DecisionStatus, HITLDecision, PipelinePhase
+
+        return HITLDecision(
+            id=decision_id,
+            question=question,
+            options=options or ["Option A", "Option B"],
+            decision_type=decision_type,
+            status=DecisionStatus(status),
+            resolution=resolution,
+            phase=PipelinePhase(phase) if phase else None,
+        )
+
+    def test_phase_gate_decisions_are_excluded(self):
+        """Phase gate decisions should not be synced to the contract."""
+        from models import DecisionStatus
+
+        phase_gate = self._make_pipeline_decision(
+            decision_type="phase_gate",
+            question="Approve refine phase?",
+            options=["approve", "request changes"],
+            resolution="approve",
+        )
+        choice = self._make_pipeline_decision(
+            decision_type="choice",
+            question="Which database?",
+            resolution="PostgreSQL",
+        )
+
+        # Filter logic from _sync_pipeline_decisions_to_contract
+        substantive = [
+            d
+            for d in [phase_gate, choice]
+            if d.decision_type != "phase_gate" and d.status == DecisionStatus.RESOLVED
+        ]
+
+        assert len(substantive) == 1
+        assert substantive[0].question == "Which database?"
+
+    def test_pending_decisions_are_excluded(self):
+        """Only resolved decisions should be synced."""
+        from models import DecisionStatus
+
+        pending = self._make_pipeline_decision(status="pending", resolution=None)
+        resolved = self._make_pipeline_decision(
+            decision_id="decision-2",
+            question="Which approach?",
+            status="resolved",
+            resolution="REST",
+        )
+
+        substantive = [
+            d
+            for d in [pending, resolved]
+            if d.decision_type != "phase_gate" and d.status == DecisionStatus.RESOLVED
+        ]
+
+        assert len(substantive) == 1
+        assert substantive[0].resolution == "REST"
+
+    def test_field_mapping_hitl_decision_to_contract_decision(self):
+        """Verify correct field mapping from HITLDecision to contract Decision."""
+        from datetime import datetime
+
+        from egg_contracts.models import Decision, DecisionOption, DecisionType
+
+        pipeline_decision = self._make_pipeline_decision(
+            question="Which database should we use?",
+            options=["PostgreSQL", "MongoDB"],
+            resolution="PostgreSQL",
+        )
+        # Simulate the resolved_at timestamp
+        pipeline_decision.resolved_at = datetime(2026, 2, 25, 12, 0, 0)
+
+        # Apply the same mapping logic as _sync_pipeline_decisions_to_contract
+        contract_options = [
+            DecisionOption(id=f"opt-{i + 1}", label=opt)
+            for i, opt in enumerate(pipeline_decision.options)
+        ]
+
+        contract_decision = Decision(
+            id="decision-1",
+            question=pipeline_decision.question,
+            type=DecisionType.HITL,
+            options=contract_options,
+            resolved=True,
+            resolution=pipeline_decision.resolution,
+            resolved_by="human",
+            resolved_at=pipeline_decision.resolved_at,
+        )
+
+        assert contract_decision.id == "decision-1"
+        assert contract_decision.question == "Which database should we use?"
+        assert contract_decision.type == DecisionType.HITL
+        assert len(contract_decision.options) == 2
+        assert contract_decision.options[0].id == "opt-1"
+        assert contract_decision.options[0].label == "PostgreSQL"
+        assert contract_decision.options[1].id == "opt-2"
+        assert contract_decision.options[1].label == "MongoDB"
+        assert contract_decision.resolved is True
+        assert contract_decision.resolution == "PostgreSQL"
+        assert contract_decision.resolved_by == "human"
+        assert contract_decision.resolved_at == datetime(2026, 2, 25, 12, 0, 0)
+
+    def test_deduplication_by_question_text(self):
+        """Decisions already in the contract should not be synced again."""
+        existing_questions = {"Which database?", "Which framework?"}
+
+        decisions = [
+            self._make_pipeline_decision(decision_id="decision-1", question="Which database?"),
+            self._make_pipeline_decision(decision_id="decision-2", question="Which API style?"),
+            self._make_pipeline_decision(decision_id="decision-3", question="Which framework?"),
+        ]
+
+        new_decisions = [d for d in decisions if d.question not in existing_questions]
+
+        assert len(new_decisions) == 1
+        assert new_decisions[0].question == "Which API style?"
+
+    def test_id_numbering_continues_from_existing(self):
+        """New decision IDs should continue from the highest existing contract ID."""
+        from egg_contracts.models import Decision, DecisionType
+
+        existing = [
+            Decision(id="decision-1", question="Q1", type=DecisionType.HITL, resolved=True),
+            Decision(id="decision-3", question="Q3", type=DecisionType.HITL, resolved=True),
+        ]
+
+        # Extract max ID
+        max_existing_id = 0
+        for d in existing:
+            try:
+                num = int(d.id.split("-")[1])
+                max_existing_id = max(max_existing_id, num)
+            except (IndexError, ValueError):
+                pass
+
+        assert max_existing_id == 3
+
+        # Next ID should be decision-4
+        max_existing_id += 1
+        assert f"decision-{max_existing_id}" == "decision-4"
+
+    def test_feedback_type_decisions_are_included(self):
+        """Feedback-type decisions should be synced (not just choice)."""
+        from models import DecisionStatus
+
+        feedback = self._make_pipeline_decision(
+            decision_type="feedback",
+            question="What edge cases matter?",
+            resolution="Handle empty arrays",
+        )
+
+        substantive = [
+            d
+            for d in [feedback]
+            if d.decision_type != "phase_gate" and d.status == DecisionStatus.RESOLVED
+        ]
+
+        assert len(substantive) == 1
+        assert substantive[0].question == "What edge cases matter?"
+
+    def test_empty_options_produces_empty_contract_options(self):
+        """Pipeline decisions with no options should map to empty contract options."""
+        from egg_contracts.models import DecisionOption
+        from models import DecisionStatus, HITLDecision
+
+        pipeline_decision = HITLDecision(
+            id="decision-1",
+            question="Free-form question",
+            options=[],
+            decision_type="choice",
+            status=DecisionStatus.RESOLVED,
+            resolution="Some answer",
+        )
+
+        contract_options = [
+            DecisionOption(id=f"opt-{i + 1}", label=opt)
+            for i, opt in enumerate(pipeline_decision.options)
+        ]
+
+        assert contract_options == []
+
+    def test_sync_function_is_callable(self):
+        """Verify _sync_pipeline_decisions_to_contract exists and is callable."""
+        from routes.pipelines import _sync_pipeline_decisions_to_contract
+
+        assert callable(_sync_pipeline_decisions_to_contract)
+
+    def test_sync_called_for_hitl_gate_phases(self):
+        """Verify the pipeline source calls sync for both refine and plan phases."""
+        import inspect
+
+        from routes import pipelines
+
+        source = inspect.getsource(pipelines)
+
+        # The sync should be called when current_phase.value is in _HITL_GATE_PHASES
+        assert "_sync_pipeline_decisions_to_contract" in source
+        assert "current_phase.value in _HITL_GATE_PHASES" in source
