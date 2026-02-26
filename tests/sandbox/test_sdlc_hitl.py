@@ -3381,9 +3381,7 @@ class TestHandleHitlPassesDraft:
             "decision_type": "choice",
             "options": ["A", "B"],
         }
-        handle_hitl_checkpoint(
-            client, "issue-42", decision, pipeline_mode="issue", issue_number=42
-        )
+        handle_hitl_checkpoint(client, "issue-42", decision, pipeline_mode="issue", issue_number=42)
 
         mock_handler.assert_called_once()
         call_kwargs = mock_handler.call_args
@@ -3409,9 +3407,7 @@ class TestHandleHitlPassesDraft:
             "decision_type": "feedback",
             "questions": [{"id": "q-1", "question": "Volume?"}],
         }
-        handle_hitl_checkpoint(
-            client, "issue-42", decision, pipeline_mode="issue", issue_number=42
-        )
+        handle_hitl_checkpoint(client, "issue-42", decision, pipeline_mode="issue", issue_number=42)
 
         mock_handler.assert_called_once()
         call_kwargs = mock_handler.call_args
@@ -3432,9 +3428,7 @@ class TestHandleHitlPassesDraft:
             "decision_type": "choice",
             "options": ["A", "B"],
         }
-        handle_hitl_checkpoint(
-            client, "issue-42", decision, pipeline_mode="issue", issue_number=42
-        )
+        handle_hitl_checkpoint(client, "issue-42", decision, pipeline_mode="issue", issue_number=42)
 
         mock_handler.assert_called_once()
         call_kwargs = mock_handler.call_args
@@ -3455,9 +3449,7 @@ class TestHandleHitlPassesDraft:
             "decision_type": "choice",
             "options": ["A", "B"],
         }
-        handle_hitl_checkpoint(
-            client, "issue-42", decision, pipeline_mode="issue", issue_number=42
-        )
+        handle_hitl_checkpoint(client, "issue-42", decision, pipeline_mode="issue", issue_number=42)
 
         mock_handler.assert_called_once()
         call_kwargs = mock_handler.call_args
