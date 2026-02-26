@@ -2,12 +2,12 @@
   "issue": 912,
   "phase": "plan",
   "agent": "architect",
-  "revision": 1,
-  "revision_reason": null,
+  "revision": 2,
+  "revision_reason": "Address two blocking review findings: (1) fnmatch matching semantics — `*` in Python fnmatch matches `/`, so `dir/*` is recursive not shallow; updated DD-2, edge cases, risk assessment, and test scenarios accordingly. (2) Missing Session model persistence test task — added TASK-8 covering serialization round-trip, backward compat, and _warned_files init.",
 
   "title": "Architecture analysis: Enforce per-task file restrictions from planner in implement phase",
 
-  "summary": "Implement agents in Tier 3 dispatch can modify any code file, causing cross-contamination when parallel agents accidentally touch each other's files. The planner already produces per-task `files_affected` lists, and the gateway already has `PhaseFileRestriction` with glob matching — but these two systems are not connected. The recommended approach adds `allowed_files` to the Session model, computes the union of task files at container spawn time with directory-sibling expansion, and enforces warn-then-block at push validation as a 5th validation layer. This builds on existing infrastructure with minimal new abstractions.",
+  "summary": "Implement agents in Tier 3 dispatch can modify any code file, causing cross-contamination when parallel agents accidentally touch each other's files. The planner already produces per-task `files_affected` lists, and the gateway already has `PhaseFileRestriction` with glob matching — but these two systems are not connected. The recommended approach adds `allowed_files` to the Session model, computes the union of task files at container spawn time with directory-level expansion, and enforces warn-then-block at push validation as a new validation layer. This builds on existing infrastructure with minimal new abstractions. REVISION 2: Corrected matching semantics — `dir/*` expansion is recursive (fnmatch treats `*` as matching `/`), not shallow. This is consistent with existing production patterns and aligns with the 'guide, don't cage' philosophy.",
 
   "problem_statement": {
     "description": "When the orchestrator spawns multiple implement agents in parallel (Tier 3 dispatch), each agent can modify any code file — the only restrictions are phase-level (implement blocks .egg-state/) and agent-role-level (coder/tester scopes). An agent working on Task A can accidentally modify files belonging to Task B, creating cross-contamination. The planner produces per-task `files:` lists stored as `Task.files_affected` in the contract, but this data is never propagated to the gateway and no enforcement occurs.",
@@ -47,7 +47,7 @@
         "name": "PhaseFileRestriction",
         "file": "gateway/phase_filter.py",
         "lines": "160-251",
-        "description": "Dataclass with allowed_patterns (must match if non-empty), blocked_patterns (always checked first), and description. is_file_allowed() normalizes paths, checks blocked patterns, then checks allowed patterns. _matches_pattern() supports '*' wildcard, fnmatch globs, directory prefix, and simple prefix matching."
+        "description": "Dataclass with allowed_patterns (must match if non-empty), blocked_patterns (always checked first), and description. is_file_allowed() normalizes paths, checks blocked patterns, then checks allowed patterns. _matches_pattern() supports '*' wildcard, fnmatch globs, directory prefix, and simple prefix matching. IMPORTANT: fnmatch.fnmatch() treats '*' as matching '/' — so 'dir/*' matches 'dir/sub/deep/file.py'. This is already the behavior for all production patterns (e.g., '.egg-state/contracts/*' matches nested files)."
       },
       {
         "name": "check_phase_file_restrictions()",
@@ -70,7 +70,7 @@
       {
         "name": "auto_commit_worktree()",
         "file": "gateway/post_agent_commit.py",
-        "lines": "130-280",
+        "lines": "126-333",
         "description": "Detects uncommitted changes, filters by phase restrictions via check_phase_file_restrictions(), restores blocked files, stages/commits allowed files, pushes via gateway. No per-task filtering."
       },
       {
@@ -99,14 +99,15 @@
       "Warn-vs-enforce toggle pattern from EGG_AGENT_RESTRICTIONS_ENFORCE (agent-role layer)",
       "Session persistence via to_dict_for_persistence()/from_persistence()",
       "Post-agent auto-commit's phase filtering pattern (separate allowed/blocked, restore blocked, stage allowed)"
-    ]
+    ],
+    "fnmatch_semantics_note": "CRITICAL: Python's fnmatch.fnmatch() does NOT treat '*' as segment-aware. fnmatch('dir/sub/deep/file.py', 'dir/*') returns True. This is confirmed by testing and by the Python documentation. The existing _matches_pattern() at phase_filter.py:243 already uses fnmatch for all '*'-containing patterns, meaning all existing production patterns (e.g., '.egg-state/contracts/*', '.egg-state/drafts/*analysis*') are already recursive. Changing this would be a breaking change to existing functionality and is out of scope. The per-task file restrictions inherit this same behavior intentionally."
   },
 
   "approaches_considered": [
     {
       "id": "A",
       "title": "Session-level allowed_files (issue's proposed design)",
-      "description": "Add allowed_files: list[str] | None to Session. Container spawner computes union of files_affected from assigned tasks, applies directory-sibling expansion, passes to register_session(). Gateway builds PhaseFileRestriction from allowed_files during push validation. Warn-then-block via transient _warned_files dict.",
+      "description": "Add allowed_files: list[str] | None to Session. Container spawner computes union of files_affected from assigned tasks, applies directory-level expansion, passes to register_session(). Gateway builds PhaseFileRestriction from allowed_files during push validation. Warn-then-block via transient _warned_files dict.",
       "pros": [
         "All data precomputed at registration — no I/O during push validation",
         "Reuses existing PhaseFileRestriction pattern exactly",
@@ -186,18 +187,18 @@
       {
         "component": "Container spawner — compute allowed_files",
         "file": "orchestrator/container_spawner.py",
-        "change": "Add a helper function `_compute_allowed_files(contract, plan_phase_id, agent_role)` that: (1) filters contract phases/tasks to the assigned plan_phase_id, (2) collects the union of files_affected from all matching tasks, (3) applies directory-sibling expansion (for each `dir/file.py`, add `dir/*` to allow sibling creation), (4) returns list or None if empty. Called before register_session() in spawn_agent_container(). Only active for implement phase + coder agent_role.",
+        "change": "Add a helper function `_compute_allowed_files(contract, plan_phase_id, agent_role)` that: (1) filters contract phases/tasks to the assigned plan_phase_id, (2) collects the union of files_affected from all matching tasks, (3) applies directory-level expansion (for each `dir/file.py`, add `dir/*` to allow the entire directory tree rooted at `dir/`), (4) returns list or None if empty. Called before register_session() in spawn_agent_container(). Only active for implement phase + coder agent_role.",
         "complexity": "medium",
         "risk": "medium",
         "design_details": {
-          "directory_expansion": "For each explicit file path `dir/foo.py`, add `dir/*` (shallow siblings). For each glob pattern already containing `*` or `**`, pass through unchanged. This enables agents to create helper files in the same directory without exhaustive listing.",
+          "directory_expansion": "For each explicit file path `dir/foo.py`, add `dir/*`. Because fnmatch treats `*` as matching `/`, this effectively grants recursive access to the entire `dir/` subtree. This is intentional and consistent with the 'guide, don't cage' philosophy — listing a file in a directory grants access to that directory and all its subdirectories. For each glob pattern already containing `*` or `**`, pass through unchanged.",
           "scope": "Only implement-phase coder agents. Tester/documenter/reviewer/integrator agents are NOT restricted by per-task files.",
           "fallback": "If files_affected is empty for all tasks, allowed_files = None (no per-task restriction).",
           "plan_phase_id_plumbing": "_spawn_and_wait() already receives plan_phase_id. Pass it through to spawn_agent_container() (new parameter), which uses it to load the right phase's tasks from the contract."
         }
       },
       {
-        "component": "Gateway push validation — Layer 4: per-task file enforcement",
+        "component": "Gateway push validation — new per-task file enforcement layer",
         "file": "gateway/gateway.py",
         "change": "After the existing agent-role check (line ~791) and before the phase check (line ~793), add a new validation layer: if session.allowed_files is non-None and non-empty, build a PhaseFileRestriction(allowed_patterns=session.allowed_files) and check each changed file. For files that fail: (1) check session._warned_files[file] count, (2) if count < threshold (default 1), increment counter, log structured warning, allow push, (3) if count >= threshold, block push with actionable error. Environment variable EGG_TASK_FILE_RESTRICTIONS_ENFORCE=true for strict mode (always block, skip warnings).",
         "complexity": "medium",
@@ -206,7 +207,8 @@
           "warn_then_block": "Use session._warned_files dict (transient, not persisted). Key = file path, value = violation count. First push with an out-of-scope file succeeds with warning. Second push with the same file is blocked. This is per-file, not per-push — a push can contain files A and B, where A was warned before (blocked) and B is new (warned).",
           "error_message": "Include: (1) list of blocked files, (2) the session's allowed_files patterns they violated, (3) suggestion to check task files_affected or use egg-contract request-file. Make the error actionable so the agent can self-correct.",
           "interaction_with_other_layers": "Per-task restrictions are additive to (not replacing) phase-level restrictions. Both must pass. A file allowed by per-task patterns but blocked by phase patterns is still blocked. This is enforced naturally by keeping both checks as separate sequential layers.",
-          "checkpoint_bypass": "Checkpoint pushes (is_checkpoint_push=True) bypass per-task restrictions, same as phase restrictions."
+          "checkpoint_bypass": "Checkpoint pushes (is_checkpoint_push=True) bypass per-task restrictions, same as phase restrictions.",
+          "matching_semantics": "PhaseFileRestriction._matches_pattern() uses fnmatch.fnmatch() for patterns containing '*'. Because fnmatch treats '*' as matching '/', a pattern like 'src/auth/*' matches 'src/auth/utils/deep/file.py'. This is recursive matching, NOT shallow. This is consistent with all existing phase restriction patterns and is the intentional behavior for per-task restrictions."
         }
       },
       {
@@ -223,7 +225,7 @@
       {
         "component": "Plan template documentation",
         "file": "docs/templates/plan.md",
-        "change": "Update to document that `files:` is an enforcement boundary, not just a hint. Add guidance: list files generously, use globs, include test/config files, note that directory-sibling access is automatic.",
+        "change": "Update to document that `files:` is an enforcement boundary, not just a hint. Add guidance: list files generously, use globs, include test/config files, note that directory-level expansion grants recursive access to the directory (not just immediate children).",
         "complexity": "low",
         "risk": "low"
       }
@@ -243,10 +245,12 @@
     },
     {
       "id": "DD-2",
-      "question": "Directory-sibling expansion: shallow (dir/*) or recursive (dir/**)?",
-      "decision": "Shallow expansion (dir/*) by default",
-      "rationale": "The issue says 'sibling files (new helpers, test files) are reachable' which implies immediate children only. Recursive expansion (dir/**) is too permissive — listing `src/auth/login.py` would allow modifying everything under `src/auth/` including deeply nested subpackages. If the planner wants recursive access, it can explicitly use `src/auth/**` in the files list. Shallow expansion gives the right balance of convenience vs. containment.",
-      "configurable": false
+      "question": "Directory-level expansion: what scope does listing a file grant?",
+      "decision": "Recursive directory access via `dir/*` pattern (fnmatch `*` matches `/`)",
+      "rationale": "The original plan called this 'shallow' expansion, but Python's fnmatch.fnmatch() treats `*` as matching `/`, so `dir/*` matches `dir/sub/deep/file.py`. This is NOT a bug — it is the existing behavior for ALL patterns in _matches_pattern() (phase_filter.py:243), including production patterns like `.egg-state/contracts/*`. Changing to segment-aware matching (e.g., PurePosixPath.match()) would be a breaking change affecting all existing phase restrictions and is out of scope. The recursive behavior actually aligns with the issue's 'guide, don't cage' philosophy: listing `src/auth/login.py` grants access to the entire `src/auth/` subtree, which is more generous and prevents agents from getting stuck when they need to touch nested files. If the planner wants narrower scope, it should list specific files without relying on directory expansion. Tests MUST verify recursive matching explicitly so future readers understand the actual semantics.",
+      "configurable": false,
+      "changed_in_revision": 2,
+      "previous_decision": "Shallow expansion (dir/*) — was incorrectly documented as only matching immediate children"
     },
     {
       "id": "DD-3",
@@ -314,13 +318,15 @@
     },
     {
       "case": "Glob patterns in files_affected (e.g., tests/**, src/components/*.tsx)",
-      "handling": "Passed through to PhaseFileRestriction.allowed_patterns unchanged. PhaseFileRestriction._matches_pattern() already supports fnmatch globs.",
+      "handling": "Passed through to PhaseFileRestriction.allowed_patterns unchanged. PhaseFileRestriction._matches_pattern() already supports fnmatch globs. Note: `*` matches `/` in fnmatch, so `src/components/*.tsx` matches `src/components/deep/nested/Button.tsx`.",
       "severity": "expected"
     },
     {
-      "case": "New files in allowed directories not explicitly listed",
-      "handling": "Directory-sibling expansion adds dir/* for each explicit file dir/foo.py. New file dir/bar.py matches dir/* and is allowed.",
-      "severity": "expected"
+      "case": "New files in expanded directories — recursive depth",
+      "handling": "Directory expansion adds `dir/*` for each explicit file `dir/foo.py`. Because fnmatch treats `*` as matching `/`, `dir/*` matches `dir/bar.py`, `dir/sub/baz.py`, and `dir/sub/deep/qux.py` equally. This is RECURSIVE access to the entire subtree, not just immediate children. Tests must explicitly verify this recursive behavior.",
+      "severity": "expected",
+      "changed_in_revision": 2,
+      "previous": "Described as 'shallow siblings' matching only immediate children"
     },
     {
       "case": "Multiple tasks list the same file",
@@ -356,6 +362,12 @@
       "case": "Integrator agent in Tier 3 needs cross-phase file access",
       "handling": "Integrator is not a coder agent (agent_role='integrator'). Per-task restrictions only apply to coder agents. Integrator gets its existing INTEGRATOR_TIER3_PATTERNS from agent-role restrictions.",
       "severity": "expected"
+    },
+    {
+      "case": "Planner lists `src/auth/login.py` but agent needs `src/auth/utils/deep/helper.py`",
+      "handling": "Directory expansion adds `src/auth/*`. Because fnmatch is recursive, `src/auth/*` matches `src/auth/utils/deep/helper.py`. This is allowed. If the planner listed only `src/auth/login.py` without directory expansion, the file would be blocked.",
+      "severity": "expected",
+      "added_in_revision": 2
     }
   ],
 
@@ -403,7 +415,7 @@
             "orchestrator/container_spawner.py",
             "orchestrator/routes/pipelines.py"
           ],
-          "acceptance": "For implement-phase coder agents with a plan_phase_id: loads contract, filters tasks by phase, computes union of files_affected, applies dir/* expansion, passes to register_session(). For non-implement, non-coder, or no plan_phase_id: allowed_files=None. _spawn_and_wait() passes plan_phase_id to spawn_agent_container()."
+          "acceptance": "For implement-phase coder agents with a plan_phase_id: loads contract, filters tasks by phase, computes union of files_affected, applies dir/* expansion (recursive, per fnmatch semantics), passes to register_session(). For non-implement, non-coder, or no plan_phase_id: allowed_files=None. _spawn_and_wait() passes plan_phase_id to spawn_agent_container()."
         }
       ]
     },
@@ -445,22 +457,35 @@
       "tasks": [
         {
           "id": "task-7",
-          "description": "Update plan template to document files: as enforcement boundary with guidance on generous listing",
+          "description": "Update plan template to document files: as enforcement boundary with guidance on generous listing and recursive matching semantics",
           "files": [
             "docs/templates/plan.md"
           ],
-          "acceptance": "Template clearly states files: is enforced at push time. Includes guidance: list generously, use globs, include config/test files, note directory-sibling auto-expansion."
+          "acceptance": "Template clearly states files: is enforced at push time. Includes guidance: list generously, use globs, include config/test files, note that directory expansion grants recursive access (not just immediate children). Documents that `dir/*` matches `dir/sub/deep/file.py` due to fnmatch semantics."
         },
         {
           "id": "task-8",
+          "description": "Add Session model persistence tests for allowed_files field",
+          "files": [
+            "gateway/tests/test_session_manager.py"
+          ],
+          "acceptance": "Tests cover: (1) Session with allowed_files persists through to_dict_for_persistence() and loads back via from_persistence() — round-trip serialization, (2) Session without allowed_files key in persisted data loads with allowed_files=None (backward compat for pre-existing sessions), (3) _warned_files initializes to empty dict and is NOT included in to_dict_for_persistence() output.",
+          "added_in_revision": 2,
+          "review_feedback_ref": "Blocking feedback #2: Missing test task for Session model persistence"
+        },
+        {
+          "id": "task-9",
           "description": "Add gateway tests for per-session file restriction enforcement",
           "files": [
             "gateway/tests/test_session_file_restrictions.py"
           ],
-          "acceptance": "Tests cover: (1) push with allowed files passes, (2) push with disallowed file warns on first attempt, (3) push with disallowed file blocks on second attempt, (4) EGG_TASK_FILE_RESTRICTIONS_ENFORCE=true blocks immediately, (5) checkpoint push bypasses, (6) None/empty allowed_files = no restriction, (7) glob patterns match correctly, (8) directory-sibling expansion works."
+          "acceptance": "Tests cover: (1) push with allowed files passes, (2) push with disallowed file warns on first attempt, (3) push with disallowed file blocks on second attempt, (4) EGG_TASK_FILE_RESTRICTIONS_ENFORCE=true blocks immediately, (5) checkpoint push bypasses, (6) None/empty allowed_files = no restriction, (7) glob patterns match correctly, (8) directory expansion works recursively — `dir/*` matches `dir/sub/deep/file.py` (explicit test for fnmatch semantics), (9) boundary test: file at exact directory level vs nested subdirectory both match `dir/*`.",
+          "changed_in_revision": 2,
+          "previous_id": "task-8",
+          "review_feedback_ref": "Blocking feedback #1: Tests must verify recursive behavior for dir/* patterns"
         },
         {
-          "id": "task-9",
+          "id": "task-10",
           "description": "Add tests for post-agent commit filtering with allowed_files",
           "files": [
             "gateway/tests/test_post_agent_commit.py"
@@ -468,12 +493,12 @@
           "acceptance": "Tests cover: (1) files outside allowed_files are restored, (2) files inside allowed_files are committed, (3) None allowed_files = no filtering, (4) logging verifies filtered files are reported."
         },
         {
-          "id": "task-10",
+          "id": "task-11",
           "description": "Add orchestrator tests for _compute_allowed_files() and spawner integration",
           "files": [
             "orchestrator/tests/test_container_spawner.py"
           ],
-          "acceptance": "Tests cover: (1) union of files from multiple tasks, (2) directory-sibling expansion, (3) empty files_affected = None, (4) non-coder agents get None, (5) non-implement phases get None, (6) glob patterns preserved."
+          "acceptance": "Tests cover: (1) union of files from multiple tasks, (2) directory expansion produces `dir/*` patterns and these are recursive, (3) empty files_affected = None, (4) non-coder agents get None, (5) non-implement phases get None, (6) glob patterns preserved unchanged."
         }
       ]
     }
@@ -484,10 +509,18 @@
       "risk": "Planner produces too-narrow file lists, causing agents to spin",
       "likelihood": "medium",
       "impact": "medium",
-      "mitigation": "Directory-sibling expansion provides automatic slack. Warn-then-block gives agents one free pass. Plan template guidance encourages generous listing with globs. If still problematic, add an implicit config file allowlist as a non-breaking follow-up."
+      "mitigation": "Directory expansion provides automatic slack — listing any file in a directory grants recursive access to that entire subtree (due to fnmatch semantics). Warn-then-block gives agents one free pass. Plan template guidance encourages generous listing with globs. If still problematic, add an implicit config file allowlist as a non-breaking follow-up."
     },
     {
-      "risk": "container_spawner contract loading adds latency to spawn",
+      "risk": "Directory expansion is more permissive than expected (recursive, not shallow)",
+      "likelihood": "high",
+      "impact": "low",
+      "mitigation": "This is by design and aligned with 'guide, don't cage'. Listing `src/auth/login.py` grants access to ALL files under `src/auth/` including deeply nested subdirectories. The containment granularity is at the directory subtree level, not individual files. This means per-task restrictions prevent cross-directory contamination (agent A touching `src/payments/` when only `src/auth/` is listed) but do not prevent intra-directory modifications. Plan template documentation explicitly states this. If finer granularity is needed in the future, a segment-aware matcher can be added behind a feature flag without changing the default behavior.",
+      "added_in_revision": 2,
+      "review_feedback_ref": "Blocking feedback #1: fnmatch matching semantics mismatch"
+    },
+    {
+      "risk": "Container spawner contract loading adds latency to spawn",
       "likelihood": "low",
       "impact": "low",
       "mitigation": "Contract is a small JSON file on local disk. Loading + computing union is O(tasks × files) which is negligible (<10ms). Contract is already loaded elsewhere in the tier-3 dispatch path."
@@ -521,6 +554,7 @@
     "orchestrator/container_spawner.py",
     "orchestrator/routes/pipelines.py",
     "docs/templates/plan.md",
+    "gateway/tests/test_session_manager.py",
     "gateway/tests/test_session_file_restrictions.py",
     "gateway/tests/test_post_agent_commit.py",
     "orchestrator/tests/test_container_spawner.py"
@@ -531,25 +565,30 @@
     "Post-agent auto-commit filters out files not in the task's allowlist (restores them) with clear logging",
     "When files_affected is empty for all tasks, no per-file restriction is applied (graceful fallback)",
     "Glob patterns in files_affected are supported (e.g., src/components/*, tests/**)",
-    "Directory-sibling expansion: listing dir/foo.py implicitly allows other files in dir/",
-    "Plan template documents that files: is enforced, with guidance on generous listing",
-    "Existing tests pass; new tests cover per-session file restriction enforcement",
+    "Directory expansion: listing dir/foo.py adds dir/* which grants recursive access to the entire dir/ subtree (fnmatch semantics)",
+    "Plan template documents that files: is enforced, with guidance on generous listing and explicit note on recursive matching",
+    "Existing tests pass; new tests cover per-session file restriction enforcement including Session model persistence round-trip",
     "Tier 3 parallel agent dispatch correctly scopes each agent to its phase's file union",
     "Agent never hard-blocks on first attempt to modify an out-of-scope file (warn-then-block default)",
     "Non-pipeline sessions and non-coder agents are completely unaffected",
-    "EGG_TASK_FILE_RESTRICTIONS_ENFORCE=true enables strict mode (always block, no warnings)"
+    "EGG_TASK_FILE_RESTRICTIONS_ENFORCE=true enables strict mode (always block, no warnings)",
+    "Tests explicitly verify that dir/* matches dir/sub/deep/file.py (recursive behavior documented via test)"
   ],
 
   "test_plan": [
     {
-      "scope": "Unit: Session model",
+      "scope": "Unit: Session model persistence",
       "file": "gateway/tests/test_session_manager.py",
-      "tests": "Session with allowed_files persists and loads correctly. Session without allowed_files loads with None. _warned_files initializes to empty dict."
+      "tests": "Session with allowed_files round-trips through to_dict_for_persistence()/from_persistence(). Session without allowed_files key in data loads with None (backward compat). _warned_files initializes to empty dict and is not serialized.",
+      "added_in_revision": 2,
+      "review_feedback_ref": "Blocking feedback #2"
     },
     {
       "scope": "Unit: Per-task file restriction enforcement",
       "file": "gateway/tests/test_session_file_restrictions.py",
-      "tests": "Push with allowed files passes. Push with disallowed file warns on first. Push with disallowed file blocks on second. Strict mode blocks immediately. Checkpoint bypasses. None/empty allowed_files = no restriction. Glob patterns. Directory-sibling expansion."
+      "tests": "Push with allowed files passes. Push with disallowed file warns on first. Push with disallowed file blocks on second. Strict mode blocks immediately. Checkpoint bypasses. None/empty allowed_files = no restriction. Glob patterns. Directory expansion is recursive — dir/* matches dir/sub/deep/file.py. Boundary test: file at exact level and nested levels both match dir/*.",
+      "changed_in_revision": 2,
+      "review_feedback_ref": "Blocking feedback #1"
     },
     {
       "scope": "Unit: Post-agent commit with allowed_files",
@@ -559,12 +598,45 @@
     {
       "scope": "Unit: _compute_allowed_files()",
       "file": "orchestrator/tests/test_container_spawner.py",
-      "tests": "Union of files from tasks. Dir expansion. Empty = None. Non-coder = None. Glob preservation."
+      "tests": "Union of files from tasks. Dir expansion produces dir/* patterns (recursive). Empty = None. Non-coder = None. Glob preservation."
     },
     {
       "scope": "Integration: Tier 3 dispatch with file scoping",
       "file": "orchestrator/tests/test_tier3_dispatch.py",
       "tests": "Two agents with disjoint file lists. Each can only push their own files. Shared files allowed by both."
+    }
+  ],
+
+  "review_feedback_addressed": [
+    {
+      "feedback_id": 1,
+      "severity": "BLOCKING",
+      "title": "fnmatch matching semantics mismatch",
+      "resolution": "Option (b) — acknowledge recursive matching. Updated DD-2 to explicitly state that dir/* is recursive due to fnmatch treating * as matching /. Updated all 'shallow' references to 'recursive'. Added new risk entry documenting that containment is at directory-subtree level. Updated test task (task-9) to require explicit verification of recursive behavior including boundary cases. Updated edge case for 'New files in expanded directories' to document recursive depth. Updated plan template task (task-7) to require documentation of recursive semantics. This is consistent with existing production behavior — all patterns using fnmatch in phase_filter.py are already recursive.",
+      "changes_made": [
+        "DD-2: Changed from 'shallow expansion' to 'recursive directory access'",
+        "Edge case 'New files in expanded directories — recursive depth': Updated to explain recursive behavior",
+        "New edge case: 'Planner lists src/auth/login.py but agent needs src/auth/utils/deep/helper.py'",
+        "New risk: 'Directory expansion is more permissive than expected (recursive, not shallow)'",
+        "task-7 acceptance: Added 'documents that dir/* matches dir/sub/deep/file.py'",
+        "task-9 acceptance: Added recursive matching test cases including boundary tests",
+        "Acceptance criteria: Updated 'Directory expansion' item and added recursive test verification item",
+        "current_architecture.fnmatch_semantics_note: Added comprehensive note on fnmatch behavior",
+        "PhaseFileRestriction component description: Added fnmatch semantics note"
+      ]
+    },
+    {
+      "feedback_id": 2,
+      "severity": "BLOCKING",
+      "title": "Missing test task for Session model persistence",
+      "resolution": "Added task-8 in Phase 5 covering Session model serialization round-trip tests: (a) allowed_files persists through to_dict_for_persistence()/from_persistence(), (b) sessions without allowed_files load with None (backward compat), (c) _warned_files initializes to empty dict and is not persisted. Added corresponding test_plan entry. Renumbered subsequent tasks (old task-8 → task-9, old task-9 → task-10, old task-10 → task-11). Added gateway/tests/test_session_manager.py to files_affected.",
+      "changes_made": [
+        "New task-8: Session model persistence tests in gateway/tests/test_session_manager.py",
+        "New test_plan entry: 'Unit: Session model persistence'",
+        "Renumbered tasks 8-10 to 9-11",
+        "Added gateway/tests/test_session_manager.py to files_affected list",
+        "Updated acceptance criteria to mention 'including Session model persistence round-trip'"
+      ]
     }
   ]
 }
