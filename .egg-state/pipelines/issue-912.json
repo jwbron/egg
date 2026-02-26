@@ -5,7 +5,7 @@
   "branch": "egg/issue-912",
   "mode": "issue",
   "prompt": null,
-  "status": "failed",
+  "status": "running",
   "current_phase": "pr",
   "config": {
     "auto_create_pr": true,
@@ -513,37 +513,12 @@
     },
     "pr": {
       "phase": "pr",
-      "status": "failed",
-      "started_at": "2026-02-26T04:15:26.689336",
-      "work_started_at": "2026-02-26T04:15:26.714573",
-      "completed_at": "2026-02-26T04:15:59.786547",
-      "containers": [
-        {
-          "container_id": "d8172653b3ee4a98e5d1c12b479c571bfbf2b0db9567e84bf1f39784ba8ebfb9",
-          "container_name": "egg-sandbox-egg-issue-912-coder",
-          "status": "exited",
-          "started_at": "2026-02-26T04:15:27.203166",
-          "exited_at": "2026-02-26T04:15:29.705910",
-          "exit_code": 1,
-          "agent_role": "coder",
-          "session_token": null
-        }
-      ],
-      "agents": [
-        {
-          "role": "coder",
-          "status": "failed",
-          "container_id": "d8172653b3ee4a98e5d1c12b479c571bfbf2b0db9567e84bf1f39784ba8ebfb9",
-          "started_at": "2026-02-26T04:15:27.203175",
-          "completed_at": "2026-02-26T04:15:29.718290",
-          "commit": null,
-          "outputs": {},
-          "error": "Container exited with code 1",
-          "retry_count": 0,
-          "conflicts": [],
-          "plan_phase_id": null
-        }
-      ],
+      "status": "pending",
+      "started_at": null,
+      "work_started_at": null,
+      "completed_at": null,
+      "containers": [],
+      "agents": [],
       "review_cycles": 0,
       "hitl_review_cycles": 0,
       "cycle_timings": [
@@ -561,7 +536,7 @@
         }
       ],
       "artifacts": {},
-      "error": "Container exited with code 1\n--- container logs (last 10 lines) ---\n2026-02-26T04:15:29.542335577Z     Status: healthy\n2026-02-26T04:15:29.542396702Z     GitHub token valid: True\n2026-02-26T04:15:29.542423660Z     Auth configured: True\n2026-02-26T04:15:29.542484369Z ✓ Gateway ready! (public mode - direct internet access)\n2026-02-26T04:15:29.542512535Z ✓ Anthropic API routed through gateway: http://egg-gateway:9848\n2026-02-26T04:15:29.542670369Z   Credentials injected by gateway (not in container)\n2026-02-26T04:15:29.542739161Z Signaled error to orchestrator\n2026-02-26T04:15:29.542766203Z \n2026-02-26T04:15:29.542826036Z Cleaning up on container exit...\n2026-02-26T04:15:29.542853370Z ✓ Cleanup complete",
+      "error": null,
       "phase_start_sha": null
     }
   },
@@ -580,7 +555,8 @@
       "status": "resolved",
       "created_at": "2026-02-26T02:06:02.572185",
       "resolved_at": "2026-02-26T02:28:28.431266",
-      "resolution": "{\"action\": \"select\", \"selected\": \"0 (always block, no warnings)\"}"
+      "resolution": "{\"action\": \"select\", \"selected\": \"0 (always block, no warnings)\"}",
+      "phase": null
     },
     {
       "id": "decision-2",
@@ -596,7 +572,8 @@
       "status": "resolved",
       "created_at": "2026-02-26T02:06:07.033926",
       "resolved_at": "2026-02-26T02:28:59.315394",
-      "resolution": "{\"action\": \"select\", \"selected\": \"Recursive (dir/**) \\u2014 all descendants of the parent directory\"}"
+      "resolution": "{\"action\": \"select\", \"selected\": \"Recursive (dir/**) \\u2014 all descendants of the parent directory\"}",
+      "phase": null
     },
     {
       "id": "decision-3",
@@ -612,7 +589,8 @@
       "status": "resolved",
       "created_at": "2026-02-26T02:06:08.052288",
       "resolved_at": "2026-02-26T02:29:17.347061",
-      "resolution": "{\"action\": \"select\", \"selected\": \"Planner responsibility \\u2014 update planner prompts to list config files, no implicit allowlist\"}"
+      "resolution": "{\"action\": \"select\", \"selected\": \"Planner responsibility \\u2014 update planner prompts to list config files, no implicit allowlist\"}",
+      "phase": null
     },
     {
       "id": "decision-4",
@@ -628,7 +606,8 @@
       "status": "resolved",
       "created_at": "2026-02-26T02:06:09.084261",
       "resolved_at": "2026-02-26T02:29:39.957936",
-      "resolution": "{\"action\": \"select\", \"selected\": \"Yes \\u2014 full escape hatch with auto-approve (CLI + gateway endpoint + session update)\"}"
+      "resolution": "{\"action\": \"select\", \"selected\": \"Yes \\u2014 full escape hatch with auto-approve (CLI + gateway endpoint + session update)\"}",
+      "phase": null
     },
     {
       "id": "decision-5",
@@ -644,7 +623,8 @@
       "status": "resolved",
       "created_at": "2026-02-26T02:06:14.860093",
       "resolved_at": "2026-02-26T02:29:59.781085",
-      "resolution": "{\"action\": \"select\", \"selected\": \"AND semantics \\u2014 most restrictive wins (file must pass both checks)\"}"
+      "resolution": "{\"action\": \"select\", \"selected\": \"AND semantics \\u2014 most restrictive wins (file must pass both checks)\"}",
+      "phase": null
     },
     {
       "id": "decision-6",
@@ -659,7 +639,8 @@
       "status": "resolved",
       "created_at": "2026-02-26T02:10:22.471686",
       "resolved_at": "2026-02-26T02:30:24.855883",
-      "resolution": "{\"action\": \"approve\"}"
+      "resolution": "{\"action\": \"approve\"}",
+      "phase": null
     },
     {
       "id": "decision-7",
@@ -674,17 +655,18 @@
       "status": "resolved",
       "created_at": "2026-02-26T03:16:16.891565",
       "resolved_at": "2026-02-26T03:17:20.262644",
-      "resolution": "{\"action\": \"approve\"}"
+      "resolution": "{\"action\": \"approve\"}",
+      "phase": null
     }
   ],
-  "created_at": "2026-02-26T04:15:26.575242",
-  "updated_at": "2026-02-26T04:15:59.787507",
+  "created_at": "2026-02-26T04:26:28.987891",
+  "updated_at": "2026-02-26T04:26:28.988095",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
   "complexity_tier": "mid",
-  "error": "Container exited with code 1\n--- container logs (last 10 lines) ---\n2026-02-26T04:15:29.542335577Z     Status: healthy\n2026-02-26T04:15:29.542396702Z     GitHub token valid: True\n2026-02-26T04:15:29.542423660Z     Auth configured: True\n2026-02-26T04:15:29.542484369Z ✓ Gateway ready! (public mode - direct internet access)\n2026-02-26T04:15:29.542512535Z ✓ Anthropic API routed through gateway: http://egg-gateway:9848\n2026-02-26T04:15:29.542670369Z   Credentials injected by gateway (not in container)\n2026-02-26T04:15:29.542739161Z Signaled error to orchestrator\n2026-02-26T04:15:29.542766203Z \n2026-02-26T04:15:29.542826036Z Cleaning up on container exit...\n2026-02-26T04:15:29.542853370Z ✓ Cleanup complete",
+  "error": null,
   "plan_phase_waves": null,
   "plan_phase_names": null,
-  "version": 86
+  "version": 87
 }
