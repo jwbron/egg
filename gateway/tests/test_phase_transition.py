@@ -27,13 +27,13 @@ class TestTransitionResult:
     def test_allowed_result(self):
         """Create an allowed transition result."""
         result = TransitionResult.allowed(
-            from_phase=PipelinePhase.REFINE,
+            from_phase=PipelinePhase.ANALYZE,
             to_phase=PipelinePhase.PLAN,
             transitioned_by="james-in-a-box",
         )
 
         assert result.success is True
-        assert result.from_phase == PipelinePhase.REFINE
+        assert result.from_phase == PipelinePhase.ANALYZE
         assert result.to_phase == PipelinePhase.PLAN
         assert result.transitioned_by == "james-in-a-box"
         assert result.transitioned_at is not None
@@ -41,14 +41,14 @@ class TestTransitionResult:
     def test_denied_result(self):
         """Create a denied transition result."""
         result = TransitionResult.denied(
-            message="Role 'implementer' cannot exit phase 'refine'",
-            from_phase=PipelinePhase.REFINE,
+            message="Role 'implementer' cannot exit phase 'analyze'",
+            from_phase=PipelinePhase.ANALYZE,
             to_phase=PipelinePhase.PLAN,
         )
 
         assert result.success is False
         assert "implementer" in result.message
-        assert result.from_phase == PipelinePhase.REFINE
+        assert result.from_phase == PipelinePhase.ANALYZE
         assert result.to_phase == PipelinePhase.PLAN
 
 
@@ -58,7 +58,7 @@ class TestTransitionRequest:
     def test_from_dict(self):
         """Create TransitionRequest from dictionary."""
         data = {
-            "from_phase": "refine",
+            "from_phase": "analyze",
             "to_phase": "plan",
             "role": "human",
             "actor": "test-user",
@@ -66,7 +66,7 @@ class TestTransitionRequest:
         }
         request = TransitionRequest.from_dict(data)
 
-        assert request.from_phase == PipelinePhase.REFINE
+        assert request.from_phase == PipelinePhase.ANALYZE
         assert request.to_phase == PipelinePhase.PLAN
         assert request.role == TransitionRole.HUMAN
         assert request.actor == "test-user"
@@ -90,10 +90,10 @@ class TestTransitionRequest:
 class TestValidTransitions:
     """Tests for the valid transitions graph."""
 
-    def test_refine_to_plan(self):
-        """Refine can only transition to plan."""
-        assert PipelinePhase.PLAN in VALID_TRANSITIONS[PipelinePhase.REFINE]
-        assert len(VALID_TRANSITIONS[PipelinePhase.REFINE]) == 1
+    def test_analyze_to_plan(self):
+        """Analyze can only transition to plan."""
+        assert PipelinePhase.PLAN in VALID_TRANSITIONS[PipelinePhase.ANALYZE]
+        assert len(VALID_TRANSITIONS[PipelinePhase.ANALYZE]) == 1
 
     def test_plan_to_implement(self):
         """Plan can only transition to implement."""
@@ -116,7 +116,7 @@ class TestValidateTransition:
     def test_valid_transition_with_human(self):
         """Human can transition between any valid phases."""
         request = TransitionRequest(
-            from_phase=PipelinePhase.REFINE,
+            from_phase=PipelinePhase.ANALYZE,
             to_phase=PipelinePhase.PLAN,
             role=TransitionRole.HUMAN,
             actor="test-human",
@@ -124,13 +124,13 @@ class TestValidateTransition:
         result = validate_transition(request)
 
         assert result.success is True
-        assert result.from_phase == PipelinePhase.REFINE
+        assert result.from_phase == PipelinePhase.ANALYZE
         assert result.to_phase == PipelinePhase.PLAN
 
     def test_invalid_transition_path(self):
         """Cannot skip phases in the pipeline."""
         request = TransitionRequest(
-            from_phase=PipelinePhase.REFINE,
+            from_phase=PipelinePhase.ANALYZE,
             to_phase=PipelinePhase.IMPLEMENT,  # Invalid - must go through plan
             role=TransitionRole.HUMAN,
             actor="test-human",
@@ -153,10 +153,10 @@ class TestValidateTransition:
         assert result.success is False
         assert "Invalid transition" in result.message
 
-    def test_implementer_cannot_exit_refine(self):
-        """Implementer cannot exit refine phase (requires human)."""
+    def test_implementer_cannot_exit_analyze(self):
+        """Implementer cannot exit analyze phase (requires human)."""
         request = TransitionRequest(
-            from_phase=PipelinePhase.REFINE,
+            from_phase=PipelinePhase.ANALYZE,
             to_phase=PipelinePhase.PLAN,
             role=TransitionRole.IMPLEMENTER,
             actor="james-in-a-box",
@@ -220,8 +220,8 @@ class TestRoleHierarchy:
 
     def test_human_can_satisfy_any_requirement(self):
         """Human role can satisfy any exit requirement."""
-        # Human can exit refine (requires human)
-        result = can_transition_to(PipelinePhase.REFINE, PipelinePhase.PLAN, TransitionRole.HUMAN)
+        # Human can exit analyze (requires human)
+        result = can_transition_to(PipelinePhase.ANALYZE, PipelinePhase.PLAN, TransitionRole.HUMAN)
         assert result.success is True
 
         # Human can exit implement (requires reviewer)
@@ -239,7 +239,7 @@ class TestRoleHierarchy:
     def test_reviewer_cannot_satisfy_human_requirement(self):
         """Reviewer cannot satisfy human requirement."""
         result = can_transition_to(
-            PipelinePhase.REFINE, PipelinePhase.PLAN, TransitionRole.REVIEWER
+            PipelinePhase.ANALYZE, PipelinePhase.PLAN, TransitionRole.REVIEWER
         )
         assert result.success is False
 
@@ -256,9 +256,9 @@ class TestRoleHierarchy:
 class TestGetNextPhase:
     """Tests for get_next_phase function."""
 
-    def test_refine_next_is_plan(self):
-        """Next phase after refine is plan."""
-        assert get_next_phase(PipelinePhase.REFINE) == PipelinePhase.PLAN
+    def test_analyze_next_is_plan(self):
+        """Next phase after analyze is plan."""
+        assert get_next_phase(PipelinePhase.ANALYZE) == PipelinePhase.PLAN
 
     def test_plan_next_is_implement(self):
         """Next phase after plan is implement."""
@@ -278,10 +278,10 @@ class TestCanTransitionTo:
 
     def test_with_strings(self):
         """Function accepts string arguments."""
-        result = can_transition_to("refine", "plan", "human", "test-actor")
+        result = can_transition_to("analyze", "plan", "human", "test-actor")
 
         assert result.success is True
-        assert result.from_phase == PipelinePhase.REFINE
+        assert result.from_phase == PipelinePhase.ANALYZE
         assert result.to_phase == PipelinePhase.PLAN
 
     def test_with_enums(self):
@@ -302,7 +302,7 @@ class TestCreateAuditEntry:
     def test_creates_valid_entry(self):
         """Create a valid audit entry from transition result."""
         result = TransitionResult.allowed(
-            from_phase=PipelinePhase.REFINE,
+            from_phase=PipelinePhase.ANALYZE,
             to_phase=PipelinePhase.PLAN,
             transitioned_by="james-in-a-box",
         )
@@ -310,7 +310,7 @@ class TestCreateAuditEntry:
 
         assert entry["action"] == "transition"
         assert entry["field_path"] == "current_phase"
-        assert entry["old_value"] == "refine"
+        assert entry["old_value"] == "analyze"
         assert entry["new_value"] == "plan"
         assert entry["role"] == "human"
         assert entry["actor"] == "james-in-a-box"

@@ -1406,10 +1406,10 @@ class TestGhPrCreatePhaseRestrictions:
             data = json.loads(response.data)
             assert data["success"] is True
 
-    def test_pr_create_blocked_during_refine_phase(self, client, auth_headers_with_phase):
-        """PR create is blocked when session phase is 'refine'."""
+    def test_pr_create_blocked_during_analyze_phase(self, client, auth_headers_with_phase):
+        """PR create is blocked when session phase is 'analyze'."""
         headers, mock_result, mock_policy_result, current_session_manager = auth_headers_with_phase(
-            "refine"
+            "analyze"
         )
 
         with (

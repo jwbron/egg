@@ -80,7 +80,7 @@ def mock_contract():
             title="Test Issue",
             url="https://github.com/test/repo/issues/123",
         ),
-        current_phase=PipelinePhase.REFINE,
+        current_phase=PipelinePhase.ANALYZE,
     )
 
 
@@ -119,7 +119,7 @@ class TestGetCurrentPhase:
         assert response.status_code == 200
         data = response.get_json()
         assert data["success"] is True
-        assert data["data"]["phase"] == "refine"
+        assert data["data"]["phase"] == "analyze"
         assert data["data"]["exit_requires"] == "human"
         assert data["data"]["next_phase"] == "plan"
 
@@ -149,17 +149,17 @@ class TestGetCurrentPhase:
 class TestGetPhasePermissions:
     """Tests for GET /api/v1/phase/permissions/<phase>."""
 
-    def test_get_permissions_refine(self, client, auth_headers):
-        """Get permissions for refine phase."""
+    def test_get_permissions_analyze(self, client, auth_headers):
+        """Get permissions for analyze phase."""
         response = client.get(
-            "/api/v1/phase/permissions/refine",
+            "/api/v1/phase/permissions/analyze",
             headers=auth_headers,
         )
 
         assert response.status_code == 200
         data = response.get_json()
         assert data["success"] is True
-        assert data["data"]["phase"] == "refine"
+        assert data["data"]["phase"] == "analyze"
         assert data["data"]["exit_requires"] == "human"
         assert len(data["data"]["blocked_operations"]) > 0
 
@@ -282,7 +282,7 @@ class TestAdvancePhase:
         assert response.status_code == 200
         data = response.get_json()
         assert data["success"] is True
-        assert data["data"]["from_phase"] == "refine"
+        assert data["data"]["from_phase"] == "analyze"
         assert data["data"]["to_phase"] == "plan"
 
     def test_advance_phase_unauthorized(self, client, mock_contract):

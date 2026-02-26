@@ -202,34 +202,34 @@ class TestPhaseFilterDefaultPermissions:
         yield
         reset_phase_filter()
 
-    def test_refine_allows_only_egg_state(self):
+    def test_analyze_allows_only_egg_state(self):
         pf = PhaseFilter()
-        result = pf.check_phase_file_restrictions("refine", ["src/app.py"])
+        result = pf.check_phase_file_restrictions("analyze", ["src/app.py"])
         assert result.allowed is False
 
-    def test_refine_allows_contracts(self):
+    def test_analyze_allows_contracts(self):
         pf = PhaseFilter()
-        result = pf.check_phase_file_restrictions("refine", [".egg-state/contracts/123.json"])
+        result = pf.check_phase_file_restrictions("analyze", [".egg-state/contracts/123.json"])
         assert result.allowed is True
 
-    def test_refine_allows_analysis_drafts(self):
+    def test_analyze_allows_analysis_drafts(self):
         pf = PhaseFilter()
-        result = pf.check_phase_file_restrictions("refine", [".egg-state/drafts/644-analysis.md"])
+        result = pf.check_phase_file_restrictions("analyze", [".egg-state/drafts/644-analysis.md"])
         assert result.allowed is True
 
-    def test_refine_allows_checkpoints(self):
+    def test_analyze_allows_checkpoints(self):
         pf = PhaseFilter()
-        result = pf.check_phase_file_restrictions("refine", [".egg-state/checkpoints/ckpt.json"])
+        result = pf.check_phase_file_restrictions("analyze", [".egg-state/checkpoints/ckpt.json"])
         assert result.allowed is True
 
-    def test_refine_allows_agent_outputs(self):
+    def test_analyze_allows_agent_outputs(self):
         pf = PhaseFilter()
-        result = pf.check_phase_file_restrictions("refine", [".egg-state/agent-outputs/out.json"])
+        result = pf.check_phase_file_restrictions("analyze", [".egg-state/agent-outputs/out.json"])
         assert result.allowed is True
 
-    def test_refine_allows_reviews(self):
+    def test_analyze_allows_reviews(self):
         pf = PhaseFilter()
-        result = pf.check_phase_file_restrictions("refine", [".egg-state/reviews/review.json"])
+        result = pf.check_phase_file_restrictions("analyze", [".egg-state/reviews/review.json"])
         assert result.allowed is True
 
     def test_plan_allows_plan_drafts(self):
@@ -336,8 +336,8 @@ class TestPhaseFilterOperationFiltering:
         assert is_operation_blocked("implement", "gh", "pr create --title x") is True
         assert is_operation_blocked("implement", "git", "push origin branch") is False
 
-    def test_pr_create_blocked_during_refine(self):
-        result = filter_operation("refine", "gh", "pr create --title foo")
+    def test_pr_create_blocked_during_analyze(self):
+        result = filter_operation("analyze", "gh", "pr create --title foo")
         assert result.allowed is False
 
     def test_pr_create_blocked_during_plan(self):
@@ -483,7 +483,7 @@ class TestPhaseFilterExitRequirement:
         pf = PhaseFilter()
         # Use a valid PipelinePhase that might not have permissions
         # get_exit_requirement returns None if no permissions found
-        result = pf.get_exit_requirement(PipelinePhase.REFINE)
+        result = pf.get_exit_requirement(PipelinePhase.ANALYZE)
         assert result == "human"
 
 

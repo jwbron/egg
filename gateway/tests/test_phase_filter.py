@@ -97,7 +97,7 @@ class TestPhaseFilter:
         permissions = {
             "schemaVersion": "1.0",
             "phases": {
-                "refine": {
+                "analyze": {
                     "allowed_operations": [
                         {"type": "gh", "pattern": "issue comment *", "description": "Comment"},
                     ],
@@ -124,7 +124,7 @@ class TestPhaseFilter:
     def test_load_from_file(self, custom_permissions_file: Path):
         """Load permissions from a file."""
         pf = PhaseFilter(permissions_path=custom_permissions_file)
-        permissions = pf.get_permissions(PipelinePhase.REFINE)
+        permissions = pf.get_permissions(PipelinePhase.ANALYZE)
 
         assert permissions is not None
         assert permissions.exit_requires == "human"
@@ -142,13 +142,13 @@ class TestPhaseFilter:
         """Blocked operations are correctly identified."""
         pf = PhaseFilter(permissions_path=custom_permissions_file)
         result = pf.filter_operation(
-            PipelinePhase.REFINE,
+            PipelinePhase.ANALYZE,
             OperationType.GIT,
             "push origin main",
         )
 
         assert result.allowed is False
-        assert result.phase == PipelinePhase.REFINE
+        assert result.phase == PipelinePhase.ANALYZE
         assert result.operation_type == OperationType.GIT
         assert "push" in result.message.lower()
 
@@ -156,7 +156,7 @@ class TestPhaseFilter:
         """Allowed operations are correctly identified."""
         pf = PhaseFilter(permissions_path=custom_permissions_file)
         result = pf.filter_operation(
-            PipelinePhase.REFINE,
+            PipelinePhase.ANALYZE,
             OperationType.GH,
             "issue comment 123",
         )
@@ -167,7 +167,7 @@ class TestPhaseFilter:
         """Operations not explicitly blocked are allowed."""
         pf = PhaseFilter(permissions_path=custom_permissions_file)
         result = pf.filter_operation(
-            PipelinePhase.REFINE,
+            PipelinePhase.ANALYZE,
             OperationType.EGG_CONTRACT,
             "show",
         )
@@ -180,7 +180,7 @@ class TestPhaseFilter:
         pf = PhaseFilter(permissions_path=custom_permissions_file)
 
         assert (
-            pf.is_operation_blocked(PipelinePhase.REFINE, OperationType.GIT, "push origin main")
+            pf.is_operation_blocked(PipelinePhase.ANALYZE, OperationType.GIT, "push origin main")
             is True
         )
         assert (
@@ -192,7 +192,7 @@ class TestPhaseFilter:
         """Get exit requirement for a phase."""
         pf = PhaseFilter(permissions_path=custom_permissions_file)
 
-        assert pf.get_exit_requirement(PipelinePhase.REFINE) == "human"
+        assert pf.get_exit_requirement(PipelinePhase.ANALYZE) == "human"
         assert pf.get_exit_requirement(PipelinePhase.IMPLEMENT) == "reviewer"
 
 
@@ -225,12 +225,12 @@ class TestFilterOperationFunction:
 class TestIsOperationBlockedFunction:
     """Tests for the convenience is_operation_blocked function."""
 
-    def test_push_allowed_during_refine(self):
-        """Git push is allowed during refine phase (issue #543 change)."""
+    def test_push_allowed_during_analyze(self):
+        """Git push is allowed during analyze phase (issue #543 change)."""
         # Previously blocked, now allowed with file restrictions
         phase_filter._filter = None
 
-        assert is_operation_blocked("refine", "git", "push origin main") is False
+        assert is_operation_blocked("analyze", "git", "push origin main") is False
 
     def test_allowed_during_implement(self):
         """Git push is allowed during implement phase."""
@@ -242,7 +242,7 @@ class TestIsOperationBlockedFunction:
         """PR create is blocked until PR phase."""
         phase_filter._filter = None
 
-        assert is_operation_blocked("refine", "gh", "pr create") is True
+        assert is_operation_blocked("analyze", "gh", "pr create") is True
         assert is_operation_blocked("plan", "gh", "pr create") is True
         assert is_operation_blocked("implement", "gh", "pr create") is True
         assert is_operation_blocked("pr", "gh", "pr create") is False
@@ -258,16 +258,16 @@ class TestDefaultPermissions:
         yield
         phase_filter._filter = None
 
-    def test_refine_phase_allows_push(self):
-        """Refine phase allows git push (with file restrictions applied separately)."""
+    def test_analyze_phase_allows_push(self):
+        """Analyze phase allows git push (with file restrictions applied separately)."""
         pf = PhaseFilter(permissions_path=Path("/nonexistent"))
-        result = pf.filter_operation(PipelinePhase.REFINE, OperationType.GIT, "push origin main")
+        result = pf.filter_operation(PipelinePhase.ANALYZE, OperationType.GIT, "push origin main")
         assert result.allowed is True
 
-    def test_refine_phase_blocks_pr_create(self):
-        """Refine phase blocks PR creation."""
+    def test_analyze_phase_blocks_pr_create(self):
+        """Analyze phase blocks PR creation."""
         pf = PhaseFilter(permissions_path=Path("/nonexistent"))
-        result = pf.filter_operation(PipelinePhase.REFINE, OperationType.GH, "pr create")
+        result = pf.filter_operation(PipelinePhase.ANALYZE, OperationType.GH, "pr create")
         assert result.allowed is False
 
     def test_plan_phase_allows_push(self):
@@ -340,8 +340,8 @@ class TestPatternEdgeCases:
     def test_pr_create_without_args_matches_pattern(self):
         """'pr create' without arguments matches 'pr create*' pattern."""
         pf = PhaseFilter(permissions_path=Path("/nonexistent"))
-        # In refine phase, pr create should be blocked
-        result = pf.filter_operation(PipelinePhase.REFINE, OperationType.GH, "pr create")
+        # In analyze phase, pr create should be blocked
+        result = pf.filter_operation(PipelinePhase.ANALYZE, OperationType.GH, "pr create")
         assert result.allowed is False
 
         # In pr phase, pr create should be allowed
@@ -360,7 +360,7 @@ class TestPatternEdgeCases:
         """Commands that partially match blocked patterns should not be blocked."""
         pf = PhaseFilter(permissions_path=Path("/nonexistent"))
         # 'push-status' should not match 'push *' pattern
-        result = pf.filter_operation(PipelinePhase.REFINE, OperationType.GIT, "push-status")
+        result = pf.filter_operation(PipelinePhase.ANALYZE, OperationType.GIT, "push-status")
         # push-status doesn't match "push *" because there's no space after push
         assert result.allowed is True
 
@@ -376,8 +376,8 @@ class TestPatternEdgeCases:
         """'pr creates' (typo) should not be blocked by 'pr create*' pattern."""
         pf = PhaseFilter(permissions_path=Path("/nonexistent"))
         # 'pr creates' matches 'pr create*' because * matches 's'
-        result = pf.filter_operation(PipelinePhase.REFINE, OperationType.GH, "pr creates")
-        assert result.allowed is False  # It does match, so it's blocked in refine
+        result = pf.filter_operation(PipelinePhase.ANALYZE, OperationType.GH, "pr creates")
+        assert result.allowed is False  # It does match, so it's blocked in analyze
 
 
 class TestFileRestriction:
@@ -743,45 +743,45 @@ class TestPhaseFileRestrictions:
 
         phase_filter._filter = None
 
-    def test_refine_phase_allows_contracts(self):
-        """Refine phase should allow .egg-state/contracts/ files."""
+    def test_analyze_phase_allows_contracts(self):
+        """Analyze phase should allow .egg-state/contracts/ files."""
         from phase_filter import check_phase_file_restrictions
 
         result = check_phase_file_restrictions(
-            "refine",
+            "analyze",
             [".egg-state/contracts/123.json"],
         )
 
         assert result.allowed is True
 
-    def test_refine_phase_allows_analysis_drafts(self):
-        """Refine phase should allow analysis draft files."""
+    def test_analyze_phase_allows_analysis_drafts(self):
+        """Analyze phase should allow analysis draft files."""
         from phase_filter import check_phase_file_restrictions
 
         result = check_phase_file_restrictions(
-            "refine",
+            "analyze",
             [".egg-state/drafts/local-abc-analysis.md"],
         )
 
         assert result.allowed is True
 
-    def test_refine_phase_allows_checkpoints(self):
-        """Refine phase should allow checkpoint files."""
+    def test_analyze_phase_allows_checkpoints(self):
+        """Analyze phase should allow checkpoint files."""
         from phase_filter import check_phase_file_restrictions
 
         result = check_phase_file_restrictions(
-            "refine",
+            "analyze",
             [".egg-state/checkpoints/commit-abc123.json"],
         )
 
         assert result.allowed is True
 
-    def test_refine_phase_blocks_code_files(self):
-        """Refine phase should block code files."""
+    def test_analyze_phase_blocks_code_files(self):
+        """Analyze phase should block code files."""
         from phase_filter import check_phase_file_restrictions
 
         result = check_phase_file_restrictions(
-            "refine",
+            "analyze",
             ["src/main.py", "README.md"],
         )
 
@@ -1047,23 +1047,23 @@ class TestPhaseFileRestrictions:
 
         assert result.allowed is True
 
-    def test_refine_phase_allows_agent_outputs(self):
-        """Refine phase should allow .egg-state/agent-outputs/ files."""
+    def test_analyze_phase_allows_agent_outputs(self):
+        """Analyze phase should allow .egg-state/agent-outputs/ files."""
         from phase_filter import check_phase_file_restrictions
 
         result = check_phase_file_restrictions(
-            "refine",
+            "analyze",
             [".egg-state/agent-outputs/risk-analyst-output.json"],
         )
 
         assert result.allowed is True
 
-    def test_refine_phase_allows_reviews(self):
-        """Refine phase should allow .egg-state/reviews/ files."""
+    def test_analyze_phase_allows_reviews(self):
+        """Analyze phase should allow .egg-state/reviews/ files."""
         from phase_filter import check_phase_file_restrictions
 
         result = check_phase_file_restrictions(
-            "refine",
+            "analyze",
             [".egg-state/reviews/risk-review.md"],
         )
 
