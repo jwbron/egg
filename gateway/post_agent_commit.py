@@ -269,7 +269,9 @@ def auto_commit_worktree(
         # use `git add <files>` (not `git add -A`), but a misbehaving agent
         # could still commit the symlink. Gateway-level symlink filtering
         # at commit/push time would close this gap if needed.
-        symlink_files = [f for f in committable_files if os.path.islink(os.path.join(worktree_path, f))]
+        symlink_files = [
+            f for f in committable_files if os.path.islink(os.path.join(worktree_path, f))
+        ]
         if symlink_files:
             logger.info(
                 "Skipping symlinks from auto-commit",
