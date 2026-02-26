@@ -104,6 +104,7 @@ This file controls:
 - GitHub sync configuration
 - Docker container extra packages
 - Per-repo check commands for SDLC pipeline
+- Per-repo build commands for dependency caching in Docker images
 
 **Usage:**
 - Python: `from config.repo_config import get_writable_repos, is_writable_repo`
@@ -140,6 +141,38 @@ Checks run sequentially during the implement phase checker step. If not configur
 - Setup flow: Run `egg --setup` and answer "yes" to "Configure SDLC check commands?"
 - Manual: Edit `~/.config/egg/repositories.yaml` and add `checks` under `repo_settings.{repo}`
 - Runtime: The gateway injects repo checks via the `EGG_REPO_CHECKS` environment variable (JSON-encoded)
+
+### Per-Repo Build Commands (Dependency Caching)
+
+The `repo_settings` section supports configuring build-time dependency installation commands. When configured, these commands run during the Docker image build phase, baking project-specific dependencies (Python venvs, node_modules, Go modules, etc.) into the image. This is critical for private mode where runtime network access is restricted.
+
+**Example:**
+```yaml
+repo_settings:
+  your-org/web-app:
+    build_commands:
+      watch_files:
+        - package-lock.json
+        - requirements.txt
+      commands:
+        - npm ci
+        - pip install -r requirements.txt
+```
+
+Each `build_commands` entry has:
+- `watch_files`: Files that trigger a rebuild when changed. These are copied into the Docker build context so Docker layer caching invalidates correctly — only a change to these files triggers a dependency rebuild.
+- `commands`: Shell commands to run during the image build (e.g., `npm ci`, `pip install`, `make deps`). Commands run as root in a directory seeded with the watch files.
+
+**How it works:**
+1. `create_dockerfile()` copies each repo's watch files from `local_repos.paths` into the build context at `~/.config/egg/repo-deps/<repo-name>/`
+2. `compute_build_hash()` includes watch file contents, so the image rebuilds automatically when dependency files change
+3. During `docker build`, the `docker-setup.py` script reads `build_commands` from all repos and executes them in order
+4. All repos' dependencies are installed into the **same image** — no per-repo images
+
+**Key properties:**
+- Repos without `build_commands` are unaffected (backwards compatible)
+- Docker layer caching means no rebuild when dependencies are unchanged
+- The existing `docker_setup.extra_packages` (apt/dnf) remains for OS-level packages; `build_commands` is for project-level dependencies
 
 ### Checkpoint Repository Configuration
 

@@ -81,6 +81,15 @@ readable_repos:
 #     (egg/checkpoints/v2) will be created in this repo. Useful for keeping
 #     session transcripts and tool call data private/separate.
 #     Default: not set (checkpoints stored in the same repo)
+#   - build_commands: Commands to run during Docker image build to install
+#     project-specific dependencies. Results are baked into the image so
+#     containers start with dependencies pre-installed (critical for private
+#     mode where network access is restricted at runtime).
+#     - watch_files: List of files that trigger a rebuild when changed
+#       (e.g., package-lock.json, requirements.txt). These are copied into
+#       the Docker build context so Docker layer caching works correctly.
+#     - commands: Shell commands to run during build (e.g., npm ci, pip install).
+#       Commands run as root in a directory seeded with the watch files.
 repo_settings:
   # Example:
   # YOUR_USERNAME/egg:
@@ -101,6 +110,19 @@ repo_settings:
   #       command: npm run lint
   #     - name: test
   #       command: npm test
+  #   build_commands:
+  #     watch_files:
+  #       - package-lock.json
+  #     commands:
+  #       - npm ci
+  # YOUR_USERNAME/python-service:
+  #   build_commands:
+  #     watch_files:
+  #       - requirements.txt
+  #       - requirements-dev.txt
+  #     commands:
+  #       - pip install -r requirements.txt
+  #       - pip install -r requirements-dev.txt
 
 # User mode configuration (optional)
 # When auth_mode is set to "user" for a repo, operations will be

@@ -6,6 +6,7 @@ Installs common development utilities in the Docker container.
 For additional packages, configure extra_packages in ~/.config/egg/repositories.yaml.
 """
 
+import json
 import os
 import subprocess
 import sys
@@ -156,6 +157,128 @@ def install_extra_packages(distro: str, apt_packages: list[str], dnf_packages: l
         run(["dnf", "install", "-y", "--skip-unavailable"] + dnf_packages, check=False)
 
 
+def get_build_commands(config: dict[str, Any]) -> list[dict[str, Any]]:
+    """Extract build_commands from all repo_settings entries.
+
+    Returns:
+        List of dicts with 'repo', 'watch_files', and 'commands' keys.
+        Only includes repos that have non-empty commands lists.
+    """
+    repo_settings = config.get("repo_settings", {})
+    if not isinstance(repo_settings, dict):
+        return []
+
+    result = []
+    for repo_name, settings in repo_settings.items():
+        if not isinstance(settings, dict):
+            continue
+        build_cmds = settings.get("build_commands")
+        if not isinstance(build_cmds, dict):
+            continue
+        commands = build_cmds.get("commands", [])
+        if not isinstance(commands, list) or not commands:
+            continue
+        watch_files = build_cmds.get("watch_files", [])
+        if not isinstance(watch_files, list):
+            watch_files = []
+        result.append(
+            {
+                "repo": repo_name,
+                "watch_files": [str(f) for f in watch_files],
+                "commands": [str(c) for c in commands],
+            }
+        )
+    return result
+
+
+def load_build_commands_manifest(
+    manifest_path: str = "/tmp/repo-deps/manifest.json",
+) -> list[dict[str, Any]]:
+    """Load build commands from the manifest file written by create_dockerfile().
+
+    During Docker builds, repositories.yaml is not available in the build context.
+    Instead, the host-side create_dockerfile() writes a manifest.json into repo-deps/
+    containing the build commands. This function reads that manifest.
+
+    Args:
+        manifest_path: Path to the manifest file (default: /tmp/repo-deps/manifest.json)
+
+    Returns:
+        List of dicts with 'repo', 'watch_files', and 'commands' keys.
+    """
+    path = Path(manifest_path)
+    if not path.exists():
+        return []
+    try:
+        with path.open() as f:
+            data = json.load(f)
+        if not isinstance(data, list):
+            return []
+        # Validate each entry has required fields
+        result = []
+        for entry in data:
+            if not isinstance(entry, dict):
+                continue
+            if "repo" not in entry or "commands" not in entry:
+                continue
+            commands = entry["commands"]
+            if not isinstance(commands, list) or not commands:
+                continue
+            result.append(entry)
+        return result
+    except (json.JSONDecodeError, OSError):
+        return []
+
+
+def run_build_commands(build_commands: list[dict[str, Any]]) -> None:
+    """Execute build commands for each repo during Docker image build.
+
+    Each repo's commands run in its watch files directory at /tmp/repo-deps/<repo-name>.
+    Commands run as root (same as the rest of docker-setup.py).
+
+    Args:
+        build_commands: List of dicts from get_build_commands()
+    """
+    if not build_commands:
+        return
+
+    print("\n=== Running build commands ===")
+
+    for entry in build_commands:
+        repo = entry["repo"]
+        commands = entry["commands"]
+        # Sanitize repo name for directory path (owner/repo -> owner--repo)
+        repo_dir_name = repo.replace("/", "--")
+        work_dir = Path("/tmp/repo-deps") / repo_dir_name
+
+        print(f"\n--- Build commands for {repo} ---")
+
+        if not work_dir.exists():
+            print(
+                f"  Warning: Watch files directory {work_dir} does not exist, "
+                f"running commands in /tmp"
+            )
+            work_dir = Path("/tmp")
+
+        for cmd in commands:
+            print(f"  Running: {cmd}")
+            try:
+                result = subprocess.run(
+                    cmd,
+                    shell=True,
+                    executable="/bin/bash",
+                    cwd=str(work_dir),
+                    check=False,
+                    capture_output=False,
+                )
+                if result.returncode != 0:
+                    print(f"  Warning: Command exited with code {result.returncode}: {cmd}")
+            except Exception as e:
+                print(f"  Warning: Command failed: {cmd}: {e}")
+
+    print("\n=== Build commands complete ===")
+
+
 def configure_system(distro: str) -> None:
     """Configure system settings"""
     print("\n=== Configuring system ===")
@@ -208,6 +331,14 @@ def main() -> None:
         # System configuration
         configure_system(distro)
 
+        # Run per-repo build commands (dependency installation)
+        # Try config first, then fall back to manifest.json written by create_dockerfile()
+        # (repositories.yaml is not available during Docker builds)
+        build_commands = get_build_commands(config)
+        if not build_commands:
+            build_commands = load_build_commands_manifest()
+        run_build_commands(build_commands)
+
         print()
         print("=" * 60)
         print("Setup complete!")
@@ -223,6 +354,11 @@ def main() -> None:
             print("\nInstalled extra packages:")
             for pkg in extra:
                 print(f"  ✓ {pkg}")
+
+        if build_commands:
+            print("\nRan build commands for:")
+            for entry in build_commands:
+                print(f"  ✓ {entry['repo']} ({len(entry['commands'])} commands)")
 
         print()
         print("To install additional packages, add to ~/.config/egg/repositories.yaml:")
