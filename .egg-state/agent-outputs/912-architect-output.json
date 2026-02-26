@@ -1,0 +1,570 @@
+{
+  "issue": 912,
+  "phase": "plan",
+  "agent": "architect",
+  "revision": 1,
+  "revision_reason": null,
+
+  "title": "Architecture analysis: Enforce per-task file restrictions from planner in implement phase",
+
+  "summary": "Implement agents in Tier 3 dispatch can modify any code file, causing cross-contamination when parallel agents accidentally touch each other's files. The planner already produces per-task `files_affected` lists, and the gateway already has `PhaseFileRestriction` with glob matching — but these two systems are not connected. The recommended approach adds `allowed_files` to the Session model, computes the union of task files at container spawn time with directory-sibling expansion, and enforces warn-then-block at push validation as a 5th validation layer. This builds on existing infrastructure with minimal new abstractions.",
+
+  "problem_statement": {
+    "description": "When the orchestrator spawns multiple implement agents in parallel (Tier 3 dispatch), each agent can modify any code file — the only restrictions are phase-level (implement blocks .egg-state/) and agent-role-level (coder/tester scopes). An agent working on Task A can accidentally modify files belonging to Task B, creating cross-contamination. The planner produces per-task `files:` lists stored as `Task.files_affected` in the contract, but this data is never propagated to the gateway and no enforcement occurs.",
+    "root_causes": [
+      {
+        "id": "RC-1",
+        "title": "files_affected is informational only — never reaches the gateway",
+        "description": "The data flow has a gap: plan YAML → plan_parser.py extracts files_affected → stored on Task model in contract → but container_spawner.py does not read it and gateway_client.register_session() has no allowed_files parameter. The Session model has no field for per-task file restrictions.",
+        "location": "orchestrator/container_spawner.py:350-364 (register_session call without files), orchestrator/gateway_client.py:230-246 (no allowed_files param)"
+      },
+      {
+        "id": "RC-2",
+        "title": "Push validation has no per-task file enforcement layer",
+        "description": "The gateway's push validation (gateway.py:676-875) has 3 layers: role-based contract ownership, agent-role file scopes, and phase-based restrictions. None of these operate at the per-task granularity needed for Tier 3 isolation.",
+        "location": "gateway/gateway.py:676-875"
+      },
+      {
+        "id": "RC-3",
+        "title": "Post-agent auto-commit has no per-task filtering",
+        "description": "post_agent_commit.py:175-228 only filters by phase restrictions. Files outside an agent's task scope but within the phase's allowed patterns would be auto-committed if the agent exits with uncommitted changes.",
+        "location": "gateway/post_agent_commit.py:175-228"
+      }
+    ]
+  },
+
+  "current_architecture": {
+    "data_flow": "Plan YAML (files: [...]) → plan_parser.py extracts into ParsedTask.files_affected → stored as Task.files_affected in contract (models.py:130) → used informationally in prompts (pipelines.py:1283,3003) → NOT passed to gateway → no enforcement at push time.",
+    "validation_stack": "Push validation runs 3 layers in sequence: (1) Role-based contract ownership (hard block, gateway.py:676-741), (2) Agent-role file scopes (warn-or-block via EGG_AGENT_RESTRICTIONS_ENFORCE, gateway.py:743-791), (3) Phase-based blocked/allowed patterns (hard block, gateway.py:793-875). Each layer reuses the same changed_files from get_changed_files_in_push().",
+    "key_components": [
+      {
+        "name": "Session model",
+        "file": "gateway/session_manager.py",
+        "lines": "209-246",
+        "description": "Dataclass with session_token, container_id, container_ip, mode, agent_role, phase, pipeline_id, assigned_branch, complexity_tier. Persisted to sessions.json via to_dict_for_persistence()/from_persistence(). No allowed_files field."
+      },
+      {
+        "name": "PhaseFileRestriction",
+        "file": "gateway/phase_filter.py",
+        "lines": "160-251",
+        "description": "Dataclass with allowed_patterns (must match if non-empty), blocked_patterns (always checked first), and description. is_file_allowed() normalizes paths, checks blocked patterns, then checks allowed patterns. _matches_pattern() supports '*' wildcard, fnmatch globs, directory prefix, and simple prefix matching."
+      },
+      {
+        "name": "check_phase_file_restrictions()",
+        "file": "gateway/phase_filter.py",
+        "lines": "866-888",
+        "description": "Builds PhaseFileRestriction from phase defaults (refine/plan: state files only; implement: blocks .egg-state/; pr: everything). Returns FileRestrictionResult with blocked_files list."
+      },
+      {
+        "name": "GatewayClient.register_session()",
+        "file": "orchestrator/gateway_client.py",
+        "lines": "230-334",
+        "description": "Sends POST to /api/v1/sessions/create with container_id, container_ip, mode, phase, pipeline_id, agent_role, branch, complexity_tier. No allowed_files parameter."
+      },
+      {
+        "name": "ContainerSpawner.spawn_agent_container()",
+        "file": "orchestrator/container_spawner.py",
+        "lines": "192-461",
+        "description": "Builds container with mounts, env vars, network config. Calls gateway.register_session() at line 350-364 without any file restriction data."
+      },
+      {
+        "name": "auto_commit_worktree()",
+        "file": "gateway/post_agent_commit.py",
+        "lines": "130-280",
+        "description": "Detects uncommitted changes, filters by phase restrictions via check_phase_file_restrictions(), restores blocked files, stages/commits allowed files, pushes via gateway. No per-task filtering."
+      },
+      {
+        "name": "_spawn_and_wait()",
+        "file": "orchestrator/routes/pipelines.py",
+        "lines": "4059-4076",
+        "description": "Wrapper that calls spawn_agent_container() and waits for exit. Receives plan_phase_id but only uses it for tracking/recording, not for file restriction computation."
+      },
+      {
+        "name": "_run_tier3_implement()",
+        "file": "orchestrator/routes/pipelines.py",
+        "lines": "3053-3292",
+        "description": "Tier 3 dispatch: loads contract, builds dependency graph, runs coder→tester→documenter→checker→reviewer cycle per plan phase. Passes plan_phase_id to _spawn_and_wait but doesn't compute allowed_files."
+      },
+      {
+        "name": "Task.files_affected",
+        "file": "shared/egg_contracts/models.py",
+        "lines": "130",
+        "description": "list[str] field on Task model, populated by plan parser. Field ownership: IMPLEMENTER role (roles.py:31-32). Already supports arbitrary strings including glob patterns."
+      }
+    ],
+    "existing_infrastructure_to_reuse": [
+      "PhaseFileRestriction.is_file_allowed() — glob matching, path normalization, traversal prevention",
+      "FileRestrictionResult — blocked_files list with reasons",
+      "get_changed_files_in_push() — already computed and cached across validation layers",
+      "Warn-vs-enforce toggle pattern from EGG_AGENT_RESTRICTIONS_ENFORCE (agent-role layer)",
+      "Session persistence via to_dict_for_persistence()/from_persistence()",
+      "Post-agent auto-commit's phase filtering pattern (separate allowed/blocked, restore blocked, stage allowed)"
+    ]
+  },
+
+  "approaches_considered": [
+    {
+      "id": "A",
+      "title": "Session-level allowed_files (issue's proposed design)",
+      "description": "Add allowed_files: list[str] | None to Session. Container spawner computes union of files_affected from assigned tasks, applies directory-sibling expansion, passes to register_session(). Gateway builds PhaseFileRestriction from allowed_files during push validation. Warn-then-block via transient _warned_files dict.",
+      "pros": [
+        "All data precomputed at registration — no I/O during push validation",
+        "Reuses existing PhaseFileRestriction pattern exactly",
+        "Session persistence means restrictions survive gateway restart",
+        "Naturally extends the 3-layer validation to 4 layers",
+        "Warn-then-block is self-contained in push validation",
+        "Backward compatible — None means no restriction"
+      ],
+      "cons": [
+        "Session object grows by one list field + transient dict",
+        "Changes across 5 components (session, gateway endpoint, gateway client, spawner, post-agent commit)",
+        "Session allowed_files becomes stale if plan changes after registration (unlikely in practice)"
+      ],
+      "selected": true
+    },
+    {
+      "id": "B",
+      "title": "Gateway queries contract at push time",
+      "description": "Instead of storing allowed_files on session, gateway fetches contract from orchestrator at push time. Extracts files_affected for agent's tasks and validates.",
+      "pros": [
+        "Always current with latest contract",
+        "No session model changes"
+      ],
+      "cons": [
+        "Network I/O on every push — latency and availability risk",
+        "Gateway depends on orchestrator availability for push validation",
+        "Gateway must know task-to-agent mapping (not currently exposed)",
+        "Breaks gateway's self-contained enforcement principle"
+      ],
+      "selected": false
+    },
+    {
+      "id": "C",
+      "title": "Readonly filesystem mounts",
+      "description": "Docker readonly bind mounts to prevent writes outside task scope at kernel level.",
+      "pros": [
+        "Kernel-level enforcement — impossible to bypass"
+      ],
+      "cons": [
+        "Operates at directory level, not file level",
+        "Extremely complex mount config for arbitrary file lists",
+        "No warn-then-block (hard failures confuse agent)",
+        "Cannot handle new files not yet on disk",
+        "No escape hatch support"
+      ],
+      "selected": false
+    }
+  ],
+
+  "recommended_approach": {
+    "id": "A",
+    "title": "Session-level allowed_files with warn-then-block enforcement",
+    "justification": "Option A fits naturally into the existing enforcement architecture. The PhaseFileRestriction class already supports allowed_patterns with glob matching, path normalization, and traversal prevention — the same primitives needed for per-task enforcement. Pre-computing allowed_files at session registration keeps push validation fast. The warn-then-block pattern follows the established precedent from agent-role enforcement. The issue author's design is well thought out and aligns with codebase patterns.",
+
+    "implementation_components": [
+      {
+        "component": "Session model",
+        "file": "gateway/session_manager.py",
+        "change": "Add `allowed_files: list[str] | None = None` field to Session dataclass (line ~245). Add to to_dict_for_persistence() and from_persistence(). Add transient `_warned_files: dict[str, int]` (not persisted) for tracking per-file violation counts — initialized to empty dict in __post_init__.",
+        "complexity": "low",
+        "risk": "low"
+      },
+      {
+        "component": "Gateway session endpoint",
+        "file": "gateway/gateway.py",
+        "change": "In the /api/v1/sessions/create handler, accept optional `allowed_files` from request payload and pass to Session constructor. Validate entries are non-empty strings. No other endpoint changes needed.",
+        "complexity": "low",
+        "risk": "low"
+      },
+      {
+        "component": "GatewayClient.register_session()",
+        "file": "orchestrator/gateway_client.py",
+        "change": "Add `allowed_files: list[str] | None = None` parameter. Include in request_data when non-None/non-empty.",
+        "complexity": "low",
+        "risk": "low"
+      },
+      {
+        "component": "Container spawner — compute allowed_files",
+        "file": "orchestrator/container_spawner.py",
+        "change": "Add a helper function `_compute_allowed_files(contract, plan_phase_id, agent_role)` that: (1) filters contract phases/tasks to the assigned plan_phase_id, (2) collects the union of files_affected from all matching tasks, (3) applies directory-sibling expansion (for each `dir/file.py`, add `dir/*` to allow sibling creation), (4) returns list or None if empty. Called before register_session() in spawn_agent_container(). Only active for implement phase + coder agent_role.",
+        "complexity": "medium",
+        "risk": "medium",
+        "design_details": {
+          "directory_expansion": "For each explicit file path `dir/foo.py`, add `dir/*` (shallow siblings). For each glob pattern already containing `*` or `**`, pass through unchanged. This enables agents to create helper files in the same directory without exhaustive listing.",
+          "scope": "Only implement-phase coder agents. Tester/documenter/reviewer/integrator agents are NOT restricted by per-task files.",
+          "fallback": "If files_affected is empty for all tasks, allowed_files = None (no per-task restriction).",
+          "plan_phase_id_plumbing": "_spawn_and_wait() already receives plan_phase_id. Pass it through to spawn_agent_container() (new parameter), which uses it to load the right phase's tasks from the contract."
+        }
+      },
+      {
+        "component": "Gateway push validation — Layer 4: per-task file enforcement",
+        "file": "gateway/gateway.py",
+        "change": "After the existing agent-role check (line ~791) and before the phase check (line ~793), add a new validation layer: if session.allowed_files is non-None and non-empty, build a PhaseFileRestriction(allowed_patterns=session.allowed_files) and check each changed file. For files that fail: (1) check session._warned_files[file] count, (2) if count < threshold (default 1), increment counter, log structured warning, allow push, (3) if count >= threshold, block push with actionable error. Environment variable EGG_TASK_FILE_RESTRICTIONS_ENFORCE=true for strict mode (always block, skip warnings).",
+        "complexity": "medium",
+        "risk": "medium",
+        "design_details": {
+          "warn_then_block": "Use session._warned_files dict (transient, not persisted). Key = file path, value = violation count. First push with an out-of-scope file succeeds with warning. Second push with the same file is blocked. This is per-file, not per-push — a push can contain files A and B, where A was warned before (blocked) and B is new (warned).",
+          "error_message": "Include: (1) list of blocked files, (2) the session's allowed_files patterns they violated, (3) suggestion to check task files_affected or use egg-contract request-file. Make the error actionable so the agent can self-correct.",
+          "interaction_with_other_layers": "Per-task restrictions are additive to (not replacing) phase-level restrictions. Both must pass. A file allowed by per-task patterns but blocked by phase patterns is still blocked. This is enforced naturally by keeping both checks as separate sequential layers.",
+          "checkpoint_bypass": "Checkpoint pushes (is_checkpoint_push=True) bypass per-task restrictions, same as phase restrictions."
+        }
+      },
+      {
+        "component": "Post-agent auto-commit filtering",
+        "file": "gateway/post_agent_commit.py",
+        "change": "Add per-task filtering alongside phase filtering. After check_phase_file_restrictions(), also check against allowed_files (passed as new parameter or retrieved from session). Files outside both phase and per-task allowlists are restored. Log per-task filtered files clearly for debugging.",
+        "complexity": "medium",
+        "risk": "low",
+        "design_details": {
+          "session_access": "auto_commit_worktree() currently receives phase, container_id, agent_role, pipeline_id. Add allowed_files: list[str] | None parameter. The caller (gateway container cleanup) reads it from the session.",
+          "filtering_logic": "Two-pass filter: first phase restrictions, then per-task restrictions on the remaining allowed files. Files blocked by either are restored. This ensures per-task restrictions only narrow (never widen) the phase-allowed set."
+        }
+      },
+      {
+        "component": "Plan template documentation",
+        "file": "docs/templates/plan.md",
+        "change": "Update to document that `files:` is an enforcement boundary, not just a hint. Add guidance: list files generously, use globs, include test/config files, note that directory-sibling access is automatic.",
+        "complexity": "low",
+        "risk": "low"
+      }
+    ],
+
+    "data_flow_after_implementation": "Plan YAML (files: [...]) → plan_parser.py → Task.files_affected in contract → container spawner reads contract, computes union per plan_phase + directory expansion → passed as allowed_files to gateway_client.register_session() → stored on Session.allowed_files → push validation builds PhaseFileRestriction from allowed_files, warns on first violation, blocks on second → post-agent auto-commit also filters by allowed_files → blocked files restored, only allowed files committed."
+  },
+
+  "design_decisions": [
+    {
+      "id": "DD-1",
+      "question": "Warn threshold: how many pushes with the same out-of-scope file before blocking?",
+      "decision": "Default threshold of 1 (warn on first push, block on second push for the same file)",
+      "rationale": "The issue explicitly specifies 'first violation logs a warning, repeated violations block'. A threshold of 1 means one successful push with a warning, giving the agent a chance to self-correct. Higher thresholds weaken enforcement without clear benefit. Configurable via EGG_TASK_FILE_WARN_THRESHOLD env var.",
+      "configurable": true,
+      "env_var": "EGG_TASK_FILE_WARN_THRESHOLD"
+    },
+    {
+      "id": "DD-2",
+      "question": "Directory-sibling expansion: shallow (dir/*) or recursive (dir/**)?",
+      "decision": "Shallow expansion (dir/*) by default",
+      "rationale": "The issue says 'sibling files (new helpers, test files) are reachable' which implies immediate children only. Recursive expansion (dir/**) is too permissive — listing `src/auth/login.py` would allow modifying everything under `src/auth/` including deeply nested subpackages. If the planner wants recursive access, it can explicitly use `src/auth/**` in the files list. Shallow expansion gives the right balance of convenience vs. containment.",
+      "configurable": false
+    },
+    {
+      "id": "DD-3",
+      "question": "Config files (pyproject.toml, package.json, Makefile): implicit allowlist or planner responsibility?",
+      "decision": "Planner responsibility with documentation guidance, no implicit allowlist",
+      "rationale": "An implicit allowlist introduces magic behavior that's hard to reason about and may silently allow unintended modifications. The planner should list config files explicitly. The plan template documentation update will remind planners to include config files when tasks add dependencies or modify build configuration. If this proves too friction-heavy, an implicit allowlist can be added later as a non-breaking change.",
+      "configurable": false
+    },
+    {
+      "id": "DD-4",
+      "question": "Escape hatch (egg-contract request-file): full implementation or defer?",
+      "decision": "Defer full escape hatch to a follow-up issue. Include structured logging of out-of-scope access attempts for observability.",
+      "rationale": "The escape hatch requires a new CLI command, a gateway endpoint to update session allowed_files at runtime, and HITL decision queueing for strict mode. This is significant scope. The warn-then-block mechanism already provides a softer form of escape (first attempt succeeds). Structured logging of violations provides the observability benefit. Full escape hatch can be built as a follow-up once the base enforcement is validated in production.",
+      "follow_up": true
+    },
+    {
+      "id": "DD-5",
+      "question": "Should warning counters persist across gateway restarts?",
+      "decision": "No — transient (reset on restart, fail-open)",
+      "rationale": "Per the issue's 'guide, don't cage' philosophy, fail-open on restart is acceptable. Restarting the gateway in the middle of an agent session is rare. Persisting warning state adds complexity (serialize/deserialize dicts with file paths) for marginal benefit. If a restart occurs, the agent gets fresh warnings, which is the safer default.",
+      "configurable": false
+    },
+    {
+      "id": "DD-6",
+      "question": "How do per-task restrictions interact with agent-role restrictions?",
+      "decision": "All layers are AND'd (most restrictive wins). Per-task restrictions cannot override agent-role restrictions.",
+      "rationale": "Layers run sequentially and independently. A file must pass ALL layers to be allowed. If a coder task lists `tests/test_auth.py` in files_affected but the agent-role restriction blocks coders from tests/, the push is still blocked by the agent-role layer (assuming enforce mode). This is consistent with how phase restrictions interact with role restrictions today. The planner should assign test files to tester tasks, not coder tasks.",
+      "configurable": false
+    },
+    {
+      "id": "DD-7",
+      "question": "Should strict mode (always block, no warnings) be available from day one?",
+      "decision": "Yes — via EGG_TASK_FILE_RESTRICTIONS_ENFORCE=true, matching the existing EGG_AGENT_RESTRICTIONS_ENFORCE pattern",
+      "rationale": "The env var toggle is trivial to implement (3 lines of code) and follows the established agent-role restrictions precedent. Defaults to false (warn-then-block). Operators who want hard enforcement from the start can enable it.",
+      "configurable": true,
+      "env_var": "EGG_TASK_FILE_RESTRICTIONS_ENFORCE"
+    },
+    {
+      "id": "DD-8",
+      "question": "What should the blocked push error message include?",
+      "decision": "Include: (1) list of blocked files, (2) the allowed_files patterns, (3) hint to check task files_affected and signal error via egg-orch if genuinely stuck",
+      "rationale": "The agent needs enough information to self-correct. Showing the allowed patterns helps it understand what's in scope. Showing blocked files tells it exactly what to remove. The egg-orch signal hint provides an escape path for genuinely stuck situations.",
+      "configurable": false
+    },
+    {
+      "id": "DD-9",
+      "question": "Should tester agents also get per-task allowed_files?",
+      "decision": "No — only implement-phase coder agents get per-task restrictions",
+      "rationale": "Testers already have role-based restrictions (test files only) which is the appropriate granularity. Per-task restrictions on testers would be counterproductive — testers need access to all test files, not just those listed in a specific task. Similarly, documenters need docs/ access broadly, and integrators need cross-phase access by definition.",
+      "configurable": false
+    },
+    {
+      "id": "DD-10",
+      "question": "Where in the push validation sequence should per-task checks run?",
+      "decision": "After agent-role checks (Layer 2) and before phase checks (Layer 3). New Layer 3, existing phase check becomes Layer 4.",
+      "rationale": "Per-task restrictions are more specific than phase restrictions but less fundamental than agent-role restrictions. Running after agent-role ensures that agent-role violations are caught first (clearer error messages). Running before phase restrictions means per-task filtering has already narrowed the scope before the phase check runs. This ordering also allows per-task checks to reuse the cached changed_files from Layer 1."
+    }
+  ],
+
+  "edge_cases": [
+    {
+      "case": "Empty files_affected for all tasks in a plan phase",
+      "handling": "allowed_files = None on session → no per-task restriction applied. Falls back to phase-level + agent-role restrictions only. Logged as informational.",
+      "severity": "expected"
+    },
+    {
+      "case": "Glob patterns in files_affected (e.g., tests/**, src/components/*.tsx)",
+      "handling": "Passed through to PhaseFileRestriction.allowed_patterns unchanged. PhaseFileRestriction._matches_pattern() already supports fnmatch globs.",
+      "severity": "expected"
+    },
+    {
+      "case": "New files in allowed directories not explicitly listed",
+      "handling": "Directory-sibling expansion adds dir/* for each explicit file dir/foo.py. New file dir/bar.py matches dir/* and is allowed.",
+      "severity": "expected"
+    },
+    {
+      "case": "Multiple tasks list the same file",
+      "handling": "Union of all files_affected across tasks assigned to the agent. Duplicates are naturally deduplicated in the set union.",
+      "severity": "expected"
+    },
+    {
+      "case": "Session allowed_files becomes stale after plan amendment",
+      "handling": "Plan amendments after session registration are rare (plans are finalized before implement). If it happens, the agent gets the original allowed_files. A gateway restart would not help since allowed_files is persisted. Documented as a known limitation. Full solution would require a session update endpoint (follow-up).",
+      "severity": "low"
+    },
+    {
+      "case": "Gateway restart resets _warned_files counters",
+      "handling": "Fail-open: agent gets fresh warnings. All first violations succeed. Acceptable per 'guide, don't cage' philosophy.",
+      "severity": "low"
+    },
+    {
+      "case": "Non-pipeline sessions (manual agent runs)",
+      "handling": "allowed_files is None → no per-task restriction. Non-pipeline sessions don't have contracts or plan phases.",
+      "severity": "expected"
+    },
+    {
+      "case": "Path traversal in files_affected (e.g., ../../../etc/passwd)",
+      "handling": "PhaseFileRestriction._normalize_path() already blocks paths starting with ../ or /. Traversal patterns in allowed_files are safely rejected during matching, and the file being pushed is also normalized.",
+      "severity": "security"
+    },
+    {
+      "case": "Very large files_affected list (100+ entries)",
+      "handling": "PhaseFileRestriction.is_file_allowed() iterates patterns linearly. For 100 patterns × 50 changed files = 5000 comparisons — negligible overhead. No optimization needed.",
+      "severity": "low"
+    },
+    {
+      "case": "Integrator agent in Tier 3 needs cross-phase file access",
+      "handling": "Integrator is not a coder agent (agent_role='integrator'). Per-task restrictions only apply to coder agents. Integrator gets its existing INTEGRATOR_TIER3_PATTERNS from agent-role restrictions.",
+      "severity": "expected"
+    }
+  ],
+
+  "implementation_phases": [
+    {
+      "id": "phase-1",
+      "name": "Session model and gateway endpoint",
+      "description": "Add allowed_files field to Session, update persistence, update /sessions/create endpoint to accept it.",
+      "tasks": [
+        {
+          "id": "task-1",
+          "description": "Add allowed_files field to Session dataclass with persistence support and transient _warned_files counter",
+          "files": [
+            "gateway/session_manager.py"
+          ],
+          "acceptance": "Session.allowed_files persists through to_dict_for_persistence()/from_persistence(). _warned_files initializes to empty dict. Existing sessions without allowed_files load correctly (backward compat)."
+        },
+        {
+          "id": "task-2",
+          "description": "Update /api/v1/sessions/create endpoint to accept and validate allowed_files from request payload",
+          "files": [
+            "gateway/gateway.py"
+          ],
+          "acceptance": "POST /sessions/create with allowed_files=[...] stores them on Session. Empty list and None are handled. Invalid entries (empty strings, non-strings) are rejected."
+        }
+      ]
+    },
+    {
+      "id": "phase-2",
+      "name": "Gateway client and container spawner",
+      "description": "Thread allowed_files from orchestrator through gateway client to gateway. Compute allowed_files from contract.",
+      "tasks": [
+        {
+          "id": "task-3",
+          "description": "Add allowed_files parameter to GatewayClient.register_session()",
+          "files": [
+            "orchestrator/gateway_client.py"
+          ],
+          "acceptance": "register_session() accepts allowed_files: list[str] | None and includes it in the POST payload."
+        },
+        {
+          "id": "task-4",
+          "description": "Add _compute_allowed_files() helper and integrate with spawn_agent_container()",
+          "files": [
+            "orchestrator/container_spawner.py",
+            "orchestrator/routes/pipelines.py"
+          ],
+          "acceptance": "For implement-phase coder agents with a plan_phase_id: loads contract, filters tasks by phase, computes union of files_affected, applies dir/* expansion, passes to register_session(). For non-implement, non-coder, or no plan_phase_id: allowed_files=None. _spawn_and_wait() passes plan_phase_id to spawn_agent_container()."
+        }
+      ]
+    },
+    {
+      "id": "phase-3",
+      "name": "Push validation enforcement",
+      "description": "Add per-task file restriction check as a new validation layer in gateway push handling.",
+      "tasks": [
+        {
+          "id": "task-5",
+          "description": "Add per-task file restriction validation layer in gateway push handler with warn-then-block",
+          "files": [
+            "gateway/gateway.py",
+            "gateway/phase_filter.py"
+          ],
+          "acceptance": "Push with out-of-scope file succeeds with warning on first attempt. Same file blocked on second attempt. EGG_TASK_FILE_RESTRICTIONS_ENFORCE=true blocks immediately. Checkpoint pushes bypass. Sessions without allowed_files are unaffected. Error message includes blocked files, allowed patterns, and recovery hint."
+        }
+      ]
+    },
+    {
+      "id": "phase-4",
+      "name": "Post-agent auto-commit filtering",
+      "description": "Extend auto-commit to filter by per-task allowed_files in addition to phase restrictions.",
+      "tasks": [
+        {
+          "id": "task-6",
+          "description": "Add per-task filtering to auto_commit_worktree() alongside phase filtering",
+          "files": [
+            "gateway/post_agent_commit.py"
+          ],
+          "acceptance": "Uncommitted files outside allowed_files are restored (not committed). Logged clearly with event_type for debugging. Phase restrictions still apply first. Empty allowed_files = no per-task filtering."
+        }
+      ]
+    },
+    {
+      "id": "phase-5",
+      "name": "Documentation and tests",
+      "description": "Update plan template documentation and add comprehensive tests.",
+      "tasks": [
+        {
+          "id": "task-7",
+          "description": "Update plan template to document files: as enforcement boundary with guidance on generous listing",
+          "files": [
+            "docs/templates/plan.md"
+          ],
+          "acceptance": "Template clearly states files: is enforced at push time. Includes guidance: list generously, use globs, include config/test files, note directory-sibling auto-expansion."
+        },
+        {
+          "id": "task-8",
+          "description": "Add gateway tests for per-session file restriction enforcement",
+          "files": [
+            "gateway/tests/test_session_file_restrictions.py"
+          ],
+          "acceptance": "Tests cover: (1) push with allowed files passes, (2) push with disallowed file warns on first attempt, (3) push with disallowed file blocks on second attempt, (4) EGG_TASK_FILE_RESTRICTIONS_ENFORCE=true blocks immediately, (5) checkpoint push bypasses, (6) None/empty allowed_files = no restriction, (7) glob patterns match correctly, (8) directory-sibling expansion works."
+        },
+        {
+          "id": "task-9",
+          "description": "Add tests for post-agent commit filtering with allowed_files",
+          "files": [
+            "gateway/tests/test_post_agent_commit.py"
+          ],
+          "acceptance": "Tests cover: (1) files outside allowed_files are restored, (2) files inside allowed_files are committed, (3) None allowed_files = no filtering, (4) logging verifies filtered files are reported."
+        },
+        {
+          "id": "task-10",
+          "description": "Add orchestrator tests for _compute_allowed_files() and spawner integration",
+          "files": [
+            "orchestrator/tests/test_container_spawner.py"
+          ],
+          "acceptance": "Tests cover: (1) union of files from multiple tasks, (2) directory-sibling expansion, (3) empty files_affected = None, (4) non-coder agents get None, (5) non-implement phases get None, (6) glob patterns preserved."
+        }
+      ]
+    }
+  ],
+
+  "risks": [
+    {
+      "risk": "Planner produces too-narrow file lists, causing agents to spin",
+      "likelihood": "medium",
+      "impact": "medium",
+      "mitigation": "Directory-sibling expansion provides automatic slack. Warn-then-block gives agents one free pass. Plan template guidance encourages generous listing with globs. If still problematic, add an implicit config file allowlist as a non-breaking follow-up."
+    },
+    {
+      "risk": "container_spawner contract loading adds latency to spawn",
+      "likelihood": "low",
+      "impact": "low",
+      "mitigation": "Contract is a small JSON file on local disk. Loading + computing union is O(tasks × files) which is negligible (<10ms). Contract is already loaded elsewhere in the tier-3 dispatch path."
+    },
+    {
+      "risk": "Warn-then-block creates inconsistent state if warning push succeeds but agent doesn't self-correct",
+      "likelihood": "medium",
+      "impact": "low",
+      "mitigation": "The warned file is already pushed — it exists in git. The agent's second attempt to push the same file will be blocked. Post-agent auto-commit provides a final defense layer to filter out-of-scope files from uncommitted changes. Integration-phase integrator can clean up cross-contamination."
+    },
+    {
+      "risk": "Breaking existing tests due to Session model changes",
+      "likelihood": "low",
+      "impact": "low",
+      "mitigation": "allowed_files defaults to None (backward compatible). Existing tests that create sessions without allowed_files will continue to work. _warned_files is transient and doesn't affect serialization."
+    },
+    {
+      "risk": "Interference between per-task and agent-role restrictions causes confusing error messages",
+      "likelihood": "low",
+      "impact": "medium",
+      "mitigation": "Layers run sequentially. Each layer's error message clearly identifies which restriction was violated. Per-task errors specifically mention 'per-task file restriction' and reference allowed_files patterns, distinct from agent-role error messages."
+    }
+  ],
+
+  "files_affected": [
+    "gateway/session_manager.py",
+    "gateway/gateway.py",
+    "gateway/phase_filter.py",
+    "gateway/post_agent_commit.py",
+    "orchestrator/gateway_client.py",
+    "orchestrator/container_spawner.py",
+    "orchestrator/routes/pipelines.py",
+    "docs/templates/plan.md",
+    "gateway/tests/test_session_file_restrictions.py",
+    "gateway/tests/test_post_agent_commit.py",
+    "orchestrator/tests/test_container_spawner.py"
+  ],
+
+  "acceptance_criteria": [
+    "Gateway warns on first out-of-scope file per session, blocks on repeated violations for the same file",
+    "Post-agent auto-commit filters out files not in the task's allowlist (restores them) with clear logging",
+    "When files_affected is empty for all tasks, no per-file restriction is applied (graceful fallback)",
+    "Glob patterns in files_affected are supported (e.g., src/components/*, tests/**)",
+    "Directory-sibling expansion: listing dir/foo.py implicitly allows other files in dir/",
+    "Plan template documents that files: is enforced, with guidance on generous listing",
+    "Existing tests pass; new tests cover per-session file restriction enforcement",
+    "Tier 3 parallel agent dispatch correctly scopes each agent to its phase's file union",
+    "Agent never hard-blocks on first attempt to modify an out-of-scope file (warn-then-block default)",
+    "Non-pipeline sessions and non-coder agents are completely unaffected",
+    "EGG_TASK_FILE_RESTRICTIONS_ENFORCE=true enables strict mode (always block, no warnings)"
+  ],
+
+  "test_plan": [
+    {
+      "scope": "Unit: Session model",
+      "file": "gateway/tests/test_session_manager.py",
+      "tests": "Session with allowed_files persists and loads correctly. Session without allowed_files loads with None. _warned_files initializes to empty dict."
+    },
+    {
+      "scope": "Unit: Per-task file restriction enforcement",
+      "file": "gateway/tests/test_session_file_restrictions.py",
+      "tests": "Push with allowed files passes. Push with disallowed file warns on first. Push with disallowed file blocks on second. Strict mode blocks immediately. Checkpoint bypasses. None/empty allowed_files = no restriction. Glob patterns. Directory-sibling expansion."
+    },
+    {
+      "scope": "Unit: Post-agent commit with allowed_files",
+      "file": "gateway/tests/test_post_agent_commit.py",
+      "tests": "Files outside allowed_files restored. Files inside committed. None = no filtering. Logging."
+    },
+    {
+      "scope": "Unit: _compute_allowed_files()",
+      "file": "orchestrator/tests/test_container_spawner.py",
+      "tests": "Union of files from tasks. Dir expansion. Empty = None. Non-coder = None. Glob preservation."
+    },
+    {
+      "scope": "Integration: Tier 3 dispatch with file scoping",
+      "file": "orchestrator/tests/test_tier3_dispatch.py",
+      "tests": "Two agents with disjoint file lists. Each can only push their own files. Shared files allowed by both."
+    }
+  ]
+}
