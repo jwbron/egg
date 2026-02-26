@@ -2181,7 +2181,7 @@ def _build_phase_prompt(
                 "",
                 "## Output Format\n",
                 "Create an analysis document following this template:\n",
-                "```markdown",
+                "````markdown",
                 "# Analysis: [Issue Title]\n",
                 "> Issue: #[number] | Phase: refine\n",
                 "## Problem Statement\n",
@@ -2249,7 +2249,7 @@ def _build_phase_prompt(
                 "register every question\n",
                 "---\n",
                 "*Authored-by: egg*",
-                "```\n",
+                "````\n",
                 "",
             ]
         )
