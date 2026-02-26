@@ -167,13 +167,7 @@ Key implementation details:
 - **Cargo (Rust)**: Cache at `$CARGO_HOME` (system-level)
 - **apt/dnf**: System packages
 
-**How should locally-installing package managers be handled?** Options include:
-- Install to a staging path during build, then copy/symlink at container startup (adds startup latency)
-- Install to a global/system path with toolchain flags (e.g., npm `--prefix /opt/deps/web-app` + `NODE_PATH`)
-- Document the limitation and recommend users only use `build_commands` for globally-installing package managers
-- Use Docker named volumes for `node_modules/` directories (separate from repo mount)
-
-<!-- DECISION: node-modules-strategy -->
+**Decision**: Install to a global/system path with toolchain flags. Users write their build commands accordingly (e.g., `npm --prefix /opt/deps/web-app ci`) and set `NODE_PATH=/opt/deps/web-app/node_modules` via the env vars config. This keeps everything baked in the image and works with Docker layer caching. Document the volume overlay constraint prominently so users understand why local installs won't work.
 
 ### 2. Config Accessibility During Build
 
@@ -182,59 +176,41 @@ The `repositories.yaml` config is not currently in the Docker build context. The
 - Extract only the `build_commands` and `local_repos` sections into a minimal config file for the build context (safer, more complex)
 - Generate the commands directly into the Dockerfile/script without config parsing at build time (Option B approach — no config needed during build)
 
-Note: Option B (recommended) sidesteps this for `build_commands` by embedding commands in the Dockerfile, but the existing `extra_packages` bug still needs the config available.
-
-<!-- DECISION: config-in-build-context -->
+**Decision**: Copy the full `repositories.yaml` into the build context. Option B embeds `build_commands` directly in the Dockerfile so no config parsing is needed at build time for that feature, but `extra_packages` still needs it. Copying the full file is simpler; `repositories.yaml` is not expected to contain secrets (tokens are stored separately).
 
 ### 3. Build Command Failure Handling
 
-If a `build_commands` command fails (non-zero exit), should it:
-- Fail the entire Docker build (standard Docker behavior for `RUN` with `set -e`)
-- Log a warning and continue (like the current `extra_packages` which uses `check=False`)
-- Be configurable per-command
-
-<!-- DECISION: build-failure-behavior -->
+**Decision**: Fail the entire Docker build (standard `RUN` behavior with `set -e`). A failed dependency install means the image is broken — silently continuing would produce a container that fails at runtime in a harder-to-diagnose way.
 
 ### 4. Build Command Execution Context
 
-**User**: The Dockerfile currently runs everything as root before creating the `egg` user (line 147). Build commands would also run as root. Is this acceptable for all expected use cases, or should some commands run as the `egg` user?
-
-**Working directory**: Build commands need a working directory containing the watch files. For Option B, this is a temp dir like `/tmp/repo-deps/<name>/`. Commands like `npm ci` will install relative to this dir, which won't match the runtime path (`/home/egg/repos/<name>`). For system-level installers (pip, go), this doesn't matter. For local installers (npm), this ties into Question 1.
-
-**Environment**: Should there be a way to set environment variables for build commands? (e.g., `GOPATH`, `NODE_ENV=production`, `PIP_NO_CACHE_DIR=1`)
+**Decision**: Run as root (consistent with the rest of the Dockerfile). Add an optional `env` map per repo in `repo_settings.build_commands` config so users can set environment variables for their build commands (e.g., `NODE_ENV=production`, `PIP_NO_CACHE_DIR=1`, `GOFLAGS=-mod=vendor`). Working directory is `/tmp/repo-deps/<name>/` as described in Option B.
 
 ### 5. Watch Files and local_repos.paths Relationship
 
 `build_commands` is configured under `repo_settings` (keyed by `owner/repo`), but watch files must be read from the filesystem at `local_repos.paths`. The mapping between `repo_settings` keys (`your-org/web-app`) and `local_repos.paths` entries (`/home/user/projects/web-app`) is by directory name — the path's basename must match the repo name portion.
 
-- What if `local_repos.paths` is not configured but `build_commands` is? (Cloud-only repos that aren't local)
-- What if the repo directory name doesn't match the repo name in `repo_settings`? (e.g., path `/home/user/my-app` but settings key `org/web-app`)
-- Should the mapping be explicit rather than by convention?
+**Decision**: Require an explicit path mapping in config rather than relying on basename convention. Users must specify the local path for each repo that has `build_commands`. This eliminates ambiguity when directory names don't match repo names. If no local path is mapped, `build_commands` for that repo is skipped with a warning.
 
 ### 6. Should the Existing `extra_packages` Bug Be Fixed?
 
-`docker_setup.extra_packages` appears non-functional during Docker builds because the config is inaccessible. Should this be fixed as part of this issue, or tracked separately? Fixing it is a natural side-effect of making config available during build.
+**Decision**: Fix it in this issue. Copying `repositories.yaml` into the build context (Q2 decision) naturally unblocks `extra_packages`. Include the fix as part of this PR.
 
 ### 7. Command Ordering and Dependencies
 
-If a repo's `build_commands` includes multiple commands (`npm ci` then `npm run build`), they naturally run in sequence within one `RUN` layer. But what about cross-repo dependencies? (e.g., repo A's build produces a package that repo B's build installs). The issue's design implies repos are independent, but is this always true?
+**Decision**: Repos are independent — no cross-repo ordering support in v1. Multiple commands within a single repo's `build_commands` run in sequence within one `RUN` layer. Cross-repo dependency ordering can be added later if requested.
 
 ### 8. Security: Arbitrary Command Execution During Build
 
-Build commands are user-configured strings executed as root during `docker build`. Since this is a local development tool where the user controls the config, this is likely acceptable. But should there be any validation or sandboxing of the commands? (The existing `docker-setup.py` already runs arbitrary apt/dnf install commands, so this is precedented.)
+**Decision**: Trusted user config, no validation. This is a local development tool and the user controls their own `repositories.yaml`. Consistent with the existing `extra_packages` behavior.
 
 ### 9. Cache Invalidation Beyond Watch Files
 
-Watch files handle the common case (lockfile changes → rebuild deps). But some scenarios aren't covered:
-- A command depends on a package registry's state (e.g., `npm ci` with `latest` tags)
-- A command depends on files NOT in the watch list (e.g., a `Makefile` that `make deps` reads)
-- Forced rebuild of a single repo's deps without rebuilding everything
-
-Should there be a `--rebuild-deps` flag or similar mechanism for manual cache invalidation?
+**Decision**: Add a `--rebuild-deps` flag to `egg` (or `egg-sdlc`) that forces a `--no-cache` rebuild of the dependency layers. Useful when a package registry's state has changed or unlisted files have changed. Scoped to the full image rebuild for simplicity in v1.
 
 ### 10. Documentation and Example Config
 
-The issue lists updating `repositories.yaml.example` and `sandbox/README.md`. Are there other docs that should be updated? The private mode documentation (`ADR-Internet-Tool-Access-Lockdown.md`) likely needs to reference this feature as the recommended workflow.
+**Decision**: Update `repositories.yaml.example`, `sandbox/README.md`, and `ADR-Internet-Tool-Access-Lockdown.md`. The ADR should reference `build_commands` as the recommended workflow for pre-installing dependencies in private mode.
 
 ---
 
