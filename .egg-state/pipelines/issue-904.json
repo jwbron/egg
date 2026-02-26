@@ -5,7 +5,7 @@
   "branch": "egg/issue-904",
   "mode": "issue",
   "prompt": null,
-  "status": "failed",
+  "status": "running",
   "current_phase": "implement",
   "config": {
     "auto_create_pr": true,
@@ -340,37 +340,12 @@
     },
     "implement": {
       "phase": "implement",
-      "status": "failed",
-      "started_at": "2026-02-26T05:06:36.688242",
-      "work_started_at": "2026-02-26T05:06:36.706126",
-      "completed_at": "2026-02-26T05:12:43.865880",
-      "containers": [
-        {
-          "container_id": "b11c5d2f25efc728409f02f5d9041d252d03f139edfc7d626a1aef23bc855dcd",
-          "container_name": "egg-sandbox-egg-issue-904-coder",
-          "status": "exited",
-          "started_at": "2026-02-26T05:06:37.468048",
-          "exited_at": "2026-02-26T05:12:13.757509",
-          "exit_code": 1,
-          "agent_role": "coder",
-          "session_token": null
-        }
-      ],
-      "agents": [
-        {
-          "role": "coder",
-          "status": "failed",
-          "container_id": "b11c5d2f25efc728409f02f5d9041d252d03f139edfc7d626a1aef23bc855dcd",
-          "started_at": "2026-02-26T05:06:37.468053",
-          "completed_at": "2026-02-26T05:12:13.784370",
-          "commit": null,
-          "outputs": {},
-          "error": "Container exited with code 1",
-          "retry_count": 0,
-          "conflicts": [],
-          "plan_phase_id": null
-        }
-      ],
+      "status": "pending",
+      "started_at": null,
+      "work_started_at": null,
+      "completed_at": null,
+      "containers": [],
+      "agents": [],
       "review_cycles": 0,
       "hitl_review_cycles": 0,
       "cycle_timings": [
@@ -382,7 +357,7 @@
         }
       ],
       "artifacts": {},
-      "error": "Container exited with code 1\n--- container logs (last 10 lines) ---\n2026-02-26T05:12:13.566759003Z     Status: healthy\n2026-02-26T05:12:13.566761670Z     GitHub token valid: True\n2026-02-26T05:12:13.566764336Z     Auth configured: True\n2026-02-26T05:12:13.566766961Z ✓ Gateway ready! (public mode - direct internet access)\n2026-02-26T05:12:13.566769753Z ✓ Anthropic API routed through gateway: http://egg-gateway:9848\n2026-02-26T05:12:13.566772670Z   Credentials injected by gateway (not in container)\n2026-02-26T05:12:13.566775712Z Signaled error to orchestrator\n2026-02-26T05:12:13.566778420Z \n2026-02-26T05:12:13.566780837Z Cleaning up on container exit...\n2026-02-26T05:12:13.566783503Z ✓ Cleanup complete",
+      "error": null,
       "phase_start_sha": null
     }
   },
@@ -420,14 +395,14 @@
       "phase": "plan"
     }
   ],
-  "created_at": "2026-02-26T04:26:25.796399",
-  "updated_at": "2026-02-26T05:12:43.866324",
+  "created_at": "2026-02-26T06:05:18.256879",
+  "updated_at": "2026-02-26T06:05:18.257534",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
   "complexity_tier": "mid",
-  "error": "Container exited with code 1\n--- container logs (last 10 lines) ---\n2026-02-26T05:12:13.566759003Z     Status: healthy\n2026-02-26T05:12:13.566761670Z     GitHub token valid: True\n2026-02-26T05:12:13.566764336Z     Auth configured: True\n2026-02-26T05:12:13.566766961Z ✓ Gateway ready! (public mode - direct internet access)\n2026-02-26T05:12:13.566769753Z ✓ Anthropic API routed through gateway: http://egg-gateway:9848\n2026-02-26T05:12:13.566772670Z   Credentials injected by gateway (not in container)\n2026-02-26T05:12:13.566775712Z Signaled error to orchestrator\n2026-02-26T05:12:13.566778420Z \n2026-02-26T05:12:13.566780837Z Cleaning up on container exit...\n2026-02-26T05:12:13.566783503Z ✓ Cleanup complete",
+  "error": null,
   "plan_phase_waves": null,
   "plan_phase_names": null,
-  "version": 66
+  "version": 67
 }
