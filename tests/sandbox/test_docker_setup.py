@@ -445,6 +445,153 @@ class TestRunBuildCommands:
         assert "Build commands" in captured.out
 
 
+class TestGetBuildCommandsEdgeCases:
+    """Edge case tests for get_build_commands."""
+
+    def test_non_dict_repo_settings_returns_empty(self):
+        """Non-dict repo_settings returns empty list."""
+        config = {"repo_settings": "not-a-dict"}
+        result = get_build_commands(config)
+        assert result == []
+
+    def test_skips_non_dict_settings_entries(self):
+        """Non-dict individual repo settings are skipped."""
+        config = {
+            "repo_settings": {
+                "org/broken": "not-a-dict",
+                "org/valid": {
+                    "build_commands": {
+                        "commands": ["make deps"],
+                    }
+                },
+            }
+        }
+        result = get_build_commands(config)
+        assert len(result) == 1
+        assert result[0]["repo"] == "org/valid"
+
+    def test_non_list_watch_files_returns_empty(self):
+        """Non-list watch_files defaults to empty list."""
+        config = {
+            "repo_settings": {
+                "org/app": {
+                    "build_commands": {
+                        "watch_files": "just-a-string",
+                        "commands": ["make deps"],
+                    }
+                }
+            }
+        }
+        result = get_build_commands(config)
+        assert len(result) == 1
+        assert result[0]["watch_files"] == []
+        assert result[0]["commands"] == ["make deps"]
+
+    def test_non_list_commands_returns_empty(self):
+        """Non-list commands causes the repo to be skipped."""
+        config = {
+            "repo_settings": {
+                "org/app": {
+                    "build_commands": {
+                        "watch_files": ["req.txt"],
+                        "commands": "single-command",
+                    }
+                }
+            }
+        }
+        result = get_build_commands(config)
+        assert result == []
+
+
+class TestRunBuildCommandsEdgeCases:
+    """Edge case tests for run_build_commands."""
+
+    @patch("subprocess.run")
+    def test_fallback_to_tmp_when_work_dir_missing(self, mock_run, capsys):
+        """When repo work_dir doesn't exist, falls back to /tmp."""
+        mock_run.return_value = MagicMock(returncode=0)
+
+        build_commands = [{
+            "repo": "org/nonexistent-repo-xyz-12345",
+            "watch_files": [],
+            "commands": ["echo hello"],
+        }]
+
+        run_build_commands(build_commands)
+
+        # Verify it ran with /tmp as cwd
+        call_args = mock_run.call_args
+        assert call_args.kwargs["cwd"] == "/tmp"
+        captured = capsys.readouterr()
+        assert "does not exist" in captured.out
+
+    @patch("subprocess.run")
+    def test_subprocess_exception_does_not_crash(self, mock_run, capsys):
+        """Subprocess raising an exception is caught and warned about."""
+        mock_run.side_effect = OSError("command not found")
+
+        build_commands = [{
+            "repo": "org/app",
+            "watch_files": [],
+            "commands": ["nonexistent-command"],
+        }]
+
+        # Should not raise
+        run_build_commands(build_commands)
+
+        captured = capsys.readouterr()
+        assert "Command failed" in captured.out
+        assert "command not found" in captured.out
+
+    @patch("subprocess.run")
+    def test_warning_message_includes_exit_code(self, mock_run, tmp_path, capsys):
+        """Failed commands report the exit code in the warning."""
+        mock_run.return_value = MagicMock(returncode=127)
+
+        work_dir = Path("/tmp/repo-deps/org--app")
+        work_dir.mkdir(parents=True, exist_ok=True)
+
+        build_commands = [{
+            "repo": "org/app",
+            "watch_files": [],
+            "commands": ["bad-command"],
+        }]
+
+        try:
+            run_build_commands(build_commands)
+        finally:
+            import shutil
+            shutil.rmtree("/tmp/repo-deps", ignore_errors=True)
+
+        captured = capsys.readouterr()
+        assert "127" in captured.out
+
+    @patch("subprocess.run")
+    def test_multiple_repos_run_sequentially(self, mock_run, capsys):
+        """Multiple repos' commands all execute."""
+        mock_run.return_value = MagicMock(returncode=0)
+
+        build_commands = [
+            {
+                "repo": "org/app-a",
+                "watch_files": [],
+                "commands": ["cmd-a1", "cmd-a2"],
+            },
+            {
+                "repo": "org/app-b",
+                "watch_files": [],
+                "commands": ["cmd-b1"],
+            },
+        ]
+
+        run_build_commands(build_commands)
+
+        assert mock_run.call_count == 3
+        captured = capsys.readouterr()
+        assert "org/app-a" in captured.out
+        assert "org/app-b" in captured.out
+
+
 class TestMain:
     """Tests for main entry point."""
 
