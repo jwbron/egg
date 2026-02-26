@@ -314,6 +314,8 @@ class TestSetupClaude:
         # Set up directories
         claude_dir = temp_dir / ".claude"
         claude_dir.mkdir()
+        repos_dir = temp_dir / "repos"
+        repos_dir.mkdir()
 
         # Create an existing .claude.json (simulating bind mount scenario)
         user_state_file = temp_dir / ".claude.json"
@@ -322,6 +324,7 @@ class TestSetupClaude:
         config = MagicMock()
         config.user_home = temp_dir
         config.claude_dir = claude_dir
+        config.repos_dir = repos_dir
         config.runtime_uid = 1000
         config.runtime_gid = 1000
         config.quiet = True
@@ -340,6 +343,8 @@ class TestSetupClaude:
         result = json.loads(user_state_file.read_text())
         assert result["hasCompletedOnboarding"] is True
         assert result["autoUpdates"] is False
+        assert result["bypassPermissionsModeAccepted"] is True
+        assert result["effortCalloutDismissed"] is True
         assert result["existingKey"] == "value"  # Original content preserved
 
         # Verify warning was logged (Logger.warn outputs to stdout, not stderr)
@@ -357,10 +362,13 @@ class TestSetupClaude:
         # Set up directories
         claude_dir = temp_dir / ".claude"
         claude_dir.mkdir()
+        repos_dir = temp_dir / "repos"
+        repos_dir.mkdir()
 
         config = MagicMock()
         config.user_home = temp_dir
         config.claude_dir = claude_dir
+        config.repos_dir = repos_dir
         config.runtime_uid = 1000
         config.runtime_gid = 1000
         config.quiet = True
@@ -376,6 +384,155 @@ class TestSetupClaude:
         result = json.loads(user_state_file.read_text())
         assert result["hasCompletedOnboarding"] is True
         assert result["autoUpdates"] is False
+        assert result["bypassPermissionsModeAccepted"] is True
+        assert result["effortCalloutDismissed"] is True
+
+        # Verify per-project trust settings for repos_dir
+        assert "projects" in result
+        repos_key = str(repos_dir)
+        assert repos_key in result["projects"]
+        assert result["projects"][repos_key]["hasTrustDialogAccepted"] is True
+        assert result["projects"][repos_key]["hasCompletedProjectOnboarding"] is True
+
+    @patch.object(entrypoint, "chown_recursive")
+    @patch("os.chown")
+    @patch("os.chmod")
+    @patch("shutil.which", return_value="/usr/local/bin/claude")
+    def test_project_trust_includes_subdirectories(
+        self, mock_which, mock_chmod, mock_chown, mock_chown_recursive, temp_dir
+    ):
+        """Test that subdirectories of repos_dir are each registered for trust."""
+        claude_dir = temp_dir / ".claude"
+        claude_dir.mkdir()
+        repos_dir = temp_dir / "repos"
+        repos_dir.mkdir()
+        # Create subdirectories simulating mounted repos
+        (repos_dir / "repo-a").mkdir()
+        (repos_dir / "repo-b").mkdir()
+
+        config = MagicMock()
+        config.user_home = temp_dir
+        config.claude_dir = claude_dir
+        config.repos_dir = repos_dir
+        config.runtime_uid = 1000
+        config.runtime_gid = 1000
+        config.quiet = True
+
+        logger = entrypoint.Logger(quiet=True)
+        entrypoint.setup_claude(config, logger)
+
+        import json
+
+        result = json.loads((temp_dir / ".claude.json").read_text())
+        projects = result["projects"]
+
+        # repos_dir itself plus both subdirectories should be trusted
+        for path in [repos_dir, repos_dir / "repo-a", repos_dir / "repo-b"]:
+            key = str(path)
+            assert key in projects, f"{key} not found in projects"
+            assert projects[key]["hasTrustDialogAccepted"] is True
+            assert projects[key]["hasCompletedProjectOnboarding"] is True
+
+    @patch.object(entrypoint, "chown_recursive")
+    @patch("os.chown")
+    @patch("os.chmod")
+    @patch("shutil.which", return_value="/usr/local/bin/claude")
+    def test_project_trust_empty_repos_dir(
+        self, mock_which, mock_chmod, mock_chown, mock_chown_recursive, temp_dir
+    ):
+        """Test project trust when repos_dir exists but is empty."""
+        claude_dir = temp_dir / ".claude"
+        claude_dir.mkdir()
+        repos_dir = temp_dir / "repos"
+        repos_dir.mkdir()
+
+        config = MagicMock()
+        config.user_home = temp_dir
+        config.claude_dir = claude_dir
+        config.repos_dir = repos_dir
+        config.runtime_uid = 1000
+        config.runtime_gid = 1000
+        config.quiet = True
+
+        logger = entrypoint.Logger(quiet=True)
+        entrypoint.setup_claude(config, logger)
+
+        import json
+
+        result = json.loads((temp_dir / ".claude.json").read_text())
+        projects = result["projects"]
+
+        # Only repos_dir itself should be trusted (no subdirectories)
+        assert str(repos_dir) in projects
+        assert len(projects) == 1
+
+    @patch.object(entrypoint, "chown_recursive")
+    @patch("os.chown")
+    @patch("os.chmod")
+    @patch("shutil.which", return_value="/usr/local/bin/claude")
+    def test_project_trust_repos_dir_not_exists(
+        self, mock_which, mock_chmod, mock_chown, mock_chown_recursive, temp_dir
+    ):
+        """Test project trust is skipped when repos_dir doesn't exist."""
+        claude_dir = temp_dir / ".claude"
+        claude_dir.mkdir()
+        repos_dir = temp_dir / "repos"
+        # Don't create repos_dir — it doesn't exist
+
+        config = MagicMock()
+        config.user_home = temp_dir
+        config.claude_dir = claude_dir
+        config.repos_dir = repos_dir
+        config.runtime_uid = 1000
+        config.runtime_gid = 1000
+        config.quiet = True
+
+        logger = entrypoint.Logger(quiet=True)
+        entrypoint.setup_claude(config, logger)
+
+        import json
+
+        result = json.loads((temp_dir / ".claude.json").read_text())
+        assert "projects" not in result
+
+    @patch.object(entrypoint, "chown_recursive")
+    @patch("os.chown")
+    @patch("os.chmod")
+    @patch("shutil.which", return_value="/usr/local/bin/claude")
+    def test_project_trust_survives_permission_error(
+        self, mock_which, mock_chmod, mock_chown, mock_chown_recursive, temp_dir
+    ):
+        """Test that PermissionError on repos_dir doesn't block config setup."""
+        claude_dir = temp_dir / ".claude"
+        claude_dir.mkdir()
+        repos_dir = temp_dir / "repos"
+        repos_dir.mkdir()
+
+        config = MagicMock()
+        config.user_home = temp_dir
+        config.claude_dir = claude_dir
+        config.repos_dir = repos_dir
+        config.runtime_uid = 1000
+        config.runtime_gid = 1000
+        config.quiet = True
+
+        logger = entrypoint.Logger(quiet=True)
+
+        # Make repos_dir.iterdir() raise PermissionError
+        with patch.object(
+            type(repos_dir), "iterdir", side_effect=PermissionError("Permission denied")
+        ):
+            entrypoint.setup_claude(config, logger)
+
+        import json
+
+        result = json.loads((temp_dir / ".claude.json").read_text())
+        # Config should still be written with required settings despite trust failure
+        assert result["hasCompletedOnboarding"] is True
+        assert result["autoUpdates"] is False
+        assert result["effortCalloutDismissed"] is True
+        # No empty "projects" dict should be left behind
+        assert "projects" not in result
 
     @patch("shutil.which", return_value=None)
     def test_exits_when_claude_binary_not_found(self, mock_which, temp_dir, capsys):
