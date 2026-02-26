@@ -35,6 +35,7 @@ from decision_queue import (
     DecisionNotFoundError,
     get_decision_queue,
 )
+from models import PipelinePhase
 from state_store import InvalidPipelineIdError
 
 logger = get_logger("orchestrator.decisions")
@@ -118,7 +119,7 @@ def list_decisions(pipeline_id: str) -> tuple[Response, int]:
                 "created_at": d.created_at.isoformat(),
                 "resolved_at": d.resolved_at.isoformat() if d.resolved_at else None,
                 "resolution": d.resolution,
-                "phase": d.phase,
+                "phase": d.phase.value if d.phase else None,
             }
             for d in decisions
         ]
@@ -175,6 +176,17 @@ def queue_decision(pipeline_id: str) -> tuple[Response, int]:
             f"Invalid decision_type '{decision_type}'. Must be one of: {', '.join(VALID_DECISION_TYPES)}"
         )
 
+    phase_str = data.get("phase")
+    phase = None
+    if phase_str is not None:
+        try:
+            phase = PipelinePhase(phase_str)
+        except ValueError:
+            valid_phases = [p.value for p in PipelinePhase]
+            return make_error_response(
+                f"Invalid phase '{phase_str}'. Must be one of: {', '.join(valid_phases)}"
+            )
+
     try:
         queue = get_decision_queue(pipeline_id, repo_path)
         decision = queue.queue_decision(
@@ -183,7 +195,7 @@ def queue_decision(pipeline_id: str) -> tuple[Response, int]:
             options=data.get("options"),
             decision_type=decision_type,
             questions=data.get("questions"),
-            phase=data.get("phase"),
+            phase=phase,
         )
 
         logger.info(
@@ -202,7 +214,7 @@ def queue_decision(pipeline_id: str) -> tuple[Response, int]:
                     "questions": decision.questions,
                     "status": decision.status.value,
                     "created_at": decision.created_at.isoformat(),
-                    "phase": decision.phase,
+                    "phase": decision.phase.value if decision.phase else None,
                 }
             },
         )
@@ -256,7 +268,7 @@ def get_decision(pipeline_id: str, decision_id: str) -> tuple[Response, int]:
                     if decision.resolved_at
                     else None,
                     "resolution": decision.resolution,
-                    "phase": decision.phase,
+                    "phase": decision.phase.value if decision.phase else None,
                 }
             },
         )

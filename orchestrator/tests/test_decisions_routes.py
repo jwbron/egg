@@ -367,6 +367,66 @@ class TestDecisionTypeValidation:
         assert call_kwargs[1]["decision_type"] == "choice"
 
 
+class TestPhaseValidation:
+    """Tests for phase validation in the POST create-decision endpoint."""
+
+    @patch("routes.decisions.get_repo_path")
+    def test_invalid_phase_returns_400(self, mock_repo, client, tmp_path):
+        """POST with an unrecognized phase returns 400."""
+        mock_repo.return_value = tmp_path
+
+        response = client.post(
+            "/api/v1/pipelines/test-pipeline/decisions",
+            json={
+                "question": "Approve?",
+                "phase": "implment",  # typo
+            },
+        )
+
+        assert response.status_code == 400
+        data = response.get_json()
+        assert data["success"] is False
+        assert "Invalid phase" in data["message"]
+        assert "implment" in data["message"]
+
+    @patch("routes.decisions.get_repo_path")
+    @patch("routes.decisions.get_decision_queue")
+    def test_valid_phases_accepted(self, mock_get_queue, mock_repo, client, tmp_path):
+        """POST with each valid phase succeeds."""
+        mock_repo.return_value = tmp_path
+        mock_queue = MagicMock()
+        mock_get_queue.return_value = mock_queue
+
+        for phase in ("refine", "plan", "implement", "pr"):
+            mock_queue.queue_decision.return_value = _make_decision()
+            response = client.post(
+                "/api/v1/pipelines/test-pipeline/decisions",
+                json={
+                    "question": "Test?",
+                    "phase": phase,
+                },
+            )
+            assert response.status_code == 200, f"Expected 200 for phase={phase}"
+
+    @patch("routes.decisions.get_repo_path")
+    @patch("routes.decisions.get_decision_queue")
+    def test_missing_phase_defaults_to_none(self, mock_get_queue, mock_repo, client, tmp_path):
+        """POST without phase defaults to None."""
+        mock_repo.return_value = tmp_path
+        mock_queue = MagicMock()
+        mock_queue.queue_decision.return_value = _make_decision()
+        mock_get_queue.return_value = mock_queue
+
+        response = client.post(
+            "/api/v1/pipelines/test-pipeline/decisions",
+            json={"question": "Pick one?"},
+        )
+
+        assert response.status_code == 200
+        call_kwargs = mock_queue.queue_decision.call_args
+        assert call_kwargs[1]["phase"] is None
+
+
 class TestQueueDecisionValidation:
     """Tests for POST create-decision input validation and error handling."""
 

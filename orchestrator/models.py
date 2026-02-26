@@ -187,7 +187,9 @@ class HITLDecision(BaseModel):
     created_at: datetime = Field(default_factory=datetime.utcnow, description="When created")
     resolved_at: datetime | None = Field(default=None, description="When resolved")
     resolution: str | None = Field(default=None, description="Human's response")
-    phase: str | None = Field(default=None, description="Pipeline phase when decision was created")
+    phase: PipelinePhase | None = Field(
+        default=None, description="Pipeline phase when decision was created"
+    )
 
 
 class CycleTiming(BaseModel):
@@ -342,7 +344,7 @@ class Pipeline(BaseModel):
         options: list[str] | None = None,
         decision_type: Literal["phase_gate", "choice", "feedback"] = "choice",
         questions: list[dict[str, str]] | None = None,
-        phase: str | None = None,
+        phase: PipelinePhase | None = None,
     ) -> HITLDecision:
         """Add a new HITL decision request."""
         decision_id = f"decision-{len(self.decisions) + 1}"

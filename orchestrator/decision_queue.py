@@ -27,7 +27,7 @@ except ImportError:
         return logging.getLogger(name)
 
 
-from models import DecisionStatus, HITLDecision, Pipeline
+from models import DecisionStatus, HITLDecision, Pipeline, PipelinePhase
 from state_store import get_pipeline_state_lock, get_state_store
 
 logger = get_logger("orchestrator.decision_queue")
@@ -130,7 +130,7 @@ class DecisionQueue:
         options: list[str] | None = None,
         decision_type: Literal["phase_gate", "choice", "feedback"] = "choice",
         questions: list[dict[str, str]] | None = None,
-        phase: str | None = None,
+        phase: PipelinePhase | None = None,
     ) -> HITLDecision:
         """Queue a new decision for human review.
 
@@ -140,6 +140,7 @@ class DecisionQueue:
             options: Available options (empty for free-form)
             decision_type: Type of decision ('phase_gate', 'choice', or 'feedback')
             questions: Structured feedback questions (list of dicts with id, question, answer)
+            phase: Pipeline phase when the decision was created
 
         Returns:
             Created HITLDecision
