@@ -5,7 +5,7 @@
   "branch": "egg/issue-904",
   "mode": "issue",
   "prompt": null,
-  "status": "failed",
+  "status": "running",
   "current_phase": "plan",
   "config": {
     "auto_create_pr": true,
@@ -114,83 +114,12 @@
     },
     "plan": {
       "phase": "plan",
-      "status": "running",
-      "started_at": "2026-02-26T03:49:27.824258",
-      "work_started_at": "2026-02-26T03:49:27.839085",
+      "status": "pending",
+      "started_at": null,
+      "work_started_at": null,
       "completed_at": null,
-      "containers": [
-        {
-          "container_id": "08ec55a5181c750808fb9053fe51d4a9e604e82e4405db30ad24efd35c6cedf0",
-          "container_name": "egg-sandbox-egg-issue-904-architect",
-          "status": "exited",
-          "started_at": "2026-02-26T03:49:28.206505",
-          "exited_at": "2026-02-26T03:56:15.071428",
-          "exit_code": 0,
-          "agent_role": "architect",
-          "session_token": null
-        },
-        {
-          "container_id": "7fdc2b167e0bd5b64a4d249f7ba6ee79f6836226f0f2f71a475a354c242ad941",
-          "container_name": "egg-sandbox-egg-issue-904-task_planner",
-          "status": "exited",
-          "started_at": "2026-02-26T03:56:45.615813",
-          "exited_at": "2026-02-26T04:00:45.818353",
-          "exit_code": 0,
-          "agent_role": "task_planner",
-          "session_token": null
-        },
-        {
-          "container_id": "9ac84a10eb7c0b3dafaef1dc6ade059b43b5d01d850a80d28a72d4693cc396a4",
-          "container_name": "egg-sandbox-egg-issue-904-risk_analyst",
-          "status": "failed",
-          "started_at": "2026-02-26T03:56:45.629264",
-          "exited_at": "2026-02-26T04:02:45.678459",
-          "exit_code": -1,
-          "agent_role": "risk_analyst",
-          "session_token": null
-        }
-      ],
-      "agents": [
-        {
-          "role": "architect",
-          "status": "complete",
-          "container_id": "08ec55a5181c750808fb9053fe51d4a9e604e82e4405db30ad24efd35c6cedf0",
-          "started_at": "2026-02-26T03:49:28.206510",
-          "completed_at": "2026-02-26T03:56:15.073067",
-          "commit": null,
-          "outputs": {},
-          "error": null,
-          "retry_count": 0,
-          "conflicts": [],
-          "plan_phase_id": null
-        },
-        {
-          "role": "task_planner",
-          "status": "complete",
-          "container_id": "7fdc2b167e0bd5b64a4d249f7ba6ee79f6836226f0f2f71a475a354c242ad941",
-          "started_at": "2026-02-26T03:56:45.615817",
-          "completed_at": "2026-02-26T04:00:45.848174",
-          "commit": null,
-          "outputs": {},
-          "error": null,
-          "retry_count": 0,
-          "conflicts": [],
-          "plan_phase_id": null
-        },
-        {
-          "role": "risk_analyst",
-          "status": "failed",
-          "container_id": "9ac84a10eb7c0b3dafaef1dc6ade059b43b5d01d850a80d28a72d4693cc396a4",
-          "started_at": "2026-02-26T03:56:45.629275",
-          "completed_at": "2026-02-26T04:02:45.678594",
-          "commit": null,
-          "outputs": {},
-          "error": "Container not found at orchestrator startup — likely lost during a previous crash",
-          "retry_count": 0,
-          "conflicts": [],
-          "plan_phase_id": null
-        }
-      ],
+      "containers": [],
+      "agents": [],
       "review_cycles": 0,
       "hitl_review_cycles": 0,
       "cycle_timings": [
@@ -223,14 +152,14 @@
       "resolution": "{\"action\": \"approve\"}"
     }
   ],
-  "created_at": "2026-02-26T02:56:53.471151",
-  "updated_at": "2026-02-26T04:02:45.678836",
+  "created_at": "2026-02-26T04:15:33.497460",
+  "updated_at": "2026-02-26T04:15:33.497646",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
   "complexity_tier": "mid",
-  "error": "Pipeline marked FAILED at orchestrator startup: one or more agent containers were not found. Restart via POST /pipelines/{id}/start.",
+  "error": null,
   "plan_phase_waves": null,
   "plan_phase_names": null,
-  "version": 27
+  "version": 28
 }
