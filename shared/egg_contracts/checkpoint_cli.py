@@ -32,7 +32,6 @@ import os
 import re
 import subprocess
 import sys
-from collections.abc import Sequence
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -510,7 +509,7 @@ def _get_checkpoint_repo_from_args(
     """
     checkpoint_repo: str | None = getattr(args, "checkpoint_repo", None)
     if checkpoint_repo:
-        return checkpoint_repo, None
+        return _validate_checkpoint_repo(checkpoint_repo), None
     # Check environment variable
     env_repo = os.environ.get("EGG_CHECKPOINT_REPO")
     if env_repo:
@@ -539,10 +538,9 @@ def _get_checkpoint_repo_from_args(
     return None, source_repo
 
 
-def _print_repo_hint_if_needed(checkpoint_repo: str | None) -> None:
-    """Print a hint to stderr if checkpoint_repo could not be resolved."""
-    if checkpoint_repo is None:
-        print(_CHECKPOINT_REPO_HINT, file=sys.stderr)
+def _print_repo_hint() -> None:
+    """Print a hint to stderr about configuring checkpoint_repo."""
+    print(_CHECKPOINT_REPO_HINT, file=sys.stderr)
 
 
 def _add_checkpoint_resolution_params(params: dict[str, Any], args: argparse.Namespace) -> None:
@@ -628,14 +626,14 @@ def cmd_list(args: argparse.Namespace) -> int:
     if not ref:
         print("No checkpoints found (checkpoint branch does not exist)")
         if checkpoint_repo is None:
-            _print_repo_hint_if_needed(checkpoint_repo)
+            _print_repo_hint()
         return 0
 
     index = load_index_from_ref(ref, repo_path)
     if not index:
         print("No checkpoints found")
         if checkpoint_repo is None:
-            _print_repo_hint_if_needed(checkpoint_repo)
+            _print_repo_hint()
         return 0
 
     summaries = filter_checkpoints_v2(
@@ -656,7 +654,7 @@ def cmd_list(args: argparse.Namespace) -> int:
     if not summaries:
         print("No checkpoints found matching filters")
         if checkpoint_repo is None:
-            _print_repo_hint_if_needed(checkpoint_repo)
+            _print_repo_hint()
         return 0
 
     if args.json:
@@ -706,7 +704,7 @@ def cmd_show(args: argparse.Namespace) -> int:
     if not ref:
         print("No checkpoints found (checkpoint branch does not exist)")
         if checkpoint_repo is None:
-            _print_repo_hint_if_needed(checkpoint_repo)
+            _print_repo_hint()
         return 1
 
     checkpoint: CheckpointV2 | None = None
@@ -795,14 +793,14 @@ def cmd_browse(args: argparse.Namespace) -> int:
     if not ref:
         print("No checkpoints found (checkpoint branch does not exist)")
         if checkpoint_repo is None:
-            _print_repo_hint_if_needed(checkpoint_repo)
+            _print_repo_hint()
         return 0
 
     index = load_index_from_ref(ref, repo_path)
     if not index:
         print("No checkpoints found")
         if checkpoint_repo is None:
-            _print_repo_hint_if_needed(checkpoint_repo)
+            _print_repo_hint()
         return 0
 
     summaries = filter_checkpoints_v2(
@@ -815,7 +813,7 @@ def cmd_browse(args: argparse.Namespace) -> int:
     if not summaries:
         print(f"No checkpoints found for issue #{args.issue}")
         if checkpoint_repo is None:
-            _print_repo_hint_if_needed(checkpoint_repo)
+            _print_repo_hint()
         return 0
 
     if args.json:
@@ -1001,14 +999,14 @@ def cmd_context(args: argparse.Namespace) -> int:
     if not ref:
         print("No checkpoints found (checkpoint branch does not exist)")
         if checkpoint_repo is None:
-            _print_repo_hint_if_needed(checkpoint_repo)
+            _print_repo_hint()
         return 0
 
     index = load_index_from_ref(ref, repo_path)
     if not index:
         print("No checkpoints found")
         if checkpoint_repo is None:
-            _print_repo_hint_if_needed(checkpoint_repo)
+            _print_repo_hint()
         return 0
 
     summaries = filter_checkpoints_v2(
@@ -1024,7 +1022,7 @@ def cmd_context(args: argparse.Namespace) -> int:
     if not summaries:
         print("No checkpoints found matching filters")
         if checkpoint_repo is None:
-            _print_repo_hint_if_needed(checkpoint_repo)
+            _print_repo_hint()
         return 0
 
     if args.json:
@@ -1191,14 +1189,14 @@ def cmd_cost(args: argparse.Namespace) -> int:
     if not ref:
         print("No checkpoints found (checkpoint branch does not exist)")
         if checkpoint_repo is None:
-            _print_repo_hint_if_needed(checkpoint_repo)
+            _print_repo_hint()
         return 0
 
     index = load_index_from_ref(ref, repo_path)
     if not index:
         print("No checkpoints found")
         if checkpoint_repo is None:
-            _print_repo_hint_if_needed(checkpoint_repo)
+            _print_repo_hint()
         return 0
 
     summaries = filter_checkpoints_v2(
@@ -1212,7 +1210,7 @@ def cmd_cost(args: argparse.Namespace) -> int:
     if not summaries:
         print("No checkpoints found matching filters")
         if checkpoint_repo is None:
-            _print_repo_hint_if_needed(checkpoint_repo)
+            _print_repo_hint()
         return 0
 
     # Load full checkpoints to get token_usage and model info
@@ -1318,38 +1316,23 @@ def cmd_cost(args: argparse.Namespace) -> int:
     return 0
 
 
-def _extract_match_snippets(
-    messages: Sequence[tuple[str, str]],
-    text: str,
-) -> list[str]:
-    """Extract matching snippets from (role, content) message pairs.
+def _extract_snippet(searchable: str, text: str, text_lower: str) -> str | None:
+    """Extract a context snippet around the first match of *text* in *searchable*.
 
-    Shared helper used by both the git and HTTP search paths.
-
-    Args:
-        messages: Sequence of ``(role, searchable_content)`` tuples.
-        text: Case-insensitive substring to search for.
-
-    Returns:
-        List of ``"[role] ...snippet..."`` strings with ±80-char context.
+    Returns ``None`` when *text* is not found (case-insensitive).
     """
-    text_lower = text.lower()
-    snippets: list[str] = []
-
-    for role, searchable in messages:
-        if not searchable or text_lower not in searchable.lower():
-            continue
-        idx = searchable.lower().index(text_lower)
-        start = max(0, idx - 80)
-        end = min(len(searchable), idx + len(text) + 80)
-        snippet = searchable[start:end].replace("\n", " ").strip()
-        if start > 0:
-            snippet = "..." + snippet
-        if end < len(searchable):
-            snippet = snippet + "..."
-        snippets.append(f"[{role}] {snippet}")
-
-    return snippets
+    searchable_lower = searchable.lower()
+    if text_lower not in searchable_lower:
+        return None
+    idx = searchable_lower.index(text_lower)
+    start = max(0, idx - 80)
+    end = min(len(searchable), idx + len(text) + 80)
+    snippet = searchable[start:end].replace("\n", " ").strip()
+    if start > 0:
+        snippet = "..." + snippet
+    if end < len(searchable):
+        snippet = snippet + "..."
+    return snippet
 
 
 def _search_checkpoint_transcript(checkpoint: CheckpointV2, text: str) -> list[str]:
@@ -1360,20 +1343,28 @@ def _search_checkpoint_transcript(checkpoint: CheckpointV2, text: str) -> list[s
         text: Case-insensitive substring to search for.
 
     Returns:
-        List of matching snippet strings with context.
+        List of matching snippet strings with context.  Only the first
+        occurrence per message is returned.
     """
     if not checkpoint.transcript or not checkpoint.transcript.messages:
         return []
 
-    messages = [
-        (msg.role.value, msg.content or msg.content_summary or "")
-        for msg in checkpoint.transcript.messages
-    ]
-    return _extract_match_snippets(messages, text)
+    text_lower = text.lower()
+    snippets: list[str] = []
+
+    for msg in checkpoint.transcript.messages:
+        searchable = msg.content or msg.content_summary or ""
+        if not searchable:
+            continue
+        snippet = _extract_snippet(searchable, text, text_lower)
+        if snippet is not None:
+            snippets.append(f"[{msg.role.value}] {snippet}")
+
+    return snippets
 
 
 def _print_search_results(
-    matches: Sequence[tuple[CheckpointSummaryV2 | dict[str, Any], list[str]]],
+    matches: list[tuple[CheckpointSummaryV2 | dict[str, Any], list[str]]],
     text: str,
     args: argparse.Namespace,
 ) -> None:
@@ -1411,8 +1402,9 @@ def _cmd_search_http(args: argparse.Namespace, gateway_url: str) -> int:
         print("No checkpoints found matching filters")
         return 0
 
-    matches: list[tuple[dict[str, Any], list[str]]] = []
+    matches: list[tuple[CheckpointSummaryV2 | dict[str, Any], list[str]]] = []
     text = args.text
+    text_lower = text.lower()
     repo_path = args.repo_path or get_repo_path()
 
     # Resolve once before the loop — avoids O(N) subprocess calls
@@ -1436,14 +1428,18 @@ def _cmd_search_http(args: argparse.Namespace, gateway_url: str) -> int:
             logger.debug("HTTP checkpoint fetch failed: %s", e)
             continue
 
-        # Search transcript messages using shared helper
+        # Search transcript messages
         transcript = cp_data.get("transcript", {})
-        raw_messages = transcript.get("messages", []) if transcript else []
-        messages = [
-            (msg.get("role", "unknown"), msg.get("content") or msg.get("content_summary") or "")
-            for msg in raw_messages
-        ]
-        snippets = _extract_match_snippets(messages, text)
+        messages = transcript.get("messages", []) if transcript else []
+        snippets: list[str] = []
+        for msg in messages:
+            searchable = msg.get("content") or msg.get("content_summary") or ""
+            if not searchable:
+                continue
+            snippet = _extract_snippet(searchable, text, text_lower)
+            if snippet is not None:
+                role = msg.get("role", "unknown")
+                snippets.append(f"[{role}] {snippet}")
 
         if snippets:
             matches.append((s, snippets))
@@ -1472,14 +1468,14 @@ def cmd_search(args: argparse.Namespace) -> int:
     if not ref:
         print("No checkpoints found (checkpoint branch does not exist)")
         if checkpoint_repo is None:
-            _print_repo_hint_if_needed(checkpoint_repo)
+            _print_repo_hint()
         return 0
 
     index = load_index_from_ref(ref, repo_path)
     if not index:
         print("No checkpoints found")
         if checkpoint_repo is None:
-            _print_repo_hint_if_needed(checkpoint_repo)
+            _print_repo_hint()
         return 0
 
     # Filter by metadata first to narrow the search space
@@ -1501,12 +1497,12 @@ def cmd_search(args: argparse.Namespace) -> int:
     if not summaries:
         print("No checkpoints found matching filters")
         if checkpoint_repo is None:
-            _print_repo_hint_if_needed(checkpoint_repo)
+            _print_repo_hint()
         return 0
 
     # Load each full checkpoint and search its transcript
     text = args.text
-    matches: list[tuple[CheckpointSummaryV2, list[str]]] = []
+    matches: list[tuple[CheckpointSummaryV2 | dict[str, Any], list[str]]] = []
     for s in summaries:
         checkpoint = load_checkpoint_from_ref(s.id, ref, repo_path)
         if not checkpoint:
