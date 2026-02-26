@@ -719,6 +719,96 @@ class TestSetupAgentRules:
         # Note: This test relies on /opt/claude-rules/mission.md not existing
         entrypoint.setup_agent_rules(config, logger)
 
+    @patch("os.chown")
+    def test_cleans_up_stale_single_repo_symlink(self, mock_chown, temp_dir):
+        """Stale CLAUDE.md symlink inside a single repo is cleaned up."""
+        repos_dir = temp_dir / "repos"
+        repos_dir.mkdir()
+        repo = repos_dir / "my-project"
+        repo.mkdir()
+        (repo / ".git").mkdir()
+
+        # Create a stale symlink inside the repo (from a previous container run)
+        stale = repo / "CLAUDE.md"
+        stale.symlink_to(temp_dir / "nonexistent" / "CLAUDE.md")
+        assert stale.is_symlink()
+
+        claude_dir = temp_dir / ".claude"
+        claude_dir.mkdir()
+
+        config = MagicMock()
+        config.user_home = temp_dir
+        config.claude_dir = claude_dir
+        config.repos_dir = repos_dir
+        config.runtime_uid = 1000
+        config.runtime_gid = 1000
+
+        rules_dir = temp_dir / "opt-claude-rules"
+        rules_dir.mkdir()
+        (rules_dir / "mission.md").write_text("# Mission")
+
+        logger = entrypoint.Logger(quiet=True)
+
+        original_path_init = Path.__new__
+
+        def patched_path_new(cls, *args, **kwargs):
+            result = original_path_init(cls, *args, **kwargs)
+            if str(result) == "/opt/claude-rules":
+                return rules_dir
+            return result
+
+        with patch.object(Path, "__new__", patched_path_new):
+            entrypoint.setup_agent_rules(config, logger)
+
+        # Stale symlink should be removed
+        assert not stale.exists()
+        assert not stale.is_symlink()
+
+    @patch("os.chown")
+    def test_preserves_real_claude_md_in_single_repo(self, mock_chown, temp_dir):
+        """Real CLAUDE.md file (not symlink) in a repo is NOT removed by cleanup."""
+        repos_dir = temp_dir / "repos"
+        repos_dir.mkdir()
+        repo = repos_dir / "my-project"
+        repo.mkdir()
+        (repo / ".git").mkdir()
+
+        # Create a real CLAUDE.md file (not a symlink)
+        real_file = repo / "CLAUDE.md"
+        real_file.write_text("# Project rules")
+
+        claude_dir = temp_dir / ".claude"
+        claude_dir.mkdir()
+
+        config = MagicMock()
+        config.user_home = temp_dir
+        config.claude_dir = claude_dir
+        config.repos_dir = repos_dir
+        config.runtime_uid = 1000
+        config.runtime_gid = 1000
+
+        rules_dir = temp_dir / "opt-claude-rules"
+        rules_dir.mkdir()
+        (rules_dir / "mission.md").write_text("# Mission")
+
+        logger = entrypoint.Logger(quiet=True)
+
+        original_path_init = Path.__new__
+
+        def patched_path_new(cls, *args, **kwargs):
+            result = original_path_init(cls, *args, **kwargs)
+            if str(result) == "/opt/claude-rules":
+                return rules_dir
+            return result
+
+        with patch.object(Path, "__new__", patched_path_new):
+            entrypoint.setup_agent_rules(config, logger)
+
+        # Real file should be preserved
+        assert real_file.exists()
+        assert not real_file.is_symlink()
+        assert real_file.read_text() == "# Project rules"
+
 
 class TestSetupEggSymlink:
     """Tests for the setup_egg_symlink function."""
@@ -1109,6 +1199,275 @@ class TestChdirToSingleRepo:
 
         assert Path.cwd() == repo
         assert os.environ["EGG_REPO_PATH"] == str(repo)
+
+    def test_single_repo_creates_claude_md_symlink(self, tmp_path, monkeypatch):
+        """With a global CLAUDE.md, symlink is created in the repo directory."""
+        repos_dir = tmp_path / "repos"
+        repos_dir.mkdir()
+        repo = repos_dir / "my-project"
+        repo.mkdir()
+        (repo / ".git").mkdir()
+
+        claude_dir = tmp_path / ".claude"
+        claude_dir.mkdir()
+        global_claude_md = claude_dir / "CLAUDE.md"
+        global_claude_md.write_text("# Rules")
+
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("RUNTIME_UID", "1000")
+        monkeypatch.setenv("RUNTIME_GID", "1000")
+        monkeypatch.delenv("EGG_REPO_PATH", raising=False)
+
+        config = entrypoint.Config()
+        monkeypatch.setattr(type(config), "repos_dir", property(lambda self: repos_dir))
+        monkeypatch.setattr(type(config), "claude_dir", property(lambda self: claude_dir))
+
+        entrypoint._chdir_to_single_repo(config)
+
+        symlink = repo / "CLAUDE.md"
+        assert symlink.is_symlink()
+        assert symlink.resolve() == global_claude_md.resolve()
+
+        # Symlink should be excluded from git tracking via .git/info/exclude
+        exclude_file = repo / ".git" / "info" / "exclude"
+        assert exclude_file.exists()
+        assert "CLAUDE.md" in exclude_file.read_text()
+
+    def test_existing_claude_md_not_overwritten(self, tmp_path, monkeypatch):
+        """Existing CLAUDE.md in repo is not replaced with a symlink."""
+        repos_dir = tmp_path / "repos"
+        repos_dir.mkdir()
+        repo = repos_dir / "my-project"
+        repo.mkdir()
+        (repo / ".git").mkdir()
+        existing = repo / "CLAUDE.md"
+        existing.write_text("# Existing project rules")
+
+        claude_dir = tmp_path / ".claude"
+        claude_dir.mkdir()
+        (claude_dir / "CLAUDE.md").write_text("# Global rules")
+
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("RUNTIME_UID", "1000")
+        monkeypatch.setenv("RUNTIME_GID", "1000")
+        monkeypatch.delenv("EGG_REPO_PATH", raising=False)
+
+        config = entrypoint.Config()
+        monkeypatch.setattr(type(config), "repos_dir", property(lambda self: repos_dir))
+        monkeypatch.setattr(type(config), "claude_dir", property(lambda self: claude_dir))
+
+        entrypoint._chdir_to_single_repo(config)
+
+        assert not existing.is_symlink()
+        assert existing.read_text() == "# Existing project rules"
+
+    def test_multi_repo_creates_claude_md_symlink(self, tmp_path, monkeypatch):
+        """With multiple repos, symlink is created in repos_dir (CWD)."""
+        repos_dir = tmp_path / "repos"
+        repos_dir.mkdir()
+        for name in ("repo-a", "repo-b"):
+            repo = repos_dir / name
+            repo.mkdir()
+            (repo / ".git").mkdir()
+
+        claude_dir = tmp_path / ".claude"
+        claude_dir.mkdir()
+        global_claude_md = claude_dir / "CLAUDE.md"
+        global_claude_md.write_text("# Rules")
+
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("RUNTIME_UID", "1000")
+        monkeypatch.setenv("RUNTIME_GID", "1000")
+        monkeypatch.delenv("EGG_REPO_PATH", raising=False)
+
+        config = entrypoint.Config()
+        monkeypatch.setattr(type(config), "repos_dir", property(lambda self: repos_dir))
+        monkeypatch.setattr(type(config), "claude_dir", property(lambda self: claude_dir))
+
+        entrypoint._chdir_to_single_repo(config)
+
+        symlink = repos_dir / "CLAUDE.md"
+        assert symlink.is_symlink()
+        assert symlink.resolve() == global_claude_md.resolve()
+
+    def test_no_symlink_when_global_claude_md_missing(self, tmp_path, monkeypatch):
+        """No symlink created when global CLAUDE.md doesn't exist."""
+        repos_dir = tmp_path / "repos"
+        repos_dir.mkdir()
+        repo = repos_dir / "my-project"
+        repo.mkdir()
+        (repo / ".git").mkdir()
+
+        claude_dir = tmp_path / ".claude"
+        claude_dir.mkdir()
+        # No CLAUDE.md in claude_dir
+
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("RUNTIME_UID", "1000")
+        monkeypatch.setenv("RUNTIME_GID", "1000")
+        monkeypatch.delenv("EGG_REPO_PATH", raising=False)
+
+        config = entrypoint.Config()
+        monkeypatch.setattr(type(config), "repos_dir", property(lambda self: repos_dir))
+        monkeypatch.setattr(type(config), "claude_dir", property(lambda self: claude_dir))
+
+        entrypoint._chdir_to_single_repo(config)
+
+        assert not (repo / "CLAUDE.md").exists()
+
+    def test_fallback_to_home_creates_claude_md_symlink(self, tmp_path, monkeypatch):
+        """When repos_dir doesn't exist, symlink is created in user home."""
+        repos_dir = tmp_path / "repos"
+        # repos_dir intentionally not created
+
+        user_home = tmp_path / "home"
+        user_home.mkdir()
+
+        claude_dir = tmp_path / ".claude"
+        claude_dir.mkdir()
+        global_claude_md = claude_dir / "CLAUDE.md"
+        global_claude_md.write_text("# Rules")
+
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("RUNTIME_UID", "1000")
+        monkeypatch.setenv("RUNTIME_GID", "1000")
+        monkeypatch.delenv("EGG_REPO_PATH", raising=False)
+
+        config = entrypoint.Config()
+        monkeypatch.setattr(type(config), "repos_dir", property(lambda self: repos_dir))
+        monkeypatch.setattr(type(config), "claude_dir", property(lambda self: claude_dir))
+        monkeypatch.setattr(type(config), "user_home", property(lambda self: user_home))
+
+        entrypoint._chdir_to_single_repo(config)
+
+        symlink = user_home / "CLAUDE.md"
+        assert symlink.is_symlink()
+        assert symlink.resolve() == global_claude_md.resolve()
+
+    def test_broken_symlink_not_overwritten(self, tmp_path, monkeypatch):
+        """A pre-existing broken symlink does not cause FileExistsError."""
+        repos_dir = tmp_path / "repos"
+        repos_dir.mkdir()
+        repo = repos_dir / "my-project"
+        repo.mkdir()
+        (repo / ".git").mkdir()
+
+        # Create a broken symlink (target does not exist)
+        broken_target = tmp_path / "nonexistent" / "CLAUDE.md"
+        broken_symlink = repo / "CLAUDE.md"
+        broken_symlink.symlink_to(broken_target)
+        assert broken_symlink.is_symlink()
+        assert not broken_symlink.exists()  # broken: target missing
+
+        claude_dir = tmp_path / ".claude"
+        claude_dir.mkdir()
+        global_claude_md = claude_dir / "CLAUDE.md"
+        global_claude_md.write_text("# Rules")
+
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("RUNTIME_UID", "1000")
+        monkeypatch.setenv("RUNTIME_GID", "1000")
+        monkeypatch.delenv("EGG_REPO_PATH", raising=False)
+
+        config = entrypoint.Config()
+        monkeypatch.setattr(type(config), "repos_dir", property(lambda self: repos_dir))
+        monkeypatch.setattr(type(config), "claude_dir", property(lambda self: claude_dir))
+
+        # Should not raise FileExistsError
+        entrypoint._chdir_to_single_repo(config)
+
+        # Broken symlink is left as-is (not replaced)
+        assert broken_symlink.is_symlink()
+        assert broken_symlink.readlink() == broken_target
+
+
+class TestExcludeFromGit:
+    """Tests for _exclude_from_git helper."""
+
+    def test_adds_entry_to_git_info_exclude(self, tmp_path):
+        """File path is added to .git/info/exclude."""
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        (repo / ".git").mkdir()
+
+        target = repo / "CLAUDE.md"
+        target.touch()
+
+        entrypoint._exclude_from_git(target)
+
+        exclude = repo / ".git" / "info" / "exclude"
+        assert exclude.exists()
+        assert "CLAUDE.md" in exclude.read_text().splitlines()
+
+    def test_no_duplicate_entries(self, tmp_path):
+        """Calling twice does not create duplicate entries."""
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        (repo / ".git" / "info").mkdir(parents=True)
+
+        target = repo / "CLAUDE.md"
+        target.touch()
+
+        entrypoint._exclude_from_git(target)
+        entrypoint._exclude_from_git(target)
+
+        exclude = repo / ".git" / "info" / "exclude"
+        lines = [line for line in exclude.read_text().splitlines() if line == "CLAUDE.md"]
+        assert len(lines) == 1
+
+    def test_no_git_dir_is_noop(self, tmp_path):
+        """When no .git directory exists, does nothing."""
+        target = tmp_path / "CLAUDE.md"
+        target.touch()
+
+        # Should not raise
+        entrypoint._exclude_from_git(target)
+
+        # No .git/info/exclude created
+        assert not (tmp_path / ".git").exists()
+
+    def test_git_file_not_directory_is_noop(self, tmp_path):
+        """When .git is a regular file (not dir or worktree), does nothing.
+
+        In production, .git is a /dev/null bind mount (character device).
+        This test uses a plain file to simulate .git not being a directory
+        and not containing a valid gitdir: pointer.
+        """
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        # .git as a plain file (simulates /dev/null bind mount scenario)
+        (repo / ".git").write_text("")
+
+        target = repo / "CLAUDE.md"
+        target.touch()
+
+        # Should not raise and should not create any exclude file
+        entrypoint._exclude_from_git(target)
+
+        # .git is still just a file, no info/exclude was created
+        assert (repo / ".git").is_file()
+        assert not (repo / ".git").is_dir()
+
+    def test_git_worktree_file_resolves_gitdir(self, tmp_path):
+        """When .git is a worktree file with gitdir: pointer, writes to the real git dir."""
+        repo = tmp_path / "repo"
+        repo.mkdir()
+
+        # Simulate the real git metadata directory (as in a worktree)
+        real_git_dir = tmp_path / "real-git-dir"
+        real_git_dir.mkdir()
+
+        # .git is a file pointing to the real git dir
+        (repo / ".git").write_text(f"gitdir: {real_git_dir}")
+
+        target = repo / "CLAUDE.md"
+        target.touch()
+
+        entrypoint._exclude_from_git(target)
+
+        exclude = real_git_dir / "info" / "exclude"
+        assert exclude.exists()
+        assert "CLAUDE.md" in exclude.read_text().splitlines()
 
 
 class TestSignalOrchestratorCompletion:

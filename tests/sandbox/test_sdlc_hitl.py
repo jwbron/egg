@@ -10,6 +10,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "sandbox"))
 from egg_lib.orch_client import OrchestratorError
 from egg_lib.sdlc_hitl import (
     _detect_phase,
+    _display_in_pager,
     _find_repo_path,
     _get_contract_key,
     _get_draft_path,
@@ -558,6 +559,92 @@ class TestHandleHitlCheckpoint:
 
 
 # ---------------------------------------------------------------------------
+# Phase field in decision dict tests
+# ---------------------------------------------------------------------------
+
+
+class TestDecisionPhaseField:
+    """Tests for explicit 'phase' field in decision dict vs _detect_phase fallback."""
+
+    def _make_client(self):
+        client = MagicMock(spec=["resolve_decision", "cancel_pipeline"])
+        client.resolve_decision.return_value = {"status": "resolved"}
+        return client
+
+    @patch("egg_lib.sdlc_hitl._find_repo_path")
+    @patch("egg_lib.sdlc_hitl._get_draft_path")
+    @patch("builtins.input")
+    def test_explicit_phase_overrides_detect(
+        self, mock_input, mock_draft_path, mock_repo, tmp_path
+    ):
+        """When decision dict has an explicit 'phase', it is used instead of regex detection."""
+        mock_repo.return_value = tmp_path
+        mock_draft_path.return_value = None
+        mock_input.return_value = "3"  # approve
+
+        client = self._make_client()
+        # Question text says "refine" but explicit phase is "plan"
+        decision = {
+            "id": "d1",
+            "question": "Approve the refine analysis?",
+            "context": "",
+            "phase": "plan",
+        }
+
+        handle_hitl_checkpoint(client, "issue-1", decision, pipeline_mode="issue", issue_number=1)
+
+        # _get_draft_path should have been called with "plan", not "refine"
+        mock_draft_path.assert_called_once_with("plan", "issue", 1, "issue-1")
+
+    @patch("egg_lib.sdlc_hitl._find_repo_path")
+    @patch("egg_lib.sdlc_hitl._get_draft_path")
+    @patch("builtins.input")
+    def test_missing_phase_falls_back_to_detect(
+        self, mock_input, mock_draft_path, mock_repo, tmp_path
+    ):
+        """When decision dict has no 'phase' key, _detect_phase is used."""
+        mock_repo.return_value = tmp_path
+        mock_draft_path.return_value = None
+        mock_input.return_value = "3"
+
+        client = self._make_client()
+        decision = {
+            "id": "d1",
+            "question": "Approve the refine analysis?",
+            "context": "",
+        }
+
+        handle_hitl_checkpoint(client, "issue-1", decision, pipeline_mode="issue", issue_number=1)
+
+        # _detect_phase should resolve "refine" from the question text
+        mock_draft_path.assert_called_once_with("refine", "issue", 1, "issue-1")
+
+    @patch("egg_lib.sdlc_hitl._find_repo_path")
+    @patch("egg_lib.sdlc_hitl._get_draft_path")
+    @patch("builtins.input")
+    def test_none_phase_falls_back_to_detect(
+        self, mock_input, mock_draft_path, mock_repo, tmp_path
+    ):
+        """When decision dict has phase=None, _detect_phase is used as fallback."""
+        mock_repo.return_value = tmp_path
+        mock_draft_path.return_value = None
+        mock_input.return_value = "3"
+
+        client = self._make_client()
+        decision = {
+            "id": "d1",
+            "question": "Ready to implement?",
+            "context": "",
+            "phase": None,
+        }
+
+        handle_hitl_checkpoint(client, "issue-1", decision, pipeline_mode="issue", issue_number=1)
+
+        # _detect_phase should resolve "implement" from the question text
+        mock_draft_path.assert_called_once_with("implement", "issue", 1, "issue-1")
+
+
+# ---------------------------------------------------------------------------
 # _launch_claude unit tests
 # ---------------------------------------------------------------------------
 
@@ -566,30 +653,48 @@ class TestLaunchClaude:
     """Unit tests for _launch_claude command construction."""
 
     @patch("egg_lib.sdlc_hitl.subprocess.run")
-    def test_with_draft_context(self, mock_run, tmp_path):
-        """When draft_rel is provided, --append-system-prompt is added."""
+    @patch("llm.runner.shutil.which", return_value="/usr/bin/claude")
+    def test_with_draft_context(self, mock_which, mock_run, tmp_path):
+        """When draft_rel is provided, --append-system-prompt includes rules and context."""
         _launch_claude(tmp_path, draft_rel="drafts/42-analysis.md", phase="refine", issue_number=42)
         mock_run.assert_called_once()
         cmd = mock_run.call_args[0][0]
-        assert cmd[0] == "claude"
+        assert cmd[0] == "/usr/bin/claude"
+        assert "--dangerously-skip-permissions" in cmd
         assert "--append-system-prompt" in cmd
         prompt_idx = cmd.index("--append-system-prompt")
         prompt_text = cmd[prompt_idx + 1]
+        # Rules text should be included
+        assert "HITL Draft Editing Session" in prompt_text
+        # Context-specific parts
         assert "refine" in prompt_text
         assert "#42" in prompt_text
         assert "drafts/42-analysis.md" in prompt_text
 
     @patch("egg_lib.sdlc_hitl.subprocess.run")
-    def test_without_draft_context(self, mock_run, tmp_path):
-        """When draft_rel is None, bare 'claude' command is used."""
+    @patch("llm.runner.shutil.which", return_value="/usr/bin/claude")
+    def test_without_draft_context(self, mock_which, mock_run, tmp_path):
+        """When draft_rel is None, command still includes rules and phase/issue context."""
         _launch_claude(tmp_path, draft_rel=None, phase="implement", issue_number=10)
         mock_run.assert_called_once()
         cmd = mock_run.call_args[0][0]
-        assert cmd == ["claude"]
+        assert cmd[0] == "/usr/bin/claude"
+        assert "--dangerously-skip-permissions" in cmd
+        # Rules are still injected even without a draft
+        assert "--append-system-prompt" in cmd
+        prompt_idx = cmd.index("--append-system-prompt")
+        prompt_text = cmd[prompt_idx + 1]
+        assert "HITL Draft Editing Session" in prompt_text
+        # Phase and issue context are injected regardless of draft_rel
+        assert "implement" in prompt_text
+        assert "#10" in prompt_text
+        # Draft-specific text should NOT appear
+        assert "Draft file:" not in prompt_text
         assert mock_run.call_args[1]["cwd"] == str(tmp_path)
 
     @patch("egg_lib.sdlc_hitl.subprocess.run")
-    def test_with_draft_but_no_phase_or_issue(self, mock_run, tmp_path):
+    @patch("llm.runner.shutil.which", return_value="/usr/bin/claude")
+    def test_with_draft_but_no_phase_or_issue(self, mock_which, mock_run, tmp_path):
         """When draft_rel is set but phase/issue are None, prompt still includes draft."""
         _launch_claude(tmp_path, draft_rel="drafts/1-plan.md", phase=None, issue_number=None)
         mock_run.assert_called_once()
@@ -601,6 +706,15 @@ class TestLaunchClaude:
         # Phase and issue should not appear in the prompt
         assert "Current phase:" not in prompt_text
         assert "Issue: #" not in prompt_text
+
+    @patch("egg_lib.sdlc_hitl.subprocess.run")
+    @patch("llm.runner.shutil.which", return_value=None)
+    def test_claude_not_found(self, mock_which, mock_run, tmp_path, capsys):
+        """When claude binary is not found, prints error and returns."""
+        _launch_claude(tmp_path, draft_rel="drafts/1-plan.md")
+        mock_run.assert_not_called()
+        captured = capsys.readouterr()
+        assert "Claude CLI not found" in captured.out
 
 
 # ---------------------------------------------------------------------------
@@ -673,9 +787,10 @@ class TestHandlePhaseGate:
         assert resolution["feedback"] == "Fix the error handling"
 
     @patch("egg_lib.sdlc_hitl._find_repo_path")
+    @patch("egg_lib.sdlc_hitl._display_in_pager")
     @patch("builtins.input")
-    def test_shows_draft_preview(self, mock_input, mock_repo, tmp_path, capsys):
-        """Phase gate shows draft preview."""
+    def test_shows_document_in_pager(self, mock_input, mock_pager, mock_repo, tmp_path):
+        """Phase gate shows full document in pager."""
         mock_repo.return_value = tmp_path
         mock_input.return_value = "3"
 
@@ -688,8 +803,7 @@ class TestHandlePhaseGate:
             issue_number=42,
         )
 
-        captured = capsys.readouterr()
-        assert "Draft Preview" in captured.out
+        mock_pager.assert_called_once_with("Draft content here")
 
     @patch("egg_lib.sdlc_hitl._find_repo_path")
     @patch("builtins.input")
@@ -2690,3 +2804,182 @@ class TestContractDecisionBridge:
         assert data["decisions"][0]["resolution"] == "PostgreSQL"
         # Second decision skipped (still unresolved)
         assert data["decisions"][1]["resolved"] is False
+
+
+# ---------------------------------------------------------------------------
+# _display_in_pager tests
+# ---------------------------------------------------------------------------
+
+
+class TestDisplayInPager:
+    """Tests for the _display_in_pager function."""
+
+    @patch("egg_lib.sdlc_hitl.subprocess.run")
+    def test_launches_pager_with_default(self, mock_run, monkeypatch):
+        """Launches $PAGER (default less -R) with content in a temp file."""
+        monkeypatch.delenv("PAGER", raising=False)
+        mock_run.return_value = MagicMock(returncode=0)
+
+        _display_in_pager("# Hello\nWorld")
+
+        mock_run.assert_called_once()
+        cmd = mock_run.call_args[0][0]
+        assert cmd[0] == "less"
+        assert cmd[1] == "-R"
+        # Third element is the temp file path
+        assert len(cmd) == 3
+
+    @patch("egg_lib.sdlc_hitl.subprocess.run")
+    def test_uses_custom_pager(self, mock_run, monkeypatch):
+        """Uses $PAGER env var when set."""
+        monkeypatch.setenv("PAGER", "more")
+        mock_run.return_value = MagicMock(returncode=0)
+
+        _display_in_pager("content")
+
+        cmd = mock_run.call_args[0][0]
+        assert cmd[0] == "more"
+
+    @patch("egg_lib.sdlc_hitl.subprocess.run")
+    def test_falls_back_on_pager_failure(self, mock_run, monkeypatch, capsys):
+        """Falls back to printing when pager exits with non-zero."""
+        monkeypatch.delenv("PAGER", raising=False)
+        mock_run.return_value = MagicMock(returncode=1)
+
+        _display_in_pager("fallback content")
+
+        captured = capsys.readouterr()
+        assert "fallback content" in captured.out
+
+    @patch("egg_lib.sdlc_hitl.subprocess.run")
+    def test_falls_back_on_file_not_found(self, mock_run, monkeypatch, capsys):
+        """Falls back to printing when pager command not found."""
+        monkeypatch.delenv("PAGER", raising=False)
+        mock_run.side_effect = FileNotFoundError("less not found")
+
+        _display_in_pager("fallback on missing pager")
+
+        captured = capsys.readouterr()
+        assert "fallback on missing pager" in captured.out
+
+    @patch("egg_lib.sdlc_hitl.subprocess.run")
+    def test_passes_stdin_stdout_stderr(self, mock_run, monkeypatch):
+        """Passes stdin/stdout/stderr for TTY interaction."""
+        monkeypatch.delenv("PAGER", raising=False)
+        mock_run.return_value = MagicMock(returncode=0)
+
+        _display_in_pager("content")
+
+        kwargs = mock_run.call_args[1]
+        assert kwargs["stdin"] is sys.stdin
+        assert kwargs["stdout"] is sys.stdout
+        assert kwargs["stderr"] is sys.stderr
+
+
+# ---------------------------------------------------------------------------
+# Phase gate [v] view option tests
+# ---------------------------------------------------------------------------
+
+
+class TestPhaseGateViewOption:
+    """Tests for the [v] view full document option in phase gate menu."""
+
+    def _make_client(self):
+        client = MagicMock(spec=["resolve_decision", "cancel_pipeline"])
+        client.resolve_decision.return_value = {"status": "resolved"}
+        client.cancel_pipeline.return_value = {"status": "cancelled"}
+        return client
+
+    @patch("egg_lib.sdlc_hitl._find_repo_path")
+    @patch("egg_lib.sdlc_hitl._display_in_pager")
+    @patch("builtins.input")
+    def test_view_option_opens_pager(self, mock_input, mock_pager, mock_repo, tmp_path):
+        """[v] option opens the document in the pager, then returns to menu."""
+        mock_repo.return_value = tmp_path
+        # 'v' to view, then '3' to approve
+        mock_input.side_effect = ["v", "3"]
+
+        client = self._make_client()
+        decision = {
+            "id": "d1",
+            "question": "The refine phase has completed. Please review the analysis.",
+            "context": "Full document content here",
+            "decision_type": "phase_gate",
+            "options": ["approve", "request changes"],
+        }
+        result = handle_hitl_checkpoint(
+            client,
+            "issue-42",
+            decision,
+            pipeline_mode="issue",
+            issue_number=42,
+        )
+
+        assert result == "resolved"
+        # Pager called twice: once on initial display, once on [v]
+        assert mock_pager.call_count == 2
+        mock_pager.assert_any_call("Full document content here")
+
+    @patch("egg_lib.sdlc_hitl._find_repo_path")
+    @patch("egg_lib.sdlc_hitl._display_in_pager")
+    @patch("builtins.input")
+    def test_view_option_not_shown_without_draft(
+        self, mock_input, mock_pager, mock_repo, tmp_path, capsys
+    ):
+        """[v] option is not available when there is no draft content."""
+        mock_repo.return_value = tmp_path
+        # 'v' is invalid (no draft), then '3' to approve
+        mock_input.side_effect = ["v", "3"]
+
+        client = self._make_client()
+        decision = {
+            "id": "d1",
+            "question": "Ready to implement?",
+            "context": "",
+            "decision_type": "phase_gate",
+            "options": ["approve", "request changes"],
+        }
+        result = handle_hitl_checkpoint(
+            client,
+            "issue-42",
+            decision,
+            pipeline_mode="issue",
+            issue_number=42,
+        )
+
+        assert result == "resolved"
+        # Pager should not have been called (no draft content)
+        mock_pager.assert_not_called()
+        # Prompt text should not advertise [v] when there is no draft
+        captured = capsys.readouterr()
+        assert "[v]" not in captured.out  # menu item not printed
+        # Verify the prompt string passed to input() also omits /v
+        prompt_args = [call.args[0] for call in mock_input.call_args_list if call.args]
+        assert all("/v" not in p for p in prompt_args)
+
+    @patch("egg_lib.sdlc_hitl._find_repo_path")
+    @patch("egg_lib.sdlc_hitl._display_in_pager")
+    @patch("builtins.input")
+    def test_initial_pager_called_for_phase_gate(self, mock_input, mock_pager, mock_repo, tmp_path):
+        """Phase gate calls pager (not preview) on initial display."""
+        mock_repo.return_value = tmp_path
+        mock_input.return_value = "3"
+
+        client = self._make_client()
+        decision = {
+            "id": "d1",
+            "question": "The refine phase has completed. Please review the analysis.",
+            "context": "Analysis document content",
+            "decision_type": "phase_gate",
+            "options": ["approve", "request changes"],
+        }
+        result = handle_hitl_checkpoint(
+            client,
+            "issue-42",
+            decision,
+            pipeline_mode="issue",
+            issue_number=42,
+        )
+
+        assert result == "resolved"
+        mock_pager.assert_called_once_with("Analysis document content")

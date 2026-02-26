@@ -306,6 +306,37 @@ def _display_draft_preview(content: str, max_lines: int = 40) -> None:
     print(f"{BOLD}--- End Preview ---{RESET}\n")
 
 
+def _display_in_pager(content: str) -> None:
+    """Display content in $PAGER (default: less -R) for full-document scrolling.
+
+    Falls back to printing the full content if the pager is unavailable or fails
+    (e.g., non-TTY environment).
+    """
+    pager = os.environ.get("PAGER", "less -R")
+    try:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False) as f:
+            f.write(content)
+            tmp_path = f.name
+        try:
+            result = subprocess.run(
+                [*shlex.split(pager), tmp_path],
+                stdin=sys.stdin,
+                stdout=sys.stdout,
+                stderr=sys.stderr,
+            )
+            if result.returncode != 0:
+                print(content)
+        except (FileNotFoundError, OSError):
+            print(content)
+        finally:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+    except OSError:
+        print(content)
+
+
 def _launch_editor(file_path: Path) -> bool:
     """Launch the user's preferred editor on the file.
 
@@ -335,20 +366,37 @@ def _launch_claude(
     issue_number: int | None = None,
 ) -> None:
     """Launch an interactive Claude Code session with draft context."""
-    cmd = ["claude"]
+    from llm.runner import build_claude_cmd
 
-    # Inject context so Claude knows which draft to edit
+    try:
+        cmd = build_claude_cmd()
+    except FileNotFoundError:
+        print(f"{RED}Claude CLI not found. Is it installed?{RESET}")
+        return
+
+    # Load HITL editing rules
+    rules_path = Path(__file__).parent / "data" / "hitl_editing_rules.md"
+    rules_text = rules_path.read_text(encoding="utf-8") if rules_path.exists() else ""
+
+    # Build context-specific prompt
+    prompt_parts: list[str] = []
+    if rules_text:
+        prompt_parts.append(rules_text)
+    context_parts: list[str] = []
+    if phase:
+        context_parts.append(f"Current phase: {phase}.")
+    if issue_number is not None:
+        context_parts.append(f"Issue: #{issue_number}.")
     if draft_rel:
-        parts = ["You are helping review/edit a draft in an SDLC pipeline."]
-        if phase:
-            parts.append(f"Current phase: {phase}.")
-        if issue_number:
-            parts.append(f"Issue: #{issue_number}.")
-        parts.append(
+        context_parts.append(
             f"Draft file: {draft_rel}. "
             f"Start by reading `{draft_rel}` and showing its content to the user."
         )
-        cmd.extend(["--append-system-prompt", " ".join(parts)])
+    if context_parts:
+        prompt_parts.append(" ".join(context_parts))
+
+    if prompt_parts:
+        cmd.extend(["--append-system-prompt", "\n\n".join(prompt_parts)])
 
     try:
         subprocess.run(
@@ -358,8 +406,6 @@ def _launch_claude(
             stdout=sys.stdout,
             stderr=sys.stderr,
         )
-    except FileNotFoundError:
-        print(f"{RED}Claude CLI not found. Is it installed?{RESET}")
     except Exception as e:
         print(f"{RED}Failed to launch Claude: {e}{RESET}")
 
@@ -504,6 +550,8 @@ def _handle_phase_gate(
         )
 
         print(f"\n  {BOLD}Options:{RESET}")
+        if draft_content:
+            print(f"  {CYAN}[v]{RESET} View full document")
         print(f"  {CYAN}[1]{RESET} Edit with $EDITOR ({os.environ.get('EDITOR', 'vim')})")
         print(f"  {CYAN}[2]{RESET} Start Claude for AI-assisted editing")
         print(f"  {CYAN}[3]{RESET} Approve and advance to next phase")
@@ -514,16 +562,22 @@ def _handle_phase_gate(
             print(f"\n  {YELLOW}[q]{RESET} Answer open questions ({n} pending)")
 
         valid = {"1", "2", "3", "4", "f", "a", "c"}
+        if draft_content:
+            valid.add("v")
         if pending_contract:
             valid.add("q")
-        choice = _prompt_choice(
-            f"\n  {BOLD}Choose [1-4/f/a/c{'/' + 'q' if pending_contract else ''}]:{RESET} ", valid
-        )
+        v_hint = "/v" if draft_content else ""
+        q_hint = "/q" if pending_contract else ""
+        choice = _prompt_choice(f"\n  {BOLD}Choose [1-4{v_hint}/f/a/c{q_hint}]:{RESET} ", valid)
 
         # Check universal options first
         result = _handle_universal_option(choice, client, pipeline_id, decision_id)
         if result:
             return result
+
+        if choice == "v" and draft_content:
+            _display_in_pager(draft_content)
+            continue
 
         if choice == "1":
             if draft_path:
@@ -879,8 +933,9 @@ def handle_hitl_checkpoint(
     context = decision.get("context", "")
     decision_type = decision.get("decision_type", "choice")
 
-    # Determine current phase from the question or context
-    phase = _detect_phase(question, context)
+    # Use explicit phase from decision if available, fall back to regex detection
+    raw_phase = decision.get("phase")
+    phase = raw_phase if raw_phase is not None else _detect_phase(question, context)
 
     # Find and read the draft
     repo_path = _find_repo_path()
@@ -901,10 +956,10 @@ def handle_hitl_checkpoint(
     print(f"  {BOLD}Phase:{RESET}    {phase}")
     print(f"  {BOLD}Question:{RESET} {question}")
 
-    # Show draft preview for phase gates
+    # Show full document in pager for phase gates
     if decision_type == "phase_gate":
         if draft_content:
-            _display_draft_preview(draft_content)
+            _display_in_pager(draft_content)
         elif draft_rel:
             print(f"\n  {DIM}Draft file: {draft_rel} (not found){RESET}")
 

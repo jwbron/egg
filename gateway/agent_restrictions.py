@@ -363,6 +363,7 @@ _PLAN_AGENT_BLOCKED = [
     "tests/",
     "test/",
     ".egg-state/contracts/",
+    ".egg-state/reviews/",
     ".github/",
 ]
 

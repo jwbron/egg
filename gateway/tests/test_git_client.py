@@ -95,28 +95,59 @@ class TestIsReposParentDirectory:
 
 
 class TestNormalizeFlag:
-    """Tests for flag normalization."""
+    """Tests for per-subcommand flag normalization."""
 
-    def test_short_flag_normalized(self):
-        """Short flags should be normalized to long form."""
-        assert normalize_flag("-a") == "--all"
-        assert normalize_flag("-v") == "--verbose"
-        assert normalize_flag("-f") == "--force"
+    def test_short_flag_normalized_with_operation(self):
+        """Short flags should be normalized to long form for the given operation."""
+        assert normalize_flag("-a", "fetch") == "--all"
+        assert normalize_flag("-v", "fetch") == "--verbose"
+        assert normalize_flag("-f", "push") == "--force"
 
     def test_long_flag_unchanged(self):
         """Long flags should remain unchanged."""
-        assert normalize_flag("--all") == "--all"
-        assert normalize_flag("--verbose") == "--verbose"
+        assert normalize_flag("--all", "fetch") == "--all"
+        assert normalize_flag("--verbose", "push") == "--verbose"
 
     def test_unknown_flag_unchanged(self):
         """Unknown flags should remain unchanged."""
-        assert normalize_flag("--unknown") == "--unknown"
-        assert normalize_flag("-x") == "-x"
+        assert normalize_flag("--unknown", "fetch") == "--unknown"
+        assert normalize_flag("-x", "push") == "-x"
 
     def test_flag_with_value_normalized(self):
         """Flags with values should have base normalized."""
-        assert normalize_flag("-n=5") == "--dry-run=5"
-        assert normalize_flag("--depth=5") == "--depth=5"
+        assert normalize_flag("-n=5", "push") == "--dry-run=5"
+        assert normalize_flag("--depth=5", "fetch") == "--depth=5"
+
+    def test_no_operation_returns_flag_unchanged(self):
+        """When no operation is given, flags are returned as-is."""
+        assert normalize_flag("-a") == "-a"
+        assert normalize_flag("-n") == "-n"
+
+    def test_u_normalizes_differently_per_subcommand(self):
+        """-u normalizes to different long forms depending on the subcommand."""
+        assert normalize_flag("-u", "push") == "--set-upstream"
+        assert normalize_flag("-u", "stash") == "--include-untracked"
+        assert normalize_flag("-u", "add") == "--update"
+        assert normalize_flag("-u", "ls-files") == "--unmerged"
+
+    def test_n_normalizes_differently_per_subcommand(self):
+        """-n normalizes to different long forms depending on the subcommand."""
+        assert normalize_flag("-n", "push") == "--dry-run"
+        assert normalize_flag("-n", "cherry-pick") == "--no-commit"
+        assert normalize_flag("-n", "add") == "--intent-to-add"
+        assert normalize_flag("-n", "blame") == "--show-number"
+        assert normalize_flag("-n", "clean") == "--dry-run"
+
+    def test_c_normalizes_for_switch(self):
+        """-c normalizes to --create for switch."""
+        assert normalize_flag("-c", "switch") == "--create"
+        assert normalize_flag("-c", "ls-files") == "--cached"
+
+    def test_t_normalizes_per_subcommand(self):
+        """-t normalizes differently for fetch vs checkout."""
+        assert normalize_flag("-t", "fetch") == "--tags"
+        assert normalize_flag("-t", "checkout") == "--track"
+        assert normalize_flag("-t", "switch") == "--track"
 
 
 class TestValidateGitArgs:
@@ -155,8 +186,6 @@ class TestValidateGitArgs:
 
     def test_non_flag_args_passed_through(self):
         """Non-flag arguments should pass through."""
-        # Use --max-count instead of -n because -n is globally normalized to --dry-run
-        # (for git push), not --max-count (for git log)
         valid, _error, normalized = validate_git_args("log", ["--max-count=5", "main"])
         assert valid
         assert "main" in normalized
@@ -234,6 +263,69 @@ class TestValidateGitArgs:
         assert not valid
         assert "not allowed" in error.lower()
 
+    # --- Regression tests for per-subcommand flag normalization ---
+
+    def test_stash_u_accepted(self):
+        """git stash -u should work (normalizes to --include-untracked)."""
+        valid, _error, normalized = validate_git_args("stash", ["-u"])
+        assert valid
+        assert "--include-untracked" in normalized
+
+    def test_add_u_accepted(self):
+        """git add -u should work (normalizes to --update)."""
+        valid, _error, normalized = validate_git_args("add", ["-u"])
+        assert valid
+        assert "--update" in normalized
+
+    def test_switch_c_accepted(self):
+        """git switch -c should work (normalizes to --create)."""
+        valid, _error, normalized = validate_git_args("switch", ["-c", "new-branch"])
+        assert valid
+        assert "--create" in normalized
+
+    def test_ls_files_u_accepted(self):
+        """git ls-files -u should work (normalizes to --unmerged)."""
+        valid, _error, normalized = validate_git_args("ls-files", ["-u"])
+        assert valid
+        assert "--unmerged" in normalized
+
+    def test_ls_files_c_accepted(self):
+        """git ls-files -c should work (normalizes to --cached)."""
+        valid, _error, normalized = validate_git_args("ls-files", ["-c"])
+        assert valid
+        assert "--cached" in normalized
+
+    def test_cherry_pick_n_normalizes_to_no_commit(self):
+        """git cherry-pick -n should normalize to --no-commit, not --dry-run."""
+        valid, _error, normalized = validate_git_args("cherry-pick", ["-n", "abc123"])
+        assert valid
+        assert "--no-commit" in normalized
+        assert "--dry-run" not in normalized
+
+    def test_push_u_normalizes_to_set_upstream(self):
+        """git push -u should still normalize to --set-upstream."""
+        valid, _error, normalized = validate_git_args("push", ["-u", "origin", "main"])
+        assert valid
+        assert "--set-upstream" in normalized
+
+    def test_upload_pack_long_form_still_blocked(self):
+        """--upload-pack should still be blocked even though -u is not."""
+        valid, error, _normalized = validate_git_args("fetch", ["--upload-pack=/evil"])
+        assert not valid
+        assert "not allowed" in error.lower()
+
+    def test_config_long_form_still_blocked(self):
+        """--config should still be blocked even though -c is not."""
+        valid, error, _normalized = validate_git_args("fetch", ["--config=evil"])
+        assert not valid
+        assert "not allowed" in error.lower()
+
+    def test_checkout_t_normalizes_to_track(self):
+        """git checkout -t should normalize to --track (not --tags)."""
+        valid, _error, normalized = validate_git_args("checkout", ["-t", "origin/feature"])
+        assert valid
+        assert "--track" in normalized
+
 
 class TestGitAllowedCommands:
     """Tests for the allowed commands configuration."""
@@ -276,12 +368,16 @@ class TestBlockedGitFlags:
     """Tests for blocked flags configuration."""
 
     def test_dangerous_flags_blocked(self):
-        """Known dangerous flags should be blocked."""
+        """Known dangerous long-form flags should be blocked."""
         assert "--upload-pack" in BLOCKED_GIT_FLAGS
         assert "--exec" in BLOCKED_GIT_FLAGS
-        assert "-c" in BLOCKED_GIT_FLAGS
         assert "--config" in BLOCKED_GIT_FLAGS
         assert "--receive-pack" in BLOCKED_GIT_FLAGS
+
+    def test_short_u_and_c_not_globally_blocked(self):
+        """-u and -c should NOT be globally blocked (they are safe per-subcommand)."""
+        assert "-u" not in BLOCKED_GIT_FLAGS
+        assert "-c" not in BLOCKED_GIT_FLAGS
 
 
 class TestSshUrlConversion:
@@ -573,9 +669,8 @@ class TestIsBranchSwitchingCheckout:
     def test_checkout_track_is_switching(self):
         """git checkout --track <remote-branch> is branch switching."""
         assert is_branch_switching_checkout(["--track", "origin/feature"])
-        # Note: -t is NOT tested here because FLAG_NORMALIZATION maps -t to
-        # --tags, so validate_git_args() rejects `git checkout -t` before it
-        # ever reaches is_branch_switching_checkout().
+        # Note: -t is normalized to --track for checkout (per-subcommand),
+        # so validate_git_args() normalizes it before is_branch_switching_checkout() sees it.
 
 
 class TestIsBranchSwitchingOperation:

@@ -150,7 +150,7 @@ Phase approval is a simpler mechanism for advancing the pipeline at HITL gates.
 3. When the human checks the `[x] Approve` checkbox, the orchestrator detects the change
 4. The contract phase is updated and the next pipeline phase is triggered
 
-In **local mode**, the orchestrator handles phase approval via its decision queue with `decision_type="phase_gate"`. The terminal renders a draft preview and offers edit, approve, and request-changes options. A circuit breaker (`max_hitl_review_cycles`, default 3) prevents unbounded revision loops.
+In **local mode**, the orchestrator handles phase approval via its decision queue with `decision_type="phase_gate"`. The terminal displays the full document in a pager (default: `less -R`) and offers view, edit, approve, and request-changes options. A circuit breaker (`max_hitl_review_cycles`, default 3) prevents unbounded revision loops.
 
 ### Key Differences from Decisions
 
@@ -214,7 +214,7 @@ In local mode (`egg-sdlc`), the HITL checkpoint handler (`sandbox/egg_lib/sdlc_h
 
 | Type | Field Value | Terminal Behavior |
 |------|-------------|-------------------|
-| Phase gate | `phase_gate` | Shows draft preview, offers edit/approve/request-changes, and surfaces pending contract decisions via `[q]` option |
+| Phase gate | `phase_gate` | Displays full document in pager, offers view/edit/approve/request-changes options, and surfaces pending contract decisions via `[q]` option |
 | Choice | `choice` | Renders numbered options for selection |
 | Feedback | `feedback` | Prompts for each question individually, supports review-before-submit |
 
@@ -252,6 +252,7 @@ client.create_decision(
     question="Which database should we use?",
     options=["PostgreSQL", "MongoDB", "SQLite"],
     decision_type="choice",
+    phase="plan",  # Optional: tracks which phase created the decision
 )
 
 client.create_decision(
@@ -262,14 +263,15 @@ client.create_decision(
         {"id": "q1", "question": "What is the expected traffic volume?"},
         {"id": "q2", "question": "Any specific performance requirements?"},
     ],
+    phase="refine",  # Optional: helps sandbox locate correct draft paths
 )
 ```
 
-The orchestrator API (`POST /api/v1/pipelines/{id}/decisions`) accepts `decision_type` and `questions` fields in the request body.
+Both `OrchClient.create_decision()` and the underlying orchestrator API (`POST /api/v1/pipelines/{id}/decisions`) accept `decision_type`, `questions`, and `phase` fields. The `phase` field is optional but recommended — it tracks which pipeline phase created the decision and helps the HITL handler locate the correct draft paths (e.g., `.egg-state/drafts/900-plan.md` instead of `.egg-state/drafts/900-unknown.md`).
 
 ## Related Files
 
-- `orchestrator/models.py` — `HITLDecision` model with `decision_type` and `questions` fields
+- `orchestrator/models.py` — `HITLDecision` model with `decision_type`, `questions`, and `phase` fields
 - `orchestrator/decision_queue.py` — Decision queue handling typed decisions
 - `orchestrator/routes/decisions.py` — Decision API endpoints (create, list, resolve)
 - `orchestrator/routes/pipelines.py` — Phase gate resolution with JSON payload parsing
