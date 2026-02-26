@@ -83,10 +83,26 @@
       "created_at": "2026-02-26T02:06:02.572185",
       "resolved_at": null,
       "resolution": null
+    },
+    {
+      "id": "decision-2",
+      "question": "How should directory-sibling expansion work when a specific file is listed in files_affected?",
+      "context": "",
+      "options": [
+        "Shallow (dir/*) — only immediate children of the parent directory",
+        "Recursive (dir/**) — all descendants of the parent directory",
+        "No auto-expansion — only the exact files and explicit globs in the plan"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-02-26T02:06:07.033926",
+      "resolved_at": null,
+      "resolution": null
     }
   ],
   "created_at": "2026-02-26T01:58:52.746480",
-  "updated_at": "2026-02-26T02:06:02.574027",
+  "updated_at": "2026-02-26T02:06:07.035836",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
@@ -94,5 +110,5 @@
   "error": null,
   "plan_phase_waves": null,
   "plan_phase_names": null,
-  "version": 8
+  "version": 9
 }
