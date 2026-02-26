@@ -617,6 +617,71 @@ class GatewayClient:
                 except Exception:
                     pass
 
+    def delete_remote_branch(
+        self,
+        pipeline_id: str,
+        repo_path: str,
+        branch: str,
+    ) -> bool:
+        """Delete a remote branch using a temporary session.
+
+        Best-effort operation used to clean up worktree branches from the
+        remote when a pipeline is deleted. Registers a temp session, pushes
+        a deletion refspec (`:branch`), then cleans up the session.
+
+        Args:
+            pipeline_id: Pipeline ID (used as container_id for the temp session)
+            repo_path: Path to a repo directory (for the push endpoint)
+            branch: Remote branch name to delete
+
+        Returns:
+            True if deletion succeeded, False otherwise
+        """
+        temp_container_id = f"{pipeline_id}-branch-cleanup"
+        session_token: str | None = None
+        try:
+            session = self.register_session(
+                container_id=temp_container_id,
+                container_ip="127.0.0.1",
+                mode="local",
+                pipeline_id=pipeline_id,
+            )
+            session_token = session.session_token
+
+            # Push with empty source = delete remote branch
+            self._make_request(
+                "/api/v1/git/push",
+                method="POST",
+                data={
+                    "repo_path": repo_path,
+                    "remote": "origin",
+                    "refspec": f":{branch}",
+                    "container_id": temp_container_id,
+                },
+                bearer_token=session_token,
+            )
+
+            logger.info(
+                "Deleted remote branch",
+                pipeline_id=pipeline_id,
+                branch=branch,
+            )
+            return True
+        except Exception as e:
+            logger.warning(
+                "Best-effort remote branch deletion failed",
+                pipeline_id=pipeline_id,
+                branch=branch,
+                error=str(e),
+            )
+            return False
+        finally:
+            if session_token:
+                try:
+                    self.delete_session(session_token)
+                except Exception:
+                    pass
+
     def fetch_worktree_branch(
         self,
         pipeline_id: str,
