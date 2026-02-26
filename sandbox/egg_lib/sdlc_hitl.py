@@ -345,22 +345,23 @@ def _launch_claude(
 
     # Load HITL editing rules
     rules_path = Path(__file__).parent / "data" / "hitl_editing_rules.md"
-    rules_text = rules_path.read_text() if rules_path.exists() else ""
+    rules_text = rules_path.read_text(encoding="utf-8") if rules_path.exists() else ""
 
     # Build context-specific prompt
     prompt_parts: list[str] = []
     if rules_text:
         prompt_parts.append(rules_text)
+    context_parts: list[str] = []
+    if phase:
+        context_parts.append(f"Current phase: {phase}.")
+    if issue_number is not None:
+        context_parts.append(f"Issue: #{issue_number}.")
     if draft_rel:
-        context_parts = []
-        if phase:
-            context_parts.append(f"Current phase: {phase}.")
-        if issue_number:
-            context_parts.append(f"Issue: #{issue_number}.")
         context_parts.append(
             f"Draft file: {draft_rel}. "
             f"Start by reading `{draft_rel}` and showing its content to the user."
         )
+    if context_parts:
         prompt_parts.append(" ".join(context_parts))
 
     if prompt_parts:

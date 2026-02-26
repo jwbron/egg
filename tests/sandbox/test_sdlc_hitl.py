@@ -587,7 +587,7 @@ class TestLaunchClaude:
     @patch("egg_lib.sdlc_hitl.subprocess.run")
     @patch("llm.runner.shutil.which", return_value="/usr/bin/claude")
     def test_without_draft_context(self, mock_which, mock_run, tmp_path):
-        """When draft_rel is None, command still includes rules via --append-system-prompt."""
+        """When draft_rel is None, command still includes rules and phase/issue context."""
         _launch_claude(tmp_path, draft_rel=None, phase="implement", issue_number=10)
         mock_run.assert_called_once()
         cmd = mock_run.call_args[0][0]
@@ -598,6 +598,11 @@ class TestLaunchClaude:
         prompt_idx = cmd.index("--append-system-prompt")
         prompt_text = cmd[prompt_idx + 1]
         assert "HITL Draft Editing Session" in prompt_text
+        # Phase and issue context are injected regardless of draft_rel
+        assert "implement" in prompt_text
+        assert "#10" in prompt_text
+        # Draft-specific text should NOT appear
+        assert "Draft file:" not in prompt_text
         assert mock_run.call_args[1]["cwd"] == str(tmp_path)
 
     @patch("egg_lib.sdlc_hitl.subprocess.run")
