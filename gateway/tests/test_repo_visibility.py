@@ -3,7 +3,7 @@ Tests for repo_visibility module.
 """
 
 import os
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 # Import from conftest-loaded module
 from repo_visibility import (
@@ -390,3 +390,132 @@ class TestConvenienceFunctions:
 
         result = is_repo_private("owner", "repo")
         assert result is True
+
+
+class TestVisibilityRetry:
+    """Tests for retry logic in _fetch_visibility_with_token."""
+
+    @patch("repo_visibility.time.sleep")
+    @patch("repo_visibility.requests.get")
+    def test_retries_on_timeout(self, mock_get, mock_sleep):
+        """Should retry on request timeout with backoff."""
+        import requests as req
+
+        mock_get.side_effect = req.Timeout("timed out")
+
+        checker = RepoVisibilityChecker()
+        result = checker._fetch_visibility_with_token("owner", "repo", "tok", "bot")
+
+        assert result is None
+        assert mock_get.call_count == 3
+        assert mock_sleep.call_args_list == [call(1), call(2)]
+
+    @patch("repo_visibility.time.sleep")
+    @patch("repo_visibility.requests.get")
+    def test_retries_on_connection_error(self, mock_get, mock_sleep):
+        """Should retry on connection errors with backoff."""
+        import requests as req
+
+        mock_get.side_effect = req.ConnectionError("refused")
+
+        checker = RepoVisibilityChecker()
+        result = checker._fetch_visibility_with_token("owner", "repo", "tok", "bot")
+
+        assert result is None
+        assert mock_get.call_count == 3
+        assert mock_sleep.call_args_list == [call(1), call(2)]
+
+    @patch("repo_visibility.time.sleep")
+    @patch("repo_visibility.requests.get")
+    def test_retries_on_503(self, mock_get, mock_sleep):
+        """Should retry on 5xx server errors."""
+        mock_response = MagicMock()
+        mock_response.status_code = 503
+        mock_get.return_value = mock_response
+
+        checker = RepoVisibilityChecker()
+        result = checker._fetch_visibility_with_token("owner", "repo", "tok", "bot")
+
+        assert result is None
+        assert mock_get.call_count == 3
+        assert mock_sleep.call_args_list == [call(1), call(2)]
+
+    @patch("repo_visibility.time.sleep")
+    @patch("repo_visibility.requests.get")
+    def test_retries_on_403_rate_limit(self, mock_get, mock_sleep):
+        """Should retry on 403 (rate limit / forbidden)."""
+        mock_response = MagicMock()
+        mock_response.status_code = 403
+        mock_get.return_value = mock_response
+
+        checker = RepoVisibilityChecker()
+        result = checker._fetch_visibility_with_token("owner", "repo", "tok", "bot")
+
+        assert result is None
+        assert mock_get.call_count == 3
+        assert mock_sleep.call_args_list == [call(1), call(2)]
+
+    @patch("repo_visibility.time.sleep")
+    @patch("repo_visibility.requests.get")
+    def test_no_retry_on_404(self, mock_get, mock_sleep):
+        """Should NOT retry on 404 (definitive no-access)."""
+        mock_response = MagicMock()
+        mock_response.status_code = 404
+        mock_get.return_value = mock_response
+
+        checker = RepoVisibilityChecker()
+        result = checker._fetch_visibility_with_token("owner", "repo", "tok", "bot")
+
+        assert result is None
+        assert mock_get.call_count == 1
+        mock_sleep.assert_not_called()
+
+    @patch("repo_visibility.time.sleep")
+    @patch("repo_visibility.requests.get")
+    def test_no_retry_on_success(self, mock_get, mock_sleep):
+        """Should NOT retry on 200 success."""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"visibility": "private"}
+        mock_get.return_value = mock_response
+
+        checker = RepoVisibilityChecker()
+        result = checker._fetch_visibility_with_token("owner", "repo", "tok", "bot")
+
+        assert result == "private"
+        assert mock_get.call_count == 1
+        mock_sleep.assert_not_called()
+
+    @patch("repo_visibility.time.sleep")
+    @patch("repo_visibility.requests.get")
+    def test_succeeds_after_transient_failure(self, mock_get, mock_sleep):
+        """Should succeed when retry clears a transient error."""
+        import requests as req
+
+        ok_response = MagicMock()
+        ok_response.status_code = 200
+        ok_response.json.return_value = {"visibility": "public"}
+
+        mock_get.side_effect = [req.Timeout("timed out"), ok_response]
+
+        checker = RepoVisibilityChecker()
+        result = checker._fetch_visibility_with_token("owner", "repo", "tok", "bot")
+
+        assert result == "public"
+        assert mock_get.call_count == 2
+        mock_sleep.assert_called_once_with(1)
+
+    @patch("repo_visibility.time.sleep")
+    @patch("repo_visibility.requests.get")
+    def test_no_retry_on_other_request_exception(self, mock_get, mock_sleep):
+        """Should NOT retry on non-transient RequestException."""
+        import requests as req
+
+        mock_get.side_effect = req.RequestException("bad request")
+
+        checker = RepoVisibilityChecker()
+        result = checker._fetch_visibility_with_token("owner", "repo", "tok", "bot")
+
+        assert result is None
+        assert mock_get.call_count == 1
+        mock_sleep.assert_not_called()

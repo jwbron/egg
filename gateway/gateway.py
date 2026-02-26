@@ -29,6 +29,7 @@ import json
 import os
 import re
 import secrets
+import signal
 import subprocess
 import sys
 import time
@@ -4607,6 +4608,22 @@ def main() -> None:
     except LauncherSecretNotConfiguredError as e:
         logger.error("Startup failed: launcher secret not configured", error=str(e))
         sys.exit(1)
+
+    # Register SIGTERM handler for graceful shutdown.
+    # When Docker sends SIGTERM, delay for 5s to let in-flight session cleanup
+    # requests complete before exiting. This prevents the race condition where
+    # the gateway becomes unreachable before the launcher's cleanup hook runs.
+    # NOTE: This is a delay, not a true drain — waitress continues accepting new
+    # requests during the sleep. If a new long-running request starts during this
+    # window, it will be killed when sys.exit(0) fires. For our use case (Docker
+    # stop), this is acceptable since the only in-flight requests at shutdown are
+    # short-lived session cleanup calls.
+    def _handle_shutdown(signum: int, frame: Any) -> None:
+        logger.info("Received SIGTERM, delaying 5s for in-flight requests before shutdown...")
+        time.sleep(5)
+        sys.exit(0)
+
+    signal.signal(signal.SIGTERM, _handle_shutdown)
 
     logger.info(
         "Starting Gateway Sidecar",
