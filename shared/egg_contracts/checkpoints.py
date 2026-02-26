@@ -242,11 +242,14 @@ class CheckpointV2(BaseModel):
     session_started_at: datetime = Field(..., description="When session started")
     session_ended_at: datetime | None = Field(default=None, description="When session ended")
 
-    @field_validator("pipeline_phase")
+    @field_validator("pipeline_phase", mode="before")
     @classmethod
     def validate_pipeline_phase(cls, v: str | None) -> str | None:
         if v is None:
             return None
+        # Normalize legacy "refine" phase from historical checkpoints
+        if v == "refine":
+            return "analyze"
         valid_phases = {"analyze", "plan", "implement", "pr"}
         if v not in valid_phases:
             msg = f"pipeline_phase must be one of {valid_phases}"

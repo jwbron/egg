@@ -178,7 +178,7 @@ POST /api/v1/sessions/create
   Description: Create a new session with optional SDLC phase tracking
 
 PATCH /api/v1/sessions/<session_token>/phase
-  Request: {phase: "refine"|"plan"|"implement"|"pr"}
+  Request: {phase: "analyze"|"plan"|"implement"|"pr"}
   Auth: Bearer {launcher_secret}
   Description: Update the SDLC pipeline phase for a session
 ```

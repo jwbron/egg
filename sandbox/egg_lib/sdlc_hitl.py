@@ -33,6 +33,8 @@ CYAN = "\033[36m"
 
 def _phase_display_label(phase: str) -> str:
     """Return human-readable label for a pipeline phase."""
+    if phase == "analyze":
+        return "analysis"
     return phase
 
 

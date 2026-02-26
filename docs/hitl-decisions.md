@@ -265,7 +265,7 @@ client.create_decision(
         {"id": "q1", "question": "What is the expected traffic volume?"},
         {"id": "q2", "question": "Any specific performance requirements?"},
     ],
-    phase="refine",  # Optional: helps sandbox locate correct draft paths
+    phase="analyze",  # Optional: helps sandbox locate correct draft paths
 )
 ```
 

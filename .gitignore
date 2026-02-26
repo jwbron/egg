@@ -45,6 +45,9 @@ secrets.yaml
 docker-compose.override.yml
 .compose-build-hash
 
+# Agent sandbox artifacts
+CLAUDE.md
+
 # OS
 .DS_Store
 Thumbs.db

@@ -472,7 +472,7 @@ def get_phase_permissions(phase: str) -> tuple[Response, int]:
     Get the permissions for a specific phase.
 
     URL params:
-        phase: Phase name (refine, plan, implement, pr)
+        phase: Phase name (analyze, plan, implement, pr)
 
     Returns:
         {"success": true, "data": {"allowed": [...], "blocked": [...], "exit_requires": "..."}}

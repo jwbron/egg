@@ -54,7 +54,7 @@
     "current_phase": {
       "type": "string",
       "description": "Current pipeline phase",
-      "enum": ["analyze", "plan", "implement", "pr"],
+      "enum": ["analyze", "plan", "implement", "pr", "refine"],
       "default": "analyze"
     },
     "acceptance_criteria": {
@@ -138,7 +138,7 @@
           "type": "object",
           "description": "Phase-specific configurations",
           "propertyNames": {
-            "enum": ["analyze", "plan", "implement", "pr"]
+            "enum": ["analyze", "plan", "implement", "pr", "refine"]
           },
           "additionalProperties": {
             "$ref": "#/$defs/phaseConfig"
@@ -500,7 +500,7 @@
         "phase": {
           "type": "string",
           "description": "Pipeline phase this feedback belongs to",
-          "enum": ["analyze", "plan", "implement", "pr"]
+          "enum": ["analyze", "plan", "implement", "pr", "refine"]
         },
         "questions": {
           "type": "array",

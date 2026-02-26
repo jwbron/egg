@@ -183,7 +183,7 @@ def ensure_egg_state_dirs(
                     f"Reason: Plan and contract artifacts must not be modified "
                     f"by code agents during implementation.\n"
                     f"To modify these files, use the appropriate SDLC phase "
-                    f"(refine or plan).\n"
+                    f"(analyze or plan).\n"
                 )
                 if uid is not None and gid is not None:
                     os.chown(str(marker), uid, gid)
