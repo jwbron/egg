@@ -99,10 +99,26 @@
       "created_at": "2026-02-26T02:06:07.033926",
       "resolved_at": null,
       "resolution": null
+    },
+    {
+      "id": "decision-3",
+      "question": "How should common config files (pyproject.toml, package.json, Makefile, etc.) be handled?",
+      "context": "",
+      "options": [
+        "Hardcode implicit allowlist — always allow common config files during implement",
+        "Planner responsibility — update planner prompts to list config files, no implicit allowlist",
+        "Both — planner lists them explicitly, small implicit set as safety net"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-02-26T02:06:08.052288",
+      "resolved_at": null,
+      "resolution": null
     }
   ],
   "created_at": "2026-02-26T01:58:52.746480",
-  "updated_at": "2026-02-26T02:06:07.035836",
+  "updated_at": "2026-02-26T02:06:08.054712",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
@@ -110,5 +126,5 @@
   "error": null,
   "plan_phase_waves": null,
   "plan_phase_names": null,
-  "version": 9
+  "version": 10
 }
