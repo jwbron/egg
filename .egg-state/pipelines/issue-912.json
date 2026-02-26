@@ -521,10 +521,10 @@
         {
           "container_id": "f938fe709741f307931700a696e660636a153190b86edc464fd69dd90ba6ae41",
           "container_name": "egg-sandbox-egg-issue-912-coder",
-          "status": "running",
+          "status": "exited",
           "started_at": "2026-02-26T04:26:29.636303",
-          "exited_at": null,
-          "exit_code": null,
+          "exited_at": "2026-02-26T04:29:06.369655",
+          "exit_code": 0,
           "agent_role": "coder",
           "session_token": null
         }
@@ -532,10 +532,10 @@
       "agents": [
         {
           "role": "coder",
-          "status": "running",
+          "status": "complete",
           "container_id": "f938fe709741f307931700a696e660636a153190b86edc464fd69dd90ba6ae41",
           "started_at": "2026-02-26T04:26:29.636315",
-          "completed_at": null,
+          "completed_at": "2026-02-26T04:29:06.370403",
           "commit": null,
           "outputs": {},
           "error": null,
@@ -691,7 +691,7 @@
     }
   ],
   "created_at": "2026-02-26T04:26:28.987891",
-  "updated_at": "2026-02-26T04:26:29.636494",
+  "updated_at": "2026-02-26T04:29:06.370481",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
@@ -699,5 +699,5 @@
   "error": null,
   "plan_phase_waves": null,
   "plan_phase_names": null,
-  "version": 90
+  "version": 91
 }
