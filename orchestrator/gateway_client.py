@@ -677,6 +677,126 @@ class GatewayClient:
                 except Exception:
                     pass
 
+    def fetch_branch(
+        self,
+        pipeline_id: str,
+        repo_path: str,
+        args: list[str] | None = None,
+    ) -> bool:
+        """Fetch with custom args using a temporary session.
+
+        Best-effort operation used to fetch specific refs from remote.
+
+        Args:
+            pipeline_id: Pipeline ID (used as container_id for the temp session)
+            repo_path: Path to the repo directory
+            args: Additional args for git fetch (e.g., ["+remote:local"])
+
+        Returns:
+            True if fetch succeeded, False otherwise
+        """
+        temp_container_id = f"{pipeline_id}-state-fetch"
+        session_token: str | None = None
+        try:
+            session = self.register_session(
+                container_id=temp_container_id,
+                container_ip="127.0.0.1",
+                mode="local",
+                pipeline_id=pipeline_id,
+            )
+            session_token = session.session_token
+
+            self._make_request(
+                "/api/v1/git/fetch",
+                method="POST",
+                data={
+                    "repo_path": repo_path,
+                    "remote": "origin",
+                    "args": args or [],
+                    "container_id": temp_container_id,
+                },
+                bearer_token=session_token,
+            )
+
+            logger.info(
+                "Fetched branch from remote",
+                pipeline_id=pipeline_id,
+                args=args,
+            )
+            return True
+        except Exception as e:
+            logger.warning(
+                "Best-effort fetch failed",
+                pipeline_id=pipeline_id,
+                args=args,
+                error=str(e),
+            )
+            return False
+        finally:
+            if session_token:
+                try:
+                    self.delete_session(session_token)
+                except Exception:
+                    pass
+
+    def ls_remote_branch(
+        self,
+        pipeline_id: str,
+        repo_path: str,
+        ref: str,
+    ) -> bool:
+        """Check if a remote branch exists using ls-remote.
+
+        Args:
+            pipeline_id: Pipeline ID (used as container_id for the temp session)
+            repo_path: Path to the repo directory
+            ref: Branch ref to check (e.g., "refs/heads/egg/pipeline-state")
+
+        Returns:
+            True if the remote branch exists, False otherwise
+        """
+        temp_container_id = f"{pipeline_id}-state-ls-remote"
+        session_token: str | None = None
+        try:
+            session = self.register_session(
+                container_id=temp_container_id,
+                container_ip="127.0.0.1",
+                mode="local",
+                pipeline_id=pipeline_id,
+            )
+            session_token = session.session_token
+
+            result = self._make_request(
+                "/api/v1/git/fetch",
+                method="POST",
+                data={
+                    "repo_path": repo_path,
+                    "remote": "origin",
+                    "operation": "ls-remote",
+                    "args": ["--heads", ref],
+                    "container_id": temp_container_id,
+                },
+                bearer_token=session_token,
+            )
+
+            # ls-remote returns output in data.stdout; non-empty means branch exists
+            stdout = result.get("data", {}).get("stdout", "")
+            return bool(stdout.strip())
+        except Exception as e:
+            logger.warning(
+                "ls-remote check failed",
+                pipeline_id=pipeline_id,
+                ref=ref,
+                error=str(e),
+            )
+            return False
+        finally:
+            if session_token:
+                try:
+                    self.delete_session(session_token)
+                except Exception:
+                    pass
+
 
 class GatewayError(Exception):
     """Error from gateway operations."""

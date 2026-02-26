@@ -7,10 +7,10 @@ accessed via a persistent git worktree.  The main checkout is never modified.
 Read/write operations go directly to the worktree directory on disk.  Commits
 are made in-place inside the worktree and stay on the state branch.
 
-Note: The state branch is **local-only** and is not pushed to the remote.
-State persistence relies on the Docker state volume (``/home/egg/.egg-state``).
-This differs from checkpoints which are pushed to remote for cross-container
-access.
+The state branch is synced to the remote after every commit (best-effort,
+async push via a daemon thread).  On startup, if the local branch does not
+exist, it is restored from the remote — mirroring the ``egg/checkpoints/v2``
+pattern for cross-host recovery.
 """
 
 import fcntl
@@ -113,6 +113,10 @@ class StateStore:
     _flock_fds: ClassVar[dict[str, int]] = {}
     _flock_depth: ClassVar[int] = 0  # nesting depth, protected by _thread_lock
 
+    # -- remote sync state -------------------------------------------------
+    _push_in_flight: ClassVar[bool] = False
+    _push_lock: ClassVar[threading.Lock] = threading.Lock()
+
     def __init__(
         self,
         repo_path: Path,
@@ -206,6 +210,11 @@ class StateStore:
             self._remove_stale_admin_dir()
 
         wt.parent.mkdir(parents=True, exist_ok=True)
+
+        # Try to restore from remote if the local branch doesn't exist yet.
+        # This enables cross-host recovery when the local state volume is lost.
+        if not self._state_branch_exists():
+            self._restore_from_remote()
 
         if self._state_branch_exists():
             self._run_git("worktree", "add", str(wt), STATE_BRANCH)
@@ -518,7 +527,12 @@ class StateStore:
                 return head_result.stdout.strip() if head_result.returncode == 0 else ""
 
             self._run_git("commit", "--no-verify", "-m", message, cwd=wt)
-            return self._run_git("rev-parse", "HEAD", cwd=wt).stdout.strip()
+            sha = self._run_git("rev-parse", "HEAD", cwd=wt).stdout.strip()
+
+            # Best-effort async push to remote after every commit
+            self._sync_to_remote_async()
+
+            return sha
 
     def _get_current_commit(self) -> str:
         """Get the current HEAD commit SHA."""
@@ -528,6 +542,94 @@ class StateStore:
     def _generate_commit_message(self, pipeline: Pipeline) -> str:
         """Generate a commit message for pipeline state update."""
         return f"Update pipeline state: {pipeline.id} ({pipeline.status.value})"
+
+    # -- remote sync -------------------------------------------------------
+
+    def sync_to_remote(self) -> bool:
+        """Push the state branch to remote (best-effort).
+
+        Uses the gateway client to push via a temporary session.
+
+        Returns:
+            True on success, False on failure (logged, never raises)
+        """
+        try:
+            from gateway_client import get_gateway_client
+
+            client = get_gateway_client()
+            return client.push_worktree_branch(
+                pipeline_id="state-sync",
+                repo_path=str(self.repo_path),
+                branch=STATE_BRANCH,
+            )
+        except Exception as e:
+            logger.warning(
+                "Failed to sync state branch to remote: %s",
+                e,
+            )
+            return False
+
+    def _sync_to_remote_async(self) -> None:
+        """Push the state branch to remote in a daemon thread.
+
+        Debounces: skips if a push is already in flight.
+        """
+        with StateStore._push_lock:
+            if StateStore._push_in_flight:
+                logger.debug("Skipping state sync — push already in flight")
+                return
+            StateStore._push_in_flight = True
+
+        def _push() -> None:
+            try:
+                self.sync_to_remote()
+            finally:
+                with StateStore._push_lock:
+                    StateStore._push_in_flight = False
+
+        t = threading.Thread(target=_push, daemon=True)
+        t.start()
+
+    def _restore_from_remote(self) -> bool:
+        """Restore the state branch from remote if it exists.
+
+        Called during worktree initialization when the local branch
+        doesn't exist. Checks remote via ls-remote, then fetches.
+
+        Returns:
+            True if the local branch was restored from remote, False otherwise
+        """
+        try:
+            from gateway_client import get_gateway_client
+
+            client = get_gateway_client()
+
+            # Check if remote branch exists
+            if not client.ls_remote_branch(
+                pipeline_id="state-restore",
+                repo_path=str(self.repo_path),
+                ref=f"refs/heads/{STATE_BRANCH}",
+            ):
+                logger.debug("No remote state branch found — will create fresh")
+                return False
+
+            # Fetch the remote branch to create the local tracking ref
+            if not client.fetch_branch(
+                pipeline_id="state-restore",
+                repo_path=str(self.repo_path),
+                args=[f"+refs/heads/{STATE_BRANCH}:refs/heads/{STATE_BRANCH}"],
+            ):
+                logger.warning("Failed to fetch state branch from remote")
+                return False
+
+            logger.info("Restored state branch from remote")
+            return True
+        except Exception as e:
+            logger.warning(
+                "Failed to restore state branch from remote: %s",
+                e,
+            )
+            return False
 
     # -- pipeline lifecycle ------------------------------------------------
 
