@@ -17,8 +17,6 @@ from egg_contracts.checkpoint_cli import (
     create_parser,
     main,
 )
-
-_TEST_GATEWAY_URL = f"http://gateway:{TEST_GATEWAY_PORT}"
 from egg_contracts.checkpoints import (
     AgentType,
     CheckpointIndexV2,
@@ -32,6 +30,8 @@ from egg_contracts.checkpoints import (
     Transcript,
     TriggerType,
 )
+
+_TEST_GATEWAY_URL = f"http://gateway:{TEST_GATEWAY_PORT}"
 
 
 def _make_summary(
@@ -415,13 +415,8 @@ class TestGetCheckpointRepoFromArgs:
             assert checkpoint_repo is None
             assert source_repo is None
 
-    @patch.dict("os.environ", {}, clear=False)
     def test_env_var_not_set_falls_through(self):
         """When EGG_CHECKPOINT_REPO is not set, falls through to config lookup."""
-        # Remove EGG_CHECKPOINT_REPO if present
-        import os
-
-        os.environ.pop("EGG_CHECKPOINT_REPO", None)
         with (
             patch("egg_contracts.checkpoint_cli.run_git") as mock_git,
             patch(
