@@ -442,19 +442,30 @@ class TestSearchParser:
     def test_search_parser_all_filter_flags(self):
         """search subcommand accepts all list filter flags."""
         parser = create_parser()
-        args = parser.parse_args([
-            "search",
-            "--text", "query",
-            "--issue", "42",
-            "--pr", "10",
-            "--branch", "egg/feature",
-            "--pipeline", "issue-42",
-            "--agent-type", "coder",
-            "--phase", "implement",
-            "--status", "completed",
-            "--limit", "5",
-            "--json",
-        ])
+        args = parser.parse_args(
+            [
+                "search",
+                "--text",
+                "query",
+                "--issue",
+                "42",
+                "--pr",
+                "10",
+                "--branch",
+                "egg/feature",
+                "--pipeline",
+                "issue-42",
+                "--agent-type",
+                "coder",
+                "--phase",
+                "implement",
+                "--status",
+                "completed",
+                "--limit",
+                "5",
+                "--json",
+            ]
+        )
         assert args.text == "query"
         assert args.issue == 42
         assert args.pr == 10
