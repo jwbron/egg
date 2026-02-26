@@ -2810,7 +2810,9 @@ class TestPhaseGateViewOption:
     @patch("egg_lib.sdlc_hitl._find_repo_path")
     @patch("egg_lib.sdlc_hitl._display_in_pager")
     @patch("builtins.input")
-    def test_view_option_not_shown_without_draft(self, mock_input, mock_pager, mock_repo, tmp_path):
+    def test_view_option_not_shown_without_draft(
+        self, mock_input, mock_pager, mock_repo, tmp_path, capsys
+    ):
         """[v] option is not available when there is no draft content."""
         mock_repo.return_value = tmp_path
         # 'v' is invalid (no draft), then '3' to approve
@@ -2835,6 +2837,10 @@ class TestPhaseGateViewOption:
         assert result == "resolved"
         # Pager should not have been called (no draft content)
         mock_pager.assert_not_called()
+        # Prompt text should not advertise [v] when there is no draft
+        captured = capsys.readouterr()
+        assert "/v/" not in captured.out
+        assert "[v]" not in captured.out
 
     @patch("egg_lib.sdlc_hitl._find_repo_path")
     @patch("egg_lib.sdlc_hitl._display_in_pager")

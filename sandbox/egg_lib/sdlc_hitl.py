@@ -551,9 +551,9 @@ def _handle_phase_gate(
             valid.add("v")
         if pending_contract:
             valid.add("q")
-        choice = _prompt_choice(
-            f"\n  {BOLD}Choose [1-4/v/f/a/c{'/' + 'q' if pending_contract else ''}]:{RESET} ", valid
-        )
+        v_hint = "/v" if draft_content else ""
+        q_hint = "/q" if pending_contract else ""
+        choice = _prompt_choice(f"\n  {BOLD}Choose [1-4{v_hint}/f/a/c{q_hint}]:{RESET} ", valid)
 
         # Check universal options first
         result = _handle_universal_option(choice, client, pipeline_id, decision_id)
