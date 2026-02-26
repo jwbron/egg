@@ -643,6 +643,60 @@ class TestDecisionPhaseField:
         # _detect_phase should resolve "implement" from the question text
         mock_draft_path.assert_called_once_with("implement", "issue", 1, "issue-1")
 
+    @patch("egg_lib.sdlc_hitl._find_repo_path")
+    @patch("egg_lib.sdlc_hitl._get_draft_path")
+    @patch("builtins.input")
+    def test_unknown_phase_fetches_from_pipeline_api(
+        self, mock_input, mock_draft_path, mock_repo, tmp_path
+    ):
+        """When _detect_phase returns 'unknown', fall back to pipeline API."""
+        mock_repo.return_value = tmp_path
+        mock_draft_path.return_value = None
+        mock_input.return_value = "3"
+
+        client = MagicMock(spec=["resolve_decision", "cancel_pipeline", "get_pipeline"])
+        client.resolve_decision.return_value = {"status": "resolved"}
+        client.get_pipeline.return_value = {"pipeline": {"current_phase": "plan"}}
+
+        # Question has no phase keywords → _detect_phase returns "unknown"
+        decision = {
+            "id": "d1",
+            "question": "Something unrelated to any phase keyword",
+            "context": "",
+        }
+
+        handle_hitl_checkpoint(client, "issue-1", decision, pipeline_mode="issue", issue_number=1)
+
+        client.get_pipeline.assert_called_once_with("issue-1")
+        mock_draft_path.assert_called_once_with("plan", "issue", 1, "issue-1")
+
+    @patch("egg_lib.sdlc_hitl._find_repo_path")
+    @patch("egg_lib.sdlc_hitl._get_draft_path")
+    @patch("builtins.input")
+    def test_unknown_phase_api_failure_stays_unknown(
+        self, mock_input, mock_draft_path, mock_repo, tmp_path
+    ):
+        """When API fetch fails, phase remains 'unknown' (logged, not raised)."""
+        mock_repo.return_value = tmp_path
+        mock_draft_path.return_value = None
+        mock_input.return_value = "3"
+
+        client = MagicMock(spec=["resolve_decision", "cancel_pipeline", "get_pipeline"])
+        client.resolve_decision.return_value = {"status": "resolved"}
+        client.get_pipeline.side_effect = OrchestratorError("Connection refused")
+
+        decision = {
+            "id": "d1",
+            "question": "Something unrelated to any phase keyword",
+            "context": "",
+        }
+
+        handle_hitl_checkpoint(client, "issue-1", decision, pipeline_mode="issue", issue_number=1)
+
+        client.get_pipeline.assert_called_once_with("issue-1")
+        # Phase stays "unknown" since API failed
+        mock_draft_path.assert_called_once_with("unknown", "issue", 1, "issue-1")
+
 
 # ---------------------------------------------------------------------------
 # _launch_claude unit tests

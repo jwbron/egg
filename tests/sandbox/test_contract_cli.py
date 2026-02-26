@@ -117,6 +117,20 @@ class TestArgumentParsing:
         args = parser.parse_args(["add-decision", "--question", "Which approach?"])
         assert args.format == "json"
 
+    def test_add_decision_with_phase(self):
+        """Test parsing add-decision with --phase argument."""
+        parser = create_parser()
+        args = parser.parse_args(
+            ["add-decision", "--question", "Which approach?", "--phase", "implement"]
+        )
+        assert args.phase == "implement"
+
+    def test_add_decision_phase_default_none(self):
+        """Test that add-decision defaults to phase=None (uses contract fallback)."""
+        parser = create_parser()
+        args = parser.parse_args(["add-decision", "--question", "Which approach?"])
+        assert args.phase is None
+
     def test_verify_criterion_command(self):
         """Test parsing verify-criterion command."""
         parser = create_parser()
@@ -753,6 +767,90 @@ class TestAddDecisionWithMockGateway:
         captured = capsys.readouterr()
         assert "<!-- egg-hitl-decision id=decision-1 -->" in captured.out
         assert "Other" not in captured.out
+
+    def test_explicit_phase_overrides_contract(self, mock_gateway_factory):
+        """--phase arg takes precedence over contract's current_phase."""
+        responses = {
+            ("GET", "/api/v1/contract/123"): {
+                "success": True,
+                "data": {
+                    "issue": {"number": 123, "title": "Test"},
+                    "current_phase": "refine",
+                    "phases": [],
+                    "decisions": [],
+                },
+            },
+            ("POST", "/api/v1/contract/mutate"): {
+                "success": True,
+                "message": "Mutation applied",
+            },
+        }
+        mock_gateway = mock_gateway_factory(responses)
+
+        captured_payloads = []
+        original_make_request = make_gateway_request
+
+        def capturing_make_request(*args, **kwargs):
+            if kwargs.get("method") == "POST":
+                captured_payloads.append(kwargs.get("data"))
+            return original_make_request(*args, **kwargs)
+
+        with (
+            patch.dict(
+                "os.environ",
+                {"GATEWAY_URL": mock_gateway, "EGG_ISSUE_NUMBER": "123"},
+            ),
+            patch("egg_lib.contract_cli.make_gateway_request", side_effect=capturing_make_request),
+        ):
+            result = main(["add-decision", "--question", "Approve?", "--phase", "implement"])
+
+        assert result == 0
+        assert len(captured_payloads) == 1
+        decision = captured_payloads[0]["new_value"]
+        # Explicit --phase "implement" overrides contract's "refine"
+        assert decision["phase"] == "implement"
+
+    def test_phase_falls_back_to_contract_current_phase(self, mock_gateway_factory):
+        """When --phase is omitted, contract's current_phase is used."""
+        responses = {
+            ("GET", "/api/v1/contract/123"): {
+                "success": True,
+                "data": {
+                    "issue": {"number": 123, "title": "Test"},
+                    "current_phase": "plan",
+                    "phases": [],
+                    "decisions": [],
+                },
+            },
+            ("POST", "/api/v1/contract/mutate"): {
+                "success": True,
+                "message": "Mutation applied",
+            },
+        }
+        mock_gateway = mock_gateway_factory(responses)
+
+        captured_payloads = []
+        original_make_request = make_gateway_request
+
+        def capturing_make_request(*args, **kwargs):
+            if kwargs.get("method") == "POST":
+                captured_payloads.append(kwargs.get("data"))
+            return original_make_request(*args, **kwargs)
+
+        with (
+            patch.dict(
+                "os.environ",
+                {"GATEWAY_URL": mock_gateway, "EGG_ISSUE_NUMBER": "123"},
+            ),
+            patch("egg_lib.contract_cli.make_gateway_request", side_effect=capturing_make_request),
+        ):
+            result = main(["add-decision", "--question", "Approve?"])
+
+        assert result == 0
+        assert len(captured_payloads) == 1
+        decision = captured_payloads[0]["new_value"]
+        # Falls back to contract's current_phase
+        assert decision["phase"] == "plan"
 
 
 class TestMakeGatewayRequestAuthHeader:

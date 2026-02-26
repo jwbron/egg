@@ -5,6 +5,7 @@ the draft document and offers interactive options for resolution.
 """
 
 import json
+import logging
 import os
 import re
 import shlex
@@ -17,6 +18,8 @@ from pathlib import Path
 from typing import Any
 
 from .orch_client import OrchClient, OrchestratorError
+
+logger = logging.getLogger(__name__)
 
 # ANSI escape codes
 RESET = "\033[0m"
@@ -963,6 +966,16 @@ def handle_hitl_checkpoint(
     # Use explicit phase from decision if available, fall back to regex detection
     raw_phase = decision.get("phase")
     phase = raw_phase if raw_phase is not None else _detect_phase(question, context)
+
+    # If phase is still unknown, try fetching from the pipeline's current state
+    if phase == "unknown":
+        try:
+            pipeline_info = client.get_pipeline(pipeline_id)
+            pipeline_phase = pipeline_info.get("pipeline", pipeline_info).get("current_phase")
+            if pipeline_phase:
+                phase = pipeline_phase
+        except Exception:
+            logger.debug("Failed to fetch pipeline phase for decision display", exc_info=True)
 
     # Find and read the draft
     repo_path = _find_repo_path()

@@ -148,6 +148,10 @@ class DecisionQueue:
         with self._lock:
             pipeline = self._load_pipeline()
 
+            # Auto-infer phase from pipeline state when not explicitly provided
+            if phase is None and pipeline.current_phase is not None:
+                phase = pipeline.current_phase
+
             # Create decision using pipeline method
             decision = pipeline.add_decision(
                 question=question,

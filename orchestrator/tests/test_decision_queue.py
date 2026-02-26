@@ -16,7 +16,7 @@ from decision_queue import (
     DecisionQueue,
     get_decision_queue,
 )
-from models import DecisionStatus, Pipeline
+from models import DecisionStatus, Pipeline, PipelinePhase
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -154,6 +154,27 @@ class TestQueueDecision:
         assert decision.decision_type == "choice"
         assert decision.questions == []
         assert decision.context == ""
+
+    def test_queue_auto_infers_phase_from_pipeline(self, queue):
+        """When phase=None, queue_decision infers phase from pipeline.current_phase."""
+        # Set the pipeline's current phase
+        pipeline = queue._load_pipeline()
+        pipeline.current_phase = PipelinePhase.IMPLEMENT
+        queue._save_pipeline(pipeline)
+
+        decision = queue.queue_decision(question="Approve this?")
+
+        assert decision.phase == PipelinePhase.IMPLEMENT
+
+    def test_queue_explicit_phase_not_overridden(self, queue):
+        """When phase is explicitly provided, pipeline.current_phase is not used."""
+        pipeline = queue._load_pipeline()
+        pipeline.current_phase = PipelinePhase.IMPLEMENT
+        queue._save_pipeline(pipeline)
+
+        decision = queue.queue_decision(question="Approve?", phase=PipelinePhase.PLAN)
+
+        assert decision.phase == PipelinePhase.PLAN
 
 
 # ---------------------------------------------------------------------------
