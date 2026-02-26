@@ -964,6 +964,16 @@ def handle_hitl_checkpoint(
     raw_phase = decision.get("phase")
     phase = raw_phase if raw_phase is not None else _detect_phase(question, context)
 
+    # If phase is still unknown, try fetching from the pipeline's current state
+    if phase == "unknown":
+        try:
+            pipeline_info = client.get_pipeline(pipeline_id)
+            pipeline_phase = pipeline_info.get("pipeline", pipeline_info).get("current_phase")
+            if pipeline_phase:
+                phase = pipeline_phase
+        except Exception:
+            pass
+
     # Find and read the draft
     repo_path = _find_repo_path()
     draft_rel = _get_draft_path(phase, pipeline_mode, issue_number, pipeline_id)
