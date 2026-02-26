@@ -573,7 +573,9 @@ class TestDecisionPhaseField:
     @patch("egg_lib.sdlc_hitl._find_repo_path")
     @patch("egg_lib.sdlc_hitl._get_draft_path")
     @patch("builtins.input")
-    def test_explicit_phase_overrides_detect(self, mock_input, mock_draft_path, mock_repo, tmp_path):
+    def test_explicit_phase_overrides_detect(
+        self, mock_input, mock_draft_path, mock_repo, tmp_path
+    ):
         """When decision dict has an explicit 'phase', it is used instead of regex detection."""
         mock_repo.return_value = tmp_path
         mock_draft_path.return_value = None
@@ -596,7 +598,9 @@ class TestDecisionPhaseField:
     @patch("egg_lib.sdlc_hitl._find_repo_path")
     @patch("egg_lib.sdlc_hitl._get_draft_path")
     @patch("builtins.input")
-    def test_missing_phase_falls_back_to_detect(self, mock_input, mock_draft_path, mock_repo, tmp_path):
+    def test_missing_phase_falls_back_to_detect(
+        self, mock_input, mock_draft_path, mock_repo, tmp_path
+    ):
         """When decision dict has no 'phase' key, _detect_phase is used."""
         mock_repo.return_value = tmp_path
         mock_draft_path.return_value = None
@@ -617,7 +621,9 @@ class TestDecisionPhaseField:
     @patch("egg_lib.sdlc_hitl._find_repo_path")
     @patch("egg_lib.sdlc_hitl._get_draft_path")
     @patch("builtins.input")
-    def test_none_phase_falls_back_to_detect(self, mock_input, mock_draft_path, mock_repo, tmp_path):
+    def test_none_phase_falls_back_to_detect(
+        self, mock_input, mock_draft_path, mock_repo, tmp_path
+    ):
         """When decision dict has phase=None, _detect_phase is used as fallback."""
         mock_repo.return_value = tmp_path
         mock_draft_path.return_value = None
