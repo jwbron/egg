@@ -132,6 +132,7 @@ def auto_commit_worktree(
     phase: str | None = None,
     session_token: str | None = None,
     gateway_url: str | None = None,
+    file_exceptions: list[str] | None = None,
 ) -> str | None:
     """Create a WIP commit for any uncommitted changes in a worktree.
 
@@ -149,6 +150,7 @@ def auto_commit_worktree(
         phase: SDLC phase for file restriction filtering.
         session_token: Gateway session token for pushing.
         gateway_url: Gateway base URL (e.g., ``http://egg-gateway:<port>``).
+        file_exceptions: Human-approved file paths that bypass restrictions.
 
     Returns:
         Commit SHA string if a commit was made, None otherwise.
@@ -204,6 +206,21 @@ def auto_commit_worktree(
                         allowed_count=len(allowed_files),
                         container_id=container_id,
                     )
+
+        # Un-block files that have human-approved exceptions.
+        if file_exceptions and blocked_files:
+            exception_set = set(file_exceptions)
+            unblocked = [f for f in blocked_files if f in exception_set]
+            if unblocked:
+                blocked_files = [f for f in blocked_files if f not in exception_set]
+                allowed_files.extend(unblocked)
+                logger.info(
+                    "File exceptions override phase restrictions in auto-commit",
+                    event_type="post_agent_file_exception",
+                    unblocked_files=unblocked,
+                    remaining_blocked=len(blocked_files),
+                    container_id=container_id,
+                )
 
         # Restore blocked files to their committed state.
         if blocked_files:

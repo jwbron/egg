@@ -36,6 +36,9 @@ def _make_coder_session():
     mock_session.expires_at = None
     mock_session.agent_role = "coder"
     mock_session.phase = None
+    mock_session.pipeline_id = None
+    mock_session.file_exceptions = None
+    mock_session.complexity_tier = None
     return mock_session
 
 
@@ -306,3 +309,92 @@ class TestAgentRestrictionsNoRole:
                 response = _do_push(client)
                 # Should succeed because agent_role is None, so the check is skipped
                 assert response.status_code == 200
+
+
+class TestPipelineSessionEnforcement:
+    """Pipeline sessions always enforce agent-role restrictions."""
+
+    def test_pipeline_session_enforces_without_env_var(self, client):
+        """Pipeline sessions enforce restrictions even without EGG_AGENT_RESTRICTIONS_ENFORCE."""
+        session = _make_coder_session()
+        session.pipeline_id = "issue-123"
+        patches = _push_context(session, agent_blocked=True)
+
+        with (
+            patches[0],
+            patches[1],
+            patches[2],
+            patches[3],
+            patches[4],
+            patches[5],
+            patches[6],
+            patches[7],
+        ):
+            # Ensure env var is explicitly off
+            with patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "false"}):
+                response = _do_push(client)
+                assert response.status_code == 403
+                data = json.loads(response.data)
+                assert "coder" in data["message"]
+
+    def test_non_pipeline_session_warn_only_by_default(self, client):
+        """Non-pipeline sessions default to warn-only without env var."""
+        session = _make_coder_session()
+        session.pipeline_id = None
+        patches = _push_context(session, agent_blocked=True)
+
+        with (
+            patches[0],
+            patches[1],
+            patches[2],
+            patches[3],
+            patches[4],
+            patches[5],
+            patches[6],
+            patches[7],
+        ):
+            with patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "false"}):
+                response = _do_push(client)
+                assert response.status_code == 200
+
+    def test_tester_role_blocked_in_pipeline(self, client):
+        """Tester role is blocked from code files in pipeline mode."""
+        session = _make_coder_session()
+        session.agent_role = "tester"
+        session.pipeline_id = "issue-456"
+        patches = _push_context(session, agent_blocked=True)
+
+        with (
+            patches[0],
+            patches[1],
+            patches[2],
+            patches[3],
+            patches[4],
+            patches[5],
+            patches[6],
+            patches[7],
+        ):
+            with patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "false"}):
+                response = _do_push(client)
+                assert response.status_code == 403
+
+    def test_documenter_role_blocked_in_pipeline(self, client):
+        """Documenter role is blocked from code files in pipeline mode."""
+        session = _make_coder_session()
+        session.agent_role = "documenter"
+        session.pipeline_id = "issue-789"
+        patches = _push_context(session, agent_blocked=True)
+
+        with (
+            patches[0],
+            patches[1],
+            patches[2],
+            patches[3],
+            patches[4],
+            patches[5],
+            patches[6],
+            patches[7],
+        ):
+            with patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "false"}):
+                response = _do_push(client)
+                assert response.status_code == 403

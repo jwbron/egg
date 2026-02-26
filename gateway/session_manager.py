@@ -139,6 +139,7 @@ def _capture_and_cleanup_session(
                 phase=session.phase,
                 session_token=session.session_token,
                 gateway_url=gateway_url,
+                file_exceptions=session.file_exceptions,
             )
             if auto_commit_sha:
                 session.auto_commit_sha = auto_commit_sha
@@ -294,6 +295,7 @@ class Session:
     assigned_branch: str | None = None  # Worktree branch locked to this session
     auto_commit_sha: str | None = None  # SHA from post-agent auto-commit
     complexity_tier: str | None = None  # Complexity tier ('low', 'mid', 'high') for Tier 3 dispatch
+    file_exceptions: list[str] | None = None  # Human-approved file exceptions for push
 
     def is_expired(self) -> bool:
         """Check if session has expired."""
@@ -339,6 +341,8 @@ class Session:
             result["auto_commit_sha"] = self.auto_commit_sha
         if self.complexity_tier is not None:
             result["complexity_tier"] = self.complexity_tier
+        if self.file_exceptions:
+            result["file_exceptions"] = self.file_exceptions
         return result
 
     @classmethod
@@ -365,6 +369,7 @@ class Session:
             assigned_branch=data.get("assigned_branch"),
             auto_commit_sha=data.get("auto_commit_sha"),
             complexity_tier=data.get("complexity_tier"),
+            file_exceptions=data.get("file_exceptions"),
         )
 
 
@@ -822,6 +827,42 @@ class SessionManager:
                 container_id=session.container_id,
                 old_phase=old_phase,
                 new_phase=phase,
+            )
+
+            return True
+
+    def add_file_exception(self, token_hash: str, file_path: str) -> bool:
+        """Add a human-approved file exception to a session.
+
+        File exceptions allow specific files to bypass phase and agent-role
+        restrictions during push.  Approved via the HITL decision queue.
+
+        Args:
+            token_hash: SHA-256 hash of the session token.
+            file_path: File path to grant an exception for.
+
+        Returns:
+            True if the exception was added, False if session not found.
+        """
+        with self._lock:
+            session = self._sessions.get(token_hash)
+            if not session or session.is_expired():
+                return False
+
+            if session.file_exceptions is None:
+                session.file_exceptions = []
+
+            if file_path not in session.file_exceptions:
+                session.file_exceptions.append(file_path)
+
+            self._save_to_disk()
+
+            logger.info(
+                "File exception added to session",
+                event_type="session_file_exception_added",
+                session_token_hash=token_hash[:16],
+                container_id=session.container_id,
+                file_path=file_path,
             )
 
             return True

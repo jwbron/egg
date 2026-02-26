@@ -717,6 +717,24 @@ def git_push() -> tuple[Response, int] | Response:
                 },
             )
 
+        # Apply session file exceptions — files approved via HITL bypass restrictions.
+        file_exceptions = set(getattr(g.session, "file_exceptions", None) or [])
+        if file_exceptions and changed_files:
+            excepted = [f for f in changed_files if f in file_exceptions]
+            if excepted:
+                audit_log(
+                    "file_exception_applied",
+                    "git_push",
+                    success=True,
+                    details={
+                        "repo": repo,
+                        "branch": branch,
+                        "excepted_files": excepted,
+                        "role": session_role,
+                    },
+                )
+                changed_files = [f for f in changed_files if f not in file_exceptions]
+
         # Check file restrictions using the PhaseFilter configuration
         restriction_result = check_file_restrictions(session_role, changed_files)
         if not restriction_result.allowed:
@@ -754,11 +772,18 @@ def git_push() -> tuple[Response, int] | Response:
             session_role, changed_files, complexity_tier=session_complexity_tier
         )
         if not agent_result.allowed:
-            enforce = os.environ.get("EGG_AGENT_RESTRICTIONS_ENFORCE", "false").lower() in (
+            # Pipeline sessions always enforce; non-pipeline sessions use env var.
+            session_pipeline_id = (
+                getattr(g.session, "pipeline_id", None)
+                if hasattr(g, "session") and g.session
+                else None
+            )
+            enforce_env = os.environ.get("EGG_AGENT_RESTRICTIONS_ENFORCE", "false").lower() in (
                 "true",
                 "1",
                 "yes",
             )
+            enforce = bool(session_pipeline_id) or enforce_env
 
             if enforce:
                 audit_log(
@@ -826,6 +851,28 @@ def git_push() -> tuple[Response, int] | Response:
                         "hint": "This is a security precaution. Try again or contact support.",
                     },
                 )
+
+            # Apply file exceptions if changed_files was just populated (no role check path)
+            file_exceptions = (
+                set(getattr(g.session, "file_exceptions", None) or [])
+                if hasattr(g, "session") and g.session
+                else set()
+            )
+            if file_exceptions and changed_files:
+                excepted = [f for f in changed_files if f in file_exceptions]
+                if excepted:
+                    audit_log(
+                        "file_exception_applied",
+                        "git_push",
+                        success=True,
+                        details={
+                            "repo": repo,
+                            "branch": branch,
+                            "excepted_files": excepted,
+                            "phase": session_phase,
+                        },
+                    )
+                    changed_files = [f for f in changed_files if f not in file_exceptions]
 
         # Check phase-based file restrictions
         phase_result = check_phase_file_restrictions(session_phase, changed_files)
@@ -3849,6 +3896,269 @@ def sessions_list() -> tuple[Response, int] | Response:
     session_manager = get_session_manager()
     sessions = session_manager.list_sessions()
     return make_success("Sessions listed", {"sessions": sessions})
+
+
+# =============================================================================
+# File Access Request Endpoints
+# =============================================================================
+
+
+def _orch_create_decision(
+    pipeline_id: str, question: str, options: list[str], context: str = ""
+) -> dict[str, Any] | None:
+    """Create a HITL decision in the orchestrator.
+
+    Returns the created decision dict, or None on failure.
+    """
+    orchestrator_url = os.environ.get("EGG_ORCHESTRATOR_URL", "http://egg-orchestrator:9849")
+    import urllib.error
+    import urllib.request
+
+    url = f"{orchestrator_url}/api/v1/pipelines/{pipeline_id}/decisions"
+    body = json.dumps(
+        {
+            "question": question,
+            "options": options,
+            "context": context,
+        }
+    ).encode()
+    req = urllib.request.Request(
+        url, data=body, headers={"Content-Type": "application/json"}, method="POST"
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data: dict[str, Any] = json.loads(resp.read().decode())
+            decision: dict[str, Any] = data.get("data", {}).get("decision", data.get("data", {}))
+            return decision
+    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as e:
+        logger.warning(
+            "Failed to create orchestrator decision", error=str(e), pipeline_id=pipeline_id
+        )
+        return None
+
+
+def _orch_get_decision(pipeline_id: str, decision_id: str) -> dict[str, Any] | None:
+    """Get a HITL decision from the orchestrator.
+
+    Returns the decision dict, or None on failure.
+    """
+    orchestrator_url = os.environ.get("EGG_ORCHESTRATOR_URL", "http://egg-orchestrator:9849")
+    import urllib.error
+    import urllib.request
+
+    url = f"{orchestrator_url}/api/v1/pipelines/{pipeline_id}/decisions"
+    req = urllib.request.Request(url, method="GET")
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data: dict[str, Any] = json.loads(resp.read().decode())
+            decisions = data.get("data", {}).get("decisions", [])
+            for d in decisions:
+                did = d.get("id", d.get("decision_id"))
+                if did == decision_id:
+                    result: dict[str, Any] = d
+                    return result
+            return None
+    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as e:
+        logger.warning(
+            "Failed to query orchestrator decision", error=str(e), pipeline_id=pipeline_id
+        )
+        return None
+
+
+@app.route("/api/v1/sessions/request-file", methods=["POST"])
+@require_session_auth
+def request_file_create() -> tuple[Response, int] | Response:
+    """Request human approval to access a blocked file.
+
+    Creates a HITL decision in the orchestrator for the file access request.
+    Requires an active pipeline session.
+
+    Auth: Bearer {session_token}
+
+    Body:
+        file_path: str - the file path that is blocked
+        reason: str - why the agent needs access
+
+    Returns:
+        request_id, status, file_path
+    """
+    try:
+        from file_request_manager import get_file_request_manager  # type: ignore[import-untyped]  # noqa: I001
+    except ImportError:
+        from gateway.file_request_manager import get_file_request_manager
+
+    data = request.get_json(silent=True) or {}
+    file_path = data.get("file_path", "").strip()
+    reason = data.get("reason", "").strip()
+
+    if not file_path:
+        return make_error("file_path is required", status_code=400)
+    if not reason:
+        return make_error("reason is required", status_code=400)
+
+    session = g.session
+    pipeline_id = getattr(session, "pipeline_id", None)
+    if not pipeline_id:
+        return make_error(
+            "File access requests require an active pipeline session",
+            status_code=400,
+            details={"hint": "This feature is only available in pipeline mode."},
+        )
+
+    # Verify the file is actually blocked by checking restrictions
+    session_role = getattr(session, "agent_role", None)
+    session_phase = getattr(session, "phase", None)
+    is_blocked = False
+
+    if session_phase:
+        phase_result = check_phase_file_restrictions(session_phase, [file_path])
+        if not phase_result.allowed:
+            is_blocked = True
+
+    if session_role and not is_blocked:
+        complexity_tier = getattr(session, "complexity_tier", None)
+        agent_result = check_agent_restrictions(
+            session_role, [file_path], complexity_tier=complexity_tier
+        )
+        if not agent_result.allowed:
+            is_blocked = True
+
+    if not is_blocked:
+        return make_error(
+            f"File '{file_path}' is not blocked by current restrictions",
+            status_code=400,
+            details={"hint": "Only request access for files that are actually restricted."},
+        )
+
+    # Create HITL decision in orchestrator
+    question = (
+        f"File access request: Allow agent ({session_role or 'unknown'}) to modify '{file_path}'?"
+    )
+    context = (
+        f"Reason: {reason}\nPhase: {session_phase or 'unknown'}\nRole: {session_role or 'unknown'}"
+    )
+    options = ["Approve", "Deny"]
+
+    decision = _orch_create_decision(pipeline_id, question, options, context)
+    if not decision:
+        return make_error(
+            "Failed to create HITL decision in orchestrator",
+            status_code=502,
+            details={"hint": "Check that the orchestrator is running and the pipeline exists."},
+        )
+
+    decision_id = decision.get("id", decision.get("decision_id", ""))
+
+    # Store the request
+    frm = get_file_request_manager()
+    req_obj = frm.create_request(
+        session_token_hash=session.session_token_hash,
+        pipeline_id=pipeline_id,
+        decision_id=decision_id,
+        file_path=file_path,
+        reason=reason,
+    )
+
+    audit_log(
+        "file_access_requested",
+        "request_file",
+        success=True,
+        details={
+            "request_id": req_obj.request_id,
+            "file_path": file_path,
+            "reason": reason,
+            "decision_id": decision_id,
+            "pipeline_id": pipeline_id,
+            "role": session_role,
+            "phase": session_phase,
+        },
+    )
+
+    return make_success(
+        "File access request created",
+        {
+            "request_id": req_obj.request_id,
+            "status": req_obj.status,
+            "file_path": req_obj.file_path,
+            "decision_id": decision_id,
+        },
+    )
+
+
+@app.route("/api/v1/sessions/request-file/<request_id>", methods=["GET"])
+@require_session_auth
+def request_file_status(request_id: str) -> tuple[Response, int] | Response:
+    """Check the status of a file access request.
+
+    Polls the orchestrator for the decision status.  When approved, the
+    file exception is automatically added to the session.
+
+    Auth: Bearer {session_token}
+
+    Returns:
+        request_id, status, file_path
+    """
+    try:
+        from file_request_manager import get_file_request_manager  # noqa: I001
+    except ImportError:
+        from gateway.file_request_manager import get_file_request_manager
+
+    frm = get_file_request_manager()
+    req_obj = frm.get_request(request_id)
+    if not req_obj:
+        return make_error(f"Request '{request_id}' not found", status_code=404)
+
+    # Verify the request belongs to this session
+    session = g.session
+    if req_obj.session_token_hash != session.session_token_hash:
+        return make_error(f"Request '{request_id}' not found", status_code=404)
+
+    # If still pending, poll orchestrator
+    if req_obj.status == "pending":
+        decision = _orch_get_decision(req_obj.pipeline_id, req_obj.decision_id)
+        if decision:
+            decision_status = decision.get("status", "pending")
+            resolution = decision.get("resolution", "")
+
+            if decision_status == "resolved":
+                approved = resolution.lower() in ("approve", "approved", "yes")
+                frm.resolve_request(request_id, approved)
+
+                if approved:
+                    # Add file exception to session
+                    sm = get_session_manager()
+                    sm.add_file_exception(session.session_token_hash, req_obj.file_path)
+
+                    audit_log(
+                        "file_access_approved",
+                        "request_file",
+                        success=True,
+                        details={
+                            "request_id": request_id,
+                            "file_path": req_obj.file_path,
+                            "decision_id": req_obj.decision_id,
+                        },
+                    )
+                else:
+                    audit_log(
+                        "file_access_denied",
+                        "request_file",
+                        success=True,
+                        details={
+                            "request_id": request_id,
+                            "file_path": req_obj.file_path,
+                            "decision_id": req_obj.decision_id,
+                        },
+                    )
+
+    return make_success(
+        "File access request status",
+        {
+            "request_id": req_obj.request_id,
+            "status": req_obj.status,
+            "file_path": req_obj.file_path,
+        },
+    )
 
 
 # =============================================================================
