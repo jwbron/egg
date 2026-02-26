@@ -4425,6 +4425,50 @@ _APPROVE_KEYWORDS = {"approved", "approve", "lgtm", "yes", ""}
 _BARE_OPTION_LABELS = {"request changes", "request_changes"}
 
 
+def _parse_resolution(resolution: str | None) -> tuple[bool, str | None]:
+    """Parse a HITL phase_gate resolution into (is_approved, feedback).
+
+    Handles both JSON-structured resolutions and legacy bare-string formats.
+    Used by the main HITL gate in _run_pipeline and the recovery path in
+    start_pipeline to keep the logic in sync.
+
+    Returns:
+        (is_approved, feedback): is_approved is True for approve/select/submit_feedback
+        actions, False for request_changes/change_approach. feedback contains the
+        revision feedback text (if any) for non-approved resolutions.
+    """
+    if not resolution:
+        return True, None
+
+    resolution = resolution.strip()
+
+    # JSON-first: try structured payload
+    try:
+        payload = json.loads(resolution)
+        if isinstance(payload, dict) and "action" in payload:
+            action = payload["action"]
+            feedback_text = payload.get("feedback", "") or None
+
+            if action in ("approve", "select", "submit_feedback"):
+                return True, None
+            elif action in ("request_changes", "change_approach"):
+                return False, feedback_text
+            # Unknown action — fall through to legacy matching
+    except (json.JSONDecodeError, TypeError, AttributeError):
+        pass
+
+    # Legacy bare-string resolution
+    if resolution.lower() in _APPROVE_KEYWORDS:
+        return True, None
+    elif resolution.lower() in _BARE_OPTION_LABELS:
+        return False, None
+    elif resolution:
+        # Free-text feedback — treat as request_changes
+        return False, resolution
+
+    return True, None
+
+
 def _build_checker_prompt(
     pipeline_id: str,
     pipeline_mode: str,
@@ -5351,6 +5395,22 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                 return
 
         hitl_revision_feedback: str | None = None
+
+        # Check for feedback preserved by the recovery path in start_pipeline.
+        # When AWAITING_HUMAN recovery handles request_changes, it stores the
+        # reviewer's feedback in phase_execution.hitl_feedback so the freshly
+        # launched _run_pipeline thread can pass it to the re-running agent.
+        try:
+            _recovery_pipeline = store.load_pipeline(pipeline_id)
+            _recovery_phase = _recovery_pipeline.get_phase_execution(
+                _recovery_pipeline.current_phase
+            )
+            if _recovery_phase.hitl_feedback:
+                hitl_revision_feedback = _recovery_phase.hitl_feedback
+                _recovery_phase.hitl_feedback = None
+                store.save_pipeline(_recovery_pipeline)
+        except Exception:
+            pass  # Non-fatal — feedback is best-effort
 
         while True:
             try:
@@ -6591,14 +6651,6 @@ def start_pipeline(pipeline_id: str) -> tuple[Response, int]:
             )
 
         if pipeline.status == PipelineStatus.AWAITING_HUMAN:
-            pending = pipeline.get_pending_decisions()
-            if len(pending) > 0:
-                return make_error_response(
-                    f"Pipeline {pipeline_id} is awaiting human approval "
-                    f"({len(pending)} pending decision(s))",
-                    status_code=409,
-                )
-
             # No pending decisions — the polling thread died (e.g. restart)
             # but the human already resolved everything.  Recover based on
             # the latest phase_gate decision's resolution.
@@ -6606,6 +6658,24 @@ def start_pipeline(pipeline_id: str) -> tuple[Response, int]:
 
             with get_pipeline_state_lock(pipeline_id):
                 pipeline = store.load_pipeline(pipeline_id)
+
+                # Re-validate status after acquiring the lock — another
+                # concurrent start_pipeline call may have already recovered
+                # this pipeline.
+                if pipeline.status != PipelineStatus.AWAITING_HUMAN:
+                    return make_error_response(
+                        f"Pipeline {pipeline_id} status changed to "
+                        f"{pipeline.status.value} (concurrent recovery)",
+                        status_code=409,
+                    )
+
+                pending = pipeline.get_pending_decisions()
+                if len(pending) > 0:
+                    return make_error_response(
+                        f"Pipeline {pipeline_id} is awaiting human approval "
+                        f"({len(pending)} pending decision(s))",
+                        status_code=409,
+                    )
 
                 # Find the latest resolved phase_gate decision
                 phase_gate_decisions = [
@@ -6617,18 +6687,10 @@ def start_pipeline(pipeline_id: str) -> tuple[Response, int]:
                     phase_gate_decisions[0].resolution if phase_gate_decisions else None
                 )
 
-                # Determine if approved or request_changes
-                is_approved = True
-                if latest_resolution:
-                    try:
-                        import json as _json
-
-                        parsed = _json.loads(latest_resolution)
-                        action = parsed.get("action", "")
-                        if action == "request_changes":
-                            is_approved = False
-                    except (ValueError, TypeError, AttributeError):
-                        pass
+                # Determine if approved or request_changes using the shared
+                # parser (handles approve, select, submit_feedback,
+                # request_changes, change_approach, and legacy bare strings).
+                is_approved, revision_feedback = _parse_resolution(latest_resolution)
 
                 if is_approved:
                     # Mark current phase COMPLETE and advance
@@ -6647,7 +6709,10 @@ def start_pipeline(pipeline_id: str) -> tuple[Response, int]:
                         next_phases = [PipelinePhase.IMPLEMENT]
 
                     if not next_phases:
-                        # Terminal phase — pipeline complete
+                        # Terminal phase — pipeline complete.
+                        # Bump created_at so any lingering old _run_pipeline
+                        # thread (e.g. stuck in its finally block) detects the
+                        # recreation and exits without double-cleaning up.
                         pipeline.status = PipelineStatus.COMPLETE
                         pipeline.created_at = datetime.utcnow()
                         store.save_pipeline(pipeline)
@@ -6672,7 +6737,7 @@ def start_pipeline(pipeline_id: str) -> tuple[Response, int]:
                         plan_execution.error = "skipped: short-circuit"
 
                 else:
-                    # request_changes — reset phase for re-run (like FAILED restart)
+                    # request_changes/change_approach — reset phase for re-run
                     phase_execution = pipeline.get_phase_execution(pipeline.current_phase)
                     if phase_execution.status in (
                         PipelineStatus.COMPLETE,
@@ -6690,6 +6755,11 @@ def start_pipeline(pipeline_id: str) -> tuple[Response, int]:
                         phase_execution.containers = []
                         phase_execution.agents = []
                         phase_execution.artifacts = {}
+
+                    # Preserve the reviewer's feedback so the re-launched
+                    # _run_pipeline thread can pass it to the agent.
+                    if revision_feedback:
+                        phase_execution.hitl_feedback = revision_feedback
 
                 pipeline.error = None
                 pipeline.created_at = datetime.utcnow()

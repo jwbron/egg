@@ -366,15 +366,13 @@ def _make_awaiting_pipeline(
 class TestStartAwaitingHumanPipeline:
     """Recovery of AWAITING_HUMAN pipelines with no pending decisions."""
 
+    @patch("routes.pipelines.get_pipeline_state_lock", side_effect=_noop_lock)
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
-    def test_409_when_pending_decisions_exist(self, mock_get_repo, mock_resolve, client):
+    def test_409_when_pending_decisions_exist(self, mock_get_repo, mock_resolve, mock_lock, client):
         """AWAITING_HUMAN with pending decisions returns 409."""
         pipeline = _make_awaiting_pipeline(pending_decisions=1)
-        mock_get_repo.return_value = Path("/repo")
-        mock_store = MagicMock()
-        mock_store.repo_path = Path("/repo")
-        mock_resolve.return_value = (mock_store, pipeline)
+        _setup_mocks(mock_get_repo, mock_resolve, pipeline)
 
         resp = client.post("/api/v1/pipelines/issue-42/start")
 
@@ -513,3 +511,90 @@ class TestStartAwaitingHumanPipeline:
         plan_exec = pipeline.get_phase_execution(PipelinePhase.PLAN)
         assert plan_exec.status == PipelineStatus.COMPLETE
         assert plan_exec.error == "skipped: short-circuit"
+
+    @patch("routes.pipelines.get_pipeline_state_lock", side_effect=_noop_lock)
+    @patch("routes.pipelines._run_pipeline")
+    @patch("routes.pipelines._resolve_pipeline")
+    @patch("routes.pipelines.get_repo_path")
+    def test_recovery_change_approach_resets_phase(
+        self, mock_get_repo, mock_resolve, mock_run, mock_lock, client
+    ):
+        """change_approach resolution resets the phase for re-run (not approval)."""
+        pipeline = _make_awaiting_pipeline(
+            phase=PipelinePhase.REFINE,
+            resolution='{"action": "change_approach", "feedback": "Try a different strategy"}',
+        )
+        _setup_mocks(mock_get_repo, mock_resolve, pipeline)
+
+        resp = client.post("/api/v1/pipelines/issue-42/start")
+
+        assert resp.status_code == 200
+        # Phase should be reset to PENDING (not advanced)
+        phase_exec = pipeline.get_phase_execution(PipelinePhase.REFINE)
+        assert phase_exec.status == PipelineStatus.PENDING
+        assert phase_exec.started_at is None
+        assert pipeline.current_phase == PipelinePhase.REFINE
+        assert pipeline.status == PipelineStatus.RUNNING
+
+    @patch("routes.pipelines.get_pipeline_state_lock", side_effect=_noop_lock)
+    @patch("routes.pipelines._run_pipeline")
+    @patch("routes.pipelines._resolve_pipeline")
+    @patch("routes.pipelines.get_repo_path")
+    def test_recovery_bare_string_approved(
+        self, mock_get_repo, mock_resolve, mock_run, mock_lock, client
+    ):
+        """Bare-string 'approved' resolution advances the phase."""
+        pipeline = _make_awaiting_pipeline(
+            phase=PipelinePhase.REFINE,
+            resolution="approved",
+        )
+        _setup_mocks(mock_get_repo, mock_resolve, pipeline)
+
+        resp = client.post("/api/v1/pipelines/issue-42/start")
+
+        assert resp.status_code == 200
+        # REFINE → PLAN
+        assert pipeline.current_phase == PipelinePhase.PLAN
+        assert pipeline.status == PipelineStatus.RUNNING
+
+    @patch("routes.pipelines.get_pipeline_state_lock", side_effect=_noop_lock)
+    @patch("routes.pipelines._run_pipeline")
+    @patch("routes.pipelines._resolve_pipeline")
+    @patch("routes.pipelines.get_repo_path")
+    def test_recovery_bare_string_request_changes(
+        self, mock_get_repo, mock_resolve, mock_run, mock_lock, client
+    ):
+        """Bare-string 'request changes' resolution resets the phase."""
+        pipeline = _make_awaiting_pipeline(
+            phase=PipelinePhase.REFINE,
+            resolution="request changes",
+        )
+        _setup_mocks(mock_get_repo, mock_resolve, pipeline)
+
+        resp = client.post("/api/v1/pipelines/issue-42/start")
+
+        assert resp.status_code == 200
+        phase_exec = pipeline.get_phase_execution(PipelinePhase.REFINE)
+        assert phase_exec.status == PipelineStatus.PENDING
+        assert pipeline.current_phase == PipelinePhase.REFINE
+        assert pipeline.status == PipelineStatus.RUNNING
+
+    @patch("routes.pipelines.get_pipeline_state_lock", side_effect=_noop_lock)
+    @patch("routes.pipelines._run_pipeline")
+    @patch("routes.pipelines._resolve_pipeline")
+    @patch("routes.pipelines.get_repo_path")
+    def test_recovery_preserves_feedback(
+        self, mock_get_repo, mock_resolve, mock_run, mock_lock, client
+    ):
+        """request_changes feedback is stored in phase_execution.hitl_feedback."""
+        pipeline = _make_awaiting_pipeline(
+            phase=PipelinePhase.REFINE,
+            resolution='{"action": "request_changes", "feedback": "Fix the tests"}',
+        )
+        _setup_mocks(mock_get_repo, mock_resolve, pipeline)
+
+        resp = client.post("/api/v1/pipelines/issue-42/start")
+
+        assert resp.status_code == 200
+        phase_exec = pipeline.get_phase_execution(PipelinePhase.REFINE)
+        assert phase_exec.hitl_feedback == "Fix the tests"
