@@ -55,6 +55,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -125,7 +126,7 @@ MAX_TRANSCRIPT_SIZE = 3_000_000  # 3MB
 
 # Timeout for async session-end checkpoint capture (seconds).
 # Buffer cleanup is blocked until capture completes or this timeout elapses.
-SESSION_END_CAPTURE_TIMEOUT = 30
+SESSION_END_CAPTURE_TIMEOUT = 180
 
 # Feature flag for enabling/disabling checkpoints
 CHECKPOINT_ENABLED = os.environ.get("CHECKPOINT_ENABLED", "true").lower() == "true"
@@ -782,11 +783,43 @@ class CheckpointHandler:
                     # The + prefix handles the case where the local branch
                     # has diverged (e.g., from a different remote or
                     # concurrent checkpoint pushes).
-                    self._run_git(
-                        repo_path,
-                        ["fetch", target, f"+{CHECKPOINT_BRANCH}:{CHECKPOINT_BRANCH}"],
-                        github_token=github_token,
-                    )
+                    # Retry with backoff: network fetches can be slow or
+                    # transiently fail, especially during container shutdown.
+                    fetch_args = ["fetch", target, f"+{CHECKPOINT_BRANCH}:{CHECKPOINT_BRANCH}"]
+                    max_fetch_attempts = 3
+                    fetch_timeout = 45
+                    for attempt in range(1, max_fetch_attempts + 1):
+                        try:
+                            self._run_git(
+                                repo_path,
+                                fetch_args,
+                                timeout=fetch_timeout,
+                                github_token=github_token,
+                            )
+                            break
+                        except (
+                            subprocess.TimeoutExpired,
+                            subprocess.CalledProcessError,
+                        ) as exc:
+                            if attempt < max_fetch_attempts:
+                                backoff = 2**attempt
+                                logger.warning(
+                                    "Checkpoint fetch failed, retrying",
+                                    attempt=attempt,
+                                    max_attempts=max_fetch_attempts,
+                                    backoff_seconds=backoff,
+                                    checkpoint_id=checkpoint.id,
+                                    error=str(exc),
+                                )
+                                time.sleep(backoff)
+                            else:
+                                logger.error(
+                                    "Checkpoint fetch failed after all retries",
+                                    attempts=max_fetch_attempts,
+                                    checkpoint_id=checkpoint.id,
+                                    error=str(exc),
+                                )
+                                raise
                     self._run_git(
                         repo_path,
                         [
@@ -1195,6 +1228,8 @@ def capture_and_store_checkpoint(
                     commit_sha=commit_sha[:7],
                 )
 
+        # Push-triggered checkpoints are best-effort fire-and-forget.
+        # Use daemon=True so they don't block process shutdown.
         thread = threading.Thread(
             target=_store_with_error_handling,
             daemon=True,
@@ -1419,7 +1454,7 @@ def capture_session_end_checkpoint(
 
         thread = threading.Thread(
             target=_store_with_event,
-            daemon=True,
+            daemon=False,
         )
         thread.start()
         return checkpoint, completion_event
