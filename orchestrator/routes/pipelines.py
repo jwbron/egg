@@ -66,6 +66,7 @@ except ImportError:
         AggregatedReviewResult,
         ComplexityTier,
         CycleTiming,
+        DecisionStatus,
         Pipeline,
         PipelinePhase,
         PipelineStatus,
@@ -4944,6 +4945,124 @@ def _populate_contract_from_plan(
         )
 
 
+def _sync_pipeline_decisions_to_contract(
+    repo_path: Path,
+    pipeline_id: str,
+    pipeline_mode: str = "local",
+    issue_number: int | None = None,
+) -> None:
+    """Sync resolved non-phase-gate pipeline decisions to the contract.
+
+    Converts HITLDecision objects from pipeline state into contract Decision
+    objects so that implement-phase agents can see what was decided during
+    refine/plan phases.
+
+    Only syncs decisions with decision_type != "phase_gate" (substantive
+    choices, not process-control gates).  Skips decisions already present
+    in the contract (matched by question text) to avoid duplicates on
+    re-runs after HITL revision cycles.
+    """
+    try:
+        from egg_contracts.loader import load_contract, save_contract
+        from egg_contracts.models import Decision, DecisionOption, DecisionType
+    except ImportError:
+        logger.warning("egg_contracts not available, skipping decision sync")
+        return
+
+    if pipeline_mode != "local" and not issue_number:
+        logger.warning(
+            "Issue-mode pipeline missing issue_number, skipping decision sync",
+            pipeline_id=pipeline_id,
+        )
+        return
+
+    # Load pipeline to get its decisions
+    store = get_state_store(repo_path)
+    try:
+        pipeline = store.load_pipeline(pipeline_id)
+    except Exception:
+        logger.warning(
+            "Pipeline not found, skipping decision sync",
+            pipeline_id=pipeline_id,
+        )
+        return
+
+    # Filter to resolved, non-phase-gate decisions
+    substantive_decisions = [
+        d
+        for d in pipeline.decisions
+        if d.decision_type != "phase_gate" and d.status == DecisionStatus.RESOLVED
+    ]
+
+    if not substantive_decisions:
+        logger.debug("No substantive decisions to sync", pipeline_id=pipeline_id)
+        return
+
+    # Load contract
+    contract_id: int | str = pipeline_id
+    if pipeline_mode != "local" and issue_number:
+        contract_id = issue_number
+
+    try:
+        contract = load_contract(contract_id, repo_path)
+    except Exception:
+        logger.warning(
+            "Contract not found, skipping decision sync",
+            pipeline_id=pipeline_id,
+        )
+        return
+
+    # Build set of existing contract decision questions for deduplication
+    existing_questions = {d.question for d in contract.decisions}
+
+    # Determine next decision ID (continue numbering after existing ones)
+    max_existing_id = 0
+    for d in contract.decisions:
+        # Extract numeric suffix from "decision-N"
+        try:
+            num = int(d.id.split("-")[1])
+            max_existing_id = max(max_existing_id, num)
+        except (IndexError, ValueError):
+            pass
+
+    synced_count = 0
+    for pipeline_decision in substantive_decisions:
+        if pipeline_decision.question in existing_questions:
+            continue
+
+        max_existing_id += 1
+        decision_id = f"decision-{max_existing_id}"
+
+        # Convert pipeline options (list[str]) to contract DecisionOption objects
+        contract_options = [
+            DecisionOption(id=f"opt-{i + 1}", label=opt)
+            for i, opt in enumerate(pipeline_decision.options)
+        ]
+
+        contract_decision = Decision(
+            id=decision_id,
+            question=pipeline_decision.question,
+            type=DecisionType.HITL,
+            options=contract_options,
+            resolved=True,
+            resolution=pipeline_decision.resolution,
+            resolved_by="human",
+            resolved_at=pipeline_decision.resolved_at,
+        )
+        contract.decisions.append(contract_decision)
+        existing_questions.add(pipeline_decision.question)
+        synced_count += 1
+
+    if synced_count > 0:
+        save_contract(contract, repo_path)
+        logger.info(
+            "Synced pipeline decisions to contract",
+            pipeline_id=pipeline_id,
+            synced_count=synced_count,
+            total_contract_decisions=len(contract.decisions),
+        )
+
+
 def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
     """Run a pipeline by spawning containers for each phase.
 
@@ -6040,6 +6159,16 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
             # plan, not a previously rejected draft.
             if current_phase.value == "plan":
                 _populate_contract_from_plan(
+                    worktree_repo_path, pipeline_id, pipeline_mode, pipeline.issue_number
+                )
+
+            # After refine and plan phases: sync substantive HITL decisions
+            # (non-phase-gate) to the contract so implement-phase agents
+            # can see what was decided.  Called for both refine and plan
+            # phases — refine decisions inform the plan, plan decisions
+            # inform the implementation.
+            if current_phase.value in _HITL_GATE_PHASES:
+                _sync_pipeline_decisions_to_contract(
                     worktree_repo_path, pipeline_id, pipeline_mode, pipeline.issue_number
                 )
 
