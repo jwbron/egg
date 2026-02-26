@@ -260,3 +260,57 @@ class TestCleanupSession:
         with patch("egg_lib.runtime.delete_session", return_value=(False, "error")):
             with patch("egg_lib.runtime.delete_worktrees", return_value=(True, [], [])):
                 _cleanup_session("tok-123", "container-1")  # Should not raise
+
+    def test_retries_on_failure(self):
+        """Retries delete_session on transient failures with backoff."""
+        with patch(
+            "egg_lib.runtime.delete_session", return_value=(False, "gateway timeout")
+        ) as mock_delete:
+            with patch("egg_lib.runtime.time.sleep") as mock_sleep:
+                _cleanup_session("tok-123", "container-1")
+                assert mock_delete.call_count == 3
+                # Backoff: 1s after first failure, 2s after second
+                assert mock_sleep.call_args_list == [
+                    ((1,),),  # 1 << 0
+                    ((2,),),  # 1 << 1
+                ]
+
+    def test_succeeds_on_second_attempt(self):
+        """Retry recovers from first failure."""
+        with patch(
+            "egg_lib.runtime.delete_session",
+            side_effect=[
+                (False, "gateway timeout"),
+                (True, None),
+            ],
+        ) as mock_delete:
+            with patch("egg_lib.runtime.time.sleep") as mock_sleep:
+                _cleanup_session("tok-123", "container-1")
+                assert mock_delete.call_count == 2
+                mock_sleep.assert_called_once_with(1)  # 1 << 0
+
+    def test_retries_on_exception(self):
+        """Retries on exceptions with backoff."""
+        with patch(
+            "egg_lib.runtime.delete_session",
+            side_effect=[
+                ConnectionError("refused"),
+                ConnectionError("refused"),
+                (True, None),
+            ],
+        ) as mock_delete:
+            with patch("egg_lib.runtime.time.sleep") as mock_sleep:
+                _cleanup_session("tok-123", "container-1")
+                assert mock_delete.call_count == 3
+                assert mock_sleep.call_args_list == [
+                    ((1,),),
+                    ((2,),),
+                ]
+
+    def test_no_retry_on_success(self):
+        """No unnecessary retries when first attempt succeeds."""
+        with patch("egg_lib.runtime.delete_session", return_value=(True, None)) as mock_delete:
+            with patch("egg_lib.runtime.time.sleep") as mock_sleep:
+                _cleanup_session("tok-123", "container-1")
+                assert mock_delete.call_count == 1
+                mock_sleep.assert_not_called()

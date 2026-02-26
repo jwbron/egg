@@ -84,6 +84,7 @@ services:
       retries: 12
       start_period: 30s
     restart: unless-stopped
+    stop_grace_period: 15s
     security_opt:
       - label=disable
 

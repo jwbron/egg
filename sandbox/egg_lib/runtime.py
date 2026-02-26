@@ -261,18 +261,30 @@ def _cleanup_session(session_token: str | None, container_id: str) -> None:
     """Clean up session and worktrees for a container.
 
     Called when container exits to release session and worktree resources.
+    Retries transient gateway failures with exponential backoff to handle
+    cases where the gateway is briefly unreachable during shutdown.
 
     Args:
         session_token: Session token (if available)
         container_id: Container identifier
     """
     if session_token:
-        try:
-            success_flag, err = delete_session(session_token)
-            if not success_flag and err:
-                warn(f"Session cleanup warning: {err}")
-        except Exception as e:
-            warn(f"Session cleanup failed: {e}")
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                success_flag, err = delete_session(session_token)
+                if success_flag:
+                    return
+                if attempt < max_retries - 1:
+                    time.sleep(1 << attempt)  # 1s, 2s, 4s
+                    continue
+                if err:
+                    warn(f"Session cleanup warning: {err}")
+            except Exception as e:
+                if attempt < max_retries - 1:
+                    time.sleep(1 << attempt)
+                    continue
+                warn(f"Session cleanup failed: {e}")
     else:
         # Fall back to worktree cleanup only
         _cleanup_worktrees(container_id)
