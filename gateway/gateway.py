@@ -3262,7 +3262,10 @@ def session_create() -> tuple[Response, int] | Response:
         return make_error("Missing container_ip")
     if mode not in ("private", "public", "local"):
         return make_error("Invalid mode: must be 'private', 'public', or 'local'")
-    if not repos:
+    # repos is required for private/public modes (visibility filtering + worktree
+    # creation) but optional for local mode (orchestrator-internal temp sessions
+    # that only need a session token for git push/fetch authentication).
+    if not repos and mode != "local":
         return make_error("Missing repos list")
 
     # Validate uid/gid if provided
