@@ -918,8 +918,9 @@ def handle_hitl_checkpoint(
     context = decision.get("context", "")
     decision_type = decision.get("decision_type", "choice")
 
-    # Determine current phase from the question or context
-    phase = _detect_phase(question, context)
+    # Use explicit phase from decision if available, fall back to regex detection
+    raw_phase = decision.get("phase")
+    phase = raw_phase if raw_phase is not None else _detect_phase(question, context)
 
     # Find and read the draft
     repo_path = _find_repo_path()

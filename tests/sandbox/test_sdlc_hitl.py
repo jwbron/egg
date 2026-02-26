@@ -559,6 +559,92 @@ class TestHandleHitlCheckpoint:
 
 
 # ---------------------------------------------------------------------------
+# Phase field in decision dict tests
+# ---------------------------------------------------------------------------
+
+
+class TestDecisionPhaseField:
+    """Tests for explicit 'phase' field in decision dict vs _detect_phase fallback."""
+
+    def _make_client(self):
+        client = MagicMock(spec=["resolve_decision", "cancel_pipeline"])
+        client.resolve_decision.return_value = {"status": "resolved"}
+        return client
+
+    @patch("egg_lib.sdlc_hitl._find_repo_path")
+    @patch("egg_lib.sdlc_hitl._get_draft_path")
+    @patch("builtins.input")
+    def test_explicit_phase_overrides_detect(
+        self, mock_input, mock_draft_path, mock_repo, tmp_path
+    ):
+        """When decision dict has an explicit 'phase', it is used instead of regex detection."""
+        mock_repo.return_value = tmp_path
+        mock_draft_path.return_value = None
+        mock_input.return_value = "3"  # approve
+
+        client = self._make_client()
+        # Question text says "refine" but explicit phase is "plan"
+        decision = {
+            "id": "d1",
+            "question": "Approve the refine analysis?",
+            "context": "",
+            "phase": "plan",
+        }
+
+        handle_hitl_checkpoint(client, "issue-1", decision, pipeline_mode="issue", issue_number=1)
+
+        # _get_draft_path should have been called with "plan", not "refine"
+        mock_draft_path.assert_called_once_with("plan", "issue", 1, "issue-1")
+
+    @patch("egg_lib.sdlc_hitl._find_repo_path")
+    @patch("egg_lib.sdlc_hitl._get_draft_path")
+    @patch("builtins.input")
+    def test_missing_phase_falls_back_to_detect(
+        self, mock_input, mock_draft_path, mock_repo, tmp_path
+    ):
+        """When decision dict has no 'phase' key, _detect_phase is used."""
+        mock_repo.return_value = tmp_path
+        mock_draft_path.return_value = None
+        mock_input.return_value = "3"
+
+        client = self._make_client()
+        decision = {
+            "id": "d1",
+            "question": "Approve the refine analysis?",
+            "context": "",
+        }
+
+        handle_hitl_checkpoint(client, "issue-1", decision, pipeline_mode="issue", issue_number=1)
+
+        # _detect_phase should resolve "refine" from the question text
+        mock_draft_path.assert_called_once_with("refine", "issue", 1, "issue-1")
+
+    @patch("egg_lib.sdlc_hitl._find_repo_path")
+    @patch("egg_lib.sdlc_hitl._get_draft_path")
+    @patch("builtins.input")
+    def test_none_phase_falls_back_to_detect(
+        self, mock_input, mock_draft_path, mock_repo, tmp_path
+    ):
+        """When decision dict has phase=None, _detect_phase is used as fallback."""
+        mock_repo.return_value = tmp_path
+        mock_draft_path.return_value = None
+        mock_input.return_value = "3"
+
+        client = self._make_client()
+        decision = {
+            "id": "d1",
+            "question": "Ready to implement?",
+            "context": "",
+            "phase": None,
+        }
+
+        handle_hitl_checkpoint(client, "issue-1", decision, pipeline_mode="issue", issue_number=1)
+
+        # _detect_phase should resolve "implement" from the question text
+        mock_draft_path.assert_called_once_with("implement", "issue", 1, "issue-1")
+
+
+# ---------------------------------------------------------------------------
 # _launch_claude unit tests
 # ---------------------------------------------------------------------------
 
