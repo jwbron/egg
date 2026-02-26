@@ -148,7 +148,7 @@ All GitHub operations route through the gateway sidecar:
 
 ```bash
 # Pull Requests
-gh pr create --title "..." --body "..." --base main
+gh pr create --head <remote-branch> --title "..." --body "..." --base main
 gh pr view [<number>]
 gh pr list
 
