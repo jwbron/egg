@@ -1147,7 +1147,6 @@ class TestRemoteSync:
         )
 
         # Make 'diff --cached --quiet' return non-zero (staged changes exist)
-        original_side_effect = mock_git.side_effect
 
         def git_side_effect(*args, **kwargs):
             if args and "diff" in args and "--cached" in args and "--quiet" in args:
