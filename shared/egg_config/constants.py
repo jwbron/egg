@@ -46,6 +46,11 @@ DEVSERVER_MEMORY_LIMIT = "512m"  # Memory limit per container
 DEVSERVER_PIDS_LIMIT = 256  # Max PIDs per container (prevents fork bombs)
 DEVSERVER_HARD_TIMEOUT_SECONDS = 300  # Hard time cap for entire devserver lifecycle
 
+# Infrastructure branch names — used by both the gateway (push bypass) and the
+# orchestrator (state persistence).  Keep these in sync via this shared module.
+CHECKPOINT_BRANCH = "egg/checkpoints/v2"
+PIPELINE_STATE_BRANCH = "egg/pipeline-state"
+
 # Test constants - use these in unit tests to avoid coupling to production values
 # Using a clearly fake port (1234) makes it obvious when tests accidentally
 # connect to real services
@@ -53,6 +58,7 @@ TEST_GATEWAY_PORT = 1234
 TEST_GATEWAY_PROXY_PORT = 5678
 
 __all__ = [
+    "CHECKPOINT_BRANCH",
     "DEVSERVER_CPU_LIMIT",
     "DEVSERVER_HARD_TIMEOUT_SECONDS",
     "DEVSERVER_MEMORY_LIMIT",
@@ -74,6 +80,7 @@ __all__ = [
     "ORCHESTRATOR_IMAGE_NAME",
     "ORCHESTRATOR_ISOLATED_IP",
     "ORCHESTRATOR_PORT",
+    "PIPELINE_STATE_BRANCH",
     "TEST_GATEWAY_PORT",
     "TEST_GATEWAY_PROXY_PORT",
 ]

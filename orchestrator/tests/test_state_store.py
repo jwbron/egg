@@ -992,3 +992,199 @@ class TestRunGitLocking:
         # All git calls should have happened at depth >= 2 (compound + inner)
         assert len(depth_during_calls) >= 2  # at least add + diff (or add + diff + commit)
         assert all(d >= 2 for d in depth_during_calls)
+
+
+class TestRemoteSync:
+    """Tests for remote sync (push/restore) of the state branch."""
+
+    def test_sync_to_remote_calls_gateway_client(self, state_store):
+        """sync_to_remote calls push_worktree_branch on the gateway client."""
+        mock_client = MagicMock()
+        mock_client.push_worktree_branch.return_value = True
+
+        with patch("gateway_client.get_gateway_client", return_value=mock_client):
+            # Import inside so the lazy import in sync_to_remote resolves
+            result = state_store.sync_to_remote()
+
+        assert result is True
+        mock_client.push_worktree_branch.assert_called_once_with(
+            pipeline_id="state-sync",
+            repo_path=str(state_store.repo_path),
+            branch="egg/pipeline-state",
+        )
+
+    def test_sync_to_remote_returns_false_on_failure(self, state_store):
+        """sync_to_remote returns False when the gateway push fails."""
+        mock_client = MagicMock()
+        mock_client.push_worktree_branch.return_value = False
+
+        with patch("gateway_client.get_gateway_client", return_value=mock_client):
+            result = state_store.sync_to_remote()
+
+        assert result is False
+
+    def test_sync_to_remote_catches_exceptions(self, state_store):
+        """sync_to_remote catches exceptions and returns False."""
+        with patch("gateway_client.get_gateway_client", side_effect=Exception("no gateway")):
+            result = state_store.sync_to_remote()
+
+        assert result is False
+
+    def test_sync_to_remote_async_debounces_and_retries(self, state_store):
+        """_sync_to_remote_async retries after in-flight push when pending flag is set."""
+        import time
+
+        call_count = 0
+        original_in_flight = StateStore._push_in_flight
+        original_pending = StateStore._push_pending
+
+        def slow_sync():
+            nonlocal call_count
+            call_count += 1
+            time.sleep(0.1)
+            return True
+
+        try:
+            with patch.object(state_store, "sync_to_remote", side_effect=slow_sync):
+                # First call starts the thread
+                state_store._sync_to_remote_async()
+                # Small delay to ensure thread starts and sets flag
+                time.sleep(0.02)
+                # Second call should set _push_pending (not start a new thread)
+                state_store._sync_to_remote_async()
+                # Wait for both pushes to complete (initial + retry)
+                time.sleep(0.4)
+
+            # Two pushes: original + retry triggered by pending flag
+            assert call_count == 2
+        finally:
+            StateStore._push_in_flight = original_in_flight
+            StateStore._push_pending = original_pending
+
+    def test_sync_to_remote_async_no_retry_without_pending(self, state_store):
+        """_sync_to_remote_async does not retry when no pending commits arrived."""
+        import time
+
+        call_count = 0
+        original_in_flight = StateStore._push_in_flight
+        original_pending = StateStore._push_pending
+
+        def slow_sync():
+            nonlocal call_count
+            call_count += 1
+            time.sleep(0.05)
+            return True
+
+        try:
+            with patch.object(state_store, "sync_to_remote", side_effect=slow_sync):
+                # Single call with no concurrent calls
+                state_store._sync_to_remote_async()
+                # Wait for push to complete
+                time.sleep(0.2)
+
+            # Only one push — no pending flag was set
+            assert call_count == 1
+        finally:
+            StateStore._push_in_flight = original_in_flight
+            StateStore._push_pending = original_pending
+
+    def test_restore_from_remote_when_branch_exists(self, state_store):
+        """_restore_from_remote fetches when remote branch exists."""
+        mock_client = MagicMock()
+        mock_client.ls_remote_branch.return_value = True
+        mock_client.fetch_branch.return_value = True
+
+        with patch("gateway_client.get_gateway_client", return_value=mock_client):
+            result = state_store._restore_from_remote()
+
+        assert result is True
+        mock_client.ls_remote_branch.assert_called_once_with(
+            pipeline_id="state-restore",
+            repo_path=str(state_store.repo_path),
+            ref="refs/heads/egg/pipeline-state",
+        )
+        mock_client.fetch_branch.assert_called_once_with(
+            pipeline_id="state-restore",
+            repo_path=str(state_store.repo_path),
+            args=["+refs/heads/egg/pipeline-state:refs/heads/egg/pipeline-state"],
+        )
+
+    def test_restore_from_remote_skips_when_no_remote(self, state_store):
+        """_restore_from_remote returns False when remote branch doesn't exist."""
+        mock_client = MagicMock()
+        mock_client.ls_remote_branch.return_value = False
+
+        with patch("gateway_client.get_gateway_client", return_value=mock_client):
+            result = state_store._restore_from_remote()
+
+        assert result is False
+        mock_client.fetch_branch.assert_not_called()
+
+    def test_restore_from_remote_handles_fetch_failure(self, state_store):
+        """_restore_from_remote returns False when fetch fails."""
+        mock_client = MagicMock()
+        mock_client.ls_remote_branch.return_value = True
+        mock_client.fetch_branch.return_value = False
+
+        with patch("gateway_client.get_gateway_client", return_value=mock_client):
+            result = state_store._restore_from_remote()
+
+        assert result is False
+
+    def test_restore_from_remote_catches_exceptions(self, state_store):
+        """_restore_from_remote catches exceptions and returns False."""
+        with patch("gateway_client.get_gateway_client", side_effect=Exception("no gateway")):
+            result = state_store._restore_from_remote()
+
+        assert result is False
+
+    def test_sync_to_remote_async_respects_max_retries(self, state_store):
+        """_sync_to_remote_async skips retry when max retry depth is reached."""
+        import time
+
+        call_count = 0
+        original_in_flight = StateStore._push_in_flight
+        original_pending = StateStore._push_pending
+
+        def slow_sync():
+            nonlocal call_count
+            call_count += 1
+            time.sleep(0.05)
+            # Simulate another commit arriving during every push
+            with StateStore._push_lock:
+                StateStore._push_pending = True
+            return True
+
+        try:
+            with patch.object(state_store, "sync_to_remote", side_effect=slow_sync):
+                state_store._sync_to_remote_async()
+                # Wait for the full retry chain to complete
+                time.sleep(0.5)
+
+            # Should be capped at _MAX_PUSH_RETRIES (3): initial + 2 retries
+            assert call_count == StateStore._MAX_PUSH_RETRIES
+        finally:
+            StateStore._push_in_flight = original_in_flight
+            StateStore._push_pending = original_pending
+
+    def test_delete_pipeline_triggers_remote_sync(self, state_store, mock_git):
+        """delete_pipeline syncs to remote after committing deletion."""
+        state_store.create_pipeline(
+            issue_number=500,
+            repo="owner/repo",
+            branch="egg/issue-500",
+        )
+
+        # Make 'diff --cached --quiet' return non-zero (staged changes exist)
+
+        def git_side_effect(*args, **kwargs):
+            if args and "diff" in args and "--cached" in args and "--quiet" in args:
+                return MagicMock(stdout="", returncode=1)
+            return MagicMock(stdout="abc1234\n", returncode=0)
+
+        mock_git.side_effect = git_side_effect
+
+        with patch.object(state_store, "_sync_to_remote_async") as mock_sync:
+            state_store.delete_pipeline("issue-500")
+
+        mock_sync.assert_called_once()

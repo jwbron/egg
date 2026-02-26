@@ -45,6 +45,7 @@ from .configs.llm import LLMConfig
 
 # Centralized constants
 from .constants import (
+    CHECKPOINT_BRANCH,
     EGG_CONTAINER_IP,
     EGG_EXTERNAL_NETWORK,
     EGG_EXTERNAL_SUBNET,
@@ -61,6 +62,7 @@ from .constants import (
     ORCHESTRATOR_IMAGE_NAME,
     ORCHESTRATOR_ISOLATED_IP,
     ORCHESTRATOR_PORT,
+    PIPELINE_STATE_BRANCH,
     TEST_GATEWAY_PORT,
     TEST_GATEWAY_PROXY_PORT,
 )
@@ -83,6 +85,7 @@ __all__ = [
     "ConfigRegistry",
     "ConfigStatus",
     # Constants
+    "CHECKPOINT_BRANCH",
     "EGG_CONTAINER_IP",
     "EGG_EXTERNAL_NETWORK",
     "EGG_EXTERNAL_SUBNET",
@@ -102,6 +105,7 @@ __all__ = [
     "ORCHESTRATOR_IMAGE_NAME",
     "ORCHESTRATOR_ISOLATED_IP",
     "ORCHESTRATOR_PORT",
+    "PIPELINE_STATE_BRANCH",
     "GitHubConfig",
     "HealthCheckResult",
     "LLMConfig",

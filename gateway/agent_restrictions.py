@@ -50,6 +50,7 @@ class AgentRole:
     REVIEWER_AGENT_DESIGN = "reviewer_agent_design"
     REVIEWER_REFINE = "reviewer_refine"
     REVIEWER_PLAN = "reviewer_plan"
+    REVIEWER_UNIFIED = "reviewer_unified"  # Vestigial: kept for backwards compatibility with persisted pipeline state
 
 
 @dataclass
@@ -477,6 +478,13 @@ REVIEWER_PLAN_PATTERNS = AgentFilePattern(
     blocked_patterns=_REVIEWER_BLOCKED,
 )
 
+REVIEWER_UNIFIED_PATTERNS = AgentFilePattern(
+    role=AgentRole.REVIEWER_UNIFIED,
+    description="Unified reviewer agent (vestigial): reviews and agent-outputs only",
+    allowed_patterns=_REVIEWER_ALLOWED,
+    blocked_patterns=_REVIEWER_BLOCKED,
+)
+
 # Registry of all agent patterns
 AGENT_PATTERNS: dict[str, AgentFilePattern] = {
     AgentRole.CODER: CODER_PATTERNS,
@@ -492,6 +500,7 @@ AGENT_PATTERNS: dict[str, AgentFilePattern] = {
     AgentRole.REFINER: REFINER_PATTERNS,
     AgentRole.REVIEWER_REFINE: REVIEWER_REFINE_PATTERNS,
     AgentRole.REVIEWER_PLAN: REVIEWER_PLAN_PATTERNS,
+    AgentRole.REVIEWER_UNIFIED: REVIEWER_UNIFIED_PATTERNS,
 }
 
 
