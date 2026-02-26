@@ -115,6 +115,7 @@ class StateStore:
 
     # -- remote sync state -------------------------------------------------
     _push_in_flight: ClassVar[bool] = False
+    _push_pending: ClassVar[bool] = False
     _push_lock: ClassVar[threading.Lock] = threading.Lock()
 
     def __init__(
@@ -572,11 +573,14 @@ class StateStore:
     def _sync_to_remote_async(self) -> None:
         """Push the state branch to remote in a daemon thread.
 
-        Debounces: skips if a push is already in flight.
+        Debounces: if a push is already in flight, marks a pending flag so
+        the in-flight thread re-pushes after completing.  This ensures the
+        latest committed state always reaches the remote.
         """
         with StateStore._push_lock:
             if StateStore._push_in_flight:
-                logger.debug("Skipping state sync — push already in flight")
+                StateStore._push_pending = True
+                logger.debug("Push already in flight — marked pending for retry")
                 return
             StateStore._push_in_flight = True
 
@@ -584,8 +588,14 @@ class StateStore:
             try:
                 self.sync_to_remote()
             finally:
+                retry = False
                 with StateStore._push_lock:
                     StateStore._push_in_flight = False
+                    if StateStore._push_pending:
+                        StateStore._push_pending = False
+                        retry = True
+                if retry:
+                    self._sync_to_remote_async()
 
         t = threading.Thread(target=_push, daemon=True)
         t.start()

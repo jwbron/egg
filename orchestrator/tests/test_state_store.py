@@ -1030,12 +1030,13 @@ class TestRemoteSync:
 
         assert result is False
 
-    def test_sync_to_remote_async_debounces(self, state_store):
-        """_sync_to_remote_async skips when push already in flight."""
+    def test_sync_to_remote_async_debounces_and_retries(self, state_store):
+        """_sync_to_remote_async retries after in-flight push when pending flag is set."""
         import time
 
         call_count = 0
-        original_flag = StateStore._push_in_flight
+        original_in_flight = StateStore._push_in_flight
+        original_pending = StateStore._push_pending
 
         def slow_sync():
             nonlocal call_count
@@ -1049,15 +1050,43 @@ class TestRemoteSync:
                 state_store._sync_to_remote_async()
                 # Small delay to ensure thread starts and sets flag
                 time.sleep(0.02)
-                # Second call should be debounced
+                # Second call should set _push_pending (not start a new thread)
                 state_store._sync_to_remote_async()
-                # Wait for thread to complete
+                # Wait for both pushes to complete (initial + retry)
+                time.sleep(0.4)
+
+            # Two pushes: original + retry triggered by pending flag
+            assert call_count == 2
+        finally:
+            StateStore._push_in_flight = original_in_flight
+            StateStore._push_pending = original_pending
+
+    def test_sync_to_remote_async_no_retry_without_pending(self, state_store):
+        """_sync_to_remote_async does not retry when no pending commits arrived."""
+        import time
+
+        call_count = 0
+        original_in_flight = StateStore._push_in_flight
+        original_pending = StateStore._push_pending
+
+        def slow_sync():
+            nonlocal call_count
+            call_count += 1
+            time.sleep(0.05)
+            return True
+
+        try:
+            with patch.object(state_store, "sync_to_remote", side_effect=slow_sync):
+                # Single call with no concurrent calls
+                state_store._sync_to_remote_async()
+                # Wait for push to complete
                 time.sleep(0.2)
 
-            # Only one actual push should have occurred
+            # Only one push — no pending flag was set
             assert call_count == 1
         finally:
-            StateStore._push_in_flight = original_flag
+            StateStore._push_in_flight = original_in_flight
+            StateStore._push_pending = original_pending
 
     def test_restore_from_remote_when_branch_exists(self, state_store):
         """_restore_from_remote fetches when remote branch exists."""
