@@ -4174,17 +4174,11 @@ def request_file_create() -> tuple[Response, int] | Response:
 
     # Validate file_path to prevent path traversal and injection
     if ".." in file_path or file_path.startswith("/"):
-        return make_error(
-            "Invalid file_path: path traversal not allowed", status_code=400
-        )
+        return make_error("Invalid file_path: path traversal not allowed", status_code=400)
     if len(file_path) > 512:
-        return make_error(
-            "Invalid file_path: too long (max 512 characters)", status_code=400
-        )
+        return make_error("Invalid file_path: too long (max 512 characters)", status_code=400)
     if "\x00" in file_path:
-        return make_error(
-            "Invalid file_path: null bytes not allowed", status_code=400
-        )
+        return make_error("Invalid file_path: null bytes not allowed", status_code=400)
 
     session = g.session
     pipeline_id = getattr(session, "pipeline_id", None)
