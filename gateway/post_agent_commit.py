@@ -246,11 +246,12 @@ def auto_commit_worktree(
         # If no allowed files remain after filtering, nothing to commit.
         if not allowed_files:
             logger.info(
-                "All changed files blocked by phase restrictions, skipping auto-commit",
+                "All changed files filtered, skipping auto-commit",
                 event_type="post_agent_auto_commit_skipped",
                 container_id=container_id,
                 phase=phase,
                 blocked_files=blocked_files,
+                symlink_files=symlink_files,
             )
             return None
 
