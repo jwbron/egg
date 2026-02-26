@@ -213,12 +213,12 @@ def auto_commit_worktree(
         # Applied after phase filtering — both layers AND together.
         if allowed_files and committable_files:
             try:
-                from phase_filter import PhaseFileRestriction  # type: ignore[import-untyped]  # noqa: I001
+                from phase_filter import PhaseFileRestriction  # noqa: I001
             except ImportError:
                 try:
-                    from gateway.phase_filter import PhaseFileRestriction  # type: ignore[no-redef]
+                    from gateway.phase_filter import PhaseFileRestriction
                 except ImportError:
-                    PhaseFileRestriction = None  # type: ignore[assignment, misc]
+                    PhaseFileRestriction = None
 
             if PhaseFileRestriction is not None:
                 task_restriction = PhaseFileRestriction(allowed_patterns=allowed_files)

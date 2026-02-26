@@ -56,11 +56,14 @@ class TestComputeAllowedFilesEdgeCases:
     def test_mixed_globs_and_explicit_files(self):
         """Mix of glob patterns and explicit files are all handled."""
         tasks = [
-            self._make_task("task-1", [
-                "src/auth/login.py",  # explicit file -> expands to src/auth/*
-                "tests/**",           # glob pattern -> preserved
-                "Makefile",           # top-level file -> no expansion
-            ])
+            self._make_task(
+                "task-1",
+                [
+                    "src/auth/login.py",  # explicit file -> expands to src/auth/*
+                    "tests/**",  # glob pattern -> preserved
+                    "Makefile",  # top-level file -> no expansion
+                ],
+            )
         ]
         phase = self._make_phase("phase-1", tasks)
 

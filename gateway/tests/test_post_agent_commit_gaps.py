@@ -34,9 +34,7 @@ class TestAutoCommitCombinedPhaseAndTaskFiltering:
             MagicMock(
                 returncode=0,
                 stdout=(
-                    " M src/auth/login.py\n"
-                    " M .egg-state/contracts/c.json\n"
-                    " M src/payments/pay.py\n"
+                    " M src/auth/login.py\n M .egg-state/contracts/c.json\n M src/payments/pay.py\n"
                 ),
                 stderr="",
             ),
@@ -86,10 +84,7 @@ class TestAutoCommitCombinedPhaseAndTaskFiltering:
             assert result == "sha_combined"
 
             # Verify two restores happened (one for phase, one for task)
-            checkout_calls = [
-                c for c in mock_run.call_args_list
-                if "checkout" in c[0][0]
-            ]
+            checkout_calls = [c for c in mock_run.call_args_list if "checkout" in c[0][0]]
             assert len(checkout_calls) == 2
 
             # Verify only src/auth/login.py was staged
@@ -112,10 +107,7 @@ class TestAutoCommitCombinedPhaseAndTaskFiltering:
             # git status --porcelain
             MagicMock(
                 returncode=0,
-                stdout=(
-                    " M .egg-state/contracts/c.json\n"
-                    " M src/payments/pay.py\n"
-                ),
+                stdout=(" M .egg-state/contracts/c.json\n M src/payments/pay.py\n"),
                 stderr="",
             ),
             # git checkout -- .egg-state/contracts/c.json (phase restore)
@@ -129,9 +121,7 @@ class TestAutoCommitCombinedPhaseAndTaskFiltering:
         mock_phase_result.blocked_files = [".egg-state/contracts/c.json"]
 
         mock_task_restriction = MagicMock()
-        mock_task_restriction.is_file_allowed = MagicMock(
-            return_value=(False, "not in scope")
-        )
+        mock_task_restriction.is_file_allowed = MagicMock(return_value=(False, "not in scope"))
 
         import sys
         import types

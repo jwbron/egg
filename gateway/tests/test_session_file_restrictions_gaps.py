@@ -213,10 +213,10 @@ class TestWarnThenBlockWithThreshold:
         restriction = PhaseFileRestriction(allowed_patterns=["src/auth/*"])
 
         changed_files = [
-            "src/auth/login.py",       # in scope
-            "src/auth/utils.py",       # in scope
-            "config/settings.py",      # out of scope
-            "docs/readme.md",          # out of scope
+            "src/auth/login.py",  # in scope
+            "src/auth/utils.py",  # in scope
+            "config/settings.py",  # out of scope
+            "docs/readme.md",  # out of scope
         ]
 
         out_of_scope = []

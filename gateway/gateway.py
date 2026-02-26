@@ -834,9 +834,7 @@ def git_push() -> tuple[Response, int] | Response:
                     enforce_strict = os.environ.get(
                         "EGG_TASK_FILE_RESTRICTIONS_ENFORCE", "false"
                     ).lower() in ("true", "1", "yes")
-                    warn_threshold = int(
-                        os.environ.get("EGG_TASK_FILE_WARN_THRESHOLD", "1")
-                    )
+                    warn_threshold = int(os.environ.get("EGG_TASK_FILE_WARN_THRESHOLD", "1"))
 
                     if enforce_strict:
                         audit_log(
