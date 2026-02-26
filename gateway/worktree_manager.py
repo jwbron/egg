@@ -735,8 +735,9 @@ class WorktreeManager:
             if main_repo.exists():
                 with self._get_repo_lock(repo_name):
                     admin_dir = self._find_worktree_git_dir(main_repo, worktree_path)
-                    if admin_dir.exists():
-                        shutil.rmtree(admin_dir, ignore_errors=True)
+                    had_admin_dir = admin_dir.exists()
+                    shutil.rmtree(admin_dir, ignore_errors=True)
+                    if had_admin_dir:
                         logger.info(
                             "Removed stale worktree admin dir (directory already gone)",
                             admin_dir=str(admin_dir),
@@ -1066,11 +1067,11 @@ class WorktreeManager:
         gateway crashed before cleanup could run.
 
         Returns:
-            Number of repos that were pruned (attempted).
+            Number of repos where ``git worktree prune`` ran successfully.
         """
-        pruned = 0
+        repos_checked = 0
         if not self.repos_base.exists():
-            return pruned
+            return repos_checked
 
         for repo_dir in self.repos_base.iterdir():
             if not repo_dir.is_dir():
@@ -1089,9 +1090,10 @@ class WorktreeManager:
                     capture_output=True,
                     text=True,
                     check=False,
+                    timeout=30,
                 )
                 if result.returncode == 0:
-                    pruned += 1
+                    repos_checked += 1
                 else:
                     logger.warning(
                         "git worktree prune failed",
@@ -1099,10 +1101,13 @@ class WorktreeManager:
                         stderr=result.stderr.strip(),
                     )
 
-        if pruned > 0:
-            logger.info("Pruned stale worktree registrations", repos_pruned=pruned)
+        if repos_checked > 0:
+            logger.info(
+                "Ran git worktree prune on repos",
+                repos_checked=repos_checked,
+            )
 
-        return pruned
+        return repos_checked
 
     def get_worktree_paths(self, container_id: str, repo_name: str) -> tuple[Path, Path]:
         """

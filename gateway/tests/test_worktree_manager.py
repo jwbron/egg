@@ -947,6 +947,7 @@ class TestRemoveWorktreeStaleCleanup:
         admin_dir = worktrees_dir / "test-repo"
         admin_dir.mkdir(parents=True)
         (admin_dir / "gitdir").write_text(str(worktree_path / ".git") + "\n")
+        (admin_dir / "HEAD").write_text("ref: refs/heads/egg/container-1/work\n")
 
         manager = WorktreeManager(worktree_base=worktree_base, repos_base=repos_base)
 
