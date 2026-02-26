@@ -96,10 +96,26 @@
       "resolved_at": null,
       "resolution": null,
       "phase": "refine"
+    },
+    {
+      "id": "decision-3",
+      "question": "Should internal identifiers like function names, variable names, and constants be renamed from 'tier3' to 'tier2'? E.g. _run_tier3_implement→_run_tier2_implement, INTEGRATOR_TIER3_PATTERNS→INTEGRATOR_TIER2_PATTERNS.",
+      "context": "",
+      "options": [
+        "Yes — rename all internal 'tier3' references to 'tier2' for consistency",
+        "No — remove tier numbering entirely, use descriptive names like _run_phased_implement, INTEGRATOR_PHASED_PATTERNS"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-02-26T15:57:40.222576",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine"
     }
   ],
   "created_at": "2026-02-26T15:53:05.810690",
-  "updated_at": "2026-02-26T15:57:36.816411",
+  "updated_at": "2026-02-26T15:57:40.224292",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
@@ -107,5 +123,5 @@
   "error": null,
   "plan_phase_waves": null,
   "plan_phase_names": null,
-  "version": 10
+  "version": 11
 }
