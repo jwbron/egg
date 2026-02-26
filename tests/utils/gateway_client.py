@@ -75,7 +75,7 @@ class GatewayClientMixin:
                 "uid": 1000,
                 "gid": 1000,
             },
-            timeout=10,
+            timeout=30,
         )
         try:
             return resp.json()
@@ -86,7 +86,7 @@ class GatewayClientMixin:
                 "data": {},
             }
 
-    def delete_session(self, session_token: str, timeout: int = 10) -> dict[str, Any]:
+    def delete_session(self, session_token: str, timeout: int = 30) -> dict[str, Any]:
         """Delete a session via the gateway API."""
         resp = requests.delete(
             f"{self.gateway_url}/api/v1/sessions/{session_token}",
@@ -100,7 +100,7 @@ class GatewayClientMixin:
         resp = requests.get(
             f"{self.gateway_url}/api/v1/sessions",
             headers={"Authorization": f"Bearer {self.launcher_secret}"},
-            timeout=10,
+            timeout=30,
         )
         return resp.json()
 
@@ -109,14 +109,14 @@ class GatewayClientMixin:
         resp = requests.post(
             f"{self.gateway_url}/api/v1/sessions/{session_token}/heartbeat",
             headers={"Authorization": f"Bearer {self.launcher_secret}"},
-            timeout=10,
+            timeout=30,
         )
         return resp.json()
 
     def validate_session(
         self,
         session_token: str,
-        timeout: int = 10,
+        timeout: int = 30,
     ) -> dict[str, Any]:
         """Validate a session token via the gateway API.
 
@@ -137,7 +137,7 @@ class GatewayClientMixin:
         self,
         path: str,
         json_data: dict[str, Any] | None = None,
-        timeout: int = 10,
+        timeout: int = 30,
     ) -> dict[str, Any]:
         """Make a POST request to the gateway API.
 
@@ -156,7 +156,7 @@ class GatewayClientMixin:
     def _get(
         self,
         path: str,
-        timeout: int = 10,
+        timeout: int = 30,
     ) -> dict[str, Any]:
         """Make a GET request to the gateway API.
 
@@ -178,7 +178,7 @@ class GatewayClientMixin:
         *,
         token: str | None = None,
         json_data: dict[str, Any] | None = None,
-        timeout: int = 10,
+        timeout: int = 30,
     ) -> requests.Response:
         """Make an authenticated API request to the gateway."""
         headers: dict[str, str] = {}
