@@ -1,6 +1,7 @@
 """Tests for worktree_manager.py."""
 
 import shutil
+import subprocess
 import sys
 import tempfile
 from pathlib import Path
@@ -892,6 +893,273 @@ class TestResolveDefaultBranch:
         with patch("worktree_manager.subprocess.run", return_value=completed):
             result = manager.resolve_default_branch("test-repo")
         assert result == "origin/main"
+
+
+class TestRemoveWorktreeStaleCleanup:
+    """Tests for remove_worktree cleaning up stale git registrations when the directory is gone.
+
+    Regression tests for https://github.com/jwbron/egg/issues/929
+    """
+
+    def test_removes_admin_dir_when_worktree_directory_gone(self, tmp_path):
+        """When worktree directory is already removed, should still clean up .git/worktrees/ admin dir."""
+        worktree_base = tmp_path / "worktrees"
+        repos_base = tmp_path / "repos"
+        repos_base.mkdir()
+
+        # Create a main repo with a stale admin dir
+        repo_dir = repos_base / "test-repo"
+        repo_dir.mkdir()
+        worktrees_dir = repo_dir / ".git" / "worktrees"
+
+        # Simulate stale admin dir for container-1's worktree
+        worktree_path = worktree_base / "container-1" / "test-repo"
+        admin_dir = worktrees_dir / "test-repo"
+        admin_dir.mkdir(parents=True)
+        (admin_dir / "gitdir").write_text(str(worktree_path / ".git") + "\n")
+        (admin_dir / "HEAD").write_text("ref: refs/heads/egg/container-1/work\n")
+
+        # Do NOT create worktree_path — it's already gone (the bug scenario)
+        assert not worktree_path.exists()
+        assert admin_dir.exists()
+
+        manager = WorktreeManager(worktree_base=worktree_base, repos_base=repos_base)
+
+        with patch("subprocess.run") as mock_run:
+            # Mock branch deletion (git branch -D)
+            mock_run.return_value = MagicMock(returncode=0, stdout="")
+            result = manager.remove_worktree("container-1", "test-repo", force=True)
+
+        assert result.success
+        # Admin dir should be removed
+        assert not admin_dir.exists()
+
+    def test_deletes_branch_when_worktree_directory_gone(self, tmp_path):
+        """When worktree directory is already removed, should still delete the branch."""
+        worktree_base = tmp_path / "worktrees"
+        repos_base = tmp_path / "repos"
+        repos_base.mkdir()
+
+        repo_dir = repos_base / "test-repo"
+        repo_dir.mkdir()
+        worktrees_dir = repo_dir / ".git" / "worktrees"
+
+        worktree_path = worktree_base / "container-1" / "test-repo"
+        admin_dir = worktrees_dir / "test-repo"
+        admin_dir.mkdir(parents=True)
+        (admin_dir / "gitdir").write_text(str(worktree_path / ".git") + "\n")
+        (admin_dir / "HEAD").write_text("ref: refs/heads/egg/container-1/work\n")
+
+        manager = WorktreeManager(worktree_base=worktree_base, repos_base=repos_base)
+
+        with patch("subprocess.run") as mock_run:
+            # git branch --merged returns empty (not merged), git branch -D succeeds
+            mock_run.return_value = MagicMock(returncode=0, stdout="")
+            result = manager.remove_worktree(
+                "container-1", "test-repo", force=True, delete_branch=True
+            )
+
+        assert result.success
+        assert result.branch_deleted
+        # Verify git branch -D was called
+        branch_calls = [c for c in mock_run.call_args_list if "branch" in str(c) and "-D" in str(c)]
+        assert len(branch_calls) > 0
+
+    def test_no_admin_dir_still_succeeds(self, tmp_path):
+        """When worktree directory and admin dir are both gone, should succeed cleanly."""
+        worktree_base = tmp_path / "worktrees"
+        repos_base = tmp_path / "repos"
+        repos_base.mkdir()
+
+        repo_dir = repos_base / "test-repo"
+        repo_dir.mkdir()
+        (repo_dir / ".git").mkdir()
+
+        manager = WorktreeManager(worktree_base=worktree_base, repos_base=repos_base)
+        result = manager.remove_worktree("container-1", "test-repo")
+
+        assert result.success
+
+    def test_cleans_up_empty_container_dir(self, tmp_path):
+        """Should remove empty container directory when worktree dir is gone."""
+        worktree_base = tmp_path / "worktrees"
+        repos_base = tmp_path / "repos"
+        repos_base.mkdir()
+        (repos_base / "test-repo").mkdir()
+
+        # Create empty container dir (worktree subdir already removed)
+        container_dir = worktree_base / "container-1"
+        container_dir.mkdir(parents=True)
+        assert container_dir.exists()
+
+        manager = WorktreeManager(worktree_base=worktree_base, repos_base=repos_base)
+        result = manager.remove_worktree("container-1", "test-repo")
+
+        assert result.success
+        assert not container_dir.exists()
+
+    def test_removes_from_memory_tracking(self, tmp_path):
+        """Should remove entry from in-memory tracking when directory is gone."""
+        worktree_base = tmp_path / "worktrees"
+        repos_base = tmp_path / "repos"
+        repos_base.mkdir()
+        (repos_base / "test-repo").mkdir()
+        (repos_base / "test-repo" / ".git").mkdir()
+
+        manager = WorktreeManager(worktree_base=worktree_base, repos_base=repos_base)
+        # Add to in-memory tracking
+        manager._active_worktrees["container-1"] = [
+            WorktreeInfo(
+                container_id="container-1",
+                repo_name="test-repo",
+                branch="egg/container-1/work",
+                worktree_path=worktree_base / "container-1" / "test-repo",
+                git_dir=repos_base / "test-repo" / ".git" / "worktrees" / "test-repo",
+            )
+        ]
+
+        result = manager.remove_worktree("container-1", "test-repo")
+
+        assert result.success
+        assert "container-1" not in manager._active_worktrees
+
+
+class TestPruneStaleWorktrees:
+    """Tests for prune_stale_worktrees defense-in-depth method."""
+
+    def test_prunes_repos_with_git_directory(self, tmp_path):
+        """Should run git worktree prune on repos that have a .git directory."""
+        repos_base = tmp_path / "repos"
+        repos_base.mkdir()
+
+        # Create two repos
+        repo1 = repos_base / "repo1"
+        repo1.mkdir()
+        (repo1 / ".git").mkdir()
+
+        repo2 = repos_base / "repo2"
+        repo2.mkdir()
+        (repo2 / ".git").mkdir()
+
+        manager = WorktreeManager(worktree_base=tmp_path / "worktrees", repos_base=repos_base)
+
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+            pruned = manager.prune_stale_worktrees()
+
+        assert pruned == 2
+        # Verify git worktree prune was called for each repo
+        prune_calls = [c for c in mock_run.call_args_list if "prune" in str(c)]
+        assert len(prune_calls) == 2
+
+    def test_skips_worktree_repos(self, tmp_path):
+        """Should skip repos where .git is a file (worktree pointers)."""
+        repos_base = tmp_path / "repos"
+        repos_base.mkdir()
+
+        # Real repo with .git directory
+        real_repo = repos_base / "real-repo"
+        real_repo.mkdir()
+        (real_repo / ".git").mkdir()
+
+        # Worktree-mounted repo with .git file
+        wt_repo = repos_base / "wt-repo"
+        wt_repo.mkdir()
+        (wt_repo / ".git").write_text("gitdir: /some/path/.git/worktrees/wt-repo")
+
+        manager = WorktreeManager(worktree_base=tmp_path / "worktrees", repos_base=repos_base)
+
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+            pruned = manager.prune_stale_worktrees()
+
+        # Only the real repo should be pruned
+        assert pruned == 1
+
+    def test_handles_missing_repos_base(self, tmp_path):
+        """Should return 0 when repos_base doesn't exist."""
+        manager = WorktreeManager(
+            worktree_base=tmp_path / "worktrees",
+            repos_base=tmp_path / "nonexistent-repos",
+        )
+        assert manager.prune_stale_worktrees() == 0
+
+    def test_handles_prune_failure(self, tmp_path):
+        """Should log warning and continue when prune fails for a repo."""
+        repos_base = tmp_path / "repos"
+        repos_base.mkdir()
+
+        repo = repos_base / "test-repo"
+        repo.mkdir()
+        (repo / ".git").mkdir()
+
+        manager = WorktreeManager(worktree_base=tmp_path / "worktrees", repos_base=repos_base)
+
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=1, stdout="", stderr="error: prune failed")
+            pruned = manager.prune_stale_worktrees()
+
+        # Should not count failed pruning
+        assert pruned == 0
+
+    def test_handles_prune_timeout(self, tmp_path):
+        """Should log warning and continue to next repo when prune times out."""
+        repos_base = tmp_path / "repos"
+        repos_base.mkdir()
+
+        repo1 = repos_base / "repo1"
+        repo1.mkdir()
+        (repo1 / ".git").mkdir()
+
+        repo2 = repos_base / "repo2"
+        repo2.mkdir()
+        (repo2 / ".git").mkdir()
+
+        manager = WorktreeManager(worktree_base=tmp_path / "worktrees", repos_base=repos_base)
+
+        with patch("subprocess.run") as mock_run:
+            # First call times out, second succeeds
+            mock_run.side_effect = [
+                subprocess.TimeoutExpired(cmd="git worktree prune", timeout=30),
+                MagicMock(returncode=0, stdout="", stderr=""),
+            ]
+            pruned = manager.prune_stale_worktrees()
+
+        # Only the second repo should be counted
+        assert pruned == 1
+
+
+class TestStartupCleanupWithPrune:
+    """Tests for startup_cleanup calling prune_stale_worktrees."""
+
+    def test_calls_prune_after_orphan_cleanup(self):
+        """startup_cleanup should call prune_stale_worktrees after orphan cleanup."""
+        from worktree_manager import startup_cleanup
+
+        with patch("worktree_manager.WorktreeManager") as MockManager:
+            mock_instance = MagicMock()
+            mock_instance.cleanup_orphaned_worktrees.return_value = 0
+            mock_instance.prune_stale_worktrees.return_value = 1
+            MockManager.return_value = mock_instance
+
+            startup_cleanup(active_containers=set())
+
+            mock_instance.cleanup_orphaned_worktrees.assert_called_once()
+            mock_instance.prune_stale_worktrees.assert_called_once()
+
+    def test_prune_failure_does_not_prevent_cleanup(self):
+        """If prune raises an exception, startup_cleanup should still succeed."""
+        from worktree_manager import startup_cleanup
+
+        with patch("worktree_manager.WorktreeManager") as MockManager:
+            mock_instance = MagicMock()
+            mock_instance.cleanup_orphaned_worktrees.return_value = 2
+            mock_instance.prune_stale_worktrees.side_effect = RuntimeError("prune failed")
+            MockManager.return_value = mock_instance
+
+            # Should not raise
+            removed = startup_cleanup(active_containers=set())
+            assert removed == 2
 
 
 if __name__ == "__main__":
