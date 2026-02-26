@@ -955,7 +955,9 @@ def _get_code_review_criteria(repo_path: str | None = None) -> str:
         "**Beware of false analogies**: When comparing new code to existing "
         "patterns, verify the analogy holds at the execution-model level. "
         "Two features may look structurally similar in config but have "
-        "completely different execution paths. Classify based on actual "
+        "completely different execution paths. If the existing pattern works "
+        "via mechanism A but the new code relies on mechanism B that doesn't "
+        "exist, the comparison is invalid — classify based on actual "
         "functionality, not superficial similarity.\n"
     )
 
