@@ -8,6 +8,7 @@ import json
 import os
 import re
 import shlex
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -306,27 +307,53 @@ def _display_draft_preview(content: str, max_lines: int = 40) -> None:
     print(f"{BOLD}--- End Preview ---{RESET}\n")
 
 
-def _display_in_pager(content: str) -> None:
-    """Display content in $PAGER (default: less -R) for full-document scrolling.
+def _run_pager(cmd: list[str], tmp_path: str) -> bool:
+    """Run a pager command on tmp_path. Returns True on success."""
+    try:
+        result = subprocess.run(
+            [*cmd, tmp_path],
+            stdin=sys.stdin,
+            stdout=sys.stdout,
+            stderr=sys.stderr,
+        )
+        return result.returncode == 0
+    except (FileNotFoundError, OSError):
+        return False
 
-    Falls back to printing the full content if the pager is unavailable or fails
-    (e.g., non-TTY environment).
+
+def _display_in_pager(content: str) -> None:
+    """Display markdown content with the best available pager.
+
+    Strategy:
+    1. If $PAGER is set, use it verbatim (respect user preference).
+    2. Else if ``glow`` is on PATH, try ``glow -p`` (rendered markdown).
+    3. Else fall back to ``less -R``.
+
+    All paths fall back to ``print(content)`` on total failure.
     """
-    pager = os.environ.get("PAGER", "less -R")
     try:
         with tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False) as f:
             f.write(content)
             tmp_path = f.name
         try:
-            result = subprocess.run(
-                [*shlex.split(pager), tmp_path],
-                stdin=sys.stdin,
-                stdout=sys.stdout,
-                stderr=sys.stderr,
-            )
-            if result.returncode != 0:
+            explicit_pager = os.environ.get("PAGER")
+            if explicit_pager:
+                if _run_pager(shlex.split(explicit_pager), tmp_path):
+                    return
                 print(content)
-        except (FileNotFoundError, OSError):
+                return
+
+            if shutil.which("glow"):
+                if _run_pager(["glow", "-p"], tmp_path):
+                    return
+                # glow failed — try less -R before giving up
+                if _run_pager(["less", "-R"], tmp_path):
+                    return
+                print(content)
+                return
+
+            if _run_pager(["less", "-R"], tmp_path):
+                return
             print(content)
         finally:
             try:
