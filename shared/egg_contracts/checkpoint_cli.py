@@ -1388,7 +1388,7 @@ def _cmd_search_http(args: argparse.Namespace, gateway_url: str) -> int:
         print("No checkpoints found matching filters")
         return 0
 
-    matches: list[tuple[dict[str, Any], list[str]]] = []
+    matches: list[tuple[CheckpointSummaryV2 | dict[str, Any], list[str]]] = []
     text = args.text
     text_lower = text.lower()
     repo_path = args.repo_path or get_repo_path()
@@ -1492,7 +1492,7 @@ def cmd_search(args: argparse.Namespace) -> int:
 
     # Load each full checkpoint and search its transcript
     text = args.text
-    matches: list[tuple[CheckpointSummaryV2, list[str]]] = []
+    matches: list[tuple[CheckpointSummaryV2 | dict[str, Any], list[str]]] = []
     for s in summaries:
         checkpoint = load_checkpoint_from_ref(s.id, ref, repo_path)
         if not checkpoint:
