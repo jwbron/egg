@@ -2819,6 +2819,16 @@ def _build_agent_prompt(
                 "",
                 f"Write your analysis to `.egg-state/agent-outputs/{_identifier}-architect-output.json`.",
                 "",
+                "### File Restrictions",
+                "",
+                f"You MUST only write to `.egg-state/agent-outputs/{_identifier}-architect-output.json`.",
+                "Do NOT create or modify any other files. Specifically:",
+                "- Do NOT modify analysis drafts (`.egg-state/drafts/*-analysis.md`) — "
+                "these are finalized in the refine phase and are read-only",
+                "- Do NOT create or modify contracts (`.egg-state/contracts/`)",
+                "- Do NOT create or modify reviews (`.egg-state/reviews/`)",
+                "- Do NOT create or modify plan drafts (`.egg-state/drafts/*-plan.md`)",
+                "",
             ]
         )
     elif role_value == "task_planner":
