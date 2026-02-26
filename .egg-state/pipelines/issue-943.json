@@ -67,9 +67,23 @@
       "phase_start_sha": null
     }
   },
-  "decisions": [],
+  "decisions": [
+    {
+      "id": "decision-1",
+      "question": "Should the YAML metadata parser accept 'high' as a backward-compatible alias for 'mid'?",
+      "context": "",
+      "options": [],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-02-26T14:40:23.291175",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": null
+    }
+  ],
   "created_at": "2026-02-26T14:34:24.364766",
-  "updated_at": "2026-02-26T14:34:25.155503",
+  "updated_at": "2026-02-26T14:40:23.294416",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
@@ -77,5 +91,5 @@
   "error": null,
   "plan_phase_waves": null,
   "plan_phase_names": null,
-  "version": 7
+  "version": 8
 }
