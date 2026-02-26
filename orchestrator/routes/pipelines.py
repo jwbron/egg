@@ -3360,6 +3360,7 @@ def _run_tier3_implement(
     if phase_waves is not None:
         pipeline.plan_phase_waves = [list(wave.phase_ids) for wave in phase_waves]
         pipeline.plan_phase_names = {p.id: p.name for p in contract.phases}
+        store.save_pipeline(pipeline)
 
     all_logs: list[str] = []
     logs_lock = threading.Lock()

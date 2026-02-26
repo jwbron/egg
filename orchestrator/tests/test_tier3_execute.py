@@ -503,6 +503,51 @@ class TestRunTier3ImplementSequential:
         assert exit_code == 1
         assert "integrator fail" in logs
 
+    @patch("pipelines._spawn_and_wait")
+    @patch("pipelines._read_review_verdict")
+    @patch("pipelines._read_last_review_feedback")
+    @patch("pipelines._read_phase_draft")
+    def test_plan_phase_waves_persisted_to_store(
+        self,
+        mock_read_draft,
+        mock_read_feedback,
+        mock_read_verdict,
+        mock_spawn,
+        tmp_path: Path,
+    ):
+        """plan_phase_waves and plan_phase_names are saved to the store."""
+        self._make_contract_with_phases(tmp_path, phase_count=2)
+        mock_spawn.return_value = (0, "ok")
+        mock_read_verdict.return_value = ReviewVerdict(verdict="approved")
+        mock_read_feedback.return_value = None
+        mock_read_draft.return_value = "# Plan\nDo stuff"
+
+        pipeline = self._make_pipeline()
+        store = MagicMock()
+
+        self._run(
+            pipeline_id="test-pipeline",
+            pipeline=pipeline,
+            spawner=MagicMock(),
+            repo_volumes={},
+            gateway_mode="public",
+            repos=["owner/repo"],
+            sandbox_env={},
+            store=store,
+            certs_volume=None,
+            worktree_repo_path=tmp_path,
+        )
+
+        # Wave data should be set on the pipeline object
+        assert pipeline.plan_phase_waves is not None
+        assert pipeline.plan_phase_names is not None
+        # And persisted via store.save_pipeline
+        store.save_pipeline.assert_called()
+        # The first save_pipeline call should be the wave data persistence
+        first_call_pipeline = store.save_pipeline.call_args_list[0][0][0]
+        assert first_call_pipeline.plan_phase_waves is not None
+        assert first_call_pipeline.plan_phase_names is not None
+
 
 class TestRunTier3ImplementParallel:
     """Tests for _run_tier3_implement with parallel phases."""
