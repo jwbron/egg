@@ -94,6 +94,35 @@ phases:
           - [path/to/file]
 ```
 
+### `files:` field — enforcement boundary
+
+The `files:` field on each task is **enforced at push time** during the implement phase,
+not just a hint. The gateway uses the union of `files:` across all tasks assigned to a
+coder agent to determine which files the agent is allowed to push.
+
+**How it works:**
+
+- For each listed file with a directory component (e.g., `src/auth/login.py`), the
+  gateway expands to `src/auth/*` — granting **recursive** access to all files under
+  `src/auth/` and its subdirectories. This uses Python's `fnmatch` matching where `*`
+  matches `/`.
+- Glob patterns (e.g., `tests/**`, `src/module/*.py`) pass through unchanged.
+- The first push containing an out-of-scope file triggers a **warning**. A second push
+  with the same file is **blocked** (warn-then-block escalation).
+- Empty `files:` (or omitting the field entirely) means **no restriction** — the agent
+  falls back to phase-level enforcement only.
+
+**Guidance for planners:**
+
+- **List generously** — include all files the agent may need to touch, including config
+  files (`pyproject.toml`, `Makefile`) if the task modifies build configuration or
+  dependencies.
+- **Use globs** for broad scopes: `tests/**` for all test files, `src/module/*` for an
+  entire module subtree.
+- Listing any file in a directory grants access to the **entire directory subtree**
+  (due to recursive `fnmatch` semantics). For example, listing `src/auth/login.py`
+  grants access to `src/auth/`, `src/auth/sub/`, etc.
+
 ---
 
 *Authored-by: egg*

@@ -82,6 +82,66 @@ from models import AgentRole, ContainerInfo
 logger = get_logger("orchestrator.spawner")
 
 
+def _compute_allowed_files(
+    phases: list,
+    plan_phase_id: str | None,
+    agent_role: str,
+) -> list[str] | None:
+    """Compute per-task allowed file patterns for a coder in the implement phase.
+
+    Collects the union of ``files_affected`` from all tasks in the given plan
+    phase and applies directory-sibling expansion: for each explicit file
+    ``dir/foo.py``, adds ``dir/*`` to the pattern set (recursive via fnmatch).
+    Glob patterns already in ``files_affected`` pass through unchanged.
+
+    Args:
+        phases: List of contract Phase objects (each with ``.id`` and ``.tasks``).
+        plan_phase_id: The plan phase ID to look up tasks for.
+        agent_role: Agent role string (only "coder" gets restrictions).
+
+    Returns:
+        List of file patterns, or None if restrictions should not apply
+        (non-coder role, missing phase, or empty file union).
+    """
+    if agent_role != "coder":
+        return None
+
+    if not plan_phase_id or not phases:
+        return None
+
+    # Find the phase matching plan_phase_id
+    phase_obj = None
+    for p in phases:
+        if getattr(p, "id", None) == plan_phase_id:
+            phase_obj = p
+            break
+
+    if phase_obj is None:
+        return None
+
+    # Collect union of files_affected across all tasks in this phase
+    all_files: set[str] = set()
+    for task in getattr(phase_obj, "tasks", []):
+        for f in getattr(task, "files_affected", []) or []:
+            if f:
+                all_files.add(f)
+
+    if not all_files:
+        return None
+
+    # Apply directory-sibling expansion: for each explicit file, add dir/*
+    # This grants recursive access to the directory subtree via fnmatch semantics
+    patterns: set[str] = set()
+    for f in all_files:
+        patterns.add(f)
+        # If the entry has a directory component and is not already a glob, expand
+        if "/" in f and "*" not in f:
+            dir_part = f.rsplit("/", 1)[0]
+            patterns.add(f"{dir_part}/*")
+
+    return sorted(patterns)
+
+
 @dataclass
 class SpawnedContainer:
     """Information about a spawned container with gateway session."""
@@ -205,6 +265,7 @@ class ContainerSpawner:
         certs_volume: str | None = None,
         branch: str | None = None,
         complexity_tier: str | None = None,
+        allowed_files: list[str] | None = None,
     ) -> SpawnedContainer:
         """Spawn a container for an agent.
 
@@ -361,6 +422,7 @@ class ContainerSpawner:
                     claude_code_version=os.environ.get("CLAUDE_CODE_VERSION"),
                     branch=branch,
                     complexity_tier=complexity_tier,
+                    allowed_files=allowed_files,
                 )
                 session_token = session_info.session_token
 

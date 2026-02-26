@@ -132,14 +132,17 @@ def auto_commit_worktree(
     phase: str | None = None,
     session_token: str | None = None,
     gateway_url: str | None = None,
+    allowed_files: list[str] | None = None,
 ) -> str | None:
     """Create a WIP commit for any uncommitted changes in a worktree.
 
     When a ``phase`` is provided, files are checked against phase-based
     file restrictions using ``check_phase_file_restrictions``.  Blocked
     files are restored via ``git checkout`` and only allowed files are
-    committed.  If a ``session_token`` and ``gateway_url`` are provided,
-    the commit is pushed through the gateway API.
+    committed.  When ``allowed_files`` is provided, a second filter removes
+    files outside the per-task scope (same ``PhaseFileRestriction`` matching).
+    If a ``session_token`` and ``gateway_url`` are provided, the commit is
+    pushed through the gateway API.
 
     Args:
         worktree_path: Absolute path to the worktree directory.
@@ -149,6 +152,7 @@ def auto_commit_worktree(
         phase: SDLC phase for file restriction filtering.
         session_token: Gateway session token for pushing.
         gateway_url: Gateway base URL (e.g., ``http://egg-gateway:<port>``).
+        allowed_files: Optional per-task file restriction patterns from planner.
 
     Returns:
         Commit SHA string if a commit was made, None otherwise.
@@ -178,7 +182,7 @@ def auto_commit_worktree(
         # (same function used by push-time validation in gateway.py) to ensure
         # consistent enforcement.  If the import fails, all files are allowed
         # (fail-open) since push-time validation remains the authoritative gate.
-        allowed_files = list(changed_files)
+        committable_files = list(changed_files)
         blocked_files: list[str] = []
 
         if phase and changed_files:
@@ -194,14 +198,46 @@ def auto_commit_worktree(
                 result = check_phase_file_restrictions(phase, changed_files)
                 if not result.allowed:
                     blocked_files = result.blocked_files or []
-                    allowed_files = [f for f in changed_files if f not in blocked_files]
+                    committable_files = [f for f in changed_files if f not in blocked_files]
 
                     logger.info(
                         "Phase restrictions filter auto-commit files",
                         event_type="post_agent_phase_filter",
                         phase=phase,
                         blocked_files=blocked_files,
-                        allowed_count=len(allowed_files),
+                        allowed_count=len(committable_files),
+                        container_id=container_id,
+                    )
+
+        # Per-task file restriction filtering (allowed_files from planner).
+        # Applied after phase filtering — both layers AND together.
+        if allowed_files and committable_files:
+            try:
+                from phase_filter import PhaseFileRestriction  # type: ignore[import-untyped]  # noqa: I001
+            except ImportError:
+                try:
+                    from gateway.phase_filter import PhaseFileRestriction  # type: ignore[no-redef]
+                except ImportError:
+                    PhaseFileRestriction = None  # type: ignore[assignment, misc]
+
+            if PhaseFileRestriction is not None:
+                task_restriction = PhaseFileRestriction(allowed_patterns=allowed_files)
+                task_blocked: list[str] = []
+                for f in committable_files:
+                    file_allowed, _reason = task_restriction.is_file_allowed(f)
+                    if not file_allowed:
+                        task_blocked.append(f)
+
+                if task_blocked:
+                    blocked_files.extend(task_blocked)
+                    committable_files = [f for f in committable_files if f not in task_blocked]
+
+                    logger.info(
+                        "Per-task restrictions filter auto-commit files",
+                        event_type="post_agent_task_filter",
+                        task_blocked_files=task_blocked,
+                        allowed_patterns=allowed_files,
+                        allowed_count=len(committable_files),
                         container_id=container_id,
                     )
 
@@ -233,7 +269,7 @@ def auto_commit_worktree(
         # use `git add <files>` (not `git add -A`), but a misbehaving agent
         # could still commit the symlink. Gateway-level symlink filtering
         # at commit/push time would close this gap if needed.
-        symlink_files = [f for f in allowed_files if os.path.islink(os.path.join(worktree_path, f))]
+        symlink_files = [f for f in committable_files if os.path.islink(os.path.join(worktree_path, f))]
         if symlink_files:
             logger.info(
                 "Skipping symlinks from auto-commit",
@@ -241,10 +277,10 @@ def auto_commit_worktree(
                 symlink_files=symlink_files,
                 container_id=container_id,
             )
-            allowed_files = [f for f in allowed_files if f not in symlink_files]
+            committable_files = [f for f in committable_files if f not in symlink_files]
 
-        # If no allowed files remain after filtering, nothing to commit.
-        if not allowed_files:
+        # If no committable files remain after filtering, nothing to commit.
+        if not committable_files:
             logger.info(
                 "All changed files filtered, skipping auto-commit",
                 event_type="post_agent_auto_commit_skipped",
@@ -255,8 +291,8 @@ def auto_commit_worktree(
             )
             return None
 
-        # Stage only allowed files (not git add -A which stages everything).
-        add_result = _git("add", "--", *allowed_files, cwd=worktree_path)
+        # Stage only committable files (not git add -A which stages everything).
+        add_result = _git("add", "--", *committable_files, cwd=worktree_path)
         if add_result.returncode != 0:
             logger.warning(
                 "Failed to stage changes for auto-commit",
@@ -306,7 +342,7 @@ def auto_commit_worktree(
             pipeline_id=pipeline_id,
             phase=phase,
             commit_sha=sha,
-            allowed_files=allowed_files,
+            committed_files=committable_files,
             blocked_files=blocked_files,
         )
 

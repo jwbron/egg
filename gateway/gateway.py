@@ -89,6 +89,7 @@ try:
     )
     from .phase_filter import (
         OperationType,
+        PhaseFileRestriction,
         check_agent_restrictions,
         check_file_restrictions,
         check_phase_file_restrictions,
@@ -149,6 +150,7 @@ except ImportError:
     )
     from phase_filter import (  # type: ignore[no-redef, import-untyped]
         OperationType,
+        PhaseFileRestriction,
         check_agent_restrictions,
         check_file_restrictions,
         check_phase_file_restrictions,
@@ -789,6 +791,128 @@ def git_push() -> tuple[Response, int] | Response:
                     blocked_files=agent_result.blocked_files,
                     restriction_message=agent_result.message,
                 )
+
+    # SECURITY: Per-task file restrictions from the planner.
+    # When a session has allowed_files (set by the orchestrator for implement-phase
+    # coder agents), enforce that pushed files match the task's file scope.
+    # Uses warn-then-block escalation: first violation per file triggers a warning,
+    # subsequent violations block the push. Set EGG_TASK_FILE_RESTRICTIONS_ENFORCE=true
+    # to block immediately (strict mode).
+    # Checkpoint pushes bypass this check.
+    if not is_checkpoint_push and hasattr(g, "session") and g.session:
+        session_allowed_files = getattr(g.session, "allowed_files", None)
+        if isinstance(session_allowed_files, list) and session_allowed_files:
+            # Ensure we have the changed files list
+            if changed_files is None:
+                changed_files, check_error = get_changed_files_in_push(exec_path, remote, branch)
+                if check_error:
+                    audit_log(
+                        "push_denied_file_check_failed",
+                        "git_push",
+                        success=False,
+                        details={
+                            "repo": repo,
+                            "branch": branch,
+                            "error": check_error,
+                            "check_type": "per_task_file_restrictions",
+                        },
+                    )
+                    return make_error(
+                        f"Push denied: Could not verify file changes for per-task check: {check_error}",
+                        status_code=500,
+                    )
+
+            if changed_files:
+                task_restriction = PhaseFileRestriction(allowed_patterns=session_allowed_files)
+                out_of_scope: list[str] = []
+                for cf in changed_files:
+                    allowed, _reason = task_restriction.is_file_allowed(cf)
+                    if not allowed:
+                        out_of_scope.append(cf)
+
+                if out_of_scope:
+                    enforce_strict = os.environ.get(
+                        "EGG_TASK_FILE_RESTRICTIONS_ENFORCE", "false"
+                    ).lower() in ("true", "1", "yes")
+                    warn_threshold = int(
+                        os.environ.get("EGG_TASK_FILE_WARN_THRESHOLD", "1")
+                    )
+
+                    if enforce_strict:
+                        audit_log(
+                            "push_denied_task_file_restrictions",
+                            "git_push",
+                            success=False,
+                            details={
+                                "repo": repo,
+                                "branch": branch,
+                                "blocked_files": out_of_scope,
+                                "allowed_patterns": session_allowed_files,
+                                "mode": "strict",
+                            },
+                        )
+                        return make_error(
+                            f"Push denied: files outside task scope: {', '.join(out_of_scope)}",
+                            status_code=403,
+                            details={
+                                "blocked_files": out_of_scope,
+                                "allowed_patterns": session_allowed_files,
+                                "hint": (
+                                    "These files are not in your assigned task's file list. "
+                                    "Only modify files listed in your task's files_affected."
+                                ),
+                            },
+                        )
+
+                    # Warn-then-block: check per-file violation counts
+                    warned_files = getattr(g.session, "_warned_files", {})
+                    blocked_files_task: list[str] = []
+                    warned_files_task: list[str] = []
+
+                    for f in out_of_scope:
+                        count = warned_files.get(f, 0)
+                        if count >= warn_threshold:
+                            blocked_files_task.append(f)
+                        else:
+                            warned_files[f] = count + 1
+                            warned_files_task.append(f)
+
+                    if warned_files_task:
+                        logger.warning(
+                            "Per-task file restriction warning (files outside task scope)",
+                            event_type="task_file_restriction_warning",
+                            repo=repo,
+                            branch=branch,
+                            warned_files=warned_files_task,
+                            allowed_patterns=session_allowed_files,
+                        )
+
+                    if blocked_files_task:
+                        audit_log(
+                            "push_denied_task_file_restrictions",
+                            "git_push",
+                            success=False,
+                            details={
+                                "repo": repo,
+                                "branch": branch,
+                                "blocked_files": blocked_files_task,
+                                "allowed_patterns": session_allowed_files,
+                                "mode": "warn_then_block",
+                            },
+                        )
+                        return make_error(
+                            f"Push denied: repeated out-of-scope files: "
+                            f"{', '.join(blocked_files_task)}",
+                            status_code=403,
+                            details={
+                                "blocked_files": blocked_files_task,
+                                "allowed_patterns": session_allowed_files,
+                                "hint": (
+                                    "These files were already warned on a previous push. "
+                                    "Only modify files listed in your task's files_affected."
+                                ),
+                            },
+                        )
 
     # SECURITY: Check phase-based file restrictions for local mode sessions.
     # This replaces the blanket local-mode push block with granular phase-based
@@ -3250,6 +3374,7 @@ def session_create() -> tuple[Response, int] | Response:
     claude_code_version = data.get("claude_code_version")  # Optional Claude Code version
     branch = data.get("branch")  # Optional git branch for non-pushing sessions
     complexity_tier = data.get("complexity_tier")  # Optional complexity tier for Tier 3 dispatch
+    allowed_files = data.get("allowed_files")  # Optional per-task file restriction patterns
 
     # Validate required fields
     if not container_id:
@@ -3310,6 +3435,16 @@ def session_create() -> tuple[Response, int] | Response:
             return make_error("Invalid branch: must be a string")
         if len(branch) > 256:
             return make_error("Invalid branch: must be 256 characters or fewer")
+
+    # Validate allowed_files if provided
+    if allowed_files is not None:
+        if not isinstance(allowed_files, list):
+            return make_error("Invalid allowed_files: must be a list of strings")
+        for i, entry in enumerate(allowed_files):
+            if not isinstance(entry, str) or not entry:
+                return make_error(
+                    f"Invalid allowed_files[{i}]: each entry must be a non-empty string"
+                )
 
     # Step 1: Query visibility for all repos
     repo_visibilities = {}
@@ -3431,6 +3566,7 @@ def session_create() -> tuple[Response, int] | Response:
         claude_code_version=claude_code_version,
         branch=branch,
         complexity_tier=complexity_tier,
+        allowed_files=allowed_files,
     )
 
     # Pre-populate checkpoint context so non-pushing sessions (reviewers,

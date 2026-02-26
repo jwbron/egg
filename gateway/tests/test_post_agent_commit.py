@@ -563,3 +563,137 @@ class TestAutoCommitSymlinkFiltering:
         add_cmd = mock_run.call_args_list[1][0][0]
         assert "app.py" in add_cmd
         assert "lib.py" in add_cmd
+
+
+class TestAutoCommitTaskFiltering:
+    """Tests for per-task file restriction filtering via allowed_files."""
+
+    @patch("post_agent_commit.subprocess.run")
+    def test_task_blocked_files_restored_and_excluded(self, mock_run, tmp_path):
+        """Files outside allowed_files are restored and not staged."""
+        mock_run.side_effect = [
+            # git status --porcelain
+            MagicMock(
+                returncode=0,
+                stdout=" M src/auth/login.py\n M src/payments/pay.py\n",
+                stderr="",
+            ),
+            # git checkout -- src/payments/pay.py (restore blocked)
+            MagicMock(returncode=0, stdout="", stderr=""),
+            # git add -- src/auth/login.py (only allowed file)
+            MagicMock(returncode=0, stdout="", stderr=""),
+            # git commit
+            MagicMock(returncode=0, stdout="", stderr=""),
+            # git rev-parse HEAD
+            MagicMock(returncode=0, stdout="sha_task_filter\n", stderr=""),
+        ]
+
+        result = auto_commit_worktree(
+            str(tmp_path),
+            container_id="c1",
+            allowed_files=["src/auth/*"],
+        )
+        assert result == "sha_task_filter"
+
+        # Verify git checkout -- was called for blocked file
+        checkout_call = mock_run.call_args_list[1]
+        checkout_cmd = checkout_call[0][0]
+        assert "checkout" in checkout_cmd
+        assert "src/payments/pay.py" in checkout_cmd
+
+        # Verify git add only includes allowed file
+        add_call = mock_run.call_args_list[2]
+        add_cmd = add_call[0][0]
+        assert "src/auth/login.py" in add_cmd
+        assert "src/payments/pay.py" not in add_cmd
+
+    @patch("post_agent_commit.subprocess.run")
+    def test_allowed_files_inside_scope_committed(self, mock_run, tmp_path):
+        """Files matching allowed_files patterns are committed normally."""
+        mock_run.side_effect = [
+            # git status --porcelain
+            MagicMock(
+                returncode=0,
+                stdout=" M src/auth/login.py\n M src/auth/utils.py\n",
+                stderr="",
+            ),
+            # git add -- src/auth/login.py src/auth/utils.py
+            MagicMock(returncode=0, stdout="", stderr=""),
+            # git commit
+            MagicMock(returncode=0, stdout="", stderr=""),
+            # git rev-parse HEAD
+            MagicMock(returncode=0, stdout="sha_all_allowed\n", stderr=""),
+        ]
+
+        result = auto_commit_worktree(
+            str(tmp_path),
+            container_id="c1",
+            allowed_files=["src/auth/*"],
+        )
+        assert result == "sha_all_allowed"
+
+        # All files should be staged
+        add_cmd = mock_run.call_args_list[1][0][0]
+        assert "src/auth/login.py" in add_cmd
+        assert "src/auth/utils.py" in add_cmd
+
+    @patch("post_agent_commit.subprocess.run")
+    def test_none_allowed_files_no_filtering(self, mock_run, tmp_path):
+        """None allowed_files means no per-task filtering (all committed)."""
+        mock_run.side_effect = [
+            # git status --porcelain
+            MagicMock(
+                returncode=0,
+                stdout=" M any/file.py\n",
+                stderr="",
+            ),
+            # git add
+            MagicMock(returncode=0, stdout="", stderr=""),
+            # git commit
+            MagicMock(returncode=0, stdout="", stderr=""),
+            # git rev-parse HEAD
+            MagicMock(returncode=0, stdout="sha_no_filter\n", stderr=""),
+        ]
+
+        result = auto_commit_worktree(
+            str(tmp_path),
+            container_id="c1",
+            allowed_files=None,
+        )
+        assert result == "sha_no_filter"
+
+    @patch("post_agent_commit.subprocess.run")
+    def test_task_filter_logging(self, mock_run, tmp_path):
+        """Verify that per-task filtered files are logged."""
+        mock_run.side_effect = [
+            MagicMock(
+                returncode=0,
+                stdout=" M src/auth/login.py\n M unrelated/file.py\n",
+                stderr="",
+            ),
+            # git checkout -- unrelated/file.py
+            MagicMock(returncode=0, stdout="", stderr=""),
+            # git add -- src/auth/login.py
+            MagicMock(returncode=0, stdout="", stderr=""),
+            # git commit
+            MagicMock(returncode=0, stdout="", stderr=""),
+            # git rev-parse HEAD
+            MagicMock(returncode=0, stdout="sha_logged\n", stderr=""),
+        ]
+
+        with patch("post_agent_commit.logger") as mock_logger:
+            result = auto_commit_worktree(
+                str(tmp_path),
+                container_id="c1",
+                allowed_files=["src/auth/*"],
+            )
+            assert result == "sha_logged"
+
+            # Check that task filter logging happened
+            info_calls = mock_logger.info.call_args_list
+            task_filter_logged = any(
+                call.kwargs.get("event_type") == "post_agent_task_filter"
+                for call in info_calls
+                if call.kwargs
+            )
+            assert task_filter_logged, "Expected post_agent_task_filter log event"

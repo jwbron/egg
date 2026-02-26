@@ -10,6 +10,7 @@ from container_spawner import (
     ContainerSpawner,
     ContainerSpawnError,
     SpawnedContainer,
+    _compute_allowed_files,
     _host_to_local_volumes,
     get_container_spawner,
 )
@@ -681,3 +682,172 @@ class TestSingletonSpawner:
         spawner2 = get_container_spawner()
 
         assert spawner1 is spawner2
+
+
+class TestComputeAllowedFiles:
+    """Tests for _compute_allowed_files() helper."""
+
+    def _make_phase(self, phase_id: str, tasks: list | None = None):
+        """Create a mock Phase object with tasks."""
+        phase = MagicMock()
+        phase.id = phase_id
+        phase.tasks = tasks or []
+        return phase
+
+    def _make_task(self, task_id: str, files: list[str] | None = None):
+        """Create a mock Task object with files_affected."""
+        task = MagicMock()
+        task.id = task_id
+        task.files_affected = files or []
+        return task
+
+    def test_union_of_files_from_multiple_tasks(self):
+        """Collects files from all tasks in the phase."""
+        tasks = [
+            self._make_task("task-1", ["src/auth/login.py", "src/auth/utils.py"]),
+            self._make_task("task-2", ["src/models/user.py"]),
+        ]
+        phase = self._make_phase("phase-1", tasks)
+
+        result = _compute_allowed_files([phase], "phase-1", "coder")
+        assert result is not None
+        # Should contain all explicit files plus directory expansions
+        assert "src/auth/login.py" in result
+        assert "src/auth/utils.py" in result
+        assert "src/models/user.py" in result
+        assert "src/auth/*" in result
+        assert "src/models/*" in result
+
+    def test_directory_sibling_expansion(self):
+        """dir/foo.py expands to include dir/* (recursive via fnmatch)."""
+        tasks = [self._make_task("task-1", ["src/auth/login.py"])]
+        phase = self._make_phase("phase-1", tasks)
+
+        result = _compute_allowed_files([phase], "phase-1", "coder")
+        assert result is not None
+        assert "src/auth/*" in result
+        assert "src/auth/login.py" in result
+
+    def test_empty_files_returns_none(self):
+        """Empty files_affected across all tasks returns None."""
+        tasks = [
+            self._make_task("task-1", []),
+            self._make_task("task-2", []),
+        ]
+        phase = self._make_phase("phase-1", tasks)
+
+        result = _compute_allowed_files([phase], "phase-1", "coder")
+        assert result is None
+
+    def test_non_coder_returns_none(self):
+        """Non-coder agent roles return None."""
+        tasks = [self._make_task("task-1", ["src/foo.py"])]
+        phase = self._make_phase("phase-1", tasks)
+
+        assert _compute_allowed_files([phase], "phase-1", "tester") is None
+        assert _compute_allowed_files([phase], "phase-1", "documenter") is None
+        assert _compute_allowed_files([phase], "phase-1", "reviewer") is None
+
+    def test_missing_plan_phase_id_returns_none(self):
+        """Missing plan_phase_id returns None."""
+        tasks = [self._make_task("task-1", ["src/foo.py"])]
+        phase = self._make_phase("phase-1", tasks)
+
+        assert _compute_allowed_files([phase], None, "coder") is None
+        assert _compute_allowed_files([phase], "", "coder") is None
+
+    def test_missing_phases_returns_none(self):
+        """Empty phases list returns None."""
+        assert _compute_allowed_files([], "phase-1", "coder") is None
+
+    def test_phase_not_found_returns_none(self):
+        """Phase ID not found in phases list returns None."""
+        tasks = [self._make_task("task-1", ["src/foo.py"])]
+        phase = self._make_phase("phase-1", tasks)
+
+        result = _compute_allowed_files([phase], "phase-999", "coder")
+        assert result is None
+
+    def test_glob_patterns_preserved(self):
+        """Glob patterns in files_affected pass through unchanged."""
+        tasks = [self._make_task("task-1", ["tests/**", "src/auth/*"])]
+        phase = self._make_phase("phase-1", tasks)
+
+        result = _compute_allowed_files([phase], "phase-1", "coder")
+        assert result is not None
+        assert "tests/**" in result
+        assert "src/auth/*" in result
+
+    def test_deduplication(self):
+        """Duplicate files across tasks are deduplicated."""
+        tasks = [
+            self._make_task("task-1", ["src/auth/login.py"]),
+            self._make_task("task-2", ["src/auth/login.py"]),
+        ]
+        phase = self._make_phase("phase-1", tasks)
+
+        result = _compute_allowed_files([phase], "phase-1", "coder")
+        assert result is not None
+        # Each entry should appear exactly once
+        assert result.count("src/auth/login.py") == 1
+        assert result.count("src/auth/*") == 1
+
+    def test_result_is_sorted(self):
+        """Result is sorted for deterministic output."""
+        tasks = [
+            self._make_task("task-1", ["z/file.py", "a/file.py"]),
+        ]
+        phase = self._make_phase("phase-1", tasks)
+
+        result = _compute_allowed_files([phase], "phase-1", "coder")
+        assert result is not None
+        assert result == sorted(result)
+
+    def test_top_level_file_no_directory_expansion(self):
+        """Top-level files (no /) don't get directory expansion."""
+        tasks = [self._make_task("task-1", ["Makefile"])]
+        phase = self._make_phase("phase-1", tasks)
+
+        result = _compute_allowed_files([phase], "phase-1", "coder")
+        assert result is not None
+        assert "Makefile" in result
+        # No dir/* expansion for top-level files
+        assert len(result) == 1
+
+
+class TestSpawnerPassesAllowedFiles:
+    """Tests that spawner passes allowed_files to register_session()."""
+
+    def test_spawn_with_allowed_files(self, spawner, mock_gateway_client, mock_docker_client):
+        """spawn_agent_container passes allowed_files to register_session."""
+        spawner.spawn_agent_container(
+            pipeline_id="issue-123",
+            agent_role=AgentRole.CODER,
+            issue_number=123,
+            mode="public",
+            repos=["owner/repo"],
+            phase="implement",
+            wait_for_gateway=False,
+            allowed_files=["src/auth/*", "tests/*"],
+        )
+
+        # Verify register_session was called with allowed_files
+        mock_gateway_client.register_session.assert_called_once()
+        call_kwargs = mock_gateway_client.register_session.call_args[1]
+        assert call_kwargs["allowed_files"] == ["src/auth/*", "tests/*"]
+
+    def test_spawn_without_allowed_files(self, spawner, mock_gateway_client, mock_docker_client):
+        """spawn_agent_container passes None when no allowed_files."""
+        spawner.spawn_agent_container(
+            pipeline_id="issue-123",
+            agent_role=AgentRole.CODER,
+            issue_number=123,
+            mode="public",
+            repos=["owner/repo"],
+            phase="implement",
+            wait_for_gateway=False,
+        )
+
+        mock_gateway_client.register_session.assert_called_once()
+        call_kwargs = mock_gateway_client.register_session.call_args[1]
+        assert call_kwargs["allowed_files"] is None

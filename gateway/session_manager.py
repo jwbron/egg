@@ -107,6 +107,7 @@ def _capture_and_cleanup_session(
                 phase=session.phase,
                 session_token=session.session_token,
                 gateway_url=gateway_url,
+                allowed_files=session.allowed_files,
             )
             if auto_commit_sha:
                 session.auto_commit_sha = auto_commit_sha
@@ -243,6 +244,13 @@ class Session:
     assigned_branch: str | None = None  # Worktree branch locked to this session
     auto_commit_sha: str | None = None  # SHA from post-agent auto-commit
     complexity_tier: str | None = None  # Complexity tier ('low', 'mid', 'high') for Tier 3 dispatch
+    allowed_files: list[str] | None = None  # Per-task file restriction patterns from planner
+
+    def __post_init__(self) -> None:
+        """Initialize transient state not persisted to disk."""
+        # Per-file warning counter for warn-then-block enforcement.
+        # Maps file_path -> violation_count. Transient: not persisted.
+        self._warned_files: dict[str, int] = {}
 
     def is_expired(self) -> bool:
         """Check if session has expired."""
@@ -288,6 +296,8 @@ class Session:
             result["auto_commit_sha"] = self.auto_commit_sha
         if self.complexity_tier is not None:
             result["complexity_tier"] = self.complexity_tier
+        if self.allowed_files is not None:
+            result["allowed_files"] = self.allowed_files
         return result
 
     @classmethod
@@ -314,6 +324,7 @@ class Session:
             assigned_branch=data.get("assigned_branch"),
             auto_commit_sha=data.get("auto_commit_sha"),
             complexity_tier=data.get("complexity_tier"),
+            allowed_files=data.get("allowed_files"),
         )
 
 
@@ -463,6 +474,7 @@ class SessionManager:
         claude_code_version: str | None = None,
         branch: str | None = None,
         complexity_tier: str | None = None,
+        allowed_files: list[str] | None = None,
     ) -> tuple[str, Session]:
         """
         Register a new session for a container.
@@ -479,6 +491,7 @@ class SessionManager:
             claude_code_version: Optional Claude Code version string
             branch: Optional git branch for non-pushing pipeline sessions
             complexity_tier: Optional complexity tier ('low', 'mid', 'high') for Tier 3 dispatch
+            allowed_files: Optional per-task file restriction patterns from planner
 
         Returns:
             Tuple of (session_token, Session)
@@ -504,6 +517,7 @@ class SessionManager:
             agent_role=agent_role,
             claude_code_version=claude_code_version,
             complexity_tier=complexity_tier,
+            allowed_files=allowed_files,
         )
 
         if branch:

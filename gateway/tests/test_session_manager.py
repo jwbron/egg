@@ -1687,3 +1687,123 @@ class TestSessionEndCheckpointCapture:
                 _capture_and_cleanup_session(session, "completed")
             # Buffer cleanup should still happen
             mock_cleanup.assert_called_once_with("test-container")
+
+
+class TestSessionAllowedFiles:
+    """Tests for allowed_files persistence and _warned_files transient state."""
+
+    def test_allowed_files_round_trip(self):
+        """allowed_files persists through to_dict_for_persistence()/from_persistence()."""
+        now = datetime.now(UTC)
+        session = Session(
+            session_token="test-token",
+            session_token_hash=_hash_token("test-token"),
+            container_id="test-container",
+            container_ip="172.18.0.5",
+            mode="private",
+            created_at=now,
+            last_seen=now,
+            expires_at=now + timedelta(hours=24),
+            allowed_files=["src/auth/*", "tests/test_auth.py"],
+        )
+
+        d = session.to_dict_for_persistence()
+        assert d["allowed_files"] == ["src/auth/*", "tests/test_auth.py"]
+
+        restored = Session.from_persistence(d)
+        assert restored.allowed_files == ["src/auth/*", "tests/test_auth.py"]
+
+    def test_allowed_files_none_not_persisted(self):
+        """When allowed_files is None, it is not included in persisted output."""
+        now = datetime.now(UTC)
+        session = Session(
+            session_token="test-token",
+            session_token_hash=_hash_token("test-token"),
+            container_id="test-container",
+            container_ip="172.18.0.5",
+            mode="private",
+            created_at=now,
+            last_seen=now,
+            expires_at=now + timedelta(hours=24),
+        )
+
+        d = session.to_dict_for_persistence()
+        assert "allowed_files" not in d
+
+    def test_backward_compat_no_allowed_files_key(self):
+        """from_persistence() with no allowed_files key produces None."""
+        now = datetime.now(UTC)
+        data = {
+            "session_token_hash": _hash_token("test-token"),
+            "container_id": "test-container",
+            "container_ip": "172.18.0.5",
+            "mode": "private",
+            "created_at": now.isoformat(),
+            "last_seen": now.isoformat(),
+            "expires_at": (now + timedelta(hours=24)).isoformat(),
+        }
+
+        restored = Session.from_persistence(data)
+        assert restored.allowed_files is None
+
+    def test_warned_files_initializes_empty(self):
+        """_warned_files initializes to empty dict on construction."""
+        now = datetime.now(UTC)
+        session = Session(
+            session_token="test-token",
+            session_token_hash=_hash_token("test-token"),
+            container_id="test-container",
+            container_ip="172.18.0.5",
+            mode="private",
+            created_at=now,
+            last_seen=now,
+            expires_at=now + timedelta(hours=24),
+        )
+        assert session._warned_files == {}
+
+    def test_warned_files_not_persisted(self):
+        """_warned_files is not present in to_dict_for_persistence() output."""
+        now = datetime.now(UTC)
+        session = Session(
+            session_token="test-token",
+            session_token_hash=_hash_token("test-token"),
+            container_id="test-container",
+            container_ip="172.18.0.5",
+            mode="private",
+            created_at=now,
+            last_seen=now,
+            expires_at=now + timedelta(hours=24),
+        )
+        session._warned_files["some_file.py"] = 2
+
+        d = session.to_dict_for_persistence()
+        assert "_warned_files" not in d
+
+    def test_warned_files_not_in_from_persistence(self):
+        """_warned_files initializes fresh on from_persistence() (transient state)."""
+        now = datetime.now(UTC)
+        data = {
+            "session_token_hash": _hash_token("test-token"),
+            "container_id": "test-container",
+            "container_ip": "172.18.0.5",
+            "mode": "private",
+            "created_at": now.isoformat(),
+            "last_seen": now.isoformat(),
+            "expires_at": (now + timedelta(hours=24)).isoformat(),
+            "allowed_files": ["src/*"],
+        }
+
+        restored = Session.from_persistence(data)
+        assert restored._warned_files == {}
+        assert restored.allowed_files == ["src/*"]
+
+    def test_register_session_with_allowed_files(self, tmp_path):
+        """register_session() stores allowed_files on the session."""
+        manager = SessionManager(persistence_file=tmp_path / "sessions.json")
+        token, session = manager.register_session(
+            container_id="test-container",
+            container_ip="172.18.0.5",
+            mode="private",
+            allowed_files=["gateway/*", "tests/*"],
+        )
+        assert session.allowed_files == ["gateway/*", "tests/*"]

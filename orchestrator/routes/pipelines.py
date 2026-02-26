@@ -3270,6 +3270,8 @@ def _run_tier3_implement(
         """
         from concurrent.futures import ThreadPoolExecutor
 
+        from container_spawner import _compute_allowed_files
+
         phase_logs: list[str] = []
         phase_obj = phase_map.get(phase_id)
         if phase_obj is None:
@@ -3329,6 +3331,13 @@ def _run_tier3_implement(
                 phase_logs.append(f"--- coder ({phase_id}, retry={retry}) cancelled ---")
                 return 1, phase_logs
 
+            # Compute per-task file restrictions for this coder
+            coder_allowed_files = _compute_allowed_files(
+                phases=contract.phases,
+                plan_phase_id=phase_id,
+                agent_role="coder",
+            )
+
             coder_exit, coder_logs = _spawn_and_wait(
                 spawner=spawner,
                 pipeline_id=pipeline_id,
@@ -3356,6 +3365,7 @@ def _run_tier3_implement(
                 certs_volume=certs_volume,
                 branch=pipeline.branch,
                 plan_phase_id=phase_id,
+                allowed_files=coder_allowed_files,
             )
 
             phase_logs.append(
@@ -4140,6 +4150,7 @@ def _spawn_and_wait(
     branch: str | None = None,
     complexity_tier: str | None = None,
     plan_phase_id: str | None = None,
+    allowed_files: list[str] | None = None,
 ) -> tuple[int, str]:
     """Spawn a container, wait for it to exit, clean up, return (exit_code, logs).
 
@@ -4157,6 +4168,7 @@ def _spawn_and_wait(
         certs_volume: Docker named volume for gateway CA certs (mounted at
             /shared/certs read-only). If None, certs are not mounted.
         complexity_tier: Optional complexity tier for Tier 3 gateway restrictions.
+        allowed_files: Optional per-task file restriction patterns from planner.
 
     Returns:
         (exit_code, container_logs) — logs are captured before cleanup on failure.
@@ -4177,6 +4189,7 @@ def _spawn_and_wait(
         certs_volume=certs_volume,
         branch=branch,
         complexity_tier=complexity_tier,
+        allowed_files=allowed_files,
     )
 
     # Record container and agent in phase execution state
