@@ -960,9 +960,7 @@ class TestRemoveWorktreeStaleCleanup:
         assert result.success
         assert result.branch_deleted
         # Verify git branch -D was called
-        branch_calls = [
-            c for c in mock_run.call_args_list if "branch" in str(c) and "-D" in str(c)
-        ]
+        branch_calls = [c for c in mock_run.call_args_list if "branch" in str(c) and "-D" in str(c)]
         assert len(branch_calls) > 0
 
     def test_no_admin_dir_still_succeeds(self, tmp_path):
@@ -1041,9 +1039,7 @@ class TestPruneStaleWorktrees:
         repo2.mkdir()
         (repo2 / ".git").mkdir()
 
-        manager = WorktreeManager(
-            worktree_base=tmp_path / "worktrees", repos_base=repos_base
-        )
+        manager = WorktreeManager(worktree_base=tmp_path / "worktrees", repos_base=repos_base)
 
         with patch("subprocess.run") as mock_run:
             mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
@@ -1051,11 +1047,7 @@ class TestPruneStaleWorktrees:
 
         assert pruned == 2
         # Verify git worktree prune was called for each repo
-        prune_calls = [
-            c
-            for c in mock_run.call_args_list
-            if "prune" in str(c)
-        ]
+        prune_calls = [c for c in mock_run.call_args_list if "prune" in str(c)]
         assert len(prune_calls) == 2
 
     def test_skips_worktree_repos(self, tmp_path):
@@ -1073,9 +1065,7 @@ class TestPruneStaleWorktrees:
         wt_repo.mkdir()
         (wt_repo / ".git").write_text("gitdir: /some/path/.git/worktrees/wt-repo")
 
-        manager = WorktreeManager(
-            worktree_base=tmp_path / "worktrees", repos_base=repos_base
-        )
+        manager = WorktreeManager(worktree_base=tmp_path / "worktrees", repos_base=repos_base)
 
         with patch("subprocess.run") as mock_run:
             mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
@@ -1101,14 +1091,10 @@ class TestPruneStaleWorktrees:
         repo.mkdir()
         (repo / ".git").mkdir()
 
-        manager = WorktreeManager(
-            worktree_base=tmp_path / "worktrees", repos_base=repos_base
-        )
+        manager = WorktreeManager(worktree_base=tmp_path / "worktrees", repos_base=repos_base)
 
         with patch("subprocess.run") as mock_run:
-            mock_run.return_value = MagicMock(
-                returncode=1, stdout="", stderr="error: prune failed"
-            )
+            mock_run.return_value = MagicMock(returncode=1, stdout="", stderr="error: prune failed")
             pruned = manager.prune_stale_worktrees()
 
         # Should not count failed pruning
