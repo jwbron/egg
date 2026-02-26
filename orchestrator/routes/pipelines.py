@@ -756,7 +756,14 @@ def delete_pipeline(pipeline_id: str) -> tuple[Response, int]:
             )
 
         # Clean up remote worktree branches (best-effort)
-        _cleanup_remote_branches(pipeline_id, _pipeline, repo_path)
+        try:
+            _cleanup_remote_branches(pipeline_id, _pipeline, repo_path)
+        except Exception as e:
+            logger.warning(
+                "Failed to clean up remote worktree branches",
+                pipeline_id=pipeline_id,
+                error=str(e),
+            )
 
         store.delete_pipeline(pipeline_id)
 

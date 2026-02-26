@@ -206,3 +206,27 @@ class TestDeletePipelineBranchCleanup:
         mock_gw.delete_remote_branch.assert_called_once()
         call_args = mock_gw.delete_remote_branch.call_args
         assert (call_args.kwargs.get("branch") or call_args.args[2]) == "egg/container-shared/work"
+
+    @patch("routes.pipelines.get_gateway_client")
+    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines._resolve_pipeline")
+    def test_delete_pipeline_succeeds_when_gateway_client_raises(
+        self, mock_resolve, mock_spawner_fn, mock_gw_fn, client
+    ):
+        """Pipeline deletion succeeds even if get_gateway_client() raises."""
+        pipeline = _make_pipeline_with_containers("test-pipeline")
+
+        mock_store = MagicMock()
+        mock_resolve.return_value = (mock_store, pipeline)
+
+        mock_spawner = MagicMock()
+        mock_spawner.cleanup_pipeline.return_value = 0
+        mock_spawner_fn.return_value = mock_spawner
+
+        mock_gw_fn.side_effect = ConnectionError("gateway unreachable")
+
+        response = client.delete("/api/v1/pipelines/test-pipeline")
+        assert response.status_code == 200
+
+        # Pipeline should still be deleted despite branch cleanup exception
+        mock_store.delete_pipeline.assert_called_once_with("test-pipeline")
