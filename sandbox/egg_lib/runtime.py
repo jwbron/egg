@@ -318,7 +318,7 @@ def _setup_session_repos(
         mode: Repository visibility mode ("private" or "public")
         mount_args: List to append mount arguments to
         quiet: Suppress output
-        phase: SDLC pipeline phase (e.g., "refine", "plan", "implement", "pr")
+        phase: SDLC pipeline phase (e.g., "analyze", "plan", "implement", "pr")
         issue_number: GitHub issue number for checkpoint metadata
         pr_number: GitHub PR number for checkpoint metadata
         pipeline_id: Pipeline run ID for multi-agent correlation

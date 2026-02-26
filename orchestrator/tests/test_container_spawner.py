@@ -556,14 +556,14 @@ class TestContainerEnvironmentAtCreation:
             agent_role=AgentRole.CODER,
             issue_number=123,
             repos=["test-owner/test-repo"],
-            phase="refine",
+            phase="analyze",
         )
 
         # Verify register_session was called with repos and phase
         mock_gateway_client.register_session.assert_called_once()
         register_call = mock_gateway_client.register_session.call_args
         assert register_call.kwargs.get("repos") == ["test-owner/test-repo"]
-        assert register_call.kwargs.get("phase") == "refine"
+        assert register_call.kwargs.get("phase") == "analyze"
 
     def test_spawn_includes_extra_hosts_for_gateway(
         self, spawner, mock_docker_client, mock_gateway_client

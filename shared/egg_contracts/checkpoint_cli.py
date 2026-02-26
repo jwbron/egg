@@ -1553,7 +1553,7 @@ def create_parser() -> argparse.ArgumentParser:
     )
     list_parser.add_argument(
         "--phase",
-        choices=["refine", "plan", "implement", "pr"],
+        choices=["analyze", "plan", "implement", "pr"],
         help="Filter by pipeline phase",
     )
     list_parser.add_argument("--pipeline", help="Filter by pipeline run ID")
@@ -1589,7 +1589,7 @@ def create_parser() -> argparse.ArgumentParser:
     )
     context_parser.add_argument(
         "--phase",
-        choices=["refine", "plan", "implement", "pr"],
+        choices=["analyze", "plan", "implement", "pr"],
         help="Filter by pipeline phase",
     )
     context_parser.add_argument(
@@ -1641,7 +1641,7 @@ def create_parser() -> argparse.ArgumentParser:
     )
     search_parser.add_argument(
         "--phase",
-        choices=["refine", "plan", "implement", "pr"],
+        choices=["analyze", "plan", "implement", "pr"],
         help="Filter by pipeline phase",
     )
     search_parser.add_argument("--pipeline", help="Filter by pipeline run ID")

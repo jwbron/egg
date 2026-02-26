@@ -31,6 +31,11 @@ YELLOW = "\033[33m"
 CYAN = "\033[36m"
 
 
+def _phase_display_label(phase: str) -> str:
+    """Return human-readable label for a pipeline phase."""
+    return phase
+
+
 def _get_draft_path(
     phase: str,
     pipeline_mode: str,
@@ -47,7 +52,7 @@ def _get_draft_path(
     else:
         prefix = str(issue_number) if issue_number else "unknown"
 
-    if phase == "refine":
+    if phase == "analyze":
         return f".egg-state/drafts/{prefix}-analysis.md"
     elif phase == "implement":
         return None
@@ -569,7 +574,7 @@ def _handle_phase_gate(
     """Handle a phase_gate decision with draft review options."""
     decision_id = decision.get("id", "unknown")
     draft_path = repo_path / draft_rel if draft_rel else None
-    phase_label = "analysis" if phase == "refine" else phase
+    phase_label = _phase_display_label(phase)
 
     while True:
         # Load pending contract decisions each iteration (may change after answering).
@@ -993,7 +998,7 @@ def handle_hitl_checkpoint(
     print(f"{BOLD}{YELLOW}  HUMAN DECISION REQUIRED{RESET}")
     print(f"{BOLD}{YELLOW}{'=' * 60}{RESET}")
     print(f"\n  {BOLD}Pipeline:{RESET} {pipeline_id}")
-    print(f"  {BOLD}Phase:{RESET}    {phase}")
+    print(f"  {BOLD}Phase:{RESET}    {_phase_display_label(phase)}")
     print(f"  {BOLD}Question:{RESET} {question}")
 
     # Show full document in pager for phase gates
@@ -1050,8 +1055,8 @@ def _detect_phase(question: str, context: str | None = None) -> str:
     orchestrator always passes a string).
     """
     q = question.lower()
-    if re.search(r"\brefine\b", q) or re.search(r"\banalysis\b", q):
-        return "refine"
+    if re.search(r"\banalyze\b", q) or re.search(r"\banalysis\b", q):
+        return "analyze"
     elif re.search(r"\bplan\b", q):
         return "plan"
     elif re.search(r"\bimplement\b", q):

@@ -657,7 +657,7 @@ class TestAddDecisionWithMockGateway:
                 "success": True,
                 "data": {
                     "issue": {"number": 123, "title": "Test"},
-                    "current_phase": "refine",
+                    "current_phase": "analyze",
                     "phases": [],
                     "decisions": [],
                 },
@@ -693,7 +693,7 @@ class TestAddDecisionWithMockGateway:
                 "success": True,
                 "data": {
                     "issue": {"number": 123, "title": "Test"},
-                    "current_phase": "refine",
+                    "current_phase": "analyze",
                     "phases": [],
                     "decisions": [],
                 },
@@ -737,7 +737,7 @@ class TestAddDecisionWithMockGateway:
                 "success": True,
                 "data": {
                     "issue": {"number": 123, "title": "Test"},
-                    "current_phase": "refine",
+                    "current_phase": "analyze",
                     "phases": [],
                     "decisions": [],
                 },
@@ -775,7 +775,7 @@ class TestAddDecisionWithMockGateway:
                 "success": True,
                 "data": {
                     "issue": {"number": 123, "title": "Test"},
-                    "current_phase": "refine",
+                    "current_phase": "analyze",
                     "phases": [],
                     "decisions": [],
                 },
@@ -807,7 +807,7 @@ class TestAddDecisionWithMockGateway:
         assert result == 0
         assert len(captured_payloads) == 1
         decision = captured_payloads[0]["new_value"]
-        # Explicit --phase "implement" overrides contract's "refine"
+        # Explicit --phase "implement" overrides contract's "analyze"
         assert decision["phase"] == "implement"
 
     def test_phase_falls_back_to_contract_current_phase(self, mock_gateway_factory):

@@ -126,8 +126,8 @@ class TestLocalPipelineContractSynced:
 class TestPhaseBasedPushRestrictions:
     """Push restrictions are per-phase, not per-mode."""
 
-    def test_gateway_session_in_local_refine_allows_state_push(self, local_pipeline_stack) -> None:
-        """Local session in refine phase can push .egg-state/ files."""
+    def test_gateway_session_in_local_analyze_allows_state_push(self, local_pipeline_stack) -> None:
+        """Local session in analyze phase can push .egg-state/ files."""
         gateway_url = local_pipeline_stack.gateway_url
         launcher_secret = local_pipeline_stack.launcher_secret
 
@@ -135,7 +135,7 @@ class TestPhaseBasedPushRestrictions:
         health_resp = requests.get(f"{gateway_url}/api/v1/health", timeout=10)
         source_ip = health_resp.json().get("client_ip", "")
 
-        # Create a local-mode session in refine phase
+        # Create a local-mode session in analyze phase
         session_resp = requests.post(
             f"{gateway_url}/api/v1/sessions/create",
             headers={"Authorization": f"Bearer {launcher_secret}"},
@@ -143,7 +143,7 @@ class TestPhaseBasedPushRestrictions:
                 "container_id": f"test-push-{int(time.time())}",
                 "container_ip": source_ip,
                 "mode": "local",
-                "phase": "refine",  # Key: setting phase enables per-phase restrictions
+                "phase": "analyze",  # Key: setting phase enables per-phase restrictions
                 "repos": ["test-owner/test-repo"],
                 "uid": 1000,
                 "gid": 1000,

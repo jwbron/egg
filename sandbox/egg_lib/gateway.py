@@ -480,7 +480,7 @@ def create_session(
         repos: List of repository names (or owner/repo format)
         uid: User ID to set worktree ownership to
         gid: Group ID to set worktree ownership to
-        phase: SDLC pipeline phase (e.g., "refine", "plan", "implement", "pr")
+        phase: SDLC pipeline phase (e.g., "analyze", "plan", "implement", "pr")
         issue_number: GitHub issue number for checkpoint metadata
         pr_number: GitHub PR number for checkpoint metadata
         pipeline_id: Pipeline run ID for multi-agent correlation

@@ -71,7 +71,7 @@ class TestCreateLocalPipeline:
         assert pipeline["prompt"] == "Add a logout button to the navbar"
         assert pipeline["status"] == "pending"
         assert pipeline["id"].startswith("local-")
-        assert pipeline["current_phase"] == "refine"
+        assert pipeline["current_phase"] == "analyze"
 
         # Cleanup
         delete_pipeline(orchestrator_url, pipeline["id"])
@@ -97,7 +97,7 @@ class TestStartLocalPipelineCompletes:
             assert start_status == 200, f"Start failed: {start_data}"
             assert start_data["data"]["status"] == "running"
 
-            # Wait for terminal state (4 phases: refine, plan, implement, pr)
+            # Wait for terminal state (4 phases: analyze, plan, implement, pr)
             final = wait_for_pipeline_terminal(orchestrator_url, pipeline_id, timeout=360)
             assert final["data"]["status"] == "complete", f"Pipeline did not complete: {final}"
 
@@ -116,7 +116,7 @@ class TestStartLocalPipelineCompletes:
 
 
 class TestLocalPipelineIncludesPrPhase:
-    """Local pipelines run all 4 phases (refine, plan, implement, pr)."""
+    """Local pipelines run all 4 phases (analyze, plan, implement, pr)."""
 
     def test_local_pipeline_includes_pr_phase(self, orchestrator_url: str) -> None:
         """Verify the pipeline runs through all phases including PR."""
@@ -138,7 +138,7 @@ class TestLocalPipelineIncludesPrPhase:
             # Verify all 4 phase executions are present and complete
             get_data, _ = get_pipeline(orchestrator_url, pipeline_id)
             phases = get_data["data"]["pipeline"].get("phases", {})
-            for phase_name in ["refine", "plan", "implement", "pr"]:
+            for phase_name in ["analyze", "plan", "implement", "pr"]:
                 assert phase_name in phases, f"Missing phase: {phase_name}"
                 assert phases[phase_name]["status"] == "complete"
 
@@ -168,14 +168,14 @@ class TestLocalPipelineContainerFailure:
             start_data, start_status = start_pipeline(orchestrator_url, pipeline_id)
             assert start_status == 200
 
-            # Wait for terminal state — should fail on the refine phase
+            # Wait for terminal state — should fail on the analyze phase
             final = wait_for_pipeline_terminal(orchestrator_url, pipeline_id, timeout=300)
             assert final["data"]["status"] == "failed", (
                 f"Pipeline should have failed but got: {final}"
             )
 
-            # Pipeline should have failed in the refine phase (first phase)
-            assert final["data"]["current_phase"] == "refine"
+            # Pipeline should have failed in the analyze phase (first phase)
+            assert final["data"]["current_phase"] == "analyze"
 
             # Verify error message on the pipeline
             get_data, _ = get_pipeline(orchestrator_url, pipeline_id)
@@ -183,10 +183,10 @@ class TestLocalPipelineContainerFailure:
             assert pipeline["status"] == "failed"
             assert "exit" in pipeline["error"].lower() or "code 1" in pipeline["error"]
 
-            # Verify the refine phase execution is marked as failed
+            # Verify the analyze phase execution is marked as failed
             phases = pipeline.get("phases", {})
-            if "refine" in phases:
-                assert phases["refine"]["status"] == "failed"
+            if "analyze" in phases:
+                assert phases["analyze"]["status"] == "failed"
 
         finally:
             delete_pipeline(orchestrator_url, pipeline_id)
@@ -260,7 +260,7 @@ class TestSandboxReceivesEnvironment:
 
             get_data, _ = get_pipeline(orchestrator_url, pipeline_id)
             phases = get_data["data"]["pipeline"].get("phases", {})
-            for phase_name in ["refine", "plan", "implement", "pr"]:
+            for phase_name in ["analyze", "plan", "implement", "pr"]:
                 assert phase_name in phases, f"Phase {phase_name} not found"
                 assert phases[phase_name]["status"] == "complete"
 
@@ -362,7 +362,7 @@ class TestPipelineStartIdempotency:
         pipeline_id = data["data"]["pipeline"]["id"]
 
         try:
-            # Start pipeline — it will pause at the refine HITL gate
+            # Start pipeline — it will pause at the analyze HITL gate
             start_data, start_status = start_pipeline(orchestrator_url, pipeline_id)
             assert start_status == 200
 
@@ -452,7 +452,7 @@ class TestIssuePipelineIncludesPrPhase:
             # Verify all 4 phases were executed
             get_data, _ = get_pipeline(orchestrator_url, pipeline_id)
             phases = get_data["data"]["pipeline"].get("phases", {})
-            for phase_name in ["refine", "plan", "implement", "pr"]:
+            for phase_name in ["analyze", "plan", "implement", "pr"]:
                 assert phase_name in phases, f"Missing phase: {phase_name}"
                 assert phases[phase_name]["status"] == "complete"
 
@@ -600,7 +600,7 @@ class TestReviewCycleApproved:
 
     The mock sandbox writes an 'approved' verdict by default, so the
     pipeline should complete normally — with multiple typed reviewer
-    containers spawned after each reviewed phase (refine, plan, implement).
+    containers spawned after each reviewed phase (analyze, plan, implement).
     """
 
     def test_pipeline_completes_with_multi_review(self, orchestrator_url: str) -> None:
@@ -615,7 +615,7 @@ class TestReviewCycleApproved:
 
         try:
             start_pipeline(orchestrator_url, pipeline_id)
-            # Longer timeout: 2 reviewers for refine+plan, 4 for implement + checker
+            # Longer timeout: 2 reviewers for analyze+plan, 4 for implement + checker
             final = wait_for_pipeline_terminal(orchestrator_url, pipeline_id, timeout=360)
             assert final["data"]["status"] == "complete", (
                 f"Pipeline should complete with approved reviews: {final}"
@@ -625,12 +625,12 @@ class TestReviewCycleApproved:
             # Verify all phases completed
             get_data, _ = get_pipeline(orchestrator_url, pipeline_id)
             phases = get_data["data"]["pipeline"].get("phases", {})
-            for phase_name in ["refine", "plan", "implement", "pr"]:
+            for phase_name in ["analyze", "plan", "implement", "pr"]:
                 assert phase_name in phases, f"Missing phase: {phase_name}"
                 assert phases[phase_name]["status"] == "complete"
 
             # Review cycles should be 0 (approved on first review, no revisions)
-            assert phases["refine"]["review_cycles"] == 0
+            assert phases["analyze"]["review_cycles"] == 0
             assert phases["plan"]["review_cycles"] == 0
             assert phases["implement"]["review_cycles"] == 0
 
@@ -712,7 +712,7 @@ class TestImplementPhaseReviewed:
     the implement phase now runs:
     1. Worker (CODER)
     2. Checker (CHECKER) — runs tests/lint
-    3. Multi-reviewer loop (code, contract for implement; refine, agent-design for refine)
+    3. Multi-reviewer loop (code, contract for implement; refine, agent-design for analyze)
     """
 
     def test_implement_phase_gets_reviewed(self, orchestrator_url: str) -> None:
@@ -844,7 +844,7 @@ class TestContractCreatedForLocalPipeline:
             # Verify contract content
             contract_data = json.loads(contract_path.read_text())
             assert contract_data.get("pipeline_id") == pipeline_id
-            assert contract_data.get("current_phase") == "refine"
+            assert contract_data.get("current_phase") == "analyze"
 
         finally:
             delete_pipeline(orchestrator_url, pipeline_id)
@@ -876,14 +876,14 @@ def resolve_pending_decision(
 
 
 class TestHITLGate:
-    """Pipeline pauses for human approval after refine and plan phases."""
+    """Pipeline pauses for human approval after analyze and plan phases."""
 
     def test_hitl_gate_full_flow(self, orchestrator_url: str) -> None:
-        """Pipeline pauses after refine and plan, resumes on approval.
+        """Pipeline pauses after analyze and plan, resumes on approval.
 
         1. Create pipeline with hitl_gates=True (default)
         2. Start pipeline
-        3. Wait for awaiting_human after refine
+        3. Wait for awaiting_human after analyze
         4. Verify pending_decision in status response
         5. Resolve decision
         6. Wait for awaiting_human after plan
@@ -902,7 +902,7 @@ class TestHITLGate:
             start_data, start_status = start_pipeline(orchestrator_url, pipeline_id)
             assert start_status == 200
 
-            # --- Gate 1: refine phase ---
+            # --- Gate 1: analyze phase ---
             status_data = wait_for_awaiting_human(orchestrator_url, pipeline_id, timeout=180)
             assert status_data["data"]["status"] == "awaiting_human"
             assert status_data["data"]["pending_decisions"] >= 1
@@ -912,12 +912,12 @@ class TestHITLGate:
             assert pending is not None, "Status should include pending_decision details"
             assert "id" in pending
             assert "question" in pending
-            assert "refine" in pending["question"]
+            assert "analyze" in pending["question"]
             # Context should contain the mock draft content
             assert "context" in pending
             assert len(pending["context"]) > 0
 
-            # Resolve the refine gate
+            # Resolve the analyze gate
             resolve_data = resolve_pending_decision(orchestrator_url, pipeline_id, pending["id"])
             assert resolve_data["success"] is True
 
@@ -984,7 +984,7 @@ class TestReviewCycleEdgeCases:
             phases = get_data["data"]["pipeline"].get("phases", {})
 
             # At least one reviewed phase should have processed the mixed verdict
-            reviewed_phases = ["refine", "plan", "implement"]
+            reviewed_phases = ["analyze", "plan", "implement"]
             any_reviewed = any(
                 phases.get(p, {}).get("status") == "complete" for p in reviewed_phases
             )
@@ -1032,7 +1032,7 @@ class TestReviewCycleEdgeCases:
             phases = get_data["data"]["pipeline"].get("phases", {})
 
             # With max_review_cycles=0, revision attempts should be blocked
-            for phase_name in ["refine", "plan", "implement"]:
+            for phase_name in ["analyze", "plan", "implement"]:
                 if phase_name in phases:
                     # review_cycles should not exceed 0 (circuit breaker fired immediately)
                     cycles = phases[phase_name].get("review_cycles", 0)
@@ -1076,7 +1076,7 @@ class TestReviewCycleEdgeCases:
 
             # With REVIEW_NEEDS_REVISION, we expect some revision cycles
             # unless the orchestrator uses a different counting mechanism
-            assert "refine" in phases, "Should have refine phase data"
+            assert "analyze" in phases, "Should have analyze phase data"
 
         finally:
             delete_pipeline(orchestrator_url, pipeline_id)
@@ -1176,7 +1176,7 @@ class TestReviewCycleEdgeCases:
             # Verify all phases eventually completed
             get_data, _ = get_pipeline(orchestrator_url, pipeline_id)
             phases = get_data["data"]["pipeline"].get("phases", {})
-            for phase_name in ["refine", "plan", "implement", "pr"]:
+            for phase_name in ["analyze", "plan", "implement", "pr"]:
                 assert phases.get(phase_name, {}).get("status") == "complete", (
                     f"Phase {phase_name} should be complete"
                 )

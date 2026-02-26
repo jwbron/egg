@@ -214,7 +214,7 @@ class OrchClient:
             decision_type: Type of decision ('phase_gate', 'choice', or 'feedback').
             questions: Structured feedback questions (list of dicts with id, question, answer).
             context: Additional context for the decision.
-            phase: Pipeline phase that created the decision (e.g., 'plan', 'refine').
+            phase: Pipeline phase that created the decision (e.g., 'plan', 'analyze').
 
         Returns:
             Created decision dict from the orchestrator API.

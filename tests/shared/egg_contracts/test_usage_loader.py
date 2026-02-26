@@ -135,7 +135,7 @@ class TestIssueUsageIO:
                 pr_number=522,
                 session_ids=["s1", "s2"],
                 branch="egg/issue-519",
-                pipeline_phases=["refine", "plan"],
+                pipeline_phases=["analyze", "plan"],
                 tokens=TokenCounts(input_tokens=5000, output_tokens=2500),
                 checkpoint_count=5,
                 last_updated=now,

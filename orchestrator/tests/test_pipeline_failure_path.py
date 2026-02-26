@@ -37,10 +37,10 @@ def _make_running_pipeline(branch="egg/issue-42"):
         branch=branch,
         mode="issue",
         status=PipelineStatus.RUNNING,
-        current_phase=PipelinePhase.REFINE,
+        current_phase=PipelinePhase.ANALYZE,
     )
     pipeline.contract_synced = True  # Skip contract creation
-    execution = pipeline.get_phase_execution(PipelinePhase.REFINE)
+    execution = pipeline.get_phase_execution(PipelinePhase.ANALYZE)
     execution.status = PipelineStatus.RUNNING
     execution.started_at = datetime.utcnow()
     return pipeline

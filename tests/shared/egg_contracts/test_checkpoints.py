@@ -414,7 +414,7 @@ class TestCheckpointV2:
         session = self._make_session_metadata(now)
 
         # Valid phases
-        for phase in ("refine", "plan", "implement", "pr"):
+        for phase in ("analyze", "plan", "implement", "pr"):
             cp = CheckpointV2(
                 id="ckpt-abc123def456",
                 trigger_type=TriggerType.COMMIT,

@@ -539,8 +539,8 @@ class TestFullDagWithReviewFixes:
             plan_phase_waves=[["p1", "p2"]],
             plan_phase_names={"p1": "Auth", "p2": "API"},
             phases={
-                "refine": PhaseExecution(
-                    phase=PipelinePhase.REFINE,
+                "analyze": PhaseExecution(
+                    phase=PipelinePhase.ANALYZE,
                     status=PipelineStatus.COMPLETE,
                 ),
                 "plan": PhaseExecution(

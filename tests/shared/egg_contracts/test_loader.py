@@ -30,7 +30,7 @@ def _make_contract(
     issue_number: int = 42,
     title: str = "Test issue",
     url: str = "https://github.com/owner/repo/issues/42",
-    phase: PipelinePhase = PipelinePhase.REFINE,
+    phase: PipelinePhase = PipelinePhase.ANALYZE,
 ) -> Contract:
     """Helper to create a minimal contract for testing."""
     return Contract(
@@ -125,7 +125,7 @@ class TestLoadContract:
         loaded = load_contract(42, repo_root=tmp_path)
         assert loaded.issue.number == 42
         assert loaded.issue.title == "Test issue"
-        assert loaded.current_phase == PipelinePhase.REFINE
+        assert loaded.current_phase == PipelinePhase.ANALYZE
 
     def test_load_not_found_raises(self, tmp_path):
         """Test that loading a missing contract raises ContractNotFoundError."""
@@ -251,7 +251,7 @@ class TestCreateContract:
 
         assert contract.issue.number == 55
         assert contract.issue.title == "New feature"
-        assert contract.current_phase == PipelinePhase.REFINE
+        assert contract.current_phase == PipelinePhase.ANALYZE
 
         # Verify it was saved to disk
         assert contract_exists(55, repo_root=tmp_path)
@@ -269,15 +269,15 @@ class TestCreateContract:
         )
         assert contract.current_phase == PipelinePhase.IMPLEMENT
 
-    def test_create_default_phase_is_refine(self, tmp_path):
-        """Test that the default initial phase is REFINE."""
+    def test_create_default_phase_is_analyze(self, tmp_path):
+        """Test that the default initial phase is ANALYZE."""
         contract = create_contract(
             issue_number=57,
             title="Test",
             url="https://github.com/owner/repo/issues/57",
             repo_root=tmp_path,
         )
-        assert contract.current_phase == PipelinePhase.REFINE
+        assert contract.current_phase == PipelinePhase.ANALYZE
 
 
 class TestLoadContractFromBranch:

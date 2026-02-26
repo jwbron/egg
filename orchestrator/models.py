@@ -9,13 +9,13 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Any, Literal, NamedTuple
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class PipelinePhase(StrEnum):
     """Current phase in the SDLC pipeline."""
 
-    REFINE = "refine"
+    ANALYZE = "analyze"
     PLAN = "plan"
     IMPLEMENT = "implement"
     PR = "pr"
@@ -291,7 +291,7 @@ class Pipeline(BaseModel):
     status: PipelineStatus = Field(
         default=PipelineStatus.PENDING, description="Overall pipeline status"
     )
-    current_phase: PipelinePhase = Field(default=PipelinePhase.REFINE, description="Current phase")
+    current_phase: PipelinePhase = Field(default=PipelinePhase.ANALYZE, description="Current phase")
     config: PipelineConfig = Field(
         default_factory=PipelineConfig, description="Pipeline configuration"
     )
@@ -308,8 +308,17 @@ class Pipeline(BaseModel):
         default=None,
         description="Network mode for spawned containers: 'public', 'private', or None (auto from pipeline mode)",
     )
+
+    @field_validator("current_phase", mode="before")
+    @classmethod
+    def _normalize_legacy_phase(cls, v: Any) -> Any:
+        """Accept legacy ``"refine"`` phase value from historical pipelines."""
+        if v == "refine":
+            return "analyze"
+        return v
+
     short_circuit: bool = Field(
-        default=False, description="Skip plan phase (refine → implement) for low-complexity tasks"
+        default=False, description="Skip plan phase (analyze → implement) for low-complexity tasks"
     )
     complexity_tier: ComplexityTier = Field(
         default=ComplexityTier.MID,

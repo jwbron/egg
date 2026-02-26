@@ -653,7 +653,7 @@ class TestDecisionPersistenceRegression:
         with patch("decision_queue.get_state_store", return_value=state_store):
             dq = DecisionQueue("issue-530", state_store.repo_path)
             decision = dq.queue_decision(
-                question="Approve refine phase?",
+                question="Approve analyze phase?",
                 options=["approve"],
             )
             assert decision.id == "decision-1"
@@ -691,7 +691,7 @@ class TestDecisionPersistenceRegression:
         with patch("decision_queue.get_state_store", return_value=state_store):
             dq = DecisionQueue("issue-531", state_store.repo_path)
             dq.queue_decision(
-                question="Approve refine phase?",
+                question="Approve analyze phase?",
                 options=["approve"],
             )
 

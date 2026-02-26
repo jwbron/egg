@@ -207,7 +207,7 @@ class TestContract:
         )
         assert contract.schemaVersion == "1.0"
         assert contract.issue.number == 133
-        assert contract.current_phase == PipelinePhase.REFINE
+        assert contract.current_phase == PipelinePhase.ANALYZE
         assert contract.phases == []
         assert contract.decisions == []
         assert contract.workflow_owner is None
@@ -647,7 +647,7 @@ class TestContractWithPhaseConfigs:
                 url="https://example.com",
             ),
             phase_configs={
-                PipelinePhase.REFINE: PhaseConfig(
+                PipelinePhase.ANALYZE: PhaseConfig(
                     checks=[
                         CheckDefinition(
                             id="check-draft",
@@ -661,17 +661,34 @@ class TestContractWithPhaseConfigs:
 
         data = original.model_dump(mode="json")
         assert "phase_configs" in data
-        assert "refine" in data["phase_configs"]
-        assert len(data["phase_configs"]["refine"]["checks"]) == 1
+        assert "analyze" in data["phase_configs"]
+        assert len(data["phase_configs"]["analyze"]["checks"]) == 1
 
         restored = Contract.model_validate(data)
         assert restored.phase_configs is not None
-        assert PipelinePhase.REFINE in restored.phase_configs
-        assert len(restored.phase_configs[PipelinePhase.REFINE].checks) == 1
+        assert PipelinePhase.ANALYZE in restored.phase_configs
+        assert len(restored.phase_configs[PipelinePhase.ANALYZE].checks) == 1
 
     def test_contract_backward_compatibility_no_phase_configs(self):
         """Test that existing contracts without phase_configs still work."""
         # Simulate an old contract that doesn't have phase_configs
+        data = {
+            "schemaVersion": "1.0",
+            "issue": {
+                "number": 123,
+                "title": "Test",
+                "url": "https://example.com",
+            },
+            "current_phase": "analyze",
+            "phases": [],
+            "decisions": [],
+            "audit_log": [],
+        }
+        contract = Contract.model_validate(data)
+        assert contract.phase_configs is None
+
+    def test_contract_backward_compatibility_refine_normalizes_to_analyze(self):
+        """Test that legacy 'refine' phase value normalizes to ANALYZE."""
         data = {
             "schemaVersion": "1.0",
             "issue": {
@@ -685,4 +702,4 @@ class TestContractWithPhaseConfigs:
             "audit_log": [],
         }
         contract = Contract.model_validate(data)
-        assert contract.phase_configs is None
+        assert contract.current_phase == PipelinePhase.ANALYZE

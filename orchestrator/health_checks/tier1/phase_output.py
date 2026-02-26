@@ -8,7 +8,7 @@ to review.
 For each phase type, verifies:
 - implement: new commits on the remote branch beyond origin/main
 - plan: {identifier}-architect-output.json (or plan draft) exists
-- refine: refine output exists
+- analyze: analyze output exists
 
 Returns DEGRADED (not FAILED) when agents succeeded but artifacts
 are missing — this is a semantic problem, not an infrastructure one.
@@ -91,7 +91,7 @@ class PhaseOutputPresenceCheck:
         elif phase == PipelinePhase.PLAN:
             return self._check_plan_outputs(context)
         else:
-            # REFINE and PR phases: no strict artifact requirements yet
+            # ANALYZE and PR phases: no strict artifact requirements yet
             return HealthResult(
                 status=HealthStatus.HEALTHY,
                 check_name=self.name,

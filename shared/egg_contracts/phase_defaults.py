@@ -13,8 +13,8 @@ from .models import (
     PipelinePhase,
 )
 
-# Default checks for the refine phase
-_REFINE_CHECKS: list[CheckDefinition] = [
+# Default checks for the analyze phase
+_ANALYZE_CHECKS: list[CheckDefinition] = [
     CheckDefinition(
         id="check-draft-validation",
         name="Draft Validation",
@@ -78,8 +78,8 @@ _PR_CHECKS: list[CheckDefinition] = []
 
 # Default phase configurations
 _DEFAULT_PHASE_CONFIGS: dict[PipelinePhase, PhaseConfig] = {
-    PipelinePhase.REFINE: PhaseConfig(
-        checks=_REFINE_CHECKS,
+    PipelinePhase.ANALYZE: PhaseConfig(
+        checks=_ANALYZE_CHECKS,
         max_review_cycles=3,
         human_review_mechanism=HumanReviewMechanism.ISSUE_CHECKBOX,
     ),

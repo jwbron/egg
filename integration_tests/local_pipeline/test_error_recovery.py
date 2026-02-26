@@ -60,7 +60,7 @@ class TestPartialPhaseFailure:
         try:
             start_pipeline(orchestrator_url, pipeline_id)
 
-            # Should fail on refine phase (first phase where PARTIAL_FAILURE triggers)
+            # Should fail on analyze phase (first phase where PARTIAL_FAILURE triggers)
             final = wait_for_pipeline_terminal(orchestrator_url, pipeline_id, timeout=300)
             assert final["data"]["status"] == "failed", (
                 f"Pipeline should have failed but got: {final}"
@@ -84,8 +84,8 @@ class TestPartialPhaseFailure:
 class TestPhaseFailureMidExecution:
     """Test phase failure mid-execution with FAIL_ON_PHASE."""
 
-    def test_fail_on_plan_phase_leaves_refine_complete(self, orchestrator_url: str) -> None:
-        """Pipeline fails on plan phase; refine phase remains complete."""
+    def test_fail_on_plan_phase_leaves_analyze_complete(self, orchestrator_url: str) -> None:
+        """Pipeline fails on plan phase; analyze phase remains complete."""
         data, status = create_pipeline(
             orchestrator_url,
             prompt="FAIL_ON_PHASE=plan - fail only on plan",
@@ -102,12 +102,12 @@ class TestPhaseFailureMidExecution:
             assert final["data"]["status"] == "failed"
             assert final["data"]["current_phase"] == "plan"
 
-            # Verify refine phase completed before the failure
+            # Verify analyze phase completed before the failure
             get_data, _ = get_pipeline(orchestrator_url, pipeline_id)
             phases = get_data["data"]["pipeline"].get("phases", {})
-            assert "refine" in phases
-            assert phases["refine"]["status"] == "complete", (
-                "Refine should have completed before plan failed"
+            assert "analyze" in phases
+            assert phases["analyze"]["status"] == "complete", (
+                "Analyze should have completed before plan failed"
             )
             assert "plan" in phases
             assert phases["plan"]["status"] == "failed"
@@ -116,7 +116,7 @@ class TestPhaseFailureMidExecution:
             delete_pipeline(orchestrator_url, pipeline_id)
 
     def test_fail_on_implement_phase(self, orchestrator_url: str) -> None:
-        """Pipeline fails on implement phase; refine and plan remain complete."""
+        """Pipeline fails on implement phase; analyze and plan remain complete."""
         data, status = create_pipeline(
             orchestrator_url,
             prompt="FAIL_ON_PHASE=implement - fail only on implement",
@@ -136,7 +136,7 @@ class TestPhaseFailureMidExecution:
             # Verify earlier phases completed
             get_data, _ = get_pipeline(orchestrator_url, pipeline_id)
             phases = get_data["data"]["pipeline"].get("phases", {})
-            assert phases.get("refine", {}).get("status") == "complete"
+            assert phases.get("analyze", {}).get("status") == "complete"
             assert phases.get("plan", {}).get("status") == "complete"
             assert phases.get("implement", {}).get("status") == "failed"
 

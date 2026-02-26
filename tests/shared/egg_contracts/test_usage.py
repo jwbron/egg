@@ -268,7 +268,7 @@ class TestIssueUsage:
             pr_number=522,
             session_ids=["session-1", "session-2"],
             branch="egg/issue-519",
-            pipeline_phases=["refine", "plan", "implement"],
+            pipeline_phases=["analyze", "plan", "implement"],
             tokens=TokenCounts(input_tokens=5000, output_tokens=2500),
             estimated_cost_usd=0.05,
             checkpoint_count=5,

@@ -1117,7 +1117,7 @@ def create_parser() -> argparse.ArgumentParser:
     )
     decision_parser.add_argument(
         "--phase",
-        choices=["refine", "plan", "implement", "pr"],
+        choices=["analyze", "plan", "implement", "pr"],
         help="Pipeline phase (defaults to contract's current_phase)",
     )
     decision_parser.add_argument(

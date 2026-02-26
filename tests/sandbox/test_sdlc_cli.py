@@ -173,7 +173,7 @@ class TestRenderEventInfo:
         assert "12:34:56" in info
 
     def test_awaiting_human_display(self):
-        data = {"status": "awaiting_human", "current_phase": "refine", "pending_decisions": 1}
+        data = {"status": "awaiting_human", "current_phase": "analyze", "pending_decisions": 1}
         info = render_event_info(data)
         assert "awaiting approval" in info
         assert "1 pending decision" in info

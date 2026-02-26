@@ -120,10 +120,10 @@ class TestMarkerFileEdgeCases:
             marker = tmp_path / ".egg-state" / dirname / ".egg-readonly"
             assert not marker.exists()
 
-    def test_no_markers_for_refine_phase(self, tmp_path):
-        """Refine phase should not create marker files."""
+    def test_no_markers_for_analyze_phase(self, tmp_path):
+        """Analyze phase should not create marker files."""
         repo_volumes = {"repo": str(tmp_path)}
-        ensure_egg_state_dirs(repo_volumes, phase="refine")
+        ensure_egg_state_dirs(repo_volumes, phase="analyze")
 
         for dirname in _IMPLEMENT_READONLY_DIRS:
             marker = tmp_path / ".egg-state" / dirname / ".egg-readonly"

@@ -1,7 +1,7 @@
-"""Integration tests for refine and plan phase review cycles.
+"""Integration tests for analyze and plan phase review cycles.
 
-Tests the review cycle mechanism for refine and plan phases:
-1. Refine phase review cycle tracking
+Tests the review cycle mechanism for analyze and plan phases:
+1. Analyze phase review cycle tracking
 2. Plan phase review cycle tracking
 3. Feedback injection into producer prompts
 4. Re-dispatch logic on review failure
@@ -38,7 +38,7 @@ def base_contract():
             "title": "Test issue for review cycles",
             "url": "https://github.com/test-owner/test-repo/issues/400",
         },
-        "current_phase": "refine",
+        "current_phase": "analyze",
         "acceptance_criteria": [],
         "phases": [],
         "decisions": [],
@@ -47,8 +47,8 @@ def base_contract():
     }
 
 
-class TestRefineReviewCycle:
-    """Tests for refine phase review cycle."""
+class TestAnalyzeReviewCycle:
+    """Tests for analyze phase review cycle."""
 
     def test_initial_refine_review_cycle_is_zero(self, temp_repo, base_contract):
         """New contract has zero refine review cycles."""
@@ -62,7 +62,7 @@ class TestRefineReviewCycle:
         assert contract.get("refine_review_feedback", "") == ""
 
     def test_refine_review_cycle_increments(self, temp_repo, base_contract):
-        """Refine review cycle increments after each review."""
+        """Analyze phase review cycle increments after each review."""
         contract_path = temp_repo / ".egg-state" / "contracts" / "400.json"
 
         # Simulate first review cycle
@@ -82,7 +82,7 @@ class TestRefineReviewCycle:
         assert contract["refine_review_cycles"] == 2
 
     def test_refine_review_feedback_stored_in_contract(self, temp_repo, base_contract):
-        """Review feedback is stored in contract for re-run."""
+        """Review feedback is stored in contract for re-run (analyze phase)."""
         contract_path = temp_repo / ".egg-state" / "contracts" / "400.json"
 
         feedback = """### Issues Found
@@ -166,8 +166,8 @@ class TestPlanReviewCycle:
 class TestFeedbackInjection:
     """Tests for feedback injection into producer prompts."""
 
-    def test_build_refine_prompt_includes_feedback(self, temp_repo, base_contract):
-        """Refine prompt includes feedback when present."""
+    def test_build_analyze_prompt_includes_feedback(self, temp_repo, base_contract):
+        """Analyze prompt includes feedback when present."""
         # Create contract with feedback
         contract_path = temp_repo / ".egg-state" / "contracts" / "400.json"
         base_contract["refine_review_cycles"] = 1
@@ -208,7 +208,7 @@ class TestReviewVerdictFileParsing:
 
     def test_approved_verdict_from_file(self, temp_repo):
         """Approved verdict is correctly read from JSON file."""
-        review_file = temp_repo / ".egg-state" / "reviews" / "400-refine-review.json"
+        review_file = temp_repo / ".egg-state" / "reviews" / "400-analyze-review.json"
         review_data = {
             "verdict": "approved",
             "summary": "The analysis meets quality standards.",
@@ -223,7 +223,7 @@ class TestReviewVerdictFileParsing:
 
     def test_needs_revision_verdict_from_file(self, temp_repo):
         """Needs revision verdict is correctly read from JSON file."""
-        review_file = temp_repo / ".egg-state" / "reviews" / "400-refine-review.json"
+        review_file = temp_repo / ".egg-state" / "reviews" / "400-analyze-review.json"
         feedback = "### Issues Found\\n\\n1. **Problem Understanding**: Missing root cause"
         review_data = {
             "verdict": "needs_revision",
@@ -346,7 +346,7 @@ class TestAuditLogIntegration:
                 "field_path": "refine_review_cycles",
                 "old_value": 0,
                 "new_value": 1,
-                "reason": "Refine review cycle 1: needs_revision",
+                "reason": "Analyze review cycle 1: needs_revision",
             }
         )
         contract_path.write_text(json.dumps(base_contract))

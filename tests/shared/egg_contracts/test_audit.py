@@ -168,7 +168,7 @@ class TestCreateTransitionEntry:
         entry = create_transition_entry(
             actor="system",
             role=AuditRole.SYSTEM,
-            from_phase="refine",
+            from_phase="analyze",
             to_phase="implement",
         )
 
@@ -190,11 +190,11 @@ class TestCreateTransitionEntry:
         entry = create_transition_entry(
             actor="system",
             role=AuditRole.SYSTEM,
-            from_phase="refine",
+            from_phase="analyze",
             to_phase="plan",
         )
 
-        assert entry.old_value == "refine"
+        assert entry.old_value == "analyze"
         assert entry.new_value == "plan"
 
     def test_with_reason(self):
@@ -214,7 +214,7 @@ class TestCreateTransitionEntry:
         entry = create_transition_entry(
             actor="system",
             role=AuditRole.SYSTEM,
-            from_phase="refine",
+            from_phase="analyze",
             to_phase="implement",
         )
 
@@ -406,7 +406,7 @@ class TestFormatAuditLog:
             role=AuditRole.SYSTEM,
             action=AuditAction.TRANSITION,
             field_path="current_phase",
-            old_value="refine",
+            old_value="analyze",
             new_value="implement",
             reason="Refinement complete",
         )
@@ -416,5 +416,5 @@ class TestFormatAuditLog:
 
         assert "transition" in lines[1]
         assert "current_phase" in lines[1]
-        assert "(refine -> implement)" in lines[1]
+        assert "(analyze -> implement)" in lines[1]
         assert "- Refinement complete" in lines[1]

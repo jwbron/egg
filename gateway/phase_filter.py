@@ -32,7 +32,7 @@ class PipelinePhase(StrEnum):
     complexity in the gateway module. Values must be kept in sync.
     """
 
-    REFINE = "refine"
+    ANALYZE = "analyze"
     PLAN = "plan"
     IMPLEMENT = "implement"
     PR = "pr"
@@ -409,7 +409,7 @@ class PhaseFilter:
     def _get_default_permissions(self) -> dict[PipelinePhase, PhasePermissions]:
         """Get default permissions when no file is available."""
         return {
-            PipelinePhase.REFINE: PhasePermissions(
+            PipelinePhase.ANALYZE: PhasePermissions(
                 allowed_operations=[
                     Operation(OperationType.GH, "issue comment *", "Comment on issues"),
                     Operation(OperationType.GH, "issue edit *", "Edit issues"),
@@ -487,7 +487,7 @@ class PhaseFilter:
         - pr: Everything
         """
         return {
-            PipelinePhase.REFINE: PhaseFileRestriction(
+            PipelinePhase.ANALYZE: PhaseFileRestriction(
                 allowed_patterns=[
                     ".egg-state/contracts/*",
                     ".egg-state/drafts/*analysis*",

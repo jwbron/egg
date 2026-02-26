@@ -17,9 +17,9 @@ from egg_contracts.phase_defaults import (
 class TestGetDefaultPhaseConfig:
     """Tests for get_default_phase_config function."""
 
-    def test_refine_phase_defaults(self):
-        """Test default config for refine phase."""
-        config = get_default_phase_config(PipelinePhase.REFINE)
+    def test_analyze_phase_defaults(self):
+        """Test default config for analyze phase."""
+        config = get_default_phase_config(PipelinePhase.ANALYZE)
         assert isinstance(config, PhaseConfig)
         assert config.max_review_cycles == 3
         assert config.human_review_mechanism == HumanReviewMechanism.ISSUE_CHECKBOX
@@ -118,7 +118,7 @@ class TestGetEffectivePhaseConfig:
                 url="https://example.com",
             ),
             phase_configs={
-                PipelinePhase.REFINE: PhaseConfig(max_review_cycles=5),
+                PipelinePhase.ANALYZE: PhaseConfig(max_review_cycles=5),
             },
         )
         # Request IMPLEMENT phase which is not overridden
@@ -151,12 +151,12 @@ class TestGetEffectivePhaseConfig:
                 url="https://example.com",
             ),
             phase_configs={
-                PipelinePhase.REFINE: PhaseConfig(
+                PipelinePhase.ANALYZE: PhaseConfig(
                     human_review_mechanism=HumanReviewMechanism.PR_REVIEW,
                 ),
             },
         )
-        config = get_effective_phase_config(contract, PipelinePhase.REFINE)
+        config = get_effective_phase_config(contract, PipelinePhase.ANALYZE)
         assert config.human_review_mechanism == HumanReviewMechanism.PR_REVIEW
 
     def test_contract_overrides_checks_completely(self):

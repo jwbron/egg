@@ -166,40 +166,40 @@ class TestShortCircuitPhaseSkip:
         plan_exec.status = PipelineStatus.COMPLETE
         assert plan_exec.status == PipelineStatus.COMPLETE
 
-    def test_phase_can_advance_refine_to_implement(self):
-        """Pipeline current_phase can be set from REFINE to IMPLEMENT directly."""
-        p = Pipeline(id="test-1", short_circuit=True, current_phase=PipelinePhase.REFINE)
+    def test_phase_can_advance_analyze_to_implement(self):
+        """Pipeline current_phase can be set from ANALYZE to IMPLEMENT directly."""
+        p = Pipeline(id="test-1", short_circuit=True, current_phase=PipelinePhase.ANALYZE)
         p.current_phase = PipelinePhase.IMPLEMENT
         assert p.current_phase == PipelinePhase.IMPLEMENT
 
 
 class TestPhaseTransitions:
-    """Tests for REFINE → IMPLEMENT being a valid transition."""
+    """Tests for ANALYZE → IMPLEMENT being a valid transition."""
 
-    def test_issue_mode_refine_to_implement_valid(self):
-        """REFINE → IMPLEMENT is valid in issue mode transitions."""
-        assert PipelinePhase.IMPLEMENT in PHASE_TRANSITIONS[PipelinePhase.REFINE]
+    def test_issue_mode_analyze_to_implement_valid(self):
+        """ANALYZE → IMPLEMENT is valid in issue mode transitions."""
+        assert PipelinePhase.IMPLEMENT in PHASE_TRANSITIONS[PipelinePhase.ANALYZE]
 
-    def test_local_mode_refine_to_implement_valid(self):
-        """REFINE → IMPLEMENT is valid in local mode transitions."""
-        assert PipelinePhase.IMPLEMENT in LOCAL_PHASE_TRANSITIONS[PipelinePhase.REFINE]
+    def test_local_mode_analyze_to_implement_valid(self):
+        """ANALYZE → IMPLEMENT is valid in local mode transitions."""
+        assert PipelinePhase.IMPLEMENT in LOCAL_PHASE_TRANSITIONS[PipelinePhase.ANALYZE]
 
-    def test_refine_to_plan_still_valid(self):
-        """REFINE → PLAN remains valid (default path)."""
-        assert PipelinePhase.PLAN in PHASE_TRANSITIONS[PipelinePhase.REFINE]
+    def test_analyze_to_plan_still_valid(self):
+        """ANALYZE → PLAN remains valid (default path)."""
+        assert PipelinePhase.PLAN in PHASE_TRANSITIONS[PipelinePhase.ANALYZE]
 
-    def test_validate_refine_to_implement(self):
-        """validate_phase_transition accepts REFINE → IMPLEMENT."""
+    def test_validate_analyze_to_implement(self):
+        """validate_phase_transition accepts ANALYZE → IMPLEMENT."""
         is_valid, error = validate_phase_transition(
-            PipelinePhase.REFINE, PipelinePhase.IMPLEMENT, pipeline_mode="issue"
+            PipelinePhase.ANALYZE, PipelinePhase.IMPLEMENT, pipeline_mode="issue"
         )
         assert is_valid is True
         assert error == ""
 
-    def test_validate_refine_to_implement_local(self):
-        """validate_phase_transition accepts REFINE → IMPLEMENT in local mode."""
+    def test_validate_analyze_to_implement_local(self):
+        """validate_phase_transition accepts ANALYZE → IMPLEMENT in local mode."""
         is_valid, error = validate_phase_transition(
-            PipelinePhase.REFINE, PipelinePhase.IMPLEMENT, pipeline_mode="local"
+            PipelinePhase.ANALYZE, PipelinePhase.IMPLEMENT, pipeline_mode="local"
         )
         assert is_valid is True
         assert error == ""
@@ -231,10 +231,10 @@ class TestShortCircuitPrompt:
         )
         assert "Review the plan" in result
 
-    def test_refine_prompt_includes_complexity_assessment(self):
-        """Refine prompt includes complexity assessment instructions."""
+    def test_analyze_prompt_includes_complexity_assessment(self):
+        """Analyze prompt includes complexity assessment instructions."""
         result = _build_phase_prompt(
-            phase="refine",
+            phase="analyze",
             pipeline_id="test-1",
             pipeline_mode="issue",
             issue_number=42,

@@ -302,11 +302,11 @@ class TestPhaseOutputPresenceCheck:
             result = PhaseOutputPresenceCheck().run(ctx)
         assert result.status == HealthStatus.DEGRADED
 
-    def test_refine_phase_always_healthy(self):
-        """REFINE phase has no artifact requirements."""
+    def test_analyze_phase_always_healthy(self):
+        """ANALYZE phase has no artifact requirements."""
         pipeline = _make_pipeline_with_completed_agent(
             commit=None,
-            phase=PipelinePhase.REFINE,
+            phase=PipelinePhase.ANALYZE,
         )
         ctx = _make_context(pipeline)
         result = PhaseOutputPresenceCheck().run(ctx)

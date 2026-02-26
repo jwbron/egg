@@ -509,7 +509,7 @@ class TestPipelineWorktreeSharing:
     def test_files_created_in_pipeline_persist_across_phases(
         self, local_pipeline_stack: LocalPipelineStack
     ) -> None:
-        """Files created in refine phase exist in plan phase (via mock sandbox drafts)."""
+        """Files created in analyze phase exist in plan phase (via mock sandbox drafts)."""
         orchestrator_url = local_pipeline_stack.orchestrator_url
         repos_dir = local_pipeline_stack.repos_dir
 
@@ -526,14 +526,14 @@ class TestPipelineWorktreeSharing:
             final = wait_for_pipeline_terminal(orchestrator_url, pipeline_id, timeout=360)
             assert final["data"]["status"] == "complete", f"Pipeline did not complete: {final}"
 
-            # The mock sandbox creates draft files during refine and plan phases
+            # The mock sandbox creates draft files during analyze and plan phases
             # These files should persist in the repo directory (mounted as worktree)
             drafts_dir = Path(repos_dir) / ".egg-state" / "drafts"
 
-            # Check that refine phase created analysis.md
+            # Check that analyze phase created analysis.md
             analysis_file = drafts_dir / "analysis.md"
             assert analysis_file.exists(), (
-                f"analysis.md should exist after refine phase: {drafts_dir}"
+                f"analysis.md should exist after analyze phase: {drafts_dir}"
             )
 
             # Check that plan phase created plan.md

@@ -247,7 +247,7 @@ class CheckpointV2(BaseModel):
     def validate_pipeline_phase(cls, v: str | None) -> str | None:
         if v is None:
             return None
-        valid_phases = {"refine", "plan", "implement", "pr"}
+        valid_phases = {"analyze", "plan", "implement", "pr"}
         if v not in valid_phases:
             msg = f"pipeline_phase must be one of {valid_phases}"
             raise ValueError(msg)

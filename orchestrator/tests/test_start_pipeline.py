@@ -48,7 +48,7 @@ def client(app):
     return app.test_client()
 
 
-def _make_pipeline(status, phase=PipelinePhase.REFINE, phase_status=None):
+def _make_pipeline(status, phase=PipelinePhase.ANALYZE, phase_status=None):
     """Create a Pipeline with the given status and phase state."""
     pipeline = Pipeline(
         id="issue-42",
@@ -98,7 +98,7 @@ class TestStartFailedPipeline:
     ):
         pipeline = _make_pipeline(
             PipelineStatus.FAILED,
-            phase=PipelinePhase.REFINE,
+            phase=PipelinePhase.ANALYZE,
             phase_status=PipelineStatus.FAILED,
         )
         _setup_mocks(mock_get_repo, mock_resolve, pipeline)
@@ -118,7 +118,7 @@ class TestStartFailedPipeline:
     ):
         pipeline = _make_pipeline(
             PipelineStatus.FAILED,
-            phase=PipelinePhase.REFINE,
+            phase=PipelinePhase.ANALYZE,
             phase_status=PipelineStatus.FAILED,
         )
         _setup_mocks(mock_get_repo, mock_resolve, pipeline)
@@ -126,7 +126,7 @@ class TestStartFailedPipeline:
         client.post("/api/v1/pipelines/issue-42/start")
 
         # The failed phase should be reset
-        phase_exec = pipeline.get_phase_execution(PipelinePhase.REFINE)
+        phase_exec = pipeline.get_phase_execution(PipelinePhase.ANALYZE)
         assert phase_exec.status == PipelineStatus.PENDING
         assert phase_exec.started_at is None
         assert phase_exec.work_started_at is None
@@ -144,7 +144,7 @@ class TestStartFailedPipeline:
     ):
         pipeline = _make_pipeline(
             PipelineStatus.FAILED,
-            phase=PipelinePhase.REFINE,
+            phase=PipelinePhase.ANALYZE,
             phase_status=PipelineStatus.FAILED,
         )
         _setup_mocks(mock_get_repo, mock_resolve, pipeline)
@@ -163,7 +163,7 @@ class TestStartFailedPipeline:
     ):
         pipeline = _make_pipeline(
             PipelineStatus.FAILED,
-            phase=PipelinePhase.REFINE,
+            phase=PipelinePhase.ANALYZE,
             phase_status=PipelineStatus.FAILED,
         )
         mock_store = _setup_mocks(mock_get_repo, mock_resolve, pipeline)
@@ -181,14 +181,14 @@ class TestStartFailedPipeline:
     ):
         pipeline = _make_pipeline(
             PipelineStatus.FAILED,
-            phase=PipelinePhase.REFINE,
+            phase=PipelinePhase.ANALYZE,
             phase_status=PipelineStatus.FAILED,
         )
         _setup_mocks(mock_get_repo, mock_resolve, pipeline)
 
         client.post("/api/v1/pipelines/issue-42/start")
 
-        phase_exec = pipeline.get_phase_execution(PipelinePhase.REFINE)
+        phase_exec = pipeline.get_phase_execution(PipelinePhase.ANALYZE)
         assert phase_exec.agents == []
         assert phase_exec.artifacts == {}
         assert phase_exec.containers == []
@@ -202,7 +202,7 @@ class TestStartFailedPipeline:
     ):
         pipeline = _make_pipeline(
             PipelineStatus.FAILED,
-            phase=PipelinePhase.REFINE,
+            phase=PipelinePhase.ANALYZE,
             phase_status=PipelineStatus.FAILED,
         )
         original_created_at = pipeline.created_at
@@ -221,7 +221,7 @@ class TestStartFailedPipeline:
     ):
         pipeline = _make_pipeline(
             PipelineStatus.FAILED,
-            phase=PipelinePhase.REFINE,
+            phase=PipelinePhase.ANALYZE,
             phase_status=PipelineStatus.FAILED,
         )
         _setup_mocks(mock_get_repo, mock_resolve, pipeline)
@@ -249,7 +249,7 @@ class TestStartFailedPipelineWithRunningPhase:
     ):
         pipeline = _make_pipeline(
             PipelineStatus.FAILED,
-            phase=PipelinePhase.REFINE,
+            phase=PipelinePhase.ANALYZE,
             phase_status=PipelineStatus.RUNNING,
         )
         # Simulate pipeline-level failure (pipeline.error set, but phase not FAILED)
@@ -259,7 +259,7 @@ class TestStartFailedPipelineWithRunningPhase:
         resp = client.post("/api/v1/pipelines/issue-42/start")
 
         assert resp.status_code == 200
-        phase_exec = pipeline.get_phase_execution(PipelinePhase.REFINE)
+        phase_exec = pipeline.get_phase_execution(PipelinePhase.ANALYZE)
         assert phase_exec.status == PipelineStatus.PENDING
         assert phase_exec.started_at is None
         assert phase_exec.agents == []

@@ -136,8 +136,8 @@ class TestPhaseExecution:
 
     def test_create_phase(self):
         """Test creating phase execution."""
-        phase = PhaseExecution(phase=PipelinePhase.REFINE)
-        assert phase.phase == PipelinePhase.REFINE
+        phase = PhaseExecution(phase=PipelinePhase.ANALYZE)
+        assert phase.phase == PipelinePhase.ANALYZE
         assert phase.status == PipelineStatus.PENDING
         assert phase.work_started_at is None
         assert phase.containers == []
@@ -238,7 +238,7 @@ class TestPipeline:
         assert pipeline.id == "issue-496"
         assert pipeline.issue_number == 496
         assert pipeline.status == PipelineStatus.PENDING
-        assert pipeline.current_phase == PipelinePhase.REFINE
+        assert pipeline.current_phase == PipelinePhase.ANALYZE
         assert pipeline.phases == {}
 
     def test_get_phase_execution_creates(self):
@@ -249,9 +249,9 @@ class TestPipeline:
             repo="owner/repo",
             branch="egg/issue-496",
         )
-        phase = pipeline.get_phase_execution(PipelinePhase.REFINE)
-        assert phase.phase == PipelinePhase.REFINE
-        assert "refine" in pipeline.phases
+        phase = pipeline.get_phase_execution(PipelinePhase.ANALYZE)
+        assert phase.phase == PipelinePhase.ANALYZE
+        assert "analyze" in pipeline.phases
 
     def test_get_phase_execution_returns_existing(self):
         """Test get_phase_execution returns existing phase."""
@@ -261,13 +261,13 @@ class TestPipeline:
             repo="owner/repo",
             branch="egg/issue-496",
             phases={
-                "refine": PhaseExecution(
-                    phase=PipelinePhase.REFINE,
+                "analyze": PhaseExecution(
+                    phase=PipelinePhase.ANALYZE,
                     status=PipelineStatus.RUNNING,
                 )
             },
         )
-        phase = pipeline.get_phase_execution(PipelinePhase.REFINE)
+        phase = pipeline.get_phase_execution(PipelinePhase.ANALYZE)
         assert phase.status == PipelineStatus.RUNNING
 
     def test_add_decision(self):
@@ -552,7 +552,7 @@ class TestPipelinePhase:
     def test_phase_order(self):
         """Test phases are defined in SDLC order."""
         phases = list(PipelinePhase)
-        assert phases[0] == PipelinePhase.REFINE
+        assert phases[0] == PipelinePhase.ANALYZE
         assert phases[1] == PipelinePhase.PLAN
         assert phases[2] == PipelinePhase.IMPLEMENT
         assert phases[3] == PipelinePhase.PR

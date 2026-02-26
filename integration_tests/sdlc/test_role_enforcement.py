@@ -335,7 +335,7 @@ class TestPhaseTransitionRoleEnforcement:
 
     def test_human_can_transition_any_phase(self, temp_repo, contract_with_tasks):
         """Human can transition to any phase."""
-        contract_with_tasks.current_phase = PipelinePhase.REFINE
+        contract_with_tasks.current_phase = PipelinePhase.ANALYZE
         save_contract(contract_with_tasks, temp_repo)
 
         contract = load_contract(500, temp_repo)

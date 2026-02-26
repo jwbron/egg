@@ -399,7 +399,7 @@ class TestPhaseValidation:
         mock_queue = MagicMock()
         mock_get_queue.return_value = mock_queue
 
-        for phase in ("refine", "plan", "implement", "pr"):
+        for phase in ("analyze", "plan", "implement", "pr"):
             mock_queue.queue_decision.return_value = _make_decision()
             response = client.post(
                 "/api/v1/pipelines/test-pipeline/decisions",

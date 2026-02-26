@@ -794,7 +794,7 @@ class TestSyncPipelineDecisionsToContract:
 
         phase_gate = self._make_pipeline_decision(
             decision_type="phase_gate",
-            question="Approve refine phase?",
+            question="Approve analyze phase?",
             options=["approve", "request changes"],
             resolution="approve",
         )
@@ -965,7 +965,7 @@ class TestSyncPipelineDecisionsToContract:
         assert callable(_sync_pipeline_decisions_to_contract)
 
     def test_sync_called_for_hitl_gate_phases(self):
-        """Verify the pipeline source calls sync for both refine and plan phases."""
+        """Verify the pipeline source calls sync for both analyze and plan phases."""
         import inspect
 
         from routes import pipelines
@@ -1009,7 +1009,7 @@ class TestSyncPipelineDecisionsToContract:
                 # Should be excluded: phase_gate
                 self._make_pipeline_decision(
                     decision_id="d-2",
-                    question="Approve refine phase?",
+                    question="Approve analyze phase?",
                     options=["approve", "request changes"],
                     decision_type="phase_gate",
                     status="resolved",

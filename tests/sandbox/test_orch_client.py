@@ -235,7 +235,7 @@ class TestGetPipelineStatus:
             {
                 "/api/v1/pipelines/p1/status": (
                     200,
-                    {"data": {"status": "running", "phase": "refine"}},
+                    {"data": {"status": "running", "phase": "analyze"}},
                 )
             }
         )

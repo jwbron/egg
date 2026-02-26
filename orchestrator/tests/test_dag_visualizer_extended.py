@@ -196,13 +196,13 @@ class TestRenderPhaseBox:
     def test_pending_phase_minimal(self):
         """Pending phase with no agents or duration."""
         lines = _render_phase_box(
-            phase=PipelinePhase.REFINE,
+            phase=PipelinePhase.ANALYZE,
             status=PipelineStatus.PENDING,
             review_cycles=0,
             is_current=False,
         )
         text = "\n".join(lines)
-        assert "Refine" in text
+        assert "Analyze" in text
         assert "pending" in text
         assert ">>>" not in text
 
@@ -217,7 +217,7 @@ class TestRenderPhaseBox:
 
     def test_single_review_cycle_singular(self):
         lines = _render_phase_box(
-            phase=PipelinePhase.REFINE,
+            phase=PipelinePhase.ANALYZE,
             status=PipelineStatus.COMPLETE,
             review_cycles=1,
             is_current=False,
@@ -227,7 +227,7 @@ class TestRenderPhaseBox:
 
     def test_multiple_review_cycles_plural(self):
         lines = _render_phase_box(
-            phase=PipelinePhase.REFINE,
+            phase=PipelinePhase.ANALYZE,
             status=PipelineStatus.COMPLETE,
             review_cycles=3,
             is_current=False,
@@ -238,7 +238,7 @@ class TestRenderPhaseBox:
     def test_duration_only(self):
         """Duration line shows [Xm] when only cycle duration is provided."""
         lines = _render_phase_box(
-            phase=PipelinePhase.REFINE,
+            phase=PipelinePhase.ANALYZE,
             status=PipelineStatus.COMPLETE,
             review_cycles=0,
             is_current=False,
@@ -251,7 +251,7 @@ class TestRenderPhaseBox:
     def test_duration_and_total_duration(self):
         """Duration line shows [last cycle: X | total: Y]."""
         lines = _render_phase_box(
-            phase=PipelinePhase.REFINE,
+            phase=PipelinePhase.ANALYZE,
             status=PipelineStatus.COMPLETE,
             review_cycles=1,
             is_current=False,
@@ -265,7 +265,7 @@ class TestRenderPhaseBox:
     def test_duration_and_total_duration_same_value(self):
         """When duration equals total_duration, shows simple format."""
         lines = _render_phase_box(
-            phase=PipelinePhase.REFINE,
+            phase=PipelinePhase.ANALYZE,
             status=PipelineStatus.COMPLETE,
             review_cycles=0,
             is_current=False,
@@ -347,7 +347,7 @@ class TestModelNewFields:
         p = Pipeline(
             id="test",
             status=PipelineStatus.PENDING,
-            current_phase=PipelinePhase.REFINE,
+            current_phase=PipelinePhase.ANALYZE,
         )
         assert p.plan_phase_waves is None
         assert p.plan_phase_names is None
@@ -356,7 +356,7 @@ class TestModelNewFields:
         p = Pipeline(
             id="test",
             status=PipelineStatus.PENDING,
-            current_phase=PipelinePhase.REFINE,
+            current_phase=PipelinePhase.ANALYZE,
             plan_phase_waves=[["p1", "p2"], ["p3"]],
             plan_phase_names={"p1": "Auth", "p2": "API", "p3": "UI"},
         )
@@ -368,7 +368,7 @@ class TestModelNewFields:
         p = Pipeline(
             id="test",
             status=PipelineStatus.PENDING,
-            current_phase=PipelinePhase.REFINE,
+            current_phase=PipelinePhase.ANALYZE,
             plan_phase_waves=[["p1"], ["p2", "p3"]],
             plan_phase_names={"p1": "Auth", "p2": "API", "p3": "UI"},
         )
@@ -491,8 +491,8 @@ class TestCompactStatusTier3:
             plan_phase_waves=[["p1"], ["p2"]],
             plan_phase_names={"p1": "Auth", "p2": "API"},
             phases={
-                "refine": PhaseExecution(
-                    phase=PipelinePhase.REFINE,
+                "analyze": PhaseExecution(
+                    phase=PipelinePhase.ANALYZE,
                     status=PipelineStatus.COMPLETE,
                 ),
                 "plan": PhaseExecution(
@@ -997,7 +997,7 @@ class TestRenderPipelineDagComplete:
                 status=PipelineStatus.COMPLETE,
             )
             for phase in [
-                PipelinePhase.REFINE,
+                PipelinePhase.ANALYZE,
                 PipelinePhase.PLAN,
                 PipelinePhase.IMPLEMENT,
                 PipelinePhase.PR,
@@ -1017,8 +1017,8 @@ class TestRenderPipelineDagComplete:
 
     def test_failed_pipeline(self):
         phases = {
-            "refine": PhaseExecution(
-                phase=PipelinePhase.REFINE,
+            "analyze": PhaseExecution(
+                phase=PipelinePhase.ANALYZE,
                 status=PipelineStatus.COMPLETE,
             ),
             "plan": PhaseExecution(

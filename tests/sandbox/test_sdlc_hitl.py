@@ -37,11 +37,11 @@ class TestDetectPhase:
     def test_context_none(self):
         assert _detect_phase("review the pr", None) == "pr"
 
-    def test_refine_keyword(self):
-        assert _detect_phase("Please refine the draft") == "refine"
+    def test_analyze_keyword(self):
+        assert _detect_phase("Please analyze the draft") == "analyze"
 
     def test_analysis_keyword(self):
-        assert _detect_phase("Review the analysis document") == "refine"
+        assert _detect_phase("Review the analysis document") == "analyze"
 
     def test_plan_keyword(self):
         assert _detect_phase("Approve the plan") == "plan"
@@ -68,7 +68,7 @@ class TestDetectPhase:
         assert _detect_phase("Something else entirely") == "unknown"
 
     def test_case_insensitive(self):
-        assert _detect_phase("REFINE the document") == "refine"
+        assert _detect_phase("ANALYZE the document") == "analyze"
         assert _detect_phase("PLAN approval needed") == "plan"
 
 
@@ -78,12 +78,12 @@ class TestDetectPhase:
 
 
 class TestGetDraftPath:
-    def test_refine_issue_mode(self):
-        path = _get_draft_path("refine", "issue", issue_number=42)
+    def test_analyze_issue_mode(self):
+        path = _get_draft_path("analyze", "issue", issue_number=42)
         assert path == ".egg-state/drafts/42-analysis.md"
 
-    def test_refine_local_mode(self):
-        path = _get_draft_path("refine", "local", pipeline_id="local-abc")
+    def test_analyze_local_mode(self):
+        path = _get_draft_path("analyze", "local", pipeline_id="local-abc")
         assert path == ".egg-state/drafts/local-abc-analysis.md"
 
     def test_implement_returns_none(self):
@@ -100,7 +100,7 @@ class TestGetDraftPath:
 
     def test_local_mode_fallback_prefix(self):
         """When no pipeline_id given in local mode, prefix is 'local'."""
-        path = _get_draft_path("refine", "local")
+        path = _get_draft_path("analyze", "local")
         assert path == ".egg-state/drafts/local-analysis.md"
 
 
@@ -221,8 +221,8 @@ class TestHandleHitlCheckpoint:
     def _make_decision(self, **overrides):
         base = {
             "id": "d1",
-            "question": "Approve the refine analysis?",
-            "context": "Draft content for refine phase",
+            "question": "Approve the analysis?",
+            "context": "Draft content for analyze phase",
         }
         base.update(overrides)
         return base
@@ -412,7 +412,7 @@ class TestHandleHitlCheckpoint:
         mock_input.side_effect = ["1", "3"]
 
         client = self._make_client()
-        decision = self._make_decision()  # "refine" phase, has context
+        decision = self._make_decision()  # "analyze" phase, has context
 
         result = handle_hitl_checkpoint(
             client,
@@ -426,7 +426,7 @@ class TestHandleHitlCheckpoint:
         draft_file = tmp_path / ".egg-state" / "drafts" / "42-analysis.md"
         assert draft_file.exists()
         # File should contain the decision context (fallback from worktree)
-        assert draft_file.read_text() == "Draft content for refine phase"
+        assert draft_file.read_text() == "Draft content for analyze phase"
         mock_editor.assert_called_once_with(draft_file)
 
     @patch("egg_lib.sdlc_hitl._find_repo_path")
@@ -454,7 +454,7 @@ class TestHandleHitlCheckpoint:
         assert result == "resolved"
         draft_file = tmp_path / ".egg-state" / "drafts" / "42-analysis.md"
         assert draft_file.exists()
-        assert draft_file.read_text() == "# Draft: refine\n\n"
+        assert draft_file.read_text() == "# Draft: analyze\n\n"
         mock_editor.assert_called_once_with(draft_file)
 
     @patch("egg_lib.sdlc_hitl._find_repo_path")
@@ -553,7 +553,7 @@ class TestHandleHitlCheckpoint:
         mock_claude.assert_called_once_with(
             tmp_path,
             ".egg-state/drafts/42-analysis.md",
-            "refine",
+            "analyze",
             42,
         )
 
@@ -583,17 +583,17 @@ class TestDecisionPhaseField:
         mock_input.return_value = "3"  # approve
 
         client = self._make_client()
-        # Question text says "refine" but explicit phase is "plan"
+        # Question text says "analysis" but explicit phase is "plan"
         decision = {
             "id": "d1",
-            "question": "Approve the refine analysis?",
+            "question": "Approve the analysis?",
             "context": "",
             "phase": "plan",
         }
 
         handle_hitl_checkpoint(client, "issue-1", decision, pipeline_mode="issue", issue_number=1)
 
-        # _get_draft_path should have been called with "plan", not "refine"
+        # _get_draft_path should have been called with "plan", not "analyze"
         mock_draft_path.assert_called_once_with("plan", "issue", 1, "issue-1")
 
     @patch("egg_lib.sdlc_hitl._find_repo_path")
@@ -610,14 +610,14 @@ class TestDecisionPhaseField:
         client = self._make_client()
         decision = {
             "id": "d1",
-            "question": "Approve the refine analysis?",
+            "question": "Approve the analysis?",
             "context": "",
         }
 
         handle_hitl_checkpoint(client, "issue-1", decision, pipeline_mode="issue", issue_number=1)
 
-        # _detect_phase should resolve "refine" from the question text
-        mock_draft_path.assert_called_once_with("refine", "issue", 1, "issue-1")
+        # _detect_phase should resolve "analyze" from the question text
+        mock_draft_path.assert_called_once_with("analyze", "issue", 1, "issue-1")
 
     @patch("egg_lib.sdlc_hitl._find_repo_path")
     @patch("egg_lib.sdlc_hitl._get_draft_path")
@@ -710,7 +710,9 @@ class TestLaunchClaude:
     @patch("llm.runner.shutil.which", return_value="/usr/bin/claude")
     def test_with_draft_context(self, mock_which, mock_run, tmp_path):
         """When draft_rel is provided, --append-system-prompt includes rules and context."""
-        _launch_claude(tmp_path, draft_rel="drafts/42-analysis.md", phase="refine", issue_number=42)
+        _launch_claude(
+            tmp_path, draft_rel="drafts/42-analysis.md", phase="analyze", issue_number=42
+        )
         mock_run.assert_called_once()
         cmd = mock_run.call_args[0][0]
         assert cmd[0] == "/usr/bin/claude"
@@ -721,7 +723,7 @@ class TestLaunchClaude:
         # Rules text should be included
         assert "HITL Draft Editing Session" in prompt_text
         # Context-specific parts
-        assert "refine" in prompt_text
+        assert "analyze" in prompt_text
         assert "#42" in prompt_text
         assert "drafts/42-analysis.md" in prompt_text
 
@@ -782,7 +784,7 @@ class TestHandlePhaseGate:
     def _make_decision(self, **overrides):
         base = {
             "id": "d1",
-            "question": "The refine phase has completed. Please review the analysis.",
+            "question": "The analyze phase has completed. Please review the analysis.",
             "context": "Draft content here",
             "decision_type": "phase_gate",
             "options": ["approve", "request changes"],
@@ -1183,7 +1185,7 @@ class TestFallbackGenericMenu:
         client = self._make_client()
         decision = {
             "id": "d1",
-            "question": "Approve the refine analysis?",
+            "question": "Approve the analysis?",
             "context": "Some context",
             "decision_type": "unknown_type",
         }
@@ -1209,7 +1211,7 @@ class TestFallbackGenericMenu:
         client = self._make_client()
         decision = {
             "id": "d1",
-            "question": "Approve the refine analysis?",
+            "question": "Approve the analysis?",
             "context": "Draft content here",
             "decision_type": "choice",
             "options": [],
@@ -1235,7 +1237,7 @@ class TestFallbackGenericMenu:
         client = self._make_client()
         decision = {
             "id": "d1",
-            "question": "Approve the refine analysis?",
+            "question": "Approve the analysis?",
             "context": "",
             "decision_type": "unknown_type",
         }
@@ -1265,7 +1267,7 @@ class TestFallbackGenericMenu:
         client = self._make_client()
         decision = {
             "id": "d1",
-            "question": "Approve the refine analysis?",
+            "question": "Approve the analysis?",
             "context": "",
             "decision_type": "unknown_type",
         }
@@ -1290,7 +1292,7 @@ class TestFallbackGenericMenu:
         client = self._make_client()
         decision = {
             "id": "d1",
-            "question": "Approve the refine analysis?",
+            "question": "Approve the analysis?",
             "context": "",
             "decision_type": "unknown_type",
         }
@@ -1315,7 +1317,7 @@ class TestFallbackGenericMenu:
         client = self._make_client()
         decision = {
             "id": "d1",
-            "question": "Approve the refine analysis?",
+            "question": "Approve the analysis?",
             "context": "",
             "decision_type": "unknown_type",
         }
@@ -1340,7 +1342,7 @@ class TestFallbackGenericMenu:
         client = self._make_client()
         decision = {
             "id": "d1",
-            "question": "Approve the refine analysis?",
+            "question": "Approve the analysis?",
             "context": "",
             "decision_type": "unknown_type",
         }
@@ -1541,7 +1543,7 @@ class TestPhaseGateEdgeCases:
         client = self._make_client()
         decision = {
             "id": "d1",
-            "question": "The refine phase has completed.",
+            "question": "The analyze phase has completed.",
             "context": "Draft here",
             "decision_type": "phase_gate",
             "options": ["approve", "request changes"],
@@ -1574,7 +1576,7 @@ class TestPhaseGateEdgeCases:
         ]
         decision = {
             "id": "d1",
-            "question": "The refine phase has completed.",
+            "question": "The analyze phase has completed.",
             "context": "",
             "decision_type": "phase_gate",
             "options": ["approve", "request changes"],
@@ -1599,7 +1601,7 @@ class TestPhaseGateEdgeCases:
 
         client = self._make_client()
         decision = {
-            "question": "The refine phase has completed.",
+            "question": "The analyze phase has completed.",
             "context": "",
             "decision_type": "phase_gate",
             "options": ["approve", "request changes"],
@@ -1626,7 +1628,7 @@ class TestPhaseGateEdgeCases:
         client = self._make_client()
         decision = {
             "id": "d1",
-            "question": "The refine phase has completed.",
+            "question": "The analyze phase has completed.",
             "context": "",
             "decision_type": "phase_gate",
             "options": ["approve", "request changes"],
@@ -2009,7 +2011,7 @@ class TestDisplayOutput:
         client = self._make_client()
         decision = {
             "id": "d1",
-            "question": "The refine phase has completed.",
+            "question": "The analyze phase has completed.",
             "context": "Draft",
             "decision_type": "phase_gate",
             "options": ["approve", "request changes"],
@@ -2163,7 +2165,7 @@ class TestDefaultDecisionType:
         client = self._make_client()
         decision = {
             "id": "d1",
-            "question": "Approve the refine analysis?",
+            "question": "Approve the analysis?",
             "context": "Some context",
         }
         result = handle_hitl_checkpoint(
@@ -2375,7 +2377,7 @@ class TestContractDecisionBridge:
         client.resolve_decision.return_value = {"status": "resolved"}
         decision = {
             "id": "d1",
-            "question": "The refine phase has completed.",
+            "question": "The analyze phase has completed.",
             "context": "",
             "decision_type": "phase_gate",
         }
@@ -2396,7 +2398,7 @@ class TestContractDecisionBridge:
         client.resolve_decision.return_value = {"status": "resolved"}
         decision = {
             "id": "d1",
-            "question": "The refine phase has completed.",
+            "question": "The analyze phase has completed.",
             "context": "",
             "decision_type": "phase_gate",
         }
@@ -2432,7 +2434,7 @@ class TestContractDecisionBridge:
         client.resolve_decision.return_value = {"status": "resolved"}
         decision = {
             "id": "d1",
-            "question": "The refine phase has completed.",
+            "question": "The analyze phase has completed.",
             "context": "",
             "decision_type": "phase_gate",
         }
@@ -2769,7 +2771,7 @@ class TestContractDecisionBridge:
         client.resolve_decision.return_value = {"status": "resolved"}
         decision = {
             "id": "d1",
-            "question": "The refine phase has completed.",
+            "question": "The analyze phase has completed.",
             "context": "",
             "decision_type": "phase_gate",
         }
@@ -3021,7 +3023,7 @@ class TestPhaseGateViewOption:
         client = self._make_client()
         decision = {
             "id": "d1",
-            "question": "The refine phase has completed. Please review the analysis.",
+            "question": "The analyze phase has completed. Please review the analysis.",
             "context": "Full document content here",
             "decision_type": "phase_gate",
             "options": ["approve", "request changes"],
@@ -3087,7 +3089,7 @@ class TestPhaseGateViewOption:
         client = self._make_client()
         decision = {
             "id": "d1",
-            "question": "The refine phase has completed. Please review the analysis.",
+            "question": "The analyze phase has completed. Please review the analysis.",
             "context": "Analysis document content",
             "decision_type": "phase_gate",
             "options": ["approve", "request changes"],

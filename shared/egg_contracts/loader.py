@@ -147,7 +147,7 @@ def create_contract(
     title: str,
     url: str,
     repo_root: Path | None = None,
-    initial_phase: PipelinePhase = PipelinePhase.REFINE,
+    initial_phase: PipelinePhase = PipelinePhase.ANALYZE,
 ) -> Contract:
     """
     Create a new contract for an issue.
@@ -179,7 +179,7 @@ def create_local_contract(
     pipeline_id: str,
     title: str,
     repo_root: Path | None = None,
-    initial_phase: PipelinePhase = PipelinePhase.REFINE,
+    initial_phase: PipelinePhase = PipelinePhase.ANALYZE,
 ) -> Contract:
     """
     Create a new contract for a local-mode pipeline.

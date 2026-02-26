@@ -12,7 +12,7 @@ Security model:
 - Tester: Can write test files only
 - Documenter: Can write docs and markdown only
 - Integrator: Can only write handoff output (read-only otherwise)
-- Refiner: Can write drafts and agent-outputs only, blocked from source code and contracts
+- Refiner: Can write drafts and agent-outputs only, blocked from source code and contracts (analyze phase)
 - Reviewers: Can write reviews and agent-outputs only
 
 The gateway uses these restrictions during git push to validate that
@@ -45,7 +45,7 @@ class AgentRole:
     ARCHITECT = "architect"
     TASK_PLANNER = "task_planner"
     RISK_ANALYST = "risk_analyst"
-    # Refine-phase roles
+    # Analyze-phase roles
     REFINER = "refiner"
     # Reviewer roles
     REVIEWER_CODE = "reviewer_code"
@@ -444,7 +444,7 @@ REVIEWER_AGENT_DESIGN_PATTERNS = AgentFilePattern(
     blocked_patterns=_REVIEWER_BLOCKED,
 )
 
-# Refine-phase agent patterns
+# Analyze-phase agent patterns
 
 REFINER_PATTERNS = AgentFilePattern(
     role=AgentRole.REFINER,

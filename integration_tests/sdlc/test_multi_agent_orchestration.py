@@ -568,32 +568,32 @@ class TestPlanPhaseRoles:
         assert not role_def.file_access.can_write("src/main.py")
 
 
-class TestRefinePhaseRoles:
-    """Tests for refine-phase agent roles."""
+class TestAnalyzePhaseRoles:
+    """Tests for analyze-phase agent roles."""
 
-    def test_get_roles_for_refine_phase(self):
-        """Get roles for refine phase returns refiner."""
+    def test_get_roles_for_analyze_phase(self):
+        """Get roles for analyze phase returns refiner."""
         from egg_contracts.agent_roles import get_roles_for_phase
 
-        roles = get_roles_for_phase("refine")
+        roles = get_roles_for_phase("analyze")
         assert len(roles) == 1
         assert AgentRole.REFINER in roles
 
-    def test_get_refine_roles_with_reviewers(self):
-        """Get refine roles with reviewers included."""
+    def test_get_analyze_roles_with_reviewers(self):
+        """Get analyze roles with reviewers included."""
         from egg_contracts.agent_roles import get_roles_for_phase
 
-        roles = get_roles_for_phase("refine", include_reviewers=True)
+        roles = get_roles_for_phase("analyze", include_reviewers=True)
         assert len(roles) == 3  # 1 refiner + 2 reviewers
         assert AgentRole.REFINER in roles
         assert AgentRole.REVIEWER_REFINE in roles
         assert AgentRole.REVIEWER_AGENT_DESIGN in roles
 
-    def test_refine_phase_dependency_graph(self):
-        """Refine-phase has simple single-agent dependency structure."""
+    def test_analyze_phase_dependency_graph(self):
+        """Analyze-phase has simple single-agent dependency structure."""
         from egg_contracts.agent_roles import get_roles_for_phase
 
-        roles = get_roles_for_phase("refine")
+        roles = get_roles_for_phase("analyze")
         graph = build_dependency_graph(roles)
 
         assert len(graph.nodes) == 1

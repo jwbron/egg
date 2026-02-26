@@ -971,8 +971,8 @@ def _get_contract_review_criteria(repo_path: str | None = None) -> str:
     )
 
 
-def _get_refine_review_criteria() -> str:
-    """Return review criteria for the dedicated refine reviewer."""
+def _get_analyze_review_criteria() -> str:
+    """Return review criteria for the dedicated analyze reviewer."""
     return (
         "### 1. Problem Understanding\n"
         "- Does the analysis correctly identify the core problem or feature request?\n"
@@ -1058,7 +1058,7 @@ def _get_review_criteria_for_type(
     elif reviewer_type == "contract":
         return _get_contract_review_criteria(repo_path=repo_path)
     elif reviewer_type == "refine":
-        return _get_refine_review_criteria()
+        return _get_analyze_review_criteria()
     elif reviewer_type == "plan":
         return _get_plan_review_criteria()
     else:
@@ -1098,11 +1098,11 @@ def _get_reviewer_scope_preamble(reviewer_type: str, phase: str) -> str:
         )
     elif reviewer_type == "refine":
         return (
-            "This is a **refine phase review**. Focus on the quality and completeness "
-            "of the analysis produced during the refine phase. Evaluate problem "
+            "This is an **analyze phase review**. Focus on the quality and completeness "
+            "of the analysis produced during the analyze phase. Evaluate problem "
             "understanding, codebase research, options analysis, and the recommended "
             "approach. Agent-mode design alignment is handled by another reviewer.\n\n"
-            "**Analysis format:** Provide section-by-section evaluation of the refine "
+            "**Analysis format:** Provide section-by-section evaluation of the analyze "
             "output — assess each major section for depth, accuracy, and completeness."
         )
     elif reviewer_type == "plan":
@@ -1130,7 +1130,7 @@ def _verdict_path_for_type(
     """Return the relative verdict file path for a given reviewer type.
 
     For issue mode, uses issue number as prefix (e.g., 123-implement-code-review.json).
-    For local mode, uses pipeline_id as prefix (e.g., local-abc12345-refine-refine-review.json).
+    For local mode, uses pipeline_id as prefix (e.g., local-abc12345-analyze-refine-review.json).
 
     When plan_phase_id is provided (Tier 3 phase-level dispatch), it is included
     in the path to avoid race conditions between parallel phase reviewers:
@@ -1158,14 +1158,14 @@ def _get_draft_path(
     is_local = pipeline_mode == "local"
     if is_local:
         prefix = pipeline_id if pipeline_id else "local"
-        if phase == "refine":
+        if phase == "analyze":
             return f".egg-state/drafts/{prefix}-analysis.md"
         elif phase == "implement":
             return None
         else:
             return f".egg-state/drafts/{prefix}-{phase}.md"
     else:
-        if phase == "refine":
+        if phase == "analyze":
             return f".egg-state/drafts/{issue_number}-analysis.md"
         elif phase == "implement":
             return None
@@ -1437,12 +1437,12 @@ def _check_short_circuit_signal(
     issue_number: int | None = None,
     pipeline_id: str | None = None,
 ) -> bool:
-    """Check the refine analysis draft for a short-circuit signal.
+    """Check the analyze analysis draft for a short-circuit signal.
 
     Looks for the *last* fenced YAML block containing ``short_circuit: true``
     in the analysis.  Returns True if found.
     """
-    draft_rel = _get_draft_path("refine", pipeline_mode, issue_number, pipeline_id)
+    draft_rel = _get_draft_path("analyze", pipeline_mode, issue_number, pipeline_id)
     if not draft_rel:
         return False
     draft_path = repo_path / draft_rel
@@ -1454,7 +1454,7 @@ def _check_short_circuit_signal(
 
     # Look for a fenced YAML block containing short_circuit: true.
     # Only the *last* YAML block is checked to avoid false positives from
-    # example/quoted YAML earlier in the document.  The refine prompt
+    # example/quoted YAML earlier in the document.  The analyze prompt
     # instructs the LLM to place the metadata block at the very end.
     yaml_block_pattern = re.compile(r"```ya?ml\s*\n(.*?)```", re.DOTALL)
     matches = list(yaml_block_pattern.finditer(content))
@@ -1472,7 +1472,7 @@ def _check_high_complexity_signal(
     issue_number: int | None = None,
     pipeline_id: str | None = None,
 ) -> tuple[str, bool]:
-    """Check the refine analysis draft for a complexity tier signal.
+    """Check the analyze analysis draft for a complexity tier signal.
 
     Looks for the *last* fenced YAML block containing ``complexity_tier``
     in the analysis. Returns a tuple of (tier, parallel_phases).
@@ -1482,7 +1482,7 @@ def _check_high_complexity_signal(
         complexity_tier is one of "low", "mid", "high".
         Defaults to ("mid", False) if no signal is found.
     """
-    draft_rel = _get_draft_path("refine", pipeline_mode, issue_number, pipeline_id)
+    draft_rel = _get_draft_path("analyze", pipeline_mode, issue_number, pipeline_id)
     if not draft_rel:
         return "mid", False
     draft_path = repo_path / draft_rel
@@ -2352,10 +2352,10 @@ def _build_phase_prompt(
     lines.append("## Your Task\n")
 
     # Get the correct draft path based on mode
-    analysis_path = _get_draft_path("refine", pipeline_mode, issue_number, pipeline_id)
+    analysis_path = _get_draft_path("analyze", pipeline_mode, issue_number, pipeline_id)
     plan_path = _get_draft_path("plan", pipeline_mode, issue_number, pipeline_id)
 
-    if phase == "refine":
+    if phase == "analyze":
         lines.extend(
             [
                 "Analyze this issue and produce a structured analysis document. Your goal is to:\n",
@@ -2376,7 +2376,7 @@ def _build_phase_prompt(
                 "Create an analysis document following this template:\n",
                 "````markdown",
                 "# Analysis: [Issue Title]\n",
-                "> Issue: #[number] | Phase: refine\n",
+                "> Issue: #[number] | Phase: analyze\n",
                 "## Problem Statement\n",
                 "[Describe the problem or feature request. "
                 "What is the current state? What is the desired outcome?]\n",
@@ -2549,7 +2549,7 @@ def _build_phase_prompt(
         # (avoids file-I/O turns inside the sandbox).
         draft_embedded = False
         if repo_path and review_cycle == 0:
-            draft_phase = "refine" if short_circuit else "plan"
+            draft_phase = "analyze" if short_circuit else "plan"
             draft_text = _read_phase_draft(
                 Path(repo_path),
                 draft_phase,
@@ -2667,7 +2667,7 @@ def _build_phase_prompt(
 
     # --- Phase restrictions ---
     lines.append("## Phase Restrictions\n")
-    if is_local and phase in ("refine", "plan"):
+    if is_local and phase in ("analyze", "plan"):
         lines.extend(
             [
                 "In this phase:",
@@ -2697,7 +2697,7 @@ def _build_phase_prompt(
             ]
         )
     else:
-        if phase in ("refine", "plan"):
+        if phase in ("analyze", "plan"):
             lines.extend(
                 [
                     "- You CAN write drafts to `.egg-state/drafts/`",
@@ -2721,7 +2721,7 @@ def _build_phase_prompt(
             )
     # --- Completion ---
     lines.append("## Phase Completion\n")
-    if phase in ("refine", "plan"):
+    if phase in ("analyze", "plan"):
         lines.append(
             "When your draft is complete, commit and push it. "
             "The pipeline will have an internal reviewer evaluate your work. "
@@ -2794,7 +2794,7 @@ def _build_agent_prompt(
         Complete prompt string for the agent
     """
     # CODER and REFINER use the existing phase prompt (phase-specific
-    # instructions are already tailored for refine vs implement etc.)
+    # instructions are already tailored for analyze vs implement etc.)
     if role_value in ("coder", "refiner"):
         return _build_phase_prompt(
             phase=phase,
@@ -2930,7 +2930,7 @@ def _build_agent_prompt(
                 f"You MUST only write to `.egg-state/agent-outputs/{_identifier}-architect-output.json`.",
                 "Do NOT create or modify any other files. Specifically:",
                 "- Do NOT modify analysis drafts (`.egg-state/drafts/*-analysis.md`) — "
-                "these are finalized in the refine phase and are read-only",
+                "these are finalized in the analyze phase and are read-only",
                 "- Do NOT create or modify contracts (`.egg-state/contracts/`)",
                 "- Do NOT create or modify reviews (`.egg-state/reviews/`)",
                 "- Do NOT create or modify plan drafts (`.egg-state/drafts/*-plan.md`)",
@@ -3050,7 +3050,7 @@ def _build_agent_prompt(
                 "",
             ]
         )
-    elif phase in ("refine", "plan"):
+    elif phase in ("analyze", "plan"):
         lines.extend(
             [
                 "- You CAN write to `.egg-state/drafts/` and `.egg-state/agent-outputs/`",
@@ -4416,7 +4416,7 @@ def _spawn_and_wait(
 
 
 # Phases that pause for human approval before advancing (HITL gates)
-_HITL_GATE_PHASES = {"refine", "plan"}
+_HITL_GATE_PHASES = {"analyze", "plan"}
 
 # Keywords that indicate human approval at HITL gates
 _APPROVE_KEYWORDS = {"approved", "approve", "lgtm", "yes", ""}
@@ -4955,7 +4955,7 @@ def _sync_pipeline_decisions_to_contract(
 
     Converts HITLDecision objects from pipeline state into contract Decision
     objects so that implement-phase agents can see what was decided during
-    refine/plan phases.
+    analyze/plan phases.
 
     Only syncs decisions with decision_type != "phase_gate" (substantive
     choices, not process-control gates).  Skips decisions already present
@@ -5069,7 +5069,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
     This runs in a background thread. For each phase it:
     1. Spawns a worker (CODER) container — or multi-agent wave execution
        for implement and plan phases when multi_agent is enabled
-    2. For reviewed phases (refine, implement, plan): spawns reviewers
+    2. For reviewed phases (analyze, implement, plan): spawns reviewers
        as a separate step after all workers (and checkers) complete,
        then reads reviewer verdicts and loops back with feedback if
        revision is needed.
@@ -5232,7 +5232,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
             prior_phase_succeeded = True
             current_phase = pipeline.current_phase
             phase_order = [
-                PipelinePhase.REFINE,
+                PipelinePhase.ANALYZE,
                 PipelinePhase.PLAN,
                 PipelinePhase.IMPLEMENT,
                 PipelinePhase.PR,
@@ -5682,11 +5682,11 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                             phase_prompt,
                         ]
 
-                        # Use the REFINER role for the refine phase,
+                        # Use the REFINER role for the analyze phase,
                         # CODER for all other single-agent phases.
                         single_agent_role = (
                             AgentRole.REFINER
-                            if current_phase.value == "refine"
+                            if current_phase.value == "analyze"
                             else AgentRole.CODER
                         )
 
@@ -6096,11 +6096,11 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                 phase_execution.status = PipelineStatus.COMPLETE
                 phase_execution.completed_at = datetime.utcnow()
 
-                # Check for short-circuit signal after refine phase.
+                # Check for short-circuit signal after analyze phase.
                 # Reset first so a HITL revision that removes the signal
                 # correctly clears a previously-detected short-circuit.
-                if current_phase.value == "refine":
-                    # Detect complexity tier from refine analysis.
+                if current_phase.value == "analyze":
+                    # Detect complexity tier from analyze analysis.
                     # Reset parallel flag first so a HITL revision that
                     # downgrades complexity correctly clears a previously-
                     # detected parallel_phases signal.
@@ -6148,7 +6148,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
             # NOTE: In short-circuit mode the plan phase is skipped, so the
             # contract will have no task structure.  This is intentional —
             # low-complexity tasks go straight to implement with only the
-            # refine analysis as guidance.  The implement agent does not
+            # analyze analysis as guidance.  The implement agent does not
             # require a populated contract to function.
             # NOTE: worktree_repo_path is used for both draft reads and
             # contract load/save inside _populate_contract_from_plan.
@@ -6162,10 +6162,10 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                     worktree_repo_path, pipeline_id, pipeline_mode, pipeline.issue_number
                 )
 
-            # After refine and plan phases: sync substantive HITL decisions
+            # After analyze and plan phases: sync substantive HITL decisions
             # (non-phase-gate) to the contract so implement-phase agents
-            # can see what was decided.  Called for both refine and plan
-            # phases — refine decisions inform the plan, plan decisions
+            # can see what was decided.  Called for both analyze and plan
+            # phases — analyze decisions inform the plan, plan decisions
             # inform the implementation.
             if current_phase.value in _HITL_GATE_PHASES:
                 _sync_pipeline_decisions_to_contract(
@@ -6214,7 +6214,9 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                     pipeline.issue_number,
                     pipeline_id,
                 )
-                phase_label = "analysis" if current_phase.value == "refine" else current_phase.value
+                phase_label = (
+                    "analysis" if current_phase.value == "analyze" else current_phase.value
+                )
                 question = (
                     f"The {current_phase.value} phase has completed. "
                     f"Please review the {phase_label} and approve to continue, "
@@ -6429,10 +6431,10 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
             next_phases = transitions.get(current_phase, [])
 
             # Short-circuit: skip PLAN phase, advance directly to IMPLEMENT.
-            # The transition table in phases.py allows REFINE → IMPLEMENT for
+            # The transition table in phases.py allows ANALYZE → IMPLEMENT for
             # the external validation API, but the internal runner uses this
             # manual override to select the next phase.  Both must stay in sync.
-            skip_plan = pipeline.short_circuit and current_phase.value == "refine"
+            skip_plan = pipeline.short_circuit and current_phase.value == "analyze"
             if skip_plan:
                 next_phases = [PipelinePhase.IMPLEMENT]
                 logger.info("Skipping plan phase (short-circuit)", pipeline_id=pipeline_id)

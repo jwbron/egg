@@ -1,7 +1,7 @@
 {
   "schemaVersion": "1.0",
   "phases": {
-    "refine": {
+    "analyze": {
       "allowed_operations": [
         {
           "type": "gh",
@@ -33,7 +33,7 @@
         {
           "type": "gh",
           "pattern": "pr create*",
-          "description": "Cannot create PRs during refine phase"
+          "description": "Cannot create PRs during analyze phase"
         }
       ],
       "exit_requires": "human"
@@ -135,7 +135,7 @@
     }
   },
   "phase_file_restrictions": {
-    "refine": {
+    "analyze": {
       "allowed_patterns": [
         ".egg-state/contracts/*",
         ".egg-state/drafts/*analysis*",
@@ -143,7 +143,7 @@
         ".egg-state/agent-outputs/*",
         ".egg-state/reviews/*"
       ],
-      "description": "Refine phase can only push contracts, analysis drafts, checkpoints, agent outputs, and reviews"
+      "description": "Analyze phase can only push contracts, analysis drafts, checkpoints, agent outputs, and reviews"
     },
     "plan": {
       "allowed_patterns": [

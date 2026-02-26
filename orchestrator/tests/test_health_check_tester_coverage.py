@@ -317,11 +317,11 @@ class TestPhaseOutputEdgeCasesExtra:
         result = check.run(ctx)
         assert result.status == HealthStatus.HEALTHY
 
-    def test_refine_phase_always_healthy(self):
-        """Refine phase has no artifact requirements."""
+    def test_analyze_phase_always_healthy(self):
+        """Analyze phase has no artifact requirements."""
         check = PhaseOutputPresenceCheck()
-        pipeline = _make_pipeline(phase=PipelinePhase.REFINE)
-        phase_exec = pipeline.get_phase_execution(PipelinePhase.REFINE)
+        pipeline = _make_pipeline(phase=PipelinePhase.ANALYZE)
+        phase_exec = pipeline.get_phase_execution(PipelinePhase.ANALYZE)
         phase_exec.status = PipelineStatus.RUNNING
         phase_exec.agents.append(
             AgentExecution(

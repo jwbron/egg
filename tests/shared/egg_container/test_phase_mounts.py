@@ -241,7 +241,7 @@ class TestPhaseReadonlyMounts:
         for mount in mounts:
             assert mount.destination.startswith("/custom/path/myrepo/")
 
-    @pytest.mark.parametrize("phase", ["plan", "refine", "pr", "review", None, ""])
+    @pytest.mark.parametrize("phase", ["plan", "analyze", "pr", "review", None, ""])
     def test_non_implement_phases_return_empty(self, phase, tmp_path):
         """Non-implement phases return no mounts."""
         for dirname in _IMPLEMENT_READONLY_DIRS:

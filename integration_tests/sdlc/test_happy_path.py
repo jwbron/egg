@@ -2,7 +2,7 @@
 
 Tests the full pipeline success scenario where:
 1. Contract is created from issue
-2. Phases progress from refine → plan → implement → pr
+2. Phases progress from analyze → plan → implement → pr
 3. Tasks are completed by implementer
 4. Tasks are approved by reviewer
 5. Pipeline completes successfully
@@ -107,7 +107,7 @@ class TestHappyPathContractLifecycle:
             repo_root=temp_repo,
         )
         assert contract.issue.number == 133
-        assert contract.current_phase == PipelinePhase.REFINE
+        assert contract.current_phase == PipelinePhase.ANALYZE
 
         # Save to disk
         save_contract(contract, temp_repo)
@@ -117,9 +117,9 @@ class TestHappyPathContractLifecycle:
         assert loaded.issue.number == 133
         assert loaded.issue.title == sample_issue_info.title
 
-    def test_phase_progression_refine_to_plan(self, temp_repo, sample_contract):
-        """Phase can progress from refine to plan with human approval."""
-        sample_contract.current_phase = PipelinePhase.REFINE
+    def test_phase_progression_analyze_to_plan(self, temp_repo, sample_contract):
+        """Phase can progress from analyze to plan with human approval."""
+        sample_contract.current_phase = PipelinePhase.ANALYZE
         save_contract(sample_contract, temp_repo)
 
         # Human approves transition to plan phase

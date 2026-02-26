@@ -1,0 +1,1 @@
+/home/egg/.claude/CLAUDE.md

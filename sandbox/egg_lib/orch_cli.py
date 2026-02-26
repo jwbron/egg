@@ -1108,7 +1108,7 @@ def create_parser() -> argparse.ArgumentParser:
     ph_advance.add_argument(
         "--target-phase",
         required=True,
-        choices=["refine", "plan", "implement", "pr"],
+        choices=["analyze", "plan", "implement", "pr"],
         help="Target phase to advance to",
     )
     ph_advance.add_argument("--reason", help="Reason for advancement")
@@ -1146,7 +1146,7 @@ def create_parser() -> argparse.ArgumentParser:
     dec_create.add_argument("--options", nargs="*", help="Decision options")
     dec_create.add_argument(
         "--phase",
-        choices=["refine", "plan", "implement", "pr"],
+        choices=["analyze", "plan", "implement", "pr"],
         help="Pipeline phase (auto-inferred from pipeline state if omitted)",
     )
     dec_create.add_argument(
@@ -1234,7 +1234,7 @@ def create_parser() -> argparse.ArgumentParser:
     gw_perms = gw_sub.add_parser("permissions", help="Get allowed operations for a phase")
     gw_perms.add_argument(
         "phase",
-        choices=["refine", "plan", "implement", "pr"],
+        choices=["analyze", "plan", "implement", "pr"],
         help="SDLC phase",
     )
     _add_json_flag(gw_perms)

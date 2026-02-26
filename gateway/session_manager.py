@@ -271,7 +271,7 @@ class Session:
         last_seen: Last request timestamp (for heartbeat)
         expires_at: Session expiry timestamp
         agent_role: Role set by workflow context for contract operations
-        phase: SDLC pipeline phase (refine, plan, implement, pr) for operation filtering
+        phase: SDLC pipeline phase (analyze, plan, implement, pr) for operation filtering
     """
 
     session_token: str | None  # Raw token, only in memory
@@ -522,7 +522,7 @@ class SessionManager:
             container_id: Docker container ID
             container_ip: Container's IP address on the Docker network
             mode: Repository visibility mode (private or public)
-            phase: SDLC pipeline phase (e.g., "refine", "plan", "implement", "pr")
+            phase: SDLC pipeline phase (e.g., "analyze", "plan", "implement", "pr")
             issue_number: Optional GitHub issue number for checkpoint linkage
             pr_number: Optional GitHub PR number for checkpoint linkage
             pipeline_id: Optional pipeline run ID for multi-agent correlation
@@ -787,7 +787,7 @@ class SessionManager:
 
         Args:
             token: The session token
-            phase: The new phase value (e.g., "refine", "plan", "implement", "pr")
+            phase: The new phase value (e.g., "analyze", "plan", "implement", "pr")
 
         Returns:
             True if phase was updated, False if session not found

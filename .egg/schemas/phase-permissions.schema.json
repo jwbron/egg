@@ -19,7 +19,7 @@
         "$ref": "#/$defs/phasePermissions"
       },
       "properties": {
-        "refine": {
+        "analyze": {
           "$ref": "#/$defs/phasePermissions"
         },
         "plan": {

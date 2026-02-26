@@ -2445,7 +2445,7 @@ class TestBuildReviewPrompt:
 
     def test_refine_preamble_includes_section_evaluation(self):
         """Refine reviewer preamble includes section-by-section evaluation."""
-        preamble = _get_reviewer_scope_preamble("refine", "refine")
+        preamble = _get_reviewer_scope_preamble("refine", "analyze")
         assert "section-by-section" in preamble
 
     def test_plan_preamble_includes_section_evaluation(self):
@@ -2467,7 +2467,7 @@ class TestBuildReviewPrompt:
     def test_draft_reviewer_has_expanded_steps(self):
         """Draft-based reviewers get expanded procedural steps (6+)."""
         prompt = _build_review_prompt(
-            phase="refine",
+            phase="analyze",
             pipeline_id="test-pipe",
             pipeline_mode="issue",
             reviewer_type="refine",

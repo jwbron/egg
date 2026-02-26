@@ -22,7 +22,7 @@ class TestReadPhaseDraft:
         drafts.mkdir(parents=True)
         (drafts / "42-analysis.md").write_text("short content", encoding="utf-8")
 
-        result = _read_phase_draft(tmp_path, "refine", "issue", issue_number=42)
+        result = _read_phase_draft(tmp_path, "analyze", "issue", issue_number=42)
         assert result == "short content"
 
     def test_truncates_content_exceeding_limit(self, tmp_path: Path):
@@ -32,7 +32,7 @@ class TestReadPhaseDraft:
         content = "x" * 200
         (drafts / "42-analysis.md").write_text(content, encoding="utf-8")
 
-        result = _read_phase_draft(tmp_path, "refine", "issue", issue_number=42, max_chars=100)
+        result = _read_phase_draft(tmp_path, "analyze", "issue", issue_number=42, max_chars=100)
         assert result.startswith("x" * 100)
         assert "... (truncated, 200 chars total)" in result
 
@@ -43,7 +43,7 @@ class TestReadPhaseDraft:
 
     def test_missing_draft_file(self, tmp_path: Path):
         """Returns None when draft file does not exist on disk."""
-        result = _read_phase_draft(tmp_path, "refine", "issue", issue_number=42)
+        result = _read_phase_draft(tmp_path, "analyze", "issue", issue_number=42)
         assert result is None
 
     def test_local_mode_uses_pipeline_id(self, tmp_path: Path):
@@ -61,7 +61,7 @@ class TestReadPhaseDraft:
         drafts.mkdir(parents=True)
         (drafts / "local-analysis.md").write_text("fallback", encoding="utf-8")
 
-        result = _read_phase_draft(tmp_path, "refine", "local")
+        result = _read_phase_draft(tmp_path, "analyze", "local")
         assert result == "fallback"
 
     def test_truncation_suffix_format(self, tmp_path: Path):

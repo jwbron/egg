@@ -145,7 +145,7 @@ class TestRenderPipelineDag:
         result = render_pipeline_dag(pipeline)
 
         # Check all phases are present
-        assert "Refine" in result
+        assert "Analyze" in result
         assert "Plan" in result
         assert "Implement" in result
         assert "PR" in result
@@ -187,8 +187,8 @@ class TestRenderPipelineDag:
     def test_phase_with_review_cycles(self):
         """Test phase showing review cycles."""
         phases = {
-            "refine": PhaseExecution(
-                phase=PipelinePhase.REFINE,
+            "analyze": PhaseExecution(
+                phase=PipelinePhase.ANALYZE,
                 status=PipelineStatus.COMPLETE,
                 review_cycles=2,
             )
@@ -293,14 +293,14 @@ class TestRenderPipelineDag:
     def test_hitl_gate_phase_shows_awaiting_approval(self):
         """Test that a phase in AWAITING_HUMAN status shows 'awaiting approval'."""
         phases = {
-            "refine": PhaseExecution(
-                phase=PipelinePhase.REFINE,
+            "analyze": PhaseExecution(
+                phase=PipelinePhase.ANALYZE,
                 status=PipelineStatus.AWAITING_HUMAN,
             ),
         }
         pipeline = create_test_pipeline(
             phases=phases,
-            current_phase=PipelinePhase.REFINE,
+            current_phase=PipelinePhase.ANALYZE,
             status=PipelineStatus.AWAITING_HUMAN,
         )
         result = render_pipeline_dag(pipeline)
@@ -314,7 +314,7 @@ class TestRenderPipelineDag:
         """Test that pipeline header shows 'awaiting approval' instead of 'awaiting_human'."""
         pipeline = create_test_pipeline(
             status=PipelineStatus.AWAITING_HUMAN,
-            current_phase=PipelinePhase.REFINE,
+            current_phase=PipelinePhase.ANALYZE,
         )
         result = render_pipeline_dag(pipeline, include_header=True)
 
@@ -330,7 +330,7 @@ class TestRenderCompactStatus:
         pipeline = create_test_pipeline()
         result = render_compact_status(pipeline)
 
-        assert "Refine" in result
+        assert "Analyze" in result
         assert "Plan" in result
         assert "Implement" in result
         assert "PR" in result
@@ -365,7 +365,7 @@ class TestRenderProgressBar:
     def test_empty_progress(self):
         """Test progress bar with no completed phases."""
         pipeline = create_test_pipeline(
-            current_phase=PipelinePhase.REFINE,
+            current_phase=PipelinePhase.ANALYZE,
             status=PipelineStatus.PENDING,
         )
         result = render_progress_bar(pipeline, width=20)
@@ -376,8 +376,8 @@ class TestRenderProgressBar:
     def test_partial_progress(self):
         """Test progress bar with some completed phases."""
         phases = {
-            "refine": PhaseExecution(
-                phase=PipelinePhase.REFINE,
+            "analyze": PhaseExecution(
+                phase=PipelinePhase.ANALYZE,
                 status=PipelineStatus.COMPLETE,
             ),
             "plan": PhaseExecution(
@@ -470,14 +470,14 @@ class TestRenderPhaseDetail:
     def test_failed_phase_shows_error(self):
         """Test detail view shows error for failed phase."""
         phases = {
-            "refine": PhaseExecution(
-                phase=PipelinePhase.REFINE,
+            "analyze": PhaseExecution(
+                phase=PipelinePhase.ANALYZE,
                 status=PipelineStatus.FAILED,
                 error="Container failed to start",
             )
         }
         pipeline = create_test_pipeline(phases=phases)
-        result = render_phase_detail(pipeline, PipelinePhase.REFINE)
+        result = render_phase_detail(pipeline, PipelinePhase.ANALYZE)
 
         assert "failed" in result
         assert "Error: Container failed to start" in result
@@ -532,8 +532,8 @@ class TestRenderPhaseDetail:
         """Test that DAG overview duration prefers work_started_at."""
         now = datetime.utcnow()
         phases = {
-            "refine": PhaseExecution(
-                phase=PipelinePhase.REFINE,
+            "analyze": PhaseExecution(
+                phase=PipelinePhase.ANALYZE,
                 status=PipelineStatus.COMPLETE,
                 started_at=now - timedelta(minutes=15),
                 work_started_at=now - timedelta(minutes=5),
@@ -557,13 +557,13 @@ class TestRenderPhaseDetail:
     def test_awaiting_human_phase_shows_awaiting_approval(self):
         """Test detail view shows 'awaiting approval' for AWAITING_HUMAN status."""
         phases = {
-            "refine": PhaseExecution(
-                phase=PipelinePhase.REFINE,
+            "analyze": PhaseExecution(
+                phase=PipelinePhase.ANALYZE,
                 status=PipelineStatus.AWAITING_HUMAN,
             ),
         }
         pipeline = create_test_pipeline(phases=phases)
-        result = render_phase_detail(pipeline, PipelinePhase.REFINE)
+        result = render_phase_detail(pipeline, PipelinePhase.ANALYZE)
 
         assert "⏸" in result
         assert "awaiting approval" in result
@@ -637,7 +637,7 @@ class TestGenerateStatusReport:
         assert impl_agents[1]["status"] == "running"
 
         # Phases without agents should have empty list
-        assert report["phases"]["refine"]["agents"] == []
+        assert report["phases"]["analyze"]["agents"] == []
 
     def test_ascii_mode_propagates(self):
         """Test that ASCII mode affects visualizations."""
@@ -780,11 +780,11 @@ class TestWaveGrouping:
         assert waves[0][0].role == AgentRole.CODER
         assert waves[-1][0].role == AgentRole.REVIEWER
 
-    def test_refine_phase_wave_order(self):
-        """Refiner is wave 1, reviewers are wave 2 in refine phase."""
+    def test_analyze_phase_wave_order(self):
+        """Refiner is wave 1, reviewers are wave 2 in analyze phase."""
         phases = {
-            "refine": PhaseExecution(
-                phase=PipelinePhase.REFINE,
+            "analyze": PhaseExecution(
+                phase=PipelinePhase.ANALYZE,
                 status=PipelineStatus.RUNNING,
                 agents=[
                     AgentExecution(role=AgentRole.REFINER, status=AgentExecutionStatus.COMPLETE),
@@ -797,7 +797,7 @@ class TestWaveGrouping:
                 ],
             )
         }
-        pipeline = create_test_pipeline(phases=phases, current_phase=PipelinePhase.REFINE)
+        pipeline = create_test_pipeline(phases=phases, current_phase=PipelinePhase.ANALYZE)
         result = render_pipeline_dag(pipeline, include_header=False)
 
         lines = result.split("\n")
@@ -810,8 +810,8 @@ class TestWaveGrouping:
             "reviewer_agent_design" in line and "reviewer_refine" in line for line in agent_lines
         )
 
-    def test_compute_wave_order_refine(self):
-        """_compute_wave_order returns correct wave groups for refine phase."""
+    def test_compute_wave_order_analyze(self):
+        """_compute_wave_order returns correct wave groups for analyze phase."""
         agents = [
             AgentExecution(role=AgentRole.REFINER, status=AgentExecutionStatus.COMPLETE),
             AgentExecution(
@@ -819,7 +819,7 @@ class TestWaveGrouping:
             ),
             AgentExecution(role=AgentRole.REVIEWER_REFINE, status=AgentExecutionStatus.RUNNING),
         ]
-        waves = _compute_wave_order(PipelinePhase.REFINE, agents)
+        waves = _compute_wave_order(PipelinePhase.ANALYZE, agents)
 
         assert len(waves) == 2  # refiner, reviewers
         assert len(waves[0]) == 1  # refiner
@@ -904,8 +904,8 @@ class TestCycleTimingDisplay:
         """DAG box shows [Xm] with no cycle/total split for single cycle."""
         now = datetime.utcnow()
         phases = {
-            "refine": PhaseExecution(
-                phase=PipelinePhase.REFINE,
+            "analyze": PhaseExecution(
+                phase=PipelinePhase.ANALYZE,
                 status=PipelineStatus.COMPLETE,
                 started_at=now - timedelta(minutes=10),
                 work_started_at=now - timedelta(minutes=5),
@@ -1738,8 +1738,8 @@ class TestRenderPipelineDagTier3:
                 "phase-4": "Integration",
             }
         phases = {
-            "refine": PhaseExecution(
-                phase=PipelinePhase.REFINE,
+            "analyze": PhaseExecution(
+                phase=PipelinePhase.ANALYZE,
                 status=PipelineStatus.COMPLETE,
             ),
             "plan": PhaseExecution(
@@ -1767,7 +1767,7 @@ class TestRenderPipelineDagTier3:
         pipeline = self._make_tier3_pipeline()
         result = render_pipeline_dag(pipeline, include_header=False)
 
-        assert "Refine" in result
+        assert "Analyze" in result
         assert "Plan" in result
         assert "Implement (Tier 3)" in result
         assert "PR" in result

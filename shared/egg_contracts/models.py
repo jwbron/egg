@@ -34,7 +34,7 @@ class PhaseStatus(StrEnum):
 class PipelinePhase(StrEnum):
     """Current pipeline phase."""
 
-    REFINE = "refine"
+    ANALYZE = "analyze"
     PLAN = "plan"
     IMPLEMENT = "implement"
     PR = "pr"
@@ -418,7 +418,7 @@ class Contract(BaseModel):
         default=None, description="Pipeline ID for local-mode pipelines"
     )
     current_phase: PipelinePhase = Field(
-        default=PipelinePhase.REFINE, description="Current pipeline phase"
+        default=PipelinePhase.ANALYZE, description="Current pipeline phase"
     )
     acceptance_criteria: list[AcceptanceCriterion] = Field(
         default_factory=list, description="Top-level acceptance criteria"
@@ -457,6 +457,14 @@ class Contract(BaseModel):
         default=None,
         description="Configuration for multi-agent orchestration",
     )
+
+    @field_validator("current_phase", mode="before")
+    @classmethod
+    def _normalize_legacy_phase(cls, v: Any) -> Any:
+        """Accept legacy ``"refine"`` phase value from historical contracts."""
+        if v == "refine":
+            return "analyze"
+        return v
 
     @model_validator(mode="after")
     def _require_issue_or_pipeline_id(self) -> "Contract":

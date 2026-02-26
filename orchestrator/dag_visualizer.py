@@ -52,7 +52,7 @@ ASCII_STATUS_SYMBOLS = {
 
 # Phase order for linear DAG
 PHASE_ORDER = [
-    PipelinePhase.REFINE,
+    PipelinePhase.ANALYZE,
     PipelinePhase.PLAN,
     PipelinePhase.IMPLEMENT,
     PipelinePhase.PR,
@@ -60,7 +60,7 @@ PHASE_ORDER = [
 
 # Phase display names
 PHASE_NAMES = {
-    PipelinePhase.REFINE: "Refine",
+    PipelinePhase.ANALYZE: "Analyze",
     PipelinePhase.PLAN: "Plan",
     PipelinePhase.IMPLEMENT: "Implement",
     PipelinePhase.PR: "PR",
@@ -162,7 +162,7 @@ def _compute_wave_order(
     (same wave) and which run sequentially (different waves).
 
     Falls back to a single group (flat list) for phases without
-    defined agent roles (e.g. refine, pr).
+    defined agent roles (e.g. analyze, pr).
     """
     try:
         from egg_contracts.agent_roles import get_roles_for_phase

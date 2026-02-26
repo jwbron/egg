@@ -797,7 +797,7 @@ def git_push() -> tuple[Response, int] | Response:
     # SECURITY: Check phase-based file restrictions for local mode sessions.
     # This replaces the blanket local-mode push block with granular phase-based
     # restrictions. Each phase has specific allowed/blocked file patterns:
-    # - refine/plan: Can only push .egg-state/ files (contracts, drafts, checkpoints)
+    # - analyze/plan: Can only push .egg-state/ files (contracts, drafts, checkpoints)
     # - implement: Can push code but not .egg-state/ (except checkpoints)
     # - pr: Can push everything
     #
@@ -3271,6 +3271,10 @@ def session_create() -> tuple[Response, int] | Response:
     if gid is not None and (not isinstance(gid, int) or gid < 0):
         return make_error("Invalid gid: must be a non-negative integer")
 
+    # Backwards compat: normalize legacy "refine" → "analyze"
+    if phase == "refine":
+        phase = "analyze"
+
     # Validate phase if provided
     if phase is not None and phase not in VALID_PIPELINE_PHASES:
         return make_error(
@@ -3744,7 +3748,7 @@ def session_update(session_token: str) -> tuple[Response, int] | Response:
 
 
 # Valid SDLC pipeline phases
-VALID_PIPELINE_PHASES = frozenset({"refine", "plan", "implement", "pr"})
+VALID_PIPELINE_PHASES = frozenset({"analyze", "plan", "implement", "pr"})
 
 
 @app.route("/api/v1/sessions/<session_token>/phase", methods=["PATCH"])
@@ -3759,7 +3763,7 @@ def session_update_phase(session_token: str) -> tuple[Response, int] | Response:
 
     Request body:
         {
-            "phase": "refine"|"plan"|"implement"|"pr"
+            "phase": "analyze"|"plan"|"implement"|"pr"
         }
 
     Args:
@@ -3774,6 +3778,10 @@ def session_update_phase(session_token: str) -> tuple[Response, int] | Response:
     phase = data.get("phase")
     if not phase:
         return make_error("Missing phase")
+
+    # Backwards compat: normalize legacy "refine" → "analyze"
+    if phase == "refine":
+        phase = "analyze"
 
     if phase not in VALID_PIPELINE_PHASES:
         return make_error(
