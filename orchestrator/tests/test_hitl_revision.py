@@ -975,3 +975,226 @@ class TestSyncPipelineDecisionsToContract:
         # The sync should be called when current_phase.value is in _HITL_GATE_PHASES
         assert "_sync_pipeline_decisions_to_contract" in source
         assert "current_phase.value in _HITL_GATE_PHASES" in source
+
+    def test_sync_end_to_end_filters_and_maps_decisions(self):
+        """Integration: call the actual function and verify contract is saved correctly.
+
+        Mocks get_state_store, load_contract, and save_contract so the function
+        exercises its real filtering, mapping, deduplication, and ID-numbering logic
+        against actual model objects.
+        """
+        from datetime import datetime
+        from pathlib import Path
+        from unittest.mock import patch
+
+        from egg_contracts.models import Contract, Decision, DecisionType
+        from models import DecisionStatus, HITLDecision, Pipeline
+        from routes.pipelines import _sync_pipeline_decisions_to_contract
+
+        # --- Set up pipeline with a mix of decisions ---
+        pipeline = Pipeline(
+            id="test-pipeline",
+            repo="owner/repo",
+            issue_number=42,
+            decisions=[
+                # Should be synced: resolved choice
+                self._make_pipeline_decision(
+                    decision_id="d-1",
+                    question="Which database?",
+                    options=["PostgreSQL", "MongoDB"],
+                    decision_type="choice",
+                    status="resolved",
+                    resolution="PostgreSQL",
+                ),
+                # Should be excluded: phase_gate
+                self._make_pipeline_decision(
+                    decision_id="d-2",
+                    question="Approve refine phase?",
+                    options=["approve", "request changes"],
+                    decision_type="phase_gate",
+                    status="resolved",
+                    resolution="approve",
+                ),
+                # Should be excluded: pending
+                self._make_pipeline_decision(
+                    decision_id="d-3",
+                    question="Which framework?",
+                    decision_type="choice",
+                    status="pending",
+                    resolution=None,
+                ),
+                # Should be synced: resolved feedback (no predefined options)
+                HITLDecision(
+                    id="d-4",
+                    question="What edge cases?",
+                    options=[],
+                    decision_type="feedback",
+                    status=DecisionStatus.RESOLVED,
+                    resolution="Handle empty arrays",
+                ),
+                # Should be skipped: duplicate question already in contract
+                self._make_pipeline_decision(
+                    decision_id="d-5",
+                    question="Existing question",
+                    decision_type="choice",
+                    status="resolved",
+                    resolution="Already there",
+                ),
+            ],
+        )
+        # Set resolved_at on the first decision to verify timestamp mapping
+        pipeline.decisions[0].resolved_at = datetime(2026, 2, 25, 12, 0, 0)
+
+        # --- Set up contract with one existing decision ---
+        contract = Contract(
+            pipeline_id="test-pipeline",
+            decisions=[
+                Decision(
+                    id="decision-2",
+                    question="Existing question",
+                    type=DecisionType.HITL,
+                    resolved=True,
+                    resolution="Some answer",
+                ),
+            ],
+        )
+
+        # --- Mock dependencies ---
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = pipeline
+
+        saved_contracts = []
+
+        def capture_save(c, repo_path):
+            saved_contracts.append(c)
+
+        with (
+            patch("routes.pipelines.get_state_store", return_value=mock_store),
+            patch("egg_contracts.loader.load_contract", return_value=contract),
+            patch("egg_contracts.loader.save_contract", side_effect=capture_save),
+        ):
+            _sync_pipeline_decisions_to_contract(
+                repo_path=Path("/fake/repo"),
+                pipeline_id="test-pipeline",
+                pipeline_mode="local",
+            )
+
+        # --- Verify ---
+        # save_contract should have been called once
+        assert len(saved_contracts) == 1
+        saved = saved_contracts[0]
+
+        # Original decision preserved + 2 new ones (database + edge cases)
+        assert len(saved.decisions) == 3
+
+        # Original decision untouched
+        assert saved.decisions[0].id == "decision-2"
+        assert saved.decisions[0].question == "Existing question"
+
+        # First synced decision: "Which database?" — ID continues from decision-2 → decision-3
+        d1 = saved.decisions[1]
+        assert d1.id == "decision-3"
+        assert d1.question == "Which database?"
+        assert d1.type == DecisionType.HITL
+        assert d1.resolved is True
+        assert d1.resolution == "PostgreSQL"
+        assert d1.resolved_by == "human"
+        assert d1.resolved_at == datetime(2026, 2, 25, 12, 0, 0)
+        assert len(d1.options) == 2
+        assert d1.options[0].label == "PostgreSQL"
+        assert d1.options[1].label == "MongoDB"
+
+        # Second synced decision: "What edge cases?" — decision-4
+        d2 = saved.decisions[2]
+        assert d2.id == "decision-4"
+        assert d2.question == "What edge cases?"
+        assert d2.resolved is True
+        assert d2.resolution == "Handle empty arrays"
+        assert d2.options == []  # feedback with no options
+
+    def test_sync_end_to_end_no_substantive_decisions_skips_save(self):
+        """Integration: no save when all decisions are phase gates or pending."""
+        from pathlib import Path
+        from unittest.mock import patch
+
+        from models import Pipeline
+        from routes.pipelines import _sync_pipeline_decisions_to_contract
+
+        pipeline = Pipeline(
+            id="test-pipeline",
+            repo="owner/repo",
+            decisions=[
+                self._make_pipeline_decision(
+                    decision_type="phase_gate",
+                    status="resolved",
+                    resolution="approve",
+                ),
+            ],
+        )
+
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = pipeline
+
+        with (
+            patch("routes.pipelines.get_state_store", return_value=mock_store),
+            patch("egg_contracts.loader.load_contract") as mock_load,
+            patch("egg_contracts.loader.save_contract") as mock_save,
+        ):
+            _sync_pipeline_decisions_to_contract(
+                repo_path=Path("/fake/repo"),
+                pipeline_id="test-pipeline",
+            )
+
+        # load_contract should not even be called if no substantive decisions
+        mock_load.assert_not_called()
+        mock_save.assert_not_called()
+
+    def test_sync_end_to_end_deduplication_prevents_save(self):
+        """Integration: no save when all substantive decisions already exist in contract."""
+        from pathlib import Path
+        from unittest.mock import patch
+
+        from egg_contracts.models import Contract, Decision, DecisionType
+        from models import Pipeline
+        from routes.pipelines import _sync_pipeline_decisions_to_contract
+
+        pipeline = Pipeline(
+            id="test-pipeline",
+            repo="owner/repo",
+            decisions=[
+                self._make_pipeline_decision(
+                    question="Already synced",
+                    decision_type="choice",
+                    status="resolved",
+                    resolution="Option A",
+                ),
+            ],
+        )
+
+        contract = Contract(
+            pipeline_id="test-pipeline",
+            decisions=[
+                Decision(
+                    id="decision-1",
+                    question="Already synced",
+                    type=DecisionType.HITL,
+                    resolved=True,
+                ),
+            ],
+        )
+
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = pipeline
+
+        with (
+            patch("routes.pipelines.get_state_store", return_value=mock_store),
+            patch("egg_contracts.loader.load_contract", return_value=contract),
+            patch("egg_contracts.loader.save_contract") as mock_save,
+        ):
+            _sync_pipeline_decisions_to_contract(
+                repo_path=Path("/fake/repo"),
+                pipeline_id="test-pipeline",
+            )
+
+        # All decisions deduplicated — save should not be called
+        mock_save.assert_not_called()
