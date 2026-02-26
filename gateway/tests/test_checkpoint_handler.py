@@ -1278,5 +1278,5 @@ class TestStoreCheckpointV2FetchRetry:
             # Check that the timeout-specific message was logged
             error_calls = mock_logger.error.call_args_list
             error_messages = [call[0][0] for call in error_calls]
-            assert "Checkpoint store timed out after retries" in error_messages
+            assert "Checkpoint store timed out" in error_messages
             assert "Failed to store checkpoint" not in error_messages

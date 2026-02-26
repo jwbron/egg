@@ -914,10 +914,11 @@ class CheckpointHandler:
                     )
 
         except subprocess.TimeoutExpired as e:
+            cmd_str = " ".join(str(c) for c in (e.cmd or []))
             logger.error(
-                "Checkpoint store timed out after retries",
+                "Checkpoint store timed out",
                 timeout=e.timeout,
-                cmd=e.cmd,
+                cmd=cmd_str,
                 checkpoint_id=checkpoint.id,
                 checkpoint_repo=checkpoint_repo,
             )
