@@ -2870,6 +2870,7 @@ class TestDisplayInPager:
 
         _display_in_pager("fallback content")
 
+        assert mock_run.call_count == 2  # glow, then less
         captured = capsys.readouterr()
         assert "fallback content" in captured.out
 
