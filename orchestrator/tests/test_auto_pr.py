@@ -4,11 +4,8 @@ Tests for auto PR creation functions (_build_pr_body, _auto_create_pr).
 
 import json
 import sys
-import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
-
-import pytest
 
 # Mock heavy dependencies that pipelines.py imports at module level
 _docker_mock = MagicMock()
@@ -86,9 +83,7 @@ class TestBuildPrBody:
         contract_dir = tmp_path / ".egg-state" / "contracts"
         contract_dir.mkdir(parents=True)
         contract_file = contract_dir / "42.json"
-        contract_file.write_text(
-            json.dumps(_make_contract_json(pr_title=None))
-        )
+        contract_file.write_text(json.dumps(_make_contract_json(pr_title=None)))
 
         with patch("subprocess.run") as mock_run:
             mock_run.return_value = MagicMock(returncode=1, stdout="", stderr="")

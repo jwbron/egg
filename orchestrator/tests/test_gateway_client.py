@@ -265,8 +265,8 @@ class MockGatewayHandler(BaseHTTPRequestHandler):
             return
 
         repo = data.get("repo", "")
-        title = data.get("title", "")
-        head = data.get("head", "")
+        data.get("title", "")
+        data.get("head", "")
 
         self._send_json(
             {
@@ -859,7 +859,9 @@ class TestCreatePR:
 
     def test_create_pr_registers_session_with_pr_phase(self, gateway_client, mock_gateway_server):
         """Test that session is registered with phase='pr'."""
-        with patch.object(gateway_client, "register_session", wraps=gateway_client.register_session) as mock_reg:
+        with patch.object(
+            gateway_client, "register_session", wraps=gateway_client.register_session
+        ) as mock_reg:
             gateway_client.create_pr(
                 pipeline_id="issue-42",
                 repo="owner/repo",
