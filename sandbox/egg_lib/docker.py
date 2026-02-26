@@ -316,14 +316,43 @@ def _copy_repo_watch_files(quiet: bool = False) -> None:
         copied_any = False
         for watch_file in watch_files:
             src_file = local_path / str(watch_file)
-            if src_file.exists() and src_file.is_file():
-                # Preserve directory structure within the watch file path
-                dest_file = dest_dir / str(watch_file)
-                dest_file.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(src_file, dest_file)
-                copied_any = True
-            elif not quiet:
-                warn(f"build_commands: watch file not found: {repo_name}/{watch_file}")
+
+            # Defense-in-depth: validate path stays within repo boundary
+            try:
+                src_file.resolve().relative_to(local_path.resolve())
+            except ValueError:
+                warn(f"build_commands: watch file escapes repo boundary: {repo_name}/{watch_file}")
+                continue
+
+            if not src_file.exists() or not src_file.is_file():
+                if not quiet:
+                    warn(f"build_commands: watch file not found: {repo_name}/{watch_file}")
+                continue
+
+            # Defense-in-depth: don't follow symlinks that point outside the repo
+            if src_file.is_symlink():
+                resolved = src_file.resolve()
+                if not resolved.is_relative_to(local_path.resolve()):
+                    warn(
+                        f"build_commands: watch file symlink escapes repo boundary: {repo_name}/{watch_file}"
+                    )
+                    continue
+
+            # Preserve directory structure within the watch file path
+            dest_file = dest_dir / str(watch_file)
+
+            # Validate dest path stays within dest_dir
+            try:
+                dest_file.resolve().relative_to(dest_dir.resolve())
+            except ValueError:
+                warn(
+                    f"build_commands: watch file dest escapes build context: {repo_name}/{watch_file}"
+                )
+                continue
+
+            dest_file.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src_file, dest_file)
+            copied_any = True
 
         if copied_any:
             has_any = True
@@ -586,6 +615,14 @@ def _hash_build_command_watch_files(hasher: Any) -> None:
         # Hash watch file contents
         for watch_file in sorted(str(f) for f in watch_files):
             src_file = local_path / watch_file
+
+            # Defense-in-depth: validate path stays within repo boundary
+            try:
+                src_file.resolve().relative_to(local_path.resolve())
+            except ValueError:
+                warn(f"build_commands: watch file escapes repo boundary: {repo_name}/{watch_file}")
+                continue
+
             if src_file.exists() and src_file.is_file():
                 hasher.update(f"watch:{repo_name}/{watch_file}".encode())
                 hash_file(src_file, hasher)

@@ -1203,3 +1203,134 @@ class TestHashBuildCommandWatchFilesEdgeCases:
             _hash_build_command_watch_files(h)
 
         assert h.hexdigest() == empty_digest
+
+
+class TestWatchFilePathTraversal:
+    """Tests for path traversal validation in watch file handling."""
+
+    def test_copy_rejects_path_traversal(self, tmp_path):
+        """Watch files with .. components that escape the repo are rejected."""
+        from egg_lib.docker import _copy_repo_watch_files
+
+        repo_dir = tmp_path / "org" / "app"
+        repo_dir.mkdir(parents=True)
+        (repo_dir / "legit.txt").write_text("ok")
+
+        # Create a file outside the repo that a traversal would reach
+        (tmp_path / "secret.txt").write_text("sensitive")
+
+        config = {
+            "repo_settings": {
+                "org/app": {
+                    "build_commands": {
+                        "watch_files": ["../../secret.txt"],
+                        "commands": ["make deps"],
+                    }
+                }
+            },
+            "local_repos": {"paths": [str(repo_dir)]},
+        }
+
+        build_dir = tmp_path / "build-context"
+        build_dir.mkdir()
+
+        with patch("egg_lib.docker._load_repos_config", return_value=config):
+            with patch("egg_lib.docker.Config") as mock_config:
+                mock_config.CONFIG_DIR = build_dir
+                _copy_repo_watch_files(quiet=True)
+
+        # The traversal file should NOT be copied
+        repo_deps = build_dir / "repo-deps"
+        if repo_deps.exists():
+            # Should only have the .empty marker, not the secret file
+            all_files = list(repo_deps.rglob("*"))
+            file_names = [f.name for f in all_files if f.is_file()]
+            assert "secret.txt" not in file_names
+
+    def test_hash_skips_path_traversal(self, tmp_path):
+        """Hash function skips watch files with path traversal."""
+        from egg_lib.docker import _hash_build_command_watch_files
+
+        repo_dir = tmp_path / "org" / "app"
+        repo_dir.mkdir(parents=True)
+
+        # Create a file outside the repo
+        (tmp_path / "outside.txt").write_text("outside content")
+
+        config = {
+            "repo_settings": {
+                "org/app": {
+                    "build_commands": {
+                        "watch_files": ["../../outside.txt"],
+                        "commands": ["pip install"],
+                    }
+                }
+            },
+            "local_repos": {"paths": [str(repo_dir)]},
+        }
+
+        # Hash with traversal path — should only include repo/commands, not file content
+        h_traversal = hashlib.sha256()
+        with patch("egg_lib.docker._load_repos_config", return_value=config):
+            _hash_build_command_watch_files(h_traversal)
+
+        # Hash with a legit path that doesn't exist — should produce same result
+        # (both skip the file content, only include repo name + commands)
+        config_legit = {
+            "repo_settings": {
+                "org/app": {
+                    "build_commands": {
+                        "watch_files": ["nonexistent.txt"],
+                        "commands": ["pip install"],
+                    }
+                }
+            },
+            "local_repos": {"paths": [str(repo_dir)]},
+        }
+        h_legit = hashlib.sha256()
+        with patch("egg_lib.docker._load_repos_config", return_value=config_legit):
+            _hash_build_command_watch_files(h_legit)
+
+        assert h_traversal.hexdigest() == h_legit.hexdigest()
+
+    def test_copy_rejects_symlink_escaping_repo(self, tmp_path):
+        """Symlinks pointing outside the repo boundary are rejected."""
+        from egg_lib.docker import _copy_repo_watch_files
+
+        repo_dir = tmp_path / "org" / "app"
+        repo_dir.mkdir(parents=True)
+
+        # Create a file outside the repo
+        outside_file = tmp_path / "outside-secret.txt"
+        outside_file.write_text("sensitive data")
+
+        # Create a symlink inside the repo pointing outside
+        symlink = repo_dir / "sneaky-link.txt"
+        symlink.symlink_to(outside_file)
+
+        config = {
+            "repo_settings": {
+                "org/app": {
+                    "build_commands": {
+                        "watch_files": ["sneaky-link.txt"],
+                        "commands": ["make deps"],
+                    }
+                }
+            },
+            "local_repos": {"paths": [str(repo_dir)]},
+        }
+
+        build_dir = tmp_path / "build-context"
+        build_dir.mkdir()
+
+        with patch("egg_lib.docker._load_repos_config", return_value=config):
+            with patch("egg_lib.docker.Config") as mock_config:
+                mock_config.CONFIG_DIR = build_dir
+                _copy_repo_watch_files(quiet=True)
+
+        # The symlink target should NOT be copied
+        repo_deps = build_dir / "repo-deps"
+        if repo_deps.exists():
+            all_files = list(repo_deps.rglob("*"))
+            file_names = [f.name for f in all_files if f.is_file()]
+            assert "sneaky-link.txt" not in file_names

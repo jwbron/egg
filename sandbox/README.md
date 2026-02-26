@@ -193,6 +193,8 @@ Per-repo `build_commands` in `repositories.yaml` allow project-specific dependen
 3. `docker-setup.py` reads `build_commands` from `repositories.yaml` and executes each repo's commands in its watch files directory
 4. `compute_build_hash()` includes watch file contents, so `egg` automatically detects when a rebuild is needed
 
+**Known limitation:** `docker-setup.py`'s `load_config()` reads from `~/.config/egg/repositories.yaml`, which is not present inside the Docker build context. This means build commands are not yet executed during actual image builds — the caching infrastructure (watch file copying, hash computation) is in place, but command execution requires a follow-up to propagate a build-commands manifest into the build context. This follows the same pattern as `extra_packages`.
+
 See [Configuration README](../config/README.md#per-repo-build-commands-dependency-caching) for configuration details.
 
 ## Related Documentation
