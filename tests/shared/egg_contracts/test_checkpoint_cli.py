@@ -265,6 +265,11 @@ class TestCostCommand:
 class TestGetCheckpointRepoFromArgs:
     """Tests for auto-detection of checkpoint_repo from repo config."""
 
+    @pytest.fixture(autouse=True)
+    def _clear_checkpoint_env(self, monkeypatch):
+        """Ensure EGG_CHECKPOINT_REPO is unset unless a test explicitly sets it."""
+        monkeypatch.delenv("EGG_CHECKPOINT_REPO", raising=False)
+
     def _make_args(self, **kwargs) -> argparse.Namespace:
         defaults = {"checkpoint_repo": None, "repo_path": "/tmp/test-repo"}
         defaults.update(kwargs)
@@ -393,19 +398,14 @@ class TestGetCheckpointRepoFromArgs:
         assert source_repo is None
 
     @patch.dict("os.environ", {"EGG_CHECKPOINT_REPO": "bad format"})
-    def test_env_var_validates_format(self):
+    def test_env_var_invalid_format_raises(self):
         """EGG_CHECKPOINT_REPO with invalid format raises ValueError."""
         args = self._make_args()
         with pytest.raises(ValueError, match="Invalid checkpoint_repo format"):
             _get_checkpoint_repo_from_args(args)
 
-    @patch.dict("os.environ", {}, clear=False)
     def test_env_var_not_set_falls_through(self):
         """When EGG_CHECKPOINT_REPO is not set, falls through to config lookup."""
-        # Remove EGG_CHECKPOINT_REPO if present
-        import os
-
-        os.environ.pop("EGG_CHECKPOINT_REPO", None)
         with (
             patch("egg_contracts.checkpoint_cli.run_git") as mock_git,
             patch(
