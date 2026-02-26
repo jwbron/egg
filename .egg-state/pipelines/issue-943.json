@@ -80,10 +80,26 @@
       "resolved_at": "2026-02-26T15:57:30.757569",
       "resolution": "Superseded — recreated with options",
       "phase": "refine"
+    },
+    {
+      "id": "decision-2",
+      "question": "What should the new ComplexityTier enum values be? Current: LOW='low', MID='mid', HIGH='high'. Since we collapse to two tiers, the remaining non-low tier needs a name.",
+      "context": "",
+      "options": [
+        "LOW='low' + MID='mid' — rename HIGH to MID, the string value 'mid' stays",
+        "LOW='low' + HIGH='high' — just remove MID, keep 'high' string value"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-02-26T15:57:36.815123",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine"
     }
   ],
   "created_at": "2026-02-26T15:53:05.810690",
-  "updated_at": "2026-02-26T15:57:30.758963",
+  "updated_at": "2026-02-26T15:57:36.816411",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
@@ -91,5 +107,5 @@
   "error": null,
   "plan_phase_waves": null,
   "plan_phase_names": null,
-  "version": 9
+  "version": 10
 }
