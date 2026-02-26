@@ -244,9 +244,6 @@ class ComplexityTier(StrEnum):
 class PipelineConfig(BaseModel):
     """Configuration for pipeline execution."""
 
-    auto_create_pr: bool = Field(
-        default=True, description="Auto-create PR on implementation complete"
-    )
     multi_agent: bool = Field(
         default=True, description="Use multi-agent execution in implement and plan phases"
     )

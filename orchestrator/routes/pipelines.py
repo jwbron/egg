@@ -2661,21 +2661,6 @@ def _build_phase_prompt(
             ]
         )
 
-    elif phase == "pr":
-        lines.extend(
-            [
-                "Create a pull request for this implementation:",
-                "",
-                "1. Ensure all commits are pushed",
-                "2. Create the PR with a descriptive title and body",
-                f"3. Reference the issue (#{issue_number}) in the PR description"
-                if issue_number
-                else "3. Create the PR with a clear summary",
-                "4. Wait for human review and approval",
-                "",
-            ]
-        )
-
     else:
         lines.append(f"Execute the {phase} phase.\n")
 
@@ -2744,16 +2729,6 @@ def _build_phase_prompt(
                     "",
                 ]
             )
-        elif phase == "pr":
-            lines.extend(
-                [
-                    "- You CAN create and edit PRs (gh pr create, gh pr edit)",
-                    "- You CAN push additional commits",
-                    "- You CANNOT merge PRs (human must merge)",
-                    "",
-                ]
-            )
-
     # --- Completion ---
     lines.append("## Phase Completion\n")
     if phase in ("refine", "plan"):
@@ -5362,7 +5337,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
             tester_gap_summary: str | None = None
 
             # --- Auto PR creation: skip agent spawn for PR phase ---
-            if current_phase.value == "pr" and pipeline.config.auto_create_pr:
+            if current_phase.value == "pr":
                 logger.info(
                     "Auto-creating PR (skipping agent spawn)",
                     pipeline_id=pipeline_id,

@@ -95,9 +95,8 @@ class TestPipelineCreation:
             issue_number=496,
             repo="owner/repo",
             branch="egg/issue-496",
-            config={"auto_create_pr": False, "max_review_cycles": 5},
+            config={"max_review_cycles": 5},
         )
-        assert pipeline.config.auto_create_pr is False
         assert pipeline.config.max_review_cycles == 5
 
     def test_create_duplicate_pipeline_fails(self, state_store):

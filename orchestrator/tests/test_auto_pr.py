@@ -21,7 +21,6 @@ def _make_pipeline(
     issue_number=42,
     repo="owner/repo",
     branch="egg/issue-42",
-    auto_create_pr=True,
 ):
     """Create a Pipeline for testing."""
     return Pipeline(
@@ -32,7 +31,6 @@ def _make_pipeline(
         mode="issue",
         status=PipelineStatus.RUNNING,
         current_phase=PipelinePhase.PR,
-        config=PipelineConfig(auto_create_pr=auto_create_pr),
     )
 
 
