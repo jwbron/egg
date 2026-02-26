@@ -7,7 +7,9 @@ from datetime import UTC, datetime
 from unittest.mock import patch
 
 import pytest
+from egg_config import GATEWAY_PORT
 from egg_contracts.checkpoint_cli import (
+    _cmd_search_http,
     _get_checkpoint_repo_from_args,
     _search_checkpoint_transcript,
     cmd_cost,
@@ -734,3 +736,197 @@ class TestCmdSearch:
             mock_ref.return_value = None
             result = main(["search", "--text", "test"])
             assert result == 0
+
+    @patch.dict("os.environ", {"EGG_CHECKPOINT_REPO": "bad format"})
+    @patch("egg_contracts.checkpoint_cli._get_gateway_url", return_value=None)
+    def test_search_invalid_env_var_returns_error(self, _mock_gw, capsys):
+        """search returns error when EGG_CHECKPOINT_REPO has invalid format."""
+        parser = create_parser()
+        args = parser.parse_args(["search", "--text", "test"])
+        result = cmd_search(args)
+
+        assert result == 1
+        err = capsys.readouterr().err
+        assert "Invalid checkpoint_repo format" in err
+
+
+class TestCmdSearchHttp:
+    """Tests for the HTTP search path (_cmd_search_http)."""
+
+    @patch("egg_contracts.checkpoint_cli._http_get")
+    def test_http_search_finds_match(self, mock_http_get, capsys):
+        """HTTP search finds matching transcripts and displays results."""
+        # First call: list checkpoints
+        mock_http_get.side_effect = [
+            {
+                "data": {
+                    "checkpoints": [
+                        {
+                            "id": "ckpt-http1111",
+                            "trigger_type": "session_end",
+                            "session_status": "completed",
+                            "session_id": "session-1",
+                            "created_at": "2026-01-15T12:00:00Z",
+                            "total_tokens": 5000,
+                        }
+                    ]
+                }
+            },
+            # Second call: show checkpoint details
+            {
+                "data": {
+                    "checkpoint": {
+                        "id": "ckpt-http1111",
+                        "transcript": {
+                            "messages": [
+                                {
+                                    "role": "user",
+                                    "content": "Fix issue 898 in auth",
+                                }
+                            ]
+                        },
+                    }
+                }
+            },
+        ]
+
+        parser = create_parser()
+        args = parser.parse_args(["search", "--text", "issue 898"])
+        result = _cmd_search_http(args, f"http://gateway:{GATEWAY_PORT}")
+
+        assert result == 0
+        output = capsys.readouterr().out
+        assert "1 checkpoints matched" in output
+        assert "issue 898" in output
+
+    @patch("egg_contracts.checkpoint_cli._http_get")
+    def test_http_search_no_match(self, mock_http_get, capsys):
+        """HTTP search reports when no transcripts match."""
+        mock_http_get.side_effect = [
+            {
+                "data": {
+                    "checkpoints": [
+                        {
+                            "id": "ckpt-http2222",
+                            "trigger_type": "session_end",
+                            "session_status": "completed",
+                            "session_id": "session-1",
+                            "created_at": "2026-01-15T12:00:00Z",
+                            "total_tokens": 5000,
+                        }
+                    ]
+                }
+            },
+            {
+                "data": {
+                    "checkpoint": {
+                        "id": "ckpt-http2222",
+                        "transcript": {
+                            "messages": [
+                                {
+                                    "role": "user",
+                                    "content": "Something unrelated",
+                                }
+                            ]
+                        },
+                    }
+                }
+            },
+        ]
+
+        parser = create_parser()
+        args = parser.parse_args(["search", "--text", "nonexistent"])
+        result = _cmd_search_http(args, f"http://gateway:{GATEWAY_PORT}")
+
+        assert result == 0
+        output = capsys.readouterr().out
+        assert "No checkpoints found with transcript matching" in output
+
+    @patch("egg_contracts.checkpoint_cli._http_get")
+    def test_http_search_no_summaries(self, mock_http_get, capsys):
+        """HTTP search reports when no checkpoints match metadata filters."""
+        mock_http_get.return_value = {"data": {"checkpoints": []}}
+
+        parser = create_parser()
+        args = parser.parse_args(["search", "--text", "test"])
+        result = _cmd_search_http(args, f"http://gateway:{GATEWAY_PORT}")
+
+        assert result == 0
+        output = capsys.readouterr().out
+        assert "No checkpoints found matching filters" in output
+
+    @patch("egg_contracts.checkpoint_cli._http_get")
+    def test_http_search_json_output(self, mock_http_get, capsys):
+        """HTTP search --json outputs structured JSON."""
+        mock_http_get.side_effect = [
+            {
+                "data": {
+                    "checkpoints": [
+                        {
+                            "id": "ckpt-http3333",
+                            "trigger_type": "session_end",
+                            "session_status": "completed",
+                            "session_id": "session-1",
+                            "created_at": "2026-01-15T12:00:00Z",
+                            "total_tokens": 5000,
+                        }
+                    ]
+                }
+            },
+            {
+                "data": {
+                    "checkpoint": {
+                        "id": "ckpt-http3333",
+                        "transcript": {
+                            "messages": [
+                                {
+                                    "role": "assistant",
+                                    "content": "Working on issue 898",
+                                }
+                            ]
+                        },
+                    }
+                }
+            },
+        ]
+
+        parser = create_parser()
+        args = parser.parse_args(["search", "--text", "issue 898", "--json"])
+        result = _cmd_search_http(args, f"http://gateway:{GATEWAY_PORT}")
+
+        assert result == 0
+        output = capsys.readouterr().out
+        data = json.loads(output)
+        assert len(data) == 1
+        assert data[0]["id"] == "ckpt-http3333"
+        assert "matching_snippets" in data[0]
+        assert any("issue 898" in s for s in data[0]["matching_snippets"])
+
+    @patch("egg_contracts.checkpoint_cli._http_get")
+    def test_http_search_skips_failed_checkpoint_fetch(self, mock_http_get, capsys):
+        """HTTP search skips checkpoints whose detail fetch fails."""
+        mock_http_get.side_effect = [
+            {
+                "data": {
+                    "checkpoints": [
+                        {
+                            "id": "ckpt-fail1111",
+                            "trigger_type": "session_end",
+                            "session_status": "completed",
+                            "session_id": "session-1",
+                            "created_at": "2026-01-15T12:00:00Z",
+                            "total_tokens": 5000,
+                        }
+                    ]
+                }
+            },
+            RuntimeError("Gateway timeout"),
+        ]
+
+        parser = create_parser()
+        args = parser.parse_args(["search", "--text", "test"])
+        result = _cmd_search_http(args, f"http://gateway:{GATEWAY_PORT}")
+
+        assert result == 0
+        output = capsys.readouterr().out
+        assert "No checkpoints found with transcript matching" in output
