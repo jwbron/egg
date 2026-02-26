@@ -34,7 +34,7 @@ import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Sequence
 
 logger = logging.getLogger(__name__)
 
@@ -1350,7 +1350,7 @@ def _search_checkpoint_transcript(checkpoint: CheckpointV2, text: str) -> list[s
 
 
 def _print_search_results(
-    matches: list[tuple[CheckpointSummaryV2 | dict[str, Any], list[str]]],
+    matches: Sequence[tuple[CheckpointSummaryV2 | dict[str, Any], list[str]]],
     text: str,
     args: argparse.Namespace,
 ) -> None:
