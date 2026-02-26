@@ -1,0 +1,73 @@
+{
+  "issue": 912,
+  "pipeline_id": "issue-912",
+  "phase": "implement",
+  "agent": "integrator",
+  "status": "pass",
+  "summary": "All 7084 tests pass. Coder and tester changes integrate cleanly. Only fix needed: ruff formatting (4 files) and 3 unused mypy type-ignore comments in post_agent_commit.py.",
+  "integration_commit": "6705b6b02",
+  "test_results": {
+    "total": 7084,
+    "passed": 7084,
+    "failed": 0,
+    "skipped": 85,
+    "warnings": 4,
+    "duration_seconds": 76.37
+  },
+  "lint_results": {
+    "ruff_check": "pass",
+    "ruff_format": "pass (4 files reformatted by integrator)",
+    "mypy": "pass (3 unused type-ignore comments removed by integrator)"
+  },
+  "issues_found": [
+    {
+      "severity": "low",
+      "component": "gateway",
+      "description": "4 files had ruff formatting issues (gateway/gateway.py, 3 gap test files). Auto-fixed with ruff format.",
+      "fix": "Ran ruff format on the 4 files.",
+      "files": [
+        "gateway/gateway.py",
+        "gateway/tests/test_post_agent_commit_gaps.py",
+        "gateway/tests/test_session_file_restrictions_gaps.py",
+        "orchestrator/tests/test_container_spawner_gaps.py"
+      ]
+    },
+    {
+      "severity": "low",
+      "component": "gateway",
+      "description": "3 unused mypy type-ignore comments in gateway/post_agent_commit.py lines 215-220. The PhaseFileRestriction import fallback chain had stale type annotations that mypy flagged as unnecessary.",
+      "fix": "Removed the 3 unused type-ignore comments.",
+      "files": [
+        "gateway/post_agent_commit.py"
+      ]
+    }
+  ],
+  "integration_review": {
+    "data_flow": "Orchestrator collects files_affected union from contract tasks → passes allowed_files to gateway register_session → gateway stores in Session → enforced at push-time via PhaseFileRestriction with warn-then-block escalation → post-agent auto-commit also filters using same logic.",
+    "components_verified": [
+      "gateway/gateway.py: _enforce_session_file_restrictions integrates correctly with push validation",
+      "gateway/session_manager.py: allowed_files persisted, _warned_files transient",
+      "gateway/post_agent_commit.py: per-task filtering applied after phase filtering (AND semantics)",
+      "orchestrator/container_spawner.py: _compute_allowed_files with directory-sibling expansion",
+      "orchestrator/gateway_client.py: allowed_files threaded through HTTP",
+      "orchestrator/routes/pipelines.py: route accepts and forwards allowed_files",
+      "docs/templates/plan.md: enforcement semantics documented"
+    ],
+    "edge_cases_verified": [
+      "Empty files_affected falls back to no restriction (correct)",
+      "Glob patterns (*, **) preserved without double-expansion",
+      "Directory-sibling expansion: dir/file.py adds dir/* for sibling access",
+      "PhaseFileRestriction import failure: fails open (safe)",
+      "Warn-then-block: configurable threshold via EGG_TASK_FILE_WARN_THRESHOLD",
+      "Checkpoint branch push bypass works correctly",
+      "_warned_files not persisted across gateway restarts (correct transient behavior)"
+    ],
+    "test_coverage": {
+      "coder_tests": "16 tests across 3 files (session_manager, session_file_restrictions, post_agent_commit, container_spawner)",
+      "tester_gap_tests": "39 tests across 3 files covering escalation, path normalization, glob variants, combined filtering, import fallback",
+      "total_new_tests": 55
+    }
+  },
+  "recommendation": "approve",
+  "authored_by": "egg"
+}

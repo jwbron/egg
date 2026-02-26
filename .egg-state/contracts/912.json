@@ -1,0 +1,351 @@
+{
+  "schemaVersion": "1.0",
+  "issue": {
+    "number": 912,
+    "title": "Issue #912",
+    "url": "https://github.com/jwbron/egg/issues/912"
+  },
+  "pipeline_id": null,
+  "current_phase": "refine",
+  "acceptance_criteria": [],
+  "phases": [
+    {
+      "id": "phase-1",
+      "name": "Data Model and API Plumbing",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-1-1",
+          "description": "Add allowed_files field to Session dataclass with persistence and transient _warned_files counter",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Session.allowed_files persists through to_dict_for_persistence()/from_persistence(). _warned_files initializes to empty dict and is not persisted. Existing sessions without allowed_files load with None.",
+          "files_affected": [
+            "gateway/session_manager.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-2",
+          "description": "Accept and validate allowed_files in /api/v1/sessions/create endpoint",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "POST /sessions/create with allowed_files=[...] stores them on Session. None and omitted are handled. Invalid entries (empty strings, non-strings) are rejected with 400.",
+          "files_affected": [
+            "gateway/gateway.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-3",
+          "description": "Add allowed_files parameter to GatewayClient.register_session()",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "register_session() accepts allowed_files and includes it in POST payload when non-None.",
+          "files_affected": [
+            "orchestrator/gateway_client.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        }
+      ],
+      "dependencies": [],
+      "review_feedback": []
+    },
+    {
+      "id": "phase-2",
+      "name": "Orchestrator Integration",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-2-1",
+          "description": "Add _compute_allowed_files() helper with recursive dir expansion (dir/* via fnmatch) and integrate with spawn_agent_container()",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "For implement-phase coder agents with a plan_phase_id, computes union of files_affected with dir/* expansion (recursive via fnmatch) and passes to register_session(). Non-coder agents and non-implement phases get None. Empty files_affected returns None.",
+          "files_affected": [
+            "orchestrator/container_spawner.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-2-2",
+          "description": "Thread plan_phase_id from _spawn_and_wait() to spawn_agent_container()",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "spawn_agent_container() accepts plan_phase_id parameter. _spawn_and_wait() passes it through. plan_phase_id is available for _compute_allowed_files() lookup.",
+          "files_affected": [
+            "orchestrator/container_spawner.py",
+            "orchestrator/routes/pipelines.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        }
+      ],
+      "dependencies": [],
+      "review_feedback": []
+    },
+    {
+      "id": "phase-3",
+      "name": "Gateway Enforcement",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-3-1",
+          "description": "Add per-task file restriction validation layer in gateway push handler with warn-then-block escalation",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Push with out-of-scope file succeeds with warning on first attempt. Same file blocked on second attempt. EGG_TASK_FILE_RESTRICTIONS_ENFORCE=true blocks immediately. Checkpoint pushes bypass. Sessions without allowed_files unaffected. Error includes blocked files, allowed patterns, and recovery hint.",
+          "files_affected": [
+            "gateway/gateway.py",
+            "gateway/phase_filter.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-3-2",
+          "description": "Add per-task filtering to auto_commit_worktree() alongside phase filtering",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Uncommitted files outside allowed_files are restored (not committed) with clear structured logging. Phase restrictions still apply first. None allowed_files means no per-task filtering.",
+          "files_affected": [
+            "gateway/post_agent_commit.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        }
+      ],
+      "dependencies": [],
+      "review_feedback": []
+    },
+    {
+      "id": "phase-4",
+      "name": "Tests",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-4-0",
+          "description": "Add Session model persistence tests for allowed_files round-trip, backward compat, and _warned_files transient init",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Tests verify allowed_files round-trips through to_dict_for_persistence()/from_persistence(). Sessions without allowed_files key load with None. _warned_files initializes to empty dict and is not present in persisted output.",
+          "files_affected": [
+            "gateway/tests/test_session_manager.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-4-1",
+          "description": "Add gateway tests for per-session file restriction enforcement (push validation) including recursive fnmatch verification",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Tests cover allowed files pass, disallowed warns then blocks, strict mode, checkpoint bypass, None/empty fallback, glob patterns, directory-sibling expansion, and explicit recursive matching (dir/* covers dir/sub/deep/file.py). All pass.",
+          "files_affected": [
+            "gateway/tests/test_session_file_restrictions.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-4-2",
+          "description": "Add tests for post-agent commit filtering with allowed_files",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Tests cover files outside allowed_files are restored, files inside are committed, None means no filtering, logging verifies filtered files reported.",
+          "files_affected": [
+            "gateway/tests/test_post_agent_commit.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-4-3",
+          "description": "Add orchestrator tests for _compute_allowed_files() and spawner integration",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Tests cover union of files from multiple tasks, dir-sibling expansion (recursive via fnmatch), empty returns None, non-coder returns None, non-implement returns None, glob preservation, register_session called with computed allowed_files.",
+          "files_affected": [
+            "orchestrator/tests/test_container_spawner.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        }
+      ],
+      "dependencies": [],
+      "review_feedback": []
+    },
+    {
+      "id": "phase-5",
+      "name": "Documentation",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-5-1",
+          "description": "Update plan template to document files as enforcement boundary with guidance on generous listing and recursive directory expansion",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Template states files is enforced at push time. Includes guidance on generous listing, globs, config files. Documents that directory expansion is recursive (dir/* matches all descendants via fnmatch). Empty files means no restriction.",
+          "files_affected": [
+            "docs/templates/plan.md"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        }
+      ],
+      "dependencies": [],
+      "review_feedback": []
+    }
+  ],
+  "decisions": [],
+  "workflow_owner": null,
+  "audit_log": [],
+  "refine_review_cycles": 0,
+  "refine_review_feedback": "",
+  "plan_review_cycles": 0,
+  "plan_review_feedback": "",
+  "pr": null,
+  "feedback": null,
+  "phase_configs": null,
+  "agent_executions": [
+    {
+      "role": "coder",
+      "phase_id": null,
+      "status": "complete",
+      "started_at": "2026-02-26T03:17:22.068913Z",
+      "completed_at": "2026-02-26T03:33:24.747833Z",
+      "commit": null,
+      "checkpoint_id": null,
+      "outputs": {},
+      "error": null,
+      "retry_count": 0,
+      "conflicts": []
+    },
+    {
+      "role": "tester",
+      "phase_id": null,
+      "status": "complete",
+      "started_at": "2026-02-26T03:33:24.751780Z",
+      "completed_at": "2026-02-26T03:40:19.050344Z",
+      "commit": null,
+      "checkpoint_id": null,
+      "outputs": {},
+      "error": null,
+      "retry_count": 0,
+      "conflicts": []
+    },
+    {
+      "role": "documenter",
+      "phase_id": null,
+      "status": "complete",
+      "started_at": "2026-02-26T03:33:24.753407Z",
+      "completed_at": "2026-02-26T03:39:01.624526Z",
+      "commit": null,
+      "checkpoint_id": null,
+      "outputs": {},
+      "error": null,
+      "retry_count": 0,
+      "conflicts": []
+    },
+    {
+      "role": "integrator",
+      "phase_id": null,
+      "status": "complete",
+      "started_at": "2026-02-26T03:40:19.052359Z",
+      "completed_at": "2026-02-26T03:48:56.510735Z",
+      "commit": null,
+      "checkpoint_id": null,
+      "outputs": {},
+      "error": null,
+      "retry_count": 0,
+      "conflicts": []
+    },
+    {
+      "role": "reviewer_contract",
+      "phase_id": null,
+      "status": "failed",
+      "started_at": null,
+      "completed_at": "2026-02-26T03:52:25.720598Z",
+      "commit": null,
+      "checkpoint_id": null,
+      "outputs": {},
+      "error": "Container exited with code 1",
+      "retry_count": 0,
+      "conflicts": []
+    },
+    {
+      "role": "reviewer_code",
+      "phase_id": null,
+      "status": "failed",
+      "started_at": null,
+      "completed_at": "2026-02-26T03:52:25.788467Z",
+      "commit": null,
+      "checkpoint_id": null,
+      "outputs": {},
+      "error": "Container exited with code 1",
+      "retry_count": 0,
+      "conflicts": []
+    }
+  ],
+  "multi_agent_config": null
+}
