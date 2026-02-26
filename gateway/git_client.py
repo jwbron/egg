@@ -238,9 +238,7 @@ def validate_repo_path(path: str) -> tuple[bool, str]:
 BLOCKED_GIT_FLAGS = [
     "--upload-pack",  # Can specify arbitrary command
     "--exec",  # Can specify arbitrary command
-    "-u",  # Short for --upload-pack (blocked here, but -u for --set-upstream is normalized)
-    "-c",  # Config override (could disable security)
-    "--config",  # Config override
+    "--config",  # Config override (could disable security)
     "--receive-pack",  # Arbitrary command execution
 ]
 
@@ -325,7 +323,7 @@ GIT_ALLOWED_COMMANDS = {
             "--first-parent",
             "--reverse",
             "--max-count",
-            # Note: -n is NOT included because FLAG_NORMALIZATION maps -n → --dry-run globally.
+            # Note: -n is not normalized for log (no entry in FLAG_NORMALIZATION).
             # Users should use --max-count=N or -3 (numeric shorthand) instead.
             "--since",
             "--until",
@@ -677,8 +675,7 @@ GIT_ALLOWED_COMMANDS = {
             "--notes",
             "--base",
             "-o",
-            # Note: -n is NOT included because FLAG_NORMALIZATION maps -n → --dry-run globally.
-            # Users should use --numbered instead.
+            # Note: -n is not in the format-patch allowlist; users should use --numbered instead.
             "-N",
             "-k",
             "-s",
@@ -765,7 +762,7 @@ GIT_ALLOWED_COMMANDS = {
             "--format",
             "--oneline",
             "--max-count",
-            # Note: -n is NOT included because FLAG_NORMALIZATION maps -n → --dry-run globally.
+            # Note: -n is not normalized for reflog (no entry in FLAG_NORMALIZATION).
             # Users should use --max-count=N instead.
         ],
     },
@@ -805,39 +802,83 @@ GIT_ALLOWED_COMMANDS = {
     },
 }
 
-# Flag normalization: map short flags to long form for consistent validation
+# Per-subcommand flag normalization: map short flags to long form for consistent
+# validation.  Short flags that don't have an obvious long form (like ``blame -L``,
+# ``ls-tree -r``, ``clean -d``) are intentionally NOT normalized — they remain
+# as-is and pass through the allowlist check unchanged (allowlists already contain
+# these short forms).
 FLAG_NORMALIZATION = {
-    # fetch/ls-remote
-    "-a": "--all",
-    "-t": "--tags",
-    "-p": "--prune",
-    "-v": "--verbose",
-    "-q": "--quiet",
-    "-j": "--jobs",
-    # push
-    "-f": "--force",
-    "-d": "--delete",
-    "-u": "--set-upstream",
-    "-n": "--dry-run",
+    "fetch": {"-a": "--all", "-t": "--tags", "-p": "--prune", "-v": "--verbose",
+              "-q": "--quiet", "-j": "--jobs"},
+    "push": {"-f": "--force", "-d": "--delete", "-u": "--set-upstream", "-n": "--dry-run",
+             "-v": "--verbose", "-q": "--quiet"},
+    "add": {"-A": "--all", "-u": "--update", "-f": "--force", "-n": "--intent-to-add",
+            "-N": "--intent-to-add", "-v": "--verbose", "-p": "--patch"},
+    "stash": {"-k": "--keep-index", "-u": "--include-untracked", "-a": "--all",
+              "-q": "--quiet", "-m": "--message"},
+    "checkout": {"-f": "--force", "-q": "--quiet", "-t": "--track"},
+    "switch": {"-c": "--create", "-C": "--force-create", "-d": "--detach",
+               "-q": "--quiet", "-t": "--track"},
+    "commit": {"-m": "--message", "-a": "--all", "-v": "--verbose", "-q": "--quiet",
+               "-s": "--signoff"},
+    "tag": {"-l": "--list", "-d": "--delete", "-a": "--annotate", "-m": "--message",
+            "-f": "--force", "-s": "--sign", "-v": "--verify"},
+    "blame": {"-e": "--show-email", "-n": "--show-number", "-f": "--show-name"},
+    "cherry-pick": {"-n": "--no-commit", "-e": "--edit", "-m": "--mainline"},
+    "apply": {"-v": "--verbose", "-R": "--reverse", "-q": "--quiet"},
+    "ls-files": {"-c": "--cached", "-d": "--deleted", "-m": "--modified",
+                 "-o": "--others", "-i": "--ignored", "-s": "--stage",
+                 "-u": "--unmerged", "-k": "--killed"},
+    "clean": {"-f": "--force", "-n": "--dry-run", "-q": "--quiet"},
+    "rm": {"-f": "--force", "-n": "--dry-run", "-r": "-r", "-q": "--quiet"},
+    "mv": {"-f": "--force", "-n": "--dry-run", "-v": "--verbose"},
+    "merge": {"-m": "--message", "-v": "--verbose", "-q": "--quiet"},
+    "rebase": {"-v": "--verbose", "-q": "--quiet"},
+    "reset": {"-q": "--quiet"},
+    "restore": {"-S": "--staged", "-W": "--worktree", "-s": "--source", "-q": "--quiet"},
+    "am": {"-k": "--keep", "-m": "--message-id", "-s": "--scissors", "-q": "--quiet"},
+    "format-patch": {"-o": "--output-directory", "-k": "--keep-subject", "-s": "--signoff",
+                     "-q": "--quiet"},
+    "branch": {"-a": "--all", "-r": "--remotes", "-v": "--verbose"},
+    "remote": {"-v": "--verbose"},
+    "status": {},
+    "log": {},
+    "diff": {},
+    "show": {},
+    "rev-parse": {},
+    "ls-tree": {},
+    "worktree": {"-v": "--verbose"},
+    "ls-remote": {"-q": "--quiet"},
+    "describe": {},
+    "config": {},
+    "merge-base": {},
+    "reflog": {},
+    "update-index": {"-q": "--quiet"},
 }
 
 
-def normalize_flag(flag: str) -> str:
+def normalize_flag(flag: str, operation: str | None = None) -> str:
     """
     Normalize short flags to long form for consistent validation.
 
+    Uses per-subcommand mappings so that the same short flag (e.g. ``-u``)
+    normalizes to different long forms depending on the git subcommand.
+
     Args:
         flag: The flag to normalize (e.g., "-a" or "--all")
+        operation: The git subcommand (e.g., "push", "stash").  When *None*,
+            no normalization is applied (the flag is returned as-is).
 
     Returns:
         The normalized long-form flag, or original if not found
     """
+    mapping = FLAG_NORMALIZATION.get(operation, {}) if operation else {}
     # Handle -X=value format
     if "=" in flag:
         base, value = flag.split("=", 1)
-        normalized = FLAG_NORMALIZATION.get(base, base)
+        normalized = mapping.get(base, base)
         return f"{normalized}={value}"
-    return FLAG_NORMALIZATION.get(flag, flag)
+    return mapping.get(flag, flag)
 
 
 def validate_git_args(operation: str, args: list[str]) -> tuple[bool, str, list[str]]:
@@ -905,8 +946,8 @@ def validate_git_args(operation: str, args: list[str]) -> tuple[bool, str, list[
                     [],
                 )
 
-        # Normalize short flags to long form
-        normalized_flag = normalize_flag(arg)
+        # Normalize short flags to long form (per-subcommand)
+        normalized_flag = normalize_flag(arg, operation)
 
         # Check for explicitly blocked flags first
         flag_base = normalized_flag.split("=")[0] if "=" in normalized_flag else normalized_flag
@@ -955,8 +996,8 @@ def is_branch_switching_checkout(args: list[str]) -> bool:
       → **switch** (True)
     - No positional args and no branch flags → harmless no-op → **file** (False)
 
-    Note: ``-t`` is intentionally excluded — FLAG_NORMALIZATION maps it to
-    ``--tags``, so ``-t`` never reaches this function for checkout operations.
+    Note: ``-t`` is normalized to ``--track`` for checkout via
+    FLAG_NORMALIZATION, so this function sees ``--track`` (handled above).
 
     Note: ``--detach`` is not currently in checkout's allowed_flags. If it is
     ever added, this function would need to handle it (it detaches HEAD at a
