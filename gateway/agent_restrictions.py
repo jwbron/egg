@@ -2,7 +2,7 @@
 Agent-role-based file restrictions for multi-agent orchestration.
 
 This module extends the phase_filter system to enforce file access patterns
-for specialized agents (Coder, Tester, Documenter, Integrator). Each agent
+for specialized agents. Each agent
 role has specific file paths it can read and write to, preventing agents
 from modifying files outside their responsibility.
 
