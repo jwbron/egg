@@ -252,6 +252,7 @@ client.create_decision(
     question="Which database should we use?",
     options=["PostgreSQL", "MongoDB", "SQLite"],
     decision_type="choice",
+    phase="plan",  # Optional: tracks which phase created the decision
 )
 
 client.create_decision(
@@ -262,14 +263,15 @@ client.create_decision(
         {"id": "q1", "question": "What is the expected traffic volume?"},
         {"id": "q2", "question": "Any specific performance requirements?"},
     ],
+    phase="refine",  # Optional: helps sandbox locate correct draft paths
 )
 ```
 
-The orchestrator API (`POST /api/v1/pipelines/{id}/decisions`) accepts `decision_type` and `questions` fields in the request body.
+The orchestrator API (`POST /api/v1/pipelines/{id}/decisions`) accepts `decision_type`, `questions`, and `phase` fields in the request body. The `phase` field is optional but recommended — it tracks which pipeline phase created the decision and helps the HITL handler locate the correct draft paths (e.g., `.egg-state/drafts/900-plan.md` instead of `.egg-state/drafts/900-unknown.md`).
 
 ## Related Files
 
-- `orchestrator/models.py` — `HITLDecision` model with `decision_type` and `questions` fields
+- `orchestrator/models.py` — `HITLDecision` model with `decision_type`, `questions`, and `phase` fields
 - `orchestrator/decision_queue.py` — Decision queue handling typed decisions
 - `orchestrator/routes/decisions.py` — Decision API endpoints (create, list, resolve)
 - `orchestrator/routes/pipelines.py` — Phase gate resolution with JSON payload parsing
