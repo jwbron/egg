@@ -673,6 +673,7 @@ def _handle_choice(
     client: OrchClient,
     pipeline_id: str,
     decision: dict[str, Any],
+    draft_content: str | None = None,
 ) -> str:
     """Handle a choice decision with numbered options."""
     decision_id = decision.get("id", "unknown")
@@ -682,16 +683,27 @@ def _handle_choice(
         print(f"\n  {BOLD}Options:{RESET}")
         for i, opt in enumerate(options, 1):
             print(f"  {CYAN}[{i}]{RESET} {opt}")
+        if draft_content:
+            print(f"  {CYAN}[v]{RESET} View full document")
         _display_universal_options()
 
         valid_nums = {str(i) for i in range(1, len(options) + 1)}
         valid = valid_nums | {"f", "a", "c"}
-        choice = _prompt_choice(f"\n  {BOLD}Choose [1-{len(options)}/f/a/c]:{RESET} ", valid)
+        if draft_content:
+            valid.add("v")
+        v_hint = "/v" if draft_content else ""
+        choice = _prompt_choice(
+            f"\n  {BOLD}Choose [1-{len(options)}{v_hint}/f/a/c]:{RESET} ", valid
+        )
 
         # Check universal options first
         result = _handle_universal_option(choice, client, pipeline_id, decision_id)
         if result:
             return result
+
+        if choice == "v" and draft_content:
+            _display_in_pager(draft_content)
+            continue
 
         if choice in valid_nums:
             selected = options[int(choice) - 1]
@@ -712,6 +724,7 @@ def _handle_feedback(
     client: OrchClient,
     pipeline_id: str,
     decision: dict[str, Any],
+    draft_content: str | None = None,
 ) -> str:
     """Handle a feedback decision with structured question prompts."""
     decision_id = decision.get("id", "unknown")
@@ -720,14 +733,21 @@ def _handle_feedback(
     # If no structured questions, fall back to single free-text input
     if not questions:
         while True:
+            if draft_content:
+                print(f"  {CYAN}[v]{RESET} View full document")
             _display_universal_options()
             feedback = _prompt_text(f"\n  {BOLD}Enter your response (empty line to finish):{RESET}")
             if not feedback.strip():
                 print(f"  {DIM}No response entered.{RESET}")
                 # Show universal options for empty input
                 valid = {"f", "a", "c", "r"}
+                if draft_content:
+                    valid.add("v")
                 print(f"  {CYAN}[r]{RESET} Retry input")
                 choice = _prompt_choice(f"\n  {BOLD}Choose [r/f/a/c]:{RESET} ", valid)
+                if choice == "v" and draft_content:
+                    _display_in_pager(draft_content)
+                    continue
                 if choice == "r":
                     continue
                 result = _handle_universal_option(choice, client, pipeline_id, decision_id)
@@ -815,10 +835,18 @@ def _handle_feedback(
 
         print(f"\n  {CYAN}[s]{RESET} Submit answers")
         print(f"  {CYAN}[r]{RESET} Redo a question")
+        if draft_content:
+            print(f"  {CYAN}[v]{RESET} View full document")
         _display_universal_options()
 
         valid = {"s", "r", "f", "a", "c"}
+        if draft_content:
+            valid.add("v")
         choice = _prompt_choice(f"\n  {BOLD}Choose [s/r/f/a/c]:{RESET} ", valid)
+
+        if choice == "v" and draft_content:
+            _display_in_pager(draft_content)
+            continue
 
         # Check universal options
         result = _handle_universal_option(choice, client, pipeline_id, decision_id)
@@ -940,6 +968,40 @@ def _handle_generic(
                 return "cancelled"
 
 
+def resolve_phase_draft(
+    decision: dict[str, Any],
+    pipeline_mode: str = "issue",
+    issue_number: int | None = None,
+    pipeline_id: str | None = None,
+) -> tuple[str | None, str | None]:
+    """Resolve the phase draft document for a decision.
+
+    Extracts draft resolution logic (phase detection, draft path, draft content)
+    into a reusable function for use by both handle_hitl_checkpoint() and the
+    CLI watch loop (sdlc_cli.py).
+
+    Returns:
+        (draft_rel, draft_content) tuple where draft_rel is the relative path
+        to the draft file and draft_content is its text content. Either or both
+        may be None.
+    """
+    question = decision.get("question", "")
+    context = decision.get("context", "")
+
+    raw_phase = decision.get("phase")
+    phase = raw_phase if raw_phase is not None else _detect_phase(question, context)
+
+    repo_path = _find_repo_path()
+    draft_rel = _get_draft_path(phase, pipeline_mode, issue_number, pipeline_id)
+    draft_content = _read_draft(repo_path, draft_rel)
+
+    # Fall back to decision context if local draft file not found.
+    if not draft_content and context:
+        draft_content = context
+
+    return draft_rel, draft_content
+
+
 def handle_hitl_checkpoint(
     client: OrchClient,
     pipeline_id: str,
@@ -1019,10 +1081,10 @@ def handle_hitl_checkpoint(
     elif decision_type == "choice":
         options = decision.get("options", [])
         if options:
-            return _handle_choice(client, pipeline_id, decision)
+            return _handle_choice(client, pipeline_id, decision, draft_content=draft_content)
         # No options — fall through to generic
     elif decision_type == "feedback":
-        return _handle_feedback(client, pipeline_id, decision)
+        return _handle_feedback(client, pipeline_id, decision, draft_content=draft_content)
 
     # Unknown type or choice without options — generic fallback
     if draft_content and decision_type != "phase_gate":

@@ -14,12 +14,15 @@ from egg_lib.sdlc_hitl import (
     _find_repo_path,
     _get_contract_key,
     _get_draft_path,
+    _handle_choice,
     _handle_contract_questions,
+    _handle_feedback,
     _launch_claude,
     _load_pending_contract_decisions,
     _read_draft,
     _resolve_contract_decision,
     handle_hitl_checkpoint,
+    resolve_phase_draft,
 )
 
 # ---------------------------------------------------------------------------
@@ -3102,3 +3105,360 @@ class TestPhaseGateViewOption:
 
         assert result == "resolved"
         mock_pager.assert_called_once_with("Analysis document content")
+
+
+# ---------------------------------------------------------------------------
+# resolve_phase_draft tests
+# ---------------------------------------------------------------------------
+
+
+class TestResolvePhaseDraft:
+    """Tests for the resolve_phase_draft() public helper."""
+
+    @patch("egg_lib.sdlc_hitl._find_repo_path")
+    def test_returns_draft_for_refine(self, mock_repo, tmp_path):
+        """Returns analysis draft for refine-phase decisions."""
+        mock_repo.return_value = tmp_path
+        draft_dir = tmp_path / ".egg-state" / "drafts"
+        draft_dir.mkdir(parents=True)
+        (draft_dir / "42-analysis.md").write_text("# Analysis\nContent")
+
+        decision = {
+            "id": "d1",
+            "question": "Approve the refine analysis?",
+            "context": "",
+        }
+        draft_rel, draft_content = resolve_phase_draft(
+            decision, pipeline_mode="issue", issue_number=42
+        )
+
+        assert draft_rel == ".egg-state/drafts/42-analysis.md"
+        assert draft_content == "# Analysis\nContent"
+
+    @patch("egg_lib.sdlc_hitl._find_repo_path")
+    def test_returns_draft_for_plan(self, mock_repo, tmp_path):
+        """Returns plan draft for plan-phase decisions."""
+        mock_repo.return_value = tmp_path
+        draft_dir = tmp_path / ".egg-state" / "drafts"
+        draft_dir.mkdir(parents=True)
+        (draft_dir / "10-plan.md").write_text("# Plan\nSteps")
+
+        decision = {
+            "id": "d1",
+            "question": "Approve the plan?",
+            "context": "",
+        }
+        draft_rel, draft_content = resolve_phase_draft(
+            decision, pipeline_mode="issue", issue_number=10
+        )
+
+        assert draft_rel == ".egg-state/drafts/10-plan.md"
+        assert draft_content == "# Plan\nSteps"
+
+    @patch("egg_lib.sdlc_hitl._find_repo_path")
+    def test_falls_back_to_context(self, mock_repo, tmp_path):
+        """Falls back to decision context when draft file is missing."""
+        mock_repo.return_value = tmp_path
+
+        decision = {
+            "id": "d1",
+            "question": "Approve the refine analysis?",
+            "context": "Fallback context content",
+        }
+        draft_rel, draft_content = resolve_phase_draft(
+            decision, pipeline_mode="issue", issue_number=42
+        )
+
+        assert draft_rel == ".egg-state/drafts/42-analysis.md"
+        assert draft_content == "Fallback context content"
+
+    @patch("egg_lib.sdlc_hitl._find_repo_path")
+    def test_returns_none_for_implement(self, mock_repo, tmp_path):
+        """Returns None for implement phase (no draft file)."""
+        mock_repo.return_value = tmp_path
+
+        decision = {
+            "id": "d1",
+            "question": "Ready to implement?",
+            "context": "",
+        }
+        draft_rel, draft_content = resolve_phase_draft(
+            decision, pipeline_mode="issue", issue_number=42
+        )
+
+        assert draft_rel is None
+        assert draft_content is None
+
+    @patch("egg_lib.sdlc_hitl._find_repo_path")
+    def test_explicit_phase_used(self, mock_repo, tmp_path):
+        """Explicit phase in decision dict overrides detection."""
+        mock_repo.return_value = tmp_path
+        draft_dir = tmp_path / ".egg-state" / "drafts"
+        draft_dir.mkdir(parents=True)
+        (draft_dir / "42-plan.md").write_text("# Plan")
+
+        decision = {
+            "id": "d1",
+            "question": "Something unrelated",
+            "context": "",
+            "phase": "plan",
+        }
+        draft_rel, draft_content = resolve_phase_draft(
+            decision, pipeline_mode="issue", issue_number=42
+        )
+
+        assert draft_rel == ".egg-state/drafts/42-plan.md"
+        assert draft_content == "# Plan"
+
+
+# ---------------------------------------------------------------------------
+# _handle_choice [v] view option tests
+# ---------------------------------------------------------------------------
+
+
+class TestChoiceViewOption:
+    """Tests for [v] view full document option in _handle_choice."""
+
+    def _make_client(self):
+        client = MagicMock(spec=["resolve_decision", "cancel_pipeline"])
+        client.resolve_decision.return_value = {"status": "resolved"}
+        client.cancel_pipeline.return_value = {"status": "cancelled"}
+        return client
+
+    @patch("egg_lib.sdlc_hitl._display_in_pager")
+    @patch("builtins.input")
+    def test_v_option_shown_with_draft(self, mock_input, mock_pager, capsys):
+        """[v] option appears when draft_content is provided."""
+        mock_input.side_effect = ["v", "1"]
+        client = self._make_client()
+        decision = {
+            "id": "d1",
+            "question": "Which DB?",
+            "decision_type": "choice",
+            "options": ["PostgreSQL", "MongoDB"],
+        }
+
+        result = _handle_choice(client, "issue-42", decision, draft_content="# Draft\nContent")
+
+        assert result == "resolved"
+        mock_pager.assert_called_once_with("# Draft\nContent")
+        captured = capsys.readouterr()
+        assert "[v]" in captured.out
+
+    @patch("egg_lib.sdlc_hitl._display_in_pager")
+    @patch("builtins.input")
+    def test_v_option_hidden_without_draft(self, mock_input, mock_pager, capsys):
+        """[v] option is not shown when draft_content is None."""
+        mock_input.return_value = "1"
+        client = self._make_client()
+        decision = {
+            "id": "d1",
+            "question": "Which DB?",
+            "decision_type": "choice",
+            "options": ["PostgreSQL", "MongoDB"],
+        }
+
+        result = _handle_choice(client, "issue-42", decision, draft_content=None)
+
+        assert result == "resolved"
+        mock_pager.assert_not_called()
+        captured = capsys.readouterr()
+        assert "[v]" not in captured.out
+
+
+# ---------------------------------------------------------------------------
+# _handle_feedback [v] view option tests
+# ---------------------------------------------------------------------------
+
+
+class TestFeedbackViewOption:
+    """Tests for [v] view full document option in _handle_feedback."""
+
+    def _make_client(self):
+        client = MagicMock(spec=["resolve_decision", "cancel_pipeline"])
+        client.resolve_decision.return_value = {"status": "resolved"}
+        client.cancel_pipeline.return_value = {"status": "cancelled"}
+        return client
+
+    @patch("egg_lib.sdlc_hitl._display_in_pager")
+    @patch("builtins.input")
+    def test_v_option_shown_in_review_loop(self, mock_input, mock_pager, capsys):
+        """[v] option appears in the review-and-submit loop when draft_content is present."""
+        # Answer q1, answer q2, 'v' to view draft, then 's' to submit
+        mock_input.side_effect = ["Answer 1", "Answer 2", "v", "s"]
+        client = self._make_client()
+        decision = {
+            "id": "d1",
+            "question": "Please provide feedback",
+            "decision_type": "feedback",
+            "questions": [
+                {"id": "q-1", "question": "Volume?", "answer": ""},
+                {"id": "q-2", "question": "Performance?", "answer": ""},
+            ],
+        }
+
+        result = _handle_feedback(client, "issue-42", decision, draft_content="# Analysis")
+
+        assert result == "resolved"
+        mock_pager.assert_called_once_with("# Analysis")
+        captured = capsys.readouterr()
+        assert "[v]" in captured.out
+
+    @patch("egg_lib.sdlc_hitl._display_in_pager")
+    @patch("builtins.input")
+    def test_v_option_hidden_without_draft(self, mock_input, mock_pager, capsys):
+        """[v] option is not shown when draft_content is None."""
+        mock_input.side_effect = ["Answer 1", "Answer 2", "s"]
+        client = self._make_client()
+        decision = {
+            "id": "d1",
+            "question": "Please provide feedback",
+            "decision_type": "feedback",
+            "questions": [
+                {"id": "q-1", "question": "Volume?", "answer": ""},
+                {"id": "q-2", "question": "Performance?", "answer": ""},
+            ],
+        }
+
+        result = _handle_feedback(client, "issue-42", decision, draft_content=None)
+
+        assert result == "resolved"
+        mock_pager.assert_not_called()
+        captured = capsys.readouterr()
+        assert "[v]" not in captured.out
+
+    @patch("egg_lib.sdlc_hitl._display_in_pager")
+    @patch("builtins.input")
+    def test_v_option_in_freetext_mode(self, mock_input, mock_pager, capsys):
+        """[v] option appears in free-text feedback mode when draft_content is present."""
+        mock_input.side_effect = ["My feedback", ""]
+        client = self._make_client()
+        decision = {
+            "id": "d1",
+            "question": "Please provide feedback",
+            "decision_type": "feedback",
+            "questions": [],
+        }
+
+        result = _handle_feedback(client, "issue-42", decision, draft_content="# Plan\nSteps")
+
+        assert result == "resolved"
+        captured = capsys.readouterr()
+        assert "[v]" in captured.out
+
+
+# ---------------------------------------------------------------------------
+# handle_hitl_checkpoint passes draft_content to handlers
+# ---------------------------------------------------------------------------
+
+
+class TestHandleHitlPassesDraft:
+    """Tests that handle_hitl_checkpoint passes draft_content to choice/feedback handlers."""
+
+    def _make_client(self):
+        client = MagicMock(spec=["resolve_decision", "cancel_pipeline"])
+        client.resolve_decision.return_value = {"status": "resolved"}
+        client.cancel_pipeline.return_value = {"status": "cancelled"}
+        return client
+
+    @patch("egg_lib.sdlc_hitl._find_repo_path")
+    @patch("egg_lib.sdlc_hitl._handle_choice")
+    def test_choice_receives_draft_content(self, mock_handler, mock_repo, tmp_path):
+        """_handle_choice receives draft_content from handle_hitl_checkpoint."""
+        mock_repo.return_value = tmp_path
+        mock_handler.return_value = "resolved"
+
+        # Create draft file
+        draft_dir = tmp_path / ".egg-state" / "drafts"
+        draft_dir.mkdir(parents=True)
+        (draft_dir / "42-analysis.md").write_text("# Analysis\nDraft content")
+
+        client = self._make_client()
+        decision = {
+            "id": "d1",
+            "question": "Which approach for the refine analysis?",
+            "context": "",
+            "decision_type": "choice",
+            "options": ["A", "B"],
+        }
+        handle_hitl_checkpoint(
+            client, "issue-42", decision, pipeline_mode="issue", issue_number=42
+        )
+
+        mock_handler.assert_called_once()
+        call_kwargs = mock_handler.call_args
+        assert call_kwargs[1]["draft_content"] == "# Analysis\nDraft content"
+
+    @patch("egg_lib.sdlc_hitl._find_repo_path")
+    @patch("egg_lib.sdlc_hitl._handle_feedback")
+    def test_feedback_receives_draft_content(self, mock_handler, mock_repo, tmp_path):
+        """_handle_feedback receives draft_content from handle_hitl_checkpoint."""
+        mock_repo.return_value = tmp_path
+        mock_handler.return_value = "resolved"
+
+        # Create draft file
+        draft_dir = tmp_path / ".egg-state" / "drafts"
+        draft_dir.mkdir(parents=True)
+        (draft_dir / "42-analysis.md").write_text("# Analysis\nDraft content")
+
+        client = self._make_client()
+        decision = {
+            "id": "d1",
+            "question": "Provide feedback on the refine analysis",
+            "context": "",
+            "decision_type": "feedback",
+            "questions": [{"id": "q-1", "question": "Volume?"}],
+        }
+        handle_hitl_checkpoint(
+            client, "issue-42", decision, pipeline_mode="issue", issue_number=42
+        )
+
+        mock_handler.assert_called_once()
+        call_kwargs = mock_handler.call_args
+        assert call_kwargs[1]["draft_content"] == "# Analysis\nDraft content"
+
+    @patch("egg_lib.sdlc_hitl._find_repo_path")
+    @patch("egg_lib.sdlc_hitl._handle_choice")
+    def test_choice_receives_context_fallback(self, mock_handler, mock_repo, tmp_path):
+        """_handle_choice receives context as draft_content when no file exists."""
+        mock_repo.return_value = tmp_path
+        mock_handler.return_value = "resolved"
+
+        client = self._make_client()
+        decision = {
+            "id": "d1",
+            "question": "Which approach for the refine analysis?",
+            "context": "Context as draft",
+            "decision_type": "choice",
+            "options": ["A", "B"],
+        }
+        handle_hitl_checkpoint(
+            client, "issue-42", decision, pipeline_mode="issue", issue_number=42
+        )
+
+        mock_handler.assert_called_once()
+        call_kwargs = mock_handler.call_args
+        assert call_kwargs[1]["draft_content"] == "Context as draft"
+
+    @patch("egg_lib.sdlc_hitl._find_repo_path")
+    @patch("egg_lib.sdlc_hitl._handle_choice")
+    def test_choice_receives_none_when_no_draft(self, mock_handler, mock_repo, tmp_path):
+        """_handle_choice receives None when no draft or context exists."""
+        mock_repo.return_value = tmp_path
+        mock_handler.return_value = "resolved"
+
+        client = self._make_client()
+        decision = {
+            "id": "d1",
+            "question": "Which approach for the refine analysis?",
+            "context": "",
+            "decision_type": "choice",
+            "options": ["A", "B"],
+        }
+        handle_hitl_checkpoint(
+            client, "issue-42", decision, pipeline_mode="issue", issue_number=42
+        )
+
+        mock_handler.assert_called_once()
+        call_kwargs = mock_handler.call_args
+        assert call_kwargs[1]["draft_content"] is None
