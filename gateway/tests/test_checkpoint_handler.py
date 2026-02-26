@@ -2,7 +2,7 @@
 
 import subprocess
 from datetime import UTC, datetime, timedelta
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 # Import from conftest-loaded modules
 from checkpoint_handler import (
@@ -1051,8 +1051,8 @@ class TestStoreCheckpointWithToken:
 
         # Find network-facing git calls (fetch, push) and verify they got the token
         fetch_calls = [c for c in git_calls if "fetch" in c[1]]
-        for call in fetch_calls:
-            assert call[2].get("github_token") == "fresh-token-456"
+        for git_call in fetch_calls:
+            assert git_call[2].get("github_token") == "fresh-token-456"
 
 
 class TestSessionEndCheckpointTokenResolution:
@@ -1207,6 +1207,10 @@ class TestStoreCheckpointV2FetchRetry:
         fetch_calls = [c for c in git_calls if "fetch" in c[1]]
         assert len(fetch_calls) == 2, f"Expected 2 fetch calls, got {len(fetch_calls)}"
         mock_time.sleep.assert_called_once_with(2)
+        # Verify post-fetch commands executed (proves retry unblocked the
+        # function, not just that the loop ran twice).
+        worktree_calls = [c for c in git_calls if "worktree" in c[1]]
+        assert len(worktree_calls) >= 1, "Expected post-fetch worktree commands to execute"
 
     @patch("checkpoint_handler.time")
     @patch("checkpoint_handler.get_checkpoint_handler")
@@ -1229,6 +1233,8 @@ class TestStoreCheckpointV2FetchRetry:
         assert result is False
         fetch_calls = [c for c in git_calls if "fetch" in c[1]]
         assert len(fetch_calls) == 3, f"Expected 3 fetch attempts, got {len(fetch_calls)}"
+        # Pin the exponential backoff formula: 2^1=2s, 2^2=4s
+        assert mock_time.sleep.call_args_list == [call(2), call(4)]
 
     @patch("checkpoint_handler.get_checkpoint_handler")
     def test_no_retry_on_non_timeout_error(self, mock_get_handler):
