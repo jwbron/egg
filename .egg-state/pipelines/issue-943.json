@@ -111,6 +111,21 @@
       "artifacts": {},
       "error": null,
       "phase_start_sha": null
+    },
+    "plan": {
+      "phase": "plan",
+      "status": "running",
+      "started_at": "2026-02-26T15:00:52.805510",
+      "work_started_at": null,
+      "completed_at": null,
+      "containers": [],
+      "agents": [],
+      "review_cycles": 0,
+      "hitl_review_cycles": 0,
+      "cycle_timings": [],
+      "artifacts": {},
+      "error": null,
+      "phase_start_sha": null
     }
   },
   "decisions": [
@@ -171,7 +186,7 @@
     }
   ],
   "created_at": "2026-02-26T14:34:24.364766",
-  "updated_at": "2026-02-26T15:00:52.780040",
+  "updated_at": "2026-02-26T15:00:52.805705",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
@@ -179,5 +194,5 @@
   "error": null,
   "plan_phase_waves": null,
   "plan_phase_names": null,
-  "version": 26
+  "version": 27
 }
