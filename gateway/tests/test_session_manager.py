@@ -7,6 +7,7 @@ Tests the thread-safe session storage, validation, and persistence.
 import hashlib
 import threading
 from datetime import UTC, datetime, timedelta
+from unittest.mock import patch
 
 import pytest
 
@@ -17,6 +18,7 @@ from session_manager import (
     SessionManager,
     SessionValidationResult,
     _hash_token,
+    _resolve_stable_repo_path,
     get_session_manager,
 )
 
@@ -244,13 +246,16 @@ class TestSessionManager:
             container_ip="172.18.0.5",
             mode="private",
         )
-        assert manager.delete_session(token) is True
+        deleted, _event = manager.delete_session(token)
+        assert deleted is True
         result = manager.validate_session(token)
         assert result.valid is False
 
     def test_delete_nonexistent_session(self, manager):
         """Test deleting a non-existent session."""
-        assert manager.delete_session("nonexistent-token") is False
+        deleted, event = manager.delete_session("nonexistent-token")
+        assert deleted is False
+        assert event is None
 
     def test_get_session_by_container(self, manager):
         """Test finding session by container ID."""
@@ -717,16 +722,17 @@ class TestDeleteByContainer:
             mode="private",
         )
 
-        result = manager.delete_session_by_container("test-container")
-        assert result is True
+        deleted, _event = manager.delete_session_by_container("test-container")
+        assert deleted is True
 
         # Session should no longer be findable
         assert manager.get_session_by_container("test-container") is None
 
     def test_delete_nonexistent_container(self, manager):
         """Delete returns False for non-existent container."""
-        result = manager.delete_session_by_container("nonexistent")
-        assert result is False
+        deleted, event = manager.delete_session_by_container("nonexistent")
+        assert deleted is False
+        assert event is None
 
     def test_delete_clears_token_cache(self, manager):
         """Deleting by container should also clear the token lookup cache."""
@@ -1542,8 +1548,8 @@ class TestSessionEndCheckpointCapture:
         from unittest.mock import patch
 
         with patch.object(session_manager_module, "_capture_and_cleanup_session") as mock_capture:
-            result = manager.delete_session(token)
-            assert result is True
+            deleted, _event = manager.delete_session(token)
+            assert deleted is True
             mock_capture.assert_called_once()
             args = mock_capture.call_args[0]
             assert args[0].container_id == "test-container"
@@ -1560,8 +1566,8 @@ class TestSessionEndCheckpointCapture:
         from unittest.mock import patch
 
         with patch.object(session_manager_module, "_capture_and_cleanup_session") as mock_capture:
-            result = manager.delete_session_by_container("test-container")
-            assert result is True
+            deleted, _event = manager.delete_session_by_container("test-container")
+            assert deleted is True
             mock_capture.assert_called_once()
             args = mock_capture.call_args[0]
             assert args[0].container_id == "test-container"
@@ -1593,8 +1599,9 @@ class TestSessionEndCheckpointCapture:
         from unittest.mock import patch
 
         with patch.object(session_manager_module, "_capture_and_cleanup_session") as mock_capture:
-            result = manager.delete_session("nonexistent-token")
-            assert result is False
+            deleted, event = manager.delete_session("nonexistent-token")
+            assert deleted is False
+            assert event is None
             mock_capture.assert_not_called()
 
     def test_delete_by_container_not_found_skips_capture(self, manager):
@@ -1602,8 +1609,9 @@ class TestSessionEndCheckpointCapture:
         from unittest.mock import patch
 
         with patch.object(session_manager_module, "_capture_and_cleanup_session") as mock_capture:
-            result = manager.delete_session_by_container("nonexistent")
-            assert result is False
+            deleted, event = manager.delete_session_by_container("nonexistent")
+            assert deleted is False
+            assert event is None
             mock_capture.assert_not_called()
 
     def test_capture_called_outside_lock(self, manager):
@@ -1632,8 +1640,8 @@ class TestSessionEndCheckpointCapture:
         with patch.object(
             session_manager_module, "_capture_and_cleanup_session", side_effect=capture_mock
         ):
-            result = manager.delete_session_by_container("test-container")
-            assert result is True
+            deleted, _event = manager.delete_session_by_container("test-container")
+            assert deleted is True
 
     def test_capture_and_cleanup_handles_import_error(self):
         """_capture_and_cleanup_session handles ImportError gracefully."""
@@ -1687,3 +1695,187 @@ class TestSessionEndCheckpointCapture:
                 _capture_and_cleanup_session(session, "completed")
             # Buffer cleanup should still happen
             mock_cleanup.assert_called_once_with("test-container")
+
+    def test_capture_returns_completion_event(self):
+        """_capture_and_cleanup_session returns completion event from checkpoint capture."""
+        now = datetime.now(UTC)
+        session = Session(
+            session_token="test-token",
+            session_token_hash=_hash_token("test-token"),
+            container_id="test-container-event",
+            container_ip="172.18.0.5",
+            mode="private",
+            created_at=now,
+            last_seen=now,
+            expires_at=now + timedelta(hours=24),
+            last_repo_path="/home/egg/repos/test-repo",
+        )
+
+        from session_manager import _capture_and_cleanup_session
+
+        mock_event = threading.Event()
+        mock_event.set()
+
+        with patch.object(session_manager_module, "_cleanup_transcript_buffer"):
+            with patch(
+                "checkpoint_handler.capture_session_end_checkpoint",
+                return_value=(None, mock_event),
+            ):
+                result = _capture_and_cleanup_session(session, "completed")
+                assert result is mock_event
+
+    def test_capture_resolves_worktree_path(self):
+        """_capture_and_cleanup_session resolves worktree path to stable repo path."""
+        now = datetime.now(UTC)
+        session = Session(
+            session_token="test-token",
+            session_token_hash=_hash_token("test-token"),
+            container_id="test-container-resolve",
+            container_ip="172.18.0.5",
+            mode="private",
+            created_at=now,
+            last_seen=now,
+            expires_at=now + timedelta(hours=24),
+            last_repo_path="/home/egg/.worktrees/container-123/myrepo",
+        )
+
+        from session_manager import _capture_and_cleanup_session
+
+        with patch.object(session_manager_module, "_cleanup_transcript_buffer"):
+            with patch(
+                "session_manager._resolve_stable_repo_path",
+                return_value="/home/egg/repos/myrepo",
+            ) as mock_resolve:
+                with patch(
+                    "checkpoint_handler.capture_session_end_checkpoint",
+                    return_value=(None, None),
+                ) as mock_capture:
+                    _capture_and_cleanup_session(session, "completed")
+                    mock_resolve.assert_called_once_with(
+                        "/home/egg/.worktrees/container-123/myrepo"
+                    )
+                    # Verify the resolved path was passed to capture
+                    call_kwargs = mock_capture.call_args[1]
+                    assert call_kwargs["repo_path"] == "/home/egg/repos/myrepo"
+
+    def test_delete_session_returns_event_tuple(self, manager):
+        """delete_session returns (bool, Event|None) tuple."""
+        token, _session = manager.register_session(
+            container_id="test-container-tuple",
+            container_ip="172.18.0.5",
+            mode="private",
+        )
+
+        mock_event = threading.Event()
+        with patch.object(
+            session_manager_module,
+            "_capture_and_cleanup_session",
+            return_value=mock_event,
+        ):
+            result = manager.delete_session(token)
+            assert isinstance(result, tuple)
+            assert result[0] is True
+            assert result[1] is mock_event
+
+    def test_delete_session_not_found_returns_none_event(self, manager):
+        """delete_session returns (False, None) when not found."""
+        result = manager.delete_session("nonexistent-token")
+        assert result == (False, None)
+
+    def test_delete_by_container_returns_event_tuple(self, manager):
+        """delete_session_by_container returns (bool, Event|None) tuple."""
+        _token, _session = manager.register_session(
+            container_id="test-container-tuple2",
+            container_ip="172.18.0.5",
+            mode="private",
+        )
+
+        mock_event = threading.Event()
+        with patch.object(
+            session_manager_module,
+            "_capture_and_cleanup_session",
+            return_value=mock_event,
+        ):
+            result = manager.delete_session_by_container("test-container-tuple2")
+            assert isinstance(result, tuple)
+            assert result[0] is True
+            assert result[1] is mock_event
+
+    def test_delete_by_container_not_found_returns_none_event(self, manager):
+        """delete_session_by_container returns (False, None) when not found."""
+        result = manager.delete_session_by_container("nonexistent")
+        assert result == (False, None)
+
+
+class TestResolveStableRepoPath:
+    """Tests for _resolve_stable_repo_path helper."""
+
+    def test_main_repo_unchanged(self, tmp_path):
+        """Main repo path (with .git directory) is returned unchanged."""
+        repo = tmp_path / "myrepo"
+        repo.mkdir()
+        (repo / ".git").mkdir()
+        assert _resolve_stable_repo_path(str(repo)) == str(repo)
+
+    def test_worktree_resolved_to_main_repo(self, tmp_path):
+        """Worktree path is resolved to its parent main repo."""
+        # Set up a main repo with .git directory
+        main_repo = tmp_path / "main-repo"
+        main_repo.mkdir()
+        git_dir = main_repo / ".git"
+        git_dir.mkdir()
+        worktrees_dir = git_dir / "worktrees" / "my-worktree"
+        worktrees_dir.mkdir(parents=True)
+
+        # Set up a worktree with .git file pointing to main repo
+        worktree = tmp_path / "worktree-dir"
+        worktree.mkdir()
+        git_file = worktree / ".git"
+        git_file.write_text(f"gitdir: {worktrees_dir}\n")
+
+        result = _resolve_stable_repo_path(str(worktree))
+        assert result == str(main_repo)
+
+    def test_no_git_entry_returns_unchanged(self, tmp_path):
+        """Path without .git entry is returned unchanged."""
+        path = tmp_path / "no-git"
+        path.mkdir()
+        assert _resolve_stable_repo_path(str(path)) == str(path)
+
+    def test_git_file_without_gitdir_returns_unchanged(self, tmp_path):
+        """Git file without gitdir: prefix returns unchanged."""
+        path = tmp_path / "bad-git"
+        path.mkdir()
+        (path / ".git").write_text("something else\n")
+        assert _resolve_stable_repo_path(str(path)) == str(path)
+
+    def test_relative_gitdir_resolved(self, tmp_path):
+        """Relative gitdir paths are resolved correctly."""
+        main_repo = tmp_path / "main-repo"
+        main_repo.mkdir()
+        git_dir = main_repo / ".git"
+        git_dir.mkdir()
+        worktrees_dir = git_dir / "worktrees" / "wt"
+        worktrees_dir.mkdir(parents=True)
+
+        worktree = tmp_path / "worktree"
+        worktree.mkdir()
+        # Use relative path
+        import os
+
+        rel_path = os.path.relpath(worktrees_dir, worktree)
+        (worktree / ".git").write_text(f"gitdir: {rel_path}\n")
+
+        result = _resolve_stable_repo_path(str(worktree))
+        assert result == str(main_repo)
+
+    def test_exception_returns_unchanged(self, tmp_path):
+        """Exception during resolution returns original path unchanged."""
+        path = tmp_path / "error-case"
+        path.mkdir()
+        git_file = path / ".git"
+        git_file.write_text("gitdir: /nonexistent/path/that/will/fail\n")
+
+        # Should not raise, returns original path
+        result = _resolve_stable_repo_path(str(path))
+        assert result == str(path)

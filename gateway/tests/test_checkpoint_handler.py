@@ -1149,3 +1149,160 @@ class TestSessionEndCheckpointTokenResolution:
         # The explicit token should be passed through
         call_kwargs = mock_handler.store_checkpoint_v2.call_args
         assert call_kwargs[1].get("github_token") == "explicit-token"
+
+
+class TestSessionEndCaptureTimeout:
+    """Tests for SESSION_END_CAPTURE_TIMEOUT constant."""
+
+    def test_timeout_is_180_seconds(self):
+        """Timeout should be 180s to cover worst-case git operations."""
+        import checkpoint_handler
+
+        assert checkpoint_handler.SESSION_END_CAPTURE_TIMEOUT == 180
+
+
+class TestNonDaemonThreads:
+    """Tests for non-daemon checkpoint store threads."""
+
+    @patch("checkpoint_handler.get_checkpoint_handler")
+    def test_session_end_thread_is_non_daemon(self, mock_get_handler):
+        """Session-end checkpoint store thread should be non-daemon."""
+        from egg_contracts.checkpoints import (
+            CheckpointV2,
+            SessionMetadata,
+            SessionStatus,
+            TriggerType,
+        )
+
+        now = datetime.now(UTC)
+        mock_handler = MagicMock()
+        mock_handler.capture_session_end_checkpoint.return_value = CheckpointV2(
+            id="ckpt-abc123def456",
+            trigger_type=TriggerType.SESSION_END,
+            session_status=SessionStatus.COMPLETED,
+            session_id="test-container",
+            session=SessionMetadata(session_id="test-container", started_at=now),
+            created_at=now,
+            session_started_at=now,
+        )
+        mock_handler.store_checkpoint_v2.return_value = True
+        mock_get_handler.return_value = mock_handler
+
+        session = _make_test_session()
+
+        import threading
+
+        created_threads = []
+        original_init = threading.Thread.__init__
+
+        def tracking_init(self, *args, **kwargs):
+            original_init(self, *args, **kwargs)
+            created_threads.append(self)
+
+        with patch.object(threading.Thread, "__init__", tracking_init):
+            checkpoint, event = capture_session_end_checkpoint(
+                session=session,
+                session_status=SessionStatus.COMPLETED,
+                repo_path="/home/egg/repos/test-repo",
+                async_store=True,
+            )
+
+        # Find the store thread (it's the one with our target function)
+        store_threads = [t for t in created_threads if not t.daemon]
+        assert len(store_threads) >= 1, "Expected at least one non-daemon thread"
+
+        if event is not None:
+            event.wait(timeout=5)
+
+
+class TestFetchRetryInStore:
+    """Tests for fetch retry logic in store_checkpoint_v2."""
+
+    def test_fetch_retries_on_timeout(self):
+        """Fetch retries up to 3 times on TimeoutExpired."""
+        import checkpoint_handler
+
+        handler = checkpoint_handler.CheckpointHandler(github_token="test-token")
+
+        git_calls = []
+        call_count = 0
+
+        def track_run_git(cwd, args, **kwargs):
+            nonlocal call_count
+            git_calls.append((cwd, args, kwargs))
+            if "fetch" in args:
+                call_count += 1
+                if call_count < 3:
+                    raise subprocess.TimeoutExpired(cmd="git fetch", timeout=45)
+            return MagicMock(returncode=0, stdout="", stderr="")
+
+        handler._run_git = track_run_git
+        handler._branch_exists = MagicMock(return_value=True)
+
+        from egg_contracts.checkpoints import (
+            CheckpointV2,
+            SessionMetadata,
+            TriggerType,
+        )
+
+        now = datetime.now(UTC)
+        checkpoint = CheckpointV2(
+            id="ckpt-a1b2c3d4e5f67890",
+            trigger_type=TriggerType.COMMIT,
+            session_id="test-container",
+            commit_sha="abc123def456789012345678901234567890abcd",
+            session=SessionMetadata(session_id="test-container", started_at=now),
+            created_at=now,
+            session_started_at=now,
+        )
+
+        # Will succeed on 3rd attempt; may fail later but we check fetch retries
+        try:
+            handler.store_checkpoint_v2(checkpoint, "/fake/repo")
+        except Exception:
+            pass
+
+        fetch_calls = [c for c in git_calls if "fetch" in c[1]]
+        assert len(fetch_calls) == 3, f"Expected 3 fetch attempts, got {len(fetch_calls)}"
+
+    def test_fetch_does_not_retry_on_non_timeout_error(self):
+        """Fetch does not retry on non-timeout errors (raises immediately)."""
+        import checkpoint_handler
+
+        handler = checkpoint_handler.CheckpointHandler(github_token="test-token")
+
+        git_calls = []
+
+        def track_run_git(cwd, args, **kwargs):
+            git_calls.append((cwd, args, kwargs))
+            if "fetch" in args:
+                raise subprocess.CalledProcessError(128, "git fetch")
+            return MagicMock(returncode=0, stdout="", stderr="")
+
+        handler._run_git = track_run_git
+        handler._branch_exists = MagicMock(return_value=True)
+
+        from egg_contracts.checkpoints import (
+            CheckpointV2,
+            SessionMetadata,
+            TriggerType,
+        )
+
+        now = datetime.now(UTC)
+        checkpoint = CheckpointV2(
+            id="ckpt-a1b2c3d4e5f67890",
+            trigger_type=TriggerType.COMMIT,
+            session_id="test-container",
+            commit_sha="abc123def456789012345678901234567890abcd",
+            session=SessionMetadata(session_id="test-container", started_at=now),
+            created_at=now,
+            session_started_at=now,
+        )
+
+        try:
+            handler.store_checkpoint_v2(checkpoint, "/fake/repo")
+        except Exception:
+            pass
+
+        fetch_calls = [c for c in git_calls if "fetch" in c[1]]
+        assert len(fetch_calls) == 1, f"Expected 1 fetch attempt (no retry), got {len(fetch_calls)}"
