@@ -1138,6 +1138,11 @@ class TestChdirToSingleRepo:
         assert symlink.is_symlink()
         assert symlink.resolve() == global_claude_md.resolve()
 
+        # Symlink should be excluded from git tracking via .git/info/exclude
+        exclude_file = repo / ".git" / "info" / "exclude"
+        assert exclude_file.exists()
+        assert "CLAUDE.md" in exclude_file.read_text()
+
     def test_existing_claude_md_not_overwritten(self, tmp_path, monkeypatch):
         """Existing CLAUDE.md in repo is not replaced with a symlink."""
         repos_dir = tmp_path / "repos"
@@ -1219,6 +1224,117 @@ class TestChdirToSingleRepo:
         entrypoint._chdir_to_single_repo(config)
 
         assert not (repo / "CLAUDE.md").exists()
+
+    def test_fallback_to_home_creates_claude_md_symlink(self, tmp_path, monkeypatch):
+        """When repos_dir doesn't exist, symlink is created in user home."""
+        repos_dir = tmp_path / "repos"
+        # repos_dir intentionally not created
+
+        user_home = tmp_path / "home"
+        user_home.mkdir()
+
+        claude_dir = tmp_path / ".claude"
+        claude_dir.mkdir()
+        global_claude_md = claude_dir / "CLAUDE.md"
+        global_claude_md.write_text("# Rules")
+
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("RUNTIME_UID", "1000")
+        monkeypatch.setenv("RUNTIME_GID", "1000")
+        monkeypatch.delenv("EGG_REPO_PATH", raising=False)
+
+        config = entrypoint.Config()
+        monkeypatch.setattr(type(config), "repos_dir", property(lambda self: repos_dir))
+        monkeypatch.setattr(type(config), "claude_dir", property(lambda self: claude_dir))
+        monkeypatch.setattr(type(config), "user_home", property(lambda self: user_home))
+
+        entrypoint._chdir_to_single_repo(config)
+
+        symlink = user_home / "CLAUDE.md"
+        assert symlink.is_symlink()
+        assert symlink.resolve() == global_claude_md.resolve()
+
+    def test_broken_symlink_not_overwritten(self, tmp_path, monkeypatch):
+        """A pre-existing broken symlink does not cause FileExistsError."""
+        repos_dir = tmp_path / "repos"
+        repos_dir.mkdir()
+        repo = repos_dir / "my-project"
+        repo.mkdir()
+        (repo / ".git").mkdir()
+
+        # Create a broken symlink (target does not exist)
+        broken_target = tmp_path / "nonexistent" / "CLAUDE.md"
+        broken_symlink = repo / "CLAUDE.md"
+        broken_symlink.symlink_to(broken_target)
+        assert broken_symlink.is_symlink()
+        assert not broken_symlink.exists()  # broken: target missing
+
+        claude_dir = tmp_path / ".claude"
+        claude_dir.mkdir()
+        global_claude_md = claude_dir / "CLAUDE.md"
+        global_claude_md.write_text("# Rules")
+
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("RUNTIME_UID", "1000")
+        monkeypatch.setenv("RUNTIME_GID", "1000")
+        monkeypatch.delenv("EGG_REPO_PATH", raising=False)
+
+        config = entrypoint.Config()
+        monkeypatch.setattr(type(config), "repos_dir", property(lambda self: repos_dir))
+        monkeypatch.setattr(type(config), "claude_dir", property(lambda self: claude_dir))
+
+        # Should not raise FileExistsError
+        entrypoint._chdir_to_single_repo(config)
+
+        # Broken symlink is left as-is (not replaced)
+        assert broken_symlink.is_symlink()
+        assert broken_symlink.readlink() == broken_target
+
+
+class TestExcludeFromGit:
+    """Tests for _exclude_from_git helper."""
+
+    def test_adds_entry_to_git_info_exclude(self, tmp_path):
+        """File path is added to .git/info/exclude."""
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        (repo / ".git").mkdir()
+
+        target = repo / "CLAUDE.md"
+        target.touch()
+
+        entrypoint._exclude_from_git(target)
+
+        exclude = repo / ".git" / "info" / "exclude"
+        assert exclude.exists()
+        assert "CLAUDE.md" in exclude.read_text().splitlines()
+
+    def test_no_duplicate_entries(self, tmp_path):
+        """Calling twice does not create duplicate entries."""
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        (repo / ".git" / "info").mkdir(parents=True)
+
+        target = repo / "CLAUDE.md"
+        target.touch()
+
+        entrypoint._exclude_from_git(target)
+        entrypoint._exclude_from_git(target)
+
+        exclude = repo / ".git" / "info" / "exclude"
+        lines = [line for line in exclude.read_text().splitlines() if line == "CLAUDE.md"]
+        assert len(lines) == 1
+
+    def test_no_git_dir_is_noop(self, tmp_path):
+        """When no .git directory exists, does nothing."""
+        target = tmp_path / "CLAUDE.md"
+        target.touch()
+
+        # Should not raise
+        entrypoint._exclude_from_git(target)
+
+        # No .git/info/exclude created
+        assert not (tmp_path / ".git").exists()
 
 
 class TestSignalOrchestratorCompletion:

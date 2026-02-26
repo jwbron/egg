@@ -826,8 +826,9 @@ def setup_agent_rules(config: Config, logger: Logger) -> None:
     claude_md.write_text("\n\n---\n\n".join(content_parts))
     os.chown(claude_md, config.runtime_uid, config.runtime_gid)
 
-    # Clean up stale files from previous location (~/CLAUDE.md, ~/repos/CLAUDE.md symlink)
-    # to prevent duplicate rules when upgrading on persistent volumes.
+    # Clean up stale CLAUDE.md files from previous container runs.
+    # _chdir_to_single_repo() re-creates a symlink at CWD/CLAUDE.md later
+    # when the session starts; this cleanup ensures a fresh state.
     stale_home = config.user_home / "CLAUDE.md"
     if stale_home.exists() or stale_home.is_symlink():
         stale_home.unlink()
@@ -1610,6 +1611,35 @@ def _read_subprocess_stderr_tail(max_lines: int = 20) -> str:
     return ""
 
 
+def _exclude_from_git(file_path: Path) -> None:
+    """Add a file to .git/info/exclude so git ignores it without modifying .gitignore.
+
+    Walks up from file_path to find the nearest .git directory. If found,
+    appends the relative path to .git/info/exclude (a repo-local ignore file
+    that is not committed).
+
+    Silently does nothing if no .git directory is found (e.g., CWD is not
+    inside a git repo) or if the entry already exists.
+    """
+    # Find the nearest .git directory
+    parent = file_path.parent
+    while parent != parent.parent:
+        git_dir = parent / ".git"
+        if git_dir.is_dir():
+            exclude_file = git_dir / "info" / "exclude"
+            exclude_file.parent.mkdir(parents=True, exist_ok=True)
+            rel_path = str(file_path.relative_to(parent))
+            # Check if already excluded
+            if exclude_file.exists():
+                existing = exclude_file.read_text()
+                if rel_path in existing.splitlines():
+                    return
+            with open(exclude_file, "a") as f:
+                f.write(f"\n{rel_path}\n")
+            return
+        parent = parent.parent
+
+
 def _chdir_to_single_repo(config: Config) -> None:
     """Change to repos directory, entering the single repo if exactly one exists.
 
@@ -1620,6 +1650,9 @@ def _chdir_to_single_repo(config: Config) -> None:
     After setting CWD, creates a project-level CLAUDE.md symlink pointing to
     the global ~/.claude/CLAUDE.md so Claude Code detects it in the working
     directory (suppresses the "Run /init" welcome message).
+
+    When CWD is inside a git repo, the symlink is excluded from git tracking
+    via .git/info/exclude to prevent it from being committed.
     """
     if config.repos_dir.exists():
         os.chdir(config.repos_dir)
@@ -1634,10 +1667,19 @@ def _chdir_to_single_repo(config: Config) -> None:
     # Create project-level CLAUDE.md symlink so Claude Code detects it
     # in the working directory (suppresses "Run /init" welcome message).
     # The actual rules live in ~/.claude/CLAUDE.md (global config).
+    #
+    # Note: setup_agent_rules() cleans up stale CLAUDE.md files from previous
+    # container runs earlier in startup. This symlink is re-created fresh each
+    # time the session starts — the cleanup and creation are intentionally
+    # separate phases.
     cwd_claude_md = Path.cwd() / "CLAUDE.md"
     global_claude_md = config.claude_dir / "CLAUDE.md"
-    if global_claude_md.exists() and not cwd_claude_md.exists():
+    if global_claude_md.exists() and not cwd_claude_md.exists() and not cwd_claude_md.is_symlink():
         cwd_claude_md.symlink_to(global_claude_md)
+        # If CWD is inside a git repo, exclude the symlink from git tracking
+        # to prevent it from being committed (the symlink target is a
+        # container-local absolute path that would be broken elsewhere).
+        _exclude_from_git(cwd_claude_md)
 
 
 def run_interactive(config: Config, logger: Logger) -> int:
