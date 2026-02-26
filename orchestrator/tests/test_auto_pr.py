@@ -13,7 +13,7 @@ sys.modules.setdefault("docker", _docker_mock)
 sys.modules.setdefault("docker.errors", _docker_mock.errors)
 sys.modules.setdefault("docker.types", _docker_mock.types)
 
-from models import Pipeline, PipelineConfig, PipelinePhase, PipelineStatus
+from models import Pipeline, PipelinePhase, PipelineStatus
 from routes.pipelines import _auto_create_pr, _build_pr_body
 
 
