@@ -131,10 +131,26 @@
       "created_at": "2026-02-26T02:06:09.084261",
       "resolved_at": null,
       "resolution": null
+    },
+    {
+      "id": "decision-5",
+      "question": "When agent-role restrictions (e.g., coder blocked from tests/) conflict with per-task allowed_files (e.g., plan lists tests/test_auth.py), which wins?",
+      "context": "",
+      "options": [
+        "Per-task allowlist overrides agent-role — task files always accessible",
+        "AND semantics — most restrictive wins (file must pass both checks)",
+        "Agent-role is warn-only, per-task is hard — effectively per-task overrides in practice"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-02-26T02:06:14.860093",
+      "resolved_at": null,
+      "resolution": null
     }
   ],
   "created_at": "2026-02-26T01:58:52.746480",
-  "updated_at": "2026-02-26T02:06:09.086355",
+  "updated_at": "2026-02-26T02:06:14.862185",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
@@ -142,5 +158,5 @@
   "error": null,
   "plan_phase_waves": null,
   "plan_phase_names": null,
-  "version": 11
+  "version": 12
 }
