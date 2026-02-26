@@ -1311,9 +1311,7 @@ def cmd_cost(args: argparse.Namespace) -> int:
     return 0
 
 
-def _search_checkpoint_transcript(
-    checkpoint: CheckpointV2, text: str
-) -> list[str]:
+def _search_checkpoint_transcript(checkpoint: CheckpointV2, text: str) -> list[str]:
     """Search a checkpoint's transcript for matching text.
 
     Args:
