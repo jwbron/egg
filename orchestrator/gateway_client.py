@@ -637,7 +637,7 @@ class GatewayClient:
         Returns:
             True if deletion succeeded, False otherwise
         """
-        temp_container_id = f"{pipeline_id}-branch-cleanup"
+        temp_container_id = f"{pipeline_id}-branch-cleanup-{branch.replace('/', '-')}"
         session_token: str | None = None
         try:
             session = self.register_session(
