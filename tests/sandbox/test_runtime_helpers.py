@@ -258,8 +258,9 @@ class TestCleanupSession:
     def test_handles_session_delete_failure(self):
         """Handles session deletion failure gracefully."""
         with patch("egg_lib.runtime.delete_session", return_value=(False, "error")):
-            with patch("egg_lib.runtime.delete_worktrees", return_value=(True, [], [])):
-                _cleanup_session("tok-123", "container-1")  # Should not raise
+            with patch("egg_lib.runtime.time.sleep"):
+                with patch("egg_lib.runtime.delete_worktrees", return_value=(True, [], [])):
+                    _cleanup_session("tok-123", "container-1")  # Should not raise
 
     def test_retries_on_failure(self):
         """Retries delete_session on transient failures with backoff."""
@@ -267,13 +268,14 @@ class TestCleanupSession:
             "egg_lib.runtime.delete_session", return_value=(False, "gateway timeout")
         ) as mock_delete:
             with patch("egg_lib.runtime.time.sleep") as mock_sleep:
-                _cleanup_session("tok-123", "container-1")
-                assert mock_delete.call_count == 3
-                # Backoff: 1s after first failure, 2s after second
-                assert mock_sleep.call_args_list == [
-                    ((1,),),  # 1 << 0
-                    ((2,),),  # 1 << 1
-                ]
+                with patch("egg_lib.runtime.delete_worktrees", return_value=(True, [], [])):
+                    _cleanup_session("tok-123", "container-1")
+                    assert mock_delete.call_count == 3
+                    # Backoff: 1s after first failure, 2s after second
+                    assert mock_sleep.call_args_list == [
+                        ((1,),),  # 1 << 0
+                        ((2,),),  # 1 << 1
+                    ]
 
     def test_succeeds_on_second_attempt(self):
         """Retry recovers from first failure."""
@@ -314,3 +316,26 @@ class TestCleanupSession:
                 _cleanup_session("tok-123", "container-1")
                 assert mock_delete.call_count == 1
                 mock_sleep.assert_not_called()
+
+    def test_worktree_cleanup_after_retry_exhaustion(self):
+        """Falls back to local worktree cleanup when all retries fail."""
+        with patch("egg_lib.runtime.delete_session", return_value=(False, "gateway unreachable")):
+            with patch("egg_lib.runtime.time.sleep"):
+                with patch(
+                    "egg_lib.runtime.delete_worktrees", return_value=(True, [], [])
+                ) as mock_wt:
+                    _cleanup_session("tok-123", "container-1")
+                    mock_wt.assert_called_once()
+
+    def test_worktree_cleanup_after_exception_exhaustion(self):
+        """Falls back to local worktree cleanup when all retries raise exceptions."""
+        with patch(
+            "egg_lib.runtime.delete_session",
+            side_effect=ConnectionError("refused"),
+        ):
+            with patch("egg_lib.runtime.time.sleep"):
+                with patch(
+                    "egg_lib.runtime.delete_worktrees", return_value=(True, [], [])
+                ) as mock_wt:
+                    _cleanup_session("tok-123", "container-1")
+                    mock_wt.assert_called_once()

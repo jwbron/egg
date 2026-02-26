@@ -4610,11 +4610,16 @@ def main() -> None:
         sys.exit(1)
 
     # Register SIGTERM handler for graceful shutdown.
-    # When Docker sends SIGTERM, drain for 5s to let in-flight session cleanup
+    # When Docker sends SIGTERM, delay for 5s to let in-flight session cleanup
     # requests complete before exiting. This prevents the race condition where
     # the gateway becomes unreachable before the launcher's cleanup hook runs.
+    # NOTE: This is a delay, not a true drain — waitress continues accepting new
+    # requests during the sleep. If a new long-running request starts during this
+    # window, it will be killed when sys.exit(0) fires. For our use case (Docker
+    # stop), this is acceptable since the only in-flight requests at shutdown are
+    # short-lived session cleanup calls.
     def _handle_shutdown(signum: int, frame: Any) -> None:
-        logger.info("Received SIGTERM, draining for 5s before shutdown...")
+        logger.info("Received SIGTERM, delaying 5s for in-flight requests before shutdown...")
         time.sleep(5)
         sys.exit(0)
 

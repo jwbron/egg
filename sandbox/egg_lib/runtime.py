@@ -276,7 +276,7 @@ def _cleanup_session(session_token: str | None, container_id: str) -> None:
                 if success_flag:
                     return
                 if attempt < max_retries - 1:
-                    time.sleep(1 << attempt)  # 1s, 2s, 4s
+                    time.sleep(1 << attempt)  # 1s, 2s backoff
                     continue
                 if err:
                     warn(f"Session cleanup warning: {err}")
@@ -285,6 +285,8 @@ def _cleanup_session(session_token: str | None, container_id: str) -> None:
                     time.sleep(1 << attempt)
                     continue
                 warn(f"Session cleanup failed: {e}")
+        # All retries exhausted — gateway didn't clean up, try local worktree cleanup
+        _cleanup_worktrees(container_id)
     else:
         # Fall back to worktree cleanup only
         _cleanup_worktrees(container_id)
