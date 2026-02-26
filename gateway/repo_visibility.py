@@ -14,6 +14,7 @@ Security Properties:
 import os
 import sys
 import threading
+import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -135,6 +136,10 @@ class RepoVisibilityChecker:
         """
         Fetch repository visibility using a specific token.
 
+        Retries on transient errors (timeouts, connection errors, 5xx, 403
+        rate limits) with exponential backoff.  Non-retryable responses (200,
+        404) return immediately.
+
         Args:
             owner: Repository owner
             repo: Repository name
@@ -151,81 +156,114 @@ class RepoVisibilityChecker:
             "X-GitHub-Api-Version": GITHUB_API_VERSION,
         }
 
-        try:
-            response = requests.get(url, headers=headers, timeout=10)
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                response = requests.get(url, headers=headers, timeout=10)
 
-            if response.status_code == 200:
-                data = response.json()
-                visibility_str: str = str(data.get("visibility", "public"))
+                if response.status_code == 200:
+                    data = response.json()
+                    visibility_str: str = str(data.get("visibility", "public"))
 
-                # Validate visibility value to prevent cache poisoning
-                if visibility_str not in VALID_VISIBILITIES:
-                    logger.warning(
-                        "Invalid visibility value from GitHub API",
+                    # Validate visibility value to prevent cache poisoning
+                    if visibility_str not in VALID_VISIBILITIES:
+                        logger.warning(
+                            "Invalid visibility value from GitHub API",
+                            owner=owner,
+                            repo=repo,
+                            visibility=visibility_str,
+                            token_source=source,
+                        )
+                        return None
+
+                    logger.debug(
+                        "Fetched repository visibility",
                         owner=owner,
                         repo=repo,
                         visibility=visibility_str,
                         token_source=source,
                     )
+                    return cast(VisibilityType, visibility_str)
+
+                elif response.status_code == 404:
+                    # Token doesn't have access — definitive, no retry
+                    logger.debug(
+                        "Token cannot access repository (404)",
+                        owner=owner,
+                        repo=repo,
+                        token_source=source,
+                    )
                     return None
 
-                logger.debug(
-                    "Fetched repository visibility",
-                    owner=owner,
-                    repo=repo,
-                    visibility=visibility_str,
-                    token_source=source,
-                )
-                return cast(VisibilityType, visibility_str)
+                elif response.status_code == 403 or response.status_code >= 500:
+                    # Rate-limited, forbidden, or server error — retryable
+                    if attempt < max_retries - 1:
+                        delay = 1 << attempt  # 1s, 2s
+                        logger.info(
+                            "GitHub API transient error, retrying",
+                            owner=owner,
+                            repo=repo,
+                            status_code=response.status_code,
+                            token_source=source,
+                            attempt=attempt + 1,
+                            retry_delay=delay,
+                        )
+                        time.sleep(delay)
+                        continue
+                    logger.warning(
+                        "GitHub API error after retries",
+                        owner=owner,
+                        repo=repo,
+                        status_code=response.status_code,
+                        token_source=source,
+                    )
+                    return None
 
-            elif response.status_code == 404:
-                # Token doesn't have access - try next token
-                logger.debug(
-                    "Token cannot access repository (404)",
-                    owner=owner,
-                    repo=repo,
-                    token_source=source,
-                )
-                return None
+                else:
+                    logger.warning(
+                        "GitHub API unexpected status",
+                        owner=owner,
+                        repo=repo,
+                        status_code=response.status_code,
+                        token_source=source,
+                    )
+                    return None
 
-            elif response.status_code == 403:
-                # Rate limited or forbidden
+            except (requests.Timeout, requests.ConnectionError) as e:
+                # Transient network errors — retryable
+                if attempt < max_retries - 1:
+                    delay = 1 << attempt
+                    logger.info(
+                        "GitHub API transient error, retrying",
+                        owner=owner,
+                        repo=repo,
+                        error=str(e),
+                        token_source=source,
+                        attempt=attempt + 1,
+                        retry_delay=delay,
+                    )
+                    time.sleep(delay)
+                    continue
                 logger.warning(
-                    "GitHub API forbidden/rate-limited",
+                    "GitHub API request failed after retries",
                     owner=owner,
                     repo=repo,
-                    status_code=403,
+                    error=str(e),
                     token_source=source,
                 )
                 return None
-
-            else:
+            except requests.RequestException as e:
+                # Other request errors — not retryable
                 logger.warning(
-                    "GitHub API unexpected status",
+                    "GitHub API request failed",
                     owner=owner,
                     repo=repo,
-                    status_code=response.status_code,
+                    error=str(e),
                     token_source=source,
                 )
                 return None
 
-        except requests.Timeout:
-            logger.warning(
-                "GitHub API timeout",
-                owner=owner,
-                repo=repo,
-                token_source=source,
-            )
-            return None
-        except requests.RequestException as e:
-            logger.warning(
-                "GitHub API request failed",
-                owner=owner,
-                repo=repo,
-                error=str(e),
-                token_source=source,
-            )
-            return None
+        return None  # Shouldn't be reached, but satisfy type checker
 
     def _fetch_visibility(self, owner: str, repo: str) -> VisibilityType | None:
         """
