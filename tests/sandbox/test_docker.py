@@ -1241,11 +1241,11 @@ class TestWatchFilePathTraversal:
 
         # The traversal file should NOT be copied
         repo_deps = build_dir / "repo-deps"
-        if repo_deps.exists():
-            # Should only have the .empty marker, not the secret file
-            all_files = list(repo_deps.rglob("*"))
-            file_names = [f.name for f in all_files if f.is_file()]
-            assert "secret.txt" not in file_names
+        assert repo_deps.exists(), "repo-deps directory should always be created"
+        # Should only have the .empty marker, not the secret file
+        all_files = list(repo_deps.rglob("*"))
+        file_names = [f.name for f in all_files if f.is_file()]
+        assert "secret.txt" not in file_names
 
     def test_hash_skips_path_traversal(self, tmp_path):
         """Hash function skips watch files with path traversal."""
@@ -1330,7 +1330,7 @@ class TestWatchFilePathTraversal:
 
         # The symlink target should NOT be copied
         repo_deps = build_dir / "repo-deps"
-        if repo_deps.exists():
-            all_files = list(repo_deps.rglob("*"))
-            file_names = [f.name for f in all_files if f.is_file()]
-            assert "sneaky-link.txt" not in file_names
+        assert repo_deps.exists(), "repo-deps directory should always be created"
+        all_files = list(repo_deps.rglob("*"))
+        file_names = [f.name for f in all_files if f.is_file()]
+        assert "sneaky-link.txt" not in file_names
