@@ -1265,8 +1265,54 @@ class TestFetchRetryInStore:
         fetch_calls = [c for c in git_calls if "fetch" in c[1]]
         assert len(fetch_calls) == 3, f"Expected 3 fetch attempts, got {len(fetch_calls)}"
 
-    def test_fetch_does_not_retry_on_non_timeout_error(self):
-        """Fetch does not retry on non-timeout errors (raises immediately)."""
+    def test_fetch_retries_on_called_process_error(self):
+        """Fetch retries on CalledProcessError (e.g., network failures)."""
+        import checkpoint_handler
+
+        handler = checkpoint_handler.CheckpointHandler(github_token="test-token")
+
+        git_calls = []
+        call_count = 0
+
+        def track_run_git(cwd, args, **kwargs):
+            nonlocal call_count
+            git_calls.append((cwd, args, kwargs))
+            if "fetch" in args:
+                call_count += 1
+                if call_count < 3:
+                    raise subprocess.CalledProcessError(128, "git fetch")
+            return MagicMock(returncode=0, stdout="", stderr="")
+
+        handler._run_git = track_run_git
+        handler._branch_exists = MagicMock(return_value=True)
+
+        from egg_contracts.checkpoints import (
+            CheckpointV2,
+            SessionMetadata,
+            TriggerType,
+        )
+
+        now = datetime.now(UTC)
+        checkpoint = CheckpointV2(
+            id="ckpt-a1b2c3d4e5f67890",
+            trigger_type=TriggerType.COMMIT,
+            session_id="test-container",
+            commit_sha="abc123def456789012345678901234567890abcd",
+            session=SessionMetadata(session_id="test-container", started_at=now),
+            created_at=now,
+            session_started_at=now,
+        )
+
+        try:
+            handler.store_checkpoint_v2(checkpoint, "/fake/repo")
+        except Exception:
+            pass
+
+        fetch_calls = [c for c in git_calls if "fetch" in c[1]]
+        assert len(fetch_calls) == 3, f"Expected 3 fetch attempts, got {len(fetch_calls)}"
+
+    def test_fetch_does_not_retry_on_unexpected_error(self):
+        """Fetch does not retry on unexpected errors (e.g., OSError)."""
         import checkpoint_handler
 
         handler = checkpoint_handler.CheckpointHandler(github_token="test-token")
@@ -1276,7 +1322,7 @@ class TestFetchRetryInStore:
         def track_run_git(cwd, args, **kwargs):
             git_calls.append((cwd, args, kwargs))
             if "fetch" in args:
-                raise subprocess.CalledProcessError(128, "git fetch")
+                raise OSError("Unexpected filesystem error")
             return MagicMock(returncode=0, stdout="", stderr="")
 
         handler._run_git = track_run_git

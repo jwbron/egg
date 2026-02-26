@@ -3533,18 +3533,14 @@ def session_delete(session_token: str) -> tuple[Response, int] | Response:
     container_id = session.container_id if session else None
 
     # Delete the session
-    deleted, checkpoint_event = session_manager.delete_session(session_token)
+    deleted, _checkpoint_event = session_manager.delete_session(session_token)
 
     if not deleted:
         return make_error("Session not found", status_code=404)
 
-    # Wait for checkpoint store to finish before removing worktrees.
-    # The checkpoint thread uses the repo directory as cwd for git operations;
-    # deleting the worktree while it's running causes failures.
-    if checkpoint_event is not None:
-        from checkpoint_handler import SESSION_END_CAPTURE_TIMEOUT
-
-        checkpoint_event.wait(timeout=SESSION_END_CAPTURE_TIMEOUT)
+    # _capture_and_cleanup_session (called inside delete_session) already
+    # waits for checkpoint storage to complete before returning, so the
+    # worktree is safe to remove at this point — no second wait needed.
 
     # Clean up worktrees for this container
     deleted_worktrees, worktree_errors = (
@@ -3579,18 +3575,14 @@ def session_delete_by_container(container_id: str) -> tuple[Response, int] | Res
     Auth: Bearer {launcher_secret}
     """
     session_manager = get_session_manager()
-    deleted, checkpoint_event = session_manager.delete_session_by_container(container_id)
+    deleted, _checkpoint_event = session_manager.delete_session_by_container(container_id)
 
     if not deleted:
         return make_error("Session not found for container", status_code=404)
 
-    # Wait for checkpoint store to finish before removing worktrees.
-    # The checkpoint thread uses the repo directory as cwd for git operations;
-    # deleting the worktree while it's running causes failures.
-    if checkpoint_event is not None:
-        from checkpoint_handler import SESSION_END_CAPTURE_TIMEOUT
-
-        checkpoint_event.wait(timeout=SESSION_END_CAPTURE_TIMEOUT)
+    # _capture_and_cleanup_session (called inside delete_session_by_container)
+    # already waits for checkpoint storage to complete before returning, so
+    # the worktree is safe to remove at this point — no second wait needed.
 
     # Clean up worktrees for this container
     deleted_worktrees, worktree_errors = _cleanup_container_worktrees(container_id)

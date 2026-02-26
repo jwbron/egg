@@ -55,6 +55,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -796,24 +797,27 @@ class CheckpointHandler:
                                 github_token=github_token,
                             )
                             break
-                        except subprocess.TimeoutExpired:
+                        except (
+                            subprocess.TimeoutExpired,
+                            subprocess.CalledProcessError,
+                        ) as exc:
                             if attempt < max_fetch_attempts:
                                 backoff = 2**attempt
                                 logger.warning(
-                                    "Checkpoint fetch timed out, retrying",
+                                    "Checkpoint fetch failed, retrying",
                                     attempt=attempt,
                                     max_attempts=max_fetch_attempts,
                                     backoff_seconds=backoff,
                                     checkpoint_id=checkpoint.id,
+                                    error=str(exc),
                                 )
-                                import time
-
                                 time.sleep(backoff)
                             else:
                                 logger.error(
-                                    "Checkpoint fetch timed out after all retries",
+                                    "Checkpoint fetch failed after all retries",
                                     attempts=max_fetch_attempts,
                                     checkpoint_id=checkpoint.id,
+                                    error=str(exc),
                                 )
                                 raise
                     self._run_git(
@@ -1224,9 +1228,11 @@ def capture_and_store_checkpoint(
                     commit_sha=commit_sha[:7],
                 )
 
+        # Push-triggered checkpoints are best-effort fire-and-forget.
+        # Use daemon=True so they don't block process shutdown.
         thread = threading.Thread(
             target=_store_with_error_handling,
-            daemon=False,
+            daemon=True,
         )
         thread.start()
     else:

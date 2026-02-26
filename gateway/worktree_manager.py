@@ -968,14 +968,18 @@ class WorktreeManager:
                 container_id=container_id,
             )
 
-            # Capture session-end checkpoint for crashed container
+            # Capture session-end checkpoint for crashed container.
+            # Wait for checkpoint storage to complete before removing
+            # worktrees — the checkpoint thread uses the repo dir as cwd.
             if session_manager is not None:
                 try:
                     session = session_manager.get_session_by_container(container_id)
                     if session:
                         from session_manager import _capture_and_cleanup_session  # type: ignore[import-untyped]  # noqa: I001
 
-                        _capture_and_cleanup_session(session, "failed")
+                        checkpoint_event = _capture_and_cleanup_session(session, "failed")
+                        if checkpoint_event is not None:
+                            checkpoint_event.wait(timeout=180)
                 except Exception as e:
                     logger.warning(
                         "Failed to capture checkpoint for orphaned container",

@@ -853,7 +853,7 @@ class SessionManager:
             self._save_to_disk()
 
         # Capture session-end checkpoint outside the lock to avoid
-        # blocking other session operations during the up-to-30s wait
+        # blocking other session operations during the up-to-180s wait
         completion_event = _capture_and_cleanup_session(session, "completed")
 
         logger.info(
@@ -896,7 +896,7 @@ class SessionManager:
 
         if session and token_hash:
             # Capture session-end checkpoint outside the lock to avoid
-            # blocking other session operations during the up-to-30s wait
+            # blocking other session operations during the up-to-180s wait
             completion_event = _capture_and_cleanup_session(session, "completed")
 
             logger.info(
