@@ -566,8 +566,9 @@ def git_push() -> tuple[Response, int] | Response:
     # Infrastructure branch bypass: pushes to infrastructure branches always succeed
     # regardless of session mode or phase (checkpoints and pipeline state can be
     # written at any time).
-    CHECKPOINT_BRANCH = "egg/checkpoints/v2"
-    INFRASTRUCTURE_BRANCHES = {CHECKPOINT_BRANCH, "egg/pipeline-state"}
+    from egg_config.constants import CHECKPOINT_BRANCH, PIPELINE_STATE_BRANCH
+
+    INFRASTRUCTURE_BRANCHES = {CHECKPOINT_BRANCH, PIPELINE_STATE_BRANCH}
     is_infrastructure_push = branch in INFRASTRUCTURE_BRANCHES
 
     repo_info = parse_owner_repo(repo)

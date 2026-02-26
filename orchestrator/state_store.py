@@ -36,8 +36,9 @@ logger = logging.getLogger("orchestrator.state_store")
 # Valid pipeline ID format: issue-{number} or local-{8 hex chars}
 PIPELINE_ID_PATTERN = re.compile(r"^(issue-[0-9]+|local-[0-9a-f]{8})$")
 
-# Dedicated branch for pipeline state (orphan, never merged into main)
-STATE_BRANCH = "egg/pipeline-state"
+# Dedicated branch for pipeline state (orphan, never merged into main).
+# Shared constant — also referenced by gateway.py's INFRASTRUCTURE_BRANCHES.
+from egg_config.constants import PIPELINE_STATE_BRANCH as STATE_BRANCH
 
 # Relative to the Docker state volume (/home/egg/.egg-state)
 _DEFAULT_WORKTREE_DIR = (
@@ -570,12 +571,17 @@ class StateStore:
             )
             return False
 
-    def _sync_to_remote_async(self) -> None:
+    _MAX_PUSH_RETRIES: ClassVar[int] = 3
+
+    def _sync_to_remote_async(self, _retry_depth: int = 0) -> None:
         """Push the state branch to remote in a daemon thread.
 
         Debounces: if a push is already in flight, marks a pending flag so
         the in-flight thread re-pushes after completing.  This ensures the
         latest committed state always reaches the remote.
+
+        Retries are capped at ``_MAX_PUSH_RETRIES`` to prevent unbounded
+        recursion if commits arrive faster than pushes complete.
         """
         with StateStore._push_lock:
             if StateStore._push_in_flight:
@@ -595,7 +601,14 @@ class StateStore:
                         StateStore._push_pending = False
                         retry = True
                 if retry:
-                    self._sync_to_remote_async()
+                    next_depth = _retry_depth + 1
+                    if next_depth >= StateStore._MAX_PUSH_RETRIES:
+                        logger.warning(
+                            "Max push retries (%d) reached — skipping retry",
+                            StateStore._MAX_PUSH_RETRIES,
+                        )
+                    else:
+                        self._sync_to_remote_async(_retry_depth=next_depth)
 
         t = threading.Thread(target=_push, daemon=True)
         t.start()
