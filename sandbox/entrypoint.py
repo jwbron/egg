@@ -957,15 +957,17 @@ def setup_claude(config: Config, logger: Logger) -> None:
     # This prevents the "Do you trust this folder?" prompt on first launch
     try:
         if config.repos_dir.exists():
-            projects = existing_config.setdefault("projects", {})
             project_trust_settings = {
                 "hasTrustDialogAccepted": True,
                 "hasCompletedProjectOnboarding": True,
             }
-            # Trust repos_dir itself and any git repos inside it
-            for project_path in [config.repos_dir] + [
+            # Build list of project paths first (iterdir can raise OSError)
+            project_paths = [config.repos_dir] + [
                 d for d in config.repos_dir.iterdir() if d.is_dir()
-            ]:
+            ]
+            # Only modify existing_config after successful enumeration
+            projects = existing_config.setdefault("projects", {})
+            for project_path in project_paths:
                 project_key = str(project_path)
                 project = projects.setdefault(project_key, {})
                 for key, value in project_trust_settings.items():

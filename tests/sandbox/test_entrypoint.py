@@ -531,6 +531,8 @@ class TestSetupClaude:
         assert result["hasCompletedOnboarding"] is True
         assert result["autoUpdates"] is False
         assert result["effortCalloutDismissed"] is True
+        # No empty "projects" dict should be left behind
+        assert "projects" not in result
 
     @patch("shutil.which", return_value=None)
     def test_exits_when_claude_binary_not_found(self, mock_which, temp_dir, capsys):
