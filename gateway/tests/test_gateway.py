@@ -3982,7 +3982,7 @@ class TestSessionDeleteByContainerWorktreeCleanup:
     def test_session_delete_by_container_cleans_up_worktrees(self, client, launcher_auth_headers):
         """session_delete_by_container cleans up worktrees for the container."""
         mock_session_mgr = MagicMock()
-        mock_session_mgr.delete_session_by_container.return_value = True
+        mock_session_mgr.delete_session_by_container.return_value = (True, None)
 
         mock_worktree_mgr = MagicMock()
         mock_worktree_dir = MagicMock()
@@ -4032,7 +4032,7 @@ class TestSessionDeleteByContainerWorktreeCleanup:
     def test_session_delete_by_container_no_worktrees(self, client, launcher_auth_headers):
         """session_delete_by_container succeeds when no worktree dir exists."""
         mock_session_mgr = MagicMock()
-        mock_session_mgr.delete_session_by_container.return_value = True
+        mock_session_mgr.delete_session_by_container.return_value = (True, None)
 
         mock_worktree_mgr = MagicMock()
         mock_worktree_dir = MagicMock()
@@ -4057,7 +4057,7 @@ class TestSessionDeleteByContainerWorktreeCleanup:
     ):
         """session_delete_by_container handles worktree removal failures gracefully."""
         mock_session_mgr = MagicMock()
-        mock_session_mgr.delete_session_by_container.return_value = True
+        mock_session_mgr.delete_session_by_container.return_value = (True, None)
 
         mock_worktree_mgr = MagicMock()
         mock_worktree_dir = MagicMock()
@@ -4123,7 +4123,7 @@ class TestSessionDeleteByContainerWorktreeCleanup:
     def test_session_delete_by_container_not_found(self, client, launcher_auth_headers):
         """session_delete_by_container returns 404 when session not found."""
         mock_session_mgr = MagicMock()
-        mock_session_mgr.delete_session_by_container.return_value = False
+        mock_session_mgr.delete_session_by_container.return_value = (False, None)
 
         with patch.object(gateway, "get_session_manager", return_value=mock_session_mgr):
             response = client.delete(
