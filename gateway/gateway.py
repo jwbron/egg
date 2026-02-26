@@ -802,7 +802,7 @@ def git_push() -> tuple[Response, int] | Response:
     # subsequent violations block the push. Set EGG_TASK_FILE_RESTRICTIONS_ENFORCE=true
     # to block immediately (strict mode).
     # Checkpoint pushes bypass this check.
-    if not is_checkpoint_push and hasattr(g, "session") and g.session:
+    if not is_infrastructure_push and hasattr(g, "session") and g.session:
         session_allowed_files = getattr(g.session, "allowed_files", None)
         if isinstance(session_allowed_files, list) and session_allowed_files:
             # Ensure we have the changed files list
