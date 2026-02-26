@@ -12,6 +12,7 @@ Security model:
 - Tester: Can write test files only
 - Documenter: Can write docs and markdown only
 - Integrator: Can only write handoff output (read-only otherwise)
+- Refiner: Can write drafts and agent-outputs only, blocked from source code and contracts
 - Reviewers: Can write reviews and agent-outputs only
 
 The gateway uses these restrictions during git push to validate that
