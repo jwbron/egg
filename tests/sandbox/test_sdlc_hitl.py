@@ -10,6 +10,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "sandbox"))
 from egg_lib.orch_client import OrchestratorError
 from egg_lib.sdlc_hitl import (
     _detect_phase,
+    _display_in_pager,
     _find_repo_path,
     _get_contract_key,
     _get_draft_path,
@@ -673,9 +674,10 @@ class TestHandlePhaseGate:
         assert resolution["feedback"] == "Fix the error handling"
 
     @patch("egg_lib.sdlc_hitl._find_repo_path")
+    @patch("egg_lib.sdlc_hitl._display_in_pager")
     @patch("builtins.input")
-    def test_shows_draft_preview(self, mock_input, mock_repo, tmp_path, capsys):
-        """Phase gate shows draft preview."""
+    def test_shows_document_in_pager(self, mock_input, mock_pager, mock_repo, tmp_path):
+        """Phase gate shows full document in pager."""
         mock_repo.return_value = tmp_path
         mock_input.return_value = "3"
 
@@ -688,8 +690,7 @@ class TestHandlePhaseGate:
             issue_number=42,
         )
 
-        captured = capsys.readouterr()
-        assert "Draft Preview" in captured.out
+        mock_pager.assert_called_once_with("Draft content here")
 
     @patch("egg_lib.sdlc_hitl._find_repo_path")
     @patch("builtins.input")
@@ -2690,3 +2691,182 @@ class TestContractDecisionBridge:
         assert data["decisions"][0]["resolution"] == "PostgreSQL"
         # Second decision skipped (still unresolved)
         assert data["decisions"][1]["resolved"] is False
+
+
+# ---------------------------------------------------------------------------
+# _display_in_pager tests
+# ---------------------------------------------------------------------------
+
+
+class TestDisplayInPager:
+    """Tests for the _display_in_pager function."""
+
+    @patch("egg_lib.sdlc_hitl.subprocess.run")
+    def test_launches_pager_with_default(self, mock_run, monkeypatch):
+        """Launches $PAGER (default less -R) with content in a temp file."""
+        monkeypatch.delenv("PAGER", raising=False)
+        mock_run.return_value = MagicMock(returncode=0)
+
+        _display_in_pager("# Hello\nWorld")
+
+        mock_run.assert_called_once()
+        cmd = mock_run.call_args[0][0]
+        assert cmd[0] == "less"
+        assert cmd[1] == "-R"
+        # Third element is the temp file path
+        assert len(cmd) == 3
+
+    @patch("egg_lib.sdlc_hitl.subprocess.run")
+    def test_uses_custom_pager(self, mock_run, monkeypatch):
+        """Uses $PAGER env var when set."""
+        monkeypatch.setenv("PAGER", "more")
+        mock_run.return_value = MagicMock(returncode=0)
+
+        _display_in_pager("content")
+
+        cmd = mock_run.call_args[0][0]
+        assert cmd[0] == "more"
+
+    @patch("egg_lib.sdlc_hitl.subprocess.run")
+    def test_falls_back_on_pager_failure(self, mock_run, monkeypatch, capsys):
+        """Falls back to printing when pager exits with non-zero."""
+        monkeypatch.delenv("PAGER", raising=False)
+        mock_run.return_value = MagicMock(returncode=1)
+
+        _display_in_pager("fallback content")
+
+        captured = capsys.readouterr()
+        assert "fallback content" in captured.out
+
+    @patch("egg_lib.sdlc_hitl.subprocess.run")
+    def test_falls_back_on_file_not_found(self, mock_run, monkeypatch, capsys):
+        """Falls back to printing when pager command not found."""
+        monkeypatch.delenv("PAGER", raising=False)
+        mock_run.side_effect = FileNotFoundError("less not found")
+
+        _display_in_pager("fallback on missing pager")
+
+        captured = capsys.readouterr()
+        assert "fallback on missing pager" in captured.out
+
+    @patch("egg_lib.sdlc_hitl.subprocess.run")
+    def test_passes_stdin_stdout_stderr(self, mock_run, monkeypatch):
+        """Passes stdin/stdout/stderr for TTY interaction."""
+        monkeypatch.delenv("PAGER", raising=False)
+        mock_run.return_value = MagicMock(returncode=0)
+
+        _display_in_pager("content")
+
+        kwargs = mock_run.call_args[1]
+        assert kwargs["stdin"] is sys.stdin
+        assert kwargs["stdout"] is sys.stdout
+        assert kwargs["stderr"] is sys.stderr
+
+
+# ---------------------------------------------------------------------------
+# Phase gate [v] view option tests
+# ---------------------------------------------------------------------------
+
+
+class TestPhaseGateViewOption:
+    """Tests for the [v] view full document option in phase gate menu."""
+
+    def _make_client(self):
+        client = MagicMock(spec=["resolve_decision", "cancel_pipeline"])
+        client.resolve_decision.return_value = {"status": "resolved"}
+        client.cancel_pipeline.return_value = {"status": "cancelled"}
+        return client
+
+    @patch("egg_lib.sdlc_hitl._find_repo_path")
+    @patch("egg_lib.sdlc_hitl._display_in_pager")
+    @patch("builtins.input")
+    def test_view_option_opens_pager(self, mock_input, mock_pager, mock_repo, tmp_path):
+        """[v] option opens the document in the pager, then returns to menu."""
+        mock_repo.return_value = tmp_path
+        # 'v' to view, then '3' to approve
+        mock_input.side_effect = ["v", "3"]
+
+        client = self._make_client()
+        decision = {
+            "id": "d1",
+            "question": "The refine phase has completed. Please review the analysis.",
+            "context": "Full document content here",
+            "decision_type": "phase_gate",
+            "options": ["approve", "request changes"],
+        }
+        result = handle_hitl_checkpoint(
+            client,
+            "issue-42",
+            decision,
+            pipeline_mode="issue",
+            issue_number=42,
+        )
+
+        assert result == "resolved"
+        # Pager called twice: once on initial display, once on [v]
+        assert mock_pager.call_count == 2
+        mock_pager.assert_any_call("Full document content here")
+
+    @patch("egg_lib.sdlc_hitl._find_repo_path")
+    @patch("egg_lib.sdlc_hitl._display_in_pager")
+    @patch("builtins.input")
+    def test_view_option_not_shown_without_draft(
+        self, mock_input, mock_pager, mock_repo, tmp_path, capsys
+    ):
+        """[v] option is not available when there is no draft content."""
+        mock_repo.return_value = tmp_path
+        # 'v' is invalid (no draft), then '3' to approve
+        mock_input.side_effect = ["v", "3"]
+
+        client = self._make_client()
+        decision = {
+            "id": "d1",
+            "question": "Ready to implement?",
+            "context": "",
+            "decision_type": "phase_gate",
+            "options": ["approve", "request changes"],
+        }
+        result = handle_hitl_checkpoint(
+            client,
+            "issue-42",
+            decision,
+            pipeline_mode="issue",
+            issue_number=42,
+        )
+
+        assert result == "resolved"
+        # Pager should not have been called (no draft content)
+        mock_pager.assert_not_called()
+        # Prompt text should not advertise [v] when there is no draft
+        captured = capsys.readouterr()
+        assert "[v]" not in captured.out  # menu item not printed
+        # Verify the prompt string passed to input() also omits /v
+        prompt_args = [call.args[0] for call in mock_input.call_args_list if call.args]
+        assert all("/v" not in p for p in prompt_args)
+
+    @patch("egg_lib.sdlc_hitl._find_repo_path")
+    @patch("egg_lib.sdlc_hitl._display_in_pager")
+    @patch("builtins.input")
+    def test_initial_pager_called_for_phase_gate(self, mock_input, mock_pager, mock_repo, tmp_path):
+        """Phase gate calls pager (not preview) on initial display."""
+        mock_repo.return_value = tmp_path
+        mock_input.return_value = "3"
+
+        client = self._make_client()
+        decision = {
+            "id": "d1",
+            "question": "The refine phase has completed. Please review the analysis.",
+            "context": "Analysis document content",
+            "decision_type": "phase_gate",
+            "options": ["approve", "request changes"],
+        }
+        result = handle_hitl_checkpoint(
+            client,
+            "issue-42",
+            decision,
+            pipeline_mode="issue",
+            issue_number=42,
+        )
+
+        assert result == "resolved"
+        mock_pager.assert_called_once_with("Analysis document content")

@@ -306,6 +306,37 @@ def _display_draft_preview(content: str, max_lines: int = 40) -> None:
     print(f"{BOLD}--- End Preview ---{RESET}\n")
 
 
+def _display_in_pager(content: str) -> None:
+    """Display content in $PAGER (default: less -R) for full-document scrolling.
+
+    Falls back to printing the full content if the pager is unavailable or fails
+    (e.g., non-TTY environment).
+    """
+    pager = os.environ.get("PAGER", "less -R")
+    try:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False) as f:
+            f.write(content)
+            tmp_path = f.name
+        try:
+            result = subprocess.run(
+                [*shlex.split(pager), tmp_path],
+                stdin=sys.stdin,
+                stdout=sys.stdout,
+                stderr=sys.stderr,
+            )
+            if result.returncode != 0:
+                print(content)
+        except (FileNotFoundError, OSError):
+            print(content)
+        finally:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+    except OSError:
+        print(content)
+
+
 def _launch_editor(file_path: Path) -> bool:
     """Launch the user's preferred editor on the file.
 
@@ -504,6 +535,8 @@ def _handle_phase_gate(
         )
 
         print(f"\n  {BOLD}Options:{RESET}")
+        if draft_content:
+            print(f"  {CYAN}[v]{RESET} View full document")
         print(f"  {CYAN}[1]{RESET} Edit with $EDITOR ({os.environ.get('EDITOR', 'vim')})")
         print(f"  {CYAN}[2]{RESET} Start Claude for AI-assisted editing")
         print(f"  {CYAN}[3]{RESET} Approve and advance to next phase")
@@ -514,16 +547,22 @@ def _handle_phase_gate(
             print(f"\n  {YELLOW}[q]{RESET} Answer open questions ({n} pending)")
 
         valid = {"1", "2", "3", "4", "f", "a", "c"}
+        if draft_content:
+            valid.add("v")
         if pending_contract:
             valid.add("q")
-        choice = _prompt_choice(
-            f"\n  {BOLD}Choose [1-4/f/a/c{'/' + 'q' if pending_contract else ''}]:{RESET} ", valid
-        )
+        v_hint = "/v" if draft_content else ""
+        q_hint = "/q" if pending_contract else ""
+        choice = _prompt_choice(f"\n  {BOLD}Choose [1-4{v_hint}/f/a/c{q_hint}]:{RESET} ", valid)
 
         # Check universal options first
         result = _handle_universal_option(choice, client, pipeline_id, decision_id)
         if result:
             return result
+
+        if choice == "v" and draft_content:
+            _display_in_pager(draft_content)
+            continue
 
         if choice == "1":
             if draft_path:
@@ -901,10 +940,10 @@ def handle_hitl_checkpoint(
     print(f"  {BOLD}Phase:{RESET}    {phase}")
     print(f"  {BOLD}Question:{RESET} {question}")
 
-    # Show draft preview for phase gates
+    # Show full document in pager for phase gates
     if decision_type == "phase_gate":
         if draft_content:
-            _display_draft_preview(draft_content)
+            _display_in_pager(draft_content)
         elif draft_rel:
             print(f"\n  {DIM}Draft file: {draft_rel} (not found){RESET}")
 
