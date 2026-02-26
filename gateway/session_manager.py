@@ -54,6 +54,33 @@ def _cleanup_transcript_buffer(container_id: str) -> None:
         )
 
 
+def _resolve_stable_repo_path(repo_path: str) -> str:
+    """Resolve a worktree path to its parent repository path.
+
+    Worktree paths are ephemeral and may be deleted during container cleanup.
+    The main repository path is stable and safe for long-running git operations.
+    Returns repo_path unchanged if it is already a main repository.
+    """
+    git_entry = Path(repo_path) / ".git"
+    if not git_entry.is_file():
+        return repo_path  # Already a main repo (.git is a directory)
+    try:
+        content = git_entry.read_text().strip()
+        if not content.startswith("gitdir:"):
+            return repo_path
+        gitdir = Path(content.split("gitdir:", 1)[1].strip())
+        if not gitdir.is_absolute():
+            gitdir = (Path(repo_path) / gitdir).resolve()
+        # gitdir = /main/repo/.git/worktrees/<name>
+        # Walk up to find .git directory
+        for parent in [gitdir] + list(gitdir.parents):
+            if parent.name == ".git" and parent.parent.exists():
+                return str(parent.parent)
+    except Exception:
+        pass
+    return repo_path
+
+
 _captured_containers: set[str] = set()
 _captured_containers_lock = threading.Lock()
 
@@ -61,7 +88,7 @@ _captured_containers_lock = threading.Lock()
 def _capture_and_cleanup_session(
     session: Session,
     session_status: str,
-) -> None:
+) -> threading.Event | None:
     """Capture session-end checkpoint, then clean up transcript buffer.
 
     Ensures the transcript buffer is preserved until checkpoint capture completes.
@@ -69,6 +96,11 @@ def _capture_and_cleanup_session(
 
     Uses a per-container deduplication guard to prevent multiple captures from
     racing code paths (delete_session, cleanup_orphaned_worktrees, prune_expired).
+
+    Returns:
+        The completion event from async checkpoint storage, or None if capture
+        was skipped/failed. Callers can wait on this event to coordinate
+        cleanup (e.g., worktree removal) with checkpoint storage.
     """
     # Deduplicate: only capture once per container
     with _captured_containers_lock:
@@ -78,7 +110,7 @@ def _capture_and_cleanup_session(
                 container_id=session.container_id,
                 session_status=session_status,
             )
-            return
+            return None
         _captured_containers.add(session.container_id)
 
     # Auto-commit any uncommitted work before capturing the checkpoint.
@@ -123,6 +155,7 @@ def _capture_and_cleanup_session(
                 error=str(e),
             )
 
+    completion_event = None
     try:
         from checkpoint_handler import (  # type: ignore[import-untyped]
             SESSION_END_CAPTURE_TIMEOUT,
@@ -135,16 +168,32 @@ def _capture_and_cleanup_session(
             if isinstance(session_status, SessionStatus)
             else SessionStatus(session_status)
         )
+
+        # Resolve worktree path to stable main repo path.
+        # Worktree dirs are deleted during container cleanup; the main repo
+        # path survives and is safe for the async checkpoint store thread.
+        stable_repo_path = (
+            _resolve_stable_repo_path(session.last_repo_path)
+            if session.last_repo_path
+            else session.last_repo_path
+        )
+
         _checkpoint, completion_event = capture_session_end_checkpoint(
             session=session,
             session_status=status,
-            repo_path=session.last_repo_path,
+            repo_path=stable_repo_path,
             checkpoint_repo=session.checkpoint_repo,
         )
 
         # Wait for async storage to complete before cleaning up the buffer
         if completion_event is not None:
-            completion_event.wait(timeout=SESSION_END_CAPTURE_TIMEOUT)
+            completed = completion_event.wait(timeout=SESSION_END_CAPTURE_TIMEOUT)
+            if not completed:
+                logger.warning(
+                    "Session-end checkpoint storage timed out, buffer cleanup proceeding",
+                    container_id=session.container_id,
+                    timeout_seconds=SESSION_END_CAPTURE_TIMEOUT,
+                )
 
     except ImportError:
         logger.debug(
@@ -166,6 +215,8 @@ def _capture_and_cleanup_session(
         # and no future code path will call this for the same container.
         with _captured_containers_lock:
             _captured_containers.discard(session.container_id)
+
+    return completion_event
 
 
 # Session configuration
@@ -789,7 +840,7 @@ class SessionManager:
 
             return True
 
-    def delete_session(self, token: str) -> bool:
+    def delete_session(self, token: str) -> tuple[bool, threading.Event | None]:
         """
         Delete a session by token.
 
@@ -800,7 +851,8 @@ class SessionManager:
             token: The session token to delete
 
         Returns:
-            True if session was deleted, False if not found
+            Tuple of (deleted, completion_event). completion_event can be
+            waited on to ensure checkpoint storage finishes before cleanup.
         """
         token_hash = self._token_to_hash.get(token) or _hash_token(token)
         session = None
@@ -808,15 +860,15 @@ class SessionManager:
         with self._lock:
             session = self._sessions.get(token_hash)
             if not session:
-                return False
+                return False, None
 
             del self._sessions[token_hash]
             self._token_to_hash.pop(token, None)
             self._save_to_disk()
 
         # Capture session-end checkpoint outside the lock to avoid
-        # blocking other session operations during the up-to-30s wait
-        _capture_and_cleanup_session(session, "completed")
+        # blocking other session operations during the up-to-180s wait
+        completion_event = _capture_and_cleanup_session(session, "completed")
 
         logger.info(
             "Session deleted",
@@ -825,9 +877,9 @@ class SessionManager:
             container_id=session.container_id,
         )
 
-        return True
+        return True, completion_event
 
-    def delete_session_by_container(self, container_id: str) -> bool:
+    def delete_session_by_container(self, container_id: str) -> tuple[bool, threading.Event | None]:
         """
         Delete session by container ID.
 
@@ -837,7 +889,8 @@ class SessionManager:
             container_id: Docker container ID
 
         Returns:
-            True if session was deleted, False if not found
+            Tuple of (deleted, completion_event). completion_event can be
+            waited on to ensure checkpoint storage finishes before cleanup.
         """
         session = None
         token_hash = None
@@ -857,8 +910,8 @@ class SessionManager:
 
         if session and token_hash:
             # Capture session-end checkpoint outside the lock to avoid
-            # blocking other session operations during the up-to-30s wait
-            _capture_and_cleanup_session(session, "completed")
+            # blocking other session operations during the up-to-180s wait
+            completion_event = _capture_and_cleanup_session(session, "completed")
 
             logger.info(
                 "Session deleted by container ID",
@@ -866,9 +919,9 @@ class SessionManager:
                 session_token_hash=token_hash[:16],
                 container_id=container_id,
             )
-            return True
+            return True, completion_event
 
-        return False
+        return False, None
 
     def prune_expired_sessions(self) -> int:
         """

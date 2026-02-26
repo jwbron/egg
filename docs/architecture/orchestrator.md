@@ -99,9 +99,15 @@ Pipelines can specify an explicit network mode that controls internet access for
 2. When spawning containers, the orchestrator uses the pipeline's `network_mode` (if set) to configure the gateway session mode
 3. The gateway enforces network policy based on the session mode (see `gateway/README.md`)
 
-**Special case: PR phase in local mode**
+**Special case: PR phase**
 
-Local-mode pipelines use `local` gateway mode throughout all phases, including the PR phase. During the PR phase, the gateway allows PR-specific operations (`gh pr create`, `gh pr edit`) based on phase permissions (`.egg/phase-permissions.json`), while continuing to block other GitHub operations. If `network_mode="private"`, the pipeline stays in private mode even during the PR phase (no push allowed).
+The PR phase no longer spawns an agent. Instead, the orchestrator auto-creates the PR via `GatewayClient.create_pr()`, which:
+1. Extracts PR title/description from the contract's `pr` field (populated by the plan agent)
+2. Falls back to the issue title or pipeline ID if no PR metadata exists
+3. Appends git commit log and diff stats to the PR body
+4. Creates the PR via the gateway using a temporary session with `phase="pr"` permissions
+
+This eliminates the need for agent interaction during PR creation and ensures consistent PR formatting across all pipelines.
 
 ## Per-Pipeline Worktrees
 

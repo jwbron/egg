@@ -91,7 +91,7 @@ With no arguments, this starts a **local pipeline**. The agent will:
 3. Create a local pipeline in the orchestrator
 4. Run through refine → plan → implement → PR phases entirely locally
 
-During refine and plan phases, the gateway restricts pushes to state files and blocks PR operations. During the PR phase, the gateway allows PR creation and editing so the agent can create a draft PR for your review.
+During refine and plan phases, the gateway restricts pushes to state files and blocks PR operations. During the PR phase, the orchestrator auto-creates the PR using metadata from the plan, commit log, and diff stats — no agent is spawned.
 
 **Local pipeline phases:**
 
@@ -100,7 +100,7 @@ During refine and plan phases, the gateway restricts pushes to state files and b
 | **Refine** | Agent analyzes requirements from your prompt |
 | **Plan** | Agent creates an implementation plan |
 | **Implement** | Agent writes code locally |
-| **PR** | Agent creates a draft PR (terminal phase) |
+| **PR** | Orchestrator auto-creates a draft PR (terminal phase) |
 
 ### Option B: Issue pipeline (GitHub-driven)
 
@@ -157,7 +157,7 @@ Here's what the issue pipeline creates and when:
 
 **Nothing is merged automatically.** The gateway enforces merge blocking — only humans can merge PRs via the GitHub UI.
 
-Local pipelines create PRs during the PR phase but do not interact with GitHub issues. The gateway blocks most gh operations in local mode, but allows PR operations during the PR phase based on phase permissions.
+Local pipelines create PRs during the PR phase but do not interact with GitHub issues. The orchestrator auto-creates the PR via `GatewayClient.create_pr()` — no agent is spawned during the PR phase.
 
 The pipeline stores its internal state in `.egg-state/` on the feature branch (not on main). This includes the contract JSON, draft documents, and review verdicts.
 

@@ -2812,11 +2812,12 @@ class TestContractDecisionBridge:
 
 
 class TestDisplayInPager:
-    """Tests for the _display_in_pager function."""
+    """Tests for the _display_in_pager function (glow-first pager)."""
 
+    @patch("egg_lib.sdlc_hitl.shutil.which", return_value="/usr/bin/glow")
     @patch("egg_lib.sdlc_hitl.subprocess.run")
-    def test_launches_pager_with_default(self, mock_run, monkeypatch):
-        """Launches $PAGER (default less -R) with content in a temp file."""
+    def test_glow_used_when_available(self, mock_run, mock_which, monkeypatch):
+        """Uses glow -p when glow is on PATH and $PAGER is not set."""
         monkeypatch.delenv("PAGER", raising=False)
         mock_run.return_value = MagicMock(returncode=0)
 
@@ -2824,46 +2825,110 @@ class TestDisplayInPager:
 
         mock_run.assert_called_once()
         cmd = mock_run.call_args[0][0]
-        assert cmd[0] == "less"
-        assert cmd[1] == "-R"
-        # Third element is the temp file path
-        assert len(cmd) == 3
+        assert cmd[0] == "glow"
+        assert cmd[1] == "-p"
+        assert cmd[2].endswith(".md")
 
+    @patch("egg_lib.sdlc_hitl.shutil.which", return_value="/usr/bin/glow")
     @patch("egg_lib.sdlc_hitl.subprocess.run")
-    def test_uses_custom_pager(self, mock_run, monkeypatch):
-        """Uses $PAGER env var when set."""
+    def test_pager_env_skips_glow(self, mock_run, mock_which, monkeypatch):
+        """$PAGER overrides glow — glow is never tried."""
         monkeypatch.setenv("PAGER", "more")
         mock_run.return_value = MagicMock(returncode=0)
 
         _display_in_pager("content")
 
+        mock_run.assert_called_once()
         cmd = mock_run.call_args[0][0]
         assert cmd[0] == "more"
+        # glow should not have been invoked
+        assert "glow" not in cmd
 
+    @patch("egg_lib.sdlc_hitl.shutil.which", return_value="/usr/bin/glow")
     @patch("egg_lib.sdlc_hitl.subprocess.run")
-    def test_falls_back_on_pager_failure(self, mock_run, monkeypatch, capsys):
-        """Falls back to printing when pager exits with non-zero."""
+    def test_glow_failure_falls_back_to_less(self, mock_run, mock_which, monkeypatch):
+        """When glow fails (non-zero exit), falls back to less -R."""
+        monkeypatch.delenv("PAGER", raising=False)
+        # First call (glow) fails, second call (less) succeeds
+        mock_run.side_effect = [MagicMock(returncode=1), MagicMock(returncode=0)]
+
+        _display_in_pager("content")
+
+        assert mock_run.call_count == 2
+        first_cmd = mock_run.call_args_list[0][0][0]
+        assert first_cmd[0] == "glow"
+        second_cmd = mock_run.call_args_list[1][0][0]
+        assert second_cmd[0] == "less"
+        assert second_cmd[1] == "-R"
+
+    @patch("egg_lib.sdlc_hitl.shutil.which", return_value="/usr/bin/glow")
+    @patch("egg_lib.sdlc_hitl.subprocess.run")
+    def test_glow_and_less_failure_prints_raw(self, mock_run, mock_which, monkeypatch, capsys):
+        """When both glow and less fail, prints raw content."""
         monkeypatch.delenv("PAGER", raising=False)
         mock_run.return_value = MagicMock(returncode=1)
 
         _display_in_pager("fallback content")
 
+        assert mock_run.call_count == 2  # glow, then less
         captured = capsys.readouterr()
         assert "fallback content" in captured.out
 
+    @patch("egg_lib.sdlc_hitl.shutil.which", return_value=None)
     @patch("egg_lib.sdlc_hitl.subprocess.run")
-    def test_falls_back_on_file_not_found(self, mock_run, monkeypatch, capsys):
-        """Falls back to printing when pager command not found."""
+    def test_no_glow_uses_less(self, mock_run, mock_which, monkeypatch):
+        """Without glow on PATH and no $PAGER, uses less -R."""
+        monkeypatch.delenv("PAGER", raising=False)
+        mock_run.return_value = MagicMock(returncode=0)
+
+        _display_in_pager("# Heading")
+
+        mock_run.assert_called_once()
+        cmd = mock_run.call_args[0][0]
+        assert cmd[0] == "less"
+        assert cmd[1] == "-R"
+
+    @patch("egg_lib.sdlc_hitl.shutil.which", return_value=None)
+    @patch("egg_lib.sdlc_hitl.subprocess.run")
+    def test_less_failure_prints_raw(self, mock_run, mock_which, monkeypatch, capsys):
+        """When less fails and no glow, prints raw content."""
         monkeypatch.delenv("PAGER", raising=False)
         mock_run.side_effect = FileNotFoundError("less not found")
 
-        _display_in_pager("fallback on missing pager")
+        _display_in_pager("fallback on missing less")
 
         captured = capsys.readouterr()
-        assert "fallback on missing pager" in captured.out
+        assert "fallback on missing less" in captured.out
 
+    @patch("egg_lib.sdlc_hitl.shutil.which", return_value=None)
     @patch("egg_lib.sdlc_hitl.subprocess.run")
-    def test_passes_stdin_stdout_stderr(self, mock_run, monkeypatch):
+    def test_pager_failure_prints_raw(self, mock_run, mock_which, monkeypatch, capsys):
+        """When $PAGER fails, prints raw content (no glow/less fallback)."""
+        monkeypatch.setenv("PAGER", "bad-pager")
+        mock_run.side_effect = FileNotFoundError("bad-pager not found")
+
+        _display_in_pager("pager missing content")
+
+        captured = capsys.readouterr()
+        assert "pager missing content" in captured.out
+        # Only one attempt — $PAGER doesn't cascade to glow/less
+        mock_run.assert_called_once()
+
+    @patch("egg_lib.sdlc_hitl.shutil.which", return_value="/usr/bin/glow")
+    @patch("egg_lib.sdlc_hitl.subprocess.run")
+    def test_temp_file_has_md_suffix(self, mock_run, mock_which, monkeypatch):
+        """Temp file has .md suffix so glow renders correctly."""
+        monkeypatch.delenv("PAGER", raising=False)
+        mock_run.return_value = MagicMock(returncode=0)
+
+        _display_in_pager("# Test")
+
+        cmd = mock_run.call_args[0][0]
+        assert cmd[-1].endswith(".md")
+
+    @patch("egg_lib.sdlc_hitl.shutil.which", return_value="/usr/bin/glow")
+    @patch("egg_lib.sdlc_hitl.subprocess.run")
+    def test_passes_stdin_stdout_stderr(self, mock_run, mock_which, monkeypatch):
         """Passes stdin/stdout/stderr for TTY interaction."""
         monkeypatch.delenv("PAGER", raising=False)
         mock_run.return_value = MagicMock(returncode=0)

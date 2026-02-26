@@ -38,6 +38,14 @@ RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | d
     && apt-get install -y gh \
     && rm -rf /var/lib/apt/lists/*
 
+# Install glow (charmbracelet terminal markdown renderer)
+RUN curl -fsSL https://repo.charm.sh/apt/gpg.key | gpg --dearmor -o /usr/share/keyrings/charm.gpg \
+    && chmod go+r /usr/share/keyrings/charm.gpg \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/charm.gpg] https://repo.charm.sh/apt/ * *" > /etc/apt/sources.list.d/charm.list \
+    && apt-get update \
+    && apt-get install -y glow \
+    && rm -rf /var/lib/apt/lists/*
+
 # Install Python 3.11 as default (Ubuntu 22.04 ships with 3.10)
 # Required for datetime.UTC and other 3.11+ features used by egg scripts
 # Note: We run apt-get update twice - once before adding the PPA to refresh

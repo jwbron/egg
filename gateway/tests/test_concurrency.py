@@ -134,9 +134,9 @@ class TestSessionManagerConcurrency:
         def delete():
             try:
                 barrier.wait()
-                result = manager.delete_session(token)
+                deleted, _event = manager.delete_session(token)
                 with lock:
-                    delete_results.append(result)
+                    delete_results.append(deleted)
             except Exception as e:
                 with lock:
                     delete_results.append(("error", e))
