@@ -14,6 +14,8 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+import yaml
+
 from .config import (
     Config,
 )
@@ -207,6 +209,133 @@ def is_dangerous_dir(path: Path) -> bool:
     return False
 
 
+def _load_repos_config() -> dict[str, Any]:
+    """Load repositories.yaml for build_commands configuration.
+
+    Returns:
+        Parsed config dict, or empty dict if not found.
+    """
+    config_path = Config.REPOS_CONFIG_FILE
+    if not config_path.exists():
+        return {}
+    try:
+        with config_path.open() as f:
+            return yaml.safe_load(f) or {}
+    except Exception:
+        return {}
+
+
+def _get_local_repo_path(config: dict[str, Any], repo_name: str) -> Path | None:
+    """Find the local path for a repo from local_repos.paths config.
+
+    Matches by checking if the repo name appears as the last component(s) of
+    the local path (e.g., /home/user/projects/org/repo matches org/repo).
+
+    Args:
+        config: Parsed repositories.yaml config
+        repo_name: Repository in "owner/repo" format
+
+    Returns:
+        Path to the local repo directory, or None if not found.
+    """
+    local_repos = config.get("local_repos", {})
+    if not isinstance(local_repos, dict):
+        return None
+    paths = local_repos.get("paths", [])
+    if not isinstance(paths, list):
+        return None
+
+    # Normalize repo name for matching
+    repo_parts = repo_name.lower().split("/")
+
+    for path_str in paths:
+        path = Path(str(path_str)).expanduser().resolve()
+        if not path.exists() or not path.is_dir():
+            continue
+        # Check if the path ends with the repo name parts
+        # e.g., /home/user/repos/org/repo -> parts [-2:] = ["org", "repo"]
+        path_parts = [p.lower() for p in path.parts]
+        if len(path_parts) >= len(repo_parts):
+            if path_parts[-len(repo_parts):] == repo_parts:
+                return path
+        # Also try matching just the repo name (without owner)
+        if len(repo_parts) > 1 and path.name.lower() == repo_parts[-1]:
+            return path
+
+    return None
+
+
+def _copy_repo_watch_files(quiet: bool = False) -> None:
+    """Copy watch files from local repos into the build context.
+
+    For each repo with build_commands configured, copies the watch_files
+    from the local repo directory into the build context at
+    repo-deps/<repo-dir-name>/.
+
+    This enables Docker layer caching: the COPY layer only invalidates
+    when watch files change, triggering a rebuild of the dependency layer.
+    """
+    config = _load_repos_config()
+    repo_settings = config.get("repo_settings", {})
+    if not isinstance(repo_settings, dict):
+        return
+
+    repo_deps_dir = Config.CONFIG_DIR / "repo-deps"
+
+    # Clean up old repo-deps to avoid stale files
+    if repo_deps_dir.exists():
+        shutil.rmtree(repo_deps_dir, ignore_errors=True)
+
+    has_any = False
+
+    for repo_name, settings in repo_settings.items():
+        if not isinstance(settings, dict):
+            continue
+        build_cmds = settings.get("build_commands")
+        if not isinstance(build_cmds, dict):
+            continue
+        watch_files = build_cmds.get("watch_files", [])
+        commands = build_cmds.get("commands", [])
+        if not isinstance(watch_files, list) or not isinstance(commands, list):
+            continue
+        if not commands:
+            continue
+
+        # Find the local repo path
+        local_path = _get_local_repo_path(config, repo_name)
+        if local_path is None:
+            if not quiet:
+                warn(f"build_commands: local path not found for {repo_name}, skipping watch files")
+            continue
+
+        # Copy watch files
+        repo_dir_name = repo_name.replace("/", "--")
+        dest_dir = repo_deps_dir / repo_dir_name
+        dest_dir.mkdir(parents=True, exist_ok=True)
+
+        copied_any = False
+        for watch_file in watch_files:
+            src_file = local_path / str(watch_file)
+            if src_file.exists() and src_file.is_file():
+                # Preserve directory structure within the watch file path
+                dest_file = dest_dir / str(watch_file)
+                dest_file.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(src_file, dest_file)
+                copied_any = True
+            elif not quiet:
+                warn(f"build_commands: watch file not found: {repo_name}/{watch_file}")
+
+        if copied_any:
+            has_any = True
+            if not quiet:
+                info(f"Copied watch files for {repo_name}")
+
+    if not has_any:
+        # Always create repo-deps with an empty marker so Dockerfile COPY doesn't fail
+        repo_deps_dir.mkdir(parents=True, exist_ok=True)
+        (repo_deps_dir / ".empty").touch()
+
+
 def create_dockerfile() -> None:
     """Create the Dockerfile for the container"""
     quiet = get_quiet_mode()
@@ -300,6 +429,9 @@ def create_dockerfile() -> None:
     else:
         error(f"entrypoint.py not found at {entrypoint_src}")
         error("Cannot build without entrypoint script")
+
+    # Copy watch files for build_commands (per-repo dependency caching)
+    _copy_repo_watch_files(quiet)
 
     # Copy Dockerfile from script directory
     dockerfile_src = script_dir / "Dockerfile"
@@ -414,6 +546,51 @@ def hash_directory(path: Path, hasher: Any) -> None:
             hash_file(item, hasher)
 
 
+def _hash_build_command_watch_files(hasher: Any) -> None:
+    """Hash watch file contents from build_commands config.
+
+    Reads the repositories.yaml config and hashes the contents of all
+    watch_files from their local repo paths. This ensures that the build
+    hash changes when dependency files (e.g., package-lock.json) change,
+    triggering an automatic image rebuild.
+    """
+    config = _load_repos_config()
+    repo_settings = config.get("repo_settings", {})
+    if not isinstance(repo_settings, dict):
+        return
+
+    for repo_name in sorted(repo_settings.keys()):
+        settings = repo_settings[repo_name]
+        if not isinstance(settings, dict):
+            continue
+        build_cmds = settings.get("build_commands")
+        if not isinstance(build_cmds, dict):
+            continue
+        watch_files = build_cmds.get("watch_files", [])
+        commands = build_cmds.get("commands", [])
+        if not isinstance(watch_files, list) or not isinstance(commands, list):
+            continue
+        if not commands:
+            continue
+
+        local_path = _get_local_repo_path(config, repo_name)
+        if local_path is None:
+            continue
+
+        # Include the repo name and commands in the hash so changes to
+        # the build_commands config itself also trigger rebuilds
+        hasher.update(f"build_commands:{repo_name}".encode())
+        for cmd in commands:
+            hasher.update(f"cmd:{cmd}".encode())
+
+        # Hash watch file contents
+        for watch_file in sorted(str(f) for f in watch_files):
+            src_file = local_path / watch_file
+            if src_file.exists() and src_file.is_file():
+                hasher.update(f"watch:{repo_name}/{watch_file}".encode())
+                hash_file(src_file, hasher)
+
+
 def compute_build_hash() -> str:
     """Compute a SHA256 hash of all files that affect the Docker image build.
 
@@ -484,6 +661,10 @@ def compute_build_hash() -> str:
         shared_pyproject = shared_path / "pyproject.toml"
         if shared_pyproject.exists():
             hash_file(shared_pyproject, hasher)
+
+    # Include watch file contents from build_commands config
+    # This ensures the image rebuilds when dependency files change
+    _hash_build_command_watch_files(hasher)
 
     return hasher.hexdigest()
 

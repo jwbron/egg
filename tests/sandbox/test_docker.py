@@ -580,3 +580,220 @@ class TestTeardownNetworks:
             with patch("egg_lib.docker.subprocess.run") as mock_run:
                 teardown_networks()
                 assert mock_run.call_count == 2
+
+
+class TestGetLocalRepoPath:
+    """Tests for _get_local_repo_path."""
+
+    def test_finds_repo_by_full_path(self, tmp_path):
+        """Matches repo by owner/name at end of path."""
+        from egg_lib.docker import _get_local_repo_path
+
+        repo_dir = tmp_path / "org" / "my-app"
+        repo_dir.mkdir(parents=True)
+
+        config = {
+            "local_repos": {
+                "paths": [str(repo_dir)]
+            }
+        }
+
+        result = _get_local_repo_path(config, "org/my-app")
+        assert result == repo_dir
+
+    def test_finds_repo_by_name_only(self, tmp_path):
+        """Falls back to matching just the repo name."""
+        from egg_lib.docker import _get_local_repo_path
+
+        repo_dir = tmp_path / "my-app"
+        repo_dir.mkdir(parents=True)
+
+        config = {
+            "local_repos": {
+                "paths": [str(repo_dir)]
+            }
+        }
+
+        result = _get_local_repo_path(config, "org/my-app")
+        assert result == repo_dir
+
+    def test_returns_none_for_missing_repo(self, tmp_path):
+        """Returns None when repo not in local_repos."""
+        from egg_lib.docker import _get_local_repo_path
+
+        config = {
+            "local_repos": {
+                "paths": [str(tmp_path / "other-repo")]
+            }
+        }
+
+        result = _get_local_repo_path(config, "org/my-app")
+        assert result is None
+
+    def test_returns_none_for_empty_config(self):
+        """Returns None with no local_repos config."""
+        from egg_lib.docker import _get_local_repo_path
+
+        result = _get_local_repo_path({}, "org/my-app")
+        assert result is None
+
+
+class TestCopyRepoWatchFiles:
+    """Tests for _copy_repo_watch_files."""
+
+    def test_copies_watch_files(self, tmp_path):
+        """Copies watch files from local repos to build context."""
+        from egg_lib.docker import _copy_repo_watch_files
+
+        # Set up local repo with a watch file
+        repo_dir = tmp_path / "org" / "web-app"
+        repo_dir.mkdir(parents=True)
+        (repo_dir / "package-lock.json").write_text('{"lockfileVersion": 3}')
+
+        # Config with build_commands
+        config = {
+            "repo_settings": {
+                "org/web-app": {
+                    "build_commands": {
+                        "watch_files": ["package-lock.json"],
+                        "commands": ["npm ci"],
+                    }
+                }
+            },
+            "local_repos": {
+                "paths": [str(repo_dir)]
+            },
+        }
+
+        # Mock the config loading and Config.CONFIG_DIR
+        build_dir = tmp_path / "build-context"
+        build_dir.mkdir()
+
+        with patch("egg_lib.docker._load_repos_config", return_value=config):
+            with patch("egg_lib.docker.Config") as mock_config:
+                mock_config.CONFIG_DIR = build_dir
+                _copy_repo_watch_files(quiet=True)
+
+        # Check the watch file was copied
+        dest = build_dir / "repo-deps" / "org--web-app" / "package-lock.json"
+        assert dest.exists()
+        assert dest.read_text() == '{"lockfileVersion": 3}'
+
+    def test_skips_when_no_build_commands(self, tmp_path):
+        """Does nothing when no repos have build_commands."""
+        from egg_lib.docker import _copy_repo_watch_files
+
+        config = {
+            "repo_settings": {
+                "org/app": {"checks": []}
+            }
+        }
+
+        build_dir = tmp_path / "build-context"
+        build_dir.mkdir()
+
+        with patch("egg_lib.docker._load_repos_config", return_value=config):
+            with patch("egg_lib.docker.Config") as mock_config:
+                mock_config.CONFIG_DIR = build_dir
+                _copy_repo_watch_files(quiet=True)
+
+        # repo-deps should have the empty marker
+        repo_deps = build_dir / "repo-deps"
+        if repo_deps.exists():
+            assert (repo_deps / ".empty").exists()
+
+
+class TestHashBuildCommandWatchFiles:
+    """Tests for _hash_build_command_watch_files."""
+
+    def test_hashes_watch_file_contents(self, tmp_path):
+        """Watch file content is included in hash."""
+        from egg_lib.docker import _hash_build_command_watch_files
+
+        repo_dir = tmp_path / "org" / "app"
+        repo_dir.mkdir(parents=True)
+        (repo_dir / "requirements.txt").write_text("flask==3.0\n")
+
+        config = {
+            "repo_settings": {
+                "org/app": {
+                    "build_commands": {
+                        "watch_files": ["requirements.txt"],
+                        "commands": ["pip install -r requirements.txt"],
+                    }
+                }
+            },
+            "local_repos": {
+                "paths": [str(repo_dir)]
+            },
+        }
+
+        h1 = hashlib.sha256()
+        with patch("egg_lib.docker._load_repos_config", return_value=config):
+            _hash_build_command_watch_files(h1)
+        hash_before = h1.hexdigest()
+
+        # Change the watch file
+        (repo_dir / "requirements.txt").write_text("flask==3.1\nrequests==2.32\n")
+
+        h2 = hashlib.sha256()
+        with patch("egg_lib.docker._load_repos_config", return_value=config):
+            _hash_build_command_watch_files(h2)
+        hash_after = h2.hexdigest()
+
+        assert hash_before != hash_after
+
+    def test_noop_with_empty_config(self):
+        """Does nothing with empty config."""
+        from egg_lib.docker import _hash_build_command_watch_files
+
+        h = hashlib.sha256()
+        empty_digest = h.hexdigest()
+
+        with patch("egg_lib.docker._load_repos_config", return_value={}):
+            _hash_build_command_watch_files(h)
+
+        # Hash should be unchanged
+        assert h.hexdigest() == empty_digest
+
+    def test_includes_command_changes(self, tmp_path):
+        """Changing commands (not just files) changes the hash."""
+        from egg_lib.docker import _hash_build_command_watch_files
+
+        repo_dir = tmp_path / "org" / "app"
+        repo_dir.mkdir(parents=True)
+        (repo_dir / "requirements.txt").write_text("flask==3.0\n")
+
+        config1 = {
+            "repo_settings": {
+                "org/app": {
+                    "build_commands": {
+                        "watch_files": ["requirements.txt"],
+                        "commands": ["pip install -r requirements.txt"],
+                    }
+                }
+            },
+            "local_repos": {"paths": [str(repo_dir)]},
+        }
+
+        config2 = {
+            "repo_settings": {
+                "org/app": {
+                    "build_commands": {
+                        "watch_files": ["requirements.txt"],
+                        "commands": ["pip install -r requirements.txt --no-deps"],
+                    }
+                }
+            },
+            "local_repos": {"paths": [str(repo_dir)]},
+        }
+
+        h1 = hashlib.sha256()
+        with patch("egg_lib.docker._load_repos_config", return_value=config1):
+            _hash_build_command_watch_files(h1)
+
+        h2 = hashlib.sha256()
+        with patch("egg_lib.docker._load_repos_config", return_value=config2):
+            _hash_build_command_watch_files(h2)
+
+        assert h1.hexdigest() != h2.hexdigest()

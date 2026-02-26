@@ -29,6 +29,8 @@ detect_distro = docker_setup.detect_distro
 get_arch = docker_setup.get_arch
 load_config = docker_setup.load_config
 get_extra_packages = docker_setup.get_extra_packages
+get_build_commands = docker_setup.get_build_commands
+run_build_commands = docker_setup.run_build_commands
 
 
 class TestRun:
@@ -293,6 +295,154 @@ class TestConfigureSystem:
 
         captured = capsys.readouterr()
         assert "inotify" in captured.out.lower()
+
+
+class TestGetBuildCommands:
+    """Tests for build_commands extraction from config."""
+
+    def test_returns_build_commands(self):
+        """Test extracting build_commands from repo_settings."""
+        config = {
+            "repo_settings": {
+                "org/web-app": {
+                    "build_commands": {
+                        "watch_files": ["package-lock.json"],
+                        "commands": ["npm ci"],
+                    }
+                },
+                "org/python-svc": {
+                    "build_commands": {
+                        "watch_files": ["requirements.txt"],
+                        "commands": ["pip install -r requirements.txt"],
+                    }
+                },
+            }
+        }
+        result = get_build_commands(config)
+        assert len(result) == 2
+        repos = [r["repo"] for r in result]
+        assert "org/web-app" in repos
+        assert "org/python-svc" in repos
+
+    def test_returns_empty_for_no_build_commands(self):
+        """Test empty list when no build_commands configured."""
+        config = {
+            "repo_settings": {
+                "org/app": {
+                    "checks": [{"name": "test", "command": "make test"}]
+                }
+            }
+        }
+        result = get_build_commands(config)
+        assert result == []
+
+    def test_returns_empty_for_empty_config(self):
+        """Test empty list with empty config."""
+        result = get_build_commands({})
+        assert result == []
+
+    def test_skips_repos_with_empty_commands(self):
+        """Test that repos with empty commands are skipped."""
+        config = {
+            "repo_settings": {
+                "org/app": {
+                    "build_commands": {
+                        "watch_files": ["package.json"],
+                        "commands": [],
+                    }
+                }
+            }
+        }
+        result = get_build_commands(config)
+        assert result == []
+
+    def test_handles_missing_watch_files(self):
+        """Test build_commands without watch_files key."""
+        config = {
+            "repo_settings": {
+                "org/app": {
+                    "build_commands": {
+                        "commands": ["make deps"],
+                    }
+                }
+            }
+        }
+        result = get_build_commands(config)
+        assert len(result) == 1
+        assert result[0]["watch_files"] == []
+        assert result[0]["commands"] == ["make deps"]
+
+    def test_handles_invalid_types(self):
+        """Test graceful handling of invalid config types."""
+        config = {
+            "repo_settings": {
+                "org/app": {
+                    "build_commands": "not-a-dict"
+                }
+            }
+        }
+        result = get_build_commands(config)
+        assert result == []
+
+
+class TestRunBuildCommands:
+    """Tests for run_build_commands function."""
+
+    @patch("subprocess.run")
+    def test_runs_commands(self, mock_run, tmp_path, capsys):
+        """Test that build commands are executed."""
+        mock_run.return_value = MagicMock(returncode=0)
+
+        # Create the work directory that run_build_commands expects
+        work_dir = Path("/tmp/repo-deps/org--app")
+        work_dir.mkdir(parents=True, exist_ok=True)
+
+        build_commands = [{
+            "repo": "org/app",
+            "watch_files": ["package.json"],
+            "commands": ["npm ci", "npm run build"],
+        }]
+
+        try:
+            run_build_commands(build_commands)
+        finally:
+            # Clean up
+            import shutil
+            shutil.rmtree("/tmp/repo-deps", ignore_errors=True)
+
+        # Should have called subprocess.run twice (one per command)
+        assert mock_run.call_count == 2
+        captured = capsys.readouterr()
+        assert "Build commands" in captured.out
+        assert "org/app" in captured.out
+
+    @patch("subprocess.run")
+    def test_empty_commands_is_noop(self, mock_run, capsys):
+        """Test that empty build_commands list does nothing."""
+        run_build_commands([])
+        mock_run.assert_not_called()
+        captured = capsys.readouterr()
+        assert captured.out == ""
+
+    @patch("subprocess.run")
+    def test_handles_command_failure(self, mock_run, tmp_path, capsys):
+        """Test that failed commands produce warnings but don't crash."""
+        mock_run.return_value = MagicMock(returncode=1)
+
+        work_dir = tmp_path / "repo-deps" / "org--app"
+        work_dir.mkdir(parents=True)
+
+        build_commands = [{
+            "repo": "org/app",
+            "watch_files": [],
+            "commands": ["false"],
+        }]
+
+        # Just run it - should not raise
+        run_build_commands(build_commands)
+
+        captured = capsys.readouterr()
+        assert "Build commands" in captured.out
 
 
 class TestMain:
