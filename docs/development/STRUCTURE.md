@@ -182,7 +182,7 @@ shared/
 │   ├── agent_recovery.py   # Failed agent recovery logic
 │   ├── checkpoints.py      # Checkpoint data models
 │   ├── checkpoint_loader.py # Checkpoint storage and retrieval
-│   ├── checkpoint_cli.py   # Checkpoint browsing CLI (list, show, browse)
+│   ├── checkpoint_cli.py   # Checkpoint browsing CLI (list, show, browse, context, cost, search)
 │   ├── transcript_extractor.py # API transcript extraction
 │   └── redactor.py         # Sensitive data redaction for checkpoints
 ├── check-fixers.yml         # Per-check fixer config (non-LLM fixes, retries, model)
