@@ -130,6 +130,7 @@ class DecisionQueue:
         options: list[str] | None = None,
         decision_type: Literal["phase_gate", "choice", "feedback"] = "choice",
         questions: list[dict[str, str]] | None = None,
+        phase: str | None = None,
     ) -> HITLDecision:
         """Queue a new decision for human review.
 
@@ -152,6 +153,7 @@ class DecisionQueue:
                 options=options or [],
                 decision_type=decision_type,
                 questions=questions or [],
+                phase=phase,
             )
 
             # Update with additional fields

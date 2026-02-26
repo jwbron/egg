@@ -118,6 +118,7 @@ def list_decisions(pipeline_id: str) -> tuple[Response, int]:
                 "created_at": d.created_at.isoformat(),
                 "resolved_at": d.resolved_at.isoformat() if d.resolved_at else None,
                 "resolution": d.resolution,
+                "phase": d.phase,
             }
             for d in decisions
         ]
@@ -182,6 +183,7 @@ def queue_decision(pipeline_id: str) -> tuple[Response, int]:
             options=data.get("options"),
             decision_type=decision_type,
             questions=data.get("questions"),
+            phase=data.get("phase"),
         )
 
         logger.info(
@@ -200,6 +202,7 @@ def queue_decision(pipeline_id: str) -> tuple[Response, int]:
                     "questions": decision.questions,
                     "status": decision.status.value,
                     "created_at": decision.created_at.isoformat(),
+                    "phase": decision.phase,
                 }
             },
         )
@@ -253,6 +256,7 @@ def get_decision(pipeline_id: str, decision_id: str) -> tuple[Response, int]:
                     if decision.resolved_at
                     else None,
                     "resolution": decision.resolution,
+                    "phase": decision.phase,
                 }
             },
         )

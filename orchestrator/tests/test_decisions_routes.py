@@ -120,6 +120,7 @@ class TestCreateDecisionWithType:
             options=None,
             decision_type="feedback",
             questions=questions,
+            phase=None,
         )
 
     @patch("routes.decisions.get_repo_path")
@@ -175,6 +176,7 @@ class TestCreateDecisionWithType:
             options=["A", "B"],
             decision_type="choice",
             questions=None,
+            phase=None,
         )
 
 
@@ -424,6 +426,7 @@ class TestQueueDecisionValidation:
             options=["REST", "GraphQL", "gRPC"],
             decision_type="choice",
             questions=None,
+            phase=None,
         )
 
 

@@ -5860,6 +5860,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                     context=draft_content or "",
                     options=["approve", "request changes"],
                     decision_type="phase_gate",
+                    phase=current_phase.value,
                 )
 
                 # Reload pipeline to pick up the decision persisted by queue_decision(),
@@ -5965,6 +5966,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                         context=draft_content or "",
                         options=["approve"],
                         decision_type="phase_gate",
+                        phase=current_phase.value,
                     )
                     dq.wait_for_decision(followup.id)
                     resolved_followup = dq.get_decision(followup.id)
