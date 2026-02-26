@@ -239,11 +239,6 @@ class TestResolveRepoDir:
 # ---------------------------------------------------------------------------
 
 
-def _make_sse_events(*events):
-    """Build a list of (event_type, data_dict) tuples for parse_sse_stream mock."""
-    return list(events)
-
-
 class TestWatchPipelineDraftPager:
     """Tests for the pre-decision draft pager display in watch_pipeline."""
 
@@ -251,14 +246,6 @@ class TestWatchPipelineDraftPager:
         client = MagicMock()
         client.resolve_decision.return_value = {"status": "resolved"}
         return client
-
-    def _make_stream(self, client, events):
-        """Configure client.stream_pipeline to yield events then a done event."""
-        # parse_sse_stream is called on the response; we mock it to return events
-        conn = MagicMock()
-        response = MagicMock()
-        client.stream_pipeline.return_value = (conn, response)
-        return conn, response
 
     @patch("egg_lib.sdlc_cli.handle_hitl_checkpoint")
     @patch("egg_lib.sdlc_cli.resolve_phase_draft")
