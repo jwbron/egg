@@ -67,9 +67,23 @@
       "phase_start_sha": null
     }
   },
-  "decisions": [],
+  "decisions": [
+    {
+      "id": "decision-1",
+      "question": "What should the new ComplexityTier enum values be?",
+      "context": "",
+      "options": [],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-02-26T15:57:18.966515",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine"
+    }
+  ],
   "created_at": "2026-02-26T15:53:05.810690",
-  "updated_at": "2026-02-26T15:53:06.668782",
+  "updated_at": "2026-02-26T15:57:18.968406",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
@@ -77,5 +91,5 @@
   "error": null,
   "plan_phase_waves": null,
   "plan_phase_names": null,
-  "version": 7
+  "version": 8
 }
