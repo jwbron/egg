@@ -951,21 +951,28 @@ class SessionManager:
             if expired_sessions:
                 self._save_to_disk()
 
-        # Capture checkpoints concurrently to avoid blocking N×30s sequentially.
-        # Each capture waits up to 30s for async storage, so we use threads.
+        # Capture checkpoints concurrently to avoid blocking N×timeout sequentially.
+        # Each capture waits up to SESSION_END_CAPTURE_TIMEOUT for async storage,
+        # so we use threads. Non-daemon to ensure checkpoint writes complete on shutdown.
         if expired_sessions:
+            try:
+                from checkpoint_handler import SESSION_END_CAPTURE_TIMEOUT
+            except ImportError:
+                SESSION_END_CAPTURE_TIMEOUT = 180
+
             threads = []
             for token_hash, session in expired_sessions:
                 t = threading.Thread(
                     target=_capture_and_cleanup_session,
                     args=(session, "expired"),
-                    daemon=True,
+                    daemon=False,
                 )
                 t.start()
                 threads.append((t, token_hash, session))
 
+            join_timeout = SESSION_END_CAPTURE_TIMEOUT + 5
             for t, token_hash, session in threads:
-                t.join(timeout=35)  # 30s capture timeout + 5s buffer
+                t.join(timeout=join_timeout)  # capture timeout + buffer
                 if t.is_alive():
                     logger.warning(
                         "Session expired, checkpoint capture still in progress",
