@@ -236,7 +236,7 @@ class TestGitArgsValidation:
             "format-patch", ["-o", "/tmp/patches", "HEAD~3"]
         )
         assert valid is True
-        assert "-o" in args
+        assert "--output-directory" in args
 
     def test_format_patch_numbered_long_flag(self):
         """git format-patch accepts --numbered flag."""
@@ -245,10 +245,9 @@ class TestGitArgsValidation:
         assert "--numbered" in args
 
     def test_format_patch_short_n_rejected(self):
-        """git format-patch -n is rejected because FLAG_NORMALIZATION maps -n to --dry-run.
+        """git format-patch -n is rejected because it's not in the allowlist.
 
-        Users should use --numbered instead. This matches how log and reflog
-        handle the same -n normalization conflict.
+        Users should use --numbered instead.
         """
         valid, error, _ = git_client.validate_git_args("format-patch", ["-n", "HEAD~3"])
         assert valid is False
@@ -262,42 +261,73 @@ class TestGitArgsValidation:
 
 
 class TestFlagNormalization:
-    """Tests for normalize_flag function."""
+    """Tests for per-subcommand normalize_flag function."""
 
     def test_short_to_long_fetch(self):
         """Short flags are normalized to long form for fetch."""
-        assert git_client.normalize_flag("-a") == "--all"
-        assert git_client.normalize_flag("-t") == "--tags"
-        assert git_client.normalize_flag("-p") == "--prune"
-        assert git_client.normalize_flag("-v") == "--verbose"
-        assert git_client.normalize_flag("-q") == "--quiet"
-        assert git_client.normalize_flag("-j") == "--jobs"
+        assert git_client.normalize_flag("-a", "fetch") == "--all"
+        assert git_client.normalize_flag("-t", "fetch") == "--tags"
+        assert git_client.normalize_flag("-p", "fetch") == "--prune"
+        assert git_client.normalize_flag("-v", "fetch") == "--verbose"
+        assert git_client.normalize_flag("-q", "fetch") == "--quiet"
+        assert git_client.normalize_flag("-j", "fetch") == "--jobs"
 
     def test_short_to_long_push(self):
         """Short flags are normalized to long form for push."""
-        assert git_client.normalize_flag("-f") == "--force"
-        assert git_client.normalize_flag("-d") == "--delete"
-        assert git_client.normalize_flag("-n") == "--dry-run"
+        assert git_client.normalize_flag("-f", "push") == "--force"
+        assert git_client.normalize_flag("-d", "push") == "--delete"
+        assert git_client.normalize_flag("-n", "push") == "--dry-run"
 
     def test_long_flags_unchanged(self):
         """Long flags are returned unchanged."""
-        assert git_client.normalize_flag("--all") == "--all"
-        assert git_client.normalize_flag("--force") == "--force"
-        assert git_client.normalize_flag("--verbose") == "--verbose"
+        assert git_client.normalize_flag("--all", "fetch") == "--all"
+        assert git_client.normalize_flag("--force", "push") == "--force"
+        assert git_client.normalize_flag("--verbose", "fetch") == "--verbose"
 
     def test_unknown_flags_unchanged(self):
         """Unknown flags are returned unchanged."""
-        assert git_client.normalize_flag("--unknown-flag") == "--unknown-flag"
-        assert git_client.normalize_flag("-x") == "-x"
+        assert git_client.normalize_flag("--unknown-flag", "fetch") == "--unknown-flag"
+        assert git_client.normalize_flag("-x", "push") == "-x"
 
     def test_flag_with_value_normalized(self):
         """Flags with = values have base normalized."""
-        assert git_client.normalize_flag("-j=4") == "--jobs=4"
-        assert git_client.normalize_flag("-f=foo") == "--force=foo"
+        assert git_client.normalize_flag("-j=4", "fetch") == "--jobs=4"
+        assert git_client.normalize_flag("-f=foo", "push") == "--force=foo"
 
     def test_long_flag_with_value_unchanged(self):
         """Long flags with values are unchanged."""
-        assert git_client.normalize_flag("--jobs=4") == "--jobs=4"
+        assert git_client.normalize_flag("--jobs=4", "fetch") == "--jobs=4"
+
+    def test_cross_subcommand_u_normalization(self):
+        """-u normalizes to different long forms per subcommand."""
+        assert git_client.normalize_flag("-u", "push") == "--set-upstream"
+        assert git_client.normalize_flag("-u", "stash") == "--include-untracked"
+        assert git_client.normalize_flag("-u", "add") == "--update"
+        assert git_client.normalize_flag("-u", "ls-files") == "--unmerged"
+
+    def test_cross_subcommand_n_normalization(self):
+        """-n normalizes to different long forms per subcommand."""
+        assert git_client.normalize_flag("-n", "push") == "--dry-run"
+        assert git_client.normalize_flag("-n", "cherry-pick") == "--no-commit"
+        assert git_client.normalize_flag("-n", "add") == "--intent-to-add"
+        assert git_client.normalize_flag("-n", "blame") == "--show-number"
+
+    def test_upload_pack_long_form_still_blocked(self):
+        """--upload-pack is still blocked (long form in BLOCKED_GIT_FLAGS)."""
+        valid, error, _ = git_client.validate_git_args("fetch", ["--upload-pack=/evil"])
+        assert valid is False
+        assert "not allowed" in error
+
+    def test_config_long_form_still_blocked(self):
+        """--config is still blocked (long form in BLOCKED_GIT_FLAGS)."""
+        valid, error, _ = git_client.validate_git_args("fetch", ["--config=evil"])
+        assert valid is False
+        assert "not allowed" in error
+
+    def test_no_operation_returns_unchanged(self):
+        """Without an operation, flags are returned unchanged."""
+        assert git_client.normalize_flag("-a") == "-a"
+        assert git_client.normalize_flag("-n") == "-n"
 
 
 class TestGhApiPathValidation:
