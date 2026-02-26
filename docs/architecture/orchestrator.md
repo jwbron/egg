@@ -155,7 +155,9 @@ The orchestrator calls `ensure_egg_state_dirs()` before spawning containers to c
 
    The operation is best-effort and idempotent — it skips gracefully when the remote branch doesn't yet exist (first pipeline run) or when fetch fails.
 
-3. **Cleanup on deletion**: When a pipeline is deleted, the orchestrator cleans up remote worktree branches (`egg/{container_id}/work`) for all containers across all phases using `GatewayClient.delete_remote_branch()`. This prevents accumulation of dangling branches on the remote. Branch deletion is best-effort and logged as warnings on failure — deletion failures do not block pipeline removal.
+3. **Cleanup on deletion**: When a pipeline is deleted, the orchestrator cleans up remote worktree branches (`egg/{container_id}/work`) for all containers across all phases using `GatewayClient.delete_remote_branch()`.
+   This prevents accumulation of dangling branches on the remote.
+   Branch deletion is best-effort and logged as warnings on failure — deletion failures do not block pipeline removal.
 
 See `orchestrator/routes/pipelines.py` for implementation details.
 
