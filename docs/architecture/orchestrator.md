@@ -155,6 +155,10 @@ The orchestrator calls `ensure_egg_state_dirs()` before spawning containers to c
 
    The operation is best-effort and idempotent — it skips gracefully when the remote branch doesn't yet exist (first pipeline run) or when fetch fails.
 
+3. **Cleanup on deletion**: When a pipeline is deleted, the orchestrator cleans up remote worktree branches (`egg/{container_id}/work`) for all containers across all phases using `GatewayClient.delete_remote_branch()`.
+   This prevents accumulation of dangling branches on the remote.
+   Branch deletion is best-effort and logged as warnings on failure — deletion failures do not block pipeline removal.
+
 See `orchestrator/routes/pipelines.py` for implementation details.
 
 This architecture ensures the orchestrator reads artifacts from the correct isolated workspace rather than the main repository, preventing cross-contamination between pipelines.
@@ -367,7 +371,8 @@ Fixed IPs:
 
 **Orchestrator (`/api/v1/`)**
 - `GET /health` - Health check
-- `GET/POST /pipelines` - Pipeline CRUD
+- `GET/POST /pipelines` - Pipeline CRUD (list, create)
+- `DELETE /pipelines/{id}` - Delete pipeline (stops containers, cleans up remote worktree branches best-effort, removes state)
 - `POST /pipelines/{id}/start` - Start or restart a pipeline (restarts failed pipelines by resetting the failed phase; worktrees are preserved across restarts)
 - `GET /pipelines/{id}/visualization` - Pipeline status snapshot (JSON, text, or ASCII); for Tier 3 pipelines, the Implement phase is expanded into sub-phase boxes with fan-out/fan-in connectors
 - `GET /pipelines/{id}/stream` - Real-time SSE stream for single pipeline events and visualization
