@@ -93,10 +93,23 @@
       "resolved_at": null,
       "resolution": null,
       "phase": null
+    },
+    {
+      "id": "decision-3",
+      "question": "Should the new MID integrator always get write access to source/tests/docs (adopting old HIGH behavior)?",
+      "context": "",
+      "options": [],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-02-26T14:40:27.889011",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": null
     }
   ],
   "created_at": "2026-02-26T14:34:24.364766",
-  "updated_at": "2026-02-26T14:40:27.255693",
+  "updated_at": "2026-02-26T14:40:27.890815",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
@@ -104,5 +117,5 @@
   "error": null,
   "plan_phase_waves": null,
   "plan_phase_names": null,
-  "version": 9
+  "version": 10
 }
