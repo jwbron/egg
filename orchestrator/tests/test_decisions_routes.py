@@ -21,6 +21,8 @@ _shared_path = Path(__file__).parent.parent.parent / "shared"
 if _shared_path.exists() and str(_shared_path) not in sys.path:
     sys.path.insert(0, str(_shared_path))
 
+from models import PipelinePhase  # noqa: E402
+
 
 @pytest.fixture
 def app(tmp_path):
@@ -407,6 +409,10 @@ class TestPhaseValidation:
                 },
             )
             assert response.status_code == 200, f"Expected 200 for phase={phase}"
+            call_kwargs = mock_queue.queue_decision.call_args
+            assert call_kwargs[1]["phase"] == PipelinePhase(phase), (
+                f"Expected PipelinePhase enum for phase={phase}, got {call_kwargs[1]['phase']!r}"
+            )
 
     @patch("routes.decisions.get_repo_path")
     @patch("routes.decisions.get_decision_queue")
