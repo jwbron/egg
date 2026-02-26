@@ -31,12 +31,13 @@ Authentication:
 from llm.claude.config import ClaudeConfig
 from llm.claude.runner import run_agent, run_agent_async
 from llm.result import AgentResult, ClaudeResult
-from llm.runner import run_interactive
+from llm.runner import build_claude_cmd, run_interactive
 
 __all__ = [
     "AgentResult",
     "ClaudeConfig",
     "ClaudeResult",
+    "build_claude_cmd",
     "run_agent",
     "run_agent_async",
     "run_interactive",

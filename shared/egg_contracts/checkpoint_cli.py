@@ -513,14 +513,7 @@ def _get_checkpoint_repo_from_args(
     # Check environment variable
     env_repo = os.environ.get("EGG_CHECKPOINT_REPO")
     if env_repo:
-        try:
-            return _validate_checkpoint_repo(env_repo), None
-        except ValueError:
-            logger.warning(
-                "EGG_CHECKPOINT_REPO has invalid format %r (expected 'owner/repo'), ignoring",
-                env_repo,
-            )
-            # Fall through to auto-detection rather than crashing
+        return _validate_checkpoint_repo(env_repo), None
     # Try to auto-detect from repo config by reading the git remote URL
     # and looking up checkpoint_repo in repositories.yaml.
     repo_path = args.repo_path or get_repo_path()
@@ -1386,7 +1379,11 @@ def _print_search_results(
 
 def _cmd_search_http(args: argparse.Namespace, gateway_url: str) -> int:
     """Search checkpoints via gateway HTTP API (N+1 requests)."""
-    params = _build_list_params(args)
+    try:
+        params = _build_list_params(args)
+    except ValueError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
     result = _http_get(gateway_url, "/api/v1/checkpoints", params)
     summaries = result.get("data", {}).get("checkpoints", [])
 
@@ -1399,21 +1396,22 @@ def _cmd_search_http(args: argparse.Namespace, gateway_url: str) -> int:
     text_lower = text.lower()
     repo_path = args.repo_path or get_repo_path()
 
-    # Reuse checkpoint resolution from _build_list_params (avoids a second
-    # subprocess call to resolve the same values).
-    show_params_base: dict[str, Any] = {"repo_path": repo_path}
-    if params.get("checkpoint_repo"):
-        show_params_base["checkpoint_repo"] = params["checkpoint_repo"]
-    elif params.get("source_repo"):
-        show_params_base["source_repo"] = params["source_repo"]
+    # Resolve checkpoint repo once outside the loop (same for every iteration)
+    checkpoint_repo = params.get("checkpoint_repo")
+    source_repo = params.get("source_repo")
 
     for s in summaries:
         cp_id = s.get("id", "")
         try:
+            show_params: dict[str, Any] = {"repo_path": repo_path}
+            if checkpoint_repo:
+                show_params["checkpoint_repo"] = checkpoint_repo
+            elif source_repo:
+                show_params["source_repo"] = source_repo
             cp_result = _http_get(
                 gateway_url,
                 f"/api/v1/checkpoints/{cp_id}",
-                dict(show_params_base),
+                show_params,
             )
             cp_data = cp_result.get("data", {}).get("checkpoint", {})
         except RuntimeError as e:
@@ -1454,7 +1452,11 @@ def cmd_search(args: argparse.Namespace) -> int:
             logger.debug("HTTP search failed, falling back to git: %s", e)
 
     repo_path = args.repo_path or get_repo_path()
-    checkpoint_repo, _ = _get_checkpoint_repo_from_args(args)
+    try:
+        checkpoint_repo, _ = _get_checkpoint_repo_from_args(args)
+    except ValueError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
 
     ref = ensure_checkpoint_ref(repo_path, checkpoint_repo=checkpoint_repo)
     if not ref:

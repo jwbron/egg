@@ -10,6 +10,24 @@ import shutil
 import sys
 
 
+def build_claude_cmd() -> list[str]:
+    """Build the base Claude CLI command with standard flags.
+
+    Returns the command list starting with the resolved binary path and
+    ``--dangerously-skip-permissions``.  Callers can extend the list with
+    additional flags (e.g. ``--model``, ``--append-system-prompt``).
+
+    Raises:
+        FileNotFoundError: If the ``claude`` binary is not on PATH.
+    """
+    claude_bin = shutil.which("claude")
+    if not claude_bin:
+        raise FileNotFoundError(
+            "'claude' not found in PATH. Rebuild the sandbox image with: egg --reset"
+        )
+    return [claude_bin, "--dangerously-skip-permissions"]
+
+
 def run_interactive() -> None:
     """Launch Claude Code CLI in interactive mode.
 
@@ -22,15 +40,13 @@ def run_interactive() -> None:
         # Use environment defaults (API key or OAuth)
         run_interactive()
     """
-    claude_bin = shutil.which("claude")
-    if not claude_bin:
-        print(
-            "[llm] ERROR: 'claude' not found in PATH. Rebuild the sandbox image with: egg --reset",
-            file=sys.stderr,
-        )
+    try:
+        cmd = build_claude_cmd()
+    except FileNotFoundError as e:
+        print(f"[llm] ERROR: {e}", file=sys.stderr)
         sys.exit(1)
 
-    cmd = [claude_bin, "--dangerously-skip-permissions", "--model", "opus"]
+    cmd.extend(["--model", "opus"])
 
     # Set up environment for Claude
     env = os.environ.copy()

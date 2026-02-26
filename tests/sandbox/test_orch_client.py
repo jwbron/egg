@@ -340,6 +340,7 @@ class TestCreateDecision:
             decision_type="feedback",
             questions=questions,
             context="Some context",
+            phase="plan",
         )
 
         assert result["id"] == "decision-1"
@@ -353,6 +354,7 @@ class TestCreateDecision:
         assert body["decision_type"] == "feedback"
         assert body["questions"] == questions
         assert body["context"] == "Some context"
+        assert body["phase"] == "plan"
 
     def test_default_params(self, stub_server):
         """create_decision with defaults omits decision_type='choice' from body."""
@@ -381,6 +383,7 @@ class TestCreateDecision:
         assert "decision_type" not in body  # Default omitted
         assert "questions" not in body  # None omitted
         assert "options" not in body  # None omitted
+        assert "phase" not in body  # None omitted
 
     def test_response_parsing(self, stub_server):
         """create_decision returns the decision dict from the response."""

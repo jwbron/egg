@@ -48,31 +48,42 @@
 
 ## Open Questions
 
+**IMPORTANT: Every open question MUST be registered as a contract decision or feedback
+item using `egg-contract`.** Do not just write questions as prose — they will not be
+seen by the human unless registered.
+
 Surface **all** uncertainties, ambiguities, and assumptions that need human input.
 Do not limit yourself to a small number — every genuine ambiguity, missing requirement,
 unstated assumption, or design choice that could go multiple ways should be raised here.
 It is far better to ask too many questions than to proceed with incorrect assumptions.
 
-For questions that require human input before proceeding, use formal HITL decisions.
-The agent will generate these using `egg-contract add-decision --format markdown`.
-
-**Multiple-choice questions** (when you need the human to pick from options):
-```
+**Multiple-choice questions** — RUN this command for each question where the human
+must pick from discrete options:
+```bash
 egg-contract add-decision --question "Which caching strategy should we use?" \
   --options "Redis" "In-memory LRU" "File-based" --format markdown
 ```
-This outputs markdown with checkboxes that the human can interact with directly.
+Copy the markdown output into your analysis. The human can check a checkbox to select
+an option. An "Other (explain in reply)" option is auto-appended.
 
-**Open-ended questions** (when you need free-form input):
-Use `egg-contract add-feedback` for open-ended questions. There is no limit on the
-number of questions — include every question where you need human input.
+**Open-ended questions** — EXECUTE this command for free-form questions where you need
+the human to provide text answers:
+```bash
+egg-contract add-feedback \
+  --question "What is the expected request volume?" \
+  --question "Are there any constraints on third-party dependencies?" \
+  --format markdown
+```
+This creates a dedicated comment for the human to fill in answers. They edit the
+comment to add their responses and check "Submit feedback" when done. The pipeline
+will resume with the feedback available in the contract.
 
-Example open-ended questions:
-- What is the expected request volume for this feature?
-- Are there any constraints on third-party dependencies?
-- What is the expected latency budget for this path?
-- Are there existing SLAs or guarantees that must be preserved?
-- Who are the downstream consumers of this API?
+**DO NOT:**
+- Write questions as plain markdown text without running `egg-contract add-decision`
+  or `egg-contract add-feedback`
+- Use custom HTML comment markers like `<!-- DECISION: ... -->` instead of the
+  contract CLI
+- Skip registration because you think the questions are minor — register every question
 
 ## Complexity Assessment
 

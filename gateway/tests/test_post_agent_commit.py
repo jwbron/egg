@@ -493,3 +493,73 @@ class TestAutoCommitWorktreeErrors:
         ]
         auto_commit_worktree(str(tmp_path), container_id="c1")
         assert mock_run.call_args[1]["cwd"] == str(tmp_path)
+
+
+class TestAutoCommitSymlinkFiltering:
+    """Tests for symlink filtering during auto-commit.
+
+    Symlinks to container-local paths (e.g., CLAUDE.md -> ~/.claude/CLAUDE.md)
+    must not be committed to user repositories. The auto-commit filters them out.
+    """
+
+    @patch("post_agent_commit.subprocess.run")
+    def test_symlinks_excluded_from_staging(self, mock_run, tmp_path):
+        """Symlinks in the worktree are not staged for commit."""
+        # Create a real file and a symlink in the worktree
+        (tmp_path / "real_file.py").write_text("print('hello')")
+        symlink_target = tmp_path / ".claude-global" / "CLAUDE.md"
+        symlink_target.parent.mkdir()
+        symlink_target.write_text("# Rules")
+        (tmp_path / "CLAUDE.md").symlink_to(symlink_target)
+
+        mock_run.side_effect = [
+            # git status --porcelain (reports both files)
+            MagicMock(returncode=0, stdout=" M real_file.py\n?? CLAUDE.md\n", stderr=""),
+            # git add -- real_file.py (only real file staged)
+            MagicMock(returncode=0, stdout="", stderr=""),
+            # git commit
+            MagicMock(returncode=0, stdout="", stderr=""),
+            # git rev-parse HEAD
+            MagicMock(returncode=0, stdout="sha_no_symlink\n", stderr=""),
+        ]
+        result = auto_commit_worktree(str(tmp_path), container_id="c1")
+        assert result == "sha_no_symlink"
+
+        # Verify git add only includes real_file.py, not CLAUDE.md
+        add_call = mock_run.call_args_list[1]
+        add_cmd = add_call[0][0]
+        assert "real_file.py" in add_cmd
+        assert "CLAUDE.md" not in add_cmd
+
+    @patch("post_agent_commit.subprocess.run")
+    def test_all_symlinks_returns_none(self, mock_run, tmp_path):
+        """When only symlinks have changed, no commit is made."""
+        symlink_target = tmp_path / ".claude-global" / "CLAUDE.md"
+        symlink_target.parent.mkdir()
+        symlink_target.write_text("# Rules")
+        (tmp_path / "CLAUDE.md").symlink_to(symlink_target)
+
+        mock_run.side_effect = [
+            # git status --porcelain (only the symlink)
+            MagicMock(returncode=0, stdout="?? CLAUDE.md\n", stderr=""),
+        ]
+        result = auto_commit_worktree(str(tmp_path), container_id="c1")
+        assert result is None
+
+    @patch("post_agent_commit.subprocess.run")
+    def test_non_symlink_files_unaffected(self, mock_run, tmp_path):
+        """Regular files pass through the symlink filter unchanged."""
+        (tmp_path / "app.py").write_text("code")
+        (tmp_path / "lib.py").write_text("more code")
+
+        mock_run.side_effect = [
+            MagicMock(returncode=0, stdout=" M app.py\n M lib.py\n", stderr=""),
+            MagicMock(returncode=0, stdout="", stderr=""),
+            MagicMock(returncode=0, stdout="", stderr=""),
+            MagicMock(returncode=0, stdout="sha_regular\n", stderr=""),
+        ]
+        result = auto_commit_worktree(str(tmp_path), container_id="c1")
+        assert result == "sha_regular"
+        add_cmd = mock_run.call_args_list[1][0][0]
+        assert "app.py" in add_cmd
+        assert "lib.py" in add_cmd
