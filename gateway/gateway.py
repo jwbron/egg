@@ -3262,7 +3262,10 @@ def session_create() -> tuple[Response, int] | Response:
         return make_error("Missing container_ip")
     if mode not in ("private", "public", "local"):
         return make_error("Invalid mode: must be 'private', 'public', or 'local'")
-    if not repos:
+    # repos is required for private/public modes (visibility filtering + worktree
+    # creation) but optional for local mode (orchestrator-internal temp sessions
+    # that only need a session token for git push/fetch authentication).
+    if not repos and mode != "local":
         return make_error("Missing repos list")
 
     # Validate uid/gid if provided
@@ -3368,12 +3371,17 @@ def session_create() -> tuple[Response, int] | Response:
             )
 
     # Step 3: Create worktrees for filtered repos
-    manager = get_worktree_manager()
     worktrees = {}
     worktree_errors = []
     first_worktree_path: str | None = None  # Gateway-side path for checkpoint context
     first_repo: str | None = None  # First filtered repo in "owner/repo" format
     worktree_branch: str | None = None  # Worktree branch name for branch lock
+
+    # Only initialise the worktree manager when there are repos to process.
+    # Local-mode sessions (no repos) skip worktree creation entirely, so
+    # avoid hitting the filesystem for the worktree base directory.
+    if filtered_repos:
+        manager = get_worktree_manager()
 
     for repo in filtered_repos:
         # Extract repo name from owner/repo format

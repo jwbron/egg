@@ -3440,6 +3440,64 @@ class TestSessionCreateWithPhase:
         assert "pipeline_id" in data["message"].lower()
         assert "non-empty" in data["message"].lower()
 
+    def test_session_create_local_mode_without_repos(self, client, launcher_auth_headers, tmp_path):
+        """Local-mode session succeeds without repos.
+
+        Orchestrator-internal temp sessions (push_worktree_branch, fetch_branch,
+        etc.) use mode="local" without repos — they only need a session token for
+        git authentication, not worktree creation or visibility filtering.
+        """
+        from session_manager import SessionManager
+
+        manager = SessionManager(persistence_file=tmp_path / "sessions.json")
+
+        with patch.object(gateway, "get_session_manager", return_value=manager):
+            response = client.post(
+                "/api/v1/sessions/create",
+                headers=launcher_auth_headers,
+                data=json.dumps(
+                    {
+                        "container_id": "test-container",
+                        "container_ip": "172.18.0.5",
+                        "mode": "local",
+                    }
+                ),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 200
+            data = json.loads(response.data)
+            assert data["success"] is True
+            assert "session_token" in data["data"]
+
+            # Verify session was registered and is usable
+            token = data["data"]["session_token"]
+            session = manager.get_session(token)
+            assert session is not None
+            assert session.mode == "local"
+
+    def test_session_create_non_local_mode_still_requires_repos(
+        self, client, launcher_auth_headers
+    ):
+        """Private/public modes still reject missing repos."""
+        for mode in ("private", "public"):
+            response = client.post(
+                "/api/v1/sessions/create",
+                headers=launcher_auth_headers,
+                data=json.dumps(
+                    {
+                        "container_id": "test-container",
+                        "container_ip": "172.18.0.5",
+                        "mode": mode,
+                    }
+                ),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 400
+            data = json.loads(response.data)
+            assert "repos" in data["message"].lower()
+
 
 class TestWorktreeCreateEndpointResolution:
     """Tests for worktree_create endpoint's resolve_default_branch logic."""
