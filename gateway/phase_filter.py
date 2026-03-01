@@ -495,7 +495,7 @@ class PhaseFilter:
                     ".egg-state/agent-outputs/*",
                     ".egg-state/reviews/*",
                 ],
-                description="Refine phase can only push contracts, analysis drafts, checkpoints, agent outputs, and reviews",
+                description="Analyze phase can only push contracts, analysis drafts, checkpoints, agent outputs, and reviews",
             ),
             PipelinePhase.PLAN: PhaseFileRestriction(
                 allowed_patterns=[

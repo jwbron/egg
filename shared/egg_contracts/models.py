@@ -431,9 +431,9 @@ class Contract(BaseModel):
     )
     audit_log: list[AuditEntry] = Field(default_factory=list, description="Audit trail")
     refine_review_cycles: int = Field(
-        default=0, ge=0, description="Number of refine phase review cycles"
+        default=0, ge=0, description="Number of analyze phase review cycles"
     )
-    refine_review_feedback: str = Field(default="", description="Feedback from last refine review")
+    refine_review_feedback: str = Field(default="", description="Feedback from last analyze review")
     plan_review_cycles: int = Field(
         default=0, ge=0, description="Number of plan phase review cycles"
     )

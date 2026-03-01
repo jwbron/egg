@@ -135,7 +135,7 @@ The orchestrator reads pipeline artifacts (verdict files, draft documents, check
 
 During the `implement` phase, certain `.egg-state/` subdirectories are mounted readonly into agent containers to prevent direct filesystem modifications to plan/contract artifacts:
 
-| Directory | Implement phase | Refine/Plan phases |
+| Directory | Implement phase | Analyze/Plan phases |
 |-----------|----------------|-------------------|
 | `.egg-state/contracts/` | Readonly | Writable |
 | `.egg-state/drafts/` | Readonly | Writable |
@@ -179,7 +179,7 @@ See `orchestrator/routes/pipelines.py:WORKTREE_BASE_DIR` and `gateway/worktree_m
 
 The orchestrator coordinates specialized agent roles across pipeline phases. Each role runs in its own sandbox container with scoped permissions enforced by the gateway.
 
-### Refine Phase Roles
+### Analyze Phase Roles
 
 | Role | Responsibility |
 |------|----------------|

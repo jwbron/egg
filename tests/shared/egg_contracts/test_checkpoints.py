@@ -821,3 +821,64 @@ class TestCheckpointIndexV2:
         assert index.get_by_repo("jwbron/egg") == ["ckpt-aa00000001", "ckpt-bb00000002"]
         assert index.get_by_repo("entireio/cli") == ["ckpt-cc00000003"]
         assert index.get_by_repo("nonexistent/repo") == []
+
+    def test_legacy_refine_phase_normalized_in_by_phase(self):
+        """Test that by_phase 'refine' entries are merged into 'analyze' at load time."""
+        now = datetime.now(UTC)
+        index = CheckpointIndexV2(
+            last_updated=now,
+            by_phase={"refine": ["ckpt-aa00000001", "ckpt-bb00000002"]},
+        )
+        # "refine" key should be gone, entries merged into "analyze"
+        assert "refine" not in index.by_phase
+        assert index.get_by_phase("analyze") == ["ckpt-aa00000001", "ckpt-bb00000002"]
+
+    def test_legacy_refine_phase_merged_with_existing_analyze(self):
+        """Test that by_phase 'refine' entries merge with existing 'analyze' without duplicates."""
+        now = datetime.now(UTC)
+        index = CheckpointIndexV2(
+            last_updated=now,
+            by_phase={
+                "refine": ["ckpt-aa00000001", "ckpt-bb00000002"],
+                "analyze": ["ckpt-bb00000002", "ckpt-cc00000003"],
+            },
+        )
+        assert "refine" not in index.by_phase
+        # ckpt-bb00000002 appears in both but should be deduplicated
+        assert index.get_by_phase("analyze") == [
+            "ckpt-bb00000002",
+            "ckpt-cc00000003",
+            "ckpt-aa00000001",
+        ]
+
+
+class TestCheckpointV2BackwardCompat:
+    """Tests for backward-compat normalization of legacy 'refine' phase."""
+
+    def test_checkpoint_v2_refine_normalizes_to_analyze(self):
+        """Test that CheckpointV2 with pipeline_phase='refine' normalizes to 'analyze'."""
+        now = datetime.now(UTC)
+        session = SessionMetadata(session_id="test-session", started_at=now)
+        checkpoint = CheckpointV2(
+            id="ckpt-abc123def456",
+            trigger_type=TriggerType.COMMIT,
+            commit_sha="abc1234567890",
+            session_id="container-123",
+            session=session,
+            created_at=now,
+            session_started_at=now,
+            pipeline_phase="refine",
+        )
+        assert checkpoint.pipeline_phase == "analyze"
+
+    def test_summary_v2_refine_normalizes_to_analyze(self):
+        """Test that CheckpointSummaryV2 with pipeline_phase='refine' normalizes to 'analyze'."""
+        now = datetime.now(UTC)
+        summary = CheckpointSummaryV2(
+            id="ckpt-abc123def456",
+            trigger_type=TriggerType.COMMIT,
+            session_id="container-123",
+            created_at=now,
+            pipeline_phase="refine",
+        )
+        assert summary.pipeline_phase == "analyze"

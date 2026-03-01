@@ -703,3 +703,17 @@ class TestContractWithPhaseConfigs:
         }
         contract = Contract.model_validate(data)
         assert contract.current_phase == PipelinePhase.ANALYZE
+
+
+class TestPipelineBackwardCompat:
+    """Tests for Pipeline backward-compat normalization of legacy 'refine' phase."""
+
+    def test_pipeline_refine_normalizes_to_analyze(self):
+        """Test that Pipeline with current_phase='refine' normalizes to ANALYZE."""
+        from orchestrator.models import Pipeline
+
+        pipeline = Pipeline(
+            id="issue-123",
+            current_phase="refine",
+        )
+        assert pipeline.current_phase.value == "analyze"
