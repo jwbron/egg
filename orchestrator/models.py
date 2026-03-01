@@ -264,10 +264,10 @@ class PipelineConfig(BaseModel):
         description="Max HITL revision cycles per phase (independent of agentic review budget)",
     )
     hitl_gates: bool = Field(
-        default=True, description="Pause for human approval after refine and plan phases"
+        default=True, description="Pause for human approval after analyze and plan phases"
     )
     allow_short_circuit: bool = Field(
-        default=True, description="Allow refine agent to skip plan phase for low-complexity tasks"
+        default=True, description="Allow analyze agent to skip plan phase for low-complexity tasks"
     )
     enable_parallel_phases: bool = Field(
         default=True,

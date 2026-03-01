@@ -187,7 +187,7 @@
               "description": "Pipeline phases seen",
               "items": {
                 "type": "string",
-                "enum": ["refine", "plan", "implement", "pr"]
+                "enum": ["analyze", "plan", "implement", "pr", "refine"]
               },
               "default": []
             }
@@ -282,7 +282,7 @@
               "description": "Pipeline phases seen",
               "items": {
                 "type": "string",
-                "enum": ["refine", "plan", "implement", "pr"]
+                "enum": ["analyze", "plan", "implement", "pr", "refine"]
               },
               "default": []
             }

@@ -299,6 +299,20 @@ class CheckpointSummaryV2(BaseModel):
     total_tokens: int = Field(default=0, ge=0, description="Total tokens used")
     files_touched_count: int = Field(default=0, ge=0, description="Number of files touched")
 
+    @field_validator("pipeline_phase", mode="before")
+    @classmethod
+    def validate_pipeline_phase(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        # Normalize legacy "refine" phase from historical checkpoints
+        if v == "refine":
+            return "analyze"
+        valid_phases = {"analyze", "plan", "implement", "pr"}
+        if v not in valid_phases:
+            msg = f"pipeline_phase must be one of {valid_phases}"
+            raise ValueError(msg)
+        return v
+
     @classmethod
     def from_checkpoint(cls, checkpoint: "CheckpointV2") -> "CheckpointSummaryV2":
         """Create a summary from a full v2 checkpoint."""

@@ -5,7 +5,7 @@ This document explains how human decisions are captured and processed in the SDL
 ## Overview
 
 The SDLC pipeline includes phases where human input is required before proceeding:
-- **Refine phase**: Human approves the analysis before planning
+- **Analyze phase**: Human approves the analysis before planning
 - **Plan phase**: Human approves the implementation plan before coding
 
 Three mechanisms exist for gathering human input:
@@ -15,7 +15,7 @@ Three mechanisms exist for gathering human input:
 
 In local mode, decisions carry a `decision_type` field (`phase_gate`, `choice`, or `feedback`) that drives type-specific terminal rendering. The orchestrator's decision queue supports a "request changes" option at phase gates, with a circuit breaker (`max_hitl_review_cycles`, default 3) to prevent unbounded revision loops. See [Local Mode: Type-Aware Terminal Rendering](#local-mode-type-aware-terminal-rendering) for details.
 
-**Decision sync to contract**: Resolved decisions made during refine and plan phases are automatically synced to the contract (`.egg-state/contracts/{identifier}.json`) after each phase completes, so implement-phase agents can see substantive choices (database selection, API style, config handling, etc.) made earlier. Phase gate decisions (approve/reject) are excluded from sync as they are process control, not implementation-relevant context. See [SDLC Pipeline Guide § Decision Sync to Contract](sdlc-pipeline.md#decision-sync-to-contract) for details.
+**Decision sync to contract**: Resolved decisions made during analyze and plan phases are automatically synced to the contract (`.egg-state/contracts/{identifier}.json`) after each phase completes, so implement-phase agents can see substantive choices (database selection, API style, config handling, etc.) made earlier. Phase gate decisions (approve/reject) are excluded from sync as they are process control, not implementation-relevant context. See [SDLC Pipeline Guide § Decision Sync to Contract](sdlc-pipeline.md#decision-sync-to-contract) for details.
 
 ## Formal HITL Decisions
 
@@ -147,7 +147,7 @@ Phase approval is a simpler mechanism for advancing the pipeline at HITL gates.
 
 ### How It Works
 
-1. The agent includes this at the end of phase completion comments (refine and plan phases)
+1. The agent includes this at the end of phase completion comments (analyze and plan phases)
 2. The `<!-- egg-phase-approval -->` marker identifies the approval section
 3. When the human checks the `[x] Approve` checkbox, the orchestrator detects the change
 4. The contract phase is updated and the next pipeline phase is triggered

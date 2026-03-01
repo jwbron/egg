@@ -70,7 +70,7 @@
     "pipeline_phase": {
       "type": ["string", "null"],
       "description": "SDLC pipeline phase when checkpoint was created",
-      "enum": ["refine", "plan", "implement", "pr", null],
+      "enum": ["analyze", "plan", "implement", "pr", "refine", null],
       "default": null
     },
     "pipeline_id": {
