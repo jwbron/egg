@@ -12,7 +12,7 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Any
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class FileOperationType(StrEnum):
@@ -393,6 +393,18 @@ class CheckpointIndexV2(BaseModel):
     by_repo: dict[str, list[str]] = Field(
         default_factory=dict, description="repo (owner/repo) -> [checkpoint_ids]"
     )
+
+    @model_validator(mode="after")
+    def _normalize_legacy_phase_index(self) -> "CheckpointIndexV2":
+        """Merge by_phase['refine'] entries into by_phase['analyze'] for backward compat."""
+        if "refine" in self.by_phase:
+            refine_ids = self.by_phase.pop("refine")
+            existing = self.by_phase.get("analyze", [])
+            # Merge without duplicates, preserving order
+            existing_set = set(existing)
+            merged = existing + [cid for cid in refine_ids if cid not in existing_set]
+            self.by_phase["analyze"] = merged
+        return self
 
     def get_by_session(self, session_id: str) -> list[str]:
         """Get checkpoint IDs for a session."""

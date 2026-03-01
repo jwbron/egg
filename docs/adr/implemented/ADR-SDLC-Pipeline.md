@@ -16,7 +16,7 @@ For operational details, CLI commands, and triggering instructions, see the [SDL
 **The core guarantee**: An agent cannot bypass verification gates or self-approve its own work. All state transitions are enforced structurally through role-based mutations and gateway policy enforcement.
 
 **Key properties:**
-- **Phased execution**: Work progresses through defined phases (refine → plan → implement → pr)
+- **Phased execution**: Work progresses through defined phases (analyze → plan → implement → pr)
 - **Role-based control**: Implementer, Reviewer, and Human roles have distinct permissions
 - **Human-in-the-loop**: Critical transitions pause for human approval
 - **Audit trail**: All mutations are logged for accountability
@@ -113,7 +113,7 @@ This architecture does **not** protect against:
 
 | Phase | Purpose | Exit Requires |
 |-------|---------|---------------|
-| **refine** | Problem analysis and requirements gathering | Human approval |
+| **analyze** | Problem analysis and requirements gathering | Human approval |
 | **plan** | Implementation planning with task breakdown | Human approval |
 | **implement** | Task execution and code changes | All checks pass (CI + PR review) |
 | **pr** | Pull request creation and merge | Human merge |

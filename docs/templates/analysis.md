@@ -1,6 +1,6 @@
 # Analysis: [Issue Title]
 
-> Issue: #[number] | Phase: refine
+> Issue: #[number] | Phase: analyze
 
 ## Problem Statement
 

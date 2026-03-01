@@ -16,7 +16,7 @@ See the [main README](../../README.md) for the architecture diagram.
 ## Key Design Principles
 
 **Structurally Enforced SDLC:**
-- Work progresses through defined phases (refine → plan → implement → merge)
+- Work progresses through defined phases (analyze → plan → implement → merge)
 - Each phase has specific permitted operations enforced by the gateway
 - Phase transitions require human approval
 - Role-based contract mutations prevent agents from self-approving work
@@ -122,7 +122,7 @@ Browse and query checkpoints via the `egg-checkpoint` CLI:
 - `--trigger <commit|session_end>` — Filter by trigger type
 - `--status <completed|expired|failed>` — Filter by session status
 - `--agent-type <coder|tester|documenter|integrator|reviewer|unknown>` — Filter by agent type
-- `--phase <refine|plan|implement|pr>` — Filter by pipeline phase
+- `--phase <analyze|plan|implement|pr>` — Filter by pipeline phase
 
 Checkpoints enable post-hoc analysis of agent behavior, debugging failed sessions, auditing agent decisions, and tracking token usage across issues and PRs.
 
@@ -146,7 +146,7 @@ Each SDLC phase can have configurable automated checks that run before completio
 - `lint`: Runs project linter (via `make lint`)
 - `test`: Runs project tests (via `make test` or pytest)
 - `merge-conflict`: Detects merge conflicts with base branch
-- `draft-validation`: Validates refine phase draft documents
+- `draft-validation`: Validates analyze phase draft documents
 - `plan-yaml`: Validates plan phase YAML appendix
 - `deployment`: Validates changes against locally running devserver (DinD)
 - `fixer`: Auto-fixes certain check failures when possible

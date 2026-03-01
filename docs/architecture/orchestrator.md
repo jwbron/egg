@@ -121,7 +121,7 @@ The orchestrator reads pipeline artifacts (verdict files, draft documents, check
 
 **Key artifact files in worktrees:**
 - `.egg-state/contracts/{identifier}.json` — Contract state (issue number for issue-mode, pipeline ID for local-mode)
-- `.egg-state/drafts/{identifier}-analysis.md` — Draft for `refine` phase (special-cased to `analysis`)
+- `.egg-state/drafts/{identifier}-analysis.md` — Draft for `analyze` phase (special-cased to `analysis`)
 - `.egg-state/drafts/{identifier}-{phase}.md` — Draft for other phases (e.g., `plan`). No draft for `implement` phase.
 - `.egg-state/reviews/{identifier}-{phase}-{reviewer_type}-review.json` — Review verdict files
 - `.egg-state/agent-outputs/{identifier}-{role}-output.json` — Agent handoff data (e.g., `871-coder-output.json`). Falls back to `{role}-output.json` for backward compatibility.
@@ -228,7 +228,7 @@ Agent prompts are scoped to role-relevant context. Analysis roles (architect, ta
 
 ### Reviewer Execution
 
-Reviewers always run as a separate step after all workers (and checkers, if applicable) complete. They spawn in parallel with a configurable concurrency limit (`max_parallel_agents`). In implement phase, reviewers run after the integrator completes. In plan phase, reviewers run after the task planner and risk analyst complete. In refine phase, reviewers run after the refiner completes.
+Reviewers always run as a separate step after all workers (and checkers, if applicable) complete. They spawn in parallel with a configurable concurrency limit (`max_parallel_agents`). In implement phase, reviewers run after the integrator completes. In plan phase, reviewers run after the task planner and risk analyst complete. In analyze phase, reviewers run after the refiner completes.
 
 ### Wave Cycle Safety
 

@@ -61,7 +61,7 @@ This index helps both humans and LLMs navigate the documentation efficiently.
 
 | Document | Description |
 |----------|-------------|
-| [Analysis Template](templates/analysis.md) | Problem analysis template for the refine phase |
+| [Analysis Template](templates/analysis.md) | Problem analysis template for the analyze phase |
 | [Plan Template](templates/plan.md) | Implementation plan template with task ID format for the plan phase |
 | [Phase Completion Template](templates/phase-completion.md) | Phase completion comment format with approval checkbox |
 | [Feedback Template](templates/feedback.md) | Feedback comment template for open-ended questions |

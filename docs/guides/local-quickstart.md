@@ -89,9 +89,9 @@ With no arguments, this starts a **local pipeline**. The agent will:
 1. Ask what you want to build
 2. Ask 1-2 clarifying questions
 3. Create a local pipeline in the orchestrator
-4. Run through refine → plan → implement → PR phases entirely locally
+4. Run through analyze → plan → implement → PR phases entirely locally
 
-During refine and plan phases, the gateway restricts pushes to state files and blocks PR operations. During the PR phase, the orchestrator auto-creates the PR using metadata from the plan, commit log, and diff stats — no agent is spawned.
+During analyze and plan phases, the gateway restricts pushes to state files and blocks PR operations. During the PR phase, the orchestrator auto-creates the PR using metadata from the plan, commit log, and diff stats — no agent is spawned.
 
 **Local pipeline phases:**
 
@@ -149,7 +149,7 @@ Here's what the issue pipeline creates and when:
 | Artifact | When | Details |
 |----------|------|---------|
 | **Issue comments** | Each phase | Analysis documents, plans, approval checkboxes, decision prompts |
-| **Issue labels** | Phase transitions | `sdlc:refine`, `sdlc:plan`, `sdlc:implement`, `sdlc:pr` |
+| **Issue labels** | Phase transitions | `sdlc:analyze`, `sdlc:plan`, `sdlc:implement`, `sdlc:pr` |
 | **Feature branch** | Implement phase | `egg/issue-<N>` — pushed to your repo |
 | **Draft PR** | Implement phase | Links to the issue, contains all implementation commits |
 | **PR review comments** | Implement phase | Automated code review feedback (line-level) |

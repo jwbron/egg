@@ -31,12 +31,12 @@ which the orchestrator's decision queue detects when edited.
 - The `<!-- egg-phase-approval -->` marker must appear on the line immediately before the approval checkbox
 - When the human checks the `[x] Approve` checkbox, the workflow detects the edit and advances to the next phase
 - Keep the approval checkbox as a single option to avoid confusion
-- The phase name in the heading should match the current SDLC phase (refine, plan, implement)
+- The phase name in the heading should match the current SDLC phase (analyze, plan, implement)
 
-## Example: Refine Phase Complete
+## Example: Analyze Phase Complete
 
 ```markdown
-## Refine Phase Complete
+## Analyze Phase Complete
 
 Analysis of issue #123 is complete. The recommended approach is to implement
 Option B (Redis caching) based on the constraints identified.

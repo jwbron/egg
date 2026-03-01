@@ -48,7 +48,7 @@ Code reviews are performed by the existing PR review workflow (`reusable-review.
 
 ### 4. Human-in-the-Loop at Critical Points
 
-The pipeline pauses for human approval at phase transitions (refine and plan). The orchestrator's decision queue handles approval in both issue and local modes, and supports requesting changes with a circuit breaker (`max_review_cycles`, default 3) to prevent unbounded revision loops.
+The pipeline pauses for human approval at phase transitions (analyze and plan). The orchestrator's decision queue handles approval in both issue and local modes, and supports requesting changes with a circuit breaker (`max_review_cycles`, default 3) to prevent unbounded revision loops.
 
 ## Pipeline Architecture
 
@@ -58,7 +58,7 @@ The pipeline pauses for human approval at phase transitions (refine and plan). T
 ├─────────────────────────────────────────────────────────────────────────┤
 │                                                                         │
 │  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐    ┌──────────┐  │
-│  │   REFINE    │───▶│    PLAN     │───▶│  IMPLEMENT  │───▶│ CREATE   │  │
+│  │  ANALYZE    │───▶│    PLAN     │───▶│  IMPLEMENT  │───▶│ CREATE   │  │
 │  │  (cycles)   │    │  (cycles)   │    │  (cycles)   │    │   PR     │  │
 │  └─────────────┘    └─────────────┘    └─────────────┘    └──────────┘  │
 │        │ ╎                │                  │                  │       │
@@ -74,7 +74,7 @@ The pipeline pauses for human approval at phase transitions (refine and plan). T
 │   │ Approve │ ╎      │ Approve │                                        │
 │   └─────────┘ ╎      └─────────┘                                        │
 │               ╎                                                         │
-│   ╎ short-circuit: REFINE ·····▶ IMPLEMENT (skips PLAN when approved)   │
+│   ╎ short-circuit: ANALYZE ····▶ IMPLEMENT (skips PLAN when approved)   │
 │                                                                         │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
@@ -191,11 +191,11 @@ Returns a Server-Sent Events (SSE) stream for real-time updates across all activ
     "current_phase": "implement",
     "visualization": {
       "dag": ">>> ╔══════════════════════╗\n    │ ▶ Implement          │\n    │   running (2 cycles completed)            │\n    │   ✓ coder  ▶ reviewer│\n    │   [last cycle: 5m0s | total: 15m0s]│\n    ╚══════════════════════╝",
-      "compact": "✓Refine → ✓Plan → [▶Implement] → ○PR",
+      "compact": "✓Analyze → ✓Plan → [▶Implement] → ○PR",
       "progress": "[███████████░░░░░░░░░] 60%"
     },
     "phases": {
-      "refine": {"status": "complete", "review_cycles": 2, "containers": 1, "agents": [{"role": "coder", "status": "complete"}]},
+      "analyze": {"status": "complete", "review_cycles": 2, "containers": 1, "agents": [{"role": "coder", "status": "complete"}]},
       "plan": {"status": "complete", "review_cycles": 1, "containers": 1, "agents": [{"role": "coder", "status": "complete"}]},
       "implement": {"status": "running", "review_cycles": 2, "containers": 2, "agents": [{"role": "coder", "status": "complete"}, {"role": "reviewer", "status": "running"}]},
       "pr": {"status": "pending", "review_cycles": 0, "containers": 0, "agents": []}
@@ -270,14 +270,14 @@ Timing starts when actual work begins (`work_started_at`), excluding setup and H
 
 | Phase | Purpose | Allowed Operations | Exit Requires |
 |-------|---------|-------------------|---------------|
-| **Refine** | Analyze issue, produce analysis document | `gh issue comment/edit` | Auto-review pass + Human approval |
+| **Analyze** | Analyze issue, produce analysis document | `gh issue comment/edit` | Auto-review pass + Human approval |
 | **Plan** | Create implementation plan with tasks | `gh issue comment/edit`, `egg-contract add-decision` | Auto-review pass + Human approval |
 | **Implement** | Execute tasks on draft PR with CI and review feedback | `git push`, `egg-contract add-commit/update-notes` | All checks pass (CI + PR review) |
 | **PR** | Finalize PR for human review and merge | `gh pr edit`, `git push` | Human merge (closes issue automatically) |
 
 ### Complexity Tiers
 
-The refine agent assesses task complexity and signals a tier in its analysis metadata block. The pipeline adapts its dispatch strategy accordingly:
+The analyze agent assesses task complexity and signals a tier in its analysis metadata block. The pipeline adapts its dispatch strategy accordingly:
 
 | Tier | Signal | Dispatch Strategy | Use Case |
 |------|--------|-------------------|----------|
@@ -285,13 +285,13 @@ The refine agent assesses task complexity and signals a tier in its analysis met
 | **Tier 2 (mid)** | `complexity_tier: mid` (default) | Full plan + single coder, wave-based multi-agent dispatch | Standard features, bug fixes, multi-file changes |
 | **Tier 3 (high)** | `complexity_tier: high` | Per-phase implement cycles with optional parallel execution | Large features, cross-cutting changes, multiple independent work items |
 
-**Tier 1 (short-circuit)**: The refine agent includes `short_circuit: true` and `complexity_tier: low` in its analysis. After refine completes and internal review approves, the pipeline advances directly from refine to implement, using the analysis as guidance instead of a formal plan. If reviewers request revision, the signal is rechecked after the next cycle. This optimization is enabled by default and can be disabled via `allow_short_circuit`.
+**Tier 1 (short-circuit)**: The analyze agent includes `short_circuit: true` and `complexity_tier: low` in its analysis. After analyze completes and internal review approves, the pipeline advances directly from analyze to implement, using the analysis as guidance instead of a formal plan. If reviewers request revision, the signal is rechecked after the next cycle. This optimization is enabled by default and can be disabled via `allow_short_circuit`.
 
 **Tier 2 (standard)**: The default. A full plan phase produces tasks, then a single implement phase dispatches agents in waves: Coder -> Tester/Documenter -> Integrator.
 
 **Tier 3 (phase-level dispatch)**: For high-complexity tasks, the plan decomposes work into phases with a dependency graph. Each plan phase becomes its own implement cycle (Coder -> Tester -> Agentic Review), with independent phases optionally running in parallel. After all phase cycles complete, an Integrator with write access merges results and fixes integration issues. See [Tier 3 Phase-Level Dispatch](#tier-3-phase-level-dispatch) for details.
 
-The refine agent's metadata block format:
+The analyze agent's metadata block format:
 ```yaml
 # metadata
 complexity_tier: high
@@ -306,7 +306,7 @@ The orchestrator runs multiple specialized reviewers in parallel, with phase-spe
 
 | Phase | Reviewers | Focus |
 |-------|-----------|-------|
-| **Refine** | Refine, Agent-Design | Analysis quality, agent-mode alignment |
+| **Analyze** | Refine, Agent-Design | Analysis quality, agent-mode alignment |
 | **Plan** | Plan | Plan quality, task breakdown, alignment with analysis |
 | **Implement** | Contract, Code | Contract fulfillment, security, correctness |
 
@@ -399,7 +399,7 @@ After all phases complete:
 
 **Phase-scoped prompts**: Each coder in a phase cycle receives a prompt scoped to that phase's tasks only (`_build_phase_scoped_prompt()`), preventing cross-phase context leakage. The prompt embeds the plan overview (goals, approach, constraints) rather than the full plan, with other phases shown as one-line summaries for orientation. A pointer to the full plan file is included for on-demand access.
 
-**Parallel execution**: When `parallel_phases: true` is signaled by the refine agent and `PipelineConfig.enable_parallel_phases` is set, independent phases within the same wave run concurrently using `ThreadPoolExecutor`. The `PipelineConfig.max_parallel_agents` controls concurrency.
+**Parallel execution**: When `parallel_phases: true` is signaled by the analyze agent and `PipelineConfig.enable_parallel_phases` is set, independent phases within the same wave run concurrently using `ThreadPoolExecutor`. The `PipelineConfig.max_parallel_agents` controls concurrency.
 
 **Pipeline model changes**: The `Pipeline` model tracks `complexity_tier` (a `ComplexityTier` enum: `low`, `mid`, `high`), and `PipelineConfig` has an `enable_parallel_phases` flag. For DAG visualization, the model also stores `plan_phase_waves` (dependency-ordered list of wave groups) and `plan_phase_names` (phase ID to human-readable name mapping), populated at Tier 3 implement start by `_run_tier3_implement()`.
 
@@ -419,11 +419,11 @@ After all phases complete:
 | `gateway/agent_restrictions.py` | `INTEGRATOR_TIER3_PATTERNS`, tier-aware `get_agent_pattern()` |
 | `gateway/worktree_manager.py` | `create_phase_worktree()`, `cleanup_phase_worktrees()` |
 
-### Refine and Plan Phase Review Cycles
+### Analyze and Plan Phase Review Cycles
 
-The refine and plan phases include an automated internal review step before human approval. All reviews happen internally without posting to the issue until approval:
+The analyze and plan phases include an automated internal review step before human approval. All reviews happen internally without posting to the issue until approval:
 
-1. **Producer agent runs** — The refine/plan agent writes its output to `.egg-state/drafts/{identifier}-{analysis|plan}.md`
+1. **Producer agent runs** — The analyze/plan agent writes its output to `.egg-state/drafts/{identifier}-{analysis|plan}.md`
 2. **Reviewer agents run in parallel** — Each reviewer reads the draft and writes verdict to its own file
 3. **Verdicts aggregated** — If any reviewer needs revision, the aggregate verdict is `needs_revision`
 4. **If approved** — The final draft is posted to the issue with an approval checkbox for human review
@@ -436,11 +436,11 @@ The refine and plan phases include an automated internal review step before huma
 .egg-state/
 ├── contracts/{identifier}.json      # Contract state
 ├── drafts/
-│   ├── {identifier}-analysis.md     # Refine phase draft
+│   ├── {identifier}-analysis.md     # Analyze phase draft
 │   └── {identifier}-plan.md         # Plan phase draft
 └── reviews/
-    ├── {identifier}-refine-refine-review.json        # Refine review verdict
-    ├── {identifier}-refine-agent-design-review.json   # Agent-design review verdict
+    ├── {identifier}-analyze-refine-review.json        # Refine review verdict
+    ├── {identifier}-analyze-agent-design-review.json   # Agent-design review verdict
     ├── {identifier}-plan-plan-review.json             # Plan review verdict
     ├── {identifier}-implement-code-review.json        # Code review verdict
     └── {identifier}-implement-contract-review.json    # Contract review verdict
@@ -460,7 +460,7 @@ The refine and plan phases include an automated internal review step before huma
 ```
 
 **Field guidelines:**
-- **analysis**: Always populated regardless of verdict. Describes what was reviewed, what was found, and reasoning. Code reviewers provide file-by-file analysis; contract reviewers provide criterion-by-criterion verification; plan/refine reviewers provide section-by-section evaluation.
+- **analysis**: Always populated regardless of verdict. Describes what was reviewed, what was found, and reasoning. Code reviewers provide file-by-file analysis; contract reviewers provide criterion-by-criterion verification; plan/analyze reviewers provide section-by-section evaluation.
 - **suggestions**: Non-blocking observations and improvement ideas, included even when approving. These are surfaced as advisory content for observability.
 - **feedback**: Reserved for blocking issues only — problems that must be fixed before approval. Empty when the verdict is `approved`.
 
@@ -474,9 +474,9 @@ All SDLC reviewers follow quality standards aligned with the PR reviewer workflo
 4. **Suggest fixes** — When identifying a problem, include a concrete suggestion for resolution
 5. **Provide context** — Explain *why* something is an issue (impact, risk, or principle violated)
 
-Code reviewers additionally receive "last line of defense" framing and must provide file-by-file analysis of all changed files. Draft-based reviewers (refine, plan) follow expanded procedural steps that require cross-referencing each section against criteria and citing specific evidence.
+Code reviewers additionally receive "last line of defense" framing and must provide file-by-file analysis of all changed files. Draft-based reviewers (analyze, plan) follow expanded procedural steps that require cross-referencing each section against criteria and citing specific evidence.
 
-**Review Criteria for Refine:**
+**Review Criteria for Analyze:**
 - Does the analysis address the issue description?
 - Are options meaningfully different and well-reasoned?
 - Are constraints and dependencies identified?
@@ -504,7 +504,7 @@ Each phase has a defined set of permitted operations. The gateway blocks all oth
 5. If the operation is not allowed for that phase (per `.egg/phase-permissions.json`), the gateway returns HTTP 403
 
 **Phase restrictions:**
-- **Refine/Plan phases**: Cannot `git push` or `gh pr create`—prevents code changes before plan approval
+- **Analyze/Plan phases**: Cannot `git push` or `gh pr create`—prevents code changes before plan approval
 - **Implement phase**: Can `git push` to the branch; draft PR is created automatically by the pipeline (not by agent)
 - **PR phase**: PR is auto-created by the orchestrator from contract metadata and git log (no agent spawned). Human must merge.
 
@@ -807,7 +807,7 @@ For detailed documentation on HITL workflows, see [HITL Decisions](../hitl-decis
 
 ### Decision Sync to Contract
 
-Pipeline decisions made during refine and plan phases are automatically synced to the contract after each phase completes. This ensures implement-phase agents have visibility into substantive choices (e.g., database selection, API style, config handling) made earlier in the pipeline.
+Pipeline decisions made during analyze and plan phases are automatically synced to the contract after each phase completes. This ensures implement-phase agents have visibility into substantive choices (e.g., database selection, API style, config handling) made earlier in the pipeline.
 
 **How it works:**
 
@@ -928,7 +928,7 @@ The implement job monitors remaining time:
 
 ## Document Standards
 
-### Analysis Document (Refine Phase Output)
+### Analysis Document (Analyze Phase Output)
 
 Path: `docs/issues/{number}-analysis.md`
 
@@ -1015,7 +1015,7 @@ If not configured, the checker+autofixer agent falls back to auto-discovery (sca
 
 | Check | ID | Purpose | Fixable |
 |-------|-----|---------|---------|
-| **Draft Validation** | `check-draft-validation` | Validates refine phase analysis document | No |
+| **Draft Validation** | `check-draft-validation` | Validates analyze phase analysis document | No |
 | **Plan YAML** | `check-plan-yaml` | Validates plan phase YAML appendix | No |
 | **Merge Conflict** | `check-merge-conflict` | Detects conflicts with base branch | No |
 | **Lint** | `check-lint` | Runs `make lint` if available | Yes |
@@ -1027,7 +1027,7 @@ If not configured, the checker+autofixer agent falls back to auto-discovery (sca
 
 Default checks for each phase are defined in `shared/egg_contracts/phase_defaults.py`:
 
-**Refine phase:**
+**Analyze phase:**
 - Draft validation (required)
 
 **Plan phase:**
