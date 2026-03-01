@@ -71,7 +71,7 @@ Egg's SDLC pipeline combines both loop types in a structured workflow:
 ├────────────────────────────────────────────────────────────────────┤
 │                                                                    │
 │   ┌──────────────────────────────────────────────────────────┐     │
-│   │                    REFINE PHASE                          │     │
+│   │                   ANALYZE PHASE                          │     │
 │   │                                                          │     │
 │   │    ┌─────────────────────────────────────┐               │     │
 │   │    │      Agentic Feedback Loop          │               │     │
@@ -121,14 +121,14 @@ Egg's SDLC pipeline combines both loop types in a structured workflow:
 
 | Phase | Agentic Loop | Human Loop | Purpose |
 |-------|--------------|------------|---------|
-| **Refine** | Agent analyzes problem, reviewer validates | Human approves analysis | Ensure shared understanding of the problem |
+| **Analyze** | Agent analyzes problem, reviewer validates | Human approves analysis | Ensure shared understanding of the problem |
 | **Plan** | Agent creates plan, reviewer validates | Human approves approach | Ensure alignment on implementation strategy |
 | **Implement** | Agent codes, tester finds gaps, PR review provides feedback | CI/tests validate | Produce working, tested code |
 | **Merge** | — | Human reviews and merges | Final human accountability gate |
 
 ### Why Each Human Gate Matters
 
-**After Refine**: Misunderstanding the problem leads to wasted implementation effort. Human approval ensures the agent understood the requirement correctly before any code is written.
+**After Analyze**: Misunderstanding the problem leads to wasted implementation effort. Human approval ensures the agent understood the requirement correctly before any code is written.
 
 **After Plan**: A flawed plan produces flawed code. Human review of the plan catches architectural issues, missing requirements, and scope creep before implementation begins.
 
@@ -148,11 +148,11 @@ Issues missed by one reviewer are caught by another.
 
 ### 2. Early Feedback Is Cheap
 
-Feedback in the refine phase costs minutes. Feedback after implementation costs hours. The pipeline front-loads review to when changes are cheapest.
+Feedback in the analyze phase costs minutes. Feedback after implementation costs hours. The pipeline front-loads review to when changes are cheapest.
 
 ```
 Cost of change:
-  Refine phase:    ~5 minutes to revise analysis
+  Analyze phase:   ~5 minutes to revise analysis
   Plan phase:      ~15 minutes to update plan
   Implement phase: ~1 hour to refactor code
   After merge:     ~days to debug in production
@@ -202,7 +202,7 @@ You don't need the full SDLC pipeline to benefit from the feedback loop model. T
 
 ### Structured Version
 
-1. **Refine**: "Analyze this problem. What are the constraints? What are the options?"
+1. **Analyze**: "Analyze this problem. What are the constraints? What are the options?"
 2. **Review**: "Review this analysis. What's missing? What's wrong?"
 3. **Plan**: "Create an implementation plan for the chosen approach."
 4. **Review**: "Review this plan. Is it complete? Are the tasks clear?"

@@ -46,7 +46,7 @@ Pipelines progress through four SDLC phases:
 
 | Phase | Purpose | Agents |
 |-------|---------|--------|
-| **refine** | Analyze task, evaluate options | Refiner, reviewers |
+| **analyze** | Analyze task, evaluate options | Refiner, reviewers |
 | **plan** | Break work into tasks, assess risks | Architect, Task Planner, Risk Analyst, reviewers |
 | **implement** | Write code, tests, docs | Coder, Tester, Documenter, Checker, Integrator, reviewers |
 | **pr** | Create pull request | Single agent |

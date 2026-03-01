@@ -78,7 +78,7 @@ class TestWorkflowRegexPatterns:
     def test_phase_approval_format_detection(self):
         """Test that phase approval format is detectable by workflow conditions."""
         # Simulate a phase completion comment
-        comment = """## Refine Phase Complete
+        comment = """## Analyze Phase Complete
 
 Analysis complete.
 

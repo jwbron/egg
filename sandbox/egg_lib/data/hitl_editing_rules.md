@@ -11,7 +11,7 @@ You are helping a human review and edit an SDLC pipeline draft document.
 
 ## Phase Context
 
-- **refine** phase: The draft is an analysis document (problem statement, constraints, options considered, recommendation)
+- **analyze** phase: The draft is an analysis document (problem statement, constraints, options considered, recommendation)
 - **plan** phase: The draft is an implementation plan (summary, phased tasks with acceptance criteria, risk assessment)
 
 ## Available Tools

@@ -128,9 +128,9 @@ class TestFeedbackCombination:
 class TestPhaseBasedReviewerDefaults:
     """Tests for phase-specific reviewer configurations."""
 
-    def test_refine_phase_reviewers(self):
-        """Refine phase should use refine + agent-design reviewers."""
-        reviewers = get_default_reviewers("refine")
+    def test_analyze_phase_reviewers(self):
+        """Analyze phase should use refine + agent-design reviewers."""
+        reviewers = get_default_reviewers("analyze")
 
         names = [r["name"] for r in reviewers]
         assert "refine" in names
@@ -287,7 +287,7 @@ def get_default_reviewers(phase: str) -> list:
     Note: Review prompts are now built by the local orchestrator
     (orchestrator/routes/pipelines.py), not by shell scripts.
     """
-    if phase == "refine":
+    if phase == "analyze":
         return [
             {"name": "refine"},
             {"name": "agent-design"},
