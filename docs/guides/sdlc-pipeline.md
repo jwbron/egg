@@ -806,6 +806,30 @@ This functionality has been replaced by the PR-based review workflow, which prov
 
 For detailed documentation on HITL workflows, see [HITL Decisions](../hitl-decisions.md).
 
+### Decision Sync to Contract
+
+Pipeline decisions made during refine and plan phases are automatically synced to the contract after each phase completes. This ensures implement-phase agents have visibility into substantive choices (e.g., database selection, API style, config handling) made earlier in the pipeline.
+
+**How it works:**
+
+1. Agents create decisions via `OrchClient.create_decision()` or by queueing HITL checkpoints
+2. Human resolves the decision (via terminal in local mode, or checkbox in issue mode)
+3. After the phase completes, `_sync_pipeline_decisions_to_contract()` converts resolved non-phase-gate `HITLDecision` objects to contract `Decision` format
+4. Synced decisions appear in `.egg-state/contracts/{identifier}.json` under the `decisions` array
+5. Implement-phase agents can read these decisions from the contract to understand context
+
+**What gets synced:**
+
+- Resolved decisions with `decision_type != "phase_gate"` (substantive choices, not process gates)
+- Decision question, options, resolution, and resolved_at are carried over; resolved_by is set to `"human"`
+- Decisions already present in the contract (matched by question text) are skipped to avoid duplicates
+
+**Key files:**
+
+- `orchestrator/routes/pipelines.py` — `_sync_pipeline_decisions_to_contract()` implementation
+- `orchestrator/models.py` — `HITLDecision` model (pipeline state)
+- `shared/egg_contracts/models.py` — `Decision` model (contract state)
+
 ### Checkbox-Based Interface
 
 HITL decisions render as checkboxes in bot comments. The `<!-- egg-hitl-decision id=... -->` marker identifies each decision:

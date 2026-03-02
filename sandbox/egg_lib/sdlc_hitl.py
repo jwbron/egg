@@ -5,6 +5,7 @@ the draft document and offers interactive options for resolution.
 """
 
 import json
+import logging
 import os
 import re
 import shlex
@@ -17,6 +18,8 @@ from pathlib import Path
 from typing import Any
 
 from .orch_client import OrchClient, OrchestratorError
+
+logger = logging.getLogger(__name__)
 
 # ANSI escape codes
 RESET = "\033[0m"
@@ -670,6 +673,7 @@ def _handle_choice(
     client: OrchClient,
     pipeline_id: str,
     decision: dict[str, Any],
+    draft_content: str | None = None,
 ) -> str:
     """Handle a choice decision with numbered options."""
     decision_id = decision.get("id", "unknown")
@@ -679,16 +683,27 @@ def _handle_choice(
         print(f"\n  {BOLD}Options:{RESET}")
         for i, opt in enumerate(options, 1):
             print(f"  {CYAN}[{i}]{RESET} {opt}")
+        if draft_content:
+            print(f"  {CYAN}[v]{RESET} View full document")
         _display_universal_options()
 
         valid_nums = {str(i) for i in range(1, len(options) + 1)}
         valid = valid_nums | {"f", "a", "c"}
-        choice = _prompt_choice(f"\n  {BOLD}Choose [1-{len(options)}/f/a/c]:{RESET} ", valid)
+        if draft_content:
+            valid.add("v")
+        v_hint = "/v" if draft_content else ""
+        choice = _prompt_choice(
+            f"\n  {BOLD}Choose [1-{len(options)}{v_hint}/f/a/c]:{RESET} ", valid
+        )
 
         # Check universal options first
         result = _handle_universal_option(choice, client, pipeline_id, decision_id)
         if result:
             return result
+
+        if choice == "v" and draft_content:
+            _display_in_pager(draft_content)
+            continue
 
         if choice in valid_nums:
             selected = options[int(choice) - 1]
@@ -709,6 +724,7 @@ def _handle_feedback(
     client: OrchClient,
     pipeline_id: str,
     decision: dict[str, Any],
+    draft_content: str | None = None,
 ) -> str:
     """Handle a feedback decision with structured question prompts."""
     decision_id = decision.get("id", "unknown")
@@ -723,8 +739,15 @@ def _handle_feedback(
                 print(f"  {DIM}No response entered.{RESET}")
                 # Show universal options for empty input
                 valid = {"f", "a", "c", "r"}
+                if draft_content:
+                    valid.add("v")
+                    print(f"  {CYAN}[v]{RESET} View full document")
                 print(f"  {CYAN}[r]{RESET} Retry input")
-                choice = _prompt_choice(f"\n  {BOLD}Choose [r/f/a/c]:{RESET} ", valid)
+                v_hint = "/v" if draft_content else ""
+                choice = _prompt_choice(f"\n  {BOLD}Choose [r{v_hint}/f/a/c]:{RESET} ", valid)
+                if choice == "v" and draft_content:
+                    _display_in_pager(draft_content)
+                    continue
                 if choice == "r":
                     continue
                 result = _handle_universal_option(choice, client, pipeline_id, decision_id)
@@ -812,10 +835,19 @@ def _handle_feedback(
 
         print(f"\n  {CYAN}[s]{RESET} Submit answers")
         print(f"  {CYAN}[r]{RESET} Redo a question")
+        if draft_content:
+            print(f"  {CYAN}[v]{RESET} View full document")
         _display_universal_options()
 
         valid = {"s", "r", "f", "a", "c"}
-        choice = _prompt_choice(f"\n  {BOLD}Choose [s/r/f/a/c]:{RESET} ", valid)
+        if draft_content:
+            valid.add("v")
+        v_hint = "/v" if draft_content else ""
+        choice = _prompt_choice(f"\n  {BOLD}Choose [s/r{v_hint}/f/a/c]:{RESET} ", valid)
+
+        if choice == "v" and draft_content:
+            _display_in_pager(draft_content)
+            continue
 
         # Check universal options
         result = _handle_universal_option(choice, client, pipeline_id, decision_id)
@@ -937,6 +969,61 @@ def _handle_generic(
                 return "cancelled"
 
 
+def resolve_phase_draft(
+    decision: dict[str, Any],
+    pipeline_mode: str = "issue",
+    issue_number: int | None = None,
+    pipeline_id: str | None = None,
+    client: OrchClient | None = None,
+) -> tuple[str | None, str | None, str]:
+    """Resolve the phase draft document for a decision.
+
+    Extracts draft resolution logic (phase detection, draft path, draft content)
+    into a reusable function for use by both handle_hitl_checkpoint() and the
+    CLI watch loop (sdlc_cli.py).
+
+    Args:
+        decision: The HITL decision dict.
+        pipeline_mode: "issue" or "pipeline".
+        issue_number: Issue number for issue-mode pipelines.
+        pipeline_id: Pipeline ID for pipeline-mode pipelines.
+        client: Optional OrchClient for pipeline API fallback when phase
+            detection via regex fails.
+
+    Returns:
+        (draft_rel, draft_content, phase) tuple where draft_rel is the relative
+        path to the draft file, draft_content is its text content, and phase is
+        the detected/resolved phase string. draft_rel and draft_content may be
+        None.
+    """
+    question = decision.get("question", "")
+    context = decision.get("context", "")
+
+    raw_phase = decision.get("phase")
+    phase = raw_phase if raw_phase is not None else _detect_phase(question, context)
+
+    # If phase is still unknown and we have a client, try fetching from the
+    # pipeline's current state (API fallback).
+    if phase == "unknown" and client and pipeline_id:
+        try:
+            pipeline_info = client.get_pipeline(pipeline_id)
+            pipeline_phase = pipeline_info.get("pipeline", pipeline_info).get("current_phase")
+            if pipeline_phase:
+                phase = pipeline_phase
+        except Exception:
+            logger.debug("Failed to fetch pipeline phase for decision display", exc_info=True)
+
+    repo_path = _find_repo_path()
+    draft_rel = _get_draft_path(phase, pipeline_mode, issue_number, pipeline_id)
+    draft_content = _read_draft(repo_path, draft_rel)
+
+    # Fall back to decision context if local draft file not found.
+    if not draft_content and context:
+        draft_content = context
+
+    return draft_rel, draft_content, phase
+
+
 def handle_hitl_checkpoint(
     client: OrchClient,
     pipeline_id: str,
@@ -957,23 +1044,17 @@ def handle_hitl_checkpoint(
         "cancelled" if the pipeline was cancelled.
     """
     question = decision.get("question", "Decision required")
-    context = decision.get("context", "")
     decision_type = decision.get("decision_type", "choice")
 
-    # Use explicit phase from decision if available, fall back to regex detection
-    raw_phase = decision.get("phase")
-    phase = raw_phase if raw_phase is not None else _detect_phase(question, context)
-
-    # Find and read the draft
+    # Resolve draft via shared helper (includes API fallback for unknown phase)
+    draft_rel, draft_content, phase = resolve_phase_draft(
+        decision,
+        pipeline_mode=pipeline_mode,
+        issue_number=issue_number,
+        pipeline_id=pipeline_id,
+        client=client,
+    )
     repo_path = _find_repo_path()
-    draft_rel = _get_draft_path(phase, pipeline_mode, issue_number, pipeline_id)
-    draft_content = _read_draft(repo_path, draft_rel)
-
-    # Fall back to decision context if local draft file not found.
-    # The draft lives in the agent's worktree which may not be mounted
-    # here, but the orchestrator reads it and attaches it as context.
-    if not draft_content and context:
-        draft_content = context
 
     # Display decision info
     print(f"\n{BOLD}{YELLOW}{'=' * 60}{RESET}")
@@ -1006,10 +1087,10 @@ def handle_hitl_checkpoint(
     elif decision_type == "choice":
         options = decision.get("options", [])
         if options:
-            return _handle_choice(client, pipeline_id, decision)
+            return _handle_choice(client, pipeline_id, decision, draft_content=draft_content)
         # No options — fall through to generic
     elif decision_type == "feedback":
-        return _handle_feedback(client, pipeline_id, decision)
+        return _handle_feedback(client, pipeline_id, decision, draft_content=draft_content)
 
     # Unknown type or choice without options — generic fallback
     if draft_content and decision_type != "phase_gate":

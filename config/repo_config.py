@@ -411,6 +411,64 @@ def is_checkpoint_repo(owner: str, repo: str) -> bool:
         return False
 
 
+def get_repo_build_commands(repo: str) -> dict[str, Any]:
+    """Get build_commands configuration for a repository.
+
+    Build commands are run during the Docker image build phase to install
+    project-specific dependencies (e.g., npm ci, pip install -r requirements.txt).
+    Results are baked into the image for fast container startup.
+
+    Args:
+        repo: Repository in "owner/repo" format
+
+    Returns:
+        Dictionary with:
+        - watch_files: list[str] - Files that trigger rebuild when changed
+        - commands: list[str] - Commands to run during build
+        Returns empty dict if no build_commands configured.
+    """
+    build_cmds = get_repo_setting(repo, "build_commands", None)
+    if not isinstance(build_cmds, dict):
+        return {}
+    result: dict[str, Any] = {}
+    watch_files = build_cmds.get("watch_files", [])
+    if isinstance(watch_files, list):
+        result["watch_files"] = [str(f) for f in watch_files]
+    else:
+        result["watch_files"] = []
+    commands = build_cmds.get("commands", [])
+    if isinstance(commands, list):
+        result["commands"] = [str(c) for c in commands]
+    else:
+        result["commands"] = []
+    return result
+
+
+def get_all_build_commands() -> dict[str, dict[str, Any]]:
+    """Get build_commands for all configured repositories.
+
+    Returns:
+        Dictionary mapping repo name to build_commands config.
+        Only includes repos that have build_commands configured.
+    """
+    config = _load_config()
+    repo_settings = config.get("repo_settings", {})
+    if not isinstance(repo_settings, dict):
+        return {}
+
+    result: dict[str, dict[str, Any]] = {}
+    for repo_name, settings in repo_settings.items():
+        if not isinstance(settings, dict):
+            continue
+        build_cmds = settings.get("build_commands")
+        if not isinstance(build_cmds, dict):
+            continue
+        parsed = get_repo_build_commands(repo_name)
+        if parsed.get("commands"):
+            result[repo_name] = parsed
+    return result
+
+
 def get_repo_checks(repo: str) -> list[dict[str, str]]:
     """Get configured check commands for a repository.
 

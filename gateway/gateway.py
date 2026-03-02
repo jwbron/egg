@@ -29,6 +29,7 @@ import json
 import os
 import re
 import secrets
+import signal
 import subprocess
 import sys
 import time
@@ -3467,7 +3468,10 @@ def session_create() -> tuple[Response, int] | Response:
         return make_error("Missing container_ip")
     if mode not in ("private", "public", "local"):
         return make_error("Invalid mode: must be 'private', 'public', or 'local'")
-    if not repos:
+    # repos is required for private/public modes (visibility filtering + worktree
+    # creation) but optional for local mode (orchestrator-internal temp sessions
+    # that only need a session token for git push/fetch authentication).
+    if not repos and mode != "local":
         return make_error("Missing repos list")
 
     # Validate uid/gid if provided
@@ -3589,12 +3593,17 @@ def session_create() -> tuple[Response, int] | Response:
             )
 
     # Step 3: Create worktrees for filtered repos
-    manager = get_worktree_manager()
     worktrees = {}
     worktree_errors = []
     first_worktree_path: str | None = None  # Gateway-side path for checkpoint context
     first_repo: str | None = None  # First filtered repo in "owner/repo" format
     worktree_branch: str | None = None  # Worktree branch name for branch lock
+
+    # Only initialise the worktree manager when there are repos to process.
+    # Local-mode sessions (no repos) skip worktree creation entirely, so
+    # avoid hitting the filesystem for the worktree base directory.
+    if filtered_repos:
+        manager = get_worktree_manager()
 
     for repo in filtered_repos:
         # Extract repo name from owner/repo format
@@ -4174,17 +4183,11 @@ def request_file_create() -> tuple[Response, int] | Response:
 
     # Validate file_path to prevent path traversal and injection
     if ".." in file_path or file_path.startswith("/"):
-        return make_error(
-            "Invalid file_path: path traversal not allowed", status_code=400
-        )
+        return make_error("Invalid file_path: path traversal not allowed", status_code=400)
     if len(file_path) > 512:
-        return make_error(
-            "Invalid file_path: too long (max 512 characters)", status_code=400
-        )
+        return make_error("Invalid file_path: too long (max 512 characters)", status_code=400)
     if "\x00" in file_path:
-        return make_error(
-            "Invalid file_path: null bytes not allowed", status_code=400
-        )
+        return make_error("Invalid file_path: null bytes not allowed", status_code=400)
 
     session = g.session
     pipeline_id = getattr(session, "pipeline_id", None)
@@ -5116,6 +5119,22 @@ def main() -> None:
     except LauncherSecretNotConfiguredError as e:
         logger.error("Startup failed: launcher secret not configured", error=str(e))
         sys.exit(1)
+
+    # Register SIGTERM handler for graceful shutdown.
+    # When Docker sends SIGTERM, delay for 5s to let in-flight session cleanup
+    # requests complete before exiting. This prevents the race condition where
+    # the gateway becomes unreachable before the launcher's cleanup hook runs.
+    # NOTE: This is a delay, not a true drain — waitress continues accepting new
+    # requests during the sleep. If a new long-running request starts during this
+    # window, it will be killed when sys.exit(0) fires. For our use case (Docker
+    # stop), this is acceptable since the only in-flight requests at shutdown are
+    # short-lived session cleanup calls.
+    def _handle_shutdown(signum: int, frame: Any) -> None:
+        logger.info("Received SIGTERM, delaying 5s for in-flight requests before shutdown...")
+        time.sleep(5)
+        sys.exit(0)
+
+    signal.signal(signal.SIGTERM, _handle_shutdown)
 
     logger.info(
         "Starting Gateway Sidecar",

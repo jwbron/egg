@@ -20,7 +20,7 @@ sandbox/
 ├── statusbar.py            # Status bar display
 ├── egg                     # Main egg CLI script
 ├── Dockerfile              # Sandbox container image
-├── docker-setup.py         # In-container tool installation
+├── docker-setup.py         # Build-time tool installation and per-repo dependency setup
 ├── pyproject.toml          # Package configuration
 │
 ├── egg_lib/                # Container utility libraries
@@ -28,7 +28,7 @@ sandbox/
 │   ├── config.py           # Configuration management
 │   ├── auth.py             # Authentication handling
 │   ├── gateway.py          # Gateway communication
-│   ├── docker.py           # Docker operations
+│   ├── docker.py           # Docker image build, Dockerfile generation, dependency caching
 │   ├── context.py          # Context management
 │   ├── runtime.py          # Runtime utilities
 │   ├── setup_flow.py       # Setup workflow
@@ -37,7 +37,7 @@ sandbox/
 │   ├── timing.py           # Timing utilities
 │   ├── output.py           # Output formatting
 │   ├── compose.py          # Docker Compose operations
-│   ├── checkpoint_cli.py   # Checkpoint CLI for saving/restoring state
+│   ├── checkpoint_cli.py   # Checkpoint CLI implementation
 │   ├── contract_cli.py     # SDLC contract CLI (egg-contract)
 │   ├── orchestration.py    # Multi-agent orchestration support
 │   ├── orch_cli.py         # Orchestrator CLI (egg-orch)
@@ -181,7 +181,21 @@ A system-level per-command timeout wrapper prevents runaway shell commands (e.g.
 
 ## Configuration
 
-Container setup is automated via `docker-setup.py`, which runs on container start to install dependencies, configure the environment, and set up Claude Code. No manual setup is required inside the container.
+Container setup is automated via `docker-setup.py`, which runs during the Docker image **build** to install dependencies, configure the environment, and set up Claude Code. No manual setup is required inside the container.
+
+### Build-Time Dependency Installation
+
+Per-repo `build_commands` in `repositories.yaml` allow project-specific dependencies (npm packages, Python venvs, Go modules, etc.) to be installed during the image build and baked into the image. This is critical for private mode, where containers have no runtime network access beyond the Anthropic API.
+
+**Build flow:**
+1. `create_dockerfile()` (in `egg_lib/docker.py`) copies each repo's `watch_files` from local paths into the build context at `repo-deps/<repo-name>/`
+2. The Dockerfile `COPY repo-deps/` layer picks up these files — changes to watch files (e.g., `package-lock.json`) invalidate the Docker cache for this layer
+3. `docker-setup.py` reads `build_commands` from a `manifest.json` file in `repo-deps/` (falling back to `repositories.yaml` if available) and executes each repo's commands in its watch files directory
+4. `compute_build_hash()` includes watch file contents, so `egg` automatically detects when a rebuild is needed
+
+**Config propagation:** During Docker builds, `repositories.yaml` is not available in the build context. Build commands are propagated via a `manifest.json` file that `create_dockerfile()` writes into `repo-deps/`. The `docker-setup.py` script reads this manifest as a fallback when `repositories.yaml` is not found.
+
+See [Configuration README](../config/README.md#per-repo-build-commands-dependency-caching) for configuration details.
 
 ## Related Documentation
 

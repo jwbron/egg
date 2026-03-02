@@ -524,3 +524,91 @@ class TestDeletePipeline:
         with pytest.raises(OrchestratorError) as exc_info:
             client.delete_pipeline("p1")
         assert exc_info.value.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# orch_cli: decision create argument wiring
+# ---------------------------------------------------------------------------
+
+from egg_lib.orch_cli import cmd_decision_create, create_parser
+
+
+class TestOrchCliDecisionCreate:
+    """Tests that --phase and --decision-type CLI args are wired into the request."""
+
+    def _parse_args(self, argv: list[str]):
+        parser = create_parser()
+        return parser.parse_args(argv)
+
+    def test_phase_arg_accepted(self):
+        """--phase is parsed and stored on args."""
+        args = self._parse_args(
+            ["decision", "create", "pipe-1", "--question", "Q?", "--phase", "implement"]
+        )
+        assert args.phase == "implement"
+
+    def test_decision_type_arg_accepted(self):
+        """--decision-type is parsed and stored as decision_type on args."""
+        args = self._parse_args(
+            ["decision", "create", "pipe-1", "--question", "Q?", "--decision-type", "feedback"]
+        )
+        assert args.decision_type == "feedback"
+
+    def test_phase_gate_decision_type_accepted(self):
+        """--decision-type phase_gate is accepted by the CLI parser."""
+        args = self._parse_args(
+            [
+                "decision",
+                "create",
+                "pipe-1",
+                "--question",
+                "Q?",
+                "--decision-type",
+                "phase_gate",
+            ]
+        )
+        assert args.decision_type == "phase_gate"
+
+    @patch("egg_lib.orch_cli.orch_request")
+    def test_phase_and_type_in_request_payload(self, mock_request):
+        """--phase and --decision-type values are included in the POST body."""
+        mock_request.return_value = {
+            "success": True,
+            "data": {"decision": {"id": "decision-1"}},
+        }
+        args = self._parse_args(
+            [
+                "decision",
+                "create",
+                "pipe-1",
+                "--question",
+                "Approve?",
+                "--phase",
+                "plan",
+                "--decision-type",
+                "phase_gate",
+            ]
+        )
+        cmd_decision_create(args)
+
+        mock_request.assert_called_once()
+        call_args = mock_request.call_args
+        data = call_args.kwargs.get("data") or call_args[1].get("data")
+        assert data["phase"] == "plan"
+        assert data["decision_type"] == "phase_gate"
+        assert data["question"] == "Approve?"
+
+    @patch("egg_lib.orch_cli.orch_request")
+    def test_omitted_phase_and_type_not_in_payload(self, mock_request):
+        """When --phase and --decision-type are omitted, they are absent from payload."""
+        mock_request.return_value = {
+            "success": True,
+            "data": {"decision": {"id": "decision-1"}},
+        }
+        args = self._parse_args(["decision", "create", "pipe-1", "--question", "Simple?"])
+        cmd_decision_create(args)
+
+        call_args = mock_request.call_args
+        data = call_args.kwargs.get("data") or call_args[1].get("data")
+        assert "phase" not in data
+        assert "decision_type" not in data

@@ -136,7 +136,7 @@ sandbox/
 ├── statusbar.py            # Status bar display
 ├── egg                     # Main egg script
 ├── Dockerfile              # Sandbox container image
-├── docker-setup.py         # In-container tool installation
+├── docker-setup.py         # Build-time tool installation and per-repo dependency setup
 ├── bin/                    # Git/gh wrapper scripts (route to gateway)
 │   ├── git
 │   ├── gh
@@ -148,9 +148,28 @@ sandbox/
 │   ├── egg-orch            # Symlink to orch_cli.py
 │   └── git-credential-github-token
 ├── egg_lib/                # Container utility libraries
+│   ├── cli.py              # CLI command handling
+│   ├── config.py           # Configuration management
+│   ├── auth.py             # Authentication handling
+│   ├── gateway.py          # Gateway communication
+│   ├── docker.py           # Docker image build, Dockerfile generation, dependency caching
+│   ├── context.py          # Context management
+│   ├── runtime.py          # Runtime utilities
+│   ├── setup_flow.py       # Setup workflow
+│   ├── network_mode.py     # Network mode handling
+│   ├── container_logging.py # Container logging
+│   ├── timing.py           # Timing utilities
+│   ├── output.py           # Output formatting
+│   ├── compose.py          # Docker Compose operations
+│   ├── checkpoint_cli.py   # Checkpoint CLI implementation
 │   ├── contract_cli.py     # SDLC contract CLI implementation
-│   ├── checkpoint_cli.py   # Checkpoint browsing CLI wrapper
-│   └── orch_cli.py         # Orchestrator API CLI implementation
+│   ├── orchestration.py    # Multi-agent orchestration support
+│   ├── orch_cli.py         # Orchestrator CLI implementation
+│   ├── orch_client.py      # Orchestrator API client
+│   ├── sdlc_cli.py         # SDLC pipeline CLI
+│   ├── sdlc_hitl.py        # SDLC human-in-the-loop support
+│   ├── data/               # Static data files (HITL editing rules)
+│   └── self_improvement/   # Self-improvement data collection
 ├── llm/                    # Claude Code / Agent SDK integration
 ├── tools/                  # Interactive tools
 │   ├── discover-tests.py   # Test framework discovery

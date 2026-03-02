@@ -228,6 +228,10 @@ class PhaseExecution(BaseModel):
         default_factory=dict, description="Produced artifacts (file paths)"
     )
     error: str | None = Field(default=None, description="Error if failed")
+    hitl_feedback: str | None = Field(
+        default=None,
+        description="HITL revision feedback preserved across recovery restarts",
+    )
     phase_start_sha: str | None = Field(
         default=None,
         description="Branch tip SHA at phase start, for completion signal verification",

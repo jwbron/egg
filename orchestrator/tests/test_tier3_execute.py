@@ -503,6 +503,140 @@ class TestRunTier3ImplementSequential:
         assert exit_code == 1
         assert "integrator fail" in logs
 
+    @patch("pipelines._spawn_and_wait")
+    @patch("pipelines._read_review_verdict")
+    @patch("pipelines._read_last_review_feedback")
+    @patch("pipelines._read_phase_draft")
+    def test_plan_phase_waves_persisted_to_store(
+        self,
+        mock_read_draft,
+        mock_read_feedback,
+        mock_read_verdict,
+        mock_spawn,
+        tmp_path: Path,
+    ):
+        """plan_phase_waves and plan_phase_names are saved to the store."""
+        self._make_contract_with_phases(tmp_path, phase_count=2)
+        mock_spawn.return_value = (0, "ok")
+        mock_read_verdict.return_value = ReviewVerdict(verdict="approved")
+        mock_read_feedback.return_value = None
+        mock_read_draft.return_value = "# Plan\nDo stuff"
+
+        pipeline = self._make_pipeline()
+        store = MagicMock()
+
+        self._run(
+            pipeline_id="test-pipeline",
+            pipeline=pipeline,
+            spawner=MagicMock(),
+            repo_volumes={},
+            gateway_mode="public",
+            repos=["owner/repo"],
+            sandbox_env={},
+            store=store,
+            certs_volume=None,
+            worktree_repo_path=tmp_path,
+        )
+
+        # Wave data should be set on the pipeline object
+        assert pipeline.plan_phase_waves is not None
+        assert pipeline.plan_phase_names is not None
+        # And persisted via store.save_pipeline
+        store.save_pipeline.assert_called()
+        # The first save_pipeline call should be the wave data persistence
+        first_call_pipeline = store.save_pipeline.call_args_list[0][0][0]
+        assert first_call_pipeline.plan_phase_waves is not None
+        assert first_call_pipeline.plan_phase_names is not None
+
+    def _make_cyclic_contract(self, tmp_path: Path):
+        """Create contract JSON with a cyclic dependency graph."""
+        phases = [
+            {
+                "id": "phase-1",
+                "name": "Phase 1",
+                "status": "pending",
+                "tasks": [
+                    {
+                        "id": "task-1-1",
+                        "description": "Task 1.1",
+                        "status": "pending",
+                        "files_affected": ["src/module1.py"],
+                    }
+                ],
+                "dependencies": ["phase-2"],
+            },
+            {
+                "id": "phase-2",
+                "name": "Phase 2",
+                "status": "pending",
+                "tasks": [
+                    {
+                        "id": "task-2-1",
+                        "description": "Task 2.1",
+                        "status": "pending",
+                        "files_affected": ["src/module2.py"],
+                    }
+                ],
+                "dependencies": ["phase-1"],
+            },
+        ]
+
+        contract = {
+            "schemaVersion": "1.0",
+            "issue": {"number": 42, "title": "test", "url": "http://test"},
+            "phases": phases,
+        }
+
+        contract_dir = tmp_path / ".egg-state" / "contracts"
+        contract_dir.mkdir(parents=True, exist_ok=True)
+        (contract_dir / "42.json").write_text(json.dumps(contract), encoding="utf-8")
+        return contract
+
+    @patch("pipelines._spawn_and_wait")
+    @patch("pipelines._read_review_verdict")
+    @patch("pipelines._read_last_review_feedback")
+    @patch("pipelines._read_phase_draft")
+    def test_cyclic_graph_does_not_persist_wave_data(
+        self,
+        mock_read_draft,
+        mock_read_feedback,
+        mock_read_verdict,
+        mock_spawn,
+        tmp_path: Path,
+    ):
+        """Cyclic dependency graph skips wave persistence."""
+        self._make_cyclic_contract(tmp_path)
+        mock_spawn.return_value = (0, "ok")
+        mock_read_verdict.return_value = ReviewVerdict(verdict="approved")
+        mock_read_feedback.return_value = None
+        mock_read_draft.return_value = "# Plan\nDo stuff"
+
+        pipeline = self._make_pipeline()
+        store = MagicMock()
+
+        self._run(
+            pipeline_id="test-pipeline",
+            pipeline=pipeline,
+            spawner=MagicMock(),
+            repo_volumes={},
+            gateway_mode="public",
+            repos=["owner/repo"],
+            sandbox_env={},
+            store=store,
+            certs_volume=None,
+            worktree_repo_path=tmp_path,
+        )
+
+        # Wave data should NOT be set when graph has cycles
+        assert pipeline.plan_phase_waves is None
+        assert pipeline.plan_phase_names is None
+        # save_pipeline should not have been called for wave persistence
+        # (it may still be called elsewhere, but the first call should not
+        # contain wave data if it happens at all)
+        for call in store.save_pipeline.call_args_list:
+            saved_pipeline = call[0][0]
+            assert saved_pipeline.plan_phase_waves is None
+
 
 class TestRunTier3ImplementParallel:
     """Tests for _run_tier3_implement with parallel phases."""

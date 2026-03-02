@@ -15,6 +15,8 @@ Three mechanisms exist for gathering human input:
 
 In local mode, decisions carry a `decision_type` field (`phase_gate`, `choice`, or `feedback`) that drives type-specific terminal rendering. The orchestrator's decision queue supports a "request changes" option at phase gates, with a circuit breaker (`max_hitl_review_cycles`, default 3) to prevent unbounded revision loops. See [Local Mode: Type-Aware Terminal Rendering](#local-mode-type-aware-terminal-rendering) for details.
 
+**Decision sync to contract**: Resolved decisions made during refine and plan phases are automatically synced to the contract (`.egg-state/contracts/{identifier}.json`) after each phase completes, so implement-phase agents can see substantive choices (database selection, API style, config handling, etc.) made earlier. Phase gate decisions (approve/reject) are excluded from sync as they are process control, not implementation-relevant context. See [SDLC Pipeline Guide § Decision Sync to Contract](sdlc-pipeline.md#decision-sync-to-contract) for details.
+
 ## Formal HITL Decisions
 
 Use formal decisions when you need the human to choose between predefined options.

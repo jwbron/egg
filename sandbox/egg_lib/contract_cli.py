@@ -504,10 +504,12 @@ def cmd_add_decision(args: argparse.Namespace) -> int:
     next_id = len(decisions) + 1
 
     # Build the new decision
+    decision_phase = args.phase or contract.get("current_phase")
     new_decision = {
         "id": f"decision-{next_id}",
         "question": args.question,
         "type": "hitl",
+        "phase": decision_phase,
         "options": [],
         "resolved": False,
         "resolution": None,
@@ -1112,6 +1114,11 @@ def create_parser() -> argparse.ArgumentParser:
         "--options",
         nargs="*",
         help="Optional: decision options",
+    )
+    decision_parser.add_argument(
+        "--phase",
+        choices=["refine", "plan", "implement", "pr"],
+        help="Pipeline phase (defaults to contract's current_phase)",
     )
     decision_parser.add_argument(
         "--format",
