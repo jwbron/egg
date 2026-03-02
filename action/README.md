@@ -74,7 +74,7 @@ The value must be in `owner/repo` format. The `github-token` must have write acc
 
 ## Documentation
 
-For design details, inputs, outputs, and implementation notes, see the [GitHub Actions Support ADR](../docs/adr/in-progress/ADR-GitHub-Actions-Support.md).
+For usage details and workflow setup, see the [GitHub Automation Guide](../docs/guides/github-automation.md).
 
 ## See Also
 
