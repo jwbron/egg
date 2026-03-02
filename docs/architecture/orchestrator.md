@@ -38,11 +38,13 @@ This differs from agent worktrees (managed by the gateway for agent isolation). 
 
 **Startup reconciliation:**
 
-On orchestrator restart, orphaned container state is automatically recovered. For each pipeline showing `status=RUNNING`, the reconciliation process scans **all phases** within the pipeline (including completed phases) for stale containers. Completed phases are included because reviewer agents often run inside phases whose status has already transitioned to `COMPLETE`.
+On orchestrator restart, orphaned container state is automatically recovered:
 
-Any agent/container whose container ID is absent from the live Docker container set is marked `FAILED`. If at least one stale entry is found, the pipeline itself is marked `FAILED` with an error message instructing operators to restart via `POST /pipelines/{id}/start`.
+1. **RUNNING pipelines**: For each pipeline showing `status=RUNNING`, the reconciliation process scans **all phases** within the pipeline (including completed phases) for stale containers. Completed phases are included because reviewer agents often run inside phases whose status has already transitioned to `COMPLETE`. Any agent/container whose container ID is absent from the live Docker container set is marked `FAILED`. If at least one stale entry is found, the pipeline itself is marked `FAILED` with an error message instructing operators to restart via `POST /pipelines/{id}/start`.
 
-This prevents pipelines from being stuck in a `RUNNING` state indefinitely after a crash. Operators (or CI systems) can detect the `FAILED` status and restart the pipeline using the existing restart endpoint, which preserves worktrees and phase state while re-spawning containers.
+2. **AWAITING_HUMAN pipelines**: For each pipeline showing `status=AWAITING_HUMAN` with no pending decisions (orphaned after a restart where the decision was already resolved), the pipeline is marked `FAILED` with an error message instructing operators to restart via `POST /pipelines/{id}/start`. The restart endpoint will automatically recover by parsing the latest phase_gate resolution and either advancing to the next phase (approved) or resetting the current phase for re-run (request_changes/change_approach).
+
+This prevents pipelines from being stuck in `RUNNING` or `AWAITING_HUMAN` states indefinitely after a crash. Operators (or CI systems) can detect the `FAILED` status and restart the pipeline using the existing restart endpoint, which preserves worktrees and phase state while re-spawning containers.
 
 See `orchestrator/state_store.py` and `orchestrator/startup_reconciliation.py` for implementation details.
 
@@ -379,7 +381,7 @@ Fixed IPs:
 - `GET /health` - Health check
 - `GET/POST /pipelines` - Pipeline CRUD (list, create)
 - `DELETE /pipelines/{id}` - Delete pipeline (stops containers, cleans up remote worktree branches best-effort, removes state)
-- `POST /pipelines/{id}/start` - Start or restart a pipeline (restarts failed pipelines by resetting the failed phase; worktrees are preserved across restarts)
+- `POST /pipelines/{id}/start` - Start or restart a pipeline (restarts failed pipelines by resetting the failed phase; recovers orphaned AWAITING_HUMAN pipelines by parsing the latest phase_gate resolution and either advancing to next phase or resetting for re-run; worktrees are preserved across restarts)
 - `GET /pipelines/{id}/visualization` - Pipeline status snapshot (JSON, text, or ASCII); for Tier 3 pipelines, the Implement phase is expanded into sub-phase boxes with fan-out/fan-in connectors
 - `GET /pipelines/{id}/stream` - Real-time SSE stream for single pipeline events and visualization
 - `GET /pipelines/stream` - Unified SSE stream for all active pipelines (supports `?ascii=true`, `?active_only=false`, `?full_dag=true`)
