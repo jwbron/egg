@@ -40,7 +40,10 @@ This differs from agent worktrees (managed by the gateway for agent isolation). 
 
 On orchestrator restart, orphaned container state is automatically recovered:
 
-1. **RUNNING pipelines**: For each pipeline showing `status=RUNNING`, the reconciliation process scans **all phases** within the pipeline (including completed phases) for stale containers. Completed phases are included because reviewer agents often run inside phases whose status has already transitioned to `COMPLETE`. Any agent/container whose container ID is absent from the live Docker container set is marked `FAILED`. If at least one stale entry is found, the pipeline itself is marked `FAILED` with an error message instructing operators to restart via `POST /pipelines/{id}/start`.
+1. **RUNNING pipelines**: For each pipeline showing `status=RUNNING`, the reconciliation process recovers orphaned container state:
+   - Scans **all phases** within the pipeline (including completed phases) for stale containers. Completed phases are included because reviewer agents often run inside phases whose status has already transitioned to `COMPLETE`.
+   - Any agent/container whose container ID is absent from the live Docker container set is marked `FAILED`.
+   - If at least one stale entry is found, the pipeline itself is marked `FAILED` with an error message instructing operators to restart via `POST /pipelines/{id}/start`.
 
 2. **AWAITING_HUMAN pipelines**: For each pipeline showing `status=AWAITING_HUMAN` with no pending decisions (orphaned after a restart where the decision was already resolved), the pipeline is marked `FAILED` with an error message instructing operators to restart via `POST /pipelines/{id}/start`. The restart endpoint will automatically recover by parsing the latest phase_gate resolution and either advancing to the next phase (approved) or resetting the current phase for re-run (request_changes/change_approach).
 
