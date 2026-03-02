@@ -29,7 +29,12 @@ from http.client import HTTPResponse
 from typing import Any
 
 from .orch_client import OrchClient, OrchestratorError
-from .sdlc_hitl import _parse_egg_repos, handle_hitl_checkpoint
+from .sdlc_hitl import (
+    _display_in_pager,
+    _parse_egg_repos,
+    handle_hitl_checkpoint,
+    resolve_phase_draft,
+)
 
 # ANSI escape codes
 RESET = "\033[0m"
@@ -222,6 +227,7 @@ def watch_pipeline(
     retry_delay = 1.0  # seconds, doubles each retry up to max_delay
     max_delay = 30.0
     retries = 0
+    _shown_draft: str | None = None  # Track which draft has been shown in pager
 
     while True:
         conn = None
@@ -275,6 +281,22 @@ def watch_pipeline(
 
                     if decisions:
                         decision = decisions[0]
+                        decision_type = decision.get("decision_type", "choice")
+
+                        # Show phase draft once before non-phase_gate decisions
+                        # so the human has context when answering agent questions
+                        if decision_type != "phase_gate":
+                            draft_rel, draft_content, _phase = resolve_phase_draft(
+                                decision,
+                                pipeline_mode=pipeline_mode,
+                                issue_number=issue_number,
+                                pipeline_id=pipeline_id,
+                                client=client,
+                            )
+                            if draft_content and draft_rel != _shown_draft:
+                                _display_in_pager(draft_content)
+                                _shown_draft = draft_rel
+
                         result = handle_hitl_checkpoint(
                             client,
                             pipeline_id,

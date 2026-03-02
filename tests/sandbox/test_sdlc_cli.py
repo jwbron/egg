@@ -14,6 +14,7 @@ from egg_lib.sdlc_cli import (
     parse_sse_stream,
     render_event_info,
     render_header,
+    watch_pipeline,
 )
 
 # ---------------------------------------------------------------------------
@@ -231,3 +232,195 @@ class TestResolveRepoDir:
         monkeypatch.setenv("HOME", str(tmp_path))
         result = _resolve_repo_dir("nonexistent")
         assert result is None
+
+
+# ---------------------------------------------------------------------------
+# watch_pipeline draft pager integration tests
+# ---------------------------------------------------------------------------
+
+
+class TestWatchPipelineDraftPager:
+    """Tests for the pre-decision draft pager display in watch_pipeline."""
+
+    def _make_client(self):
+        client = MagicMock()
+        client.resolve_decision.return_value = {"status": "resolved"}
+        return client
+
+    @patch("egg_lib.sdlc_cli.handle_hitl_checkpoint")
+    @patch("egg_lib.sdlc_cli.resolve_phase_draft")
+    @patch("egg_lib.sdlc_cli._display_in_pager")
+    @patch("egg_lib.sdlc_cli.display_visualization")
+    @patch("egg_lib.sdlc_cli.parse_sse_stream")
+    def test_draft_shown_once_for_two_decisions(
+        self, mock_parse, mock_viz, mock_pager, mock_resolve, mock_hitl
+    ):
+        """Draft pager is shown once, not repeated for a second decision with same draft."""
+        client = self._make_client()
+        conn = MagicMock()
+        response1 = MagicMock()
+        response2 = MagicMock()
+        response3 = MagicMock()
+
+        # Three SSE connections: first two have awaiting_human decisions,
+        # third completes. After resolving a decision the watch loop breaks
+        # the inner loop and reconnects.
+        client.stream_pipeline.side_effect = [
+            (conn, response1),
+            (conn, response2),
+            (conn, response3),
+        ]
+
+        decision = {
+            "id": "d1",
+            "question": "Which approach?",
+            "decision_type": "choice",
+            "options": ["A", "B"],
+        }
+        decision2 = {
+            "id": "d2",
+            "question": "Another question?",
+            "decision_type": "choice",
+            "options": ["X", "Y"],
+        }
+
+        # parse_sse_stream is called once per connection with the response
+        def parse_side_effect(resp):
+            if resp is response1:
+                return iter([("status", {"status": "awaiting_human", "pending_decisions": 1})])
+            elif resp is response2:
+                return iter([("status", {"status": "awaiting_human", "pending_decisions": 1})])
+            else:
+                return iter([("done", {"reason": "completed"})])
+
+        mock_parse.side_effect = parse_side_effect
+
+        client.list_decisions.side_effect = [[decision], [decision2]]
+        mock_resolve.return_value = (".egg-state/drafts/42-analysis.md", "# Analysis", "refine")
+        mock_hitl.return_value = "resolved"
+
+        result = watch_pipeline(client, "issue-42", pipeline_mode="issue", issue_number=42)
+
+        assert result == "complete"
+        # Pager should be called only ONCE (deduplication by draft_rel)
+        assert mock_pager.call_count == 1
+        mock_pager.assert_called_with("# Analysis")
+
+    @patch("egg_lib.sdlc_cli.handle_hitl_checkpoint")
+    @patch("egg_lib.sdlc_cli.resolve_phase_draft")
+    @patch("egg_lib.sdlc_cli._display_in_pager")
+    @patch("egg_lib.sdlc_cli.display_visualization")
+    @patch("egg_lib.sdlc_cli.parse_sse_stream")
+    def test_draft_not_shown_for_phase_gate(
+        self, mock_parse, mock_viz, mock_pager, mock_resolve, mock_hitl
+    ):
+        """Draft pager is NOT shown before phase_gate decisions (handled by hitl handler)."""
+        client = self._make_client()
+        conn = MagicMock()
+        response1 = MagicMock()
+        response2 = MagicMock()
+        client.stream_pipeline.side_effect = [(conn, response1), (conn, response2)]
+
+        decision = {
+            "id": "d1",
+            "question": "Approve the analysis?",
+            "decision_type": "phase_gate",
+        }
+
+        def parse_side_effect(resp):
+            if resp is response1:
+                return iter([("status", {"status": "awaiting_human", "pending_decisions": 1})])
+            else:
+                return iter([("done", {"reason": "completed"})])
+
+        mock_parse.side_effect = parse_side_effect
+        client.list_decisions.return_value = [decision]
+        mock_hitl.return_value = "resolved"
+
+        result = watch_pipeline(client, "issue-42", pipeline_mode="issue", issue_number=42)
+
+        assert result == "complete"
+        # resolve_phase_draft should NOT be called for phase_gate
+        mock_resolve.assert_not_called()
+        mock_pager.assert_not_called()
+
+    @patch("egg_lib.sdlc_cli.handle_hitl_checkpoint")
+    @patch("egg_lib.sdlc_cli.resolve_phase_draft")
+    @patch("egg_lib.sdlc_cli._display_in_pager")
+    @patch("egg_lib.sdlc_cli.display_visualization")
+    @patch("egg_lib.sdlc_cli.parse_sse_stream")
+    def test_draft_not_shown_when_no_content(
+        self, mock_parse, mock_viz, mock_pager, mock_resolve, mock_hitl
+    ):
+        """Draft pager is not shown when resolve_phase_draft returns no content."""
+        client = self._make_client()
+        conn = MagicMock()
+        response1 = MagicMock()
+        response2 = MagicMock()
+        client.stream_pipeline.side_effect = [(conn, response1), (conn, response2)]
+
+        decision = {
+            "id": "d1",
+            "question": "Which approach?",
+            "decision_type": "choice",
+            "options": ["A", "B"],
+        }
+
+        def parse_side_effect(resp):
+            if resp is response1:
+                return iter([("status", {"status": "awaiting_human", "pending_decisions": 1})])
+            else:
+                return iter([("done", {"reason": "completed"})])
+
+        mock_parse.side_effect = parse_side_effect
+        client.list_decisions.return_value = [decision]
+        mock_resolve.return_value = (None, None, "implement")
+        mock_hitl.return_value = "resolved"
+
+        result = watch_pipeline(client, "issue-42", pipeline_mode="issue", issue_number=42)
+
+        assert result == "complete"
+        mock_pager.assert_not_called()
+
+    @patch("egg_lib.sdlc_cli.handle_hitl_checkpoint")
+    @patch("egg_lib.sdlc_cli.resolve_phase_draft")
+    @patch("egg_lib.sdlc_cli._display_in_pager")
+    @patch("egg_lib.sdlc_cli.display_visualization")
+    @patch("egg_lib.sdlc_cli.parse_sse_stream")
+    def test_client_passed_to_resolve_phase_draft(
+        self, mock_parse, mock_viz, mock_pager, mock_resolve, mock_hitl
+    ):
+        """The client is passed to resolve_phase_draft for API fallback."""
+        client = self._make_client()
+        conn = MagicMock()
+        response1 = MagicMock()
+        response2 = MagicMock()
+        client.stream_pipeline.side_effect = [(conn, response1), (conn, response2)]
+
+        decision = {
+            "id": "d1",
+            "question": "Which approach?",
+            "decision_type": "choice",
+            "options": ["A", "B"],
+        }
+
+        def parse_side_effect(resp):
+            if resp is response1:
+                return iter([("status", {"status": "awaiting_human", "pending_decisions": 1})])
+            else:
+                return iter([("done", {"reason": "completed"})])
+
+        mock_parse.side_effect = parse_side_effect
+        client.list_decisions.return_value = [decision]
+        mock_resolve.return_value = (None, None, "unknown")
+        mock_hitl.return_value = "resolved"
+
+        watch_pipeline(client, "issue-42", pipeline_mode="issue", issue_number=42)
+
+        mock_resolve.assert_called_once_with(
+            decision,
+            pipeline_mode="issue",
+            issue_number=42,
+            pipeline_id="issue-42",
+            client=client,
+        )
