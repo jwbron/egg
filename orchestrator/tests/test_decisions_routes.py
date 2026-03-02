@@ -576,6 +576,68 @@ class TestResolveDecisionEndpoint:
         assert response.status_code == 409
 
 
+class TestResolveEmitsEvent:
+    """Tests that resolving a decision emits DECISION_RESOLVED event."""
+
+    @patch("routes.decisions.emit_event")
+    @patch("routes.decisions.get_repo_path")
+    @patch("routes.decisions.get_decision_queue")
+    def test_resolve_emits_decision_resolved_event(
+        self, mock_get_queue, mock_repo, mock_emit, client, tmp_path
+    ):
+        """Resolving a decision emits EventType.DECISION_RESOLVED."""
+        from events import EventType
+
+        mock_repo.return_value = tmp_path
+        mock_queue = MagicMock()
+        resolved_decision = _make_decision(
+            status="resolved",
+            resolution='{"action": "approve"}',
+        )
+        mock_queue.resolve_decision.return_value = resolved_decision
+        mock_get_queue.return_value = mock_queue
+
+        response = client.post(
+            "/api/v1/pipelines/test-pipeline/decisions/decision-1/resolve",
+            json={"resolution": '{"action": "approve"}'},
+        )
+
+        assert response.status_code == 200
+        mock_emit.assert_called_once_with(
+            EventType.DECISION_RESOLVED,
+            pipeline_id="test-pipeline",
+            data={
+                "decision_id": "decision-1",
+                "resolution": '{"action": "approve"}',
+            },
+        )
+
+    @patch("routes.decisions.emit_event", side_effect=Exception("event bus down"))
+    @patch("routes.decisions.get_repo_path")
+    @patch("routes.decisions.get_decision_queue")
+    def test_resolve_succeeds_even_if_event_emission_fails(
+        self, mock_get_queue, mock_repo, mock_emit, client, tmp_path
+    ):
+        """Event emission failure does not break the resolve endpoint."""
+        mock_repo.return_value = tmp_path
+        mock_queue = MagicMock()
+        resolved_decision = _make_decision(
+            status="resolved",
+            resolution="approve",
+        )
+        mock_queue.resolve_decision.return_value = resolved_decision
+        mock_get_queue.return_value = mock_queue
+
+        response = client.post(
+            "/api/v1/pipelines/test-pipeline/decisions/decision-1/resolve",
+            json={"resolution": "approve"},
+        )
+
+        assert response.status_code == 200
+        data = response.get_json()
+        assert data["success"] is True
+
+
 class TestCancelDecisionEndpoint:
     """Tests for POST cancel-decision endpoint."""
 
