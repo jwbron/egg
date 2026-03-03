@@ -955,7 +955,6 @@ def _prepare_gateway_config() -> tuple[list[str], list[str]]:
     state_dir = Path.home() / ".egg-state"
     git_main_dir = Path.home() / ".git-main"
     local_objects_dir = Path.home() / ".egg-local-objects"
-    shared_certs_dir = Path.home() / ".egg-shared-certs"
 
     mounts = []
     env_args = []
@@ -1001,10 +1000,11 @@ def _prepare_gateway_config() -> tuple[list[str], list[str]]:
     if local_objects_dir.exists():
         mounts.extend(["-v", f"{local_objects_dir}:{CONTAINER_HOME}/.egg-local-objects:ro"])
 
-    # Shared certs directory
-    shared_certs_dir.mkdir(parents=True, exist_ok=True)
-    shared_certs_dir.chmod(0o755)
-    mounts.extend(["-v", f"{shared_certs_dir}:/shared/certs"])
+    # Shared certs Docker named volume for gateway CA certificate.
+    # Use the same named volume as docker-compose so the sandbox always reads
+    # the current cert regardless of how the gateway was started.
+    project_name = os.environ.get("COMPOSE_PROJECT_NAME", "egg")
+    mounts.extend(["-v", f"{project_name}-certs:/shared/certs"])
 
     # Dynamic git mounts from local_repos in repositories.yaml
     if config_file.exists():

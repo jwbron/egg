@@ -620,11 +620,16 @@ def add_standard_mounts(mount_args: list[str], quiet: bool = False) -> None:
     These mounts are always added dynamically rather than relying on config files,
     ensuring they're always available even if setup hasn't been run recently.
     """
-    # Mount shared certs directory for SSL bump CA certificate
-    # Gateway writes its CA cert here, container adds it to trust store
-    # This enables credential injection via gateway proxy
-    shared_certs_dir = Path.home() / ".egg-shared-certs"
-    if shared_certs_dir.exists():
-        mount_args.extend(["-v", f"{shared_certs_dir}:/shared/certs:ro"])
-        if not quiet:
-            print("  - /shared/certs/ (gateway CA cert - read-only)")
+    import os
+
+    # Mount the shared certs Docker named volume for the gateway CA certificate.
+    # The gateway (whether started via docker-compose or programmatically) writes
+    # its CA cert to the '{project_name}-certs' named volume at /shared/certs.
+    # Sandbox containers must mount the same volume (not a host path) to always
+    # see the current cert. Using a host bind-mount (~/.egg-shared-certs) diverges
+    # from the volume the gateway writes to and results in stale/expired certs.
+    project_name = os.environ.get("COMPOSE_PROJECT_NAME", "egg")
+    certs_volume = f"{project_name}-certs"
+    mount_args.extend(["-v", f"{certs_volume}:/shared/certs:ro"])
+    if not quiet:
+        print("  - /shared/certs/ (gateway CA cert - read-only)")
