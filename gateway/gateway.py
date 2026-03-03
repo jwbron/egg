@@ -3319,6 +3319,20 @@ def session_create() -> tuple[Response, int] | Response:
         if len(branch) > 256:
             return make_error("Invalid branch: must be 256 characters or fewer")
 
+    # Validate local_only_repos if provided
+    if local_only_repos:
+        if not isinstance(local_only_repos, list):
+            return make_error("Invalid local_only_repos: must be a list")
+        if len(local_only_repos) > 50:
+            return make_error("Invalid local_only_repos: too many entries")
+        for repo_name in local_only_repos:
+            if not isinstance(repo_name, str):
+                return make_error("Invalid local_only_repos: all items must be strings")
+            if not repo_name or len(repo_name) > 256:
+                return make_error("Invalid local_only_repos: repo name must be 1-256 chars")
+            if ".." in repo_name or "/" in repo_name:
+                return make_error(f"Invalid local_only_repos: unsafe repo name '{repo_name}'")
+
     # Step 1: Query visibility for all repos
     repo_visibilities = {}
     for repo in repos:
@@ -3384,7 +3398,7 @@ def session_create() -> tuple[Response, int] | Response:
             )
     elif local_only_repos and mode != "private":
         logger.debug(
-            "Excluding local-only repos in non-private mode",
+            "Excluding local-only repos in public/local mode",
             repos=local_only_repos,
             mode=mode,
             container_id=container_id,
@@ -3472,6 +3486,11 @@ def session_create() -> tuple[Response, int] | Response:
     if first_worktree_path is not None:
         _session.last_repo_path = first_worktree_path
     if first_repo is not None:
+        # Note: for local-only repos, first_repo is a bare name (e.g. "my-repo")
+        # rather than "owner/repo" format. get_checkpoint_repo() won't match it
+        # in repo_settings, so checkpoint_repo will be None. This is acceptable:
+        # local-only repos have no GitHub remote and aren't expected to produce
+        # checkpoints.
         _session.checkpoint_repo = get_checkpoint_repo(first_repo)
 
     # Lock pipeline sessions to their assigned worktree branch

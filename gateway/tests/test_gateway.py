@@ -3499,6 +3499,175 @@ class TestSessionCreateWithPhase:
             assert "repos" in data["message"].lower()
 
 
+class TestSessionCreateLocalOnlyRepos:
+    """Tests for session creation with local_only_repos parameter."""
+
+    def test_local_only_repos_included_in_private_mode(
+        self, client, launcher_auth_headers, tmp_path
+    ):
+        """Local-only repos are added to filtered_repos in private mode."""
+        from session_manager import SessionManager
+
+        manager = SessionManager(persistence_file=tmp_path / "sessions.json")
+
+        with (
+            patch.object(gateway, "get_session_manager", return_value=manager),
+            patch.object(gateway, "get_worktree_manager") as mock_worktree,
+        ):
+            mock_worktree_info = MagicMock()
+            mock_worktree_info.worktree_path = "/path/to/worktree"
+            mock_worktree_info.branch = "egg/test-branch"
+            mock_worktree.return_value.create_worktree.return_value = mock_worktree_info
+
+            response = client.post(
+                "/api/v1/sessions/create",
+                headers=launcher_auth_headers,
+                data=json.dumps(
+                    {
+                        "container_id": "test-container",
+                        "container_ip": "172.18.0.5",
+                        "mode": "private",
+                        "local_only_repos": ["my-local-repo"],
+                    }
+                ),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 200
+            data = json.loads(response.data)
+            assert data["success"] is True
+            assert "my-local-repo" in data["data"]["filtered_repos"]
+
+            # Verify worktree was created for the local-only repo
+            mock_worktree.return_value.create_worktree.assert_called_once()
+            call_kwargs = mock_worktree.return_value.create_worktree.call_args
+            assert (
+                call_kwargs.kwargs.get("repo_name")
+                or call_kwargs[1].get("repo_name") == "my-local-repo"
+            )
+
+    def test_local_only_repos_excluded_in_public_mode(
+        self, client, launcher_auth_headers, tmp_path
+    ):
+        """Local-only repos are excluded in public mode."""
+        from session_manager import SessionManager
+
+        manager = SessionManager(persistence_file=tmp_path / "sessions.json")
+
+        with (
+            patch.object(gateway, "get_session_manager", return_value=manager),
+            patch.object(gateway, "get_repo_visibility", return_value="public"),
+            patch.object(gateway, "get_worktree_manager") as mock_worktree,
+        ):
+            mock_worktree_info = MagicMock()
+            mock_worktree_info.worktree_path = "/path/to/worktree"
+            mock_worktree.return_value.create_worktree.return_value = mock_worktree_info
+
+            response = client.post(
+                "/api/v1/sessions/create",
+                headers=launcher_auth_headers,
+                data=json.dumps(
+                    {
+                        "container_id": "test-container",
+                        "container_ip": "172.18.0.5",
+                        "mode": "public",
+                        "repos": ["owner/public-repo"],
+                        "local_only_repos": ["my-local-repo"],
+                    }
+                ),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 200
+            data = json.loads(response.data)
+            assert data["success"] is True
+            assert "my-local-repo" not in data["data"]["filtered_repos"]
+
+    def test_local_only_repos_validation_rejects_non_list(self, client, launcher_auth_headers):
+        """Rejects local_only_repos that is not a list."""
+        response = client.post(
+            "/api/v1/sessions/create",
+            headers=launcher_auth_headers,
+            data=json.dumps(
+                {
+                    "container_id": "test-container",
+                    "container_ip": "172.18.0.5",
+                    "mode": "private",
+                    "local_only_repos": "not-a-list",
+                }
+            ),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 400
+        data = json.loads(response.data)
+        assert "must be a list" in data["message"]
+
+    def test_local_only_repos_validation_rejects_non_string_items(
+        self, client, launcher_auth_headers
+    ):
+        """Rejects local_only_repos with non-string items."""
+        response = client.post(
+            "/api/v1/sessions/create",
+            headers=launcher_auth_headers,
+            data=json.dumps(
+                {
+                    "container_id": "test-container",
+                    "container_ip": "172.18.0.5",
+                    "mode": "private",
+                    "local_only_repos": [123],
+                }
+            ),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 400
+        data = json.loads(response.data)
+        assert "must be strings" in data["message"]
+
+    def test_local_only_repos_validation_rejects_path_traversal(
+        self, client, launcher_auth_headers
+    ):
+        """Rejects local_only_repos with path traversal characters."""
+        response = client.post(
+            "/api/v1/sessions/create",
+            headers=launcher_auth_headers,
+            data=json.dumps(
+                {
+                    "container_id": "test-container",
+                    "container_ip": "172.18.0.5",
+                    "mode": "private",
+                    "local_only_repos": ["../etc/passwd"],
+                }
+            ),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 400
+        data = json.loads(response.data)
+        assert "unsafe repo name" in data["message"]
+
+    def test_local_only_repos_validation_rejects_slashes(self, client, launcher_auth_headers):
+        """Rejects local_only_repos with slashes (must be bare names, not owner/repo)."""
+        response = client.post(
+            "/api/v1/sessions/create",
+            headers=launcher_auth_headers,
+            data=json.dumps(
+                {
+                    "container_id": "test-container",
+                    "container_ip": "172.18.0.5",
+                    "mode": "private",
+                    "local_only_repos": ["owner/repo"],
+                }
+            ),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 400
+        data = json.loads(response.data)
+        assert "unsafe repo name" in data["message"]
+
+
 class TestWorktreeCreateEndpointResolution:
     """Tests for worktree_create endpoint's resolve_default_branch logic."""
 
