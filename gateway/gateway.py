@@ -3220,6 +3220,7 @@ def session_create() -> tuple[Response, int] | Response:
             "container_ip": "172.18.0.3",
             "mode": "private"|"public",
             "repos": ["owner/repo1", "owner/repo2"],
+            "local_only_repos": ["repo-name"],  // optional; no GitHub remote
             "uid": 1000,
             "gid": 1000
         }
@@ -3244,6 +3245,7 @@ def session_create() -> tuple[Response, int] | Response:
     container_ip = data.get("container_ip")
     mode = data.get("mode")
     repos = data.get("repos", [])
+    local_only_repos = data.get("local_only_repos", [])
     uid = data.get("uid")
     gid = data.get("gid")
     phase = data.get("phase")  # Optional SDLC pipeline phase
@@ -3262,10 +3264,9 @@ def session_create() -> tuple[Response, int] | Response:
         return make_error("Missing container_ip")
     if mode not in ("private", "public", "local"):
         return make_error("Invalid mode: must be 'private', 'public', or 'local'")
-    # repos is required for private/public modes (visibility filtering + worktree
-    # creation) but optional for local mode (orchestrator-internal temp sessions
-    # that only need a session token for git push/fetch authentication).
-    if not repos and mode != "local":
+    # repos is required for private/public modes unless local_only_repos are provided.
+    # local mode (orchestrator-internal temp sessions) needs no repos at all.
+    if not repos and not local_only_repos and mode != "local":
         return make_error("Missing repos list")
 
     # Validate uid/gid if provided
@@ -3369,6 +3370,25 @@ def session_create() -> tuple[Response, int] | Response:
                 visibility=visibility,
                 container_id=container_id,
             )
+
+    # Step 2b: Include local-only repos in private mode.
+    # These repos have no GitHub remote so GitHub visibility cannot be checked.
+    # They are always treated as private: included in private mode, excluded in public mode.
+    if local_only_repos and mode == "private":
+        for repo_name in local_only_repos:
+            filtered_repos.append(repo_name)
+            logger.info(
+                "Including local-only repo in private mode",
+                repo=repo_name,
+                container_id=container_id,
+            )
+    elif local_only_repos and mode != "private":
+        logger.debug(
+            "Excluding local-only repos in non-private mode",
+            repos=local_only_repos,
+            mode=mode,
+            container_id=container_id,
+        )
 
     # Step 3: Create worktrees for filtered repos
     worktrees = {}
