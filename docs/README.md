@@ -21,7 +21,6 @@ For contributors and developers.
 Architecture Decision Records.
 
 - **[ADR Index](adr/README.md)** - All decisions and their status
-- **[Autonomous Software Engineer](adr/in-progress/ADR-Autonomous-Software-Engineer.md)** - Main system architecture
 
 ## Component READMEs
 
@@ -41,5 +40,4 @@ Each component directory contains its own README with detailed documentation:
 
 **Understanding the System:**
 1. [Architecture Overview](architecture/README.md) - Component design
-2. [ADR: Autonomous SE](adr/in-progress/ADR-Autonomous-Software-Engineer.md) - Full architecture
-3. [Project Structure](development/STRUCTURE.md) - Code organization
+2. [Project Structure](development/STRUCTURE.md) - Code organization

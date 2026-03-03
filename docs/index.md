@@ -11,7 +11,6 @@ This index helps both humans and LLMs navigate the documentation efficiently.
 | Document | Description |
 |----------|-------------|
 | [ADR Overview](adr/README.md) | Index of all ADRs and their status |
-| [Autonomous Software Engineer](adr/in-progress/ADR-Autonomous-Software-Engineer.md) | Core system architecture, security model, and design decisions |
 | [Context Sync Strategy](adr/implemented/ADR-Context-Sync-Strategy-Custom-vs-MCP.md) | How external data (Confluence, JIRA, GitHub) is synced |
 | [Git Isolation Architecture](adr/implemented/ADR-Git-Isolation-Architecture.md) | Gateway sidecar design for credential isolation |
 | [Gateway Credential Injection](adr/implemented/ADR-Gateway-Credential-Injection.md) | Zero-credential sandbox design |
@@ -19,7 +18,6 @@ This index helps both humans and LLMs navigate the documentation efficiently.
 | [Declarative Setup Architecture](adr/implemented/ADR-Declarative-Setup-Architecture.md) | Python-based declarative setup |
 | [Standardized Logging Interface](adr/implemented/ADR-Standardized-Logging-Interface.md) | Structured JSON logging |
 | [Internet Tool Access Lockdown](adr/in-progress/ADR-Internet-Tool-Access-Lockdown.md) | Public/private network modes |
-| [GitHub Actions Support](adr/in-progress/ADR-GitHub-Actions-Support.md) | Running egg as a GitHub Action |
 | [SDLC Pipeline](adr/implemented/ADR-SDLC-Pipeline.md) | Structurally enforced agent checkpoints and verification gates |
 
 ### Strategy
@@ -92,15 +90,15 @@ Each major component has detailed documentation:
 | Task Type | Read First | Also Helpful |
 |-----------|------------|--------------|
 | **Gateway changes** | [Architecture Overview](architecture/README.md) | [ADR: Git Isolation](adr/implemented/ADR-Git-Isolation-Architecture.md), [Gateway README](../gateway/README.md) |
-| **Security-related changes** | [ADR: Autonomous SE](adr/in-progress/ADR-Autonomous-Software-Engineer.md) | [Git Isolation](adr/implemented/ADR-Git-Isolation-Architecture.md) |
+| **Security-related changes** | [Architecture Overview](architecture/README.md) | [Git Isolation](adr/implemented/ADR-Git-Isolation-Architecture.md) |
 | **Sandbox changes** | [Sandbox README](../sandbox/README.md) | [Architecture Overview](architecture/README.md) |
 | **Configuration changes** | [Config README](../config/README.md) | [egg_config README](../shared/egg_config/README.md) |
 | **Docker build / dependency caching** | [Sandbox README](../sandbox/README.md#build-time-dependency-installation) | [Config README](../config/README.md#per-repo-build-commands-dependency-caching) |
-| **GitHub Action setup** | [ADR: GitHub Actions](adr/in-progress/ADR-GitHub-Actions-Support.md) | [Architecture Overview](architecture/README.md) |
+| **GitHub Action setup** | [GitHub Action README](../action/README.md) | [Architecture Overview](architecture/README.md) |
 | **Adding tests** | [Contributing](../CONTRIBUTING.md) | [Project Structure](development/STRUCTURE.md) |
 | **Setting up GitHub automation** | [GitHub Automation](guides/github-automation.md) | [Agent-Mode Design](guides/agent-mode-design.md), [GitHub Action](../action/README.md) |
 | **Using workflows in external repos** | [Reusable Workflows](guides/reusable-workflows.md) | [GitHub Automation](guides/github-automation.md), [GitHub Action](../action/README.md) |
-| **Designing agent workflows** | [Agent-Mode Design](guides/agent-mode-design.md) | [ADR: Autonomous SE](adr/in-progress/ADR-Autonomous-Software-Engineer.md) |
+| **Designing agent workflows** | [Agent-Mode Design](guides/agent-mode-design.md) | [Architecture Overview](architecture/README.md) |
 | **Adding bot workflows** | [Agent-Mode Design](guides/agent-mode-design.md) | [Action README](../action/README.md), existing workflows in `.github/workflows/` |
 | **SDLC pipeline changes** | [SDLC Pipeline Guide](guides/sdlc-pipeline.md) | [The Agentic Feedback Loop](agentic-feedback-loop.md), [ADR: SDLC Pipeline](adr/implemented/ADR-SDLC-Pipeline.md), [Plan Template](templates/plan.md), [Analysis Template](templates/analysis.md), `orchestrator/` package |
 | **Health check framework** | [Health Checks README](../orchestrator/health_checks/README.md) | [Orchestrator Architecture](architecture/orchestrator.md), [Orchestrator README](../orchestrator/README.md) |
@@ -114,8 +112,7 @@ Each major component has detailed documentation:
 
 **Understanding the System:**
 1. [Architecture Overview](architecture/README.md) - Component design
-2. [ADR: Autonomous SE](adr/in-progress/ADR-Autonomous-Software-Engineer.md) - Full architecture
-3. [Project Structure](development/STRUCTURE.md) - Code organization
+2. [Project Structure](development/STRUCTURE.md) - Code organization
 
 ---
 

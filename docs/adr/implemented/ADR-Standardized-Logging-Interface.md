@@ -777,7 +777,7 @@ GCP-specific functionality (Cloud Logging output handler, log router configurati
 | ADR | Relationship |
 |-----|---------------|
 | [ADR-Internet-Tool-Access-Lockdown](../in-progress/ADR-Internet-Tool-Access-Lockdown.md) | Tool wrappers complement gateway audit logging |
-| [ADR-Autonomous-Software-Engineer](../in-progress/ADR-Autonomous-Software-Engineer.md) | Parent ADR defining debugging and observability needs |
+| [Architecture Overview](../../architecture/README.md) | Defines debugging and observability needs |
 
 ---
 
