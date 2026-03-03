@@ -564,9 +564,6 @@ def setup() -> bool:
     info("Creating directories...")
     Config.USER_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     Config.CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-    # Create shared certs directory for gateway SSL
-    shared_certs_dir = Path.home() / ".egg-shared-certs"
-    shared_certs_dir.mkdir(parents=True, exist_ok=True)
     success("Directories created")
 
     # Step 2: Configure secrets (API keys, GitHub App)

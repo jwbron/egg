@@ -250,8 +250,9 @@ class TestCreateGeneralConfig:
 class TestAddStandardMounts:
     """Tests for add_standard_mounts."""
 
-    def test_adds_certs_volume_mount(self):
+    def test_adds_certs_volume_mount(self, monkeypatch):
         """Always mounts the egg-certs Docker named volume."""
+        monkeypatch.delenv("COMPOSE_PROJECT_NAME", raising=False)
         mount_args = []
         add_standard_mounts(mount_args)
         assert "-v" in mount_args
@@ -264,8 +265,9 @@ class TestAddStandardMounts:
         add_standard_mounts(mount_args)
         assert any("myproject-certs:/shared/certs:ro" in a for a in mount_args)
 
-    def test_quiet_mode(self, capsys):
+    def test_quiet_mode(self, monkeypatch, capsys):
         """Quiet mode suppresses output."""
+        monkeypatch.delenv("COMPOSE_PROJECT_NAME", raising=False)
         mount_args = []
         add_standard_mounts(mount_args, quiet=True)
         captured = capsys.readouterr()
