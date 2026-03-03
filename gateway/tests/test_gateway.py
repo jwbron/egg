@@ -3541,10 +3541,8 @@ class TestSessionCreateLocalOnlyRepos:
             # Verify worktree was created for the local-only repo
             mock_worktree.return_value.create_worktree.assert_called_once()
             call_kwargs = mock_worktree.return_value.create_worktree.call_args
-            assert (
-                call_kwargs.kwargs.get("repo_name")
-                or call_kwargs[1].get("repo_name") == "my-local-repo"
-            )
+            repo_name_kwarg = call_kwargs.kwargs.get("repo_name") or call_kwargs[1].get("repo_name")
+            assert repo_name_kwarg == "my-local-repo"
 
     def test_local_only_repos_excluded_in_public_mode(
         self, client, launcher_auth_headers, tmp_path
