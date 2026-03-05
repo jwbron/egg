@@ -457,6 +457,7 @@ def create_session(
     container_ip: str,
     mode: str,
     repos: list[str],
+    local_only_repos: list[str] | None = None,
     uid: int | None = None,
     gid: int | None = None,
     phase: str | None = None,
@@ -477,7 +478,8 @@ def create_session(
         container_id: Docker container ID
         container_ip: Container's IP address on the Docker network
         mode: Repository visibility mode ("private" or "public")
-        repos: List of repository names (or owner/repo format)
+        repos: List of repository names in owner/repo format (GitHub visibility checked)
+        local_only_repos: Repo names with no GitHub remote; mounted in private mode only
         uid: User ID to set worktree ownership to
         gid: Group ID to set worktree ownership to
         phase: SDLC pipeline phase (e.g., "refine", "plan", "implement", "pr")
@@ -499,6 +501,8 @@ def create_session(
         "mode": mode,
         "repos": repos,
     }
+    if local_only_repos:
+        request_data["local_only_repos"] = local_only_repos
     if uid is not None:
         request_data["uid"] = uid
     if gid is not None:

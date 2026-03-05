@@ -3220,6 +3220,7 @@ def session_create() -> tuple[Response, int] | Response:
             "container_ip": "172.18.0.3",
             "mode": "private"|"public",
             "repos": ["owner/repo1", "owner/repo2"],
+            "local_only_repos": ["repo-name"],  // optional; no GitHub remote
             "uid": 1000,
             "gid": 1000
         }
@@ -3244,6 +3245,7 @@ def session_create() -> tuple[Response, int] | Response:
     container_ip = data.get("container_ip")
     mode = data.get("mode")
     repos = data.get("repos", [])
+    local_only_repos = data.get("local_only_repos", [])
     uid = data.get("uid")
     gid = data.get("gid")
     phase = data.get("phase")  # Optional SDLC pipeline phase
@@ -3262,10 +3264,9 @@ def session_create() -> tuple[Response, int] | Response:
         return make_error("Missing container_ip")
     if mode not in ("private", "public", "local"):
         return make_error("Invalid mode: must be 'private', 'public', or 'local'")
-    # repos is required for private/public modes (visibility filtering + worktree
-    # creation) but optional for local mode (orchestrator-internal temp sessions
-    # that only need a session token for git push/fetch authentication).
-    if not repos and mode != "local":
+    # repos is required for private/public modes unless local_only_repos are provided.
+    # local mode (orchestrator-internal temp sessions) needs no repos at all.
+    if not repos and not local_only_repos and mode != "local":
         return make_error("Missing repos list")
 
     # Validate uid/gid if provided
@@ -3318,6 +3319,20 @@ def session_create() -> tuple[Response, int] | Response:
         if len(branch) > 256:
             return make_error("Invalid branch: must be 256 characters or fewer")
 
+    # Validate local_only_repos if provided
+    if local_only_repos:
+        if not isinstance(local_only_repos, list):
+            return make_error("Invalid local_only_repos: must be a list")
+        if len(local_only_repos) > 50:
+            return make_error("Invalid local_only_repos: too many entries")
+        for repo_name in local_only_repos:
+            if not isinstance(repo_name, str):
+                return make_error("Invalid local_only_repos: all items must be strings")
+            if not repo_name or len(repo_name) > 256:
+                return make_error("Invalid local_only_repos: repo name must be 1-256 chars")
+            if ".." in repo_name or "/" in repo_name:
+                return make_error(f"Invalid local_only_repos: unsafe repo name '{repo_name}'")
+
     # Step 1: Query visibility for all repos
     repo_visibilities = {}
     for repo in repos:
@@ -3369,6 +3384,25 @@ def session_create() -> tuple[Response, int] | Response:
                 visibility=visibility,
                 container_id=container_id,
             )
+
+    # Step 2b: Include local-only repos in private mode.
+    # These repos have no GitHub remote so GitHub visibility cannot be checked.
+    # They are always treated as private: included in private mode, excluded in public mode.
+    if local_only_repos and mode == "private":
+        for repo_name in local_only_repos:
+            filtered_repos.append(repo_name)
+            logger.info(
+                "Including local-only repo in private mode",
+                repo=repo_name,
+                container_id=container_id,
+            )
+    elif local_only_repos and mode != "private":
+        logger.debug(
+            "Excluding local-only repos in public/local mode",
+            repos=local_only_repos,
+            mode=mode,
+            container_id=container_id,
+        )
 
     # Step 3: Create worktrees for filtered repos
     worktrees = {}
@@ -3452,6 +3486,11 @@ def session_create() -> tuple[Response, int] | Response:
     if first_worktree_path is not None:
         _session.last_repo_path = first_worktree_path
     if first_repo is not None:
+        # Note: for local-only repos, first_repo is a bare name (e.g. "my-repo")
+        # rather than "owner/repo" format. get_checkpoint_repo() won't match it
+        # in repo_settings, so checkpoint_repo will be None. This is acceptable:
+        # local-only repos have no GitHub remote and aren't expected to produce
+        # checkpoints.
         _session.checkpoint_repo = get_checkpoint_repo(first_repo)
 
     # Lock pipeline sessions to their assigned worktree branch

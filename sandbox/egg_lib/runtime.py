@@ -338,23 +338,24 @@ def _setup_session_repos(
             info("No local repositories configured.")
         return None, repos, []
 
-    # Convert local repos to owner/repo format for visibility checking
+    # Convert local repos to owner/repo format for visibility checking.
+    # Repos with no GitHub remote are collected separately as local-only repos;
+    # they skip the GitHub visibility check and are mounted directly in private mode.
     repo_list = []
+    local_only_repo_names = []
     for repo_path in local_repos:
         if repo_path.is_dir():
-            # Get owner/repo from git remote URL
             owner_repo = _get_repo_owner_name(repo_path)
             if owner_repo:
                 repo_list.append(owner_repo)
             else:
-                # Fallback to just repo name (visibility check will skip it)
+                local_only_repo_names.append(repo_path.name)
                 if not quiet:
-                    warn(
-                        f"Could not determine owner for {repo_path.name}, skipping visibility check"
+                    info(
+                        f"  {repo_path.name}: no GitHub remote, treating as local-only (private mode only)"
                     )
-                repo_list.append(repo_path.name)
 
-    if not repo_list:
+    if not repo_list and not local_only_repo_names:
         return None, repos, []
 
     # Create session with atomic visibility filtering
@@ -363,6 +364,7 @@ def _setup_session_repos(
         container_ip=container_ip,
         mode=mode,
         repos=repo_list,
+        local_only_repos=local_only_repo_names,
         uid=os.getuid(),
         gid=os.getgid(),
         phase=phase,
