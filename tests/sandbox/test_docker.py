@@ -817,8 +817,8 @@ class TestCopyRepoWatchFiles:
         assert manifest["extra_packages"]["apt"] == ["libssl-dev", "curl", "wget"]
         assert manifest["extra_packages"]["dnf"] == ["openssl-devel", "curl", "wget"]
 
-    def test_no_manifest_when_no_build_commands(self, tmp_path):
-        """No manifest.json when no repos have build_commands."""
+    def test_no_manifest_when_no_build_commands_or_extra_packages(self, tmp_path):
+        """No manifest.json when no repos have build_commands or extra_packages."""
         from egg_lib.docker import _copy_repo_watch_files
 
         config = {"repo_settings": {"org/app": {"checks": []}}}
