@@ -166,13 +166,14 @@ Each `build_commands` entry has:
 **How it works:**
 1. `create_dockerfile()` copies each repo's watch files from `local_repos.paths` into the build context at `~/.config/egg/repo-deps/<repo-name>/`
 2. `compute_build_hash()` includes watch file contents, so the image rebuilds automatically when dependency files change
-3. During `docker build`, the `docker-setup.py` script reads `build_commands` from all repos and executes them in order
+3. During `docker build`, the `docker-setup.py` script reads both `build_commands` and `extra_packages` from a `manifest.json` file (falling back to `repositories.yaml` if available) and executes them in order
 4. All repos' dependencies are installed into the **same image** — no per-repo images
 
 **Key properties:**
 - Repos without `build_commands` are unaffected (backwards compatible)
 - Docker layer caching means no rebuild when dependencies are unchanged
 - The existing `docker_setup.extra_packages` (apt/dnf) remains for OS-level packages; `build_commands` is for project-level dependencies
+- Both `build_commands` and `extra_packages` are included in `manifest.json` for the Docker build context
 
 ### Checkpoint Repository Configuration
 
