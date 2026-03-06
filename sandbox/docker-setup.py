@@ -200,6 +200,10 @@ def load_build_commands_manifest(
     Instead, the host-side create_dockerfile() writes a manifest.json into repo-deps/
     containing the build commands. This function reads that manifest.
 
+    Supports two manifest formats:
+    - New: {"extra_packages": {...}, "build_commands": [...]}
+    - Old (legacy list): [{"repo": ..., "commands": [...], ...}]
+
     Args:
         manifest_path: Path to the manifest file (default: /tmp/repo-deps/manifest.json)
 
@@ -212,11 +216,16 @@ def load_build_commands_manifest(
     try:
         with path.open() as f:
             data = json.load(f)
-        if not isinstance(data, list):
+        # New dict format: {"extra_packages": {...}, "build_commands": [...]}
+        if isinstance(data, dict):
+            raw_list = data.get("build_commands", [])
+        elif isinstance(data, list):
+            raw_list = data
+        else:
             return []
         # Validate each entry has required fields
         result = []
-        for entry in data:
+        for entry in raw_list:
             if not isinstance(entry, dict):
                 continue
             if "repo" not in entry or "commands" not in entry:
@@ -228,6 +237,36 @@ def load_build_commands_manifest(
         return result
     except (json.JSONDecodeError, OSError):
         return []
+
+
+def load_extra_packages_manifest(
+    manifest_path: str = "/tmp/repo-deps/manifest.json",
+) -> tuple[list[str], list[str]]:
+    """Load extra_packages from the manifest file written by create_dockerfile().
+
+    Returns:
+        Tuple of (apt_packages, dnf_packages). Empty lists if not found.
+    """
+    path = Path(manifest_path)
+    if not path.exists():
+        return [], []
+    try:
+        with path.open() as f:
+            data = json.load(f)
+        if not isinstance(data, dict):
+            return [], []
+        extra = data.get("extra_packages", {})
+        if not isinstance(extra, dict):
+            return [], []
+        apt = extra.get("apt", [])
+        dnf = extra.get("dnf", [])
+        if not isinstance(apt, list):
+            apt = []
+        if not isinstance(dnf, list):
+            dnf = []
+        return [str(p) for p in apt], [str(p) for p in dnf]
+    except (json.JSONDecodeError, OSError):
+        return [], []
 
 
 def run_build_commands(build_commands: list[dict[str, Any]]) -> None:
@@ -321,6 +360,11 @@ def main() -> None:
         # Load config for extra packages
         config = load_config()
         apt_packages, dnf_packages = get_extra_packages(config, distro)
+
+        # Fall back to manifest.json for extra_packages when repositories.yaml
+        # is not available (e.g., during Docker builds)
+        if not apt_packages and not dnf_packages:
+            apt_packages, dnf_packages = load_extra_packages_manifest()
 
         # Install core packages
         install_core_packages(distro)

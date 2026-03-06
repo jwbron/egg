@@ -3349,23 +3349,21 @@ def session_create() -> tuple[Response, int] | Response:
             )
 
     # Step 2: Filter repos based on mode
-    # private mode: mount repos with any known visibility (private, internal, public).
+    # private mode: include repos with known visibility (private, internal, public).
     #   Write access is controlled separately by push policy (only private/internal
     #   repos are writable). The network is locked down — mounting a public repo
     #   in private mode doesn't grant broader internet access.
-    #   Repos with unknown visibility are excluded (likely inaccessible).
+    #   Repos with unknown visibility (None) are excluded (fail-closed).
     # public mode: keep only public repos (don't mount private repos on open network)
     filtered_repos = []
     for repo, visibility in repo_visibilities.items():
         if mode == "private":
-            # Private mode: include all repos with known visibility — network
-            # is locked down anyway.  Push policy enforces write restrictions
-            # to private/internal repos.
+            # Private mode: include repos with known visibility — network is
+            # locked down anyway so mounting a public repo is safe.
+            # Push policy enforces write restrictions to private/internal repos.
             if visibility is None:
-                # Unknown visibility likely means the API couldn't access the
-                # repo (non-existent, token lacks access, API error).  Exclude
-                # to avoid worktree creation failures for repos that don't
-                # have a local clone.
+                # Unknown visibility — repo may not exist or API unreachable.
+                # Fail closed: don't attempt to mount a repo we can't verify.
                 logger.warning(
                     "Unknown visibility for repo, excluding in private mode",
                     repo=repo,
@@ -3373,7 +3371,7 @@ def session_create() -> tuple[Response, int] | Response:
                 )
                 continue
             elif visibility not in ("private", "internal"):
-                logger.debug(
+                logger.info(
                     "Including public repo in private mode (network locked down)",
                     repo=repo,
                     visibility=visibility,

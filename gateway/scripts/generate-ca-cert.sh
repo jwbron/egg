@@ -7,9 +7,17 @@
 # Note: Anthropic API traffic bypasses Squid entirely (uses ANTHROPIC_BASE_URL).
 #
 # Security notes:
-# - CA key never leaves gateway container
+# - CA key never leaves gateway container (container-local, ephemeral storage)
 # - Certificate is regenerated at gateway startup (not periodically while running)
 # - Key permissions: 0600, owned by proxy user
+# - 10-year validity is acceptable because:
+#   1. The key exists only inside the gateway container's ephemeral filesystem
+#   2. The CA is only used for Squid SSL termination of blocked (non-allowlisted) domains
+#   3. No external system trusts this CA — only the sandbox container trusts it
+#   4. Container restarts regenerate the cert (new key), so the long validity is a
+#      ceiling, not the actual lifetime
+#   5. If the container is compromised, the attacker already has full gateway access,
+#      making the CA cert irrelevant to the threat model
 
 set -euo pipefail
 

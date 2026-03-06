@@ -360,9 +360,10 @@ def _copy_repo_watch_files(quiet: bool = False) -> None:
             if not quiet:
                 info(f"Copied watch files for {repo_name}")
 
-    # Write a manifest.json with build commands so docker-setup.py can read it
-    # during the Docker build (repositories.yaml is not available in the build context)
-    manifest = []
+    # Write a manifest.json so docker-setup.py can read it during the Docker build.
+    # (repositories.yaml is not available in the build context)
+    # Format: {"extra_packages": {"apt": [...], "dnf": [...]}, "build_commands": [...]}
+    build_commands_list = []
     for repo_name, settings in repo_settings.items():
         if not isinstance(settings, dict):
             continue
@@ -375,7 +376,7 @@ def _copy_repo_watch_files(quiet: bool = False) -> None:
         watch_files = build_cmds.get("watch_files", [])
         if not isinstance(watch_files, list):
             watch_files = []
-        manifest.append(
+        build_commands_list.append(
             {
                 "repo": repo_name,
                 "watch_files": [str(f) for f in watch_files],
@@ -383,13 +384,40 @@ def _copy_repo_watch_files(quiet: bool = False) -> None:
             }
         )
 
-    if manifest:
+    # Also include extra_packages so they're installed during the Docker build
+    docker_setup_cfg = config.get("docker_setup", {})
+    extra_pkgs = (
+        docker_setup_cfg.get("extra_packages", {}) if isinstance(docker_setup_cfg, dict) else {}
+    )
+    if not isinstance(extra_pkgs, dict):
+        extra_pkgs = {}
+    apt_pkgs = extra_pkgs.get("apt", [])
+    dnf_pkgs = extra_pkgs.get("dnf", [])
+    generic_pkgs = extra_pkgs.get("packages", [])
+    if not isinstance(apt_pkgs, list):
+        apt_pkgs = []
+    if not isinstance(dnf_pkgs, list):
+        dnf_pkgs = []
+    if not isinstance(generic_pkgs, list):
+        generic_pkgs = []
+    apt_pkgs = [str(p) for p in apt_pkgs + generic_pkgs]
+    dnf_pkgs = [str(p) for p in dnf_pkgs + generic_pkgs]
+
+    manifest_data: dict[str, Any] = {
+        "extra_packages": {"apt": apt_pkgs, "dnf": dnf_pkgs},
+        "build_commands": build_commands_list,
+    }
+
+    if build_commands_list or apt_pkgs or dnf_pkgs:
         repo_deps_dir.mkdir(parents=True, exist_ok=True)
         manifest_path = repo_deps_dir / "manifest.json"
         with manifest_path.open("w") as f:
-            json.dump(manifest, f, indent=2)
+            json.dump(manifest_data, f, indent=2)
         if not quiet:
-            info(f"Wrote build commands manifest ({len(manifest)} repos)")
+            info(
+                f"Wrote build manifest ({len(build_commands_list)} repos, "
+                f"{len(apt_pkgs)} apt pkgs, {len(dnf_pkgs)} dnf pkgs)"
+            )
         has_any = True
 
     if not has_any:
