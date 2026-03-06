@@ -362,7 +362,7 @@ class PolicyEngine:
         self._pr_cache[cache_key] = cached_info
         return cached_info
 
-    def _get_prs_for_branch(self, repo: str, branch: str) -> list[int]:
+    def _get_prs_for_branch(self, repo: str, branch: str, mode: str = "bot") -> list[int]:
         """Get open PR numbers for a branch, using cache if available."""
         cache_key = (repo, branch)
 
@@ -374,7 +374,7 @@ class PolicyEngine:
                 return list(pr_numbers)
 
         # Fetch from GitHub
-        prs = self.github.list_prs_for_branch(repo, branch, state="open")
+        prs = self.github.list_prs_for_branch(repo, branch, state="open", mode=mode)
         pr_numbers = [pr.get("number") for pr in prs if pr.get("number")]
         self._branch_pr_cache[cache_key] = (pr_numbers, datetime.now(UTC).timestamp())
 
@@ -615,7 +615,7 @@ class PolicyEngine:
                 )
 
             # Branch exists - check for open PR by egg or configured user
-            pr_numbers = self._get_prs_for_branch(repo, branch)
+            pr_numbers = self._get_prs_for_branch(repo, branch, mode=auth_mode)
             for pr_number in pr_numbers:
                 pr_info = self._get_pr_info(repo, pr_number)
                 if not pr_info:

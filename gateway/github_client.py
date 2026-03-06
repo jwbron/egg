@@ -921,7 +921,7 @@ class GitHubClient:
             return None
 
     def list_prs_for_branch(
-        self, repo: str, branch: str, state: str = "open"
+        self, repo: str, branch: str, state: str = "open", mode: str = "bot"
     ) -> list[dict[str, Any]]:
         """
         List PRs for a specific head branch.
@@ -930,6 +930,7 @@ class GitHubClient:
             repo: Repository in "owner/repo" format
             branch: Head branch name
             state: PR state filter (open, closed, all)
+            mode: Auth mode - "bot" or "user" (use user mode for private repos)
 
         Returns:
             List of PR info dicts
@@ -946,7 +947,8 @@ class GitHubClient:
                 state,
                 "--json",
                 "number,title,author,state,headRefName",
-            ]
+            ],
+            mode=mode,
         )
 
         if not result.success:
