@@ -117,6 +117,10 @@ jobs:
           echo "tags=$TAGS" >> "$GITHUB_OUTPUT"
           echo "Generated tags: $TAGS"
 
+      - name: Prepare build context
+        if: matrix.component == 'sandbox'
+        run: mkdir -p repo-deps
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
