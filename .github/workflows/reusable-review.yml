@@ -236,7 +236,7 @@ jobs:
             checks=$(gh api "repos/${{ github.repository }}/commits/${HEAD_SHA}/check-runs" \
               --jq '.check_runs | [.[] | select(
                 (.name | test("egg-review /|egg-reviewer-|SDLC Pipeline|SDLC HITL") | not)
-              )] | group_by(.name) | [.[] | sort_by(.started_at) | last | {name, status, conclusion}]')
+              )] | group_by(.name) | [.[] | sort_by(.id) | last | {name, status, conclusion}]')
 
             total=$(echo "$checks" | jq 'length')
 
