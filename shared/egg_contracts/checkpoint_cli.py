@@ -140,20 +140,16 @@ def _resolve_git_repo(path: str) -> str:
     """Resolve *path* to an actual git repository root.
 
     If *path* already contains a ``.git`` entry it is returned as-is.
-    Otherwise the function checks ``cwd`` as a fallback (handles the
-    common case where ``EGG_REPO_PATH`` is the parent ``~/repos``
-    while ``cwd`` is inside an actual repo like ``~/repos/egg``).
+    Otherwise the function walks up from ``cwd`` to find the nearest
+    git root (handles the common case where ``EGG_REPO_PATH`` is the
+    parent ``~/repos`` while ``cwd`` is inside an actual repo like
+    ``~/repos/egg``).
 
     When no git root can be found, *path* is returned unchanged so
     callers always get a usable value.
     """
     if (Path(path) / ".git").exists():
         return path
-
-    # path is not a git repo — try cwd as fallback
-    cwd = str(Path.cwd())
-    if cwd != path and (Path(cwd) / ".git").exists():
-        return cwd
 
     # Walk up from cwd looking for a .git entry
     current = Path.cwd()

@@ -130,6 +130,40 @@ class TestResolveGitRepo:
         assert result == "/some/path"
 
 
+class TestGetRepoPath:
+    """Tests for get_repo_path() env var integration."""
+
+    def test_resolves_env_var_to_git_root(self, tmp_path, monkeypatch):
+        """EGG_REPO_PATH is passed through _resolve_git_repo."""
+        from egg_contracts.checkpoint_cli import get_repo_path
+
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        (repo / ".git").mkdir()
+
+        monkeypatch.setenv("EGG_REPO_PATH", str(tmp_path))
+        monkeypatch.chdir(repo)
+        assert get_repo_path() == str(repo)
+
+    def test_returns_env_var_when_it_is_git_root(self, tmp_path, monkeypatch):
+        """EGG_REPO_PATH returned directly when it is a git repo."""
+        from egg_contracts.checkpoint_cli import get_repo_path
+
+        (tmp_path / ".git").mkdir()
+        monkeypatch.setenv("EGG_REPO_PATH", str(tmp_path))
+        monkeypatch.chdir(tmp_path)
+        assert get_repo_path() == str(tmp_path)
+
+    def test_defaults_to_cwd_without_env_var(self, tmp_path, monkeypatch):
+        """Falls back to cwd when EGG_REPO_PATH is not set."""
+        from egg_contracts.checkpoint_cli import get_repo_path
+
+        (tmp_path / ".git").mkdir()
+        monkeypatch.delenv("EGG_REPO_PATH", raising=False)
+        monkeypatch.chdir(tmp_path)
+        assert get_repo_path() == str(tmp_path)
+
+
 class TestCostCommand:
     """Tests for the cost subcommand."""
 
