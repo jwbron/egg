@@ -166,7 +166,7 @@ Each `build_commands` entry has:
 **How it works:**
 1. `create_dockerfile()` copies each repo's watch files from `local_repos.paths` into the build context at `~/.config/egg/repo-deps/<repo-name>/`
 2. `compute_build_hash()` includes watch file contents, so the image rebuilds automatically when dependency files change
-3. During `docker build`, the `docker-setup.py` script reads both `build_commands` and `extra_packages` from a `manifest.json` file (falling back to `repositories.yaml` if available) and executes them in order
+3. During `docker build`, the `docker-setup.py` script reads both `build_commands` and `extra_packages` from `manifest.json` (since `repositories.yaml` is unavailable in the build context) and executes them in order
 4. All repos' dependencies are installed into the **same image** — no per-repo images
 
 **Key properties:**
