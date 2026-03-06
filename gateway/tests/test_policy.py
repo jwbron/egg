@@ -833,6 +833,22 @@ class TestUserModeBranchOwnership:
 
         mock_github_client.get_pr_info.assert_called_once_with("owner/repo", 123, mode="user")
 
+    def test_check_pr_ownership_passes_mode_to_get_pr_info(self, policy_engine, mock_github_client):
+        """check_pr_ownership passes auth_mode through to _get_pr_info."""
+        mock_github_client.get_pr_info.return_value = {
+            "number": 123,
+            "author": {"login": "egg"},
+            "state": "open",
+            "headRefName": "feature",
+        }
+
+        # Clear cache so _get_pr_info must call github.get_pr_info
+        policy_engine._pr_cache.clear()
+
+        policy_engine.check_pr_ownership("owner/repo", 123, auth_mode="user")
+
+        mock_github_client.get_pr_info.assert_called_once_with("owner/repo", 123, mode="user")
+
 
 class TestBotAuthorFormats:
     """Tests for different author data formats (string vs dict)."""
@@ -1228,6 +1244,22 @@ class TestReviewerModePolicy:
 
         result = policy_engine.check_pr_review_allowed("owner/repo", 123, auth_mode="bot")
         assert result.allowed
+
+    def test_pr_review_passes_mode_to_get_pr_info(self, policy_engine, mock_github_client):
+        """check_pr_review_allowed passes auth_mode through to _get_pr_info."""
+        mock_github_client.get_pr_info.return_value = {
+            "number": 123,
+            "author": {"login": "egg"},
+            "state": "open",
+            "headRefName": "feature",
+        }
+
+        # Clear cache so _get_pr_info must call github.get_pr_info
+        policy_engine._pr_cache.clear()
+
+        policy_engine.check_pr_review_allowed("owner/repo", 123, auth_mode="reviewer")
+
+        mock_github_client.get_pr_info.assert_called_once_with("owner/repo", 123, mode="reviewer")
 
     def test_pr_review_denied_pr_not_found(self, policy_engine, mock_github_client):
         """PR review is denied if PR not found."""
