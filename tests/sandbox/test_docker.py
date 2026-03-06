@@ -698,10 +698,12 @@ class TestCopyRepoWatchFiles:
         manifest_path = build_dir / "repo-deps" / "manifest.json"
         assert manifest_path.exists()
         manifest = json.loads(manifest_path.read_text())
-        assert len(manifest) == 1
-        assert manifest[0]["repo"] == "org/web-app"
-        assert manifest[0]["commands"] == ["npm ci"]
-        assert manifest[0]["watch_files"] == ["package-lock.json"]
+        build_commands = manifest["build_commands"]
+        assert len(build_commands) == 1
+        assert build_commands[0]["repo"] == "org/web-app"
+        assert build_commands[0]["commands"] == ["npm ci"]
+        assert build_commands[0]["watch_files"] == ["package-lock.json"]
+        assert manifest["extra_packages"] == {"apt": [], "dnf": []}
 
     def test_manifest_includes_multiple_repos(self, tmp_path):
         """Manifest includes all repos with build_commands."""
@@ -745,8 +747,9 @@ class TestCopyRepoWatchFiles:
         manifest_path = build_dir / "repo-deps" / "manifest.json"
         assert manifest_path.exists()
         manifest = json.loads(manifest_path.read_text())
-        assert len(manifest) == 2
-        repos = [m["repo"] for m in manifest]
+        build_commands = manifest["build_commands"]
+        assert len(build_commands) == 2
+        repos = [m["repo"] for m in build_commands]
         assert "org/app-a" in repos
         assert "org/app-b" in repos
 
@@ -1089,9 +1092,10 @@ class TestCopyRepoWatchFilesEdgeCases:
         manifest_path = build_dir / "repo-deps" / "manifest.json"
         assert manifest_path.exists()
         manifest = json.loads(manifest_path.read_text())
-        assert len(manifest) == 1
-        assert manifest[0]["repo"] == "org/unknown-repo"
-        assert manifest[0]["commands"] == ["pip install -r req.txt"]
+        build_commands = manifest["build_commands"]
+        assert len(build_commands) == 1
+        assert build_commands[0]["repo"] == "org/unknown-repo"
+        assert build_commands[0]["commands"] == ["pip install -r req.txt"]
         # .empty should NOT exist since manifest was written
         assert not (build_dir / "repo-deps" / ".empty").exists()
 
@@ -1173,8 +1177,9 @@ class TestCopyRepoWatchFilesEdgeCases:
         manifest_path = build_dir / "repo-deps" / "manifest.json"
         assert manifest_path.exists()
         manifest = json.loads(manifest_path.read_text())
-        assert len(manifest) == 1
-        assert manifest[0]["commands"] == ["npm ci"]
+        build_commands = manifest["build_commands"]
+        assert len(build_commands) == 1
+        assert build_commands[0]["commands"] == ["npm ci"]
 
 
 class TestHashBuildCommandWatchFilesEdgeCases:
