@@ -87,6 +87,49 @@ def _make_checkpoint(
     )
 
 
+class TestResolveGitRepo:
+    """Tests for _resolve_git_repo() git root resolution."""
+
+    def test_returns_path_when_dotgit_exists(self, tmp_path):
+        """Returns the path directly when .git exists."""
+        from egg_contracts.checkpoint_cli import _resolve_git_repo
+
+        (tmp_path / ".git").mkdir()
+        assert _resolve_git_repo(str(tmp_path)) == str(tmp_path)
+
+    def test_falls_back_to_cwd_when_path_is_not_repo(self, tmp_path, monkeypatch):
+        """Falls back to cwd when path has no .git."""
+        from egg_contracts.checkpoint_cli import _resolve_git_repo
+
+        parent = tmp_path / "parent"
+        parent.mkdir()
+        repo = tmp_path / "parent" / "repo"
+        repo.mkdir()
+        (repo / ".git").mkdir()
+
+        monkeypatch.chdir(repo)
+        assert _resolve_git_repo(str(parent)) == str(repo)
+
+    def test_walks_up_from_cwd(self, tmp_path, monkeypatch):
+        """Walks up from cwd to find a git root."""
+        from egg_contracts.checkpoint_cli import _resolve_git_repo
+
+        (tmp_path / ".git").mkdir()
+        subdir = tmp_path / "a" / "b"
+        subdir.mkdir(parents=True)
+
+        monkeypatch.chdir(subdir)
+        assert _resolve_git_repo("/nonexistent") == str(tmp_path)
+
+    def test_returns_original_path_when_no_git_found(self, tmp_path, monkeypatch):
+        """Returns original path when no .git can be found anywhere."""
+        from egg_contracts.checkpoint_cli import _resolve_git_repo
+
+        monkeypatch.chdir(tmp_path)
+        result = _resolve_git_repo("/some/path")
+        assert result == "/some/path"
+
+
 class TestCostCommand:
     """Tests for the cost subcommand."""
 
