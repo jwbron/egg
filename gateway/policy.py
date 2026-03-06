@@ -336,9 +336,9 @@ class PolicyEngine:
             login = author
         return login.lower() == configured_user.lower()
 
-    def _get_pr_info(self, repo: str, pr_number: int) -> CachedPRInfo | None:
+    def _get_pr_info(self, repo: str, pr_number: int, mode: str = "bot") -> CachedPRInfo | None:
         """Get PR info, using cache if available and fresh."""
-        cache_key = (repo, pr_number)
+        cache_key = (repo, pr_number, mode)
 
         # Check cache
         cached: CachedPRInfo | None = self._pr_cache.get(cache_key)
@@ -346,7 +346,7 @@ class PolicyEngine:
             return cached
 
         # Fetch from GitHub
-        pr_data = self.github.get_pr_info(repo, pr_number)
+        pr_data = self.github.get_pr_info(repo, pr_number, mode=mode)
         if not pr_data:
             return None
 
@@ -364,7 +364,7 @@ class PolicyEngine:
 
     def _get_prs_for_branch(self, repo: str, branch: str, mode: str = "bot") -> list[int]:
         """Get open PR numbers for a branch, using cache if available."""
-        cache_key = (repo, branch)
+        cache_key = (repo, branch, mode)
 
         # Check cache (2 minute TTL for branch->PR mapping)
         cached = self._branch_pr_cache.get(cache_key)
@@ -383,7 +383,7 @@ class PolicyEngine:
             pr_number = pr.get("number")
             if pr_number:
                 author = pr.get("author", {})
-                self._pr_cache[(repo, pr_number)] = CachedPRInfo(
+                self._pr_cache[(repo, pr_number, mode)] = CachedPRInfo(
                     pr_number=pr_number,
                     author=author.get("login", "") if isinstance(author, dict) else str(author),
                     state=pr.get("state", ""),
@@ -617,7 +617,7 @@ class PolicyEngine:
             # Branch exists - check for open PR by egg or configured user
             pr_numbers = self._get_prs_for_branch(repo, branch, mode=auth_mode)
             for pr_number in pr_numbers:
-                pr_info = self._get_pr_info(repo, pr_number)
+                pr_info = self._get_pr_info(repo, pr_number, mode=auth_mode)
                 if not pr_info:
                     continue
 
