@@ -750,8 +750,8 @@ def git_push() -> tuple[Response, int] | Response:
                 },
             )
 
-    # Apply session file exceptions — files approved via HITL bypass agent-role
-    # and per-task restrictions (but NOT protected-file restrictions above).
+    # Apply session file exceptions — files approved via HITL bypass agent-role,
+    # per-task, and phase restrictions (but NOT protected-file restrictions above).
     if hasattr(g, "session") and g.session and changed_files:
         file_exceptions = set(getattr(g.session, "file_exceptions", None) or [])
         if file_exceptions:
