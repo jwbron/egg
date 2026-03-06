@@ -136,9 +136,41 @@ def _validate_checkpoint_repo(checkpoint_repo: str) -> str:
     return checkpoint_repo
 
 
+def _resolve_git_repo(path: str) -> str:
+    """Resolve *path* to an actual git repository root.
+
+    If *path* already contains a ``.git`` entry it is returned as-is.
+    Otherwise the function walks up from ``cwd`` to find the nearest
+    git root (handles the common case where ``EGG_REPO_PATH`` is the
+    parent ``~/repos`` while ``cwd`` is inside an actual repo like
+    ``~/repos/egg``).
+
+    When no git root can be found, *path* is returned unchanged so
+    callers always get a usable value.
+    """
+    if (Path(path) / ".git").exists():
+        return path
+
+    # Walk up from cwd looking for a .git entry
+    current = Path.cwd()
+    while current != current.parent:
+        if (current / ".git").exists():
+            return str(current)
+        current = current.parent
+
+    return path
+
+
 def get_repo_path() -> str:
-    """Get the repository path from environment or default."""
-    return os.environ.get("EGG_REPO_PATH", str(Path.cwd()))
+    """Get the repository path from environment or default.
+
+    Resolves to the git toplevel directory when possible.  This handles
+    the common sandbox case where ``EGG_REPO_PATH`` points to a parent
+    directory (e.g. ``~/repos``) that contains one or more git repos
+    rather than being a git repo itself.
+    """
+    candidate = os.environ.get("EGG_REPO_PATH", str(Path.cwd()))
+    return _resolve_git_repo(candidate)
 
 
 def run_git(
