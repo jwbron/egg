@@ -3349,41 +3349,53 @@ def session_create() -> tuple[Response, int] | Response:
             )
 
     # Step 2: Filter repos based on mode
-    # private mode: keep private and internal repos
-    # public mode: keep only public repos
+    # private mode: include repos with known visibility (private, internal, public).
+    #   Write access is controlled separately by push policy (only private/internal
+    #   repos are writable). The network is locked down — mounting a public repo
+    #   in private mode doesn't grant broader internet access.
+    #   Repos with unknown visibility (None) are excluded (fail-closed).
+    # public mode: keep only public repos (don't mount private repos on open network)
     filtered_repos = []
     for repo, visibility in repo_visibilities.items():
-        if visibility is None:
-            # Unknown visibility - fail closed, don't include
-            logger.warning(
-                "Unknown visibility for repo, excluding",
-                repo=repo,
-                mode=mode,
-                container_id=container_id,
-            )
-            continue
-
         if mode == "private":
-            # Private mode: include private and internal repos only
-            if visibility in ("private", "internal"):
-                filtered_repos.append(repo)
-            else:
-                logger.debug(
-                    "Excluding public repo in private mode",
+            # Private mode: include repos with known visibility — network is
+            # locked down anyway so mounting a public repo is safe.
+            # Push policy enforces write restrictions to private/internal repos.
+            if visibility is None:
+                # Unknown visibility — repo may not exist or API unreachable.
+                # Fail closed: don't attempt to mount a repo we can't verify.
+                logger.warning(
+                    "Unknown visibility for repo, excluding in private mode",
+                    repo=repo,
+                    container_id=container_id,
+                )
+                continue
+            elif visibility not in ("private", "internal"):
+                logger.info(
+                    "Including public repo in private mode (network locked down)",
                     repo=repo,
                     visibility=visibility,
                     container_id=container_id,
                 )
-        # Public mode: include only public repos
-        elif visibility == "public":
             filtered_repos.append(repo)
         else:
-            logger.debug(
-                "Excluding non-public repo in public mode",
-                repo=repo,
-                visibility=visibility,
-                container_id=container_id,
-            )
+            # Public mode: only mount public repos
+            if visibility is None:
+                # Unknown visibility — can't confirm public, exclude
+                logger.warning(
+                    "Unknown visibility for repo, excluding in public mode",
+                    repo=repo,
+                    container_id=container_id,
+                )
+            elif visibility == "public":
+                filtered_repos.append(repo)
+            else:
+                logger.debug(
+                    "Excluding non-public repo in public mode",
+                    repo=repo,
+                    visibility=visibility,
+                    container_id=container_id,
+                )
 
     # Step 2b: Include local-only repos in private mode.
     # These repos have no GitHub remote so GitHub visibility cannot be checked.

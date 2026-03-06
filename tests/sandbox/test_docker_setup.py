@@ -31,6 +31,7 @@ load_config = docker_setup.load_config
 get_extra_packages = docker_setup.get_extra_packages
 get_build_commands = docker_setup.get_build_commands
 load_build_commands_manifest = docker_setup.load_build_commands_manifest
+load_extra_packages_manifest = docker_setup.load_extra_packages_manifest
 run_build_commands = docker_setup.run_build_commands
 
 
@@ -635,12 +636,48 @@ class TestLoadBuildCommandsManifest:
         result = load_build_commands_manifest(str(manifest_file))
         assert result == []
 
-    def test_returns_empty_for_non_list(self, tmp_path):
-        """Test empty list when manifest is not a JSON array."""
+    def test_returns_empty_for_non_list_non_dict(self, tmp_path):
+        """Test empty list when manifest root is not an array or dict."""
         import json
 
         manifest_file = tmp_path / "manifest.json"
-        manifest_file.write_text(json.dumps({"not": "a list"}))
+        manifest_file.write_text(json.dumps("just a string"))
+        result = load_build_commands_manifest(str(manifest_file))
+        assert result == []
+
+    def test_loads_new_dict_format(self, tmp_path):
+        """Test loading build_commands from new dict-format manifest."""
+        import json
+
+        manifest = {
+            "extra_packages": {"apt": ["golang-go"], "dnf": ["golang"]},
+            "build_commands": [
+                {
+                    "repo": "org/app",
+                    "watch_files": ["go.sum"],
+                    "commands": ["go mod download"],
+                }
+            ],
+        }
+        manifest_file = tmp_path / "manifest.json"
+        manifest_file.write_text(json.dumps(manifest))
+
+        result = load_build_commands_manifest(str(manifest_file))
+        assert len(result) == 1
+        assert result[0]["repo"] == "org/app"
+        assert result[0]["commands"] == ["go mod download"]
+
+    def test_new_dict_format_empty_build_commands(self, tmp_path):
+        """Test new format with only extra_packages (no build_commands) returns empty list."""
+        import json
+
+        manifest = {
+            "extra_packages": {"apt": ["golang-go"], "dnf": []},
+            "build_commands": [],
+        }
+        manifest_file = tmp_path / "manifest.json"
+        manifest_file.write_text(json.dumps(manifest))
+
         result = load_build_commands_manifest(str(manifest_file))
         assert result == []
 
@@ -681,6 +718,63 @@ class TestLoadBuildCommandsManifest:
         result = load_build_commands_manifest(str(manifest_file))
         assert len(result) == 1
         assert result[0]["repo"] == "org/app"
+
+
+class TestLoadExtraPackagesManifest:
+    """Tests for loading extra_packages from manifest.json."""
+
+    def test_loads_apt_and_dnf(self, tmp_path):
+        """Test loading apt and dnf packages from new dict-format manifest."""
+        import json
+
+        manifest = {
+            "extra_packages": {"apt": ["golang-go", "nodejs"], "dnf": ["golang", "nodejs"]},
+            "build_commands": [],
+        }
+        manifest_file = tmp_path / "manifest.json"
+        manifest_file.write_text(json.dumps(manifest))
+
+        apt, dnf = load_extra_packages_manifest(str(manifest_file))
+        assert apt == ["golang-go", "nodejs"]
+        assert dnf == ["golang", "nodejs"]
+
+    def test_returns_empty_for_missing_file(self, tmp_path):
+        """Test empty lists when manifest file doesn't exist."""
+        apt, dnf = load_extra_packages_manifest(str(tmp_path / "nonexistent.json"))
+        assert apt == []
+        assert dnf == []
+
+    def test_returns_empty_for_old_list_format(self, tmp_path):
+        """Test empty lists when manifest uses old list format (no extra_packages key)."""
+        import json
+
+        manifest = [{"repo": "org/app", "commands": ["make"], "watch_files": []}]
+        manifest_file = tmp_path / "manifest.json"
+        manifest_file.write_text(json.dumps(manifest))
+
+        apt, dnf = load_extra_packages_manifest(str(manifest_file))
+        assert apt == []
+        assert dnf == []
+
+    def test_returns_empty_for_missing_extra_packages_key(self, tmp_path):
+        """Test empty lists when dict manifest has no extra_packages."""
+        import json
+
+        manifest = {"build_commands": []}
+        manifest_file = tmp_path / "manifest.json"
+        manifest_file.write_text(json.dumps(manifest))
+
+        apt, dnf = load_extra_packages_manifest(str(manifest_file))
+        assert apt == []
+        assert dnf == []
+
+    def test_returns_empty_for_invalid_json(self, tmp_path):
+        """Test empty lists on invalid JSON."""
+        manifest_file = tmp_path / "manifest.json"
+        manifest_file.write_text("not valid json {{{")
+        apt, dnf = load_extra_packages_manifest(str(manifest_file))
+        assert apt == []
+        assert dnf == []
 
 
 class TestMain:

@@ -1359,23 +1359,26 @@ def check_gateway_health(config: Config, logger: Logger) -> bool:
                 logger.success("Gateway ready! (public mode - direct internet access)")
                 return True
 
-            # Private mode: verify proxy connectivity to Anthropic API
+            # Private mode: verify proxy (Squid) is reachable and responding.
+            # Use plain HTTP (not HTTPS) so this check doesn't depend on Squid's
+            # CA cert for SSL termination. api.anthropic.com is intentionally NOT
+            # in the Squid allowlist — actual Anthropic traffic goes via
+            # ANTHROPIC_BASE_URL directly to the gateway, bypassing Squid.
+            # Squid returns 403 for the blocked domain, proving it's reachable.
             try:
                 if proxy_url is None:
                     raise RuntimeError("proxy_url must be set in private mode")
                 proxies = {"http": proxy_url, "https": proxy_url}
                 api_response = requests.get(
-                    "https://api.anthropic.com/",
+                    "http://api.anthropic.com/",
                     proxies=proxies,
                     timeout=10,
-                    verify=True,
                 )
-                # Any HTTP response from Anthropic proves the proxy is working.
-                # The root path may return 404 (no endpoint), 401 (auth required),
-                # 403 (forbidden), or 200 - all indicate successful connectivity.
+                # 403 from Squid proves proxy is reachable (domain is blocked by design).
+                # 200/401/404 would be unexpected but also indicate connectivity.
                 if api_response.status_code in (200, 401, 403, 404):
                     logger.success(
-                        f"  Proxy connectivity verified (Anthropic returned HTTP {api_response.status_code})"
+                        f"  Proxy connectivity verified (Squid returned HTTP {api_response.status_code})"
                     )
                     logger.success("Gateway ready!")
                     return True
@@ -1445,11 +1448,12 @@ def check_gateway_health(config: Config, logger: Logger) -> bool:
         logger.error(
             "    2. Check Squid logs: docker exec egg-gateway cat /var/log/squid/cache.log"
         )
-        logger.error("    3. Test proxy from host:")
+        logger.error("    3. Test proxy from host (HTTP, not HTTPS):")
         logger.error(
-            f"       curl -x http://localhost:{GATEWAY_PROXY_PORT} https://api.anthropic.com/"
+            f"       curl -x http://localhost:{GATEWAY_PROXY_PORT} http://api.anthropic.com/"
         )
-        logger.error("    4. Verify allowed_domains.txt includes api.anthropic.com")
+        logger.error("    4. If CA cert expired, restart the gateway to regenerate it:")
+        logger.error("       docker compose restart gateway")
     return False
 
 
