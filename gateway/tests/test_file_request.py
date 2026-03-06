@@ -682,9 +682,7 @@ class TestRequestFilePathValidation:
             resp = client.post(
                 "/api/v1/sessions/request-file",
                 headers={"Authorization": "Bearer test-token"},
-                data=json.dumps(
-                    {"file_path": "../../gateway/gateway.py", "reason": "need it"}
-                ),
+                data=json.dumps({"file_path": "../../gateway/gateway.py", "reason": "need it"}),
                 content_type="application/json",
             )
             assert resp.status_code == 400
@@ -697,9 +695,7 @@ class TestRequestFilePathValidation:
             resp = client.post(
                 "/api/v1/sessions/request-file",
                 headers={"Authorization": "Bearer test-token"},
-                data=json.dumps(
-                    {"file_path": "/etc/passwd", "reason": "need it"}
-                ),
+                data=json.dumps({"file_path": "/etc/passwd", "reason": "need it"}),
                 content_type="application/json",
             )
             assert resp.status_code == 400
@@ -712,9 +708,7 @@ class TestRequestFilePathValidation:
             resp = client.post(
                 "/api/v1/sessions/request-file",
                 headers={"Authorization": "Bearer test-token"},
-                data=json.dumps(
-                    {"file_path": "a" * 600, "reason": "need it"}
-                ),
+                data=json.dumps({"file_path": "a" * 600, "reason": "need it"}),
                 content_type="application/json",
             )
             assert resp.status_code == 400
@@ -727,9 +721,7 @@ class TestRequestFilePathValidation:
             resp = client.post(
                 "/api/v1/sessions/request-file",
                 headers={"Authorization": "Bearer test-token"},
-                data=json.dumps(
-                    {"file_path": "file\x00.py", "reason": "need it"}
-                ),
+                data=json.dumps({"file_path": "file\x00.py", "reason": "need it"}),
                 content_type="application/json",
             )
             assert resp.status_code == 400
@@ -755,20 +747,23 @@ class TestRequestFilePathValidation:
                 "_orch_create_decision",
                 return_value={"id": "dec-1", "status": "pending"},
             ),
-            patch("file_request_manager.get_file_request_manager", return_value=MagicMock(
-                create_request=MagicMock(return_value=MagicMock(
-                    request_id="file-req-1",
-                    status="pending",
-                    file_path="src/main.py",
-                ))
-            )),
+            patch(
+                "file_request_manager.get_file_request_manager",
+                return_value=MagicMock(
+                    create_request=MagicMock(
+                        return_value=MagicMock(
+                            request_id="file-req-1",
+                            status="pending",
+                            file_path="src/main.py",
+                        )
+                    )
+                ),
+            ),
         ):
             resp = client.post(
                 "/api/v1/sessions/request-file",
                 headers={"Authorization": "Bearer test-token"},
-                data=json.dumps(
-                    {"file_path": "src/main.py", "reason": "need it"}
-                ),
+                data=json.dumps({"file_path": "src/main.py", "reason": "need it"}),
                 content_type="application/json",
             )
             assert resp.status_code == 200
@@ -799,20 +794,23 @@ class TestRequestFileAllowedFilesCheck:
                 "_orch_create_decision",
                 return_value={"id": "dec-1", "status": "pending"},
             ),
-            patch("file_request_manager.get_file_request_manager", return_value=MagicMock(
-                create_request=MagicMock(return_value=MagicMock(
-                    request_id="file-req-1",
-                    status="pending",
-                    file_path="docs/README.md",
-                ))
-            )),
+            patch(
+                "file_request_manager.get_file_request_manager",
+                return_value=MagicMock(
+                    create_request=MagicMock(
+                        return_value=MagicMock(
+                            request_id="file-req-1",
+                            status="pending",
+                            file_path="docs/README.md",
+                        )
+                    )
+                ),
+            ),
         ):
             resp = client.post(
                 "/api/v1/sessions/request-file",
                 headers={"Authorization": "Bearer test-token"},
-                data=json.dumps(
-                    {"file_path": "docs/README.md", "reason": "need to update docs"}
-                ),
+                data=json.dumps({"file_path": "docs/README.md", "reason": "need to update docs"}),
                 content_type="application/json",
             )
             # Should succeed (file IS blocked by allowed_files, so request is valid)
@@ -839,9 +837,7 @@ class TestRequestFileAllowedFilesCheck:
             resp = client.post(
                 "/api/v1/sessions/request-file",
                 headers={"Authorization": "Bearer test-token"},
-                data=json.dumps(
-                    {"file_path": "src/main.py", "reason": "it's in scope anyway"}
-                ),
+                data=json.dumps({"file_path": "src/main.py", "reason": "it's in scope anyway"}),
                 content_type="application/json",
             )
             # Should fail because file is not blocked
