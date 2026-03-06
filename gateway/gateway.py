@@ -3371,7 +3371,7 @@ def session_create() -> tuple[Response, int] | Response:
                 )
                 continue
             elif visibility not in ("private", "internal"):
-                logger.debug(
+                logger.info(
                     "Including public repo in private mode (network locked down)",
                     repo=repo,
                     visibility=visibility,
