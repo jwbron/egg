@@ -3499,6 +3499,87 @@ class TestSessionCreateWithPhase:
             assert "repos" in data["message"].lower()
 
 
+class TestSessionCreateRepoVisibilityFiltering:
+    """Tests for session creation repo filtering based on visibility and mode."""
+
+    def test_public_repo_included_in_private_mode(self, client, launcher_auth_headers, tmp_path):
+        """Public repos are included in private mode session creation.
+
+        In private mode the network is locked down, so mounting a public repo
+        doesn't grant broader internet access.  Write restrictions are enforced
+        separately by push policy.
+        """
+        from session_manager import SessionManager
+
+        manager = SessionManager(persistence_file=tmp_path / "sessions.json")
+
+        with (
+            patch.object(gateway, "get_session_manager", return_value=manager),
+            patch.object(gateway, "get_repo_visibility", return_value="public"),
+            patch.object(gateway, "get_worktree_manager") as mock_worktree,
+        ):
+            mock_worktree_info = MagicMock()
+            mock_worktree_info.worktree_path = "/path/to/worktree"
+            mock_worktree_info.branch = "egg/test-branch"
+            mock_worktree.return_value.create_worktree.return_value = mock_worktree_info
+
+            response = client.post(
+                "/api/v1/sessions/create",
+                headers=launcher_auth_headers,
+                data=json.dumps(
+                    {
+                        "container_id": "test-container",
+                        "container_ip": "172.18.0.5",
+                        "mode": "private",
+                        "repos": ["owner/public-repo"],
+                    }
+                ),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 200
+            data = json.loads(response.data)
+            assert data["success"] is True
+            assert "owner/public-repo" in data["data"]["filtered_repos"]
+
+    def test_unknown_visibility_excluded_in_private_mode(
+        self, client, launcher_auth_headers, tmp_path
+    ):
+        """Repos with unknown visibility are excluded in private mode."""
+        from session_manager import SessionManager
+
+        manager = SessionManager(persistence_file=tmp_path / "sessions.json")
+
+        with (
+            patch.object(gateway, "get_session_manager", return_value=manager),
+            patch.object(gateway, "get_repo_visibility", return_value=None),
+            patch.object(gateway, "get_worktree_manager") as mock_worktree,
+        ):
+            mock_worktree_info = MagicMock()
+            mock_worktree_info.worktree_path = "/path/to/worktree"
+            mock_worktree_info.branch = "egg/test-branch"
+            mock_worktree.return_value.create_worktree.return_value = mock_worktree_info
+
+            response = client.post(
+                "/api/v1/sessions/create",
+                headers=launcher_auth_headers,
+                data=json.dumps(
+                    {
+                        "container_id": "test-container",
+                        "container_ip": "172.18.0.5",
+                        "mode": "private",
+                        "repos": ["owner/unknown-repo"],
+                    }
+                ),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 200
+            data = json.loads(response.data)
+            assert data["success"] is True
+            assert "owner/unknown-repo" not in data["data"]["filtered_repos"]
+
+
 class TestSessionCreateLocalOnlyRepos:
     """Tests for session creation with local_only_repos parameter."""
 
