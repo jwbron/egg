@@ -204,6 +204,5 @@ This keeps agents working with familiar tools in a predictable way, without burn
 
 ## See Also
 
-- [ADR: Autonomous Software Engineer](../adr/in-progress/ADR-Autonomous-Software-Engineer.md) - Full system architecture
 - [Local Quickstart](../guides/local-quickstart.md) - Installation and configuration
 - [Project Structure](../development/STRUCTURE.md) - Directory layout

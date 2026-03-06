@@ -457,6 +457,7 @@ def create_session(
     container_ip: str,
     mode: str,
     repos: list[str],
+    local_only_repos: list[str] | None = None,
     uid: int | None = None,
     gid: int | None = None,
     phase: str | None = None,
@@ -477,7 +478,8 @@ def create_session(
         container_id: Docker container ID
         container_ip: Container's IP address on the Docker network
         mode: Repository visibility mode ("private" or "public")
-        repos: List of repository names (or owner/repo format)
+        repos: List of repository names in owner/repo format (GitHub visibility checked)
+        local_only_repos: Repo names with no GitHub remote; mounted in private mode only
         uid: User ID to set worktree ownership to
         gid: Group ID to set worktree ownership to
         phase: SDLC pipeline phase (e.g., "refine", "plan", "implement", "pr")
@@ -499,6 +501,8 @@ def create_session(
         "mode": mode,
         "repos": repos,
     }
+    if local_only_repos:
+        request_data["local_only_repos"] = local_only_repos
     if uid is not None:
         request_data["uid"] = uid
     if gid is not None:
@@ -955,7 +959,6 @@ def _prepare_gateway_config() -> tuple[list[str], list[str]]:
     state_dir = Path.home() / ".egg-state"
     git_main_dir = Path.home() / ".git-main"
     local_objects_dir = Path.home() / ".egg-local-objects"
-    shared_certs_dir = Path.home() / ".egg-shared-certs"
 
     mounts = []
     env_args = []
@@ -1001,10 +1004,11 @@ def _prepare_gateway_config() -> tuple[list[str], list[str]]:
     if local_objects_dir.exists():
         mounts.extend(["-v", f"{local_objects_dir}:{CONTAINER_HOME}/.egg-local-objects:ro"])
 
-    # Shared certs directory
-    shared_certs_dir.mkdir(parents=True, exist_ok=True)
-    shared_certs_dir.chmod(0o755)
-    mounts.extend(["-v", f"{shared_certs_dir}:/shared/certs"])
+    # Shared certs Docker named volume for gateway CA certificate.
+    # Use the same named volume as docker-compose so the sandbox always reads
+    # the current cert regardless of how the gateway was started.
+    project_name = os.environ.get("COMPOSE_PROJECT_NAME", "egg")
+    mounts.extend(["-v", f"{project_name}-certs:/shared/certs"])
 
     # Dynamic git mounts from local_repos in repositories.yaml
     if config_file.exists():

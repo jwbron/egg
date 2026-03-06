@@ -640,9 +640,6 @@ def ensure_compose_services(build: bool = True) -> bool:
     image up to date.  Docker's layer cache makes this fast when
     nothing has changed.
 
-    Falls back to ``start_gateway_container()`` if docker compose is
-    unavailable.
-
     Args:
         build: Rebuild compose images if build context changed (default True)
 
@@ -651,19 +648,18 @@ def ensure_compose_services(build: bool = True) -> bool:
     """
     # Check docker compose availability
     if not _has_docker_compose():
-        warn("Docker Compose not available, falling back to docker run")
-        from .gateway import start_gateway_container
-
-        return start_gateway_container()
+        error(
+            "Docker Compose (v2) is required. "
+            "Install Docker Desktop or upgrade Docker Engine to get 'docker compose'."
+        )
+        return False
 
     # Find compose file
     try:
         compose_file = get_compose_file()
-    except FileNotFoundError:
-        warn("docker-compose.yml not found, falling back to docker run")
-        from .gateway import start_gateway_container
-
-        return start_gateway_container()
+    except FileNotFoundError as e:
+        error(str(e))
+        return False
 
     # Probe whether services are already running
     already_healthy = _services_healthy()

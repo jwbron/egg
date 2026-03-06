@@ -562,6 +562,42 @@ class TestCreateSession:
             assert worktrees == {"repo": "/path"}
             assert repos == ["repo"]
 
+    def test_local_only_repos_included_in_request(self):
+        """Passes local_only_repos to the API when provided."""
+        response = {
+            "success": True,
+            "data": {
+                "session_token": "tok-123",
+                "worktrees": {"my-repo": "/path/my-repo"},
+                "filtered_repos": ["my-repo"],
+                "errors": [],
+            },
+        }
+        with patch("egg_lib.gateway.launcher_api_call", return_value=(True, response)) as mock_call:
+            success, token, worktrees, repos, errors = create_session(
+                "container-1", "10.0.0.1", "private", [], local_only_repos=["my-repo"]
+            )
+            assert success is True
+            call_args = mock_call.call_args
+            request_data = call_args[1]["data"]
+            assert request_data["local_only_repos"] == ["my-repo"]
+
+    def test_local_only_repos_omitted_when_empty(self):
+        """Does not send local_only_repos key when list is empty."""
+        response = {
+            "success": True,
+            "data": {
+                "session_token": "tok-123",
+                "worktrees": {},
+                "filtered_repos": [],
+                "errors": [],
+            },
+        }
+        with patch("egg_lib.gateway.launcher_api_call", return_value=(True, response)) as mock_call:
+            create_session("container-1", "10.0.0.1", "public", ["owner/repo"])
+            request_data = mock_call.call_args[1]["data"]
+            assert "local_only_repos" not in request_data
+
     def test_failure(self):
         """Returns failure on API error."""
         with patch("egg_lib.gateway.launcher_api_call", return_value=(False, {"error": "fail"})):

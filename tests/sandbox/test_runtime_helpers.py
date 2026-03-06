@@ -23,6 +23,7 @@ from egg_lib.runtime import (
     _get_container_network_config,
     _get_repo_owner_name,
     _get_reserved_ips,
+    _setup_session_repos,
     _validate_repo_mode,
 )
 
@@ -326,6 +327,141 @@ class TestCleanupSession:
                 ) as mock_wt:
                     _cleanup_session("tok-123", "container-1")
                     mock_wt.assert_called_once()
+
+
+class TestSetupSessionRepos:
+    """Tests for _setup_session_repos."""
+
+    def _make_session_response(self, worktrees=None, filtered_repos=None):
+        return (
+            True,
+            "tok-abc",
+            worktrees or {},
+            filtered_repos or [],
+            [],
+        )
+
+    def test_local_only_repo_sent_to_create_session(self, tmp_path):
+        """Repo with no GitHub remote is passed as local_only_repos to create_session."""
+        local_repo = tmp_path / "my-local-repo"
+        local_repo.mkdir()
+
+        with patch("egg_lib.runtime.get_local_repos", return_value=[local_repo]):
+            with patch(
+                "egg_lib.runtime._get_repos_config_file", return_value=tmp_path / "repos.yaml"
+            ):
+                with patch("egg_lib.runtime._get_repo_owner_name", return_value=None):
+                    with patch(
+                        "egg_lib.runtime.create_session",
+                        return_value=self._make_session_response(),
+                    ) as mock_cs:
+                        _setup_session_repos("ctr-1", "10.0.0.1", "private", [], quiet=True)
+                        call_kwargs = mock_cs.call_args[1]
+                        assert call_kwargs["local_only_repos"] == ["my-local-repo"]
+                        assert call_kwargs["repos"] == []
+
+    def test_github_repo_sent_to_repos_not_local_only(self, tmp_path):
+        """Repo with GitHub remote is passed in repos, not local_only_repos."""
+        github_repo = tmp_path / "my-github-repo"
+        github_repo.mkdir()
+
+        with patch("egg_lib.runtime.get_local_repos", return_value=[github_repo]):
+            with patch(
+                "egg_lib.runtime._get_repos_config_file", return_value=tmp_path / "repos.yaml"
+            ):
+                with patch(
+                    "egg_lib.runtime._get_repo_owner_name", return_value="owner/my-github-repo"
+                ):
+                    with patch(
+                        "egg_lib.runtime.create_session",
+                        return_value=self._make_session_response(),
+                    ) as mock_cs:
+                        _setup_session_repos("ctr-1", "10.0.0.1", "private", [], quiet=True)
+                        call_kwargs = mock_cs.call_args[1]
+                        assert call_kwargs["repos"] == ["owner/my-github-repo"]
+                        assert call_kwargs.get("local_only_repos", []) == []
+
+    def test_mixed_repos_split_correctly(self, tmp_path):
+        """GitHub and local-only repos are split into the correct create_session fields."""
+        github_repo = tmp_path / "github-repo"
+        github_repo.mkdir()
+        local_repo = tmp_path / "local-repo"
+        local_repo.mkdir()
+
+        def fake_owner_name(path):
+            return "owner/github-repo" if path == github_repo else None
+
+        with patch("egg_lib.runtime.get_local_repos", return_value=[github_repo, local_repo]):
+            with patch(
+                "egg_lib.runtime._get_repos_config_file", return_value=tmp_path / "repos.yaml"
+            ):
+                with patch("egg_lib.runtime._get_repo_owner_name", side_effect=fake_owner_name):
+                    with patch(
+                        "egg_lib.runtime.create_session",
+                        return_value=self._make_session_response(),
+                    ) as mock_cs:
+                        _setup_session_repos("ctr-1", "10.0.0.1", "private", [], quiet=True)
+                        call_kwargs = mock_cs.call_args[1]
+                        assert call_kwargs["repos"] == ["owner/github-repo"]
+                        assert call_kwargs["local_only_repos"] == ["local-repo"]
+
+    def test_local_only_excluded_in_public_mode(self, tmp_path):
+        """create_session is called with local_only_repos even in public mode (gateway excludes them)."""
+        local_repo = tmp_path / "local-repo"
+        local_repo.mkdir()
+
+        with patch("egg_lib.runtime.get_local_repos", return_value=[local_repo]):
+            with patch(
+                "egg_lib.runtime._get_repos_config_file", return_value=tmp_path / "repos.yaml"
+            ):
+                with patch("egg_lib.runtime._get_repo_owner_name", return_value=None):
+                    with patch(
+                        "egg_lib.runtime.create_session",
+                        return_value=self._make_session_response(),
+                    ) as mock_cs:
+                        _setup_session_repos("ctr-1", "10.0.0.1", "public", [], quiet=True)
+                        call_kwargs = mock_cs.call_args[1]
+                        assert call_kwargs["local_only_repos"] == ["local-repo"]
+
+    def test_returns_none_when_no_repos(self, tmp_path):
+        """Returns (None, {}, []) when no repos configured."""
+        with patch("egg_lib.runtime.get_local_repos", return_value=[]):
+            with patch(
+                "egg_lib.runtime._get_repos_config_file", return_value=tmp_path / "repos.yaml"
+            ):
+                token, repos, filtered = _setup_session_repos(
+                    "ctr-1", "10.0.0.1", "private", [], quiet=True
+                )
+                assert token is None
+                assert repos == {}
+                assert filtered == []
+
+    def test_worktree_mounts_added_to_mount_args(self, tmp_path):
+        """Worktrees returned by create_session are added as -v mount args."""
+        local_repo = tmp_path / "my-repo"
+        local_repo.mkdir()
+        worktree_path = tmp_path / "worktrees" / "ctr-1" / "my-repo"
+
+        with patch("egg_lib.runtime.get_local_repos", return_value=[local_repo]):
+            with patch(
+                "egg_lib.runtime._get_repos_config_file", return_value=tmp_path / "repos.yaml"
+            ):
+                with patch("egg_lib.runtime._get_repo_owner_name", return_value=None):
+                    with patch(
+                        "egg_lib.runtime.create_session",
+                        return_value=self._make_session_response(
+                            worktrees={"my-repo": str(worktree_path)},
+                            filtered_repos=["my-repo"],
+                        ),
+                    ):
+                        with patch("egg_lib.runtime.git_shadow_mounts", return_value=[]):
+                            mount_args: list[str] = []
+                            _setup_session_repos(
+                                "ctr-1", "10.0.0.1", "private", mount_args, quiet=True
+                            )
+                            assert "-v" in mount_args
+                            combined = " ".join(mount_args)
+                            assert "/home/egg/repos/my-repo" in combined
 
     def test_worktree_cleanup_after_exception_exhaustion(self):
         """Falls back to local worktree cleanup when all retries raise exceptions."""
