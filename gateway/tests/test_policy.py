@@ -601,14 +601,12 @@ class TestConfiguredUser:
         assert result.allowed
         assert "owned by james-in-a-box" in result.reason.lower()
 
-    def test_user_mode_denial_does_not_mention_trusted_users(
+    def test_user_mode_denial_uses_same_message_as_bot(
         self, policy_engine, mock_github_client, monkeypatch
     ):
-        """User mode denial message should not mention trusted users."""
+        """User mode denial uses the same message format as bot mode."""
         monkeypatch.setattr(policy_engine, "_get_configured_user", lambda: "configureduser")
 
-        # Branch exists with PR by unrelated user
-        mock_github_client.branch_exists.return_value = True
         mock_github_client.list_prs_for_branch.return_value = [
             {
                 "number": 999,
@@ -626,10 +624,11 @@ class TestConfiguredUser:
 
         result = policy_engine.check_branch_ownership("owner/repo", "feature", auth_mode="user")
         assert not result.allowed
-        # User mode should only mention james-in-a-box and configured user, not trusted users
-        assert "trusted" not in result.reason.lower()
         assert "james-in-a-box" in result.reason.lower()
-        assert "configureduser" in result.reason.lower()
+        assert "bot-prefixed branch" in result.reason.lower()
+        # Configured user info is in the hint details
+        assert result.details is not None
+        assert "configureduser" in result.details.get("hint", "")
 
 
 class TestPolicyResult:
@@ -696,7 +695,7 @@ class TestProtectedBranches:
 
 
 class TestUserModeBranchOwnership:
-    """Tests for user mode branch ownership logic."""
+    """Tests for user mode branch ownership - same rules as bot mode."""
 
     @pytest.fixture
     def mock_github_client(self):
@@ -710,28 +709,25 @@ class TestUserModeBranchOwnership:
         monkeypatch.setattr(engine, "_get_configured_user", lambda: "testuser")
         return engine
 
-    def test_user_mode_new_branch_allowed(self, policy_engine, mock_github_client):
-        """User mode allows push to new branch (doesn't exist upstream)."""
-        mock_github_client.branch_exists.return_value = False
-
-        result = policy_engine.check_branch_ownership("owner/repo", "feature", auth_mode="user")
+    def test_user_mode_bot_prefix_allowed(self, policy_engine, mock_github_client):
+        """User mode allows push to bot-prefixed branch (same as bot mode)."""
+        result = policy_engine.check_branch_ownership(
+            "owner/repo", "james-in-a-box/feature", auth_mode="user"
+        )
         assert result.allowed
-        assert "new branch" in result.reason.lower()
         assert result.details is not None
-        assert result.details.get("reason") == "new_branch"
+        assert result.details.get("reason") == "bot_prefix"
 
-    def test_user_mode_existing_branch_no_pr_denied(self, policy_engine, mock_github_client):
-        """User mode denies push to existing branch with no PR."""
-        mock_github_client.branch_exists.return_value = True
+    def test_user_mode_non_prefix_no_pr_denied(self, policy_engine, mock_github_client):
+        """User mode denies push to non-prefixed branch with no PR."""
         mock_github_client.list_prs_for_branch.return_value = []
 
         result = policy_engine.check_branch_ownership("owner/repo", "feature", auth_mode="user")
         assert not result.allowed
-        assert "no open pr" in result.reason.lower()
+        assert "bot-prefixed branch" in result.reason.lower()
 
     def test_user_mode_existing_branch_with_bot_pr_allowed(self, policy_engine, mock_github_client):
         """User mode allows push to branch with bot's PR."""
-        mock_github_client.branch_exists.return_value = True
         mock_github_client.list_prs_for_branch.return_value = [
             {
                 "number": 123,
@@ -756,7 +752,6 @@ class TestUserModeBranchOwnership:
         self, policy_engine, mock_github_client
     ):
         """User mode allows push to branch with configured user's PR."""
-        mock_github_client.branch_exists.return_value = True
         mock_github_client.list_prs_for_branch.return_value = [
             {
                 "number": 456,
@@ -777,18 +772,34 @@ class TestUserModeBranchOwnership:
         assert result.details is not None
         assert result.details.get("reason") == "configured_user_pr"
 
-    def test_user_mode_api_error_fails_closed(self, policy_engine, mock_github_client):
-        """User mode fails closed when branch existence check fails (API error)."""
-        mock_github_client.branch_exists.return_value = None  # API error
+    def test_user_mode_trusted_user_pr_allowed(
+        self, policy_engine, mock_github_client, monkeypatch
+    ):
+        """User mode allows push to branch with trusted user's PR."""
+        monkeypatch.setattr(_policy_module, "TRUSTED_BRANCH_OWNERS", frozenset({"trusteduser"}))
+        mock_github_client.list_prs_for_branch.return_value = [
+            {
+                "number": 321,
+                "author": {"login": "trusteduser"},
+                "state": "open",
+                "headRefName": "feature",
+            }
+        ]
+        mock_github_client.get_pr_info.return_value = {
+            "number": 321,
+            "author": {"login": "trusteduser"},
+            "state": "open",
+            "headRefName": "feature",
+        }
 
         result = policy_engine.check_branch_ownership("owner/repo", "feature", auth_mode="user")
-        assert not result.allowed
-        assert "could not verify" in result.reason.lower()
-        assert "api error" in result.reason.lower()
+        assert result.allowed
+        assert "trusted user" in result.reason.lower()
+        assert result.details is not None
+        assert result.details.get("reason") == "trusted_user_pr"
 
     def test_user_mode_unrelated_pr_denied(self, policy_engine, mock_github_client):
         """User mode denies push when PR exists but by unrelated author."""
-        mock_github_client.branch_exists.return_value = True
         mock_github_client.list_prs_for_branch.return_value = [
             {
                 "number": 789,
@@ -811,7 +822,6 @@ class TestUserModeBranchOwnership:
 
     def test_user_mode_passes_mode_to_list_prs(self, policy_engine, mock_github_client):
         """User mode passes mode='user' to list_prs_for_branch."""
-        mock_github_client.branch_exists.return_value = True
         mock_github_client.list_prs_for_branch.return_value = []
 
         policy_engine.check_branch_ownership("owner/repo", "feature", auth_mode="user")
@@ -1109,19 +1119,25 @@ class TestPRCreatePolicy:
         assert result.allowed
         assert "bot mode" in result.reason.lower()
 
-    def test_pr_create_blocked_user_mode(self, policy_engine):
-        """PR creation is blocked in user mode."""
+    def test_pr_create_allowed_user_mode(self, policy_engine):
+        """PR creation is allowed in user mode."""
         result = policy_engine.check_pr_create_allowed("owner/repo", auth_mode="user")
-        assert not result.allowed
+        assert result.allowed
         assert "user mode" in result.reason.lower()
-        assert "github ui" in result.reason.lower()
 
-    def test_pr_create_user_mode_provides_hint(self, policy_engine):
-        """PR creation denial in user mode provides helpful hint."""
+    def test_pr_create_user_mode_forces_draft(self, policy_engine):
+        """PR creation in user mode forces draft."""
         result = policy_engine.check_pr_create_allowed("owner/repo", auth_mode="user")
-        assert not result.allowed
+        assert result.allowed
         assert result.details is not None
-        assert "hint" in result.details
+        assert result.details.get("force_draft") is True
+
+    def test_pr_create_bot_mode_no_force_draft(self, policy_engine):
+        """PR creation in bot mode does not force draft."""
+        result = policy_engine.check_pr_create_allowed("owner/repo", auth_mode="bot")
+        assert result.allowed
+        assert result.details is not None
+        assert result.details.get("force_draft") is False
 
     def test_pr_create_blocked_reviewer_mode(self, policy_engine):
         """PR creation is blocked in reviewer mode."""

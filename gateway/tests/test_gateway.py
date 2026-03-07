@@ -1249,6 +1249,39 @@ class TestGhPrCreate:
             assert data["success"] is True
             assert "pull/42" in data["data"]["stdout"]
 
+    def test_pr_create_user_mode_forces_draft_flag(self, client, auth_headers):
+        """User mode forces --draft flag in gh pr create args."""
+        with (
+            patch.object(gateway, "get_github_client") as mock_gh,
+            patch.object(gateway, "get_auth_mode", return_value="user"),
+        ):
+            mock_result = MagicMock()
+            mock_result.success = True
+            mock_result.stdout = "https://github.com/test/repo/pull/43"
+            mock_result.stderr = ""
+            mock_gh.return_value.execute.return_value = mock_result
+
+            response = client.post(
+                "/api/v1/gh/pr/create",
+                headers=auth_headers,
+                data=json.dumps(
+                    {
+                        "repo": "test/repo",
+                        "title": "Add feature",
+                        "body": "Description",
+                        "base": "main",
+                        "head": "feature-branch",
+                    }
+                ),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 200
+            # Verify --draft was passed to execute
+            call_args = mock_gh.return_value.execute.call_args
+            args_list = call_args[0][0]  # First positional arg is the args list
+            assert "--draft" in args_list
+
 
 class TestGhPrCreatePhaseRestrictions:
     """Tests for phase-based PR creation restrictions."""
