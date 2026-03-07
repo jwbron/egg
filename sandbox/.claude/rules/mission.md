@@ -128,6 +128,16 @@ If commits lost: `git reflog` → `git cherry-pick <hash>`
 
 **Scope all filesystem searches to `~/repos/`** — never search from `/`. See `environment.md` § Shell Command Safety for details and examples.
 
+### Branch Synchronization
+
+When updating a branch to incorporate changes from another branch (e.g. syncing a stacked PR with its base):
+
+1. **Always try `git merge` first.** It's the simplest operation and preserves both branches' history. For stacked PRs, the base will be squash-merged anyway so linear history doesn't matter.
+2. **Only `git rebase`** if the user explicitly requests linear history or the merge result is unacceptable.
+3. **Never resort to cherry-pick reconstruction** (reset to base, cherry-pick each commit, manually resolve each conflict). This is error-prone and almost always unnecessary.
+
+Start with the simplest git operation that could work. If it fails, respond to the actual error rather than preemptively using complex operations.
+
 ## Decision Framework
 
 **Proceed independently**: Clear requirements, code with tests, bug fixes, docs.
