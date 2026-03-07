@@ -39,7 +39,7 @@ The gateway sidecar is the **trusted** component that holds credentials and vali
 | Operation | Policy | Check |
 |-----------|--------|-------|
 | `git push` | Branch ownership + Phase filter | Branch has open PR authored by egg, OR branch starts with `egg-` or `egg/`, AND operation is allowed in current phase |
-| `gh pr create` | Phase filter + mode policy | Operation is allowed in current phase; in user mode, PR is forced to draft |
+| `gh pr create` | Phase filter + mode policy | Operation is allowed in current phase (typically only in 'pr' phase)<br>In user mode, PR is forced to draft<br>Blocked in reviewer mode |
 | `gh pr comment` | PR ownership | PR must be authored by egg |
 | `gh pr merge` | **BLOCKED** | No merge endpoint - human must merge via GitHub UI |
 | `gh pr edit` | PR ownership | PR must be authored by egg |
@@ -203,7 +203,7 @@ POST /api/v1/git/fetch
 ```
 POST /api/v1/gh/pr/create
   Request: {repo, title, body, base, head, draft? (bool)}
-  Policy: phase_filter + mode_policy (user mode forces draft=true)
+  Policy: phase_filter + mode_policy (user mode forces draft=true; reviewer mode blocked)
 
 POST /api/v1/gh/pr/comment
   Request: {repo, pr_number, body}
