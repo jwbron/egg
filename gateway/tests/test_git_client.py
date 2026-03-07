@@ -341,6 +341,7 @@ class TestGitAllowedCommands:
         assert "status" in GIT_ALLOWED_COMMANDS
         assert "log" in GIT_ALLOWED_COMMANDS
         assert "diff" in GIT_ALLOWED_COMMANDS
+        assert "diff-tree" in GIT_ALLOWED_COMMANDS
         assert "branch" in GIT_ALLOWED_COMMANDS
         assert "merge-base" in GIT_ALLOWED_COMMANDS
 

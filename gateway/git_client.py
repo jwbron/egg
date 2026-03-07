@@ -369,6 +369,22 @@ GIT_ALLOWED_COMMANDS = {
             "-U",
         ],
     },
+    "diff-tree": {
+        "allowed_flags": [
+            "--no-commit-id",
+            "--name-only",
+            "--name-status",
+            "--stat",
+            "--numstat",
+            "--diff-filter",
+            "--format",
+            "--pretty",
+            "--abbrev-commit",
+            "-r",
+            "-t",
+            "-p",
+        ],
+    },
     "show": {
         "allowed_flags": [
             "--stat",
