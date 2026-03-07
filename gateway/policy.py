@@ -406,7 +406,7 @@ class PolicyEngine:
             pr_number: PR number
             auth_mode: "bot" (default) or "user"
         """
-        pr_info = self._get_pr_info(repo, pr_number)
+        pr_info = self._get_pr_info(repo, pr_number, mode=auth_mode)
 
         if not pr_info:
             logger.warning(
@@ -897,7 +897,7 @@ class PolicyEngine:
             pr_number: PR number
             auth_mode: "bot" (default), "user", or "reviewer"
         """
-        pr_info = self._get_pr_info(repo, pr_number)
+        pr_info = self._get_pr_info(repo, pr_number, mode=auth_mode)
 
         if not pr_info:
             logger.warning(

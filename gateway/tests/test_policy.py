@@ -588,6 +588,21 @@ class TestConfiguredUser:
         assert result.allowed
         assert "owned by james-in-a-box" in result.reason.lower()
 
+    def test_pr_ownership_user_mode_passes_mode_to_get_pr_info(
+        self, policy_engine, mock_github_client
+    ):
+        """User mode passes mode='user' to get_pr_info in check_pr_ownership."""
+        mock_github_client.get_pr_info.return_value = {
+            "number": 123,
+            "author": {"login": "james-in-a-box"},
+            "state": "open",
+            "headRefName": "feature",
+        }
+
+        policy_engine.check_pr_ownership("owner/repo", 123, auth_mode="user")
+
+        mock_github_client.get_pr_info.assert_called_once_with("owner/repo", 123, mode="user")
+
     def test_user_mode_denial_does_not_mention_trusted_users(
         self, policy_engine, mock_github_client, monkeypatch
     ):
@@ -1216,6 +1231,21 @@ class TestReviewerModePolicy:
 
         result = policy_engine.check_pr_review_allowed("owner/repo", 123, auth_mode="bot")
         assert result.allowed
+
+    def test_pr_review_allowed_user_mode_passes_mode_to_get_pr_info(
+        self, policy_engine, mock_github_client
+    ):
+        """User mode passes mode='user' to get_pr_info in check_pr_review_allowed."""
+        mock_github_client.get_pr_info.return_value = {
+            "number": 123,
+            "author": {"login": "human"},
+            "state": "open",
+            "headRefName": "feature",
+        }
+
+        policy_engine.check_pr_review_allowed("owner/repo", 123, auth_mode="user")
+
+        mock_github_client.get_pr_info.assert_called_once_with("owner/repo", 123, mode="user")
 
     def test_pr_review_denied_pr_not_found(self, policy_engine, mock_github_client):
         """PR review is denied if PR not found."""
