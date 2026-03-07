@@ -2075,7 +2075,8 @@ def gh_pr_create() -> tuple[Response, int] | Response:
             "title": "PR title",
             "body": "PR body",
             "base": "main",
-            "head": "feature-branch"
+            "head": "feature-branch",
+            "draft": false  (optional, forced to true in user mode)
         }
 
     Policy:
