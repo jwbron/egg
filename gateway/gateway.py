@@ -2251,6 +2251,7 @@ def gh_pr_create() -> tuple[Response, int] | Response:
                     "base": base,
                     "head": head,
                     "auth_mode": auth_mode,
+                    "draft": draft,
                 },
             )
             return make_success(

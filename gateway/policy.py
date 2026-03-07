@@ -2,9 +2,8 @@
 Policy Engine - Ownership and access control checks.
 
 Enforces policies for git/gh operations:
-- Branch ownership (bot): egg can push to bot-prefixed branches (egg-*) OR branches with PRs by egg/configured-user/trusted-user
-- Branch ownership (user mode): user can push to new branches OR branches with PRs by egg/configured-user
-- PR creation: allowed in bot mode, blocked in user mode (user creates PRs manually)
+- Branch ownership (bot/user): egg can push to bot-prefixed branches (egg-*) OR branches with PRs by egg/configured-user/trusted-user
+- PR creation: allowed in bot and user mode (user mode forces draft), blocked in reviewer mode
 - PR comments: egg can comment on any PR
 - PR edit/close: egg can only modify PRs it created or PRs by configured user
 - Merge blocked: No merge operations allowed (human must merge)

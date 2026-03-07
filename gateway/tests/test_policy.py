@@ -724,6 +724,7 @@ class TestUserModeBranchOwnership:
 
         result = policy_engine.check_branch_ownership("owner/repo", "feature", auth_mode="user")
         assert not result.allowed
+        assert "bot-prefixed branch" in result.reason.lower()
 
     def test_user_mode_existing_branch_with_bot_pr_allowed(self, policy_engine, mock_github_client):
         """User mode allows push to branch with bot's PR."""
@@ -770,6 +771,32 @@ class TestUserModeBranchOwnership:
         assert result.allowed
         assert result.details is not None
         assert result.details.get("reason") == "configured_user_pr"
+
+    def test_user_mode_trusted_user_pr_allowed(
+        self, policy_engine, mock_github_client, monkeypatch
+    ):
+        """User mode allows push to branch with trusted user's PR."""
+        monkeypatch.setattr(_policy_module, "TRUSTED_BRANCH_OWNERS", frozenset({"trusteduser"}))
+        mock_github_client.list_prs_for_branch.return_value = [
+            {
+                "number": 321,
+                "author": {"login": "trusteduser"},
+                "state": "open",
+                "headRefName": "feature",
+            }
+        ]
+        mock_github_client.get_pr_info.return_value = {
+            "number": 321,
+            "author": {"login": "trusteduser"},
+            "state": "open",
+            "headRefName": "feature",
+        }
+
+        result = policy_engine.check_branch_ownership("owner/repo", "feature", auth_mode="user")
+        assert result.allowed
+        assert "trusted user" in result.reason.lower()
+        assert result.details is not None
+        assert result.details.get("reason") == "trusted_user_pr"
 
     def test_user_mode_unrelated_pr_denied(self, policy_engine, mock_github_client):
         """User mode denies push when PR exists but by unrelated author."""
