@@ -342,8 +342,8 @@ class WorktreeManager:
             # (triggered e.g. by git fetch) can run git worktree prune and
             # delete the admin dir if the worktree path is momentarily
             # inaccessible, breaking all subsequent git operations in the
-            # container.  git worktree remove --force handles locked worktrees
-            # correctly, so removal still works.
+            # container.  Removal uses --force --force to override the lock
+            # (a single --force only handles dirty worktrees, not locked ones).
             lock_result = subprocess.run(
                 git_cmd("worktree", "lock", str(worktree_path)),
                 cwd=main_repo,
@@ -831,7 +831,7 @@ class WorktreeManager:
                 admin_dir = self._find_worktree_git_dir(main_repo, worktree_path)
 
                 remove_result = subprocess.run(
-                    git_cmd("worktree", "remove", str(worktree_path), "--force"),
+                    git_cmd("worktree", "remove", str(worktree_path), "--force", "--force"),
                     cwd=main_repo,
                     capture_output=True,
                     text=True,
@@ -1092,6 +1092,13 @@ class WorktreeManager:
         known and Docker mount races are not a concern.  It catches any stale
         entries that slipped past ``remove_worktree`` — for example if the
         gateway crashed before cleanup could run.
+
+        Note: ``git worktree prune`` respects locks.  Because
+        ``create_worktree`` locks every worktree to protect it from
+        ``git gc --auto``, a stale locked admin dir (e.g., gateway crash +
+        Docker cleanup) will **not** be pruned by this method.  The
+        ``cleanup_orphaned_worktrees`` → ``remove_worktree`` path handles
+        this case via its manual ``shutil.rmtree`` fallback.
 
         Returns:
             Number of repos where ``git worktree prune`` ran successfully.
