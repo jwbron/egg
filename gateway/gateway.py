@@ -2080,7 +2080,7 @@ def gh_pr_create() -> tuple[Response, int] | Response:
 
     Policy:
         - Bot mode: allowed (egg can create PRs)
-        - User mode: blocked (user must create PRs manually via GitHub UI)
+        - User mode: allowed (PRs are forced to draft mode)
     """
     data = request.get_json()
     if not data:
@@ -2193,7 +2193,7 @@ def gh_pr_create() -> tuple[Response, int] | Response:
                 details=priv_result.to_dict(),
             )
 
-    # Policy check: PR creation may be blocked in user mode
+    # Policy check: PR creation may be blocked in reviewer mode
     policy = get_policy_engine()
     policy_result = policy.check_pr_create_allowed(repo, auth_mode=auth_mode)
     if not policy_result.allowed:
@@ -2213,6 +2213,11 @@ def gh_pr_create() -> tuple[Response, int] | Response:
             details=policy_result.details,
         )
 
+    # In user mode, force PRs to be created as drafts
+    draft = data.get("draft", False)
+    if policy_result.details and policy_result.details.get("force_draft"):
+        draft = True
+
     try:
         github = get_github_client(mode=auth_mode)
         args = [
@@ -2229,6 +2234,9 @@ def gh_pr_create() -> tuple[Response, int] | Response:
             "--head",
             head,
         ]
+
+        if draft:
+            args.append("--draft")
 
         result = github.execute(args, timeout=60, mode=auth_mode)
 

@@ -515,16 +515,11 @@ class PolicyEngine:
         """
         Check if the current identity can push to a branch.
 
-        In bot mode, egg can push to a branch if:
+        In bot or user mode, egg can push to a branch if:
         1. Branch name starts with egg- or egg/ (allows pushing before PR exists), OR
         2. Branch has an open PR authored by egg, OR
         3. Branch has an open PR authored by the configured user, OR
         4. Branch has an open PR authored by a trusted user (from GATEWAY_TRUSTED_USERS)
-
-        In user mode, the user can push to a branch if:
-        1. Branch does not exist upstream yet (new branch), OR
-        2. Branch has an open PR authored by egg, OR
-        3. Branch has an open PR authored by the configured user
 
         In reviewer mode: ALWAYS blocked - reviewer can only post reviews, not push.
 
@@ -574,127 +569,7 @@ class PolicyEngine:
                 },
             )
 
-        # In user mode:
-        # 1. Allow pushing to NEW branches (don't exist upstream yet)
-        # 2. Allow pushing to branches with open PR by egg OR configured user
-        if auth_mode == "user":
-            configured_user = self._get_configured_user()
-
-            # Check if branch exists upstream (use user token for private repos)
-            branch_exists = self.github.branch_exists(repo, branch, mode=auth_mode)
-
-            # If we couldn't determine branch existence (API error), fail closed
-            if branch_exists is None:
-                logger.warning(
-                    "Branch push denied - could not verify branch existence",
-                    repo=repo,
-                    branch=branch,
-                    auth_mode=auth_mode,
-                )
-                return PolicyResult(
-                    allowed=False,
-                    reason=f"Could not verify if branch '{branch}' exists (API error). Try again later.",
-                    details={
-                        "branch": branch,
-                        "configured_user": configured_user,
-                        "auth_mode": "user",
-                        "hint": "Check network connectivity and token permissions.",
-                    },
-                )
-
-            # Branch doesn't exist - allow push to new branch
-            if not branch_exists:
-                logger.debug(
-                    "Branch push allowed (user mode) - new branch",
-                    repo=repo,
-                    branch=branch,
-                    configured_user=configured_user,
-                )
-                return PolicyResult(
-                    allowed=True,
-                    reason=f"User mode: push allowed to new branch '{branch}'",
-                    details={
-                        "branch": branch,
-                        "configured_user": configured_user,
-                        "auth_mode": "user",
-                        "reason": "new_branch",
-                    },
-                )
-
-            # Branch exists - check for open PR by egg or configured user
-            pr_numbers = self._get_prs_for_branch(repo, branch, mode=auth_mode)
-            for pr_number in pr_numbers:
-                pr_info = self._get_pr_info(repo, pr_number, mode=auth_mode)
-                if not pr_info:
-                    continue
-
-                # Check if PR is owned by egg
-                if self._is_bot_author(pr_info.author):
-                    logger.debug(
-                        "Branch push allowed (user mode) - bot PR",
-                        repo=repo,
-                        branch=branch,
-                        pr_number=pr_number,
-                        author=pr_info.author,
-                    )
-                    return PolicyResult(
-                        allowed=True,
-                        reason=f"Branch '{branch}' has open PR #{pr_number} owned by {_get_bot_name()}",
-                        details={
-                            "branch": branch,
-                            "pr_number": pr_number,
-                            "author": pr_info.author,
-                            "auth_mode": "user",
-                            "reason": "bot_pr",
-                        },
-                    )
-
-                # Check if PR is owned by configured user
-                if configured_user and self._is_configured_user_author(
-                    pr_info.author, configured_user
-                ):
-                    logger.debug(
-                        "Branch push allowed (user mode) - configured user PR",
-                        repo=repo,
-                        branch=branch,
-                        pr_number=pr_number,
-                        author=pr_info.author,
-                        configured_user=configured_user,
-                    )
-                    return PolicyResult(
-                        allowed=True,
-                        reason=f"Branch '{branch}' has open PR #{pr_number} owned by '{configured_user}'",
-                        details={
-                            "branch": branch,
-                            "pr_number": pr_number,
-                            "author": pr_info.author,
-                            "configured_user": configured_user,
-                            "auth_mode": "user",
-                            "reason": "configured_user_pr",
-                        },
-                    )
-
-            # Branch exists but no PR by egg or configured user
-            logger.info(
-                "Branch push denied (user mode) - no owned PR",
-                repo=repo,
-                branch=branch,
-                configured_user=configured_user,
-                open_prs=pr_numbers,
-            )
-            return PolicyResult(
-                allowed=False,
-                reason=f"Branch '{branch}' exists but has no open PR owned by {_get_bot_name()} or '{configured_user}'",
-                details={
-                    "branch": branch,
-                    "open_prs": pr_numbers,
-                    "configured_user": configured_user,
-                    "auth_mode": "user",
-                    "hint": "Create a PR from this branch on GitHub first, or push to a new branch name.",
-                },
-            )
-
-        # Bot mode: Check 1: Branch prefix
+        # Bot/User mode: Check 1: Branch prefix
         if self._is_bot_branch(branch):
             logger.debug(
                 "Branch ownership verified by prefix",
@@ -708,11 +583,11 @@ class PolicyEngine:
             )
 
         # Check 2-4: Open PR by egg, configured user, or trusted user
-        pr_numbers = self._get_prs_for_branch(repo, branch)
+        pr_numbers = self._get_prs_for_branch(repo, branch, mode=auth_mode)
         configured_user = self._get_configured_user()
 
         for pr_number in pr_numbers:
-            pr_info = self._get_pr_info(repo, pr_number)
+            pr_info = self._get_pr_info(repo, pr_number, mode=auth_mode)
             if not pr_info:
                 continue
 
@@ -811,12 +686,9 @@ class PolicyEngine:
         """
         Check if PR creation is allowed.
 
-        In bot mode: Always allowed - egg can create PRs.
-        In user mode: Blocked - user must create PRs manually via GitHub UI.
+        In bot or user mode: Always allowed - egg can create PRs.
+        In user mode: PRs are forced to draft mode.
         In reviewer mode: Blocked - reviewer can only post reviews, not create PRs.
-
-        This ensures the human maintains control over what PRs are opened in their name.
-        egg can push branches in user mode, but the human decides which become PRs.
 
         Args:
             repo: Repository in "owner/repo" format
@@ -838,34 +710,22 @@ class PolicyEngine:
                 },
             )
 
-        if auth_mode == "user":
-            configured_user = self._get_configured_user()
-            logger.info(
-                "PR creation blocked in user mode",
-                repo=repo,
-                configured_user=configured_user,
-            )
-            return PolicyResult(
-                allowed=False,
-                reason="PR creation is not allowed in user mode. "
-                "Create the PR manually via GitHub UI.",
-                details={
-                    "repo": repo,
-                    "auth_mode": "user",
-                    "configured_user": configured_user,
-                    "hint": "Push your branch, then create the PR at github.com",
-                },
-            )
-
-        # Bot mode: always allowed
+        # Bot and user mode: allowed
+        force_draft = auth_mode == "user"
         logger.debug(
-            "PR creation allowed (bot mode)",
+            "PR creation allowed",
             repo=repo,
+            auth_mode=auth_mode,
+            force_draft=force_draft,
         )
         return PolicyResult(
             allowed=True,
-            reason="PR creation allowed in bot mode",
-            details={"repo": repo, "auth_mode": "bot"},
+            reason=f"PR creation allowed in {auth_mode} mode",
+            details={
+                "repo": repo,
+                "auth_mode": auth_mode,
+                "force_draft": force_draft,
+            },
         )
 
     def check_merge_allowed(self, repo: str, pr_number: int) -> PolicyResult:
