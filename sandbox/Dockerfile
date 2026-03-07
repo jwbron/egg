@@ -7,6 +7,11 @@
 FROM ubuntu:22.04
 
 ENV DEBIAN_FRONTEND=noninteractive
+# Set GOPATH to /usr/local so the Go module cache populated during `docker build`
+# (via build_commands in repositories.yaml) is accessible at runtime. Without this,
+# Go defaults to $HOME/go at runtime and can't find modules cached under /usr/local/pkg/mod/,
+# causing proxy.golang.org lookups that fail in private mode.
+ENV GOPATH=/usr/local
 
 # Install comprehensive development tools
 RUN apt-get update && apt-get install -y \
