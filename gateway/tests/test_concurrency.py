@@ -552,7 +552,7 @@ class TestPolicyEngineCacheConcurrency:
         policy_engine.check_pr_ownership("owner/repo", 999)
 
         # Manually make cache entry stale
-        cache_key = ("owner/repo", 999)
+        cache_key = ("owner/repo", 999, "bot")
         if cache_key in policy_engine._pr_cache:
             old_entry = policy_engine._pr_cache[cache_key]
             policy_engine._pr_cache[cache_key] = CachedPRInfo(
