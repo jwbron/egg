@@ -44,14 +44,15 @@ Before complex tasks, **read `$EGG_REPO_PATH/docs/index.md`** — it is continuo
 
 `~/repos/` is the **workspace mount point** — it contains repositories, but is NOT itself a git repository. **Never run git commands from `~/repos/` directly.**
 
-Before running any git command, verify you are inside an actual repository:
+Before running any git command, ensure you target an actual repository directory:
 ```bash
-# If CWD is ~/repos/, find the repo first:
-ls ~/repos/    # identify the repo directory
-cd ~/repos/<repo-name>/
+# Use $EGG_REPO_PATH if it points to a specific repo (e.g., ~/repos/egg/)
+# If $EGG_REPO_PATH is ~/repos/, identify the repo first:
+ls ~/repos/
+# Then use absolute paths: git -C ~/repos/<repo-name>/ status
 ```
 
-If `EGG_REPO_PATH` points to a specific repo (e.g., `~/repos/egg/`), use that. If it points to `~/repos/`, list the directory contents to find the actual repository.
+If `EGG_REPO_PATH` points to a specific repo (e.g., `~/repos/egg/`), use that directly. If it points to `~/repos/`, list the directory contents to find the actual repository and use absolute paths or `git -C`.
 
 ## Workflow
 

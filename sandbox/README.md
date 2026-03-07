@@ -106,7 +106,7 @@ sandbox/
 ## Container Filesystem
 
 ```
-~/repos/                      # Code workspace (RW) - mounted repositories
+~/repos/                      # Code workspace (RW) - contains repos, NOT itself a git repo
 ~/sharing/                    # Shared with host (mounted from ~/.egg-sharing/)
 ├── notifications/           # Agent -> Human (notifications)
 ├── incoming/                # Human -> Agent (tasks)
