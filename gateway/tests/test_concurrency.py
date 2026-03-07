@@ -460,7 +460,7 @@ class TestPolicyEngineCacheConcurrency:
         call_count = {"get_pr_info": 0, "list_prs_for_branch": 0}
         lock = threading.Lock()
 
-        def mock_get_pr_info(repo, pr_number, mode="app"):
+        def mock_get_pr_info(repo, pr_number, mode="bot"):
             with lock:
                 call_count["get_pr_info"] += 1
             time.sleep(0.01)  # Simulate network latency
@@ -471,7 +471,7 @@ class TestPolicyEngineCacheConcurrency:
                 "headRefName": "feature",
             }
 
-        def mock_list_prs_for_branch(repo, branch, state="open", mode="app"):
+        def mock_list_prs_for_branch(repo, branch, state="open", mode="bot"):
             with lock:
                 call_count["list_prs_for_branch"] += 1
             time.sleep(0.01)
