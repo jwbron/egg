@@ -336,9 +336,9 @@ class PolicyEngine:
             login = author
         return login.lower() == configured_user.lower()
 
-    def _get_pr_info(self, repo: str, pr_number: int) -> CachedPRInfo | None:
+    def _get_pr_info(self, repo: str, pr_number: int, mode: str = "bot") -> CachedPRInfo | None:
         """Get PR info, using cache if available and fresh."""
-        cache_key = (repo, pr_number)
+        cache_key = (repo, pr_number, mode)
 
         # Check cache
         cached: CachedPRInfo | None = self._pr_cache.get(cache_key)
@@ -346,7 +346,7 @@ class PolicyEngine:
             return cached
 
         # Fetch from GitHub
-        pr_data = self.github.get_pr_info(repo, pr_number)
+        pr_data = self.github.get_pr_info(repo, pr_number, mode=mode)
         if not pr_data:
             return None
 
@@ -362,9 +362,9 @@ class PolicyEngine:
         self._pr_cache[cache_key] = cached_info
         return cached_info
 
-    def _get_prs_for_branch(self, repo: str, branch: str) -> list[int]:
+    def _get_prs_for_branch(self, repo: str, branch: str, mode: str = "bot") -> list[int]:
         """Get open PR numbers for a branch, using cache if available."""
-        cache_key = (repo, branch)
+        cache_key = (repo, branch, mode)
 
         # Check cache (2 minute TTL for branch->PR mapping)
         cached = self._branch_pr_cache.get(cache_key)
@@ -374,7 +374,7 @@ class PolicyEngine:
                 return list(pr_numbers)
 
         # Fetch from GitHub
-        prs = self.github.list_prs_for_branch(repo, branch, state="open")
+        prs = self.github.list_prs_for_branch(repo, branch, state="open", mode=mode)
         pr_numbers = [pr.get("number") for pr in prs if pr.get("number")]
         self._branch_pr_cache[cache_key] = (pr_numbers, datetime.now(UTC).timestamp())
 
@@ -383,7 +383,7 @@ class PolicyEngine:
             pr_number = pr.get("number")
             if pr_number:
                 author = pr.get("author", {})
-                self._pr_cache[(repo, pr_number)] = CachedPRInfo(
+                self._pr_cache[(repo, pr_number, mode)] = CachedPRInfo(
                     pr_number=pr_number,
                     author=author.get("login", "") if isinstance(author, dict) else str(author),
                     state=pr.get("state", ""),
@@ -406,7 +406,7 @@ class PolicyEngine:
             pr_number: PR number
             auth_mode: "bot" (default) or "user"
         """
-        pr_info = self._get_pr_info(repo, pr_number)
+        pr_info = self._get_pr_info(repo, pr_number, mode=auth_mode)
 
         if not pr_info:
             logger.warning(
@@ -470,13 +470,20 @@ class PolicyEngine:
             details={"author": pr_info.author, "expected": expected, "auth_mode": auth_mode},
         )
 
-    def check_pr_comment_allowed(self, repo: str, pr_number: int) -> PolicyResult:
+    def check_pr_comment_allowed(
+        self, repo: str, pr_number: int, auth_mode: str = "bot"
+    ) -> PolicyResult:
         """
         Check if egg can comment on a PR.
 
         Egg can comment on ANY PR - this enables collaboration on PRs owned by others.
+
+        Args:
+            repo: Repository in "owner/repo" format
+            pr_number: PR number
+            auth_mode: "bot" (default) or "user"
         """
-        pr_info = self._get_pr_info(repo, pr_number)
+        pr_info = self._get_pr_info(repo, pr_number, mode=auth_mode)
 
         if not pr_info:
             logger.warning(
@@ -615,9 +622,9 @@ class PolicyEngine:
                 )
 
             # Branch exists - check for open PR by egg or configured user
-            pr_numbers = self._get_prs_for_branch(repo, branch)
+            pr_numbers = self._get_prs_for_branch(repo, branch, mode=auth_mode)
             for pr_number in pr_numbers:
-                pr_info = self._get_pr_info(repo, pr_number)
+                pr_info = self._get_pr_info(repo, pr_number, mode=auth_mode)
                 if not pr_info:
                     continue
 
@@ -897,7 +904,7 @@ class PolicyEngine:
             pr_number: PR number
             auth_mode: "bot" (default), "user", or "reviewer"
         """
-        pr_info = self._get_pr_info(repo, pr_number)
+        pr_info = self._get_pr_info(repo, pr_number, mode=auth_mode)
 
         if not pr_info:
             logger.warning(
