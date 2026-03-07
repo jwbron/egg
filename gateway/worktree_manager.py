@@ -337,6 +337,20 @@ class WorktreeManager:
             if result.returncode != 0:
                 raise RuntimeError(f"Failed to create worktree: {result.stderr}")
 
+            # Lock the worktree so git worktree prune never removes its admin
+            # dir while the container is alive.  Without this, git gc --auto
+            # (triggered e.g. by git fetch) can run git worktree prune and
+            # delete the admin dir if the worktree path is momentarily
+            # inaccessible, breaking all subsequent git operations in the
+            # container.  git worktree remove --force handles locked worktrees
+            # correctly, so removal still works.
+            subprocess.run(
+                git_cmd("worktree", "lock", str(worktree_path)),
+                cwd=main_repo,
+                capture_output=True,
+                check=False,
+            )
+
         # Set ownership so the container user can write to the worktree
         self._chown_recursive(worktree_path, uid, gid)
         # Also ensure the container directory itself is writable (non-recursive)

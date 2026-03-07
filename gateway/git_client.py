@@ -52,8 +52,23 @@ def git_cmd(*args: str) -> list[str]:
       A malicious repo could include hooks that execute arbitrary code on the gateway
       (outside the sandbox). By pointing hooksPath to /dev/null (not a directory),
       git will never find any hooks to execute. See issue #58.
+    - gc.auto=0: Prevent automatic garbage collection. git gc --auto runs
+      git worktree prune as part of cleanup, which can delete worktree admin
+      directories if their paths appear temporarily inaccessible (e.g., during
+      Docker mount races). Disabling auto-gc prevents mid-session admin dir
+      deletion. Garbage collection still runs at gateway startup via the
+      explicit prune_stale_worktrees() call.
     """
-    return [GIT_CLI, "-c", "safe.directory=*", "-c", "core.hooksPath=/dev/null", *args]
+    return [
+        GIT_CLI,
+        "-c",
+        "safe.directory=*",
+        "-c",
+        "core.hooksPath=/dev/null",
+        "-c",
+        "gc.auto=0",
+        *args,
+    ]
 
 
 def ssh_url_to_https(url: str) -> str:
