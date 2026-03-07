@@ -887,13 +887,14 @@ class GitHubClient:
                 returncode=-1,
             )
 
-    def get_pr_info(self, repo: str, pr_number: int) -> dict[str, Any] | None:
+    def get_pr_info(self, repo: str, pr_number: int, mode: str = "bot") -> dict[str, Any] | None:
         """
         Get information about a PR.
 
         Args:
             repo: Repository in "owner/repo" format
             pr_number: PR number
+            mode: Auth mode - "bot" or "user" (use user mode for private repos)
 
         Returns:
             PR info dict or None on error
@@ -907,7 +908,8 @@ class GitHubClient:
                 repo,
                 "--json",
                 "number,title,author,state,headRefName,baseRefName",
-            ]
+            ],
+            mode=mode,
         )
 
         if not result.success:

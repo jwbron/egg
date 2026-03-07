@@ -796,6 +796,59 @@ class TestUserModeBranchOwnership:
         assert result.details is not None
         assert "hint" in result.details
 
+    def test_user_mode_passes_mode_to_list_prs(self, policy_engine, mock_github_client):
+        """User mode passes mode='user' to list_prs_for_branch."""
+        mock_github_client.branch_exists.return_value = True
+        mock_github_client.list_prs_for_branch.return_value = []
+
+        policy_engine.check_branch_ownership("owner/repo", "feature", auth_mode="user")
+
+        mock_github_client.list_prs_for_branch.assert_called_once_with(
+            "owner/repo", "feature", state="open", mode="user"
+        )
+
+    def test_user_mode_passes_mode_to_get_pr_info(self, policy_engine, mock_github_client):
+        """User mode passes mode='user' to get_pr_info when PR cache is cold."""
+        mock_github_client.branch_exists.return_value = True
+        mock_github_client.list_prs_for_branch.return_value = [
+            {
+                "number": 123,
+                "author": {"login": "james-in-a-box"},
+                "state": "open",
+                "headRefName": "feature",
+            }
+        ]
+        mock_github_client.get_pr_info.return_value = {
+            "number": 123,
+            "author": {"login": "james-in-a-box"},
+            "state": "open",
+            "headRefName": "feature",
+        }
+
+        # Clear the PR cache that _get_prs_for_branch pre-populates,
+        # so _get_pr_info must call github.get_pr_info
+        policy_engine._pr_cache.clear()
+
+        policy_engine._get_pr_info("owner/repo", 123, mode="user")
+
+        mock_github_client.get_pr_info.assert_called_once_with("owner/repo", 123, mode="user")
+
+    def test_check_pr_ownership_passes_mode_to_get_pr_info(self, policy_engine, mock_github_client):
+        """check_pr_ownership passes auth_mode through to _get_pr_info."""
+        mock_github_client.get_pr_info.return_value = {
+            "number": 123,
+            "author": {"login": "egg"},
+            "state": "open",
+            "headRefName": "feature",
+        }
+
+        # Clear cache so _get_pr_info must call github.get_pr_info
+        policy_engine._pr_cache.clear()
+
+        policy_engine.check_pr_ownership("owner/repo", 123, auth_mode="user")
+
+        mock_github_client.get_pr_info.assert_called_once_with("owner/repo", 123, mode="user")
+
 
 class TestBotAuthorFormats:
     """Tests for different author data formats (string vs dict)."""
@@ -1008,8 +1061,8 @@ class TestPRCacheBehavior:
         # First call
         policy_engine.check_pr_ownership("owner/repo", 123)
 
-        # Manually stale the cache entry
-        cache_key = ("owner/repo", 123)
+        # Manually stale the cache entry (cache key includes mode)
+        cache_key = ("owner/repo", 123, "bot")
         if cache_key in policy_engine._pr_cache:
             cached = policy_engine._pr_cache[cache_key]
             # Set fetched_at to 10 minutes ago
@@ -1045,9 +1098,9 @@ class TestPRCacheBehavior:
         # Trigger branch ownership check which fetches PRs
         policy_engine.check_branch_ownership("owner/repo", "feature")
 
-        # Both PRs should now be in the cache
-        assert ("owner/repo", 123) in policy_engine._pr_cache
-        assert ("owner/repo", 456) in policy_engine._pr_cache
+        # Both PRs should now be in the cache (cache key includes mode)
+        assert ("owner/repo", 123, "bot") in policy_engine._pr_cache
+        assert ("owner/repo", 456, "bot") in policy_engine._pr_cache
 
 
 class TestPRCreatePolicy:
@@ -1191,6 +1244,22 @@ class TestReviewerModePolicy:
 
         result = policy_engine.check_pr_review_allowed("owner/repo", 123, auth_mode="bot")
         assert result.allowed
+
+    def test_pr_review_passes_mode_to_get_pr_info(self, policy_engine, mock_github_client):
+        """check_pr_review_allowed passes auth_mode through to _get_pr_info."""
+        mock_github_client.get_pr_info.return_value = {
+            "number": 123,
+            "author": {"login": "egg"},
+            "state": "open",
+            "headRefName": "feature",
+        }
+
+        # Clear cache so _get_pr_info must call github.get_pr_info
+        policy_engine._pr_cache.clear()
+
+        policy_engine.check_pr_review_allowed("owner/repo", 123, auth_mode="reviewer")
+
+        mock_github_client.get_pr_info.assert_called_once_with("owner/repo", 123, mode="reviewer")
 
     def test_pr_review_denied_pr_not_found(self, policy_engine, mock_github_client):
         """PR review is denied if PR not found."""

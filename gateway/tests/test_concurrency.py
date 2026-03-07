@@ -460,7 +460,7 @@ class TestPolicyEngineCacheConcurrency:
         call_count = {"get_pr_info": 0, "list_prs_for_branch": 0}
         lock = threading.Lock()
 
-        def mock_get_pr_info(repo, pr_number):
+        def mock_get_pr_info(repo, pr_number, mode="bot"):
             with lock:
                 call_count["get_pr_info"] += 1
             time.sleep(0.01)  # Simulate network latency
@@ -552,7 +552,7 @@ class TestPolicyEngineCacheConcurrency:
         policy_engine.check_pr_ownership("owner/repo", 999)
 
         # Manually make cache entry stale
-        cache_key = ("owner/repo", 999)
+        cache_key = ("owner/repo", 999, "bot")
         if cache_key in policy_engine._pr_cache:
             old_entry = policy_engine._pr_cache[cache_key]
             policy_engine._pr_cache[cache_key] = CachedPRInfo(
