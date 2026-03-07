@@ -937,6 +937,7 @@ FLAG_NORMALIZATION = {
     "describe": {},
     "config": {},
     "merge-base": {},
+    "diff-tree": {},
     "reflog": {},
 }
 

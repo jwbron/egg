@@ -263,6 +263,19 @@ class TestValidateGitArgs:
         assert not valid
         assert "not allowed" in error.lower()
 
+    def test_diff_tree_flags_accepted(self):
+        """diff-tree flags should be accepted."""
+        valid, _error, normalized = validate_git_args("diff-tree", ["--name-status", "-r", "HEAD"])
+        assert valid
+        assert "--name-status" in normalized
+        assert "-r" in normalized
+
+    def test_diff_tree_unknown_flag_rejected(self):
+        """Unknown flags for diff-tree should be rejected."""
+        valid, error, _normalized = validate_git_args("diff-tree", ["--exec=evil"])
+        assert not valid
+        assert "not allowed" in error.lower()
+
     # --- Regression tests for per-subcommand flag normalization ---
 
     def test_stash_u_accepted(self):
