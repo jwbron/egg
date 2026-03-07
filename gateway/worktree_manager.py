@@ -344,12 +344,20 @@ class WorktreeManager:
             # inaccessible, breaking all subsequent git operations in the
             # container.  git worktree remove --force handles locked worktrees
             # correctly, so removal still works.
-            subprocess.run(
+            lock_result = subprocess.run(
                 git_cmd("worktree", "lock", str(worktree_path)),
                 cwd=main_repo,
                 capture_output=True,
+                text=True,
                 check=False,
             )
+            if lock_result.returncode != 0:
+                logger.warning(
+                    "Failed to lock worktree",
+                    container_id=container_id,
+                    repo=repo_name,
+                    stderr=lock_result.stderr.strip(),
+                )
 
         # Set ownership so the container user can write to the worktree
         self._chown_recursive(worktree_path, uid, gid)
