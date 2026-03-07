@@ -887,13 +887,14 @@ class GitHubClient:
                 returncode=-1,
             )
 
-    def get_pr_info(self, repo: str, pr_number: int) -> dict[str, Any] | None:
+    def get_pr_info(self, repo: str, pr_number: int, mode: str = "bot") -> dict[str, Any] | None:
         """
         Get information about a PR.
 
         Args:
             repo: Repository in "owner/repo" format
             pr_number: PR number
+            mode: Auth mode - "bot" or "user" (use user mode for private repos)
 
         Returns:
             PR info dict or None on error
@@ -907,7 +908,8 @@ class GitHubClient:
                 repo,
                 "--json",
                 "number,title,author,state,headRefName,baseRefName",
-            ]
+            ],
+            mode=mode,
         )
 
         if not result.success:
@@ -921,7 +923,7 @@ class GitHubClient:
             return None
 
     def list_prs_for_branch(
-        self, repo: str, branch: str, state: str = "open"
+        self, repo: str, branch: str, state: str = "open", mode: str = "bot"
     ) -> list[dict[str, Any]]:
         """
         List PRs for a specific head branch.
@@ -930,6 +932,7 @@ class GitHubClient:
             repo: Repository in "owner/repo" format
             branch: Head branch name
             state: PR state filter (open, closed, all)
+            mode: Auth mode - "bot" or "user" (use user mode for private repos)
 
         Returns:
             List of PR info dicts
@@ -946,7 +949,8 @@ class GitHubClient:
                 state,
                 "--json",
                 "number,title,author,state,headRefName",
-            ]
+            ],
+            mode=mode,
         )
 
         if not result.success:
