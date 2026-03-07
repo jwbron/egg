@@ -178,11 +178,18 @@ if [ -n "${HOST_UID:-}" ] && [ -n "${HOST_GID:-}" ] && [ "$(id -u)" = "0" ]; the
     # ownership, so these directories may be root-owned inside the
     # container. Only chown the top-level directories (not recursive) —
     # repo file contents are managed by git/gateway worktree operations.
+    # Also chown .git/worktrees/ in each repo so the gateway can create
+    # worktree admin dirs even if a previous root-privileged session left
+    # them root-owned (e.g., sessions before HOST_UID privilege drop was
+    # introduced).
     if [ -d /home/egg/repos ]; then
         chown "$HOST_UID:$HOST_GID" /home/egg/repos
         for repo_dir in /home/egg/repos/*/; do
             if [ -d "$repo_dir" ]; then
                 chown "$HOST_UID:$HOST_GID" "$repo_dir"
+                if [ -d "$repo_dir/.git/worktrees" ]; then
+                    chown -R "$HOST_UID:$HOST_GID" "$repo_dir/.git/worktrees"
+                fi
             fi
         done
     fi
