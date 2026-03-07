@@ -40,6 +40,19 @@ Before complex tasks, **read `$EGG_REPO_PATH/docs/index.md`** — it is continuo
 - **Create PRs**: `gh pr create --head <remote-branch> --title "..." --body "..." --base main`
 - **Get owner/repo**: Check `git remote -v` first - don't assume
 
+## Working Directory
+
+`~/repos/` is the **workspace mount point** — it contains repositories, but is NOT itself a git repository. **Never run git commands from `~/repos/` directly.**
+
+Before running any git command, verify you are inside an actual repository:
+```bash
+# If CWD is ~/repos/, find the repo first:
+ls ~/repos/    # identify the repo directory
+cd ~/repos/<repo-name>/
+```
+
+If `EGG_REPO_PATH` points to a specific repo (e.g., `~/repos/egg/`), use that. If it points to `~/repos/`, list the directory contents to find the actual repository.
+
 ## Workflow
 
 ### 1. Gather Context → 2. Plan → 3. Implement → 4. Test → 5. Commit & PR
