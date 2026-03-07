@@ -46,7 +46,7 @@ Agent role can be omitted when `EGG_AGENT_ROLE` is set.
 | `EGG_PIPELINE_ID` | Current pipeline ID (auto-set in orchestrated mode) |
 | `EGG_AGENT_ROLE` | Current agent role (auto-set in orchestrated mode) |
 | `EGG_ISSUE_NUMBER` | Current issue number |
-| `EGG_REPO_PATH` | Repository path (auto-set, defaults to `~/repos`) |
+| `EGG_REPO_PATH` | Repository path (auto-set; points to specific repo when one exists, otherwise `~/repos/` — check with `ls` before running git commands) |
 | `GATEWAY_URL` | Gateway URL (default: `http://egg-gateway:9848`) |
 
 ## Common Workflows
