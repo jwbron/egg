@@ -701,11 +701,11 @@ class PolicyEngine:
             )
 
         # Check 2-4: Open PR by egg, configured user, or trusted user
-        pr_numbers = self._get_prs_for_branch(repo, branch)
+        pr_numbers = self._get_prs_for_branch(repo, branch, mode=auth_mode)
         configured_user = self._get_configured_user()
 
         for pr_number in pr_numbers:
-            pr_info = self._get_pr_info(repo, pr_number)
+            pr_info = self._get_pr_info(repo, pr_number, mode=auth_mode)
             if not pr_info:
                 continue
 
