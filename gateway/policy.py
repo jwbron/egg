@@ -470,13 +470,20 @@ class PolicyEngine:
             details={"author": pr_info.author, "expected": expected, "auth_mode": auth_mode},
         )
 
-    def check_pr_comment_allowed(self, repo: str, pr_number: int) -> PolicyResult:
+    def check_pr_comment_allowed(
+        self, repo: str, pr_number: int, auth_mode: str = "bot"
+    ) -> PolicyResult:
         """
         Check if egg can comment on a PR.
 
         Egg can comment on ANY PR - this enables collaboration on PRs owned by others.
+
+        Args:
+            repo: Repository in "owner/repo" format
+            pr_number: PR number
+            auth_mode: "bot" (default) or "user"
         """
-        pr_info = self._get_pr_info(repo, pr_number)
+        pr_info = self._get_pr_info(repo, pr_number, mode=auth_mode)
 
         if not pr_info:
             logger.warning(

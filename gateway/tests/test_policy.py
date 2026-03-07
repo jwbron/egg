@@ -353,6 +353,19 @@ class TestPolicyEngine:
         assert not result.allowed
         assert "not found" in result.reason
 
+    def test_pr_comment_user_mode_passes_mode(self, policy_engine, mock_github_client):
+        """User mode passes mode='user' to get_pr_info for PR comments."""
+        mock_github_client.get_pr_info.return_value = {
+            "number": 123,
+            "author": {"login": "human"},
+            "state": "open",
+            "headRefName": "feature",
+        }
+
+        result = policy_engine.check_pr_comment_allowed("owner/repo", 123, auth_mode="user")
+        assert result.allowed
+        mock_github_client.get_pr_info.assert_called_once_with("owner/repo", 123, mode="user")
+
 
 class TestTrustedBranchOwners:
     """Tests for trusted branch owners functionality."""

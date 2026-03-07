@@ -2353,7 +2353,7 @@ def gh_pr_comment() -> tuple[Response, int] | Response:
 
     # Check if commenting is allowed (allowed on any PR)
     policy = get_policy_engine()
-    policy_result = policy.check_pr_comment_allowed(repo, pr_number)
+    policy_result = policy.check_pr_comment_allowed(repo, pr_number, auth_mode=auth_mode)
 
     if not policy_result.allowed:
         audit_log(
