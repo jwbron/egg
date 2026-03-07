@@ -16,11 +16,13 @@ by their different workflows.
 
 ## What's Shared (single source of truth)
 
-Both reviewers read from the same files in `shared/prompts/`:
+Both reviewers read `code-review-criteria.md` for code reviews. The SDLC reviewer
+also reads `contract-review-criteria.md` and `agent-design-criteria.md` for its
+additional reviewer types. All shared files live in `shared/prompts/`:
 
-- `code-review-criteria.md` — security, correctness, robustness, design, severity classification
-- `contract-review-criteria.md` — task/contract verification
-- `agent-design-criteria.md` — agent-mode anti-patterns
+- `code-review-criteria.md` — security, correctness, robustness, design, severity classification (both reviewers)
+- `contract-review-criteria.md` — task/contract verification (SDLC reviewer only)
+- `agent-design-criteria.md` — agent-mode anti-patterns (SDLC reviewer only)
 
 Each reviewer has an inline fallback for when the shared file can't be loaded.
 **Inline fallbacks must match the shared file content.**

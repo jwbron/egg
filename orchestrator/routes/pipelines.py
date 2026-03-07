@@ -1684,33 +1684,36 @@ def _build_review_prompt(
     )
     lines.append("")
 
-    # Verdict classification — aligned with PR reviewer's review-conventions.md
-    lines.append("### When to Use `needs_revision` vs `approved`\n")
-    lines.append(
-        "**Use `needs_revision` for**: Security vulnerabilities, logic errors, correctness "
-        "issues, non-functional features (core purpose doesn't work end-to-end), missing "
-        "error handling, resource leaks, breaking changes, violations of codebase patterns. "
-        "When in doubt, use `needs_revision`."
-    )
-    lines.append(
-        "**Use `approved` for**: No blocking issues found after thorough review. "
-        "Non-blocking suggestions belong in the `suggestions` field."
-    )
-    lines.append("")
-    lines.append(
-        "**Key distinction**: A feature that doesn't work is a correctness issue, not a "
-        "style issue. If the feature's core functionality is broken — not just degraded or "
-        "missing edge cases — always use `needs_revision`, even if the code structure looks "
-        "reasonable or matches an existing pattern."
-    )
-    lines.append(
-        "**Pre-existing issues are still blocking**: If the code being reviewed modifies "
-        "areas with existing broken or inconsistent behavior, use `needs_revision` — do not "
-        'dismiss it as "not a regression." The code is already being changed in that area, '
-        "making it the natural place to fix the issue. Code that adds new paths through "
-        "already-broken logic makes the problem worse."
-    )
-    lines.append("")
+    # Verdict classification — only for code reviewers (aligned with review-conventions.md)
+    # Non-code reviewers get appropriate guidance from their type-specific criteria
+    # (e.g., _get_plan_review_criteria() already says "flag as needs_revision")
+    if reviewer_type == "code":
+        lines.append("### When to Use `needs_revision` vs `approved`\n")
+        lines.append(
+            "**Use `needs_revision` for**: Security vulnerabilities, logic errors, correctness "
+            "issues, non-functional features (core purpose doesn't work end-to-end), missing "
+            "error handling, resource leaks, breaking changes, violations of codebase patterns. "
+            "When in doubt, use `needs_revision`."
+        )
+        lines.append(
+            "**Use `approved` for**: No blocking issues found after thorough review. "
+            "Non-blocking suggestions belong in the `suggestions` field."
+        )
+        lines.append("")
+        lines.append(
+            "**Key distinction**: A feature that doesn't work is a correctness issue, not a "
+            "style issue. If the feature's core functionality is broken — not just degraded or "
+            "missing edge cases — always use `needs_revision`, even if the code structure looks "
+            "reasonable or matches an existing pattern."
+        )
+        lines.append(
+            "**Pre-existing issues are still blocking**: If the code being reviewed modifies "
+            "areas with existing broken or inconsistent behavior, use `needs_revision` — do not "
+            'dismiss it as "not a regression." The code is already being changed in that area, '
+            "making it the natural place to fix the issue. Code that adds new paths through "
+            "already-broken logic makes the problem worse."
+        )
+        lines.append("")
 
     # Delta review directive for re-reviews
     if is_delta_review:
