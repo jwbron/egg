@@ -926,7 +926,9 @@ def _get_code_review_criteria(repo_path: str | None = None) -> str:
         "- Logic errors, off-by-one, boundary conditions\n"
         "- Race conditions, deadlocks, concurrency bugs\n"
         "- Null/undefined handling, missing error paths\n"
-        "- Resource leaks (connections, file handles, memory)\n\n"
+        "- Resource leaks (connections, file handles, memory)\n"
+        "- End-to-end feature functionality: verify new features work in their "
+        "real execution environment\n\n"
         "### Robustness\n"
         "- Missing input validation at trust boundaries\n"
         "- Unhandled exceptions that could crash the system\n"
@@ -935,7 +937,35 @@ def _get_code_review_criteria(repo_path: str | None = None) -> str:
         "### Design\n"
         "- Violations of existing codebase patterns\n"
         "- Breaking changes to public interfaces\n"
-        "- Tight coupling that will hinder future changes\n"
+        "- Tight coupling that will hinder future changes\n\n"
+        "### Severity Classification\n\n"
+        "**Blocking** (request changes):\n"
+        "- Security vulnerabilities\n"
+        "- Non-functional features — the feature's core purpose does not work "
+        "end-to-end\n"
+        "- Logic errors that produce incorrect results\n"
+        "- Breaking changes to existing functionality\n"
+        "- Resource leaks or crashes\n"
+        "- Pre-existing broken or inconsistent behavior in code the PR "
+        "modifies\n\n"
+        "**Non-blocking** (suggestions):\n"
+        "- Code quality improvements (naming, structure, duplication)\n"
+        "- Defense-in-depth additions\n"
+        "- Missing edge case handling that doesn't affect the core feature\n"
+        "- Documentation gaps\n"
+        "- Style or convention deviations not caught by linters\n\n"
+        "**Do not dismiss issues as 'not a regression'**: If a PR modifies "
+        "code that has existing broken or inconsistent behavior, the issue is "
+        "blocking even if the PR didn't introduce it. A PR that adds a new "
+        "code path through already-inconsistent logic makes the inconsistency "
+        "worse.\n\n"
+        "**Beware of false analogies**: When comparing new code to existing "
+        "patterns, verify the analogy holds at the execution-model level. "
+        "Two features may look structurally similar in config but have "
+        "completely different execution paths. If the existing pattern works "
+        "via mechanism A but the new code relies on mechanism B that doesn't "
+        "exist, the comparison is invalid — classify based on actual "
+        "functionality, not superficial similarity.\n"
     )
 
 
@@ -1590,11 +1620,16 @@ def _build_review_prompt(
         lines.append(
             "4. Trace data flow from input to output, especially for security-sensitive paths"
         )
-        lines.append("5. Research when uncertain — look up library behavior, check documentation")
-        lines.append("6. Consider edge cases the author may not have tested")
-        lines.append("7. Evaluate against the criteria below")
-        lines.append(f"8. Write your verdict to `{verdict_path}` as JSON")
-        lines.append("9. Commit the verdict file")
+        lines.append(
+            "5. Verify end-to-end functionality — for new features, trace the complete "
+            "execution path in the real deployment environment. Check that config files, "
+            "environment variables, and dependencies are actually available where the code runs"
+        )
+        lines.append("6. Research when uncertain — look up library behavior, check documentation")
+        lines.append("7. Consider edge cases the author may not have tested")
+        lines.append("8. Evaluate against the criteria below")
+        lines.append(f"9. Write your verdict to `{verdict_path}` as JSON")
+        lines.append("10. Commit the verdict file")
     elif draft_path:
         # Expanded procedural steps for draft-based (non-code) reviewers
         lines.append("2. Read the draft thoroughly — do not skim")
@@ -1648,6 +1683,37 @@ def _build_review_prompt(
         "the risk, or the principle being violated."
     )
     lines.append("")
+
+    # Verdict classification — only for code reviewers (aligned with review-conventions.md)
+    # Non-code reviewers get appropriate guidance from their type-specific criteria
+    # (e.g., _get_plan_review_criteria() already says "flag as needs_revision")
+    if reviewer_type == "code":
+        lines.append("### When to Use `needs_revision` vs `approved`\n")
+        lines.append(
+            "**Use `needs_revision` for**: Security vulnerabilities, logic errors, correctness "
+            "issues, non-functional features (core purpose doesn't work end-to-end), missing "
+            "error handling, resource leaks, breaking changes, violations of codebase patterns. "
+            "When in doubt, use `needs_revision`."
+        )
+        lines.append(
+            "**Use `approved` for**: No blocking issues found after thorough review. "
+            "Non-blocking suggestions belong in the `suggestions` field."
+        )
+        lines.append("")
+        lines.append(
+            "**Key distinction**: A feature that doesn't work is a correctness issue, not a "
+            "style issue. If the feature's core functionality is broken — not just degraded or "
+            "missing edge cases — always use `needs_revision`, even if the code structure looks "
+            "reasonable or matches an existing pattern."
+        )
+        lines.append(
+            "**Pre-existing issues are still blocking**: If the code being reviewed modifies "
+            "areas with existing broken or inconsistent behavior, use `needs_revision` — do not "
+            'dismiss it as "not a regression." The code is already being changed in that area, '
+            "making it the natural place to fix the issue. Code that adds new paths through "
+            "already-broken logic makes the problem worse."
+        )
+        lines.append("")
 
     # Delta review directive for re-reviews
     if is_delta_review:

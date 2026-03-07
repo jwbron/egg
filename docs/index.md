@@ -97,6 +97,7 @@ Each major component has detailed documentation:
 | **GitHub Action setup** | [GitHub Action README](../action/README.md) | [Architecture Overview](architecture/README.md) |
 | **Adding tests** | [Contributing](../CONTRIBUTING.md) | [Project Structure](development/STRUCTURE.md) |
 | **Setting up GitHub automation** | [GitHub Automation](guides/github-automation.md) | [Agent-Mode Design](guides/agent-mode-design.md), [GitHub Action](../action/README.md) |
+| **Modifying review criteria** | [Reviewer Sync Guide](../shared/prompts/REVIEWER-SYNC.md) | [GitHub Automation](guides/github-automation.md), [Code Review Criteria](../shared/prompts/code-review-criteria.md) |
 | **Using workflows in external repos** | [Reusable Workflows](guides/reusable-workflows.md) | [GitHub Automation](guides/github-automation.md), [GitHub Action](../action/README.md) |
 | **Designing agent workflows** | [Agent-Mode Design](guides/agent-mode-design.md) | [Architecture Overview](architecture/README.md) |
 | **Adding bot workflows** | [Agent-Mode Design](guides/agent-mode-design.md) | [Action README](../action/README.md), existing workflows in `.github/workflows/` |
