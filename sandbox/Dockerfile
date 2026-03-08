@@ -7,6 +7,12 @@
 FROM ubuntu:22.04
 
 ENV DEBIAN_FRONTEND=noninteractive
+# Point GOMODCACHE at the module cache populated during `docker build`
+# (via build_commands in repositories.yaml). Without this, Go defaults to
+# $HOME/go/pkg/mod at runtime and can't find modules cached under
+# /usr/local/pkg/mod/, causing proxy.golang.org lookups that fail in private mode.
+# Using GOMODCACHE instead of GOPATH avoids side effects on GOBIN/GOPATH/src.
+ENV GOMODCACHE=/usr/local/pkg/mod
 
 # Install comprehensive development tools
 RUN apt-get update && apt-get install -y \
