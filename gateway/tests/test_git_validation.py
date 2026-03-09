@@ -898,3 +898,77 @@ class TestSharedHelperFunctions:
             assert "EXISTING" in updated_env
         finally:
             git_client.cleanup_credential_helper(path)
+
+
+class TestExtractCommentEditInfo:
+    """Tests for extract_comment_edit_info function."""
+
+    def test_issue_comment_patch(self):
+        """PATCH on issues/comments/{id} is detected."""
+        result = github_client.extract_comment_edit_info(
+            "repos/owner/repo/issues/comments/123", "PATCH"
+        )
+        assert result == ("owner", "repo", 123, "issues")
+
+    def test_pr_review_comment_patch(self):
+        """PATCH on pulls/comments/{id} is detected."""
+        result = github_client.extract_comment_edit_info(
+            "repos/owner/repo/pulls/comments/456", "PATCH"
+        )
+        assert result == ("owner", "repo", 456, "pulls")
+
+    def test_commit_comment_patch(self):
+        """PATCH on comments/{id} is detected."""
+        result = github_client.extract_comment_edit_info(
+            "repos/owner/repo/comments/789", "PATCH"
+        )
+        assert result == ("owner", "repo", 789, "commits")
+
+    def test_get_method_returns_none(self):
+        """GET requests are not comment edits."""
+        result = github_client.extract_comment_edit_info(
+            "repos/owner/repo/issues/comments/123", "GET"
+        )
+        assert result is None
+
+    def test_post_method_returns_none(self):
+        """POST requests are not comment edits."""
+        result = github_client.extract_comment_edit_info(
+            "repos/owner/repo/issues/comments/123", "POST"
+        )
+        assert result is None
+
+    def test_comment_list_endpoint_not_matched(self):
+        """PATCH on comment list endpoints (issues/123/comments) is not matched."""
+        result = github_client.extract_comment_edit_info(
+            "repos/owner/repo/issues/123/comments", "PATCH"
+        )
+        assert result is None
+
+    def test_leading_slash_stripped(self):
+        """Leading slash is stripped before matching."""
+        result = github_client.extract_comment_edit_info(
+            "/repos/owner/repo/issues/comments/100", "PATCH"
+        )
+        assert result == ("owner", "repo", 100, "issues")
+
+    def test_query_params_stripped(self):
+        """Query parameters are stripped before matching."""
+        result = github_client.extract_comment_edit_info(
+            "repos/owner/repo/issues/comments/100?foo=bar", "PATCH"
+        )
+        assert result == ("owner", "repo", 100, "issues")
+
+    def test_unrelated_path_returns_none(self):
+        """Non-comment API paths return None."""
+        result = github_client.extract_comment_edit_info(
+            "repos/owner/repo/pulls/42", "PATCH"
+        )
+        assert result is None
+
+    def test_case_insensitive_method(self):
+        """Method comparison is case-insensitive."""
+        result = github_client.extract_comment_edit_info(
+            "repos/owner/repo/issues/comments/1", "patch"
+        )
+        assert result == ("owner", "repo", 1, "issues")

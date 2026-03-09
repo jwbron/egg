@@ -5192,3 +5192,175 @@ class TestCheckpointRepoBypass:
 
             assert response.status_code == 200
             mock_priv_check.assert_called_once()
+
+
+class TestCommentEditOwnership:
+    """Tests for comment edit ownership enforcement in gh_execute."""
+
+    def test_patch_comment_blocked_when_not_owned(self, client, auth_headers):
+        """PATCH on an issue comment not owned by bot returns 403."""
+        with (
+            patch.object(gateway, "get_github_client") as mock_gh,
+            patch.object(gateway, "get_policy_engine") as mock_policy,
+            patch.object(gateway, "get_auth_mode", return_value="bot"),
+        ):
+            mock_engine = MagicMock()
+            mock_engine.check_comment_ownership.return_value = PolicyResult(
+                allowed=False,
+                reason="Comment 123 is not owned by bot or configured user (author: random-human)",
+            )
+            mock_policy.return_value = mock_engine
+
+            response = client.post(
+                "/api/v1/gh/execute",
+                headers=auth_headers,
+                data=json.dumps(
+                    {
+                        "args": ["api", "-X", "PATCH", "repos/owner/repo/issues/comments/123",
+                                 "-f", "body=new body"],
+                        "repo": "owner/repo",
+                    }
+                ),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 403
+            data = json.loads(response.data)
+            assert "not owned" in data["message"]
+
+    def test_patch_comment_allowed_when_owned_by_bot(self, client, auth_headers):
+        """PATCH on a comment owned by bot succeeds."""
+        with (
+            patch.object(gateway, "get_github_client") as mock_gh,
+            patch.object(gateway, "get_policy_engine") as mock_policy,
+            patch.object(gateway, "get_auth_mode", return_value="bot"),
+        ):
+            mock_engine = MagicMock()
+            mock_engine.check_comment_ownership.return_value = PolicyResult(
+                allowed=True,
+                reason="Comment is owned by bot",
+            )
+            mock_policy.return_value = mock_engine
+
+            mock_result = MagicMock()
+            mock_result.success = True
+            mock_result.stdout = '{"id": 123, "body": "new body"}'
+            mock_result.stderr = ""
+            mock_result.returncode = 0
+            mock_result.to_dict.return_value = {
+                "success": True,
+                "stdout": '{"id": 123, "body": "new body"}',
+                "stderr": "",
+                "returncode": 0,
+            }
+            mock_gh.return_value.execute.return_value = mock_result
+
+            response = client.post(
+                "/api/v1/gh/execute",
+                headers=auth_headers,
+                data=json.dumps(
+                    {
+                        "args": ["api", "-X", "PATCH", "repos/owner/repo/issues/comments/123",
+                                 "-f", "body=new body"],
+                        "repo": "owner/repo",
+                    }
+                ),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 200
+
+    def test_get_comment_no_ownership_check(self, client, auth_headers):
+        """GET on a comment endpoint does not trigger ownership check."""
+        with (
+            patch.object(gateway, "get_github_client") as mock_gh,
+            patch.object(gateway, "get_policy_engine") as mock_policy,
+            patch.object(gateway, "get_auth_mode", return_value="bot"),
+        ):
+            mock_result = MagicMock()
+            mock_result.success = True
+            mock_result.stdout = '{"id": 123}'
+            mock_result.stderr = ""
+            mock_result.returncode = 0
+            mock_result.to_dict.return_value = {
+                "success": True, "stdout": '{"id": 123}', "stderr": "", "returncode": 0,
+            }
+            mock_gh.return_value.execute.return_value = mock_result
+
+            response = client.post(
+                "/api/v1/gh/execute",
+                headers=auth_headers,
+                data=json.dumps(
+                    {
+                        "args": ["api", "repos/owner/repo/issues/comments/123"],
+                        "repo": "owner/repo",
+                    }
+                ),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 200
+            # Policy engine should NOT have been asked about comment ownership
+            mock_policy.return_value.check_comment_ownership.assert_not_called()
+
+    def test_post_comment_list_no_ownership_check(self, client, auth_headers):
+        """POST to create a new comment does not trigger ownership check."""
+        with (
+            patch.object(gateway, "get_github_client") as mock_gh,
+            patch.object(gateway, "get_policy_engine") as mock_policy,
+            patch.object(gateway, "get_auth_mode", return_value="bot"),
+        ):
+            mock_result = MagicMock()
+            mock_result.success = True
+            mock_result.stdout = '{"id": 999}'
+            mock_result.stderr = ""
+            mock_result.returncode = 0
+            mock_result.to_dict.return_value = {
+                "success": True, "stdout": '{"id": 999}', "stderr": "", "returncode": 0,
+            }
+            mock_gh.return_value.execute.return_value = mock_result
+
+            response = client.post(
+                "/api/v1/gh/execute",
+                headers=auth_headers,
+                data=json.dumps(
+                    {
+                        "args": ["api", "-X", "POST", "repos/owner/repo/issues/42/comments",
+                                 "-f", "body=hello"],
+                        "repo": "owner/repo",
+                    }
+                ),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 200
+            mock_policy.return_value.check_comment_ownership.assert_not_called()
+
+    def test_patch_pr_review_comment_blocked(self, client, auth_headers):
+        """PATCH on a PR review comment not owned returns 403."""
+        with (
+            patch.object(gateway, "get_github_client") as mock_gh,
+            patch.object(gateway, "get_policy_engine") as mock_policy,
+            patch.object(gateway, "get_auth_mode", return_value="bot"),
+        ):
+            mock_engine = MagicMock()
+            mock_engine.check_comment_ownership.return_value = PolicyResult(
+                allowed=False,
+                reason="Comment 456 is not owned by bot (author: someone-else)",
+            )
+            mock_policy.return_value = mock_engine
+
+            response = client.post(
+                "/api/v1/gh/execute",
+                headers=auth_headers,
+                data=json.dumps(
+                    {
+                        "args": ["api", "-X", "PATCH", "repos/owner/repo/pulls/comments/456",
+                                 "-f", "body=edited"],
+                        "repo": "owner/repo",
+                    }
+                ),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 403

@@ -82,6 +82,7 @@ try:
         BLOCKED_GH_COMMANDS,
         GH_COMMANDS_BLOCKED_IN_PRIVATE_MODE,
         READONLY_GH_COMMANDS,
+        extract_comment_edit_info,
         extract_repo_from_gh_command,
         get_github_client,
         parse_gh_api_args,
@@ -142,6 +143,7 @@ except ImportError:
         BLOCKED_GH_COMMANDS,
         GH_COMMANDS_BLOCKED_IN_PRIVATE_MODE,
         READONLY_GH_COMMANDS,
+        extract_comment_edit_info,
         extract_repo_from_gh_command,
         get_github_client,
         parse_gh_api_args,
@@ -2888,6 +2890,36 @@ def gh_execute() -> tuple[Response, int] | Response:
                 )
         except ImportError:
             pass
+
+    # For PATCH on comment endpoints, verify the bot/configured user owns the comment
+    if args and args[0] == "api" and len(args) > 1:
+        comment_info = extract_comment_edit_info(api_path, method)
+        if comment_info:
+            c_owner, c_repo_name, c_comment_id, c_comment_type = comment_info
+            policy = get_policy_engine()
+            ownership_result = policy.check_comment_ownership(
+                f"{c_owner}/{c_repo_name}",
+                c_comment_id,
+                c_comment_type,
+                auth_mode=auth_mode,
+            )
+            if not ownership_result.allowed:
+                audit_log(
+                    "comment_edit_denied",
+                    "gh_execute",
+                    success=False,
+                    details={
+                        "api_path": api_path,
+                        "comment_id": c_comment_id,
+                        "comment_type": c_comment_type,
+                        "reason": ownership_result.reason,
+                    },
+                )
+                return make_error(
+                    ownership_result.reason,
+                    status_code=403,
+                    details=ownership_result.to_dict(),
+                )
 
     # Execute the command
     github = get_github_client(mode=auth_mode)

@@ -2,7 +2,7 @@
 
 import sys
 from datetime import UTC, datetime
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -1285,5 +1285,90 @@ class TestReviewerModePolicy:
 
         assert not policy_engine._is_reviewer_author("egg-reviewer")
         assert not policy_engine._is_reviewer_author("anything")
+
+        _reset_bot_config_caches()
+
+
+class TestCommentOwnership:
+    """Tests for check_comment_ownership policy."""
+
+    @pytest.fixture
+    def policy_engine(self):
+        mock_github = MagicMock()
+        return PolicyEngine(github_client=mock_github)
+
+    def test_comment_owned_by_bot_allowed(self, policy_engine, monkeypatch):
+        """PATCH on comment authored by bot is allowed."""
+        _reset_bot_config_caches()
+        monkeypatch.setenv("GATEWAY_BOT_NAME", "james-in-a-box")
+
+        policy_engine.github.get_comment_author.return_value = "james-in-a-box[bot]"
+
+        result = policy_engine.check_comment_ownership("owner/repo", 123, "issues")
+        assert result.allowed is True
+        assert "james-in-a-box" in result.reason
+
+        _reset_bot_config_caches()
+
+    def test_comment_owned_by_configured_user_allowed(self, policy_engine, monkeypatch):
+        """PATCH on comment authored by configured user is allowed."""
+        _reset_bot_config_caches()
+        monkeypatch.setenv("GATEWAY_BOT_NAME", "james-in-a-box")
+
+        policy_engine.github.get_comment_author.return_value = "test-user"
+
+        # Patch _get_configured_user to return our test user
+        with patch.object(
+            _policy_module.PolicyEngine, "_get_configured_user", return_value="test-user"
+        ):
+            result = policy_engine.check_comment_ownership("owner/repo", 456, "pulls")
+
+        assert result.allowed is True
+        assert "configured user" in result.reason
+
+        _reset_bot_config_caches()
+
+    def test_comment_owned_by_other_user_denied(self, policy_engine, monkeypatch):
+        """PATCH on comment authored by someone else is denied."""
+        _reset_bot_config_caches()
+        monkeypatch.setenv("GATEWAY_BOT_NAME", "james-in-a-box")
+
+        policy_engine.github.get_comment_author.return_value = "random-human"
+
+        with patch.object(
+            _policy_module.PolicyEngine, "_get_configured_user", return_value="test-user"
+        ):
+            result = policy_engine.check_comment_ownership("owner/repo", 789, "issues")
+
+        assert result.allowed is False
+        assert "random-human" in result.reason
+
+        _reset_bot_config_caches()
+
+    def test_comment_not_found_denied(self, policy_engine, monkeypatch):
+        """PATCH on a comment that can't be fetched is denied."""
+        _reset_bot_config_caches()
+        monkeypatch.setenv("GATEWAY_BOT_NAME", "james-in-a-box")
+
+        policy_engine.github.get_comment_author.return_value = None
+
+        result = policy_engine.check_comment_ownership("owner/repo", 999, "commits")
+        assert result.allowed is False
+        assert "not found" in result.reason
+
+        _reset_bot_config_caches()
+
+    def test_commit_comment_type_works(self, policy_engine, monkeypatch):
+        """Commit comments are checked correctly."""
+        _reset_bot_config_caches()
+        monkeypatch.setenv("GATEWAY_BOT_NAME", "james-in-a-box")
+
+        policy_engine.github.get_comment_author.return_value = "james-in-a-box"
+
+        result = policy_engine.check_comment_ownership("owner/repo", 42, "commits")
+        assert result.allowed is True
+        policy_engine.github.get_comment_author.assert_called_once_with(
+            "owner/repo", 42, "commits", mode="bot"
+        )
 
         _reset_bot_config_caches()

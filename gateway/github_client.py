@@ -178,6 +178,54 @@ def validate_gh_api_path(path: str, method: str = "GET") -> tuple[bool, str]:
     return False, f"API path '{path}' not in allowlist"
 
 
+# Patterns for comment endpoints that require ownership checks on PATCH.
+# These match paths that address a *specific* comment by ID (edit/update operations).
+# List endpoints (e.g., issues/123/comments) are NOT matched — POST to those creates
+# new comments, which is intentionally allowed.
+COMMENT_EDIT_PATTERNS = [
+    re.compile(r"^repos/([^/]+)/([^/]+)/issues/comments/(\d+)$"),
+    re.compile(r"^repos/([^/]+)/([^/]+)/pulls/comments/(\d+)$"),
+    re.compile(r"^repos/([^/]+)/([^/]+)/comments/(\d+)$"),
+]
+
+# Map from pattern index to comment type for API fetching
+_COMMENT_TYPE_BY_INDEX = {
+    0: "issues",   # Issue/PR comments (timeline comments)
+    1: "pulls",    # PR review comments (inline on diff)
+    2: "commits",  # Commit comments
+}
+
+
+def extract_comment_edit_info(
+    path: str, method: str
+) -> tuple[str, str, int, str] | None:
+    """
+    Check if an API path + method represents an edit to a specific comment.
+
+    Args:
+        path: The API path (already stripped of leading slash and query params)
+        method: The HTTP method
+
+    Returns:
+        (owner, repo, comment_id, comment_type) if this is a comment edit,
+        or None if it's not.
+    """
+    if method.upper() != "PATCH":
+        return None
+
+    # Strip leading slash and query params (same normalization as validate_gh_api_path)
+    path = path.lstrip("/").split("?")[0]
+
+    for idx, pattern in enumerate(COMMENT_EDIT_PATTERNS):
+        match = pattern.match(path)
+        if match:
+            owner, repo, comment_id_str = match.group(1), match.group(2), match.group(3)
+            comment_type = _COMMENT_TYPE_BY_INDEX[idx]
+            return (owner, repo, int(comment_id_str), comment_type)
+
+    return None
+
+
 # gh api flags that take a value argument
 # These must be skipped when looking for the API path
 GH_API_FLAGS_WITH_VALUES = frozenset(
@@ -921,6 +969,52 @@ class GitHubClient:
         except json.JSONDecodeError:
             logger.error("Failed to parse PR info", stdout=result.stdout[:500])
             return None
+
+    def get_comment_author(
+        self, repo: str, comment_id: int, comment_type: str, mode: str = "bot"
+    ) -> str | None:
+        """
+        Fetch the author login of a specific comment.
+
+        Args:
+            repo: Repository in "owner/repo" format
+            comment_id: The comment ID
+            comment_type: One of "issues", "pulls", "commits" — determines the API path
+            mode: Auth mode - "bot" or "user"
+
+        Returns:
+            Author login string, or None on error
+        """
+        # Build the API path for the comment type
+        api_paths = {
+            "issues": f"repos/{repo}/issues/comments/{comment_id}",
+            "pulls": f"repos/{repo}/pulls/comments/{comment_id}",
+            "commits": f"repos/{repo}/comments/{comment_id}",
+        }
+        api_path = api_paths.get(comment_type)
+        if not api_path:
+            logger.error("Unknown comment type", comment_type=comment_type)
+            return None
+
+        result = self.execute(
+            ["api", api_path, "--jq", ".user.login"],
+            mode=mode,
+        )
+
+        if not result.success:
+            logger.warning(
+                "Failed to fetch comment author",
+                repo=repo,
+                comment_id=comment_id,
+                comment_type=comment_type,
+                stderr=result.stderr[:200] if result.stderr else "",
+            )
+            return None
+
+        author = result.stdout.strip()
+        if not author:
+            return None
+        return author
 
     def list_prs_for_branch(
         self, repo: str, branch: str, state: str = "open", mode: str = "bot"
