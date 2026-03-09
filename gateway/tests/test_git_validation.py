@@ -919,9 +919,7 @@ class TestExtractCommentEditInfo:
 
     def test_commit_comment_patch(self):
         """PATCH on comments/{id} is detected."""
-        result = github_client.extract_comment_edit_info(
-            "repos/owner/repo/comments/789", "PATCH"
-        )
+        result = github_client.extract_comment_edit_info("repos/owner/repo/comments/789", "PATCH")
         assert result == ("owner", "repo", 789, "commits")
 
     def test_get_method_returns_none(self):
@@ -961,9 +959,7 @@ class TestExtractCommentEditInfo:
 
     def test_unrelated_path_returns_none(self):
         """Non-comment API paths return None."""
-        result = github_client.extract_comment_edit_info(
-            "repos/owner/repo/pulls/42", "PATCH"
-        )
+        result = github_client.extract_comment_edit_info("repos/owner/repo/pulls/42", "PATCH")
         assert result is None
 
     def test_case_insensitive_method(self):

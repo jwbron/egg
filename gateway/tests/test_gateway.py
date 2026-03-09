@@ -5200,7 +5200,7 @@ class TestCommentEditOwnership:
     def test_patch_comment_blocked_when_not_owned(self, client, auth_headers):
         """PATCH on an issue comment not owned by bot returns 403."""
         with (
-            patch.object(gateway, "get_github_client") as mock_gh,
+            patch.object(gateway, "get_github_client"),
             patch.object(gateway, "get_policy_engine") as mock_policy,
             patch.object(gateway, "get_auth_mode", return_value="bot"),
         ):
@@ -5216,8 +5216,14 @@ class TestCommentEditOwnership:
                 headers=auth_headers,
                 data=json.dumps(
                     {
-                        "args": ["api", "-X", "PATCH", "repos/owner/repo/issues/comments/123",
-                                 "-f", "body=new body"],
+                        "args": [
+                            "api",
+                            "-X",
+                            "PATCH",
+                            "repos/owner/repo/issues/comments/123",
+                            "-f",
+                            "body=new body",
+                        ],
                         "repo": "owner/repo",
                     }
                 ),
@@ -5260,8 +5266,14 @@ class TestCommentEditOwnership:
                 headers=auth_headers,
                 data=json.dumps(
                     {
-                        "args": ["api", "-X", "PATCH", "repos/owner/repo/issues/comments/123",
-                                 "-f", "body=new body"],
+                        "args": [
+                            "api",
+                            "-X",
+                            "PATCH",
+                            "repos/owner/repo/issues/comments/123",
+                            "-f",
+                            "body=new body",
+                        ],
                         "repo": "owner/repo",
                     }
                 ),
@@ -5283,7 +5295,10 @@ class TestCommentEditOwnership:
             mock_result.stderr = ""
             mock_result.returncode = 0
             mock_result.to_dict.return_value = {
-                "success": True, "stdout": '{"id": 123}', "stderr": "", "returncode": 0,
+                "success": True,
+                "stdout": '{"id": 123}',
+                "stderr": "",
+                "returncode": 0,
             }
             mock_gh.return_value.execute.return_value = mock_result
 
@@ -5316,7 +5331,10 @@ class TestCommentEditOwnership:
             mock_result.stderr = ""
             mock_result.returncode = 0
             mock_result.to_dict.return_value = {
-                "success": True, "stdout": '{"id": 999}', "stderr": "", "returncode": 0,
+                "success": True,
+                "stdout": '{"id": 999}',
+                "stderr": "",
+                "returncode": 0,
             }
             mock_gh.return_value.execute.return_value = mock_result
 
@@ -5325,8 +5343,14 @@ class TestCommentEditOwnership:
                 headers=auth_headers,
                 data=json.dumps(
                     {
-                        "args": ["api", "-X", "POST", "repos/owner/repo/issues/42/comments",
-                                 "-f", "body=hello"],
+                        "args": [
+                            "api",
+                            "-X",
+                            "POST",
+                            "repos/owner/repo/issues/42/comments",
+                            "-f",
+                            "body=hello",
+                        ],
                         "repo": "owner/repo",
                     }
                 ),
@@ -5339,7 +5363,7 @@ class TestCommentEditOwnership:
     def test_patch_pr_review_comment_blocked(self, client, auth_headers):
         """PATCH on a PR review comment not owned returns 403."""
         with (
-            patch.object(gateway, "get_github_client") as mock_gh,
+            patch.object(gateway, "get_github_client"),
             patch.object(gateway, "get_policy_engine") as mock_policy,
             patch.object(gateway, "get_auth_mode", return_value="bot"),
         ):
@@ -5355,8 +5379,14 @@ class TestCommentEditOwnership:
                 headers=auth_headers,
                 data=json.dumps(
                     {
-                        "args": ["api", "-X", "PATCH", "repos/owner/repo/pulls/comments/456",
-                                 "-f", "body=edited"],
+                        "args": [
+                            "api",
+                            "-X",
+                            "PATCH",
+                            "repos/owner/repo/pulls/comments/456",
+                            "-f",
+                            "body=edited",
+                        ],
                         "repo": "owner/repo",
                     }
                 ),
