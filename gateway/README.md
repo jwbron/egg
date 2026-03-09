@@ -44,6 +44,12 @@ The gateway sidecar is the **trusted** component that holds credentials and vali
 | `gh pr merge` | **BLOCKED** | No merge endpoint - human must merge via GitHub UI |
 | `gh pr edit` | PR ownership | PR must be authored by egg |
 | `gh pr close` | PR ownership | PR must be authored by egg |
+| `gh api PATCH repos/.../issues/comments/{id}` | Comment ownership | Comment must be authored by egg or configured user |
+| `gh api PATCH repos/.../pulls/comments/{id}` | Comment ownership | Comment must be authored by egg or configured user |
+| `gh api PATCH repos/.../comments/{id}` (commits) | Comment ownership | Comment must be authored by egg or configured user |
+| `gh api POST repos/.../issues/{id}/labels` | Issue/PR ownership | Issue or PR must be authored by egg or configured user |
+| `gh api POST repos/.../pulls/{id}/requested_reviewers` | PR ownership | PR must be authored by egg or configured user |
+| `gh api POST repos/.../pulls/{id}/reviews` | PR ownership | PR must be authored by egg or configured user |
 
 **Bot variants for ownership check**: `egg`, `egg[bot]`, `app/egg`, `apps/egg`
 
