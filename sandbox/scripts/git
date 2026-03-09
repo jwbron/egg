@@ -564,12 +564,25 @@ case "$cmd" in
         # `git fetch origin <branch>` only writes FETCH_HEAD, leaving the
         # tracking ref stale.  Already-full refspecs (containing ':') and
         # refs/ paths are left untouched.  Skip expansion when --all is used.
+        #
+        # NOTE: Bare names are assumed to be branch names (refs/heads/).
+        # Tag fetches should use --tags or explicit refs/tags/ paths.
         if [ "$has_all" = "false" ]; then
             expanded_args=()
+            skip_expand=false
             for arg in "${extra_args[@]}"; do
-                if [[ "$arg" == -* ]]; then
+                if $skip_expand; then
+                    # Value belonging to a flag — pass through without expansion
+                    expanded_args+=("$arg")
+                    skip_expand=false
+                elif [[ "$arg" == -* ]]; then
                     # Flag — pass through
                     expanded_args+=("$arg")
+                    case "$arg" in
+                        --depth|--deepen|--shallow-since|--shallow-exclude|-j|--jobs|--recurse-submodules-default|--submodule-prefix|--upload-pack|-o|--server-option|--negotiation-tip|--filter|--refmap)
+                            skip_expand=true
+                            ;;
+                    esac
                 elif [[ "$arg" == *:* ]]; then
                     # Explicit refspec — pass through
                     expanded_args+=("$arg")
