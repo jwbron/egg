@@ -1372,3 +1372,71 @@ class TestCommentOwnership:
         )
 
         _reset_bot_config_caches()
+
+
+class TestIssueOwnership:
+    """Tests for check_issue_ownership policy (used for label mutations)."""
+
+    @pytest.fixture
+    def policy_engine(self):
+        mock_github = MagicMock()
+        return PolicyEngine(github_client=mock_github)
+
+    def test_issue_owned_by_bot_allowed(self, policy_engine, monkeypatch):
+        """Label mutation on bot-owned issue is allowed."""
+        _reset_bot_config_caches()
+        monkeypatch.setenv("GATEWAY_BOT_NAME", "james-in-a-box")
+
+        policy_engine.github.get_issue_author.return_value = "james-in-a-box[bot]"
+
+        result = policy_engine.check_issue_ownership("owner/repo", 42)
+        assert result.allowed is True
+
+        _reset_bot_config_caches()
+
+    def test_issue_owned_by_configured_user_allowed(self, policy_engine, monkeypatch):
+        """Label mutation on configured-user-owned issue is allowed."""
+        _reset_bot_config_caches()
+        monkeypatch.setenv("GATEWAY_BOT_NAME", "james-in-a-box")
+
+        policy_engine.github.get_issue_author.return_value = "test-user"
+
+        with patch.object(
+            _policy_module.PolicyEngine, "_get_configured_user", return_value="test-user"
+        ):
+            result = policy_engine.check_issue_ownership("owner/repo", 42)
+
+        assert result.allowed is True
+        assert "configured user" in result.reason
+
+        _reset_bot_config_caches()
+
+    def test_issue_owned_by_other_denied(self, policy_engine, monkeypatch):
+        """Label mutation on issue owned by someone else is denied."""
+        _reset_bot_config_caches()
+        monkeypatch.setenv("GATEWAY_BOT_NAME", "james-in-a-box")
+
+        policy_engine.github.get_issue_author.return_value = "random-person"
+
+        with patch.object(
+            _policy_module.PolicyEngine, "_get_configured_user", return_value="test-user"
+        ):
+            result = policy_engine.check_issue_ownership("owner/repo", 99)
+
+        assert result.allowed is False
+        assert "random-person" in result.reason
+
+        _reset_bot_config_caches()
+
+    def test_issue_not_found_denied(self, policy_engine, monkeypatch):
+        """Label mutation on unfetchable issue is denied."""
+        _reset_bot_config_caches()
+        monkeypatch.setenv("GATEWAY_BOT_NAME", "james-in-a-box")
+
+        policy_engine.github.get_issue_author.return_value = None
+
+        result = policy_engine.check_issue_ownership("owner/repo", 999)
+        assert result.allowed is False
+        assert "not found" in result.reason
+
+        _reset_bot_config_caches()
