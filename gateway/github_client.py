@@ -194,7 +194,7 @@ def extract_comment_edit_info(path: str, method: str) -> tuple[str, str, int, st
     Check if an API path + method represents an edit to a specific comment.
 
     Args:
-        path: The API path (already stripped of leading slash and query params)
+        path: The API path (leading slash and query params are stripped internally)
         method: The HTTP method
 
     Returns:
@@ -216,7 +216,9 @@ def extract_comment_edit_info(path: str, method: str) -> tuple[str, str, int, st
     return None
 
 
-# Pattern for issue/PR label mutations (POST/PATCH add/set labels)
+# Pattern for issue/PR label mutations (POST adds labels).
+# GitHub uses PUT (not PATCH) for set/replace, which is blocked at the method
+# validation level. PATCH is matched defensively below.
 ISSUE_LABEL_PATTERN = re.compile(r"^repos/([^/]+)/([^/]+)/issues/(\d+)/labels$")
 
 # Pattern for PR requested reviewer mutations (POST adds reviewers).
@@ -231,7 +233,8 @@ def extract_issue_label_info(path: str, method: str) -> tuple[str, str, int] | N
     """
     Check if an API path + method is a label mutation on a specific issue/PR.
 
-    Only matches POST (add labels) and PATCH (set/replace labels) — not GET.
+    Only matches POST (add labels) and PATCH (defensive; GitHub uses PUT for
+    set/replace, which is blocked at the method validation level) — not GET.
 
     Returns:
         (owner, repo, issue_number) or None
