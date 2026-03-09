@@ -257,6 +257,19 @@ BLOCKED_GIT_FLAGS = [
     "--receive-pack",  # Arbitrary command execution
 ]
 
+# Allowed values for flags that take restricted arguments
+# Maps flag name to set of allowed values
+ALLOWED_FLAG_VALUES: dict[str, set[str]] = {
+    "--strategy-option": {
+        "ours",
+        "theirs",
+        "patience",
+        "ignore-space-change",
+        "ignore-all-space",
+        "ignore-space-at-eol",
+    },
+}
+
 # Per-operation allowlist of flags that are permitted
 # This is more secure than a blocklist - unknown flags are rejected by default
 GIT_ALLOWED_COMMANDS = {
@@ -606,8 +619,10 @@ GIT_ALLOWED_COMMANDS = {
             "--quit",
             "--message",
             "--no-edit",
+            "--strategy-option",
             "--verbose",
             "--quiet",
+            "-X",
             "-m",
             "-v",
             "-q",
@@ -911,7 +926,7 @@ FLAG_NORMALIZATION = {
     "clean": {"-f": "--force", "-n": "--dry-run", "-q": "--quiet"},
     "rm": {"-f": "--force", "-n": "--dry-run", "-q": "--quiet"},
     "mv": {"-f": "--force", "-n": "--dry-run", "-v": "--verbose"},
-    "merge": {"-m": "--message", "-v": "--verbose", "-q": "--quiet"},
+    "merge": {"-m": "--message", "-v": "--verbose", "-q": "--quiet", "-X": "--strategy-option"},
     "rebase": {"-v": "--verbose", "-q": "--quiet"},
     "reset": {"-q": "--quiet"},
     "restore": {"-S": "--staged", "-W": "--worktree", "-s": "--source", "-q": "--quiet"},
@@ -1048,6 +1063,32 @@ def validate_git_args(operation: str, args: list[str]) -> tuple[bool, str, list[
                 f"Allowed flags: {', '.join(sorted(allowed_flags))}",
                 [],
             )
+
+        # Validate flag values for flags with restricted allowed values
+        if flag_base in ALLOWED_FLAG_VALUES:
+            allowed_values = ALLOWED_FLAG_VALUES[flag_base]
+            if "=" in normalized_flag:
+                # Value is inline: --strategy-option=theirs
+                value = normalized_flag.split("=", 1)[1]
+            elif i + 1 < len(args) and not args[i + 1].startswith("-"):
+                # Value is the next argument: -X theirs
+                value = args[i + 1]
+                i += 1  # consume the value argument
+                normalized_flag = f"{flag_base}={value}"
+            else:
+                return (
+                    False,
+                    f"Flag '{arg}' requires a value. "
+                    f"Allowed values: {', '.join(sorted(allowed_values))}",
+                    [],
+                )
+            if value not in allowed_values:
+                return (
+                    False,
+                    f"Value '{value}' is not allowed for {flag_base}. "
+                    f"Allowed values: {', '.join(sorted(allowed_values))}",
+                    [],
+                )
 
         normalized.append(normalized_flag)
         i += 1

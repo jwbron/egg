@@ -263,6 +263,45 @@ class TestValidateGitArgs:
         assert not valid
         assert "not allowed" in error.lower()
 
+    def test_merge_strategy_option_accepted(self):
+        """Merge -X with safe values should be accepted."""
+        # -X theirs (short flag, separate value)
+        valid, _error, normalized = validate_git_args("merge", ["-X", "theirs", "origin/main"])
+        assert valid
+        assert "--strategy-option=theirs" in normalized
+
+        # --strategy-option=ours (long flag, inline value)
+        valid, _error, normalized = validate_git_args("merge", ["--strategy-option=ours", "origin/main"])
+        assert valid
+        assert "--strategy-option=ours" in normalized
+
+        # -X patience
+        valid, _error, normalized = validate_git_args("merge", ["-X", "patience", "origin/main"])
+        assert valid
+        assert "--strategy-option=patience" in normalized
+
+        # -X ignore-space-change
+        valid, _error, normalized = validate_git_args("merge", ["-X", "ignore-space-change"])
+        assert valid
+        assert "--strategy-option=ignore-space-change" in normalized
+
+    def test_merge_strategy_option_unsafe_rejected(self):
+        """Merge -X with unsafe or unknown values should be rejected."""
+        # Arbitrary value rejected
+        valid, error, _normalized = validate_git_args("merge", ["-X", "evil-option"])
+        assert not valid
+        assert "not allowed" in error.lower()
+
+        # Inline arbitrary value rejected
+        valid, error, _normalized = validate_git_args("merge", ["--strategy-option=subtree=prefix"])
+        assert not valid
+        assert "not allowed" in error.lower()
+
+        # Missing value rejected
+        valid, error, _normalized = validate_git_args("merge", ["-X"])
+        assert not valid
+        assert "requires a value" in error.lower()
+
     def test_diff_tree_flags_accepted(self):
         """diff-tree flags should be accepted."""
         valid, _error, normalized = validate_git_args("diff-tree", ["--name-status", "-r", "HEAD"])
