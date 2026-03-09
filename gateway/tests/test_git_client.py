@@ -304,6 +304,38 @@ class TestValidateGitArgs:
         assert not valid
         assert "requires a value" in error.lower()
 
+        # Combined form -Xtheirs with unsafe value rejected
+        valid, error, _normalized = validate_git_args("merge", ["-Xevil-option"])
+        assert not valid
+        assert "not allowed" in error.lower()
+
+    def test_merge_strategy_option_combined_form(self):
+        """Merge -Xtheirs (combined, no space) should be accepted."""
+        # -Xtheirs (combined short flag + value)
+        valid, _error, normalized = validate_git_args("merge", ["-Xtheirs", "origin/main"])
+        assert valid
+        assert "--strategy-option=theirs" in normalized
+
+        # -Xours (combined short flag + value)
+        valid, _error, normalized = validate_git_args("merge", ["-Xours", "origin/main"])
+        assert valid
+        assert "--strategy-option=ours" in normalized
+
+    def test_merge_strategy_option_equals_short_form(self):
+        """-X=theirs (short flag with = separator) should be accepted."""
+        valid, _error, normalized = validate_git_args("merge", ["-X=theirs", "origin/main"])
+        assert valid
+        assert "--strategy-option=theirs" in normalized
+
+    def test_merge_multiple_strategy_options(self):
+        """Multiple -X flags should all be validated and accepted."""
+        valid, _error, normalized = validate_git_args(
+            "merge", ["-X", "theirs", "-X", "ignore-space-change", "origin/main"]
+        )
+        assert valid
+        assert "--strategy-option=theirs" in normalized
+        assert "--strategy-option=ignore-space-change" in normalized
+
     def test_diff_tree_flags_accepted(self):
         """diff-tree flags should be accepted."""
         valid, _error, normalized = validate_git_args("diff-tree", ["--name-status", "-r", "HEAD"])

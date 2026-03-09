@@ -978,6 +978,13 @@ def normalize_flag(flag: str, operation: str | None = None) -> str:
         base, value = flag.split("=", 1)
         normalized = mapping.get(base, base)
         return f"{normalized}={value}"
+    # Handle combined short-flag+value form (e.g., -Xtheirs → --strategy-option=theirs)
+    # Git allows single-char flags to have values appended without a space.
+    if len(flag) > 2 and flag[0] == "-" and flag[1] != "-" and flag[:2] in mapping:
+        short_flag = flag[:2]
+        value = flag[2:]
+        normalized = mapping[short_flag]
+        return f"{normalized}={value}"
     return mapping.get(flag, flag)
 
 
@@ -1072,6 +1079,8 @@ def validate_git_args(operation: str, args: list[str]) -> tuple[bool, str, list[
                 value = normalized_flag.split("=", 1)[1]
             elif i + 1 < len(args) and not args[i + 1].startswith("-"):
                 # Value is the next argument: -X theirs
+                # NOTE: This heuristic assumes allowed values never start with "-".
+                # All current values (ours, theirs, patience, etc.) satisfy this.
                 value = args[i + 1]
                 i += 1  # consume the value argument
                 normalized_flag = f"{flag_base}={value}"
