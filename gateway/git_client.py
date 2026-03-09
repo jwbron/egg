@@ -980,11 +980,14 @@ def normalize_flag(flag: str, operation: str | None = None) -> str:
         return f"{normalized}={value}"
     # Handle combined short-flag+value form (e.g., -Xtheirs → --strategy-option=theirs)
     # Git allows single-char flags to have values appended without a space.
+    # Only apply for flags that take restricted values (in ALLOWED_FLAG_VALUES),
+    # not boolean flags like -f/-q/-v where appended text is always invalid.
     if len(flag) > 2 and flag[0] == "-" and flag[1] != "-" and flag[:2] in mapping:
         short_flag = flag[:2]
         value = flag[2:]
         normalized = mapping[short_flag]
-        return f"{normalized}={value}"
+        if normalized in ALLOWED_FLAG_VALUES:
+            return f"{normalized}={value}"
     return mapping.get(flag, flag)
 
 

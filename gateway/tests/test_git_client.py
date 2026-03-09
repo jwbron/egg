@@ -336,6 +336,18 @@ class TestValidateGitArgs:
         assert "--strategy-option=theirs" in normalized
         assert "--strategy-option=ignore-space-change" in normalized
 
+    def test_boolean_flag_combined_form_rejected(self):
+        """Boolean flags with appended text (e.g., -fgarbage) should be rejected."""
+        # -fgarbage should NOT become --force=garbage and pass
+        valid, error, _normalized = validate_git_args("push", ["-fgarbage", "origin", "main"])
+        assert not valid
+        assert "not allowed" in error.lower()
+
+        # -qfoo should NOT become --quiet=foo and pass
+        valid, error, _normalized = validate_git_args("merge", ["-qfoo", "origin/main"])
+        assert not valid
+        assert "not allowed" in error.lower()
+
     def test_diff_tree_flags_accepted(self):
         """diff-tree flags should be accepted."""
         valid, _error, normalized = validate_git_args("diff-tree", ["--name-status", "-r", "HEAD"])
