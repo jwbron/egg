@@ -748,6 +748,205 @@ class PolicyEngine:
             },
         )
 
+    def check_issue_ownership(
+        self,
+        repo: str,
+        issue_number: int,
+        auth_mode: str = "bot",
+    ) -> PolicyResult:
+        """
+        Check if the current identity owns an issue/PR (for label mutations).
+
+        An issue/PR is considered owned if the author is:
+        - A bot identity, OR
+        - The configured user (user mode user)
+
+        Note: GitHub's issues API returns both issues and PRs.
+
+        Args:
+            repo: Repository in "owner/repo" format
+            issue_number: The issue/PR number
+            auth_mode: "bot" (default) or "user"
+        """
+        author = self.github.get_issue_author(repo, issue_number, mode=auth_mode)
+
+        if not author:
+            logger.warning(
+                "Issue/PR not found or inaccessible",
+                repo=repo,
+                issue_number=issue_number,
+            )
+            return PolicyResult(
+                allowed=False,
+                reason=f"Issue/PR #{issue_number} not found or inaccessible",
+                details={"repo": repo, "issue_number": issue_number},
+            )
+
+        # Check if owned by bot
+        if self._is_bot_author(author):
+            logger.debug(
+                "Issue ownership verified (bot author)",
+                repo=repo,
+                issue_number=issue_number,
+                author=author,
+            )
+            return PolicyResult(
+                allowed=True,
+                reason=f"Issue/PR is owned by {_get_bot_name()}",
+                details={
+                    "author": author,
+                    "issue_number": issue_number,
+                    "auth_mode": auth_mode,
+                },
+            )
+
+        # Check if owned by configured user
+        configured_user = self._get_configured_user()
+        if configured_user and self._is_configured_user_author(author, configured_user):
+            logger.debug(
+                "Issue ownership verified (configured user)",
+                repo=repo,
+                issue_number=issue_number,
+                author=author,
+                configured_user=configured_user,
+            )
+            return PolicyResult(
+                allowed=True,
+                reason=f"Issue/PR is owned by configured user ({configured_user})",
+                details={
+                    "author": author,
+                    "issue_number": issue_number,
+                    "auth_mode": auth_mode,
+                    "configured_user": configured_user,
+                },
+            )
+
+        # Not owned — deny
+        logger.info(
+            f"Issue/PR label mutation denied - not owned by {_get_bot_name()} or configured user",
+            repo=repo,
+            issue_number=issue_number,
+            author=author,
+            auth_mode=auth_mode,
+        )
+        expected = list(get_bot_identities())
+        if configured_user:
+            expected.append(configured_user)
+        return PolicyResult(
+            allowed=False,
+            reason=f"Issue/PR #{issue_number} is not owned by {_get_bot_name()} or configured user "
+            f"(author: {author}). Only labels on issues/PRs authored by the bot or configured user "
+            f"can be modified.",
+            details={
+                "author": author,
+                "issue_number": issue_number,
+                "expected": expected,
+                "auth_mode": auth_mode,
+            },
+        )
+
+    def check_comment_ownership(
+        self,
+        repo: str,
+        comment_id: int,
+        comment_type: str,
+        auth_mode: str = "bot",
+    ) -> PolicyResult:
+        """
+        Check if the current identity owns a comment (for edit/PATCH operations).
+
+        A comment is considered owned if the author is:
+        - A bot identity, OR
+        - The configured user (user mode user)
+
+        Args:
+            repo: Repository in "owner/repo" format
+            comment_id: The comment ID
+            comment_type: One of "issues", "pulls", "commits"
+            auth_mode: "bot" (default) or "user"
+        """
+        author = self.github.get_comment_author(repo, comment_id, comment_type, mode=auth_mode)
+
+        if not author:
+            logger.warning(
+                "Comment not found or inaccessible",
+                repo=repo,
+                comment_id=comment_id,
+                comment_type=comment_type,
+            )
+            return PolicyResult(
+                allowed=False,
+                reason=f"Comment {comment_id} not found or inaccessible",
+                details={
+                    "repo": repo,
+                    "comment_id": comment_id,
+                    "comment_type": comment_type,
+                },
+            )
+
+        # Check if comment is owned by bot
+        if self._is_bot_author(author):
+            logger.debug(
+                "Comment ownership verified (bot author)",
+                repo=repo,
+                comment_id=comment_id,
+                author=author,
+            )
+            return PolicyResult(
+                allowed=True,
+                reason=f"Comment is owned by {_get_bot_name()}",
+                details={
+                    "author": author,
+                    "comment_id": comment_id,
+                    "auth_mode": auth_mode,
+                },
+            )
+
+        # Check if comment is owned by the configured user
+        configured_user = self._get_configured_user()
+        if configured_user and self._is_configured_user_author(author, configured_user):
+            logger.debug(
+                "Comment ownership verified (configured user)",
+                repo=repo,
+                comment_id=comment_id,
+                author=author,
+                configured_user=configured_user,
+            )
+            return PolicyResult(
+                allowed=True,
+                reason=f"Comment is owned by configured user ({configured_user})",
+                details={
+                    "author": author,
+                    "comment_id": comment_id,
+                    "auth_mode": auth_mode,
+                    "configured_user": configured_user,
+                },
+            )
+
+        # Not owned — deny
+        logger.info(
+            f"Comment edit denied - not owned by {_get_bot_name()} or configured user",
+            repo=repo,
+            comment_id=comment_id,
+            author=author,
+            auth_mode=auth_mode,
+        )
+        expected = list(get_bot_identities())
+        if configured_user:
+            expected.append(configured_user)
+        return PolicyResult(
+            allowed=False,
+            reason=f"Comment {comment_id} is not owned by {_get_bot_name()} or configured user "
+            f"(author: {author}). Only comments authored by the bot or configured user can be edited.",
+            details={
+                "author": author,
+                "comment_id": comment_id,
+                "comment_type": comment_type,
+                "expected": expected,
+                "auth_mode": auth_mode,
+            },
+        )
+
     def check_pr_review_allowed(
         self, repo: str, pr_number: int, auth_mode: str = "bot"
     ) -> PolicyResult:

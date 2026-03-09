@@ -82,6 +82,10 @@ try:
         BLOCKED_GH_COMMANDS,
         GH_COMMANDS_BLOCKED_IN_PRIVATE_MODE,
         READONLY_GH_COMMANDS,
+        extract_comment_edit_info,
+        extract_issue_label_info,
+        extract_pr_review_info,
+        extract_pr_reviewer_info,
         extract_repo_from_gh_command,
         get_github_client,
         parse_gh_api_args,
@@ -142,6 +146,10 @@ except ImportError:
         BLOCKED_GH_COMMANDS,
         GH_COMMANDS_BLOCKED_IN_PRIVATE_MODE,
         READONLY_GH_COMMANDS,
+        extract_comment_edit_info,
+        extract_issue_label_info,
+        extract_pr_review_info,
+        extract_pr_reviewer_info,
         extract_repo_from_gh_command,
         get_github_client,
         parse_gh_api_args,
@@ -2761,6 +2769,8 @@ def gh_execute() -> tuple[Response, int] | Response:
             )
 
     # For 'gh api' commands, validate the path against allowlist
+    api_path: str | None = None
+    method: str = "GET"
     if args and args[0] == "api" and len(args) > 1:
         # Parse arguments to find the actual API path (skip flags like -X, --method, etc.)
         api_path, method = parse_gh_api_args(args[1:])
@@ -2888,6 +2898,116 @@ def gh_execute() -> tuple[Response, int] | Response:
                 )
         except ImportError:
             pass
+
+    # For mutating operations on specific resources via gh api, verify ownership
+    if api_path is not None:
+        policy = get_policy_engine()
+
+        # PATCH on comment endpoints — verify bot/configured user owns the comment
+        comment_info = extract_comment_edit_info(api_path, method)
+        if comment_info:
+            c_owner, c_repo_name, c_comment_id, c_comment_type = comment_info
+            ownership_result = policy.check_comment_ownership(
+                f"{c_owner}/{c_repo_name}",
+                c_comment_id,
+                c_comment_type,
+                auth_mode=auth_mode,
+            )
+            if not ownership_result.allowed:
+                audit_log(
+                    "comment_edit_denied",
+                    "gh_execute",
+                    success=False,
+                    details={
+                        "api_path": api_path,
+                        "comment_id": c_comment_id,
+                        "comment_type": c_comment_type,
+                        "reason": ownership_result.reason,
+                    },
+                )
+                return make_error(
+                    ownership_result.reason,
+                    status_code=403,
+                    details=ownership_result.to_dict(),
+                )
+
+        # POST/PATCH on issue labels — verify bot/configured user owns the issue/PR
+        label_info = extract_issue_label_info(api_path, method)
+        if label_info:
+            l_owner, l_repo_name, l_issue_number = label_info
+            ownership_result = policy.check_issue_ownership(
+                f"{l_owner}/{l_repo_name}",
+                l_issue_number,
+                auth_mode=auth_mode,
+            )
+            if not ownership_result.allowed:
+                audit_log(
+                    "label_edit_denied",
+                    "gh_execute",
+                    success=False,
+                    details={
+                        "api_path": api_path,
+                        "issue_number": l_issue_number,
+                        "reason": ownership_result.reason,
+                    },
+                )
+                return make_error(
+                    ownership_result.reason,
+                    status_code=403,
+                    details=ownership_result.to_dict(),
+                )
+
+        # POST on PR requested reviewers — verify bot/configured user owns the PR
+        reviewer_info = extract_pr_reviewer_info(api_path, method)
+        if reviewer_info:
+            r_owner, r_repo_name, r_pr_number = reviewer_info
+            ownership_result = policy.check_pr_ownership(
+                f"{r_owner}/{r_repo_name}",
+                r_pr_number,
+                auth_mode=auth_mode,
+            )
+            if not ownership_result.allowed:
+                audit_log(
+                    "reviewer_edit_denied",
+                    "gh_execute",
+                    success=False,
+                    details={
+                        "api_path": api_path,
+                        "pr_number": r_pr_number,
+                        "reason": ownership_result.reason,
+                    },
+                )
+                return make_error(
+                    ownership_result.reason,
+                    status_code=403,
+                    details=ownership_result.to_dict(),
+                )
+
+        # POST on PR reviews — verify PR exists and review is allowed
+        review_info = extract_pr_review_info(api_path, method)
+        if review_info:
+            rv_owner, rv_repo_name, rv_pr_number = review_info
+            review_result = policy.check_pr_review_allowed(
+                f"{rv_owner}/{rv_repo_name}",
+                rv_pr_number,
+                auth_mode=auth_mode,
+            )
+            if not review_result.allowed:
+                audit_log(
+                    "review_create_denied",
+                    "gh_execute",
+                    success=False,
+                    details={
+                        "api_path": api_path,
+                        "pr_number": rv_pr_number,
+                        "reason": review_result.reason,
+                    },
+                )
+                return make_error(
+                    review_result.reason,
+                    status_code=403,
+                    details=review_result.to_dict(),
+                )
 
     # Execute the command
     github = get_github_client(mode=auth_mode)

@@ -178,6 +178,115 @@ def validate_gh_api_path(path: str, method: str = "GET") -> tuple[bool, str]:
     return False, f"API path '{path}' not in allowlist"
 
 
+# Patterns for comment endpoints that require ownership checks on PATCH.
+# These match paths that address a *specific* comment by ID (edit/update operations).
+# List endpoints (e.g., issues/123/comments) are NOT matched — POST to those creates
+# new comments, which is intentionally allowed.
+COMMENT_EDIT_PATTERNS = [
+    (re.compile(r"^repos/([^/]+)/([^/]+)/issues/comments/(\d+)$"), "issues"),
+    (re.compile(r"^repos/([^/]+)/([^/]+)/pulls/comments/(\d+)$"), "pulls"),
+    (re.compile(r"^repos/([^/]+)/([^/]+)/comments/(\d+)$"), "commits"),
+]
+
+
+def extract_comment_edit_info(path: str, method: str) -> tuple[str, str, int, str] | None:
+    """
+    Check if an API path + method represents an edit to a specific comment.
+
+    Args:
+        path: The API path (leading slash and query params are stripped internally)
+        method: The HTTP method
+
+    Returns:
+        (owner, repo, comment_id, comment_type) if this is a comment edit,
+        or None if it's not.
+    """
+    if method.upper() != "PATCH":
+        return None
+
+    # Strip leading slash and query params (same normalization as validate_gh_api_path)
+    path = path.lstrip("/").split("?")[0]
+
+    for pattern, comment_type in COMMENT_EDIT_PATTERNS:
+        match = pattern.match(path)
+        if match:
+            owner, repo, comment_id_str = match.group(1), match.group(2), match.group(3)
+            return (owner, repo, int(comment_id_str), comment_type)
+
+    return None
+
+
+# Pattern for issue/PR label mutations (POST adds labels).
+# GitHub uses PUT (not PATCH) for set/replace, which is blocked at the method
+# validation level. PATCH is matched defensively below.
+ISSUE_LABEL_PATTERN = re.compile(r"^repos/([^/]+)/([^/]+)/issues/(\d+)/labels$")
+
+# Pattern for PR requested reviewer mutations (POST adds reviewers).
+# DELETE (remove reviewers) is blocked at the method validation level.
+PR_REVIEWER_PATTERN = re.compile(r"^repos/([^/]+)/([^/]+)/pulls/(\d+)/requested_reviewers$")
+
+# Pattern for PR review creation (POST creates a review)
+PR_REVIEW_PATTERN = re.compile(r"^repos/([^/]+)/([^/]+)/pulls/(\d+)/reviews$")
+
+
+def extract_issue_label_info(path: str, method: str) -> tuple[str, str, int] | None:
+    """
+    Check if an API path + method is a label mutation on a specific issue/PR.
+
+    Only matches POST (add labels) and PATCH (defensive; GitHub uses PUT for
+    set/replace, which is blocked at the method validation level) — not GET.
+
+    Returns:
+        (owner, repo, issue_number) or None
+    """
+    if method.upper() not in ("POST", "PATCH"):
+        return None
+
+    path = path.lstrip("/").split("?")[0]
+    match = ISSUE_LABEL_PATTERN.match(path)
+    if match:
+        return (match.group(1), match.group(2), int(match.group(3)))
+    return None
+
+
+def extract_pr_reviewer_info(path: str, method: str) -> tuple[str, str, int] | None:
+    """
+    Check if an API path + method is a reviewer mutation on a specific PR.
+
+    Only matches POST (add reviewers) — not GET.
+
+    Returns:
+        (owner, repo, pr_number) or None
+    """
+    if method.upper() != "POST":
+        return None
+
+    path = path.lstrip("/").split("?")[0]
+    match = PR_REVIEWER_PATTERN.match(path)
+    if match:
+        return (match.group(1), match.group(2), int(match.group(3)))
+    return None
+
+
+def extract_pr_review_info(path: str, method: str) -> tuple[str, str, int] | None:
+    """
+    Check if an API path + method is a review creation on a specific PR.
+
+    Only matches POST (create review) — not GET.
+
+    Returns:
+        (owner, repo, pr_number) or None
+    """
+    if method.upper() != "POST":
+        return None
+
+    path = path.lstrip("/").split("?")[0]
+    match = PR_REVIEW_PATTERN.match(path)
+    if match:
+        return (match.group(1), match.group(2), int(match.group(3)))
+    return None
+
+
 # gh api flags that take a value argument
 # These must be skipped when looking for the API path
 GH_API_FLAGS_WITH_VALUES = frozenset(
@@ -921,6 +1030,86 @@ class GitHubClient:
         except json.JSONDecodeError:
             logger.error("Failed to parse PR info", stdout=result.stdout[:500])
             return None
+
+    def get_issue_author(self, repo: str, issue_number: int, mode: str = "bot") -> str | None:
+        """
+        Fetch the author login of an issue or PR (via the issues API).
+
+        GitHub's issues API returns both issues and PRs, so this works for label
+        operations on either resource type.
+
+        Args:
+            repo: Repository in "owner/repo" format
+            issue_number: The issue/PR number
+            mode: Auth mode - "bot" or "user"
+
+        Returns:
+            Author login string, or None on error
+        """
+        result = self.execute(
+            ["api", f"repos/{repo}/issues/{issue_number}", "--jq", ".user.login"],
+            mode=mode,
+        )
+
+        if not result.success:
+            logger.warning(
+                "Failed to fetch issue author",
+                repo=repo,
+                issue_number=issue_number,
+                stderr=result.stderr[:200] if result.stderr else "",
+            )
+            return None
+
+        author = result.stdout.strip()
+        if not author:
+            return None
+        return author
+
+    def get_comment_author(
+        self, repo: str, comment_id: int, comment_type: str, mode: str = "bot"
+    ) -> str | None:
+        """
+        Fetch the author login of a specific comment.
+
+        Args:
+            repo: Repository in "owner/repo" format
+            comment_id: The comment ID
+            comment_type: One of "issues", "pulls", "commits" — determines the API path
+            mode: Auth mode - "bot" or "user"
+
+        Returns:
+            Author login string, or None on error
+        """
+        # Build the API path for the comment type
+        api_paths = {
+            "issues": f"repos/{repo}/issues/comments/{comment_id}",
+            "pulls": f"repos/{repo}/pulls/comments/{comment_id}",
+            "commits": f"repos/{repo}/comments/{comment_id}",
+        }
+        api_path = api_paths.get(comment_type)
+        if not api_path:
+            logger.error("Unknown comment type", comment_type=comment_type)
+            return None
+
+        result = self.execute(
+            ["api", api_path, "--jq", ".user.login"],
+            mode=mode,
+        )
+
+        if not result.success:
+            logger.warning(
+                "Failed to fetch comment author",
+                repo=repo,
+                comment_id=comment_id,
+                comment_type=comment_type,
+                stderr=result.stderr[:200] if result.stderr else "",
+            )
+            return None
+
+        author = result.stdout.strip()
+        if not author:
+            return None
+        return author
 
     def list_prs_for_branch(
         self, repo: str, branch: str, state: str = "open", mode: str = "bot"
