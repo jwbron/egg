@@ -2900,7 +2900,7 @@ def gh_execute() -> tuple[Response, int] | Response:
             pass
 
     # For mutating operations on specific resources via gh api, verify ownership
-    if args and args[0] == "api" and len(args) > 1 and api_path is not None:
+    if api_path is not None:
         policy = get_policy_engine()
 
         # PATCH on comment endpoints — verify bot/configured user owns the comment

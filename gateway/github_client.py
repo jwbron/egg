@@ -183,17 +183,10 @@ def validate_gh_api_path(path: str, method: str = "GET") -> tuple[bool, str]:
 # List endpoints (e.g., issues/123/comments) are NOT matched — POST to those creates
 # new comments, which is intentionally allowed.
 COMMENT_EDIT_PATTERNS = [
-    re.compile(r"^repos/([^/]+)/([^/]+)/issues/comments/(\d+)$"),
-    re.compile(r"^repos/([^/]+)/([^/]+)/pulls/comments/(\d+)$"),
-    re.compile(r"^repos/([^/]+)/([^/]+)/comments/(\d+)$"),
+    (re.compile(r"^repos/([^/]+)/([^/]+)/issues/comments/(\d+)$"), "issues"),
+    (re.compile(r"^repos/([^/]+)/([^/]+)/pulls/comments/(\d+)$"), "pulls"),
+    (re.compile(r"^repos/([^/]+)/([^/]+)/comments/(\d+)$"), "commits"),
 ]
-
-# Map from pattern index to comment type for API fetching
-_COMMENT_TYPE_BY_INDEX = {
-    0: "issues",  # Issue/PR comments (timeline comments)
-    1: "pulls",  # PR review comments (inline on diff)
-    2: "commits",  # Commit comments
-}
 
 
 def extract_comment_edit_info(path: str, method: str) -> tuple[str, str, int, str] | None:
@@ -214,11 +207,10 @@ def extract_comment_edit_info(path: str, method: str) -> tuple[str, str, int, st
     # Strip leading slash and query params (same normalization as validate_gh_api_path)
     path = path.lstrip("/").split("?")[0]
 
-    for idx, pattern in enumerate(COMMENT_EDIT_PATTERNS):
+    for pattern, comment_type in COMMENT_EDIT_PATTERNS:
         match = pattern.match(path)
         if match:
             owner, repo, comment_id_str = match.group(1), match.group(2), match.group(3)
-            comment_type = _COMMENT_TYPE_BY_INDEX[idx]
             return (owner, repo, int(comment_id_str), comment_type)
 
     return None
@@ -227,7 +219,8 @@ def extract_comment_edit_info(path: str, method: str) -> tuple[str, str, int, st
 # Pattern for issue/PR label mutations (POST/PATCH add/set labels)
 ISSUE_LABEL_PATTERN = re.compile(r"^repos/([^/]+)/([^/]+)/issues/(\d+)/labels$")
 
-# Pattern for PR requested reviewer mutations (POST adds, DELETE removes)
+# Pattern for PR requested reviewer mutations (POST adds reviewers).
+# DELETE (remove reviewers) is blocked at the method validation level.
 PR_REVIEWER_PATTERN = re.compile(r"^repos/([^/]+)/([^/]+)/pulls/(\d+)/requested_reviewers$")
 
 # Pattern for PR review creation (POST creates a review)
