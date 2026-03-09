@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Gateway now allows `git merge -X` / `--strategy-option` with safe conflict resolution values: `ours`, `theirs`, `patience`, `ignore-space-change`, `ignore-all-space`, `ignore-space-at-eol`. Values are validated against an allowlist — unknown values are rejected.
 - Type-aware HITL rendering in local mode: `decision_type` field (`phase_gate`, `choice`, `feedback`) on `HITLDecision` drives context-specific terminal UIs. Phase gates show draft previews with edit/approve/request-changes. Choices render numbered options. Feedback prompts per-question with review-before-submit. Universal options (general feedback, change approach, cancel) available on all types. JSON resolution payloads replace bare strings for structured intent parsing, with backward-compatible legacy keyword matching.
 - Gateway sidecar with policy enforcement (branch ownership, merge blocking, push policies)
 - Sandbox container with credential isolation and git/gh wrappers
