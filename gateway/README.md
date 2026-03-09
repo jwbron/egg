@@ -40,16 +40,16 @@ The gateway sidecar is the **trusted** component that holds credentials and vali
 |-----------|--------|-------|
 | `git push` | Branch ownership + Phase filter | Branch has open PR authored by egg, OR branch starts with `egg-` or `egg/`, AND operation is allowed in current phase |
 | `gh pr create` | Phase filter + mode policy | Operation is allowed in current phase (typically only in 'pr' phase)<br>In user mode, PR is forced to draft<br>Blocked in reviewer mode |
-| `gh pr comment` | PR ownership | PR must be authored by egg |
+| `gh pr comment` | Allowed on any PR | PR must exist and be accessible |
 | `gh pr merge` | **BLOCKED** | No merge endpoint - human must merge via GitHub UI |
-| `gh pr edit` | PR ownership | PR must be authored by egg |
-| `gh pr close` | PR ownership | PR must be authored by egg |
+| `gh pr edit` | PR ownership | PR must be authored by egg or configured user |
+| `gh pr close` | PR ownership | PR must be authored by egg or configured user |
 | `gh api PATCH repos/.../issues/comments/{id}` | Comment ownership | Comment must be authored by egg or configured user |
 | `gh api PATCH repos/.../pulls/comments/{id}` | Comment ownership | Comment must be authored by egg or configured user |
 | `gh api PATCH repos/.../comments/{id}` (commits) | Comment ownership | Comment must be authored by egg or configured user |
 | `gh api POST repos/.../issues/{id}/labels` | Issue/PR ownership | Issue or PR must be authored by egg or configured user |
 | `gh api POST repos/.../pulls/{id}/requested_reviewers` | PR ownership | PR must be authored by egg or configured user |
-| `gh api POST repos/.../pulls/{id}/reviews` | PR ownership | PR must be authored by egg or configured user |
+| `gh api POST repos/.../pulls/{id}/reviews` | Allowed on any PR | PR must exist and be accessible |
 
 **Bot variants for ownership check**: `egg`, `egg[bot]`, `app/egg`, `apps/egg`
 
