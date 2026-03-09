@@ -271,7 +271,9 @@ class TestValidateGitArgs:
         assert "--strategy-option=theirs" in normalized
 
         # --strategy-option=ours (long flag, inline value)
-        valid, _error, normalized = validate_git_args("merge", ["--strategy-option=ours", "origin/main"])
+        valid, _error, normalized = validate_git_args(
+            "merge", ["--strategy-option=ours", "origin/main"]
+        )
         assert valid
         assert "--strategy-option=ours" in normalized
 
