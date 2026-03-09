@@ -234,9 +234,7 @@ PR_REVIEWER_PATTERN = re.compile(r"^repos/([^/]+)/([^/]+)/pulls/(\d+)/requested_
 PR_REVIEW_PATTERN = re.compile(r"^repos/([^/]+)/([^/]+)/pulls/(\d+)/reviews$")
 
 
-def extract_issue_label_info(
-    path: str, method: str
-) -> tuple[str, str, int] | None:
+def extract_issue_label_info(path: str, method: str) -> tuple[str, str, int] | None:
     """
     Check if an API path + method is a label mutation on a specific issue/PR.
 
@@ -255,9 +253,7 @@ def extract_issue_label_info(
     return None
 
 
-def extract_pr_reviewer_info(
-    path: str, method: str
-) -> tuple[str, str, int] | None:
+def extract_pr_reviewer_info(path: str, method: str) -> tuple[str, str, int] | None:
     """
     Check if an API path + method is a reviewer mutation on a specific PR.
 
@@ -276,9 +272,7 @@ def extract_pr_reviewer_info(
     return None
 
 
-def extract_pr_review_info(
-    path: str, method: str
-) -> tuple[str, str, int] | None:
+def extract_pr_review_info(path: str, method: str) -> tuple[str, str, int] | None:
     """
     Check if an API path + method is a review creation on a specific PR.
 
@@ -1041,9 +1035,7 @@ class GitHubClient:
             logger.error("Failed to parse PR info", stdout=result.stdout[:500])
             return None
 
-    def get_issue_author(
-        self, repo: str, issue_number: int, mode: str = "bot"
-    ) -> str | None:
+    def get_issue_author(self, repo: str, issue_number: int, mode: str = "bot") -> str | None:
         """
         Fetch the author login of an issue or PR (via the issues API).
 

@@ -975,9 +975,7 @@ class TestExtractIssueLabelInfo:
 
     def test_post_labels_detected(self):
         """POST on issues/{id}/labels is detected."""
-        result = github_client.extract_issue_label_info(
-            "repos/owner/repo/issues/42/labels", "POST"
-        )
+        result = github_client.extract_issue_label_info("repos/owner/repo/issues/42/labels", "POST")
         assert result == ("owner", "repo", 42)
 
     def test_patch_labels_detected(self):
@@ -989,9 +987,7 @@ class TestExtractIssueLabelInfo:
 
     def test_get_labels_not_matched(self):
         """GET on labels is not a mutation."""
-        result = github_client.extract_issue_label_info(
-            "repos/owner/repo/issues/42/labels", "GET"
-        )
+        result = github_client.extract_issue_label_info("repos/owner/repo/issues/42/labels", "GET")
         assert result is None
 
     def test_leading_slash_stripped(self):
@@ -1046,16 +1042,12 @@ class TestExtractPrReviewInfo:
 
     def test_post_review_detected(self):
         """POST on pulls/{id}/reviews is detected."""
-        result = github_client.extract_pr_review_info(
-            "repos/owner/repo/pulls/5/reviews", "POST"
-        )
+        result = github_client.extract_pr_review_info("repos/owner/repo/pulls/5/reviews", "POST")
         assert result == ("owner", "repo", 5)
 
     def test_get_reviews_not_matched(self):
         """GET on reviews is not a mutation."""
-        result = github_client.extract_pr_review_info(
-            "repos/owner/repo/pulls/5/reviews", "GET"
-        )
+        result = github_client.extract_pr_review_info("repos/owner/repo/pulls/5/reviews", "GET")
         assert result is None
 
     def test_specific_review_not_matched(self):
@@ -1067,7 +1059,5 @@ class TestExtractPrReviewInfo:
 
     def test_leading_slash_stripped(self):
         """Leading slash is stripped."""
-        result = github_client.extract_pr_review_info(
-            "/repos/owner/repo/pulls/5/reviews", "POST"
-        )
+        result = github_client.extract_pr_review_info("/repos/owner/repo/pulls/5/reviews", "POST")
         assert result == ("owner", "repo", 5)

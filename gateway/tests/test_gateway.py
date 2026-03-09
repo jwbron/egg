@@ -5418,8 +5418,14 @@ class TestLabelMutationOwnership:
                 headers=auth_headers,
                 data=json.dumps(
                     {
-                        "args": ["api", "-X", "POST", "repos/owner/repo/issues/42/labels",
-                                 "-f", "labels[]=bug"],
+                        "args": [
+                            "api",
+                            "-X",
+                            "POST",
+                            "repos/owner/repo/issues/42/labels",
+                            "-f",
+                            "labels[]=bug",
+                        ],
                         "repo": "owner/repo",
                     }
                 ),
@@ -5445,11 +5451,14 @@ class TestLabelMutationOwnership:
 
             mock_result = MagicMock()
             mock_result.success = True
-            mock_result.stdout = '[]'
+            mock_result.stdout = "[]"
             mock_result.stderr = ""
             mock_result.returncode = 0
             mock_result.to_dict.return_value = {
-                "success": True, "stdout": "[]", "stderr": "", "returncode": 0,
+                "success": True,
+                "stdout": "[]",
+                "stderr": "",
+                "returncode": 0,
             }
             mock_gh.return_value.execute.return_value = mock_result
 
@@ -5458,8 +5467,14 @@ class TestLabelMutationOwnership:
                 headers=auth_headers,
                 data=json.dumps(
                     {
-                        "args": ["api", "-X", "POST", "repos/owner/repo/issues/42/labels",
-                                 "-f", "labels[]=bug"],
+                        "args": [
+                            "api",
+                            "-X",
+                            "POST",
+                            "repos/owner/repo/issues/42/labels",
+                            "-f",
+                            "labels[]=bug",
+                        ],
                         "repo": "owner/repo",
                     }
                 ),
@@ -5477,11 +5492,14 @@ class TestLabelMutationOwnership:
         ):
             mock_result = MagicMock()
             mock_result.success = True
-            mock_result.stdout = '[]'
+            mock_result.stdout = "[]"
             mock_result.stderr = ""
             mock_result.returncode = 0
             mock_result.to_dict.return_value = {
-                "success": True, "stdout": "[]", "stderr": "", "returncode": 0,
+                "success": True,
+                "stdout": "[]",
+                "stderr": "",
+                "returncode": 0,
             }
             mock_gh.return_value.execute.return_value = mock_result
 
@@ -5523,9 +5541,14 @@ class TestReviewerMutationOwnership:
                 headers=auth_headers,
                 data=json.dumps(
                     {
-                        "args": ["api", "-X", "POST",
-                                 "repos/owner/repo/pulls/10/requested_reviewers",
-                                 "-f", "reviewers[]=octocat"],
+                        "args": [
+                            "api",
+                            "-X",
+                            "POST",
+                            "repos/owner/repo/pulls/10/requested_reviewers",
+                            "-f",
+                            "reviewers[]=octocat",
+                        ],
                         "repo": "owner/repo",
                     }
                 ),
@@ -5549,11 +5572,14 @@ class TestReviewerMutationOwnership:
 
             mock_result = MagicMock()
             mock_result.success = True
-            mock_result.stdout = '{}'
+            mock_result.stdout = "{}"
             mock_result.stderr = ""
             mock_result.returncode = 0
             mock_result.to_dict.return_value = {
-                "success": True, "stdout": "{}", "stderr": "", "returncode": 0,
+                "success": True,
+                "stdout": "{}",
+                "stderr": "",
+                "returncode": 0,
             }
             mock_gh.return_value.execute.return_value = mock_result
 
@@ -5562,9 +5588,14 @@ class TestReviewerMutationOwnership:
                 headers=auth_headers,
                 data=json.dumps(
                     {
-                        "args": ["api", "-X", "POST",
-                                 "repos/owner/repo/pulls/10/requested_reviewers",
-                                 "-f", "reviewers[]=octocat"],
+                        "args": [
+                            "api",
+                            "-X",
+                            "POST",
+                            "repos/owner/repo/pulls/10/requested_reviewers",
+                            "-f",
+                            "reviewers[]=octocat",
+                        ],
                         "repo": "owner/repo",
                     }
                 ),
@@ -5582,11 +5613,14 @@ class TestReviewerMutationOwnership:
         ):
             mock_result = MagicMock()
             mock_result.success = True
-            mock_result.stdout = '{}'
+            mock_result.stdout = "{}"
             mock_result.stderr = ""
             mock_result.returncode = 0
             mock_result.to_dict.return_value = {
-                "success": True, "stdout": "{}", "stderr": "", "returncode": 0,
+                "success": True,
+                "stdout": "{}",
+                "stderr": "",
+                "returncode": 0,
             }
             mock_gh.return_value.execute.return_value = mock_result
 
@@ -5628,8 +5662,16 @@ class TestReviewCreationCheck:
                 headers=auth_headers,
                 data=json.dumps(
                     {
-                        "args": ["api", "-X", "POST", "repos/owner/repo/pulls/999/reviews",
-                                 "-f", "body=LGTM", "-f", "event=APPROVE"],
+                        "args": [
+                            "api",
+                            "-X",
+                            "POST",
+                            "repos/owner/repo/pulls/999/reviews",
+                            "-f",
+                            "body=LGTM",
+                            "-f",
+                            "event=APPROVE",
+                        ],
                         "repo": "owner/repo",
                     }
                 ),
@@ -5657,7 +5699,10 @@ class TestReviewCreationCheck:
             mock_result.stderr = ""
             mock_result.returncode = 0
             mock_result.to_dict.return_value = {
-                "success": True, "stdout": '{"id": 1}', "stderr": "", "returncode": 0,
+                "success": True,
+                "stdout": '{"id": 1}',
+                "stderr": "",
+                "returncode": 0,
             }
             mock_gh.return_value.execute.return_value = mock_result
 
@@ -5666,8 +5711,14 @@ class TestReviewCreationCheck:
                 headers=auth_headers,
                 data=json.dumps(
                     {
-                        "args": ["api", "-X", "POST", "repos/owner/repo/pulls/5/reviews",
-                                 "-f", "body=LGTM"],
+                        "args": [
+                            "api",
+                            "-X",
+                            "POST",
+                            "repos/owner/repo/pulls/5/reviews",
+                            "-f",
+                            "body=LGTM",
+                        ],
                         "repo": "owner/repo",
                     }
                 ),
@@ -5685,11 +5736,14 @@ class TestReviewCreationCheck:
         ):
             mock_result = MagicMock()
             mock_result.success = True
-            mock_result.stdout = '[]'
+            mock_result.stdout = "[]"
             mock_result.stderr = ""
             mock_result.returncode = 0
             mock_result.to_dict.return_value = {
-                "success": True, "stdout": "[]", "stderr": "", "returncode": 0,
+                "success": True,
+                "stdout": "[]",
+                "stderr": "",
+                "returncode": 0,
             }
             mock_gh.return_value.execute.return_value = mock_result
 
