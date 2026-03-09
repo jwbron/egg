@@ -5394,3 +5394,316 @@ class TestCommentEditOwnership:
             )
 
             assert response.status_code == 403
+
+
+class TestLabelMutationOwnership:
+    """Tests for label mutation ownership enforcement in gh_execute."""
+
+    def test_post_labels_blocked_when_not_owned(self, client, auth_headers):
+        """POST labels on an issue not owned by bot returns 403."""
+        with (
+            patch.object(gateway, "get_github_client") as mock_gh,
+            patch.object(gateway, "get_policy_engine") as mock_policy,
+            patch.object(gateway, "get_auth_mode", return_value="bot"),
+        ):
+            mock_engine = MagicMock()
+            mock_engine.check_issue_ownership.return_value = PolicyResult(
+                allowed=False,
+                reason="Issue/PR #42 is not owned by bot (author: someone)",
+            )
+            mock_policy.return_value = mock_engine
+
+            response = client.post(
+                "/api/v1/gh/execute",
+                headers=auth_headers,
+                data=json.dumps(
+                    {
+                        "args": ["api", "-X", "POST", "repos/owner/repo/issues/42/labels",
+                                 "-f", "labels[]=bug"],
+                        "repo": "owner/repo",
+                    }
+                ),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 403
+            data = json.loads(response.data)
+            assert "not owned" in data["message"]
+
+    def test_post_labels_allowed_when_owned(self, client, auth_headers):
+        """POST labels on a bot-owned issue succeeds."""
+        with (
+            patch.object(gateway, "get_github_client") as mock_gh,
+            patch.object(gateway, "get_policy_engine") as mock_policy,
+            patch.object(gateway, "get_auth_mode", return_value="bot"),
+        ):
+            mock_engine = MagicMock()
+            mock_engine.check_issue_ownership.return_value = PolicyResult(
+                allowed=True, reason="owned by bot"
+            )
+            mock_policy.return_value = mock_engine
+
+            mock_result = MagicMock()
+            mock_result.success = True
+            mock_result.stdout = '[]'
+            mock_result.stderr = ""
+            mock_result.returncode = 0
+            mock_result.to_dict.return_value = {
+                "success": True, "stdout": "[]", "stderr": "", "returncode": 0,
+            }
+            mock_gh.return_value.execute.return_value = mock_result
+
+            response = client.post(
+                "/api/v1/gh/execute",
+                headers=auth_headers,
+                data=json.dumps(
+                    {
+                        "args": ["api", "-X", "POST", "repos/owner/repo/issues/42/labels",
+                                 "-f", "labels[]=bug"],
+                        "repo": "owner/repo",
+                    }
+                ),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 200
+
+    def test_get_labels_no_ownership_check(self, client, auth_headers):
+        """GET on labels does not trigger ownership check."""
+        with (
+            patch.object(gateway, "get_github_client") as mock_gh,
+            patch.object(gateway, "get_policy_engine") as mock_policy,
+            patch.object(gateway, "get_auth_mode", return_value="bot"),
+        ):
+            mock_result = MagicMock()
+            mock_result.success = True
+            mock_result.stdout = '[]'
+            mock_result.stderr = ""
+            mock_result.returncode = 0
+            mock_result.to_dict.return_value = {
+                "success": True, "stdout": "[]", "stderr": "", "returncode": 0,
+            }
+            mock_gh.return_value.execute.return_value = mock_result
+
+            response = client.post(
+                "/api/v1/gh/execute",
+                headers=auth_headers,
+                data=json.dumps(
+                    {
+                        "args": ["api", "repos/owner/repo/issues/42/labels"],
+                        "repo": "owner/repo",
+                    }
+                ),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 200
+            mock_policy.return_value.check_issue_ownership.assert_not_called()
+
+
+class TestReviewerMutationOwnership:
+    """Tests for PR reviewer mutation ownership enforcement in gh_execute."""
+
+    def test_post_reviewers_blocked_when_not_owned(self, client, auth_headers):
+        """POST requested_reviewers on unowned PR returns 403."""
+        with (
+            patch.object(gateway, "get_github_client") as mock_gh,
+            patch.object(gateway, "get_policy_engine") as mock_policy,
+            patch.object(gateway, "get_auth_mode", return_value="bot"),
+        ):
+            mock_engine = MagicMock()
+            mock_engine.check_pr_ownership.return_value = PolicyResult(
+                allowed=False,
+                reason="PR #10 is not owned by bot (author: someone)",
+            )
+            mock_policy.return_value = mock_engine
+
+            response = client.post(
+                "/api/v1/gh/execute",
+                headers=auth_headers,
+                data=json.dumps(
+                    {
+                        "args": ["api", "-X", "POST",
+                                 "repos/owner/repo/pulls/10/requested_reviewers",
+                                 "-f", "reviewers[]=octocat"],
+                        "repo": "owner/repo",
+                    }
+                ),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 403
+
+    def test_post_reviewers_allowed_when_owned(self, client, auth_headers):
+        """POST requested_reviewers on bot-owned PR succeeds."""
+        with (
+            patch.object(gateway, "get_github_client") as mock_gh,
+            patch.object(gateway, "get_policy_engine") as mock_policy,
+            patch.object(gateway, "get_auth_mode", return_value="bot"),
+        ):
+            mock_engine = MagicMock()
+            mock_engine.check_pr_ownership.return_value = PolicyResult(
+                allowed=True, reason="owned by bot"
+            )
+            mock_policy.return_value = mock_engine
+
+            mock_result = MagicMock()
+            mock_result.success = True
+            mock_result.stdout = '{}'
+            mock_result.stderr = ""
+            mock_result.returncode = 0
+            mock_result.to_dict.return_value = {
+                "success": True, "stdout": "{}", "stderr": "", "returncode": 0,
+            }
+            mock_gh.return_value.execute.return_value = mock_result
+
+            response = client.post(
+                "/api/v1/gh/execute",
+                headers=auth_headers,
+                data=json.dumps(
+                    {
+                        "args": ["api", "-X", "POST",
+                                 "repos/owner/repo/pulls/10/requested_reviewers",
+                                 "-f", "reviewers[]=octocat"],
+                        "repo": "owner/repo",
+                    }
+                ),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 200
+
+    def test_get_reviewers_no_ownership_check(self, client, auth_headers):
+        """GET requested_reviewers does not trigger ownership check."""
+        with (
+            patch.object(gateway, "get_github_client") as mock_gh,
+            patch.object(gateway, "get_policy_engine") as mock_policy,
+            patch.object(gateway, "get_auth_mode", return_value="bot"),
+        ):
+            mock_result = MagicMock()
+            mock_result.success = True
+            mock_result.stdout = '{}'
+            mock_result.stderr = ""
+            mock_result.returncode = 0
+            mock_result.to_dict.return_value = {
+                "success": True, "stdout": "{}", "stderr": "", "returncode": 0,
+            }
+            mock_gh.return_value.execute.return_value = mock_result
+
+            response = client.post(
+                "/api/v1/gh/execute",
+                headers=auth_headers,
+                data=json.dumps(
+                    {
+                        "args": ["api", "repos/owner/repo/pulls/10/requested_reviewers"],
+                        "repo": "owner/repo",
+                    }
+                ),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 200
+            mock_policy.return_value.check_pr_ownership.assert_not_called()
+
+
+class TestReviewCreationCheck:
+    """Tests for PR review creation check via gh api in gh_execute."""
+
+    def test_post_review_on_nonexistent_pr_blocked(self, client, auth_headers):
+        """POST review on non-existent PR returns 403."""
+        with (
+            patch.object(gateway, "get_github_client") as mock_gh,
+            patch.object(gateway, "get_policy_engine") as mock_policy,
+            patch.object(gateway, "get_auth_mode", return_value="bot"),
+        ):
+            mock_engine = MagicMock()
+            mock_engine.check_pr_review_allowed.return_value = PolicyResult(
+                allowed=False,
+                reason="PR #999 not found or inaccessible",
+            )
+            mock_policy.return_value = mock_engine
+
+            response = client.post(
+                "/api/v1/gh/execute",
+                headers=auth_headers,
+                data=json.dumps(
+                    {
+                        "args": ["api", "-X", "POST", "repos/owner/repo/pulls/999/reviews",
+                                 "-f", "body=LGTM", "-f", "event=APPROVE"],
+                        "repo": "owner/repo",
+                    }
+                ),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 403
+
+    def test_post_review_on_existing_pr_allowed(self, client, auth_headers):
+        """POST review on existing PR succeeds."""
+        with (
+            patch.object(gateway, "get_github_client") as mock_gh,
+            patch.object(gateway, "get_policy_engine") as mock_policy,
+            patch.object(gateway, "get_auth_mode", return_value="bot"),
+        ):
+            mock_engine = MagicMock()
+            mock_engine.check_pr_review_allowed.return_value = PolicyResult(
+                allowed=True, reason="Reviews are allowed"
+            )
+            mock_policy.return_value = mock_engine
+
+            mock_result = MagicMock()
+            mock_result.success = True
+            mock_result.stdout = '{"id": 1}'
+            mock_result.stderr = ""
+            mock_result.returncode = 0
+            mock_result.to_dict.return_value = {
+                "success": True, "stdout": '{"id": 1}', "stderr": "", "returncode": 0,
+            }
+            mock_gh.return_value.execute.return_value = mock_result
+
+            response = client.post(
+                "/api/v1/gh/execute",
+                headers=auth_headers,
+                data=json.dumps(
+                    {
+                        "args": ["api", "-X", "POST", "repos/owner/repo/pulls/5/reviews",
+                                 "-f", "body=LGTM"],
+                        "repo": "owner/repo",
+                    }
+                ),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 200
+
+    def test_get_reviews_no_check(self, client, auth_headers):
+        """GET on reviews does not trigger review check."""
+        with (
+            patch.object(gateway, "get_github_client") as mock_gh,
+            patch.object(gateway, "get_policy_engine") as mock_policy,
+            patch.object(gateway, "get_auth_mode", return_value="bot"),
+        ):
+            mock_result = MagicMock()
+            mock_result.success = True
+            mock_result.stdout = '[]'
+            mock_result.stderr = ""
+            mock_result.returncode = 0
+            mock_result.to_dict.return_value = {
+                "success": True, "stdout": "[]", "stderr": "", "returncode": 0,
+            }
+            mock_gh.return_value.execute.return_value = mock_result
+
+            response = client.post(
+                "/api/v1/gh/execute",
+                headers=auth_headers,
+                data=json.dumps(
+                    {
+                        "args": ["api", "repos/owner/repo/pulls/5/reviews"],
+                        "repo": "owner/repo",
+                    }
+                ),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 200
+            mock_policy.return_value.check_pr_review_allowed.assert_not_called()
