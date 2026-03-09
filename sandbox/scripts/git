@@ -526,6 +526,8 @@ case "$cmd" in
         skip_next=false
         remote_seen=false
 
+        has_all=false
+
         for arg in "${args_after_globals[@]}"; do
             if $skip_next; then
                 extra_args+=("$arg")
@@ -538,6 +540,10 @@ case "$cmd" in
                 --depth|--deepen|--shallow-since|--shallow-exclude|-j|--jobs|--recurse-submodules-default|--submodule-prefix|--upload-pack|-o|--server-option|--negotiation-tip|--filter|--refmap)
                     extra_args+=("$arg")
                     skip_next=true
+                    ;;
+                --all)
+                    extra_args+=("$arg")
+                    has_all=true
                     ;;
                 -*)
                     extra_args+=("$arg")
@@ -552,6 +558,31 @@ case "$cmd" in
                     ;;
             esac
         done
+
+        # Expand bare branch names to full refspecs so that tracking refs
+        # (refs/remotes/origin/<branch>) are always updated.  Without this,
+        # `git fetch origin <branch>` only writes FETCH_HEAD, leaving the
+        # tracking ref stale.  Already-full refspecs (containing ':') and
+        # refs/ paths are left untouched.  Skip expansion when --all is used.
+        if [ "$has_all" = "false" ]; then
+            expanded_args=()
+            for arg in "${extra_args[@]}"; do
+                if [[ "$arg" == -* ]]; then
+                    # Flag — pass through
+                    expanded_args+=("$arg")
+                elif [[ "$arg" == *:* ]]; then
+                    # Explicit refspec — pass through
+                    expanded_args+=("$arg")
+                elif [[ "$arg" == refs/* ]]; then
+                    # Full ref path without mapping — pass through
+                    expanded_args+=("$arg")
+                else
+                    # Bare branch name — expand to full refspec
+                    expanded_args+=("+refs/heads/${arg}:refs/remotes/${remote}/${arg}")
+                fi
+            done
+            extra_args=("${expanded_args[@]}")
+        fi
 
         fetch_via_gateway "fetch" "$remote" "$git_work_dir" "${extra_args[@]}"
         exit $?
