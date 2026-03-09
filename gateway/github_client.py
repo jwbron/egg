@@ -190,15 +190,13 @@ COMMENT_EDIT_PATTERNS = [
 
 # Map from pattern index to comment type for API fetching
 _COMMENT_TYPE_BY_INDEX = {
-    0: "issues",   # Issue/PR comments (timeline comments)
-    1: "pulls",    # PR review comments (inline on diff)
+    0: "issues",  # Issue/PR comments (timeline comments)
+    1: "pulls",  # PR review comments (inline on diff)
     2: "commits",  # Commit comments
 }
 
 
-def extract_comment_edit_info(
-    path: str, method: str
-) -> tuple[str, str, int, str] | None:
+def extract_comment_edit_info(path: str, method: str) -> tuple[str, str, int, str] | None:
     """
     Check if an API path + method represents an edit to a specific comment.
 
