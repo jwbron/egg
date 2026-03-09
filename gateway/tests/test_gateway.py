@@ -5402,7 +5402,7 @@ class TestLabelMutationOwnership:
     def test_post_labels_blocked_when_not_owned(self, client, auth_headers):
         """POST labels on an issue not owned by bot returns 403."""
         with (
-            patch.object(gateway, "get_github_client") as mock_gh,
+            patch.object(gateway, "get_github_client"),
             patch.object(gateway, "get_policy_engine") as mock_policy,
             patch.object(gateway, "get_auth_mode", return_value="bot"),
         ):
@@ -5507,7 +5507,7 @@ class TestReviewerMutationOwnership:
     def test_post_reviewers_blocked_when_not_owned(self, client, auth_headers):
         """POST requested_reviewers on unowned PR returns 403."""
         with (
-            patch.object(gateway, "get_github_client") as mock_gh,
+            patch.object(gateway, "get_github_client"),
             patch.object(gateway, "get_policy_engine") as mock_policy,
             patch.object(gateway, "get_auth_mode", return_value="bot"),
         ):
@@ -5612,7 +5612,7 @@ class TestReviewCreationCheck:
     def test_post_review_on_nonexistent_pr_blocked(self, client, auth_headers):
         """POST review on non-existent PR returns 403."""
         with (
-            patch.object(gateway, "get_github_client") as mock_gh,
+            patch.object(gateway, "get_github_client"),
             patch.object(gateway, "get_policy_engine") as mock_policy,
             patch.object(gateway, "get_auth_mode", return_value="bot"),
         ):
