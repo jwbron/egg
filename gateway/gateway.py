@@ -2763,6 +2763,8 @@ def gh_execute() -> tuple[Response, int] | Response:
             )
 
     # For 'gh api' commands, validate the path against allowlist
+    api_path: str | None = None
+    method: str = "GET"
     if args and args[0] == "api" and len(args) > 1:
         # Parse arguments to find the actual API path (skip flags like -X, --method, etc.)
         api_path, method = parse_gh_api_args(args[1:])
@@ -2892,7 +2894,7 @@ def gh_execute() -> tuple[Response, int] | Response:
             pass
 
     # For PATCH on comment endpoints, verify the bot/configured user owns the comment
-    if args and args[0] == "api" and len(args) > 1:
+    if args and args[0] == "api" and len(args) > 1 and api_path is not None:
         comment_info = extract_comment_edit_info(api_path, method)
         if comment_info:
             c_owner, c_repo_name, c_comment_id, c_comment_type = comment_info
