@@ -2553,11 +2553,12 @@ def gh_pr_edit() -> tuple[Response, int] | Response:
         )
 
     github = get_github_client(mode=auth_mode)
-    args = ["pr", "edit", str(pr_number), "--repo", repo]
+    owner, repo_name = repo.split("/", 1)
+    args = ["api", f"repos/{owner}/{repo_name}/pulls/{pr_number}", "-X", "PATCH"]
     if title:
-        args.extend(["--title", title])
+        args.extend(["-f", f"title={title}"])
     if body:
-        args.extend(["--body", body])
+        args.extend(["-f", f"body={body}"])
 
     result = github.execute(args, timeout=30, mode=auth_mode)
 

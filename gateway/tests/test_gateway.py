@@ -1612,6 +1612,49 @@ class TestGhPrEdit:
 
             assert response.status_code == 403
 
+    def test_pr_edit_uses_rest_api(self, client, auth_headers):
+        """PR edit should use gh api REST call instead of gh pr edit."""
+        with (
+            patch.object(gateway, "get_policy_engine") as mock_policy,
+            patch.object(gateway, "get_github_client") as mock_gh,
+        ):
+            mock_engine = MagicMock()
+            mock_engine.check_pr_ownership.return_value = PolicyResult(
+                allowed=True,
+                reason="PR is owned by bot",
+                details={"author": "bot"},
+            )
+            mock_policy.return_value = mock_engine
+
+            mock_gh_result = MagicMock()
+            mock_gh_result.success = True
+            mock_gh_result.stdout = '{"number": 123, "title": "New title"}'
+            mock_gh_result.stderr = ""
+            mock_gh.return_value.execute.return_value = mock_gh_result
+
+            response = client.post(
+                "/api/v1/gh/pr/edit",
+                headers=auth_headers,
+                data=json.dumps({
+                    "repo": "test/repo",
+                    "pr_number": 123,
+                    "title": "New title",
+                    "body": "New body",
+                }),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 200
+            # Verify gh api REST args were used
+            call_args = mock_gh.return_value.execute.call_args[0][0]
+            assert call_args[0] == "api"
+            assert "repos/test/repo/pulls/123" in call_args[1]
+            assert "-X" in call_args
+            assert "PATCH" in call_args
+            assert "-f" in call_args
+            assert "title=New title" in call_args
+            assert "body=New body" in call_args
+
 
 class TestGhPrClose:
     """Tests for /api/v1/gh/pr/close endpoint."""
