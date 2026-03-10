@@ -614,7 +614,9 @@ def git_push() -> tuple[Response, int] | Response:
         # Infrastructure operations — always accessible regardless of
         # session mode. This covers dedicated checkpoint repos and
         # infrastructure branch pushes (checkpoints, pipeline state).
-        if is_infrastructure_push or _is_checkpoint_repo_for_request(repo_info.owner, repo_info.repo):
+        if is_infrastructure_push or _is_checkpoint_repo_for_request(
+            repo_info.owner, repo_info.repo
+        ):
             audit_log(
                 "push_infrastructure_exempt",
                 "git_push",
