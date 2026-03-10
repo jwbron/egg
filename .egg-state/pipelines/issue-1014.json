@@ -68,9 +68,23 @@
       "phase_start_sha": null
     }
   },
-  "decisions": [],
+  "decisions": [
+    {
+      "id": "decision-1",
+      "question": "Should babysit-pr use the orchestrator or run standalone?",
+      "context": "",
+      "options": [],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-03-10T06:26:00.978908",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine"
+    }
+  ],
   "created_at": "2026-03-10T06:18:47.202490",
-  "updated_at": "2026-03-10T06:18:49.564334",
+  "updated_at": "2026-03-10T06:26:00.980938",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
@@ -78,5 +92,5 @@
   "error": null,
   "plan_phase_waves": null,
   "plan_phase_names": null,
-  "version": 7
+  "version": 8
 }
