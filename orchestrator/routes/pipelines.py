@@ -6670,14 +6670,45 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                 pass
 
             if not skip_cleanup:
-                _spawner.gateway.delete_worktrees(
-                    container_id=pipeline_id,
-                    force=True,
-                )
-                logger.info("Pipeline worktrees cleaned up", pipeline_id=pipeline_id)
+                try:
+                    _spawner.gateway.delete_worktrees(
+                        container_id=pipeline_id,
+                        force=True,
+                    )
+                    logger.info("Pipeline worktrees cleaned up", pipeline_id=pipeline_id)
+                except Exception as pipeline_wt_err:
+                    logger.warning(
+                        "Failed to clean up pipeline worktrees",
+                        pipeline_id=pipeline_id,
+                        error=str(pipeline_wt_err),
+                    )
+
+                # Also clean up per-agent session worktrees.  Each agent
+                # registers a gateway session under container_id
+                # "egg-{pipeline_id}-{role}" and session_create creates a
+                # worktree keyed to that name.  The per-agent cleanup path
+                # calls delete_session_by_container with the Docker container
+                # hash (not the session container_id), so those worktrees are
+                # never removed via the normal per-container cleanup.  Sweep
+                # them here as a safety net.  delete_worktrees is a no-op for
+                # container IDs that have no worktree directory.
+                for role in AgentRole:
+                    agent_container_id = f"egg-{pipeline_id}-{role.value}"
+                    try:
+                        _spawner.gateway.delete_worktrees(
+                            container_id=agent_container_id,
+                            force=True,
+                        )
+                    except Exception as agent_wt_err:
+                        logger.warning(
+                            "Failed to clean up agent worktrees",
+                            pipeline_id=pipeline_id,
+                            agent_container_id=agent_container_id,
+                            error=str(agent_wt_err),
+                        )
         except Exception as wt_err:
             logger.warning(
-                "Failed to clean up pipeline worktrees",
+                "Failed to clean up worktrees",
                 pipeline_id=pipeline_id,
                 error=str(wt_err),
             )
