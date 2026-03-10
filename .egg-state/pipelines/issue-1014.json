@@ -5,7 +5,7 @@
   "branch": "egg/issue-1014",
   "mode": "issue",
   "prompt": null,
-  "status": "running",
+  "status": "awaiting_human",
   "current_phase": "plan",
   "config": {
     "auto_create_pr": true,
@@ -190,7 +190,7 @@
     },
     "plan": {
       "phase": "plan",
-      "status": "complete",
+      "status": "awaiting_human",
       "started_at": "2026-03-10T06:49:20.206959",
       "work_started_at": "2026-03-10T07:03:48.289796",
       "completed_at": "2026-03-10T07:16:39.979891",
@@ -517,7 +517,7 @@
     }
   ],
   "created_at": "2026-03-10T06:18:47.202490",
-  "updated_at": "2026-03-10T07:16:40.487063",
+  "updated_at": "2026-03-10T07:16:40.516792",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
@@ -525,5 +525,5 @@
   "error": null,
   "plan_phase_waves": null,
   "plan_phase_names": null,
-  "version": 63
+  "version": 64
 }
