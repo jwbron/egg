@@ -89,6 +89,7 @@ GH_API_ALLOWED_PATHS = [
     re.compile(r"^repos/[^/]+/[^/]+/pulls/\d+$"),  # View PR
     re.compile(r"^repos/[^/]+/[^/]+/pulls/\d+/comments$"),  # PR review comments (on diff)
     re.compile(r"^repos/[^/]+/[^/]+/pulls/comments/\d+$"),  # Specific PR review comment
+    re.compile(r"^repos/[^/]+/[^/]+/pulls/comments/\d+/replies$"),  # Reply to PR review comment
     re.compile(r"^repos/[^/]+/[^/]+/pulls/\d+/reviews$"),  # PR reviews
     re.compile(r"^repos/[^/]+/[^/]+/pulls/\d+/reviews/\d+$"),  # Specific review
     re.compile(r"^repos/[^/]+/[^/]+/pulls/\d+/reviews/\d+/comments$"),  # Review comments
