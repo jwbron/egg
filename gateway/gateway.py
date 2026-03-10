@@ -4824,7 +4824,7 @@ def main() -> None:
                 bp = get_proxy_buffer_path(cid)
                 if not bp.exists():
                     logger.warning(
-                        "Active session has no transcript buffer (likely lost during restart)",
+                        "Active session has no transcript buffer — may not have been created yet or was cleaned up prematurely",
                         container_id=cid,
                         buffer_path=str(bp),
                     )
