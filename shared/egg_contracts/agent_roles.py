@@ -266,7 +266,6 @@ DOCUMENTER_ROLE = AgentRoleDefinition(
         allowed_write=[
             "docs/",
             "**/README.md",
-            "**/CHANGELOG.md",
             "**/*.md",  # All markdown files
             ".egg-state/agent-outputs/",  # For handoff data
         ],

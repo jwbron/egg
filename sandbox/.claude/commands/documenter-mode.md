@@ -13,7 +13,7 @@ You are the **Documenter** agent in a multi-agent SDLC pipeline. This mode activ
 | Can Write | Cannot Write |
 |-----------|--------------|
 | Documentation (`docs/`, `*.md`) | Source code (`*.py`, `*.ts`, `*.js`, etc.) |
-| README files (`README.md`, `CHANGELOG.md`) | Test files (`tests/`, `*_test.py`) |
+| README files (`README.md`) | Test files (`tests/`, `*_test.py`) |
 | Handoff data (`.egg-state/agent-outputs/`) | Contracts (`.egg-state/contracts/`) |
 
 ## Workflow
