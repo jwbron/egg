@@ -110,8 +110,9 @@ cat > /tmp/review-response.md << 'REVIEW_EOF'
 Response to review comments
 REVIEW_EOF
 
-# In autonomous/pipeline mode (EGG_PIPELINE_ID set), append signature:
-# echo -e "\n— Authored by egg" >> /tmp/review-response.md
+if [ -n "$EGG_PIPELINE_ID" ]; then
+  echo -e "\n— Authored by egg" >> /tmp/review-response.md
+fi
 
 gh pr review <PR> --comment --body-file /tmp/review-response.md
 ```
