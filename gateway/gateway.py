@@ -4856,6 +4856,25 @@ def main() -> None:
     except Exception as e:
         logger.warning("Startup session cleanup failed", error=str(e))
 
+    # Check for active sessions with missing transcript buffers.
+    # Buffers are now persisted, but may still be missing if the session hasn't
+    # made any API calls yet or the buffer was cleaned up prematurely.
+    try:
+        from egg_contracts.transcript_extractor import get_proxy_buffer_path
+
+        for session_info in session_manager.list_sessions():
+            cid = session_info.get("container_id")
+            if cid:
+                bp = get_proxy_buffer_path(cid)
+                if not bp.exists():
+                    logger.warning(
+                        "Active session has no transcript buffer — may not have been created yet or was cleaned up prematurely",
+                        container_id=cid,
+                        buffer_path=str(bp),
+                    )
+    except Exception as e:
+        logger.warning("Startup transcript buffer check failed", error=str(e))
+
     # Also check Docker directly as safety net — sessions may be
     # pruned but containers still running.
     try:
