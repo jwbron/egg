@@ -1657,6 +1657,139 @@ class TestGhPrEdit:
             assert "title=New title" in call_args
             assert "body=New body" in call_args
 
+    def test_pr_edit_rejects_non_integer_pr_number(self, client, auth_headers):
+        """PR edit should reject non-integer pr_number."""
+        response = client.post(
+            "/api/v1/gh/pr/edit",
+            headers=auth_headers,
+            data=json.dumps(
+                {
+                    "repo": "test/repo",
+                    "pr_number": "42/../../repos/other/issues/1",
+                    "title": "New title",
+                }
+            ),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 400
+        data = response.get_json()
+        assert "positive integer" in data["message"].lower()
+
+    def test_pr_edit_rejects_negative_pr_number(self, client, auth_headers):
+        """PR edit should reject negative pr_number."""
+        response = client.post(
+            "/api/v1/gh/pr/edit",
+            headers=auth_headers,
+            data=json.dumps(
+                {
+                    "repo": "test/repo",
+                    "pr_number": -1,
+                    "title": "New title",
+                }
+            ),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 400
+        data = response.get_json()
+        assert "positive integer" in data["message"].lower()
+
+    def test_pr_edit_rejects_malformed_repo(self, client, auth_headers):
+        """PR edit should reject repo without owner/repo format."""
+        response = client.post(
+            "/api/v1/gh/pr/edit",
+            headers=auth_headers,
+            data=json.dumps(
+                {
+                    "repo": "noslash",
+                    "pr_number": 123,
+                    "title": "New title",
+                }
+            ),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 400
+        data = response.get_json()
+        assert "owner/repo" in data["message"].lower()
+
+    def test_pr_edit_title_only(self, client, auth_headers):
+        """PR edit with title only should send only title field."""
+        with (
+            patch.object(gateway, "get_policy_engine") as mock_policy,
+            patch.object(gateway, "get_github_client") as mock_gh,
+        ):
+            mock_engine = MagicMock()
+            mock_engine.check_pr_ownership.return_value = PolicyResult(
+                allowed=True,
+                reason="PR is owned by bot",
+                details={"author": "bot"},
+            )
+            mock_policy.return_value = mock_engine
+
+            mock_gh_result = MagicMock()
+            mock_gh_result.success = True
+            mock_gh_result.stdout = '{"number": 123, "title": "New title"}'
+            mock_gh_result.stderr = ""
+            mock_gh.return_value.execute.return_value = mock_gh_result
+
+            response = client.post(
+                "/api/v1/gh/pr/edit",
+                headers=auth_headers,
+                data=json.dumps(
+                    {
+                        "repo": "test/repo",
+                        "pr_number": 123,
+                        "title": "New title",
+                    }
+                ),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 200
+            call_args = mock_gh.return_value.execute.call_args[0][0]
+            assert "title=New title" in call_args
+            assert not any("body=" in arg for arg in call_args)
+
+    def test_pr_edit_body_only(self, client, auth_headers):
+        """PR edit with body only should send only body field."""
+        with (
+            patch.object(gateway, "get_policy_engine") as mock_policy,
+            patch.object(gateway, "get_github_client") as mock_gh,
+        ):
+            mock_engine = MagicMock()
+            mock_engine.check_pr_ownership.return_value = PolicyResult(
+                allowed=True,
+                reason="PR is owned by bot",
+                details={"author": "bot"},
+            )
+            mock_policy.return_value = mock_engine
+
+            mock_gh_result = MagicMock()
+            mock_gh_result.success = True
+            mock_gh_result.stdout = '{"number": 123, "body": "New body"}'
+            mock_gh_result.stderr = ""
+            mock_gh.return_value.execute.return_value = mock_gh_result
+
+            response = client.post(
+                "/api/v1/gh/pr/edit",
+                headers=auth_headers,
+                data=json.dumps(
+                    {
+                        "repo": "test/repo",
+                        "pr_number": 123,
+                        "body": "New body",
+                    }
+                ),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 200
+            call_args = mock_gh.return_value.execute.call_args[0][0]
+            assert "body=New body" in call_args
+            assert not any("title=" in arg for arg in call_args)
+
 
 class TestGhPrClose:
     """Tests for /api/v1/gh/pr/close endpoint."""

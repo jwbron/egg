@@ -290,6 +290,18 @@ class TestValidateGitArgs:
         assert valid
         assert "--batch-check" in normalized
 
+    def test_cat_file_textconv_rejected(self):
+        """cat-file --textconv should be rejected (enables arbitrary code execution)."""
+        valid, error, _normalized = validate_git_args("cat-file", ["--textconv", "HEAD:file"])
+        assert not valid
+        assert "not allowed" in error.lower()
+
+    def test_cat_file_filters_rejected(self):
+        """cat-file --filters should be rejected (enables arbitrary code execution)."""
+        valid, error, _normalized = validate_git_args("cat-file", ["--filters", "HEAD:file"])
+        assert not valid
+        assert "not allowed" in error.lower()
+
     def test_cat_file_blocked_flags(self):
         """Unknown flags for cat-file should be rejected."""
         valid, error, _normalized = validate_git_args("cat-file", ["--malicious"])

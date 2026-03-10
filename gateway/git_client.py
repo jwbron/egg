@@ -856,8 +856,6 @@ GIT_ALLOWED_COMMANDS = {
             "-e",
             "--batch",
             "--batch-check",
-            "--textconv",
-            "--filters",
         ],
     },
 }

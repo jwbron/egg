@@ -2477,8 +2477,15 @@ def gh_pr_edit() -> tuple[Response, int] | Response:
         return make_error("Missing repo")
     if not pr_number:
         return make_error("Missing pr_number")
+    if not isinstance(pr_number, int) or pr_number < 1:
+        return make_error("Invalid pr_number: must be a positive integer")
     if not title and not body:
         return make_error("Must provide title or body to edit")
+
+    # Validate repo format early (before any API calls)
+    repo_info = parse_owner_repo(repo)
+    if not repo_info:
+        return make_error("Invalid repo format: expected 'owner/repo'")
 
     # Determine auth mode for this repo
     auth_mode = get_auth_mode(repo)
@@ -2502,33 +2509,31 @@ def gh_pr_edit() -> tuple[Response, int] | Response:
         )
 
     # Check Private Repo Mode policy (if enabled)
-    repo_info = parse_owner_repo(repo)
-    if repo_info:
-        priv_result = check_private_repo_access(
-            operation="pr_edit",
-            owner=repo_info.owner,
-            repo=repo_info.repo,
-            for_write=True,
-            session_mode=session_mode,
+    priv_result = check_private_repo_access(
+        operation="pr_edit",
+        owner=repo_info.owner,
+        repo=repo_info.repo,
+        for_write=True,
+        session_mode=session_mode,
+    )
+    if not priv_result.allowed:
+        audit_log(
+            "pr_edit_denied_private_mode",
+            "gh_pr_edit",
+            success=False,
+            details={
+                "repo": repo,
+                "pr_number": pr_number,
+                "reason": priv_result.reason,
+                "visibility": priv_result.visibility,
+                "auth_mode": auth_mode,
+            },
         )
-        if not priv_result.allowed:
-            audit_log(
-                "pr_edit_denied_private_mode",
-                "gh_pr_edit",
-                success=False,
-                details={
-                    "repo": repo,
-                    "pr_number": pr_number,
-                    "reason": priv_result.reason,
-                    "visibility": priv_result.visibility,
-                    "auth_mode": auth_mode,
-                },
-            )
-            return make_error(
-                priv_result.reason,
-                status_code=403,
-                details=priv_result.to_dict(),
-            )
+        return make_error(
+            priv_result.reason,
+            status_code=403,
+            details=priv_result.to_dict(),
+        )
 
     # Check PR ownership (pass auth mode for relaxed policy in user mode)
     policy = get_policy_engine()
@@ -2553,8 +2558,7 @@ def gh_pr_edit() -> tuple[Response, int] | Response:
         )
 
     github = get_github_client(mode=auth_mode)
-    owner, repo_name = repo.split("/", 1)
-    args = ["api", f"repos/{owner}/{repo_name}/pulls/{pr_number}", "-X", "PATCH"]
+    args = ["api", f"repos/{repo_info.owner}/{repo_info.repo}/pulls/{pr_number}", "-X", "PATCH"]
     if title:
         args.extend(["-f", f"title={title}"])
     if body:
