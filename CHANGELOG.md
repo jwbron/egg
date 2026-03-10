@@ -32,6 +32,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - `.egg-state` files now use per-pipeline namespacing to prevent merge conflicts. Agent output files use `{identifier}-{role}-output.json` (e.g., `871-coder-output.json`) instead of `{role}-output.json`. Check results use `{identifier}-implement-results.json`. Backward compatibility maintained via fallback to old paths when namespaced files don't exist.
+- Transcript buffers now persist across gateway restarts. Buffers are stored in `/home/egg/.egg-state/transcripts/` instead of `/tmp/egg-transcripts/`, preventing transcript data loss when the gateway container restarts. The path is configurable via the `EGG_TRANSCRIPT_BUFFER_DIR` environment variable.
 
 ### Fixed
 - `gh pr edit` endpoint now validates `pr_number` as a positive integer (rejects strings, booleans, and negative values) and validates `repo` as `owner/repo` format before making API calls. Internally migrated from `gh pr edit` CLI to `gh api` REST call to avoid CLI parsing issues.
