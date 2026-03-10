@@ -6670,11 +6670,18 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                 pass
 
             if not skip_cleanup:
-                _spawner.gateway.delete_worktrees(
-                    container_id=pipeline_id,
-                    force=True,
-                )
-                logger.info("Pipeline worktrees cleaned up", pipeline_id=pipeline_id)
+                try:
+                    _spawner.gateway.delete_worktrees(
+                        container_id=pipeline_id,
+                        force=True,
+                    )
+                    logger.info("Pipeline worktrees cleaned up", pipeline_id=pipeline_id)
+                except Exception as pipeline_wt_err:
+                    logger.warning(
+                        "Failed to clean up pipeline worktrees",
+                        pipeline_id=pipeline_id,
+                        error=str(pipeline_wt_err),
+                    )
 
                 # Also clean up per-agent session worktrees.  Each agent
                 # registers a gateway session under container_id
@@ -6701,7 +6708,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                         )
         except Exception as wt_err:
             logger.warning(
-                "Failed to clean up pipeline worktrees",
+                "Failed to clean up worktrees",
                 pipeline_id=pipeline_id,
                 error=str(wt_err),
             )

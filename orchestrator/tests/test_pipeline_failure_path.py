@@ -717,3 +717,96 @@ class TestAgentWorktreeCleanup:
                 f"Expected delete_worktrees called for agent container "
                 f"'{expected}', got: {deleted_ids}"
             )
+
+    @patch(_COMMON_PATCHES[7])
+    @patch(_COMMON_PATCHES[6])
+    @patch(_COMMON_PATCHES[5])
+    @patch(_COMMON_PATCHES[4])
+    @patch(_COMMON_PATCHES[3])
+    @patch(_COMMON_PATCHES[2])
+    @patch(_COMMON_PATCHES[1])
+    @patch(_COMMON_PATCHES[0])
+    def test_agent_worktrees_cleaned_up_when_pipeline_cleanup_fails(
+        self,
+        mock_emit,
+        mock_get_spawner,
+        mock_get_store,
+        mock_spawn_wait,
+        mock_state_lock,
+        mock_build_prompt,
+        mock_read_draft,
+        mock_report,
+    ):
+        """If pipeline-level delete_worktrees raises, per-agent cleanup still runs."""
+        from models import AgentRole
+        from routes.pipelines import WORKTREE_BASE_DIR, _run_pipeline
+
+        pipeline = Pipeline(
+            id="issue-42",
+            issue_number=42,
+            repo="owner/repo",
+            branch="egg/issue-42",
+            mode="issue",
+            status=PipelineStatus.RUNNING,
+            current_phase=PipelinePhase.PR,
+        )
+        pipeline.contract_synced = True
+        execution = pipeline.get_phase_execution(PipelinePhase.PR)
+        execution.status = PipelineStatus.RUNNING
+        execution.started_at = datetime.utcnow()
+
+        mock_store, mock_gateway = _setup_mocks(
+            mock_report,
+            mock_read_draft,
+            mock_build_prompt,
+            mock_state_lock,
+            mock_spawn_wait,
+            mock_get_store,
+            mock_get_spawner,
+            mock_emit,
+            pipeline,
+        )
+
+        mock_spawn_wait.return_value = (0, "success")
+
+        worktree_dir = WORKTREE_BASE_DIR / "issue-42" / "repo"
+        mock_gateway.create_worktrees.return_value = MagicMock(
+            success=True,
+            worktrees={"repo": str(worktree_dir)},
+            errors=[],
+        )
+
+        # Pipeline-level delete_worktrees raises on the first call (pipeline_id),
+        # but should succeed for subsequent per-agent calls.
+        call_count = 0
+
+        def delete_worktrees_side_effect(*, container_id, force=False):
+            nonlocal call_count
+            call_count += 1
+            if container_id == "issue-42":
+                raise RuntimeError("gateway network error")
+
+        mock_gateway.delete_worktrees.side_effect = delete_worktrees_side_effect
+
+        with (
+            patch.dict(os.environ, {"EGG_HOST_REPO_MAP": '{"repo": "/host/repo"}'}, clear=False),
+            patch("pathlib.Path.exists", return_value=True),
+        ):
+            _run_pipeline("issue-42", Path("/repo"))
+
+        # Collect all container_ids passed to delete_worktrees
+        deleted_ids = [
+            call.kwargs.get("container_id") for call in mock_gateway.delete_worktrees.call_args_list
+        ]
+
+        # Pipeline-level call was attempted
+        assert deleted_ids[0] == "issue-42"
+
+        # Per-agent calls were still made despite the pipeline-level failure
+        agent_ids = set(deleted_ids[1:])
+        for role in AgentRole:
+            expected = f"egg-issue-42-{role.value}"
+            assert expected in agent_ids, (
+                f"Expected delete_worktrees called for agent container "
+                f"'{expected}' even after pipeline cleanup failure, got: {agent_ids}"
+            )
