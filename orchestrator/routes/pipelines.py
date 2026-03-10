@@ -6473,7 +6473,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                             f"Please describe what changes you'd like to see in the {phase_label}, "
                             f"or approve to continue."
                         ),
-                        context=draft_content or "",
+                        context=draft_content,
                         options=["approve"],
                         decision_type="phase_gate",
                         phase=current_phase,

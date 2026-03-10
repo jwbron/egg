@@ -3343,6 +3343,10 @@ def _branch_exists_on_remote(manager: "WorktreeManager", repo_name: str, branch:
     main_repo = manager.repos_base / repo_name
     if not main_repo.exists():
         return False
+    # Uses local tracking refs (origin/*) rather than querying the remote.
+    # This is reliable here because the gateway handles push/fetch operations
+    # which keep tracking refs up to date.  If stale refs ever become an
+    # issue, switch to `git ls-remote --exit-code origin {branch}`.
     result = subprocess.run(
         git_cmd("rev-parse", "--verify", f"origin/{branch}"),
         cwd=main_repo,

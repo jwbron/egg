@@ -39,6 +39,7 @@ for arg in "$@"; do
     case "$arg" in
         --private|--public) egg_flags+=("$arg") ;;
         -i|--issue) sdlc_args+=("$arg"); prev_was_issue_flag=true ;;
+        --issue=*) sdlc_args+=("$arg"); issue_num="${arg#--issue=}" ;;
         *)
             if $prev_was_issue_flag; then
                 issue_num="$arg"

@@ -3373,6 +3373,7 @@ class TestSessionCreateWithPhase:
             patch.object(gateway, "get_session_manager", return_value=manager),
             patch.object(gateway, "get_repo_visibility", return_value="private"),
             patch.object(gateway, "get_worktree_manager") as mock_worktree,
+            # Pipeline work branch doesn't exist, forcing fallback to default branch
             patch.object(gateway, "_branch_exists_on_remote", return_value=False),
         ):
             mock_wt_manager = mock_worktree.return_value
