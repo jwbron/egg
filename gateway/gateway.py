@@ -2477,7 +2477,7 @@ def gh_pr_edit() -> tuple[Response, int] | Response:
         return make_error("Missing repo")
     if not pr_number:
         return make_error("Missing pr_number")
-    if not isinstance(pr_number, int) or pr_number < 1:
+    if isinstance(pr_number, bool) or not isinstance(pr_number, int) or pr_number < 1:
         return make_error("Invalid pr_number: must be a positive integer")
     if not title and not body:
         return make_error("Must provide title or body to edit")

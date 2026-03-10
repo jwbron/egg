@@ -1676,6 +1676,25 @@ class TestGhPrEdit:
         data = response.get_json()
         assert "positive integer" in data["message"].lower()
 
+    def test_pr_edit_rejects_boolean_pr_number(self, client, auth_headers):
+        """PR edit should reject boolean pr_number (bool is subclass of int)."""
+        response = client.post(
+            "/api/v1/gh/pr/edit",
+            headers=auth_headers,
+            data=json.dumps(
+                {
+                    "repo": "test/repo",
+                    "pr_number": True,
+                    "title": "New title",
+                }
+            ),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 400
+        data = response.get_json()
+        assert "positive integer" in data["message"].lower()
+
     def test_pr_edit_rejects_negative_pr_number(self, client, auth_headers):
         """PR edit should reject negative pr_number."""
         response = client.post(
