@@ -219,7 +219,7 @@ def _is_checkpoint_repo_for_request(owner: str, repo: str) -> bool:
     try:
         session = getattr(g, "session", None)
         if session and session.checkpoint_repo:
-            return f"{owner}/{repo}".lower() == session.checkpoint_repo.lower()
+            return bool(f"{owner}/{repo}".lower() == session.checkpoint_repo.lower())
     except RuntimeError:
         # Outside Flask request context — fall through
         pass
