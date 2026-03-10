@@ -4813,8 +4813,8 @@ def main() -> None:
         logger.warning("Startup session cleanup failed", error=str(e))
 
     # Check for active sessions with missing transcript buffers.
-    # After a gateway restart, /tmp is wiped so buffers written there would be lost.
-    # This warns early so the loss is visible in logs.
+    # Buffers are now persisted, but may still be missing if the session hasn't
+    # made any API calls yet or the buffer was cleaned up prematurely.
     try:
         from egg_contracts.transcript_extractor import get_proxy_buffer_path
 

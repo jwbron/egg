@@ -340,7 +340,7 @@ class CheckpointHandler:
             if not buffer_path.exists():
                 logger.warning(
                     "Proxy buffer missing for active session — transcript data will be lost. "
-                    "This typically indicates a gateway restart cleared /tmp.",
+                    "Buffer may not have been created yet or was cleaned up prematurely.",
                     container_id=container_id,
                     buffer_path=str(buffer_path),
                     commit_sha=commit_sha[:7],

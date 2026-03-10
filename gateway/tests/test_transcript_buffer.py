@@ -2,7 +2,6 @@
 
 import os
 import threading
-from pathlib import Path
 from unittest.mock import patch
 
 from transcript_buffer import (
@@ -404,20 +403,17 @@ class TestStreamingCapture:
 class TestBufferDirConfiguration:
     """Tests for configurable BUFFER_DIR."""
 
-    def test_env_var_override_at_module_level(self, tmp_path, monkeypatch):
-        """Test that EGG_TRANSCRIPT_BUFFER_DIR env var is used in BUFFER_DIR computation."""
-        # The module-level BUFFER_DIR reads the env var at import time.
-        # We can verify the env var mechanism by checking that the Path
-        # constructor uses os.environ.get correctly.
-        custom_dir = str(tmp_path / "custom-transcripts")
+    def test_module_buffer_dir_matches_config_default(self):
+        """Test that transcript_buffer.BUFFER_DIR uses the egg_config constant by default."""
+        import transcript_buffer
+        from egg_config import TRANSCRIPT_BUFFER_DIR
 
-        # Directly test the env var override logic
-        result = Path(os.environ.get("EGG_TRANSCRIPT_BUFFER_DIR", "/tmp/egg-transcripts"))
-        assert str(result) == "/tmp/egg-transcripts"
-
-        monkeypatch.setenv("EGG_TRANSCRIPT_BUFFER_DIR", custom_dir)
-        result = Path(os.environ.get("EGG_TRANSCRIPT_BUFFER_DIR", "/tmp/egg-transcripts"))
-        assert str(result) == custom_dir
+        # When EGG_TRANSCRIPT_BUFFER_DIR is not set, BUFFER_DIR should match the constant
+        if "EGG_TRANSCRIPT_BUFFER_DIR" not in os.environ:
+            assert str(transcript_buffer.BUFFER_DIR) == TRANSCRIPT_BUFFER_DIR
+        else:
+            # If env var is set (e.g. in CI), BUFFER_DIR should match it
+            assert str(transcript_buffer.BUFFER_DIR) == os.environ["EGG_TRANSCRIPT_BUFFER_DIR"]
 
     def test_get_buffer_path_uses_buffer_dir(self, tmp_path):
         """Test that get_buffer_path returns path within BUFFER_DIR."""

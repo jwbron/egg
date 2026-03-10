@@ -2,7 +2,8 @@
 Transcript extractor for API proxy buffer format.
 
 Extracts transcript data from the gateway's API proxy buffer files
-(/tmp/egg-transcripts/{container_id}.jsonl). This provides a stable and
+({TRANSCRIPT_BUFFER_DIR}/{container_id}.jsonl, configurable via
+EGG_TRANSCRIPT_BUFFER_DIR env var). This provides a stable and
 format-independent source for checkpoint creation, as the API request/response
 format is stable and documented.
 
