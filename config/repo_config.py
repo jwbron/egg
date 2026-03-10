@@ -376,9 +376,9 @@ def get_all_checkpoint_repos() -> frozenset[str]:
     # Include EGG_CHECKPOINT_REPO env var (always checked, even without
     # repositories.yaml).  This is the primary mechanism for sandboxed
     # containers that don't have access to the config file.
-    env_checkpoint_repo = os.environ.get("EGG_CHECKPOINT_REPO")
-    if env_checkpoint_repo and isinstance(env_checkpoint_repo, str):
-        repos.add(env_checkpoint_repo.strip().lower())
+    env_checkpoint_repo = os.environ.get("EGG_CHECKPOINT_REPO", "").strip().lower()
+    if env_checkpoint_repo:
+        repos.add(env_checkpoint_repo)
 
     try:
         config = _load_config()

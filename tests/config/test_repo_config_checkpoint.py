@@ -186,6 +186,15 @@ class TestGetAllCheckpointRepos:
         result = get_all_checkpoint_repos()
         assert result == set()
 
+    def test_env_var_whitespace_only_ignored(self, temp_dir, monkeypatch):
+        """Whitespace-only EGG_CHECKPOINT_REPO is ignored."""
+        monkeypatch.setenv("EGG_REPO_CONFIG", str(temp_dir / "nonexistent.yaml"))
+        monkeypatch.setenv("HOME", str(temp_dir))
+        monkeypatch.setenv("EGG_CHECKPOINT_REPO", "   ")
+
+        result = get_all_checkpoint_repos()
+        assert result == set()
+
 
 class TestIsCheckpointRepo:
     """Tests for is_checkpoint_repo function."""
