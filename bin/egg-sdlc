@@ -27,16 +27,44 @@ if [ -n "${EGG_CONTAINER:-}" ] || [ -f "/.dockerenv" ]; then
     exec python3 "$SCRIPT_DIR/../sandbox/bin/egg-sdlc" "${args[@]}"
 fi
 
-# Host: extract --private/--public before passing to egg --exec
+# Host: extract --private/--public and issue number before passing to egg --exec
 # (egg --exec uses REMAINDER parsing, so these must come before --exec)
 egg_flags=("--timeout" "360")
 sdlc_args=()
+issue_num=""
 
+# Parse args to extract issue number for pipeline env vars
+prev_was_issue_flag=false
 for arg in "$@"; do
     case "$arg" in
         --private|--public) egg_flags+=("$arg") ;;
-        *) sdlc_args+=("$arg") ;;
+        -i|--issue) sdlc_args+=("$arg"); prev_was_issue_flag=true ;;
+        *)
+            if $prev_was_issue_flag; then
+                issue_num="$arg"
+                prev_was_issue_flag=false
+            fi
+            sdlc_args+=("$arg")
+            ;;
     esac
 done
+
+# If issue number not found via -i/--issue, check for positional arg (first numeric arg)
+if [ -z "$issue_num" ]; then
+    for arg in "${sdlc_args[@]}"; do
+        if [[ "$arg" =~ ^[0-9]+$ ]]; then
+            issue_num="$arg"
+            break
+        fi
+    done
+fi
+
+# Export pipeline metadata so the gateway creates the worktree from the
+# pipeline's work branch (contains artifacts from prior agents) instead
+# of origin/main.  See #1016.
+if [ -n "$issue_num" ]; then
+    export EGG_PIPELINE_ID="issue-${issue_num}"
+    export EGG_ISSUE_NUMBER="$issue_num"
+fi
 
 exec "$SCRIPT_DIR/egg" "${egg_flags[@]}" --exec egg-sdlc "${sdlc_args[@]}"

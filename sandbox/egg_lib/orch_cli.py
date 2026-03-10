@@ -684,6 +684,18 @@ def cmd_decision_create(args: argparse.Namespace) -> int:
         data["context"] = args.context
     if args.options:
         data["options"] = args.options
+    else:
+        # Warn about empty options for choice-type decisions.  Agents should
+        # use `egg-contract add-decision` which formats options properly and
+        # auto-appends an "Other" option.  See #1016.
+        decision_type = args.decision_type or "choice"
+        if decision_type == "choice":
+            print(
+                "Warning: No --options provided for choice decision. "
+                "Consider using `egg-contract add-decision` which formats "
+                "options properly and auto-appends an 'Other' option.",
+                file=sys.stderr,
+            )
     if args.phase:
         data["phase"] = args.phase
     if args.decision_type:
