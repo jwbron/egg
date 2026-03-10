@@ -108,9 +108,10 @@ git branch --show-current && git log --oneline -3
 ```bash
 cat > /tmp/review-response.md << 'REVIEW_EOF'
 Response to review comments
-
-— Authored by egg
 REVIEW_EOF
+
+# In autonomous/pipeline mode (EGG_PIPELINE_ID set), append signature:
+# echo -e "\n— Authored by egg" >> /tmp/review-response.md
 
 gh pr review <PR> --comment --body-file /tmp/review-response.md
 ```
@@ -171,6 +172,6 @@ Or file-based: `cat > ~/sharing/notifications/$(date +%Y%m%d-%H%M%S)-topic.md`
 
 Before PR: Tests pass, linters pass, no debug code.
 
-**GitHub comments**: Sign with `— Authored by egg`
+**GitHub comments (autonomous mode only)**: When `EGG_PIPELINE_ID` is set, sign with `— Authored by egg`. In interactive/user mode (no pipeline), do NOT add the signature.
 
 Think like a **Senior SWE (L3-L4)**: Break down problems, build quality from day one, communicate proactively.
