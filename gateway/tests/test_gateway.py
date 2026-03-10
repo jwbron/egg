@@ -1635,12 +1635,14 @@ class TestGhPrEdit:
             response = client.post(
                 "/api/v1/gh/pr/edit",
                 headers=auth_headers,
-                data=json.dumps({
-                    "repo": "test/repo",
-                    "pr_number": 123,
-                    "title": "New title",
-                    "body": "New body",
-                }),
+                data=json.dumps(
+                    {
+                        "repo": "test/repo",
+                        "pr_number": 123,
+                        "title": "New title",
+                        "body": "New body",
+                    }
+                ),
                 content_type="application/json",
             )
 
