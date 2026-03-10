@@ -81,10 +81,23 @@
       "resolved_at": null,
       "resolution": null,
       "phase": "refine"
+    },
+    {
+      "id": "decision-2",
+      "question": "How should prompt builders be consumed from Python?",
+      "context": "",
+      "options": [],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-03-10T06:26:09.256448",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine"
     }
   ],
   "created_at": "2026-03-10T06:18:47.202490",
-  "updated_at": "2026-03-10T06:26:00.980938",
+  "updated_at": "2026-03-10T06:26:09.257649",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
@@ -92,5 +105,5 @@
   "error": null,
   "plan_phase_waves": null,
   "plan_phase_names": null,
-  "version": 8
+  "version": 9
 }
