@@ -5,7 +5,7 @@
   "branch": "egg/issue-1014",
   "mode": "issue",
   "prompt": null,
-  "status": "awaiting_human",
+  "status": "cancelled",
   "current_phase": "refine",
   "config": {
     "auto_create_pr": true,
@@ -286,7 +286,7 @@
     }
   ],
   "created_at": "2026-03-10T06:18:47.202490",
-  "updated_at": "2026-03-10T06:33:39.234122",
+  "updated_at": "2026-03-10T06:49:17.724776",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
@@ -294,5 +294,5 @@
   "error": null,
   "plan_phase_waves": null,
   "plan_phase_names": null,
-  "version": 30
+  "version": 31
 }
