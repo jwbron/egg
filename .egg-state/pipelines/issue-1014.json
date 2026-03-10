@@ -23,13 +23,20 @@
       "phase": "refine",
       "status": "running",
       "started_at": "2026-03-10T06:18:48.954122",
-      "work_started_at": null,
+      "work_started_at": "2026-03-10T06:18:48.974380",
       "completed_at": null,
       "containers": [],
       "agents": [],
       "review_cycles": 0,
       "hitl_review_cycles": 0,
-      "cycle_timings": [],
+      "cycle_timings": [
+        {
+          "cycle": 0,
+          "started_at": "2026-03-10T06:18:48.974380",
+          "completed_at": null,
+          "commit_sha": "bf71027aad06c22e6bb9884b764095b8017c2c38"
+        }
+      ],
       "artifacts": {},
       "error": null,
       "hitl_feedback": null,
@@ -38,7 +45,7 @@
   },
   "decisions": [],
   "created_at": "2026-03-10T06:18:47.202490",
-  "updated_at": "2026-03-10T06:18:48.954718",
+  "updated_at": "2026-03-10T06:18:48.977097",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
@@ -46,5 +53,5 @@
   "error": null,
   "plan_phase_waves": null,
   "plan_phase_names": null,
-  "version": 5
+  "version": 6
 }
