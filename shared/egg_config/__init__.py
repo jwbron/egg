@@ -65,6 +65,7 @@ from .constants import (
     PIPELINE_STATE_BRANCH,
     TEST_GATEWAY_PORT,
     TEST_GATEWAY_PROXY_PORT,
+    TRANSCRIPT_BUFFER_DIR,
 )
 from .registry import (
     AggregateHealthResult,
@@ -112,6 +113,8 @@ __all__ = [
     # Test constants
     "TEST_GATEWAY_PORT",
     "TEST_GATEWAY_PROXY_PORT",
+    # Transcript buffer
+    "TRANSCRIPT_BUFFER_DIR",
     "ValidationResult",
     "get_local_repos",
     "get_registry",

@@ -12,6 +12,7 @@ Claude Code's internal JSONL files are no longer used.
 
 import json
 import logging
+import os
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -466,12 +467,14 @@ def extract_transcript_from_proxy_buffer(
         raise TranscriptExtractError(msg) from e
 
 
-def get_proxy_buffer_path(container_id: str) -> Path:
+def get_proxy_buffer_path(container_id: str, buffer_dir: Path | None = None) -> Path:
     """
     Get the default proxy buffer path for a container ID.
 
     Args:
         container_id: Container ID (validated to prevent path traversal)
+        buffer_dir: Optional override for the buffer directory. If not provided,
+            uses EGG_TRANSCRIPT_BUFFER_DIR env var or the egg_config constant.
 
     Returns:
         Path to the buffer file
@@ -484,7 +487,15 @@ def get_proxy_buffer_path(container_id: str) -> Path:
     if not container_id or "/" in container_id or "\\" in container_id or ".." in container_id:
         raise ValueError(f"Invalid container_id: {container_id!r}")
 
-    base_dir = Path("/tmp/egg-transcripts")
+    if buffer_dir is None:
+        try:
+            from egg_config import TRANSCRIPT_BUFFER_DIR
+
+            buffer_dir = Path(os.environ.get("EGG_TRANSCRIPT_BUFFER_DIR", TRANSCRIPT_BUFFER_DIR))
+        except ImportError:
+            buffer_dir = Path(os.environ.get("EGG_TRANSCRIPT_BUFFER_DIR", "/tmp/egg-transcripts"))
+
+    base_dir = buffer_dir
     buffer_path = base_dir / f"{container_id}.jsonl"
 
     # Additional check: ensure resolved path is within base directory

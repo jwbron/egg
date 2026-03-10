@@ -2,9 +2,10 @@
 """Transcript buffer for capturing Anthropic API request/response pairs.
 
 This module provides a per-session buffer for storing API traffic at the gateway
-proxy layer. The buffer is written to /tmp/egg-transcripts/{container_id}.jsonl
-and is used by the checkpoint handler to extract transcripts without depending
-on Claude Code's internal JSONL file format.
+proxy layer. The buffer is written to a persistent directory (default:
+/home/egg/.egg-state/transcripts/{container_id}.jsonl, overridable via
+EGG_TRANSCRIPT_BUFFER_DIR env var) and is used by the checkpoint handler to
+extract transcripts without depending on Claude Code's internal JSONL file format.
 
 Buffer entry schema (one JSON object per API turn):
 {
@@ -36,7 +37,7 @@ Buffer lifecycle:
 - Created on first API call for a session
 - Rotated when size exceeds MAX_BUFFER_SIZE (10MB)
 - Cleaned up when session ends (via session_manager cleanup hook)
-- Auto-cleaned on container restart (files are in /tmp)
+- Persists across gateway restarts (stored in persistent volume)
 """
 
 import fcntl
@@ -56,8 +57,13 @@ from egg_logging import get_logger
 
 logger = get_logger("gateway.transcript-buffer")
 
-# Buffer configuration
-BUFFER_DIR = Path("/tmp/egg-transcripts")
+# Buffer configuration — use persistent path from egg_config, with env var override
+try:
+    from egg_config import TRANSCRIPT_BUFFER_DIR as _DEFAULT_BUFFER_DIR
+except ImportError:
+    _DEFAULT_BUFFER_DIR = "/tmp/egg-transcripts"
+
+BUFFER_DIR = Path(os.environ.get("EGG_TRANSCRIPT_BUFFER_DIR", _DEFAULT_BUFFER_DIR))
 MAX_BUFFER_SIZE = 10 * 1024 * 1024  # 10MB
 MAX_MESSAGE_CONTENT_LENGTH = 5000  # Truncate message content to this length
 MAX_SYSTEM_PROMPT_LENGTH = 2000  # Truncate system prompts

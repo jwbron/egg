@@ -1352,3 +1352,45 @@ class TestFetchRetryInStore:
 
         fetch_calls = [c for c in git_calls if "fetch" in c[1]]
         assert len(fetch_calls) == 1, f"Expected 1 fetch attempt (no retry), got {len(fetch_calls)}"
+
+
+class TestMissingBufferWarning:
+    """Tests for missing transcript buffer warnings."""
+
+    @patch("checkpoint_handler.get_proxy_buffer_path")
+    @patch("checkpoint_handler.logger")
+    def test_session_end_warns_on_missing_buffer_for_long_session(
+        self, mock_logger, mock_get_path, tmp_path
+    ):
+        """Warning is logged when buffer is missing for a session > 10 seconds."""
+        from checkpoint_handler import CheckpointHandler
+
+        # Create a fake buffer path that doesn't exist
+        fake_path = tmp_path / "nonexistent.jsonl"
+        mock_get_path.return_value = fake_path
+
+        handler = CheckpointHandler.__new__(CheckpointHandler)
+        handler._github_token = "fake-token"
+        handler._checkpoint_repo = "owner/repo"
+        handler._redaction_enabled = False
+
+        # Session that ran for 1 hour (well over 10 seconds)
+        session = _make_test_session(container_id="test-missing-buffer")
+
+        from egg_contracts.checkpoints import SessionStatus
+
+        handler.capture_session_end_checkpoint(
+            session=session,
+            session_status=SessionStatus.COMPLETED,
+        )
+
+        # Should have logged a warning about the missing buffer
+        warning_calls = [
+            call
+            for call in mock_logger.warning.call_args_list
+            if "missing" in str(call).lower() and "buffer" in str(call).lower()
+        ]
+        assert len(warning_calls) >= 1, (
+            f"Expected warning about missing buffer, got warnings: "
+            f"{[str(c) for c in mock_logger.warning.call_args_list]}"
+        )
