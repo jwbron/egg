@@ -133,10 +133,23 @@
       "resolved_at": null,
       "resolution": null,
       "phase": "refine"
+    },
+    {
+      "id": "decision-6",
+      "question": "Should babysit-pr support a review-only mode (no auto-fixing)?",
+      "context": "",
+      "options": [],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-03-10T06:26:09.713506",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine"
     }
   ],
   "created_at": "2026-03-10T06:18:47.202490",
-  "updated_at": "2026-03-10T06:26:09.594119",
+  "updated_at": "2026-03-10T06:26:09.715931",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
@@ -144,5 +157,5 @@
   "error": null,
   "plan_phase_waves": null,
   "plan_phase_names": null,
-  "version": 12
+  "version": 13
 }
