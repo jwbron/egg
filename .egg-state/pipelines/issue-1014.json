@@ -94,10 +94,23 @@
       "resolved_at": null,
       "resolution": null,
       "phase": "refine"
+    },
+    {
+      "id": "decision-3",
+      "question": "For egg-sdlc --pr, should agents push to the PR's existing head branch or create a new branch?",
+      "context": "",
+      "options": [],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-03-10T06:26:09.343887",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine"
     }
   ],
   "created_at": "2026-03-10T06:18:47.202490",
-  "updated_at": "2026-03-10T06:26:09.257649",
+  "updated_at": "2026-03-10T06:26:09.345992",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
@@ -105,5 +118,5 @@
   "error": null,
   "plan_phase_waves": null,
   "plan_phase_names": null,
-  "version": 9
+  "version": 10
 }
