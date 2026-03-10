@@ -2068,7 +2068,7 @@ Detailed implementation examples including:
 
 | ADR | Relationship |
 |-----|--------------|
-| [ADR-Autonomous-Software-Engineer](../in-progress/ADR-Autonomous-Software-Engineer.md) | Parent ADR - defines overall security model |
+| [Architecture Overview](../../architecture/README.md) | Defines overall security model |
 | [ADR-Context-Sync-Strategy-Custom-vs-MCP](../implemented/ADR-Context-Sync-Strategy-Custom-vs-MCP.md) (PR #36) | MCP strategy affects how gateway integrates |
 
 ---

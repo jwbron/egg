@@ -34,6 +34,8 @@ Review criteria for each workflow are defined in `shared/prompts/` as markdown f
 
 Repositories can override criteria by placing a custom file in `.egg/` (e.g., `.egg/review-rules.md` overrides code review criteria, `.egg/onboarding-rules.md` overrides onboarding documentation rules).
 
+**Keeping reviewers in sync**: The PR reviewer (GitHub Action) and SDLC reviewer (orchestrator) share criteria files but have separate inline fallbacks and conventions. See [`shared/prompts/REVIEWER-SYNC.md`](../../shared/prompts/REVIEWER-SYNC.md) for the sync guide and modification checklist.
+
 ## AI Code Review
 
 **Workflow:** [`.github/workflows/on-pull-request.yml`](../../.github/workflows/on-pull-request.yml)

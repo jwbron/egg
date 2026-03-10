@@ -81,8 +81,8 @@ class TestSshUrlToHttps:
 
     def test_preserves_nested_owner(self):
         """Handles nested paths like org/repo correctly."""
-        result = ssh_url_to_https("git@github.com:Khan/webapp.git")
-        assert result == "https://github.com/Khan/webapp.git"
+        result = ssh_url_to_https("git@github.com:org/app.git")
+        assert result == "https://github.com/org/app.git"
 
 
 class TestGetAuthenticatedRemoteTarget:

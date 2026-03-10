@@ -39,11 +39,17 @@ The gateway sidecar is the **trusted** component that holds credentials and vali
 | Operation | Policy | Check |
 |-----------|--------|-------|
 | `git push` | Branch ownership + Phase filter | Branch has open PR authored by egg, OR branch starts with `egg-` or `egg/`, AND operation is allowed in current phase |
-| `gh pr create` | Phase filter | Operation is allowed in current phase (typically only in 'pr' phase) |
-| `gh pr comment` | PR ownership | PR must be authored by egg |
+| `gh pr create` | Phase filter + mode policy | Operation is allowed in current phase (typically only in 'pr' phase)<br>In user mode, PR is forced to draft<br>Blocked in reviewer mode |
+| `gh pr comment` | Allowed on any PR | PR must exist and be accessible |
 | `gh pr merge` | **BLOCKED** | No merge endpoint - human must merge via GitHub UI |
-| `gh pr edit` | PR ownership | PR must be authored by egg |
-| `gh pr close` | PR ownership | PR must be authored by egg |
+| `gh pr edit` | PR ownership | PR must be authored by egg or configured user |
+| `gh pr close` | PR ownership | PR must be authored by egg or configured user |
+| `gh api PATCH repos/.../issues/comments/{id}` | Comment ownership | Comment must be authored by egg or configured user |
+| `gh api PATCH repos/.../pulls/comments/{id}` | Comment ownership | Comment must be authored by egg or configured user |
+| `gh api PATCH repos/.../comments/{id}` (commits) | Comment ownership | Comment must be authored by egg or configured user |
+| `gh api POST repos/.../issues/{id}/labels` | Issue/PR ownership | Issue or PR must be authored by egg or configured user |
+| `gh api POST repos/.../pulls/{id}/requested_reviewers` | PR ownership | PR must be authored by egg or configured user |
+| `gh api POST repos/.../pulls/{id}/reviews` | Allowed on any PR | PR must exist and be accessible |
 
 **Bot variants for ownership check**: `egg`, `egg[bot]`, `app/egg`, `apps/egg`
 
@@ -173,9 +179,11 @@ Phase transitions require specific roles (human, reviewer, implementer) as defin
 
 ```
 POST /api/v1/sessions/create
-  Request: {container_id, container_ip, mode, repos[], uid?, gid?, phase?}
+  Request: {container_id, container_ip, mode, repos[]?, uid?, gid?, phase?}
   Auth: Bearer {launcher_secret}
   Description: Create a new session with optional SDLC phase tracking
+  Note: repos[] is required for private/public modes (visibility filtering + worktree creation)
+        but optional for local mode (orchestrator-internal temp sessions for git auth only)
 
 PATCH /api/v1/sessions/<session_token>/phase
   Request: {phase: "analyze"|"plan"|"implement"|"pr"}
@@ -200,8 +208,8 @@ POST /api/v1/git/fetch
 
 ```
 POST /api/v1/gh/pr/create
-  Request: {repo, title, body, base, head}
-  Policy: phase_filter
+  Request: {repo, title, body, base, head, draft? (bool)}
+  Policy: phase_filter + mode_policy (user mode forces draft=true; reviewer mode blocked)
 
 POST /api/v1/gh/pr/comment
   Request: {repo, pr_number, body}

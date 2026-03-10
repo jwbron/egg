@@ -217,12 +217,22 @@ In local mode (`egg-sdlc`), the HITL checkpoint handler (`sandbox/egg_lib/sdlc_h
 | Type | Field Value | Terminal Behavior |
 |------|-------------|-------------------|
 | Phase gate | `phase_gate` | Displays full document in pager, offers view/edit/approve/request-changes options, and surfaces pending contract decisions via `[q]` option |
-| Choice | `choice` | Renders numbered options for selection |
-| Feedback | `feedback` | Prompts for each question individually, supports review-before-submit |
+| Choice | `choice` | Renders numbered options for selection; shows draft document before first non-phase_gate decision, `[v]` option to re-view draft |
+| Feedback | `feedback` | Prompts for each question individually, supports review-before-submit; shows draft document before first non-phase_gate decision, `[v]` option to re-view draft |
 
 ### Contract Decision Bridge
 
 Contract decisions created by agents via `egg-contract add-decision` are automatically bridged to the phase gate menu in local mode. When unanswered decisions exist in the contract JSON, the phase gate displays a `[q] Answer open questions` option that lets humans respond directly from the terminal. Approving a phase gate with unanswered questions triggers a warning prompt.
+
+### Draft Document Display
+
+When multiple HITL decisions are pending (e.g., agent-created choice/feedback questions plus the phase gate approval), the CLI presents them in FIFO order. To ensure humans have context when answering agent questions before seeing the phase gate:
+
+- The analysis/plan draft document is automatically displayed in a pager before the first non-phase_gate decision
+- Choice and feedback handlers include a `[v] View full document` option to re-display the draft at any time
+- The draft is shown only once per decision queue to avoid repetitive pager displays
+
+This ensures the human has access to the full analysis or plan context when answering agent questions, not just at the final phase gate approval.
 
 Every decision type also includes universal options:
 - **General feedback** (`[f]`) — free-text input attached alongside the primary resolution

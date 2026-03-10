@@ -448,6 +448,31 @@ class TestWorktreeManagerDockerGitDir:
         assert git_file.is_file()
         assert git_file.read_text().strip().startswith("gitdir:")
 
+    def test_create_worktree_locks_worktree(self, git_repo):
+        """Worktree should be locked after creation to prevent gc prune."""
+        worktree_base, repos_base, repo_dir = git_repo
+        manager = WorktreeManager(worktree_base=worktree_base, repos_base=repos_base)
+
+        info = manager.create_worktree("test-repo", "container-lock")
+
+        # Admin dir should have a 'locked' file
+        assert (info.git_dir / "locked").exists()
+
+    def test_remove_locked_worktree(self, git_repo):
+        """Removing a locked worktree should succeed (--force --force)."""
+        worktree_base, repos_base, repo_dir = git_repo
+        manager = WorktreeManager(worktree_base=worktree_base, repos_base=repos_base)
+
+        info = manager.create_worktree("test-repo", "container-rm")
+        assert info.worktree_path.exists()
+        assert (info.git_dir / "locked").exists()
+
+        result = manager.remove_worktree("container-rm", "test-repo", force=True)
+
+        assert result.success
+        assert not info.worktree_path.exists()
+        assert not info.git_dir.exists()
+
 
 class TestFindWorktreeGitDir:
     """Tests for _find_worktree_git_dir admin dir resolution."""

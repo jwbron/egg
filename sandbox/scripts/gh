@@ -250,8 +250,8 @@ handle_pr_create() {
         return 1
     fi
 
-    # Parse args for title, body, base, head
-    local title="" body="" body_file="" base="main" head=""
+    # Parse args for title, body, base, head, draft
+    local title="" body="" body_file="" base="main" head="" draft=false
 
     local i=0
     while [ $i -lt ${#ARGS[@]} ]; do
@@ -275,6 +275,9 @@ handle_pr_create() {
             --head|-H)
                 ((i++))
                 head="${ARGS[$i]}"
+                ;;
+            --draft|-d)
+                draft=true
                 ;;
         esac
         ((i++))
@@ -314,9 +317,10 @@ print(json.dumps({
     'title': sys.argv[2],
     'body': sys.argv[3],
     'base': sys.argv[4],
-    'head': sys.argv[5]
+    'head': sys.argv[5],
+    'draft': sys.argv[6] == 'true'
 }))
-" "$repo" "$title" "$body" "$base" "$head")
+" "$repo" "$title" "$body" "$base" "$head" "$draft")
 
     call_gateway "/api/v1/gh/pr/create" "$payload"
 }

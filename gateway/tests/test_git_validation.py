@@ -385,6 +385,14 @@ class TestGhApiPathValidation:
         assert valid is True
         assert error == ""
 
+    def test_pr_review_comment_reply_allowed(self):
+        """Replying to a PR review comment is allowed."""
+        valid, error = github_client.validate_gh_api_path(
+            "repos/owner/repo/pulls/comments/123456789/replies", method="POST"
+        )
+        assert valid is True
+        assert error == ""
+
     def test_issue_events_allowed(self):
         """Issue events endpoint is allowed."""
         valid, error = github_client.validate_gh_api_path("repos/owner/repo/issues/123/events")
@@ -898,3 +906,166 @@ class TestSharedHelperFunctions:
             assert "EXISTING" in updated_env
         finally:
             git_client.cleanup_credential_helper(path)
+
+
+class TestExtractCommentEditInfo:
+    """Tests for extract_comment_edit_info function."""
+
+    def test_issue_comment_patch(self):
+        """PATCH on issues/comments/{id} is detected."""
+        result = github_client.extract_comment_edit_info(
+            "repos/owner/repo/issues/comments/123", "PATCH"
+        )
+        assert result == ("owner", "repo", 123, "issues")
+
+    def test_pr_review_comment_patch(self):
+        """PATCH on pulls/comments/{id} is detected."""
+        result = github_client.extract_comment_edit_info(
+            "repos/owner/repo/pulls/comments/456", "PATCH"
+        )
+        assert result == ("owner", "repo", 456, "pulls")
+
+    def test_commit_comment_patch(self):
+        """PATCH on comments/{id} is detected."""
+        result = github_client.extract_comment_edit_info("repos/owner/repo/comments/789", "PATCH")
+        assert result == ("owner", "repo", 789, "commits")
+
+    def test_get_method_returns_none(self):
+        """GET requests are not comment edits."""
+        result = github_client.extract_comment_edit_info(
+            "repos/owner/repo/issues/comments/123", "GET"
+        )
+        assert result is None
+
+    def test_post_method_returns_none(self):
+        """POST requests are not comment edits."""
+        result = github_client.extract_comment_edit_info(
+            "repos/owner/repo/issues/comments/123", "POST"
+        )
+        assert result is None
+
+    def test_comment_list_endpoint_not_matched(self):
+        """PATCH on comment list endpoints (issues/123/comments) is not matched."""
+        result = github_client.extract_comment_edit_info(
+            "repos/owner/repo/issues/123/comments", "PATCH"
+        )
+        assert result is None
+
+    def test_leading_slash_stripped(self):
+        """Leading slash is stripped before matching."""
+        result = github_client.extract_comment_edit_info(
+            "/repos/owner/repo/issues/comments/100", "PATCH"
+        )
+        assert result == ("owner", "repo", 100, "issues")
+
+    def test_query_params_stripped(self):
+        """Query parameters are stripped before matching."""
+        result = github_client.extract_comment_edit_info(
+            "repos/owner/repo/issues/comments/100?foo=bar", "PATCH"
+        )
+        assert result == ("owner", "repo", 100, "issues")
+
+    def test_unrelated_path_returns_none(self):
+        """Non-comment API paths return None."""
+        result = github_client.extract_comment_edit_info("repos/owner/repo/pulls/42", "PATCH")
+        assert result is None
+
+    def test_case_insensitive_method(self):
+        """Method comparison is case-insensitive."""
+        result = github_client.extract_comment_edit_info(
+            "repos/owner/repo/issues/comments/1", "patch"
+        )
+        assert result == ("owner", "repo", 1, "issues")
+
+
+class TestExtractIssueLabelInfo:
+    """Tests for extract_issue_label_info function."""
+
+    def test_post_labels_detected(self):
+        """POST on issues/{id}/labels is detected."""
+        result = github_client.extract_issue_label_info("repos/owner/repo/issues/42/labels", "POST")
+        assert result == ("owner", "repo", 42)
+
+    def test_patch_labels_detected(self):
+        """PATCH on issues/{id}/labels is detected."""
+        result = github_client.extract_issue_label_info(
+            "repos/owner/repo/issues/42/labels", "PATCH"
+        )
+        assert result == ("owner", "repo", 42)
+
+    def test_get_labels_not_matched(self):
+        """GET on labels is not a mutation."""
+        result = github_client.extract_issue_label_info("repos/owner/repo/issues/42/labels", "GET")
+        assert result is None
+
+    def test_leading_slash_stripped(self):
+        """Leading slash is stripped."""
+        result = github_client.extract_issue_label_info(
+            "/repos/owner/repo/issues/42/labels", "POST"
+        )
+        assert result == ("owner", "repo", 42)
+
+    def test_unrelated_path_not_matched(self):
+        """Non-label path returns None."""
+        result = github_client.extract_issue_label_info(
+            "repos/owner/repo/issues/42/comments", "POST"
+        )
+        assert result is None
+
+
+class TestExtractPrReviewerInfo:
+    """Tests for extract_pr_reviewer_info function."""
+
+    def test_post_reviewers_detected(self):
+        """POST on pulls/{id}/requested_reviewers is detected."""
+        result = github_client.extract_pr_reviewer_info(
+            "repos/owner/repo/pulls/10/requested_reviewers", "POST"
+        )
+        assert result == ("owner", "repo", 10)
+
+    def test_get_reviewers_not_matched(self):
+        """GET on requested_reviewers is not a mutation."""
+        result = github_client.extract_pr_reviewer_info(
+            "repos/owner/repo/pulls/10/requested_reviewers", "GET"
+        )
+        assert result is None
+
+    def test_patch_reviewers_not_matched(self):
+        """PATCH on requested_reviewers is not matched (GitHub uses POST/DELETE)."""
+        result = github_client.extract_pr_reviewer_info(
+            "repos/owner/repo/pulls/10/requested_reviewers", "PATCH"
+        )
+        assert result is None
+
+    def test_leading_slash_stripped(self):
+        """Leading slash is stripped."""
+        result = github_client.extract_pr_reviewer_info(
+            "/repos/owner/repo/pulls/10/requested_reviewers", "POST"
+        )
+        assert result == ("owner", "repo", 10)
+
+
+class TestExtractPrReviewInfo:
+    """Tests for extract_pr_review_info function."""
+
+    def test_post_review_detected(self):
+        """POST on pulls/{id}/reviews is detected."""
+        result = github_client.extract_pr_review_info("repos/owner/repo/pulls/5/reviews", "POST")
+        assert result == ("owner", "repo", 5)
+
+    def test_get_reviews_not_matched(self):
+        """GET on reviews is not a mutation."""
+        result = github_client.extract_pr_review_info("repos/owner/repo/pulls/5/reviews", "GET")
+        assert result is None
+
+    def test_specific_review_not_matched(self):
+        """Specific review path (with review ID) is not matched by this pattern."""
+        result = github_client.extract_pr_review_info(
+            "repos/owner/repo/pulls/5/reviews/999", "POST"
+        )
+        assert result is None
+
+    def test_leading_slash_stripped(self):
+        """Leading slash is stripped."""
+        result = github_client.extract_pr_review_info("/repos/owner/repo/pulls/5/reviews", "POST")
+        assert result == ("owner", "repo", 5)

@@ -2,9 +2,8 @@
 Policy Engine - Ownership and access control checks.
 
 Enforces policies for git/gh operations:
-- Branch ownership (bot): egg can push to bot-prefixed branches (egg-*) OR branches with PRs by egg/configured-user/trusted-user
-- Branch ownership (user mode): user can push to new branches OR branches with PRs by egg/configured-user
-- PR creation: allowed in bot mode, blocked in user mode (user creates PRs manually)
+- Branch ownership (bot/user): egg can push to bot-prefixed branches (egg-*) OR branches with PRs by egg/configured-user/trusted-user
+- PR creation: allowed in bot and user mode (user mode forces draft), blocked in reviewer mode
 - PR comments: egg can comment on any PR
 - PR edit/close: egg can only modify PRs it created or PRs by configured user
 - Merge blocked: No merge operations allowed (human must merge)
@@ -336,9 +335,9 @@ class PolicyEngine:
             login = author
         return login.lower() == configured_user.lower()
 
-    def _get_pr_info(self, repo: str, pr_number: int) -> CachedPRInfo | None:
+    def _get_pr_info(self, repo: str, pr_number: int, mode: str = "bot") -> CachedPRInfo | None:
         """Get PR info, using cache if available and fresh."""
-        cache_key = (repo, pr_number)
+        cache_key = (repo, pr_number, mode)
 
         # Check cache
         cached: CachedPRInfo | None = self._pr_cache.get(cache_key)
@@ -346,7 +345,7 @@ class PolicyEngine:
             return cached
 
         # Fetch from GitHub
-        pr_data = self.github.get_pr_info(repo, pr_number)
+        pr_data = self.github.get_pr_info(repo, pr_number, mode=mode)
         if not pr_data:
             return None
 
@@ -362,9 +361,9 @@ class PolicyEngine:
         self._pr_cache[cache_key] = cached_info
         return cached_info
 
-    def _get_prs_for_branch(self, repo: str, branch: str) -> list[int]:
+    def _get_prs_for_branch(self, repo: str, branch: str, mode: str = "bot") -> list[int]:
         """Get open PR numbers for a branch, using cache if available."""
-        cache_key = (repo, branch)
+        cache_key = (repo, branch, mode)
 
         # Check cache (2 minute TTL for branch->PR mapping)
         cached = self._branch_pr_cache.get(cache_key)
@@ -374,7 +373,7 @@ class PolicyEngine:
                 return list(pr_numbers)
 
         # Fetch from GitHub
-        prs = self.github.list_prs_for_branch(repo, branch, state="open")
+        prs = self.github.list_prs_for_branch(repo, branch, state="open", mode=mode)
         pr_numbers = [pr.get("number") for pr in prs if pr.get("number")]
         self._branch_pr_cache[cache_key] = (pr_numbers, datetime.now(UTC).timestamp())
 
@@ -383,7 +382,7 @@ class PolicyEngine:
             pr_number = pr.get("number")
             if pr_number:
                 author = pr.get("author", {})
-                self._pr_cache[(repo, pr_number)] = CachedPRInfo(
+                self._pr_cache[(repo, pr_number, mode)] = CachedPRInfo(
                     pr_number=pr_number,
                     author=author.get("login", "") if isinstance(author, dict) else str(author),
                     state=pr.get("state", ""),
@@ -406,7 +405,7 @@ class PolicyEngine:
             pr_number: PR number
             auth_mode: "bot" (default) or "user"
         """
-        pr_info = self._get_pr_info(repo, pr_number)
+        pr_info = self._get_pr_info(repo, pr_number, mode=auth_mode)
 
         if not pr_info:
             logger.warning(
@@ -470,13 +469,20 @@ class PolicyEngine:
             details={"author": pr_info.author, "expected": expected, "auth_mode": auth_mode},
         )
 
-    def check_pr_comment_allowed(self, repo: str, pr_number: int) -> PolicyResult:
+    def check_pr_comment_allowed(
+        self, repo: str, pr_number: int, auth_mode: str = "bot"
+    ) -> PolicyResult:
         """
         Check if egg can comment on a PR.
 
         Egg can comment on ANY PR - this enables collaboration on PRs owned by others.
+
+        Args:
+            repo: Repository in "owner/repo" format
+            pr_number: PR number
+            auth_mode: "bot" (default) or "user"
         """
-        pr_info = self._get_pr_info(repo, pr_number)
+        pr_info = self._get_pr_info(repo, pr_number, mode=auth_mode)
 
         if not pr_info:
             logger.warning(
@@ -508,16 +514,11 @@ class PolicyEngine:
         """
         Check if the current identity can push to a branch.
 
-        In bot mode, egg can push to a branch if:
+        In bot or user mode, egg can push to a branch if:
         1. Branch name starts with egg- or egg/ (allows pushing before PR exists), OR
         2. Branch has an open PR authored by egg, OR
         3. Branch has an open PR authored by the configured user, OR
         4. Branch has an open PR authored by a trusted user (from GATEWAY_TRUSTED_USERS)
-
-        In user mode, the user can push to a branch if:
-        1. Branch does not exist upstream yet (new branch), OR
-        2. Branch has an open PR authored by egg, OR
-        3. Branch has an open PR authored by the configured user
 
         In reviewer mode: ALWAYS blocked - reviewer can only post reviews, not push.
 
@@ -567,127 +568,7 @@ class PolicyEngine:
                 },
             )
 
-        # In user mode:
-        # 1. Allow pushing to NEW branches (don't exist upstream yet)
-        # 2. Allow pushing to branches with open PR by egg OR configured user
-        if auth_mode == "user":
-            configured_user = self._get_configured_user()
-
-            # Check if branch exists upstream (use user token for private repos)
-            branch_exists = self.github.branch_exists(repo, branch, mode=auth_mode)
-
-            # If we couldn't determine branch existence (API error), fail closed
-            if branch_exists is None:
-                logger.warning(
-                    "Branch push denied - could not verify branch existence",
-                    repo=repo,
-                    branch=branch,
-                    auth_mode=auth_mode,
-                )
-                return PolicyResult(
-                    allowed=False,
-                    reason=f"Could not verify if branch '{branch}' exists (API error). Try again later.",
-                    details={
-                        "branch": branch,
-                        "configured_user": configured_user,
-                        "auth_mode": "user",
-                        "hint": "Check network connectivity and token permissions.",
-                    },
-                )
-
-            # Branch doesn't exist - allow push to new branch
-            if not branch_exists:
-                logger.debug(
-                    "Branch push allowed (user mode) - new branch",
-                    repo=repo,
-                    branch=branch,
-                    configured_user=configured_user,
-                )
-                return PolicyResult(
-                    allowed=True,
-                    reason=f"User mode: push allowed to new branch '{branch}'",
-                    details={
-                        "branch": branch,
-                        "configured_user": configured_user,
-                        "auth_mode": "user",
-                        "reason": "new_branch",
-                    },
-                )
-
-            # Branch exists - check for open PR by egg or configured user
-            pr_numbers = self._get_prs_for_branch(repo, branch)
-            for pr_number in pr_numbers:
-                pr_info = self._get_pr_info(repo, pr_number)
-                if not pr_info:
-                    continue
-
-                # Check if PR is owned by egg
-                if self._is_bot_author(pr_info.author):
-                    logger.debug(
-                        "Branch push allowed (user mode) - bot PR",
-                        repo=repo,
-                        branch=branch,
-                        pr_number=pr_number,
-                        author=pr_info.author,
-                    )
-                    return PolicyResult(
-                        allowed=True,
-                        reason=f"Branch '{branch}' has open PR #{pr_number} owned by {_get_bot_name()}",
-                        details={
-                            "branch": branch,
-                            "pr_number": pr_number,
-                            "author": pr_info.author,
-                            "auth_mode": "user",
-                            "reason": "bot_pr",
-                        },
-                    )
-
-                # Check if PR is owned by configured user
-                if configured_user and self._is_configured_user_author(
-                    pr_info.author, configured_user
-                ):
-                    logger.debug(
-                        "Branch push allowed (user mode) - configured user PR",
-                        repo=repo,
-                        branch=branch,
-                        pr_number=pr_number,
-                        author=pr_info.author,
-                        configured_user=configured_user,
-                    )
-                    return PolicyResult(
-                        allowed=True,
-                        reason=f"Branch '{branch}' has open PR #{pr_number} owned by '{configured_user}'",
-                        details={
-                            "branch": branch,
-                            "pr_number": pr_number,
-                            "author": pr_info.author,
-                            "configured_user": configured_user,
-                            "auth_mode": "user",
-                            "reason": "configured_user_pr",
-                        },
-                    )
-
-            # Branch exists but no PR by egg or configured user
-            logger.info(
-                "Branch push denied (user mode) - no owned PR",
-                repo=repo,
-                branch=branch,
-                configured_user=configured_user,
-                open_prs=pr_numbers,
-            )
-            return PolicyResult(
-                allowed=False,
-                reason=f"Branch '{branch}' exists but has no open PR owned by {_get_bot_name()} or '{configured_user}'",
-                details={
-                    "branch": branch,
-                    "open_prs": pr_numbers,
-                    "configured_user": configured_user,
-                    "auth_mode": "user",
-                    "hint": "Create a PR from this branch on GitHub first, or push to a new branch name.",
-                },
-            )
-
-        # Bot mode: Check 1: Branch prefix
+        # Bot/User mode: Check 1: Branch prefix
         if self._is_bot_branch(branch):
             logger.debug(
                 "Branch ownership verified by prefix",
@@ -701,11 +582,11 @@ class PolicyEngine:
             )
 
         # Check 2-4: Open PR by egg, configured user, or trusted user
-        pr_numbers = self._get_prs_for_branch(repo, branch)
+        pr_numbers = self._get_prs_for_branch(repo, branch, mode=auth_mode)
         configured_user = self._get_configured_user()
 
         for pr_number in pr_numbers:
-            pr_info = self._get_pr_info(repo, pr_number)
+            pr_info = self._get_pr_info(repo, pr_number, mode=auth_mode)
             if not pr_info:
                 continue
 
@@ -804,12 +685,9 @@ class PolicyEngine:
         """
         Check if PR creation is allowed.
 
-        In bot mode: Always allowed - egg can create PRs.
-        In user mode: Blocked - user must create PRs manually via GitHub UI.
+        In bot or user mode: Always allowed - egg can create PRs.
+        In user mode: PRs are forced to draft mode.
         In reviewer mode: Blocked - reviewer can only post reviews, not create PRs.
-
-        This ensures the human maintains control over what PRs are opened in their name.
-        egg can push branches in user mode, but the human decides which become PRs.
 
         Args:
             repo: Repository in "owner/repo" format
@@ -831,34 +709,22 @@ class PolicyEngine:
                 },
             )
 
-        if auth_mode == "user":
-            configured_user = self._get_configured_user()
-            logger.info(
-                "PR creation blocked in user mode",
-                repo=repo,
-                configured_user=configured_user,
-            )
-            return PolicyResult(
-                allowed=False,
-                reason="PR creation is not allowed in user mode. "
-                "Create the PR manually via GitHub UI.",
-                details={
-                    "repo": repo,
-                    "auth_mode": "user",
-                    "configured_user": configured_user,
-                    "hint": "Push your branch, then create the PR at github.com",
-                },
-            )
-
-        # Bot mode: always allowed
+        # Bot and user mode: allowed
+        force_draft = auth_mode == "user"
         logger.debug(
-            "PR creation allowed (bot mode)",
+            "PR creation allowed",
             repo=repo,
+            auth_mode=auth_mode,
+            force_draft=force_draft,
         )
         return PolicyResult(
             allowed=True,
-            reason="PR creation allowed in bot mode",
-            details={"repo": repo, "auth_mode": "bot"},
+            reason=f"PR creation allowed in {auth_mode} mode",
+            details={
+                "repo": repo,
+                "auth_mode": auth_mode,
+                "force_draft": force_draft,
+            },
         )
 
     def check_merge_allowed(self, repo: str, pr_number: int) -> PolicyResult:
@@ -882,6 +748,205 @@ class PolicyEngine:
             },
         )
 
+    def check_issue_ownership(
+        self,
+        repo: str,
+        issue_number: int,
+        auth_mode: str = "bot",
+    ) -> PolicyResult:
+        """
+        Check if the current identity owns an issue/PR (for label mutations).
+
+        An issue/PR is considered owned if the author is:
+        - A bot identity, OR
+        - The configured user (user mode user)
+
+        Note: GitHub's issues API returns both issues and PRs.
+
+        Args:
+            repo: Repository in "owner/repo" format
+            issue_number: The issue/PR number
+            auth_mode: "bot" (default) or "user"
+        """
+        author = self.github.get_issue_author(repo, issue_number, mode=auth_mode)
+
+        if not author:
+            logger.warning(
+                "Issue/PR not found or inaccessible",
+                repo=repo,
+                issue_number=issue_number,
+            )
+            return PolicyResult(
+                allowed=False,
+                reason=f"Issue/PR #{issue_number} not found or inaccessible",
+                details={"repo": repo, "issue_number": issue_number},
+            )
+
+        # Check if owned by bot
+        if self._is_bot_author(author):
+            logger.debug(
+                "Issue ownership verified (bot author)",
+                repo=repo,
+                issue_number=issue_number,
+                author=author,
+            )
+            return PolicyResult(
+                allowed=True,
+                reason=f"Issue/PR is owned by {_get_bot_name()}",
+                details={
+                    "author": author,
+                    "issue_number": issue_number,
+                    "auth_mode": auth_mode,
+                },
+            )
+
+        # Check if owned by configured user
+        configured_user = self._get_configured_user()
+        if configured_user and self._is_configured_user_author(author, configured_user):
+            logger.debug(
+                "Issue ownership verified (configured user)",
+                repo=repo,
+                issue_number=issue_number,
+                author=author,
+                configured_user=configured_user,
+            )
+            return PolicyResult(
+                allowed=True,
+                reason=f"Issue/PR is owned by configured user ({configured_user})",
+                details={
+                    "author": author,
+                    "issue_number": issue_number,
+                    "auth_mode": auth_mode,
+                    "configured_user": configured_user,
+                },
+            )
+
+        # Not owned — deny
+        logger.info(
+            f"Issue/PR label mutation denied - not owned by {_get_bot_name()} or configured user",
+            repo=repo,
+            issue_number=issue_number,
+            author=author,
+            auth_mode=auth_mode,
+        )
+        expected = list(get_bot_identities())
+        if configured_user:
+            expected.append(configured_user)
+        return PolicyResult(
+            allowed=False,
+            reason=f"Issue/PR #{issue_number} is not owned by {_get_bot_name()} or configured user "
+            f"(author: {author}). Only labels on issues/PRs authored by the bot or configured user "
+            f"can be modified.",
+            details={
+                "author": author,
+                "issue_number": issue_number,
+                "expected": expected,
+                "auth_mode": auth_mode,
+            },
+        )
+
+    def check_comment_ownership(
+        self,
+        repo: str,
+        comment_id: int,
+        comment_type: str,
+        auth_mode: str = "bot",
+    ) -> PolicyResult:
+        """
+        Check if the current identity owns a comment (for edit/PATCH operations).
+
+        A comment is considered owned if the author is:
+        - A bot identity, OR
+        - The configured user (user mode user)
+
+        Args:
+            repo: Repository in "owner/repo" format
+            comment_id: The comment ID
+            comment_type: One of "issues", "pulls", "commits"
+            auth_mode: "bot" (default) or "user"
+        """
+        author = self.github.get_comment_author(repo, comment_id, comment_type, mode=auth_mode)
+
+        if not author:
+            logger.warning(
+                "Comment not found or inaccessible",
+                repo=repo,
+                comment_id=comment_id,
+                comment_type=comment_type,
+            )
+            return PolicyResult(
+                allowed=False,
+                reason=f"Comment {comment_id} not found or inaccessible",
+                details={
+                    "repo": repo,
+                    "comment_id": comment_id,
+                    "comment_type": comment_type,
+                },
+            )
+
+        # Check if comment is owned by bot
+        if self._is_bot_author(author):
+            logger.debug(
+                "Comment ownership verified (bot author)",
+                repo=repo,
+                comment_id=comment_id,
+                author=author,
+            )
+            return PolicyResult(
+                allowed=True,
+                reason=f"Comment is owned by {_get_bot_name()}",
+                details={
+                    "author": author,
+                    "comment_id": comment_id,
+                    "auth_mode": auth_mode,
+                },
+            )
+
+        # Check if comment is owned by the configured user
+        configured_user = self._get_configured_user()
+        if configured_user and self._is_configured_user_author(author, configured_user):
+            logger.debug(
+                "Comment ownership verified (configured user)",
+                repo=repo,
+                comment_id=comment_id,
+                author=author,
+                configured_user=configured_user,
+            )
+            return PolicyResult(
+                allowed=True,
+                reason=f"Comment is owned by configured user ({configured_user})",
+                details={
+                    "author": author,
+                    "comment_id": comment_id,
+                    "auth_mode": auth_mode,
+                    "configured_user": configured_user,
+                },
+            )
+
+        # Not owned — deny
+        logger.info(
+            f"Comment edit denied - not owned by {_get_bot_name()} or configured user",
+            repo=repo,
+            comment_id=comment_id,
+            author=author,
+            auth_mode=auth_mode,
+        )
+        expected = list(get_bot_identities())
+        if configured_user:
+            expected.append(configured_user)
+        return PolicyResult(
+            allowed=False,
+            reason=f"Comment {comment_id} is not owned by {_get_bot_name()} or configured user "
+            f"(author: {author}). Only comments authored by the bot or configured user can be edited.",
+            details={
+                "author": author,
+                "comment_id": comment_id,
+                "comment_type": comment_type,
+                "expected": expected,
+                "auth_mode": auth_mode,
+            },
+        )
+
     def check_pr_review_allowed(
         self, repo: str, pr_number: int, auth_mode: str = "bot"
     ) -> PolicyResult:
@@ -897,7 +962,7 @@ class PolicyEngine:
             pr_number: PR number
             auth_mode: "bot" (default), "user", or "reviewer"
         """
-        pr_info = self._get_pr_info(repo, pr_number)
+        pr_info = self._get_pr_info(repo, pr_number, mode=auth_mode)
 
         if not pr_info:
             logger.warning(

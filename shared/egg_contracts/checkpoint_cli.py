@@ -136,9 +136,41 @@ def _validate_checkpoint_repo(checkpoint_repo: str) -> str:
     return checkpoint_repo
 
 
+def _resolve_git_repo(path: str) -> str:
+    """Resolve *path* to an actual git repository root.
+
+    If *path* already contains a ``.git`` entry it is returned as-is.
+    Otherwise the function walks up from ``cwd`` to find the nearest
+    git root (handles the common case where ``EGG_REPO_PATH`` is the
+    parent ``~/repos`` while ``cwd`` is inside an actual repo like
+    ``~/repos/egg``).
+
+    When no git root can be found, *path* is returned unchanged so
+    callers always get a usable value.
+    """
+    if (Path(path) / ".git").exists():
+        return path
+
+    # Walk up from cwd looking for a .git entry
+    current = Path.cwd()
+    while current != current.parent:
+        if (current / ".git").exists():
+            return str(current)
+        current = current.parent
+
+    return path
+
+
 def get_repo_path() -> str:
-    """Get the repository path from environment or default."""
-    return os.environ.get("EGG_REPO_PATH", str(Path.cwd()))
+    """Get the repository path from environment or default.
+
+    Resolves to the git toplevel directory when possible.  This handles
+    the common sandbox case where ``EGG_REPO_PATH`` points to a parent
+    directory (e.g. ``~/repos``) that contains one or more git repos
+    rather than being a git repo itself.
+    """
+    candidate = os.environ.get("EGG_REPO_PATH", str(Path.cwd()))
+    return _resolve_git_repo(candidate)
 
 
 def run_git(
@@ -188,7 +220,7 @@ def ensure_checkpoint_ref(repo_path: str, checkpoint_repo: str | None = None) ->
 
     Returns:
         A git ref string (e.g. "origin/egg/checkpoints/v2" or a resolved SHA),
-        or None if the branch doesn't exist.
+        or None if the branch doesn't exist or access was denied.
     """
     target = _resolve_checkpoint_target(repo_path, checkpoint_repo)
 
@@ -198,11 +230,22 @@ def ensure_checkpoint_ref(repo_path: str, checkpoint_repo: str | None = None) ->
         cwd=repo_path,
         check=False,
     )
+    if result.returncode != 0:
+        stderr = result.stderr.strip()
+        if stderr:
+            # Surface gateway/auth errors instead of silently returning None
+            print(f"Warning: failed to access checkpoint repo: {stderr}", file=sys.stderr)
+        return None
     if not result.stdout.strip():
         return None
 
     # Fetch the branch
-    run_git(["fetch", target, CHECKPOINT_BRANCH], cwd=repo_path, check=False)
+    fetch_result = run_git(["fetch", target, CHECKPOINT_BRANCH], cwd=repo_path, check=False)
+    if fetch_result.returncode != 0:
+        stderr = fetch_result.stderr.strip()
+        if stderr:
+            print(f"Warning: failed to fetch checkpoint branch: {stderr}", file=sys.stderr)
+        return None
 
     if checkpoint_repo:
         # Resolve FETCH_HEAD to a stable SHA before returning.
@@ -618,6 +661,7 @@ def cmd_list(args: argparse.Namespace) -> int:
             return _cmd_list_http(args, gateway_url)
         except RuntimeError as e:
             logger.debug("HTTP list failed, falling back to git: %s", e)
+            print(f"Warning: gateway checkpoint query failed: {e}", file=sys.stderr)
 
     repo_path = args.repo_path or get_repo_path()
     checkpoint_repo, _ = _get_checkpoint_repo_from_args(args)
@@ -692,6 +736,7 @@ def cmd_show(args: argparse.Namespace) -> int:
             return _cmd_show_http(args, gateway_url)
         except RuntimeError as e:
             logger.debug("HTTP show failed, falling back to git: %s", e)
+            print(f"Warning: gateway checkpoint query failed: {e}", file=sys.stderr)
 
     repo_path = args.repo_path or get_repo_path()
     identifier = args.identifier
@@ -781,6 +826,7 @@ def cmd_browse(args: argparse.Namespace) -> int:
             return _cmd_browse_http(args, gateway_url)
         except RuntimeError as e:
             logger.debug("HTTP browse failed, falling back to git: %s", e)
+            print(f"Warning: gateway checkpoint query failed: {e}", file=sys.stderr)
 
     repo_path = args.repo_path or get_repo_path()
     checkpoint_repo, _ = _get_checkpoint_repo_from_args(args)
@@ -984,6 +1030,7 @@ def cmd_context(args: argparse.Namespace) -> int:
             return _cmd_context_http(args, gateway_url)
         except RuntimeError as e:
             logger.debug("HTTP context failed, falling back to git: %s", e)
+            print(f"Warning: gateway checkpoint query failed: {e}", file=sys.stderr)
 
     repo_path = args.repo_path or get_repo_path()
     checkpoint_repo, _ = _get_checkpoint_repo_from_args(args)
@@ -1169,6 +1216,7 @@ def cmd_cost(args: argparse.Namespace) -> int:
             return _cmd_cost_http(args, gateway_url)
         except RuntimeError as e:
             logger.debug("HTTP cost failed, falling back to git: %s", e)
+            print(f"Warning: gateway checkpoint query failed: {e}", file=sys.stderr)
 
     from .usage import TokenCounts
 
@@ -1452,6 +1500,7 @@ def cmd_search(args: argparse.Namespace) -> int:
             return _cmd_search_http(args, gateway_url)
         except RuntimeError as e:
             logger.debug("HTTP search failed, falling back to git: %s", e)
+            print(f"Warning: gateway checkpoint query failed: {e}", file=sys.stderr)
 
     repo_path = args.repo_path or get_repo_path()
     try:

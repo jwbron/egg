@@ -352,6 +352,8 @@ def get_all_checkpoint_repos() -> frozenset[str]:
     """Get the set of all configured checkpoint repositories.
 
     Scans all repo_settings entries and collects every checkpoint_repo value.
+    Also includes the ``EGG_CHECKPOINT_REPO`` environment variable when set,
+    so checkpoint repos are recognised even without ``repositories.yaml``.
     Used by the gateway to exempt checkpoint repos from private mode policy.
 
     Results are cached for 60 seconds to avoid redundant config file I/O
@@ -359,7 +361,7 @@ def get_all_checkpoint_repos() -> frozenset[str]:
 
     Returns:
         Frozenset of checkpoint repo names in "owner/repo" format, lowercased.
-        Returns empty frozenset if config cannot be loaded or has no checkpoint repos.
+        Returns empty frozenset if no checkpoint repos are configured.
     """
     global _checkpoint_repos_cache
 
@@ -369,25 +371,27 @@ def get_all_checkpoint_repos() -> frozenset[str]:
         if now - cached_time < _CHECKPOINT_REPOS_TTL:
             return cached_result
 
+    repos: set[str] = set()
+
+    # Include EGG_CHECKPOINT_REPO env var (always checked, even without
+    # repositories.yaml).  This is the primary mechanism for sandboxed
+    # containers that don't have access to the config file.
+    env_checkpoint_repo = os.environ.get("EGG_CHECKPOINT_REPO", "").strip().lower()
+    if env_checkpoint_repo:
+        repos.add(env_checkpoint_repo)
+
     try:
         config = _load_config()
+        repo_settings = config.get("repo_settings", {})
+        if isinstance(repo_settings, dict):
+            for settings in repo_settings.values():
+                if isinstance(settings, dict):
+                    checkpoint_repo = settings.get("checkpoint_repo")
+                    if checkpoint_repo and isinstance(checkpoint_repo, str):
+                        repos.add(checkpoint_repo.lower())
     except Exception:
-        result: frozenset[str] = frozenset()
-        _checkpoint_repos_cache = (now, result)
-        return result
+        pass  # Config unavailable — rely on env var and session-level checks
 
-    repo_settings = config.get("repo_settings", {})
-    if not isinstance(repo_settings, dict):
-        result = frozenset()
-        _checkpoint_repos_cache = (now, result)
-        return result
-
-    repos: set[str] = set()
-    for settings in repo_settings.values():
-        if isinstance(settings, dict):
-            checkpoint_repo = settings.get("checkpoint_repo")
-            if checkpoint_repo and isinstance(checkpoint_repo, str):
-                repos.add(checkpoint_repo.lower())
     result = frozenset(repos)
     _checkpoint_repos_cache = (now, result)
     return result

@@ -1,20 +1,30 @@
 #!/bin/bash
-# Generate CA certificate for SSL bump (credential injection)
+# Generate CA certificate for SSL bump (SNI termination of blocked domains)
 #
 # Called by entrypoint.sh on gateway startup.
-# Creates a short-lived CA certificate used for MITM on api.anthropic.com.
+# Creates a long-lived CA certificate used for Squid SSL termination.
+# Squid uses this to present error pages for blocked (non-allowlisted) domains.
+# Note: Anthropic API traffic bypasses Squid entirely (uses ANTHROPIC_BASE_URL).
 #
 # Security notes:
-# - CA key never leaves gateway container
-# - Certificate is daily-rotated (not per-restart to avoid breaking in-flight requests)
+# - CA key never leaves gateway container (container-local, ephemeral storage)
+# - Certificate is regenerated at gateway startup (not periodically while running)
 # - Key permissions: 0600, owned by proxy user
+# - 10-year validity is acceptable because:
+#   1. The key exists only inside the gateway container's ephemeral filesystem
+#   2. The CA is only used for Squid SSL termination of blocked (non-allowlisted) domains
+#   3. No external system trusts this CA — only the sandbox container trusts it
+#   4. Container restarts regenerate the cert (new key), so the long validity is a
+#      ceiling, not the actual lifetime
+#   5. If the container is compromised, the attacker already has full gateway access,
+#      making the CA cert irrelevant to the threat model
 
 set -euo pipefail
 
 CA_CERT_DIR="/etc/squid/certs"
 CA_CERT="${CA_CERT_DIR}/gateway-ca.pem"
 CA_KEY="${CA_CERT_DIR}/gateway-ca.key"
-CA_VALIDITY_DAYS=1  # Daily rotation
+CA_VALIDITY_DAYS=3650  # Long-lived: no rotation mechanism exists while gateway runs
 
 mkdir -p "$CA_CERT_DIR"
 
@@ -51,4 +61,4 @@ cp "$CA_CERT" "${CA_CERT_DIR}/gateway-ca.crt"
 chmod 644 "${CA_CERT_DIR}/gateway-ca.crt"
 
 echo "CA certificate generated: $CA_CERT"
-echo "Valid for $CA_VALIDITY_DAYS day(s)"
+echo "Valid for $CA_VALIDITY_DAYS days (~$((CA_VALIDITY_DAYS / 365)) year(s))"

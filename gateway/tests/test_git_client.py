@@ -263,6 +263,161 @@ class TestValidateGitArgs:
         assert not valid
         assert "not allowed" in error.lower()
 
+    def test_cat_file_allowed(self):
+        """cat-file -p <hash> should pass validation."""
+        valid, _error, normalized = validate_git_args("cat-file", ["-p", "abc123"])
+        assert valid
+        assert "-p" in normalized
+        assert "abc123" in normalized
+
+    def test_cat_file_type_and_size_allowed(self):
+        """cat-file -t and -s flags should pass validation."""
+        valid, _error, normalized = validate_git_args("cat-file", ["-t", "HEAD"])
+        assert valid
+        assert "-t" in normalized
+
+        valid, _error, normalized = validate_git_args("cat-file", ["-s", "HEAD"])
+        assert valid
+        assert "-s" in normalized
+
+    def test_cat_file_batch_allowed(self):
+        """cat-file --batch and --batch-check should pass validation."""
+        valid, _error, normalized = validate_git_args("cat-file", ["--batch"])
+        assert valid
+        assert "--batch" in normalized
+
+        valid, _error, normalized = validate_git_args("cat-file", ["--batch-check"])
+        assert valid
+        assert "--batch-check" in normalized
+
+    def test_cat_file_textconv_rejected(self):
+        """cat-file --textconv should be rejected (enables arbitrary code execution)."""
+        valid, error, _normalized = validate_git_args("cat-file", ["--textconv", "HEAD:file"])
+        assert not valid
+        assert "not allowed" in error.lower()
+
+    def test_cat_file_filters_rejected(self):
+        """cat-file --filters should be rejected (enables arbitrary code execution)."""
+        valid, error, _normalized = validate_git_args("cat-file", ["--filters", "HEAD:file"])
+        assert not valid
+        assert "not allowed" in error.lower()
+
+    def test_cat_file_blocked_flags(self):
+        """Unknown flags for cat-file should be rejected."""
+        valid, error, _normalized = validate_git_args("cat-file", ["--malicious"])
+        assert not valid
+        assert "not allowed" in error.lower()
+
+    def test_fetch_unshallow_allowed(self):
+        """fetch --unshallow should pass validation."""
+        valid, _error, normalized = validate_git_args("fetch", ["--unshallow"])
+        assert valid
+        assert "--unshallow" in normalized
+
+    def test_fetch_deepen_allowed(self):
+        """fetch --deepen=50 should pass validation."""
+        valid, _error, normalized = validate_git_args("fetch", ["--deepen=50"])
+        assert valid
+        assert "--deepen=50" in normalized
+
+    def test_merge_strategy_option_accepted(self):
+        """Merge -X with safe values should be accepted."""
+        # -X theirs (short flag, separate value)
+        valid, _error, normalized = validate_git_args("merge", ["-X", "theirs", "origin/main"])
+        assert valid
+        assert "--strategy-option=theirs" in normalized
+
+        # --strategy-option=ours (long flag, inline value)
+        valid, _error, normalized = validate_git_args(
+            "merge", ["--strategy-option=ours", "origin/main"]
+        )
+        assert valid
+        assert "--strategy-option=ours" in normalized
+
+        # -X patience
+        valid, _error, normalized = validate_git_args("merge", ["-X", "patience", "origin/main"])
+        assert valid
+        assert "--strategy-option=patience" in normalized
+
+        # -X ignore-space-change
+        valid, _error, normalized = validate_git_args("merge", ["-X", "ignore-space-change"])
+        assert valid
+        assert "--strategy-option=ignore-space-change" in normalized
+
+    def test_merge_strategy_option_unsafe_rejected(self):
+        """Merge -X with unsafe or unknown values should be rejected."""
+        # Arbitrary value rejected
+        valid, error, _normalized = validate_git_args("merge", ["-X", "evil-option"])
+        assert not valid
+        assert "not allowed" in error.lower()
+
+        # Inline arbitrary value rejected
+        valid, error, _normalized = validate_git_args("merge", ["--strategy-option=subtree=prefix"])
+        assert not valid
+        assert "not allowed" in error.lower()
+
+        # Missing value rejected
+        valid, error, _normalized = validate_git_args("merge", ["-X"])
+        assert not valid
+        assert "requires a value" in error.lower()
+
+        # Combined form -Xtheirs with unsafe value rejected
+        valid, error, _normalized = validate_git_args("merge", ["-Xevil-option"])
+        assert not valid
+        assert "not allowed" in error.lower()
+
+    def test_merge_strategy_option_combined_form(self):
+        """Merge -Xtheirs (combined, no space) should be accepted."""
+        # -Xtheirs (combined short flag + value)
+        valid, _error, normalized = validate_git_args("merge", ["-Xtheirs", "origin/main"])
+        assert valid
+        assert "--strategy-option=theirs" in normalized
+
+        # -Xours (combined short flag + value)
+        valid, _error, normalized = validate_git_args("merge", ["-Xours", "origin/main"])
+        assert valid
+        assert "--strategy-option=ours" in normalized
+
+    def test_merge_strategy_option_equals_short_form(self):
+        """-X=theirs (short flag with = separator) should be accepted."""
+        valid, _error, normalized = validate_git_args("merge", ["-X=theirs", "origin/main"])
+        assert valid
+        assert "--strategy-option=theirs" in normalized
+
+    def test_merge_multiple_strategy_options(self):
+        """Multiple -X flags should all be validated and accepted."""
+        valid, _error, normalized = validate_git_args(
+            "merge", ["-X", "theirs", "-X", "ignore-space-change", "origin/main"]
+        )
+        assert valid
+        assert "--strategy-option=theirs" in normalized
+        assert "--strategy-option=ignore-space-change" in normalized
+
+    def test_boolean_flag_combined_form_rejected(self):
+        """Boolean flags with appended text (e.g., -fgarbage) should be rejected."""
+        # -fgarbage should NOT become --force=garbage and pass
+        valid, error, _normalized = validate_git_args("push", ["-fgarbage", "origin", "main"])
+        assert not valid
+        assert "not allowed" in error.lower()
+
+        # -qfoo should NOT become --quiet=foo and pass
+        valid, error, _normalized = validate_git_args("merge", ["-qfoo", "origin/main"])
+        assert not valid
+        assert "not allowed" in error.lower()
+
+    def test_diff_tree_flags_accepted(self):
+        """diff-tree flags should be accepted."""
+        valid, _error, normalized = validate_git_args("diff-tree", ["--name-status", "-r", "HEAD"])
+        assert valid
+        assert "--name-status" in normalized
+        assert "-r" in normalized
+
+    def test_diff_tree_unknown_flag_rejected(self):
+        """Unknown flags for diff-tree should be rejected."""
+        valid, error, _normalized = validate_git_args("diff-tree", ["--exec=evil"])
+        assert not valid
+        assert "not allowed" in error.lower()
+
     # --- Regression tests for per-subcommand flag normalization ---
 
     def test_stash_u_accepted(self):
@@ -341,8 +496,10 @@ class TestGitAllowedCommands:
         assert "status" in GIT_ALLOWED_COMMANDS
         assert "log" in GIT_ALLOWED_COMMANDS
         assert "diff" in GIT_ALLOWED_COMMANDS
+        assert "diff-tree" in GIT_ALLOWED_COMMANDS
         assert "branch" in GIT_ALLOWED_COMMANDS
         assert "merge-base" in GIT_ALLOWED_COMMANDS
+        assert "cat-file" in GIT_ALLOWED_COMMANDS
 
     def test_local_write_operations_defined(self):
         """Local write operations should be defined."""

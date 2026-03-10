@@ -24,6 +24,8 @@ from models import (
     AgentRole,
     ContainerInfo,
     ContainerStatus,
+    DecisionStatus,
+    HITLDecision,
     Pipeline,
     PipelinePhase,
     PipelineStatus,
@@ -311,3 +313,93 @@ class TestReconcileStaleContainers:
         agent = phase.agents[0]
         assert agent.status == AgentExecutionStatus.FAILED
         assert agent.completed_at is not None
+
+
+# ---------------------------------------------------------------------------
+# AWAITING_HUMAN reconciliation tests
+# ---------------------------------------------------------------------------
+
+
+def _make_awaiting_human_pipeline(
+    pending_decisions: int = 0,
+    resolved_decisions: int = 1,
+) -> Pipeline:
+    """Return an AWAITING_HUMAN pipeline with configurable decision counts."""
+    pipeline = Pipeline(
+        id="issue-77",
+        issue_number=77,
+        repo="owner/repo",
+        branch="egg/issue-77",
+        mode="issue",
+        status=PipelineStatus.AWAITING_HUMAN,
+        current_phase=PipelinePhase.REFINE,
+    )
+    # Add resolved decisions
+    for i in range(resolved_decisions):
+        pipeline.decisions.append(
+            HITLDecision(
+                id=f"decision-{i + 1}",
+                question="Approve phase?",
+                decision_type="phase_gate",
+                status=DecisionStatus.RESOLVED,
+                resolution='{"action": "approve"}',
+            )
+        )
+    # Add pending decisions
+    for i in range(pending_decisions):
+        pipeline.decisions.append(
+            HITLDecision(
+                id=f"decision-pending-{i + 1}",
+                question="Approve phase?",
+                decision_type="phase_gate",
+                status=DecisionStatus.PENDING,
+            )
+        )
+    return pipeline
+
+
+class TestReconcileAwaitingHuman:
+    """Tests for AWAITING_HUMAN reconciliation at startup."""
+
+    def test_awaiting_human_zero_pending_marked_failed(self):
+        """AWAITING_HUMAN with 0 pending decisions is marked FAILED."""
+        pipeline = _make_awaiting_human_pipeline(pending_decisions=0, resolved_decisions=1)
+        store = _make_store(pipeline)
+        docker_client = _make_docker_client([])
+
+        result = reconcile_stale_containers(store, docker_client)
+
+        assert result == 1
+        assert pipeline.status == PipelineStatus.FAILED
+        assert "AWAITING_HUMAN" in pipeline.error
+        store.save_pipeline.assert_called_once_with(pipeline)
+
+    def test_awaiting_human_with_pending_left_alone(self):
+        """AWAITING_HUMAN with pending decisions is not modified."""
+        pipeline = _make_awaiting_human_pipeline(pending_decisions=1, resolved_decisions=0)
+        store = _make_store(pipeline)
+        docker_client = _make_docker_client([])
+
+        result = reconcile_stale_containers(store, docker_client)
+
+        assert result == 0
+        assert pipeline.status == PipelineStatus.AWAITING_HUMAN
+        store.save_pipeline.assert_not_called()
+
+    def test_awaiting_human_recovery_counted_in_return_value(self):
+        """Multiple AWAITING_HUMAN recoveries are counted."""
+        p1 = _make_awaiting_human_pipeline(pending_decisions=0)
+        p1.id = "issue-1"
+        p2 = _make_awaiting_human_pipeline(pending_decisions=0)
+        p2.id = "issue-2"
+
+        store = MagicMock()
+        store.list_pipelines.return_value = ["issue-1", "issue-2"]
+        store.load_pipeline.side_effect = [p1, p2]
+        docker_client = _make_docker_client([])
+
+        result = reconcile_stale_containers(store, docker_client)
+
+        assert result == 2
+        assert p1.status == PipelineStatus.FAILED
+        assert p2.status == PipelineStatus.FAILED

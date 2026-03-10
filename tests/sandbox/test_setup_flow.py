@@ -250,32 +250,28 @@ class TestCreateGeneralConfig:
 class TestAddStandardMounts:
     """Tests for add_standard_mounts."""
 
-    def test_adds_certs_mount(self, tmp_path):
-        """Adds shared certs mount when directory exists."""
-        certs_dir = tmp_path / ".egg-shared-certs"
-        certs_dir.mkdir()
+    def test_adds_certs_volume_mount(self, monkeypatch):
+        """Always mounts the egg-certs Docker named volume."""
+        monkeypatch.delenv("COMPOSE_PROJECT_NAME", raising=False)
         mount_args = []
-        with patch("egg_lib.setup_flow.Path.home", return_value=tmp_path):
-            add_standard_mounts(mount_args)
-            assert "-v" in mount_args
-            assert any("shared/certs" in a for a in mount_args)
+        add_standard_mounts(mount_args)
+        assert "-v" in mount_args
+        assert any("egg-certs:/shared/certs:ro" in a for a in mount_args)
 
-    def test_skips_missing_certs(self, tmp_path):
-        """Skips mount when shared certs directory doesn't exist."""
+    def test_respects_compose_project_name(self, monkeypatch):
+        """Uses COMPOSE_PROJECT_NAME env var for volume name."""
+        monkeypatch.setenv("COMPOSE_PROJECT_NAME", "myproject")
         mount_args = []
-        with patch("egg_lib.setup_flow.Path.home", return_value=tmp_path):
-            add_standard_mounts(mount_args)
-            assert mount_args == []
+        add_standard_mounts(mount_args)
+        assert any("myproject-certs:/shared/certs:ro" in a for a in mount_args)
 
-    def test_quiet_mode(self, tmp_path, capsys):
+    def test_quiet_mode(self, monkeypatch, capsys):
         """Quiet mode suppresses output."""
-        certs_dir = tmp_path / ".egg-shared-certs"
-        certs_dir.mkdir()
+        monkeypatch.delenv("COMPOSE_PROJECT_NAME", raising=False)
         mount_args = []
-        with patch("egg_lib.setup_flow.Path.home", return_value=tmp_path):
-            add_standard_mounts(mount_args, quiet=True)
-            captured = capsys.readouterr()
-            assert captured.out == ""
+        add_standard_mounts(mount_args, quiet=True)
+        captured = capsys.readouterr()
+        assert captured.out == ""
 
 
 class TestSetup:

@@ -82,6 +82,10 @@ try:
         BLOCKED_GH_COMMANDS,
         GH_COMMANDS_BLOCKED_IN_PRIVATE_MODE,
         READONLY_GH_COMMANDS,
+        extract_comment_edit_info,
+        extract_issue_label_info,
+        extract_pr_review_info,
+        extract_pr_reviewer_info,
         extract_repo_from_gh_command,
         get_github_client,
         parse_gh_api_args,
@@ -142,6 +146,10 @@ except ImportError:
         BLOCKED_GH_COMMANDS,
         GH_COMMANDS_BLOCKED_IN_PRIVATE_MODE,
         READONLY_GH_COMMANDS,
+        extract_comment_edit_info,
+        extract_issue_label_info,
+        extract_pr_review_info,
+        extract_pr_reviewer_info,
         extract_repo_from_gh_command,
         get_github_client,
         parse_gh_api_args,
@@ -188,6 +196,35 @@ if _config_path.exists() and str(_config_path) not in sys.path:
 from repo_config import get_auth_mode, get_checkpoint_repo, is_checkpoint_repo
 
 logger = get_logger("gateway")
+
+
+def _is_checkpoint_repo_for_request(owner: str, repo: str) -> bool:
+    """Check if a repository is a checkpoint repo, using all available signals.
+
+    Extends ``is_checkpoint_repo()`` (config-based) with session-level
+    context.  The session's ``checkpoint_repo`` field is set during session
+    creation and on git push, so it captures repos that may not appear in
+    ``repositories.yaml`` (e.g. when the config file is absent in sandboxes
+    but the orchestrator passed ``EGG_CHECKPOINT_REPO``).
+
+    Args:
+        owner: Repository owner (e.g. "jwbron")
+        repo: Repository name (e.g. "checkpoints")
+
+    Returns:
+        True if the repo is a known checkpoint destination.
+    """
+    if is_checkpoint_repo(owner, repo):
+        return True
+    try:
+        session = getattr(g, "session", None)
+        if session and session.checkpoint_repo:
+            return bool(f"{owner}/{repo}".lower() == session.checkpoint_repo.lower())
+    except RuntimeError:
+        # Outside Flask request context — fall through
+        pass
+    return False
+
 
 app = Flask(__name__)
 
@@ -577,7 +614,8 @@ def git_push() -> tuple[Response, int] | Response:
         # Infrastructure operations — always accessible regardless of
         # session mode. This covers dedicated checkpoint repos and
         # infrastructure branch pushes (checkpoints, pipeline state).
-        if is_infrastructure_push or is_checkpoint_repo(repo_info.owner, repo_info.repo):
+        is_ckpt_repo = _is_checkpoint_repo_for_request(repo_info.owner, repo_info.repo)
+        if is_infrastructure_push or is_ckpt_repo:
             audit_log(
                 "push_infrastructure_exempt",
                 "git_push",
@@ -586,9 +624,7 @@ def git_push() -> tuple[Response, int] | Response:
                     "repo": repo,
                     "branch": branch,
                     "reason": "Infrastructure operation exempt from private mode policy",
-                    "exempt_type": "checkpoint_repo"
-                    if is_checkpoint_repo(repo_info.owner, repo_info.repo)
-                    else "infrastructure_branch",
+                    "exempt_type": "checkpoint_repo" if is_ckpt_repo else "infrastructure_branch",
                 },
             )
         else:
@@ -1483,7 +1519,7 @@ def git_fetch() -> tuple[Response, int] | Response:
     repo_info = parse_owner_repo(repo)
     if repo_info:
         # Checkpoint repos are infrastructure — always accessible regardless of session mode
-        if is_checkpoint_repo(repo_info.owner, repo_info.repo):
+        if _is_checkpoint_repo_for_request(repo_info.owner, repo_info.repo):
             audit_log(
                 f"{operation}_checkpoint_repo_exempt",
                 f"git_{operation}",
@@ -2075,12 +2111,13 @@ def gh_pr_create() -> tuple[Response, int] | Response:
             "title": "PR title",
             "body": "PR body",
             "base": "main",
-            "head": "feature-branch"
+            "head": "feature-branch",
+            "draft": false  (optional, forced to true in user mode)
         }
 
     Policy:
         - Bot mode: allowed (egg can create PRs)
-        - User mode: blocked (user must create PRs manually via GitHub UI)
+        - User mode: allowed (PRs are forced to draft mode)
     """
     data = request.get_json()
     if not data:
@@ -2193,7 +2230,7 @@ def gh_pr_create() -> tuple[Response, int] | Response:
                 details=priv_result.to_dict(),
             )
 
-    # Policy check: PR creation may be blocked in user mode
+    # Policy check: PR creation may be blocked in reviewer mode
     policy = get_policy_engine()
     policy_result = policy.check_pr_create_allowed(repo, auth_mode=auth_mode)
     if not policy_result.allowed:
@@ -2213,6 +2250,11 @@ def gh_pr_create() -> tuple[Response, int] | Response:
             details=policy_result.details,
         )
 
+    # In user mode, force PRs to be created as drafts
+    draft = data.get("draft", False)
+    if policy_result.details and policy_result.details.get("force_draft"):
+        draft = True
+
     try:
         github = get_github_client(mode=auth_mode)
         args = [
@@ -2230,6 +2272,9 @@ def gh_pr_create() -> tuple[Response, int] | Response:
             head,
         ]
 
+        if draft:
+            args.append("--draft")
+
         result = github.execute(args, timeout=60, mode=auth_mode)
 
         if result.success:
@@ -2243,6 +2288,7 @@ def gh_pr_create() -> tuple[Response, int] | Response:
                     "base": base,
                     "head": head,
                     "auth_mode": auth_mode,
+                    "draft": draft,
                 },
             )
             return make_success(
@@ -2353,7 +2399,7 @@ def gh_pr_comment() -> tuple[Response, int] | Response:
 
     # Check if commenting is allowed (allowed on any PR)
     policy = get_policy_engine()
-    policy_result = policy.check_pr_comment_allowed(repo, pr_number)
+    policy_result = policy.check_pr_comment_allowed(repo, pr_number, auth_mode=auth_mode)
 
     if not policy_result.allowed:
         audit_log(
@@ -2431,8 +2477,15 @@ def gh_pr_edit() -> tuple[Response, int] | Response:
         return make_error("Missing repo")
     if not pr_number:
         return make_error("Missing pr_number")
+    if isinstance(pr_number, bool) or not isinstance(pr_number, int) or pr_number < 1:
+        return make_error("Invalid pr_number: must be a positive integer")
     if not title and not body:
         return make_error("Must provide title or body to edit")
+
+    # Validate repo format early (before any API calls)
+    repo_info = parse_owner_repo(repo)
+    if not repo_info:
+        return make_error("Invalid repo format: expected 'owner/repo'")
 
     # Determine auth mode for this repo
     auth_mode = get_auth_mode(repo)
@@ -2456,33 +2509,31 @@ def gh_pr_edit() -> tuple[Response, int] | Response:
         )
 
     # Check Private Repo Mode policy (if enabled)
-    repo_info = parse_owner_repo(repo)
-    if repo_info:
-        priv_result = check_private_repo_access(
-            operation="pr_edit",
-            owner=repo_info.owner,
-            repo=repo_info.repo,
-            for_write=True,
-            session_mode=session_mode,
+    priv_result = check_private_repo_access(
+        operation="pr_edit",
+        owner=repo_info.owner,
+        repo=repo_info.repo,
+        for_write=True,
+        session_mode=session_mode,
+    )
+    if not priv_result.allowed:
+        audit_log(
+            "pr_edit_denied_private_mode",
+            "gh_pr_edit",
+            success=False,
+            details={
+                "repo": repo,
+                "pr_number": pr_number,
+                "reason": priv_result.reason,
+                "visibility": priv_result.visibility,
+                "auth_mode": auth_mode,
+            },
         )
-        if not priv_result.allowed:
-            audit_log(
-                "pr_edit_denied_private_mode",
-                "gh_pr_edit",
-                success=False,
-                details={
-                    "repo": repo,
-                    "pr_number": pr_number,
-                    "reason": priv_result.reason,
-                    "visibility": priv_result.visibility,
-                    "auth_mode": auth_mode,
-                },
-            )
-            return make_error(
-                priv_result.reason,
-                status_code=403,
-                details=priv_result.to_dict(),
-            )
+        return make_error(
+            priv_result.reason,
+            status_code=403,
+            details=priv_result.to_dict(),
+        )
 
     # Check PR ownership (pass auth mode for relaxed policy in user mode)
     policy = get_policy_engine()
@@ -2507,11 +2558,11 @@ def gh_pr_edit() -> tuple[Response, int] | Response:
         )
 
     github = get_github_client(mode=auth_mode)
-    args = ["pr", "edit", str(pr_number), "--repo", repo]
+    args = ["api", f"repos/{repo_info.owner}/{repo_info.repo}/pulls/{pr_number}", "-X", "PATCH"]
     if title:
-        args.extend(["--title", title])
+        args.extend(["-f", f"title={title}"])
     if body:
-        args.extend(["--body", body])
+        args.extend(["-f", f"body={body}"])
 
     result = github.execute(args, timeout=30, mode=auth_mode)
 
@@ -2751,6 +2802,8 @@ def gh_execute() -> tuple[Response, int] | Response:
             )
 
     # For 'gh api' commands, validate the path against allowlist
+    api_path: str | None = None
+    method: str = "GET"
     if args and args[0] == "api" and len(args) > 1:
         # Parse arguments to find the actual API path (skip flags like -X, --method, etc.)
         api_path, method = parse_gh_api_args(args[1:])
@@ -2826,31 +2879,43 @@ def gh_execute() -> tuple[Response, int] | Response:
     if repo:
         repo_info = parse_owner_repo(repo)
         if repo_info:
-            priv_result = check_private_repo_access(
-                operation="gh_execute",
-                owner=repo_info.owner,
-                repo=repo_info.repo,
-                for_write=False,  # Assume read for generic gh execute
-                session_mode=session_mode,
-            )
-            if not priv_result.allowed:
+            # Checkpoint repos are infrastructure — always accessible
+            if _is_checkpoint_repo_for_request(repo_info.owner, repo_info.repo):
                 audit_log(
-                    "gh_execute_denied_private_mode",
+                    "gh_execute_checkpoint_repo_exempt",
                     "gh_execute",
-                    success=False,
+                    success=True,
                     details={
                         "repo": repo,
-                        "command_args": args[:3] if len(args) > 3 else args,
-                        "reason": priv_result.reason,
-                        "visibility": priv_result.visibility,
-                        "auth_mode": auth_mode,
+                        "reason": "Checkpoint repo exempt from private mode policy",
                     },
                 )
-                return make_error(
-                    priv_result.reason,
-                    status_code=403,
-                    details=priv_result.to_dict(),
+            else:
+                priv_result = check_private_repo_access(
+                    operation="gh_execute",
+                    owner=repo_info.owner,
+                    repo=repo_info.repo,
+                    for_write=False,  # Assume read for generic gh execute
+                    session_mode=session_mode,
                 )
+                if not priv_result.allowed:
+                    audit_log(
+                        "gh_execute_denied_private_mode",
+                        "gh_execute",
+                        success=False,
+                        details={
+                            "repo": repo,
+                            "command_args": args[:3] if len(args) > 3 else args,
+                            "reason": priv_result.reason,
+                            "visibility": priv_result.visibility,
+                            "auth_mode": auth_mode,
+                        },
+                    )
+                    return make_error(
+                        priv_result.reason,
+                        status_code=403,
+                        details=priv_result.to_dict(),
+                    )
 
     # Use reviewer token for PR reviews when available. This allows the
     # reviewer bot (a separate GitHub App) to post approve/request-changes
@@ -2878,6 +2943,116 @@ def gh_execute() -> tuple[Response, int] | Response:
                 )
         except ImportError:
             pass
+
+    # For mutating operations on specific resources via gh api, verify ownership
+    if api_path is not None:
+        policy = get_policy_engine()
+
+        # PATCH on comment endpoints — verify bot/configured user owns the comment
+        comment_info = extract_comment_edit_info(api_path, method)
+        if comment_info:
+            c_owner, c_repo_name, c_comment_id, c_comment_type = comment_info
+            ownership_result = policy.check_comment_ownership(
+                f"{c_owner}/{c_repo_name}",
+                c_comment_id,
+                c_comment_type,
+                auth_mode=auth_mode,
+            )
+            if not ownership_result.allowed:
+                audit_log(
+                    "comment_edit_denied",
+                    "gh_execute",
+                    success=False,
+                    details={
+                        "api_path": api_path,
+                        "comment_id": c_comment_id,
+                        "comment_type": c_comment_type,
+                        "reason": ownership_result.reason,
+                    },
+                )
+                return make_error(
+                    ownership_result.reason,
+                    status_code=403,
+                    details=ownership_result.to_dict(),
+                )
+
+        # POST/PATCH on issue labels — verify bot/configured user owns the issue/PR
+        label_info = extract_issue_label_info(api_path, method)
+        if label_info:
+            l_owner, l_repo_name, l_issue_number = label_info
+            ownership_result = policy.check_issue_ownership(
+                f"{l_owner}/{l_repo_name}",
+                l_issue_number,
+                auth_mode=auth_mode,
+            )
+            if not ownership_result.allowed:
+                audit_log(
+                    "label_edit_denied",
+                    "gh_execute",
+                    success=False,
+                    details={
+                        "api_path": api_path,
+                        "issue_number": l_issue_number,
+                        "reason": ownership_result.reason,
+                    },
+                )
+                return make_error(
+                    ownership_result.reason,
+                    status_code=403,
+                    details=ownership_result.to_dict(),
+                )
+
+        # POST on PR requested reviewers — verify bot/configured user owns the PR
+        reviewer_info = extract_pr_reviewer_info(api_path, method)
+        if reviewer_info:
+            r_owner, r_repo_name, r_pr_number = reviewer_info
+            ownership_result = policy.check_pr_ownership(
+                f"{r_owner}/{r_repo_name}",
+                r_pr_number,
+                auth_mode=auth_mode,
+            )
+            if not ownership_result.allowed:
+                audit_log(
+                    "reviewer_edit_denied",
+                    "gh_execute",
+                    success=False,
+                    details={
+                        "api_path": api_path,
+                        "pr_number": r_pr_number,
+                        "reason": ownership_result.reason,
+                    },
+                )
+                return make_error(
+                    ownership_result.reason,
+                    status_code=403,
+                    details=ownership_result.to_dict(),
+                )
+
+        # POST on PR reviews — verify PR exists and review is allowed
+        review_info = extract_pr_review_info(api_path, method)
+        if review_info:
+            rv_owner, rv_repo_name, rv_pr_number = review_info
+            review_result = policy.check_pr_review_allowed(
+                f"{rv_owner}/{rv_repo_name}",
+                rv_pr_number,
+                auth_mode=auth_mode,
+            )
+            if not review_result.allowed:
+                audit_log(
+                    "review_create_denied",
+                    "gh_execute",
+                    success=False,
+                    details={
+                        "api_path": api_path,
+                        "pr_number": rv_pr_number,
+                        "reason": review_result.reason,
+                    },
+                )
+                return make_error(
+                    review_result.reason,
+                    status_code=403,
+                    details=review_result.to_dict(),
+                )
 
     # Execute the command
     github = get_github_client(mode=auth_mode)
@@ -3199,6 +3374,34 @@ def worktree_list() -> tuple[Response, int] | Response:
 # =============================================================================
 
 
+def _branch_exists_on_remote(manager: "WorktreeManager", repo_name: str, branch: str) -> bool:
+    """Check if a branch exists on the remote (origin) for a repository.
+
+    Args:
+        manager: WorktreeManager instance (provides repos_base path)
+        repo_name: Name of the repository
+        branch: Branch name without origin/ prefix (e.g., "egg/issue-42/work")
+
+    Returns:
+        True if origin/{branch} exists, False otherwise.
+    """
+    main_repo = manager.repos_base / repo_name
+    if not main_repo.exists():
+        return False
+    # Uses local tracking refs (origin/*) rather than querying the remote.
+    # This is reliable here because the gateway handles push/fetch operations
+    # which keep tracking refs up to date.  If stale refs ever become an
+    # issue, switch to `git ls-remote --exit-code origin {branch}`.
+    result = subprocess.run(
+        git_cmd("rev-parse", "--verify", f"origin/{branch}"),
+        cwd=main_repo,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return result.returncode == 0
+
+
 @app.route("/api/v1/sessions/create", methods=["POST"])
 @require_launcher_auth
 def session_create() -> tuple[Response, int] | Response:
@@ -3220,6 +3423,7 @@ def session_create() -> tuple[Response, int] | Response:
             "container_ip": "172.18.0.3",
             "mode": "private"|"public",
             "repos": ["owner/repo1", "owner/repo2"],
+            "local_only_repos": ["repo-name"],  // optional; no GitHub remote
             "uid": 1000,
             "gid": 1000
         }
@@ -3244,6 +3448,7 @@ def session_create() -> tuple[Response, int] | Response:
     container_ip = data.get("container_ip")
     mode = data.get("mode")
     repos = data.get("repos", [])
+    local_only_repos = data.get("local_only_repos", [])
     uid = data.get("uid")
     gid = data.get("gid")
     phase = data.get("phase")  # Optional SDLC pipeline phase
@@ -3262,7 +3467,9 @@ def session_create() -> tuple[Response, int] | Response:
         return make_error("Missing container_ip")
     if mode not in ("private", "public", "local"):
         return make_error("Invalid mode: must be 'private', 'public', or 'local'")
-    if not repos:
+    # repos is required for private/public modes unless local_only_repos are provided.
+    # local mode (orchestrator-internal temp sessions) needs no repos at all.
+    if not repos and not local_only_repos and mode != "local":
         return make_error("Missing repos list")
 
     # Validate uid/gid if provided
@@ -3319,6 +3526,20 @@ def session_create() -> tuple[Response, int] | Response:
         if len(branch) > 256:
             return make_error("Invalid branch: must be 256 characters or fewer")
 
+    # Validate local_only_repos if provided
+    if local_only_repos:
+        if not isinstance(local_only_repos, list):
+            return make_error("Invalid local_only_repos: must be a list")
+        if len(local_only_repos) > 50:
+            return make_error("Invalid local_only_repos: too many entries")
+        for repo_name in local_only_repos:
+            if not isinstance(repo_name, str):
+                return make_error("Invalid local_only_repos: all items must be strings")
+            if not repo_name or len(repo_name) > 256:
+                return make_error("Invalid local_only_repos: repo name must be 1-256 chars")
+            if ".." in repo_name or "/" in repo_name:
+                return make_error(f"Invalid local_only_repos: unsafe repo name '{repo_name}'")
+
     # Step 1: Query visibility for all repos
     repo_visibilities = {}
     for repo in repos:
@@ -3335,49 +3556,85 @@ def session_create() -> tuple[Response, int] | Response:
             )
 
     # Step 2: Filter repos based on mode
-    # private mode: keep private and internal repos
-    # public mode: keep only public repos
+    # private mode: include repos with known visibility (private, internal, public).
+    #   Write access is controlled separately by push policy (only private/internal
+    #   repos are writable). The network is locked down — mounting a public repo
+    #   in private mode doesn't grant broader internet access.
+    #   Repos with unknown visibility (None) are excluded (fail-closed).
+    # public mode: keep only public repos (don't mount private repos on open network)
     filtered_repos = []
     for repo, visibility in repo_visibilities.items():
-        if visibility is None:
-            # Unknown visibility - fail closed, don't include
-            logger.warning(
-                "Unknown visibility for repo, excluding",
-                repo=repo,
-                mode=mode,
-                container_id=container_id,
-            )
-            continue
-
         if mode == "private":
-            # Private mode: include private and internal repos only
-            if visibility in ("private", "internal"):
-                filtered_repos.append(repo)
-            else:
-                logger.debug(
-                    "Excluding public repo in private mode",
+            # Private mode: include repos with known visibility — network is
+            # locked down anyway so mounting a public repo is safe.
+            # Push policy enforces write restrictions to private/internal repos.
+            if visibility is None:
+                # Unknown visibility — repo may not exist or API unreachable.
+                # Fail closed: don't attempt to mount a repo we can't verify.
+                logger.warning(
+                    "Unknown visibility for repo, excluding in private mode",
+                    repo=repo,
+                    container_id=container_id,
+                )
+                continue
+            elif visibility not in ("private", "internal"):
+                logger.info(
+                    "Including public repo in private mode (network locked down)",
                     repo=repo,
                     visibility=visibility,
                     container_id=container_id,
                 )
-        # Public mode: include only public repos
-        elif visibility == "public":
             filtered_repos.append(repo)
         else:
-            logger.debug(
-                "Excluding non-public repo in public mode",
-                repo=repo,
-                visibility=visibility,
+            # Public mode: only mount public repos
+            if visibility is None:
+                # Unknown visibility — can't confirm public, exclude
+                logger.warning(
+                    "Unknown visibility for repo, excluding in public mode",
+                    repo=repo,
+                    container_id=container_id,
+                )
+            elif visibility == "public":
+                filtered_repos.append(repo)
+            else:
+                logger.debug(
+                    "Excluding non-public repo in public mode",
+                    repo=repo,
+                    visibility=visibility,
+                    container_id=container_id,
+                )
+
+    # Step 2b: Include local-only repos in private mode.
+    # These repos have no GitHub remote so GitHub visibility cannot be checked.
+    # They are always treated as private: included in private mode, excluded in public mode.
+    if local_only_repos and mode == "private":
+        for repo_name in local_only_repos:
+            filtered_repos.append(repo_name)
+            logger.info(
+                "Including local-only repo in private mode",
+                repo=repo_name,
                 container_id=container_id,
             )
+    elif local_only_repos and mode != "private":
+        logger.debug(
+            "Excluding local-only repos in public/local mode",
+            repos=local_only_repos,
+            mode=mode,
+            container_id=container_id,
+        )
 
     # Step 3: Create worktrees for filtered repos
-    manager = get_worktree_manager()
     worktrees = {}
     worktree_errors = []
     first_worktree_path: str | None = None  # Gateway-side path for checkpoint context
     first_repo: str | None = None  # First filtered repo in "owner/repo" format
     worktree_branch: str | None = None  # Worktree branch name for branch lock
+
+    # Only initialise the worktree manager when there are repos to process.
+    # Local-mode sessions (no repos) skip worktree creation entirely, so
+    # avoid hitting the filesystem for the worktree base directory.
+    if filtered_repos:
+        manager = get_worktree_manager()
 
     for repo in filtered_repos:
         # Extract repo name from owner/repo format
@@ -3387,12 +3644,23 @@ def session_create() -> tuple[Response, int] | Response:
             repo_name = repo
 
         try:
-            # For pipeline sessions, use the remote default branch (e.g., origin/main)
-            # instead of HEAD.  HEAD may point to a feature branch in the main repo,
-            # which would pollute the worktree with commits outside the current phase's
+            # For pipeline sessions, prefer the pipeline's existing worktree
+            # branch (which contains artifacts from prior agents) over a fresh
+            # branch from origin/main.  This ensures HITL exec sessions can
+            # see drafts, contracts, and reviews committed by pipeline agents.
+            # See #1016.
+            #
+            # For fresh pipelines (no prior worktree branch), fall back to the
+            # remote default branch (e.g., origin/main) instead of HEAD.  HEAD
+            # may point to a feature branch in the main repo, which would
+            # pollute the worktree with commits outside the current phase's
             # allowed scope and cause push rejections.  See #860.
             if pipeline_id:
-                worktree_base_branch = manager.resolve_default_branch(repo_name)
+                pipeline_work_branch = f"egg/{pipeline_id}/work"
+                if _branch_exists_on_remote(manager, repo_name, pipeline_work_branch):
+                    worktree_base_branch = f"origin/{pipeline_work_branch}"
+                else:
+                    worktree_base_branch = manager.resolve_default_branch(repo_name)
             else:
                 worktree_base_branch = "HEAD"
 
@@ -3448,6 +3716,11 @@ def session_create() -> tuple[Response, int] | Response:
     if first_worktree_path is not None:
         _session.last_repo_path = first_worktree_path
     if first_repo is not None:
+        # Note: for local-only repos, first_repo is a bare name (e.g. "my-repo")
+        # rather than "owner/repo" format. get_checkpoint_repo() won't match it
+        # in repo_settings, so checkpoint_repo will be None. This is acceptable:
+        # local-only repos have no GitHub remote and aren't expected to produce
+        # checkpoints.
         _session.checkpoint_repo = get_checkpoint_repo(first_repo)
 
     # Lock pipeline sessions to their assigned worktree branch

@@ -225,6 +225,16 @@ If you see this with a hint about `--checkpoint-repo` or `EGG_CHECKPOINT_REPO`:
 2. **Missing `repositories.yaml`**: Auto-detection relies on a config file that may not exist in the sandbox. Set the env var instead.
 3. **No metadata on checkpoint**: Non-pipeline (ad-hoc) sessions may not have issue, PR, or pipeline metadata. Try listing without filters or search by transcript content.
 
+### Private mode access
+
+In private mode, the gateway must recognise the checkpoint repo as infrastructure to allow access. The checkpoint repo is identified via:
+
+1. `EGG_CHECKPOINT_REPO` environment variable (set on the gateway or sandbox)
+2. `checkpoint_repo` in `repositories.yaml` repo settings
+3. The session's checkpoint repo (set during session creation)
+
+If the gateway blocks access with "Cannot determine visibility", ensure `EGG_CHECKPOINT_REPO` is set to the checkpoint repo in `owner/repo` format.
+
 ### Finding unlabeled checkpoints
 
 Checkpoints from ad-hoc sessions (not part of a pipeline) won't match `--issue` or `--pipeline` filters. Use:

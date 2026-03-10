@@ -926,7 +926,9 @@ def _get_code_review_criteria(repo_path: str | None = None) -> str:
         "- Logic errors, off-by-one, boundary conditions\n"
         "- Race conditions, deadlocks, concurrency bugs\n"
         "- Null/undefined handling, missing error paths\n"
-        "- Resource leaks (connections, file handles, memory)\n\n"
+        "- Resource leaks (connections, file handles, memory)\n"
+        "- End-to-end feature functionality: verify new features work in their "
+        "real execution environment\n\n"
         "### Robustness\n"
         "- Missing input validation at trust boundaries\n"
         "- Unhandled exceptions that could crash the system\n"
@@ -935,7 +937,35 @@ def _get_code_review_criteria(repo_path: str | None = None) -> str:
         "### Design\n"
         "- Violations of existing codebase patterns\n"
         "- Breaking changes to public interfaces\n"
-        "- Tight coupling that will hinder future changes\n"
+        "- Tight coupling that will hinder future changes\n\n"
+        "### Severity Classification\n\n"
+        "**Blocking** (request changes):\n"
+        "- Security vulnerabilities\n"
+        "- Non-functional features — the feature's core purpose does not work "
+        "end-to-end\n"
+        "- Logic errors that produce incorrect results\n"
+        "- Breaking changes to existing functionality\n"
+        "- Resource leaks or crashes\n"
+        "- Pre-existing broken or inconsistent behavior in code the PR "
+        "modifies\n\n"
+        "**Non-blocking** (suggestions):\n"
+        "- Code quality improvements (naming, structure, duplication)\n"
+        "- Defense-in-depth additions\n"
+        "- Missing edge case handling that doesn't affect the core feature\n"
+        "- Documentation gaps\n"
+        "- Style or convention deviations not caught by linters\n\n"
+        "**Do not dismiss issues as 'not a regression'**: If a PR modifies "
+        "code that has existing broken or inconsistent behavior, the issue is "
+        "blocking even if the PR didn't introduce it. A PR that adds a new "
+        "code path through already-inconsistent logic makes the inconsistency "
+        "worse.\n\n"
+        "**Beware of false analogies**: When comparing new code to existing "
+        "patterns, verify the analogy holds at the execution-model level. "
+        "Two features may look structurally similar in config but have "
+        "completely different execution paths. If the existing pattern works "
+        "via mechanism A but the new code relies on mechanism B that doesn't "
+        "exist, the comparison is invalid — classify based on actual "
+        "functionality, not superficial similarity.\n"
     )
 
 
@@ -1590,11 +1620,16 @@ def _build_review_prompt(
         lines.append(
             "4. Trace data flow from input to output, especially for security-sensitive paths"
         )
-        lines.append("5. Research when uncertain — look up library behavior, check documentation")
-        lines.append("6. Consider edge cases the author may not have tested")
-        lines.append("7. Evaluate against the criteria below")
-        lines.append(f"8. Write your verdict to `{verdict_path}` as JSON")
-        lines.append("9. Commit the verdict file")
+        lines.append(
+            "5. Verify end-to-end functionality — for new features, trace the complete "
+            "execution path in the real deployment environment. Check that config files, "
+            "environment variables, and dependencies are actually available where the code runs"
+        )
+        lines.append("6. Research when uncertain — look up library behavior, check documentation")
+        lines.append("7. Consider edge cases the author may not have tested")
+        lines.append("8. Evaluate against the criteria below")
+        lines.append(f"9. Write your verdict to `{verdict_path}` as JSON")
+        lines.append("10. Commit the verdict file")
     elif draft_path:
         # Expanded procedural steps for draft-based (non-code) reviewers
         lines.append("2. Read the draft thoroughly — do not skim")
@@ -1648,6 +1683,37 @@ def _build_review_prompt(
         "the risk, or the principle being violated."
     )
     lines.append("")
+
+    # Verdict classification — only for code reviewers (aligned with review-conventions.md)
+    # Non-code reviewers get appropriate guidance from their type-specific criteria
+    # (e.g., _get_plan_review_criteria() already says "flag as needs_revision")
+    if reviewer_type == "code":
+        lines.append("### When to Use `needs_revision` vs `approved`\n")
+        lines.append(
+            "**Use `needs_revision` for**: Security vulnerabilities, logic errors, correctness "
+            "issues, non-functional features (core purpose doesn't work end-to-end), missing "
+            "error handling, resource leaks, breaking changes, violations of codebase patterns. "
+            "When in doubt, use `needs_revision`."
+        )
+        lines.append(
+            "**Use `approved` for**: No blocking issues found after thorough review. "
+            "Non-blocking suggestions belong in the `suggestions` field."
+        )
+        lines.append("")
+        lines.append(
+            "**Key distinction**: A feature that doesn't work is a correctness issue, not a "
+            "style issue. If the feature's core functionality is broken — not just degraded or "
+            "missing edge cases — always use `needs_revision`, even if the code structure looks "
+            "reasonable or matches an existing pattern."
+        )
+        lines.append(
+            "**Pre-existing issues are still blocking**: If the code being reviewed modifies "
+            "areas with existing broken or inconsistent behavior, use `needs_revision` — do not "
+            'dismiss it as "not a regression." The code is already being changed in that area, '
+            "making it the natural place to fix the issue. Code that adds new paths through "
+            "already-broken logic makes the problem worse."
+        )
+        lines.append("")
 
     # Delta review directive for re-reviews
     if is_delta_review:
@@ -3360,6 +3426,7 @@ def _run_tier3_implement(
     if phase_waves is not None:
         pipeline.plan_phase_waves = [list(wave.phase_ids) for wave in phase_waves]
         pipeline.plan_phase_names = {p.id: p.name for p in contract.phases}
+        store.save_pipeline(pipeline)
 
     all_logs: list[str] = []
     logs_lock = threading.Lock()
@@ -4425,6 +4492,49 @@ _APPROVE_KEYWORDS = {"approved", "approve", "lgtm", "yes", ""}
 _BARE_OPTION_LABELS = {"request changes", "request_changes"}
 
 
+def _parse_resolution(resolution: str | None) -> tuple[bool, str | None]:
+    """Parse a HITL phase_gate resolution into (is_approved, feedback).
+
+    Handles both JSON-structured resolutions and legacy bare-string formats.
+    Used by the AWAITING_HUMAN recovery path in start_pipeline.
+
+    Returns:
+        (is_approved, feedback): is_approved is True for approve/select/submit_feedback
+        actions, False for request_changes/change_approach. feedback contains the
+        revision feedback text (if any) for non-approved resolutions.
+    """
+    if not resolution:
+        return True, None
+
+    resolution = resolution.strip()
+
+    # JSON-first: try structured payload
+    try:
+        payload = json.loads(resolution)
+        if isinstance(payload, dict) and "action" in payload:
+            action = payload["action"]
+            feedback_text = payload.get("feedback", "") or None
+
+            if action in ("approve", "select", "submit_feedback"):
+                return True, None
+            elif action in ("request_changes", "change_approach"):
+                return False, feedback_text
+            # Unknown action — fall through to legacy matching
+    except (json.JSONDecodeError, TypeError, AttributeError):
+        pass
+
+    # Legacy bare-string resolution
+    if resolution.lower() in _APPROVE_KEYWORDS:
+        return True, None
+    elif resolution.lower() in _BARE_OPTION_LABELS:
+        return False, None
+    elif resolution:
+        # Free-text feedback — treat as request_changes
+        return False, resolution
+
+    return True, None
+
+
 def _build_checker_prompt(
     pipeline_id: str,
     pipeline_mode: str,
@@ -5352,6 +5462,23 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
 
         hitl_revision_feedback: str | None = None
 
+        # Check for feedback preserved by the recovery path in start_pipeline.
+        # When AWAITING_HUMAN recovery handles request_changes, it stores the
+        # reviewer's feedback in phase_execution.hitl_feedback so the freshly
+        # launched _run_pipeline thread can pass it to the re-running agent.
+        try:
+            with get_pipeline_state_lock(pipeline_id):
+                _recovery_pipeline = store.load_pipeline(pipeline_id)
+                _recovery_phase = _recovery_pipeline.get_phase_execution(
+                    _recovery_pipeline.current_phase
+                )
+                if _recovery_phase.hitl_feedback:
+                    hitl_revision_feedback = _recovery_phase.hitl_feedback
+                    _recovery_phase.hitl_feedback = None
+                    store.save_pipeline(_recovery_pipeline)
+        except Exception:
+            pass  # Non-fatal — feedback is best-effort
+
         while True:
             try:
                 pipeline = store.load_pipeline(pipeline_id)
@@ -6217,6 +6344,21 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                 phase_label = (
                     "analysis" if current_phase.value == "analyze" else current_phase.value
                 )
+
+                # Warn if draft is missing — the agent may not have written
+                # it to the expected path.  See #1016.
+                if draft_content is None:
+                    logger.warning(
+                        "HITL gate: draft not found on work branch",
+                        pipeline_id=pipeline_id,
+                        phase=current_phase.value,
+                        worktree_path=str(worktree_repo_path),
+                    )
+                    draft_content = (
+                        f"**Warning**: No {phase_label} draft was found on the "
+                        f"work branch. The agent may not have written the output "
+                        f"to the expected path."
+                    )
                 question = (
                     f"The {current_phase.value} phase has completed. "
                     f"Please review the {phase_label} and approve to continue, "
@@ -6226,7 +6368,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                 dq = get_decision_queue(pipeline_id, repo_path)
                 decision = dq.queue_decision(
                     question=question,
-                    context=draft_content or "",
+                    context=draft_content,
                     options=["approve", "request changes"],
                     decision_type="phase_gate",
                     phase=current_phase,
@@ -6332,7 +6474,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                             f"Please describe what changes you'd like to see in the {phase_label}, "
                             f"or approve to continue."
                         ),
-                        context=draft_content or "",
+                        context=draft_content,
                         options=["approve"],
                         decision_type="phase_gate",
                         phase=current_phase,
@@ -6545,14 +6687,45 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                 pass
 
             if not skip_cleanup:
-                _spawner.gateway.delete_worktrees(
-                    container_id=pipeline_id,
-                    force=True,
-                )
-                logger.info("Pipeline worktrees cleaned up", pipeline_id=pipeline_id)
+                try:
+                    _spawner.gateway.delete_worktrees(
+                        container_id=pipeline_id,
+                        force=True,
+                    )
+                    logger.info("Pipeline worktrees cleaned up", pipeline_id=pipeline_id)
+                except Exception as pipeline_wt_err:
+                    logger.warning(
+                        "Failed to clean up pipeline worktrees",
+                        pipeline_id=pipeline_id,
+                        error=str(pipeline_wt_err),
+                    )
+
+                # Also clean up per-agent session worktrees.  Each agent
+                # registers a gateway session under container_id
+                # "egg-{pipeline_id}-{role}" and session_create creates a
+                # worktree keyed to that name.  The per-agent cleanup path
+                # calls delete_session_by_container with the Docker container
+                # hash (not the session container_id), so those worktrees are
+                # never removed via the normal per-container cleanup.  Sweep
+                # them here as a safety net.  delete_worktrees is a no-op for
+                # container IDs that have no worktree directory.
+                for role in AgentRole:
+                    agent_container_id = f"egg-{pipeline_id}-{role.value}"
+                    try:
+                        _spawner.gateway.delete_worktrees(
+                            container_id=agent_container_id,
+                            force=True,
+                        )
+                    except Exception as agent_wt_err:
+                        logger.warning(
+                            "Failed to clean up agent worktrees",
+                            pipeline_id=pipeline_id,
+                            agent_container_id=agent_container_id,
+                            error=str(agent_wt_err),
+                        )
         except Exception as wt_err:
             logger.warning(
-                "Failed to clean up pipeline worktrees",
+                "Failed to clean up worktrees",
                 pipeline_id=pipeline_id,
                 error=str(wt_err),
             )
@@ -6593,9 +6766,143 @@ def start_pipeline(pipeline_id: str) -> tuple[Response, int]:
             )
 
         if pipeline.status == PipelineStatus.AWAITING_HUMAN:
-            return make_error_response(
-                f"Pipeline {pipeline_id} is awaiting human approval",
-                status_code=409,
+            # No pending decisions — the polling thread died (e.g. restart)
+            # but the human already resolved everything.  Recover based on
+            # the latest phase_gate decision's resolution.
+            from routes.phases import get_phase_transitions
+
+            with get_pipeline_state_lock(pipeline_id):
+                pipeline = store.load_pipeline(pipeline_id)
+
+                # Re-validate status after acquiring the lock — another
+                # concurrent start_pipeline call may have already recovered
+                # this pipeline.
+                if pipeline.status != PipelineStatus.AWAITING_HUMAN:
+                    return make_error_response(
+                        f"Pipeline {pipeline_id} status changed to "
+                        f"{pipeline.status.value} (concurrent recovery)",
+                        status_code=409,
+                    )
+
+                pending = pipeline.get_pending_decisions()
+                if len(pending) > 0:
+                    return make_error_response(
+                        f"Pipeline {pipeline_id} is awaiting human approval "
+                        f"({len(pending)} pending decision(s))",
+                        status_code=409,
+                    )
+
+                # Find the latest resolved phase_gate decision
+                phase_gate_decisions = [
+                    d
+                    for d in reversed(pipeline.decisions)
+                    if d.decision_type == "phase_gate" and d.status.value == "resolved"
+                ]
+                latest_resolution = (
+                    phase_gate_decisions[0].resolution if phase_gate_decisions else None
+                )
+
+                # Determine if approved or request_changes using the shared
+                # parser (handles approve, select, submit_feedback,
+                # request_changes, change_approach, and legacy bare strings).
+                is_approved, revision_feedback = _parse_resolution(latest_resolution)
+
+                if is_approved:
+                    # Mark current phase COMPLETE and advance
+                    phase_execution = pipeline.get_phase_execution(pipeline.current_phase)
+                    phase_execution.status = PipelineStatus.COMPLETE
+                    if phase_execution.completed_at is None:
+                        phase_execution.completed_at = datetime.utcnow()
+
+                    pipeline_mode = getattr(pipeline, "mode", "issue")
+                    transitions = get_phase_transitions(pipeline_mode)
+                    current_phase = pipeline.current_phase
+                    next_phases = transitions.get(current_phase, [])
+
+                    # Handle short-circuit: refine → implement (skip plan)
+                    if pipeline.short_circuit and current_phase.value == "refine":
+                        next_phases = [PipelinePhase.IMPLEMENT]
+
+                    if not next_phases:
+                        # Terminal phase — pipeline complete.
+                        # Bump created_at so any lingering old _run_pipeline
+                        # thread (e.g. stuck in its finally block) detects the
+                        # recreation and exits without double-cleaning up.
+                        pipeline.status = PipelineStatus.COMPLETE
+                        pipeline.created_at = datetime.utcnow()
+                        store.save_pipeline(pipeline)
+                        return make_success_response(
+                            "Pipeline recovered and completed",
+                            data={
+                                "pipeline_id": pipeline_id,
+                                "status": "complete",
+                                "current_phase": pipeline.current_phase.value,
+                            },
+                        )
+
+                    # Advance to next phase
+                    next_phase = next_phases[0]
+                    pipeline.current_phase = next_phase
+
+                    # Mark plan phase as skipped if short-circuit
+                    if pipeline.short_circuit and current_phase.value == "refine":
+                        plan_execution = pipeline.get_phase_execution(PipelinePhase.PLAN)
+                        plan_execution.status = PipelineStatus.COMPLETE
+                        plan_execution.completed_at = datetime.utcnow()
+                        plan_execution.error = "skipped: short-circuit"
+
+                else:
+                    # request_changes/change_approach — reset phase for re-run
+                    phase_execution = pipeline.get_phase_execution(pipeline.current_phase)
+                    if phase_execution.status in (
+                        PipelineStatus.COMPLETE,
+                        PipelineStatus.FAILED,
+                        PipelineStatus.RUNNING,
+                        PipelineStatus.AWAITING_HUMAN,
+                    ):
+                        phase_execution.status = PipelineStatus.PENDING
+                        phase_execution.started_at = None
+                        phase_execution.work_started_at = None
+                        phase_execution.completed_at = None
+                        phase_execution.error = None
+                        phase_execution.review_cycles = 0
+                        phase_execution.hitl_review_cycles = 0
+                        phase_execution.containers = []
+                        phase_execution.agents = []
+                        phase_execution.artifacts = {}
+
+                    # Preserve the reviewer's feedback so the re-launched
+                    # _run_pipeline thread can pass it to the agent.
+                    if revision_feedback:
+                        phase_execution.hitl_feedback = revision_feedback
+
+                pipeline.error = None
+                pipeline.created_at = datetime.utcnow()
+                pipeline.status = PipelineStatus.RUNNING
+                store.save_pipeline(pipeline)
+
+            # Launch runner thread
+            thread = threading.Thread(
+                target=_run_pipeline,
+                args=(pipeline_id, repo_path),
+                daemon=True,
+                name=f"pipeline-{pipeline_id}",
+            )
+            thread.start()
+
+            logger.info(
+                "Pipeline recovered from AWAITING_HUMAN",
+                pipeline_id=pipeline_id,
+                recovery_action="advance" if is_approved else "rerun",
+            )
+
+            return make_success_response(
+                "Pipeline recovered and started",
+                data={
+                    "pipeline_id": pipeline_id,
+                    "status": "running",
+                    "current_phase": pipeline.current_phase.value,
+                },
             )
 
         if pipeline.status == PipelineStatus.COMPLETE:

@@ -54,6 +54,7 @@ fetch_review_rules() {
 - Null/undefined handling, missing error paths
 - Resource leaks (connections, file handles, memory)
 - Incorrect algorithm complexity for data size
+- End-to-end feature functionality: verify new features work in their real execution environment
 
 **Robustness**:
 - Missing input validation at trust boundaries
@@ -73,8 +74,30 @@ fetch_review_rules() {
 1. **Examine every changed file systematically**. Do not skim.
 2. **Read surrounding context**—check how changed code integrates with the rest of the codebase. Use file reads and grep liberally.
 3. **Trace data flow** from input to output, especially for security-sensitive paths.
-4. **Consider edge cases** the author may not have tested.
-5. **Research when uncertain**—look up library behavior, check documentation, verify assumptions.
+4. **Verify end-to-end functionality**: For new features, trace the complete execution path in the real deployment environment. Check that config files, environment variables, and dependencies are actually available where the code runs. A feature that reads config from a path that doesn't exist in its runtime environment is non-functional, not just suboptimal.
+5. **Consider edge cases** the author may not have tested.
+6. **Research when uncertain**—look up library behavior, check documentation, verify assumptions.
+
+### Severity Classification
+
+**Blocking** (request changes):
+- Security vulnerabilities
+- Non-functional features — the feature's core purpose does not work end-to-end
+- Logic errors that produce incorrect results
+- Breaking changes to existing functionality
+- Resource leaks or crashes
+- Pre-existing broken or inconsistent behavior in code the PR modifies
+
+**Non-blocking** (suggestions):
+- Code quality improvements (naming, structure, duplication)
+- Defense-in-depth additions
+- Missing edge case handling that doesn't affect the core feature
+- Documentation gaps
+- Style or convention deviations not caught by linters
+
+**Do not dismiss issues as "not a regression"**: If a PR modifies code that has existing broken or inconsistent behavior, the issue is blocking even if the PR didn't introduce it. A PR that adds a new code path through already-inconsistent logic makes the inconsistency worse.
+
+**Beware of false analogies**: When comparing new code to existing patterns, verify the analogy holds at the execution-model level. Two features may look structurally similar in config but have completely different execution paths. If the existing pattern works via mechanism A but the new code relies on mechanism B that doesn't exist, the comparison is invalid — classify based on actual functionality, not superficial similarity.
 
 ### Skip
 
