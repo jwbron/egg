@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Gateway now allows `git cat-file` with flags `-p`, `-t`, `-s`, `-e`, `--batch`, `--batch-check` via the `git execute` endpoint.
+- Gateway now allows `git fetch --unshallow` and `git fetch --deepen=<depth>` for shallow clone operations.
 - Gateway now allows `git merge -X` / `--strategy-option` with safe conflict resolution values: `ours`, `theirs`, `patience`, `ignore-space-change`, `ignore-all-space`, `ignore-space-at-eol`. Values are validated against an allowlist — unknown values are rejected.
 - Type-aware HITL rendering in local mode: `decision_type` field (`phase_gate`, `choice`, `feedback`) on `HITLDecision` drives context-specific terminal UIs. Phase gates show draft previews with edit/approve/request-changes. Choices render numbered options. Feedback prompts per-question with review-before-submit. Universal options (general feedback, change approach, cancel) available on all types. JSON resolution payloads replace bare strings for structured intent parsing, with backward-compatible legacy keyword matching.
 - Gateway sidecar with policy enforcement (branch ownership, merge blocking, push policies)
@@ -32,4 +34,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `.egg-state` files now use per-pipeline namespacing to prevent merge conflicts. Agent output files use `{identifier}-{role}-output.json` (e.g., `871-coder-output.json`) instead of `{role}-output.json`. Check results use `{identifier}-implement-results.json`. Backward compatibility maintained via fallback to old paths when namespaced files don't exist.
 
 ### Fixed
-- N/A
+- `gh pr edit` endpoint now validates `pr_number` as a positive integer (rejects strings, booleans, and negative values) and validates `repo` as `owner/repo` format before making API calls. Internally migrated from `gh pr edit` CLI to `gh api` REST call to avoid CLI parsing issues.
