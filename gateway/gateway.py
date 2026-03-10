@@ -197,6 +197,35 @@ from repo_config import get_auth_mode, get_checkpoint_repo, is_checkpoint_repo
 
 logger = get_logger("gateway")
 
+
+def _is_checkpoint_repo_for_request(owner: str, repo: str) -> bool:
+    """Check if a repository is a checkpoint repo, using all available signals.
+
+    Extends ``is_checkpoint_repo()`` (config-based) with session-level
+    context.  The session's ``checkpoint_repo`` field is set during session
+    creation and on git push, so it captures repos that may not appear in
+    ``repositories.yaml`` (e.g. when the config file is absent in sandboxes
+    but the orchestrator passed ``EGG_CHECKPOINT_REPO``).
+
+    Args:
+        owner: Repository owner (e.g. "jwbron")
+        repo: Repository name (e.g. "checkpoints")
+
+    Returns:
+        True if the repo is a known checkpoint destination.
+    """
+    if is_checkpoint_repo(owner, repo):
+        return True
+    try:
+        session = getattr(g, "session", None)
+        if session and session.checkpoint_repo:
+            return bool(f"{owner}/{repo}".lower() == session.checkpoint_repo.lower())
+    except RuntimeError:
+        # Outside Flask request context — fall through
+        pass
+    return False
+
+
 app = Flask(__name__)
 
 # Register contract API blueprint
@@ -585,7 +614,8 @@ def git_push() -> tuple[Response, int] | Response:
         # Infrastructure operations — always accessible regardless of
         # session mode. This covers dedicated checkpoint repos and
         # infrastructure branch pushes (checkpoints, pipeline state).
-        if is_infrastructure_push or is_checkpoint_repo(repo_info.owner, repo_info.repo):
+        is_ckpt_repo = _is_checkpoint_repo_for_request(repo_info.owner, repo_info.repo)
+        if is_infrastructure_push or is_ckpt_repo:
             audit_log(
                 "push_infrastructure_exempt",
                 "git_push",
@@ -594,9 +624,7 @@ def git_push() -> tuple[Response, int] | Response:
                     "repo": repo,
                     "branch": branch,
                     "reason": "Infrastructure operation exempt from private mode policy",
-                    "exempt_type": "checkpoint_repo"
-                    if is_checkpoint_repo(repo_info.owner, repo_info.repo)
-                    else "infrastructure_branch",
+                    "exempt_type": "checkpoint_repo" if is_ckpt_repo else "infrastructure_branch",
                 },
             )
         else:
@@ -1491,7 +1519,7 @@ def git_fetch() -> tuple[Response, int] | Response:
     repo_info = parse_owner_repo(repo)
     if repo_info:
         # Checkpoint repos are infrastructure — always accessible regardless of session mode
-        if is_checkpoint_repo(repo_info.owner, repo_info.repo):
+        if _is_checkpoint_repo_for_request(repo_info.owner, repo_info.repo):
             audit_log(
                 f"{operation}_checkpoint_repo_exempt",
                 f"git_{operation}",
@@ -2846,31 +2874,43 @@ def gh_execute() -> tuple[Response, int] | Response:
     if repo:
         repo_info = parse_owner_repo(repo)
         if repo_info:
-            priv_result = check_private_repo_access(
-                operation="gh_execute",
-                owner=repo_info.owner,
-                repo=repo_info.repo,
-                for_write=False,  # Assume read for generic gh execute
-                session_mode=session_mode,
-            )
-            if not priv_result.allowed:
+            # Checkpoint repos are infrastructure — always accessible
+            if _is_checkpoint_repo_for_request(repo_info.owner, repo_info.repo):
                 audit_log(
-                    "gh_execute_denied_private_mode",
+                    "gh_execute_checkpoint_repo_exempt",
                     "gh_execute",
-                    success=False,
+                    success=True,
                     details={
                         "repo": repo,
-                        "command_args": args[:3] if len(args) > 3 else args,
-                        "reason": priv_result.reason,
-                        "visibility": priv_result.visibility,
-                        "auth_mode": auth_mode,
+                        "reason": "Checkpoint repo exempt from private mode policy",
                     },
                 )
-                return make_error(
-                    priv_result.reason,
-                    status_code=403,
-                    details=priv_result.to_dict(),
+            else:
+                priv_result = check_private_repo_access(
+                    operation="gh_execute",
+                    owner=repo_info.owner,
+                    repo=repo_info.repo,
+                    for_write=False,  # Assume read for generic gh execute
+                    session_mode=session_mode,
                 )
+                if not priv_result.allowed:
+                    audit_log(
+                        "gh_execute_denied_private_mode",
+                        "gh_execute",
+                        success=False,
+                        details={
+                            "repo": repo,
+                            "command_args": args[:3] if len(args) > 3 else args,
+                            "reason": priv_result.reason,
+                            "visibility": priv_result.visibility,
+                            "auth_mode": auth_mode,
+                        },
+                    )
+                    return make_error(
+                        priv_result.reason,
+                        status_code=403,
+                        details=priv_result.to_dict(),
+                    )
 
     # Use reviewer token for PR reviews when available. This allows the
     # reviewer bot (a separate GitHub App) to post approve/request-changes

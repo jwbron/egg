@@ -12,9 +12,10 @@ from config.repo_config import get_all_checkpoint_repos, is_checkpoint_repo
 
 
 @pytest.fixture(autouse=True)
-def clear_checkpoint_cache():
-    """Clear the checkpoint repos cache before each test."""
+def clear_checkpoint_cache(monkeypatch):
+    """Clear the checkpoint repos cache and EGG_CHECKPOINT_REPO before each test."""
     repo_config_module._checkpoint_repos_cache = None
+    monkeypatch.delenv("EGG_CHECKPOINT_REPO", raising=False)
     yield
     repo_config_module._checkpoint_repos_cache = None
 
@@ -139,6 +140,57 @@ class TestGetAllCheckpointRepos:
             '    checkpoint_repo: ""\n'
         )
         monkeypatch.setenv("EGG_REPO_CONFIG", str(config_file))
+
+        result = get_all_checkpoint_repos()
+        assert result == set()
+
+    def test_env_var_checkpoint_repo(self, temp_dir, monkeypatch):
+        """EGG_CHECKPOINT_REPO env var is included in the result set."""
+        monkeypatch.setenv("EGG_REPO_CONFIG", str(temp_dir / "nonexistent.yaml"))
+        monkeypatch.setenv("HOME", str(temp_dir))
+        monkeypatch.setenv("EGG_CHECKPOINT_REPO", "jwbron/checkpoints")
+
+        result = get_all_checkpoint_repos()
+        assert result == {"jwbron/checkpoints"}
+
+    def test_env_var_merged_with_config(self, temp_dir, monkeypatch):
+        """EGG_CHECKPOINT_REPO is merged with config-based checkpoint repos."""
+        config_file = temp_dir / "repositories.yaml"
+        config_file.write_text(
+            "github_username: testuser\n"
+            "repo_settings:\n"
+            "  testuser/my-app:\n"
+            "    checkpoint_repo: testuser/my-checkpoints\n"
+        )
+        monkeypatch.setenv("EGG_REPO_CONFIG", str(config_file))
+        monkeypatch.setenv("EGG_CHECKPOINT_REPO", "jwbron/checkpoints")
+
+        result = get_all_checkpoint_repos()
+        assert result == {"testuser/my-checkpoints", "jwbron/checkpoints"}
+
+    def test_env_var_case_insensitive(self, temp_dir, monkeypatch):
+        """EGG_CHECKPOINT_REPO is lowercased for comparison."""
+        monkeypatch.setenv("EGG_REPO_CONFIG", str(temp_dir / "nonexistent.yaml"))
+        monkeypatch.setenv("HOME", str(temp_dir))
+        monkeypatch.setenv("EGG_CHECKPOINT_REPO", "Jwbron/Checkpoints")
+
+        result = get_all_checkpoint_repos()
+        assert "jwbron/checkpoints" in result
+
+    def test_env_var_empty_ignored(self, temp_dir, monkeypatch):
+        """Empty EGG_CHECKPOINT_REPO is ignored."""
+        monkeypatch.setenv("EGG_REPO_CONFIG", str(temp_dir / "nonexistent.yaml"))
+        monkeypatch.setenv("HOME", str(temp_dir))
+        monkeypatch.setenv("EGG_CHECKPOINT_REPO", "")
+
+        result = get_all_checkpoint_repos()
+        assert result == set()
+
+    def test_env_var_whitespace_only_ignored(self, temp_dir, monkeypatch):
+        """Whitespace-only EGG_CHECKPOINT_REPO is ignored."""
+        monkeypatch.setenv("EGG_REPO_CONFIG", str(temp_dir / "nonexistent.yaml"))
+        monkeypatch.setenv("HOME", str(temp_dir))
+        monkeypatch.setenv("EGG_CHECKPOINT_REPO", "   ")
 
         result = get_all_checkpoint_repos()
         assert result == set()

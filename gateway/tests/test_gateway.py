@@ -4873,6 +4873,7 @@ class TestCheckpointRepoBypass:
         mock_session.container_id = "test-container"
         mock_session.expires_at = None
         mock_session.pipeline_id = None
+        mock_session.checkpoint_repo = None
 
         mock_result = SessionValidationResult(valid=True, session=mock_session)
 
@@ -5192,6 +5193,138 @@ class TestCheckpointRepoBypass:
 
             assert response.status_code == 200
             mock_priv_check.assert_called_once()
+
+    def test_gh_execute_checkpoint_repo_bypasses_private_mode(self, client, session_auth_headers):
+        """gh_execute on a checkpoint repo skips check_private_repo_access entirely."""
+        with (
+            patch.object(gateway, "get_github_client") as mock_gh,
+            patch.object(gateway, "is_checkpoint_repo", return_value=True),
+            patch.object(gateway, "check_private_repo_access") as mock_priv_check,
+        ):
+            mock_result = MagicMock()
+            mock_result.success = True
+            mock_result.stdout = "checkpoint data"
+            mock_result.stderr = ""
+            mock_result.to_dict.return_value = {
+                "success": True,
+                "stdout": "checkpoint data",
+                "stderr": "",
+            }
+            mock_gh.return_value.execute.return_value = mock_result
+
+            response = client.post(
+                "/api/v1/gh/execute",
+                headers=session_auth_headers,
+                data=json.dumps(
+                    {
+                        "args": ["api", "repos/ckpt-owner/ckpt-repo/git/refs"],
+                        "repo": "ckpt-owner/ckpt-repo",
+                    }
+                ),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 200
+            mock_priv_check.assert_not_called()
+
+    def test_gh_execute_non_checkpoint_repo_still_checked(self, client, session_auth_headers):
+        """gh_execute on a non-checkpoint repo still calls check_private_repo_access."""
+        from private_repo_policy import PrivateRepoPolicyResult
+
+        mock_policy_result = PrivateRepoPolicyResult(
+            allowed=True,
+            reason="Public repo allowed",
+            visibility="public",
+        )
+
+        with (
+            patch.object(gateway, "get_github_client") as mock_gh,
+            patch.object(gateway, "is_checkpoint_repo", return_value=False),
+            patch.object(
+                gateway, "check_private_repo_access", return_value=mock_policy_result
+            ) as mock_priv_check,
+        ):
+            mock_result = MagicMock()
+            mock_result.success = True
+            mock_result.stdout = "PR #1"
+            mock_result.stderr = ""
+            mock_result.to_dict.return_value = {
+                "success": True,
+                "stdout": "PR #1",
+                "stderr": "",
+            }
+            mock_gh.return_value.execute.return_value = mock_result
+
+            response = client.post(
+                "/api/v1/gh/execute",
+                headers=session_auth_headers,
+                data=json.dumps(
+                    {
+                        "args": ["pr", "list"],
+                        "repo": "owner/repo",
+                    }
+                ),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 200
+            mock_priv_check.assert_called_once()
+
+    def test_session_fallback_recognises_checkpoint_repo(self, client):
+        """_is_checkpoint_repo_for_request falls back to session.checkpoint_repo.
+
+        When is_checkpoint_repo() (config-based) returns False but the
+        session's checkpoint_repo matches, the request should still be
+        exempted from private mode policy.
+        """
+        import sys
+
+        import auth
+
+        mock_session = MagicMock()
+        mock_session.mode = "public"
+        mock_session.container_id = "test-container"
+        mock_session.expires_at = None
+        mock_session.pipeline_id = None
+        mock_session.checkpoint_repo = "ckpt-owner/ckpt-repo"
+
+        mock_result = SessionValidationResult(valid=True, session=mock_session)
+
+        auth._session_manager = None
+        auth._rate_limiter = None
+        if "gateway.auth" in sys.modules:
+            sys.modules["gateway.auth"]._session_manager = None
+            sys.modules["gateway.auth"]._rate_limiter = None
+
+        current_session_manager = sys.modules.get("session_manager", session_manager)
+
+        with (
+            patch.object(
+                current_session_manager,
+                "validate_session_for_request",
+                return_value=mock_result,
+            ),
+            patch("subprocess.run") as mock_run,
+            patch.object(gateway, "get_token_for_repo", return_value=("token", "bot", "")),
+            patch.object(gateway, "is_checkpoint_repo", return_value=False),
+            patch.object(gateway, "check_private_repo_access") as mock_priv_check,
+        ):
+            mock_run.side_effect = self._mock_subprocess_for_remote("fetch")
+
+            response = client.post(
+                "/api/v1/git/fetch",
+                headers={"Authorization": "Bearer test-session-token"},
+                data=json.dumps(
+                    {
+                        "repo_path": "/home/egg/repos/test",
+                        "remote": "origin",
+                    }
+                ),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 200
+            mock_priv_check.assert_not_called()
 
 
 class TestCommentEditOwnership:
