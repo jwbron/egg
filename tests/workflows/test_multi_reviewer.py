@@ -158,7 +158,7 @@ class TestPhaseBasedReviewerDefaults:
 
     def test_reviewers_have_valid_names(self):
         """Each reviewer should have a valid name."""
-        for phase in ["refine", "plan", "implement"]:
+        for phase in ["analyze", "plan", "implement"]:
             reviewers = get_default_reviewers(phase)
 
             for reviewer in reviewers:

@@ -296,7 +296,7 @@ class TestWatchPipelineDraftPager:
         mock_parse.side_effect = parse_side_effect
 
         client.list_decisions.side_effect = [[decision], [decision2]]
-        mock_resolve.return_value = (".egg-state/drafts/42-analysis.md", "# Analysis", "refine")
+        mock_resolve.return_value = (".egg-state/drafts/42-analysis.md", "# Analysis", "analyze")
         mock_hitl.return_value = "resolved"
 
         result = watch_pipeline(client, "issue-42", pipeline_mode="issue", issue_number=42)

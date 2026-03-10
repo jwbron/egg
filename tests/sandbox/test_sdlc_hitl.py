@@ -3136,7 +3136,7 @@ class TestResolvePhaseDraft:
 
         assert draft_rel == ".egg-state/drafts/42-analysis.md"
         assert draft_content == "# Analysis\nContent"
-        assert phase == "refine"
+        assert phase == "analyze"
 
     @patch("egg_lib.sdlc_hitl._find_repo_path")
     def test_returns_draft_for_plan(self, mock_repo, tmp_path):
@@ -3175,7 +3175,7 @@ class TestResolvePhaseDraft:
 
         assert draft_rel == ".egg-state/drafts/42-analysis.md"
         assert draft_content == "Fallback context content"
-        assert phase == "refine"
+        assert phase == "analyze"
 
     @patch("egg_lib.sdlc_hitl._find_repo_path")
     def test_returns_none_for_implement(self, mock_repo, tmp_path):

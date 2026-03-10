@@ -315,7 +315,7 @@ class TestStartCancelledPipeline:
 
 
 def _make_awaiting_pipeline(
-    phase=PipelinePhase.REFINE,
+    phase=PipelinePhase.ANALYZE,
     pending_decisions=0,
     resolution='{"action": "approve"}',
     decision_type="phase_gate",
@@ -389,7 +389,7 @@ class TestStartAwaitingHumanPipeline:
     ):
         """Approved resolution advances to the next phase and starts runner."""
         pipeline = _make_awaiting_pipeline(
-            phase=PipelinePhase.REFINE,
+            phase=PipelinePhase.ANALYZE,
             resolution='{"action": "approve"}',
         )
         _setup_mocks(mock_get_repo, mock_resolve, pipeline)
@@ -412,7 +412,7 @@ class TestStartAwaitingHumanPipeline:
     ):
         """request_changes resolution resets the phase for re-run."""
         pipeline = _make_awaiting_pipeline(
-            phase=PipelinePhase.REFINE,
+            phase=PipelinePhase.ANALYZE,
             resolution='{"action": "request_changes", "feedback": "Fix tests"}',
         )
         _setup_mocks(mock_get_repo, mock_resolve, pipeline)
@@ -421,13 +421,13 @@ class TestStartAwaitingHumanPipeline:
 
         assert resp.status_code == 200
         # Phase should be reset to PENDING
-        phase_exec = pipeline.get_phase_execution(PipelinePhase.REFINE)
+        phase_exec = pipeline.get_phase_execution(PipelinePhase.ANALYZE)
         assert phase_exec.status == PipelineStatus.PENDING
         assert phase_exec.started_at is None
         assert phase_exec.agents == []
         assert phase_exec.artifacts == {}
         # Pipeline should still be on REFINE (not advanced)
-        assert pipeline.current_phase == PipelinePhase.REFINE
+        assert pipeline.current_phase == PipelinePhase.ANALYZE
         assert pipeline.status == PipelineStatus.RUNNING
 
     @patch("routes.pipelines.get_pipeline_state_lock", side_effect=_noop_lock)
@@ -496,7 +496,7 @@ class TestStartAwaitingHumanPipeline:
     ):
         """Short-circuit pipeline skips plan phase (refine → implement)."""
         pipeline = _make_awaiting_pipeline(
-            phase=PipelinePhase.REFINE,
+            phase=PipelinePhase.ANALYZE,
             resolution='{"action": "approve"}',
             short_circuit=True,
         )
@@ -521,7 +521,7 @@ class TestStartAwaitingHumanPipeline:
     ):
         """change_approach resolution resets the phase for re-run (not approval)."""
         pipeline = _make_awaiting_pipeline(
-            phase=PipelinePhase.REFINE,
+            phase=PipelinePhase.ANALYZE,
             resolution='{"action": "change_approach", "feedback": "Try a different strategy"}',
         )
         _setup_mocks(mock_get_repo, mock_resolve, pipeline)
@@ -530,10 +530,10 @@ class TestStartAwaitingHumanPipeline:
 
         assert resp.status_code == 200
         # Phase should be reset to PENDING (not advanced)
-        phase_exec = pipeline.get_phase_execution(PipelinePhase.REFINE)
+        phase_exec = pipeline.get_phase_execution(PipelinePhase.ANALYZE)
         assert phase_exec.status == PipelineStatus.PENDING
         assert phase_exec.started_at is None
-        assert pipeline.current_phase == PipelinePhase.REFINE
+        assert pipeline.current_phase == PipelinePhase.ANALYZE
         assert pipeline.status == PipelineStatus.RUNNING
         # Feedback should be preserved for the re-running agent
         assert phase_exec.hitl_feedback == "Try a different strategy"
@@ -547,7 +547,7 @@ class TestStartAwaitingHumanPipeline:
     ):
         """Bare-string 'approved' resolution advances the phase."""
         pipeline = _make_awaiting_pipeline(
-            phase=PipelinePhase.REFINE,
+            phase=PipelinePhase.ANALYZE,
             resolution="approved",
         )
         _setup_mocks(mock_get_repo, mock_resolve, pipeline)
@@ -568,7 +568,7 @@ class TestStartAwaitingHumanPipeline:
     ):
         """Bare-string 'request changes' resolution resets the phase."""
         pipeline = _make_awaiting_pipeline(
-            phase=PipelinePhase.REFINE,
+            phase=PipelinePhase.ANALYZE,
             resolution="request changes",
         )
         _setup_mocks(mock_get_repo, mock_resolve, pipeline)
@@ -576,9 +576,9 @@ class TestStartAwaitingHumanPipeline:
         resp = client.post("/api/v1/pipelines/issue-42/start")
 
         assert resp.status_code == 200
-        phase_exec = pipeline.get_phase_execution(PipelinePhase.REFINE)
+        phase_exec = pipeline.get_phase_execution(PipelinePhase.ANALYZE)
         assert phase_exec.status == PipelineStatus.PENDING
-        assert pipeline.current_phase == PipelinePhase.REFINE
+        assert pipeline.current_phase == PipelinePhase.ANALYZE
         assert pipeline.status == PipelineStatus.RUNNING
 
     @patch("routes.pipelines.get_pipeline_state_lock", side_effect=_noop_lock)
@@ -590,7 +590,7 @@ class TestStartAwaitingHumanPipeline:
     ):
         """request_changes feedback is stored in phase_execution.hitl_feedback."""
         pipeline = _make_awaiting_pipeline(
-            phase=PipelinePhase.REFINE,
+            phase=PipelinePhase.ANALYZE,
             resolution='{"action": "request_changes", "feedback": "Fix the tests"}',
         )
         _setup_mocks(mock_get_repo, mock_resolve, pipeline)
@@ -598,5 +598,5 @@ class TestStartAwaitingHumanPipeline:
         resp = client.post("/api/v1/pipelines/issue-42/start")
 
         assert resp.status_code == 200
-        phase_exec = pipeline.get_phase_execution(PipelinePhase.REFINE)
+        phase_exec = pipeline.get_phase_execution(PipelinePhase.ANALYZE)
         assert phase_exec.hitl_feedback == "Fix the tests"

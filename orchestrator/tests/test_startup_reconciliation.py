@@ -332,7 +332,7 @@ def _make_awaiting_human_pipeline(
         branch="egg/issue-77",
         mode="issue",
         status=PipelineStatus.AWAITING_HUMAN,
-        current_phase=PipelinePhase.REFINE,
+        current_phase=PipelinePhase.ANALYZE,
     )
     # Add resolved decisions
     for i in range(resolved_decisions):

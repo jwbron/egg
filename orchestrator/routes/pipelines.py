@@ -6819,8 +6819,8 @@ def start_pipeline(pipeline_id: str) -> tuple[Response, int]:
                     current_phase = pipeline.current_phase
                     next_phases = transitions.get(current_phase, [])
 
-                    # Handle short-circuit: refine → implement (skip plan)
-                    if pipeline.short_circuit and current_phase.value == "refine":
+                    # Handle short-circuit: analyze → implement (skip plan)
+                    if pipeline.short_circuit and current_phase.value == "analyze":
                         next_phases = [PipelinePhase.IMPLEMENT]
 
                     if not next_phases:
@@ -6845,7 +6845,7 @@ def start_pipeline(pipeline_id: str) -> tuple[Response, int]:
                     pipeline.current_phase = next_phase
 
                     # Mark plan phase as skipped if short-circuit
-                    if pipeline.short_circuit and current_phase.value == "refine":
+                    if pipeline.short_circuit and current_phase.value == "analyze":
                         plan_execution = pipeline.get_phase_execution(PipelinePhase.PLAN)
                         plan_execution.status = PipelineStatus.COMPLETE
                         plan_execution.completed_at = datetime.utcnow()
