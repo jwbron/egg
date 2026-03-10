@@ -3374,6 +3374,34 @@ def worktree_list() -> tuple[Response, int] | Response:
 # =============================================================================
 
 
+def _branch_exists_on_remote(manager: "WorktreeManager", repo_name: str, branch: str) -> bool:
+    """Check if a branch exists on the remote (origin) for a repository.
+
+    Args:
+        manager: WorktreeManager instance (provides repos_base path)
+        repo_name: Name of the repository
+        branch: Branch name without origin/ prefix (e.g., "egg/issue-42/work")
+
+    Returns:
+        True if origin/{branch} exists, False otherwise.
+    """
+    main_repo = manager.repos_base / repo_name
+    if not main_repo.exists():
+        return False
+    # Uses local tracking refs (origin/*) rather than querying the remote.
+    # This is reliable here because the gateway handles push/fetch operations
+    # which keep tracking refs up to date.  If stale refs ever become an
+    # issue, switch to `git ls-remote --exit-code origin {branch}`.
+    result = subprocess.run(
+        git_cmd("rev-parse", "--verify", f"origin/{branch}"),
+        cwd=main_repo,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return result.returncode == 0
+
+
 @app.route("/api/v1/sessions/create", methods=["POST"])
 @require_launcher_auth
 def session_create() -> tuple[Response, int] | Response:
@@ -3612,12 +3640,23 @@ def session_create() -> tuple[Response, int] | Response:
             repo_name = repo
 
         try:
-            # For pipeline sessions, use the remote default branch (e.g., origin/main)
-            # instead of HEAD.  HEAD may point to a feature branch in the main repo,
-            # which would pollute the worktree with commits outside the current phase's
+            # For pipeline sessions, prefer the pipeline's existing worktree
+            # branch (which contains artifacts from prior agents) over a fresh
+            # branch from origin/main.  This ensures HITL exec sessions can
+            # see drafts, contracts, and reviews committed by pipeline agents.
+            # See #1016.
+            #
+            # For fresh pipelines (no prior worktree branch), fall back to the
+            # remote default branch (e.g., origin/main) instead of HEAD.  HEAD
+            # may point to a feature branch in the main repo, which would
+            # pollute the worktree with commits outside the current phase's
             # allowed scope and cause push rejections.  See #860.
             if pipeline_id:
-                worktree_base_branch = manager.resolve_default_branch(repo_name)
+                pipeline_work_branch = f"egg/{pipeline_id}/work"
+                if _branch_exists_on_remote(manager, repo_name, pipeline_work_branch):
+                    worktree_base_branch = f"origin/{pipeline_work_branch}"
+                else:
+                    worktree_base_branch = manager.resolve_default_branch(repo_name)
             else:
                 worktree_base_branch = "HEAD"
 

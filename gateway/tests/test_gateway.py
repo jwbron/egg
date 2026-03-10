@@ -3570,6 +3570,8 @@ class TestSessionCreateWithPhase:
             patch.object(gateway, "get_session_manager", return_value=manager),
             patch.object(gateway, "get_repo_visibility", return_value="private"),
             patch.object(gateway, "get_worktree_manager") as mock_worktree,
+            # Pipeline work branch doesn't exist, forcing fallback to default branch
+            patch.object(gateway, "_branch_exists_on_remote", return_value=False),
         ):
             mock_wt_manager = mock_worktree.return_value
             mock_wt_manager.resolve_default_branch.return_value = "origin/main"
@@ -3598,12 +3600,64 @@ class TestSessionCreateWithPhase:
             assert data["success"] is True
 
             # Verify resolve_default_branch was called for the repo
+            # (pipeline work branch doesn't exist, so falls back)
             mock_wt_manager.resolve_default_branch.assert_called_once_with("repo")
             # Verify create_worktree received the resolved branch, not HEAD
             call_kwargs = mock_wt_manager.create_worktree.call_args
             assert call_kwargs.kwargs.get("base_branch") or call_kwargs[1].get("base_branch")
             base = call_kwargs.kwargs.get("base_branch") or call_kwargs[1].get("base_branch")
             assert base == "origin/main"
+
+    def test_session_create_pipeline_prefers_work_branch(
+        self, client, launcher_auth_headers, tmp_path
+    ):
+        """Session create with pipeline_id uses pipeline work branch when it exists.
+
+        When a pipeline's worktree branch (egg/{pipeline_id}/work) exists on
+        the remote, new sessions should use it as the worktree base so that
+        HITL exec sessions can see artifacts from prior agents.  See #1016.
+        """
+        from session_manager import SessionManager
+
+        manager = SessionManager(persistence_file=tmp_path / "sessions.json")
+
+        with (
+            patch.object(gateway, "get_session_manager", return_value=manager),
+            patch.object(gateway, "get_repo_visibility", return_value="private"),
+            patch.object(gateway, "get_worktree_manager") as mock_worktree,
+            patch.object(gateway, "_branch_exists_on_remote", return_value=True),
+        ):
+            mock_wt_manager = mock_worktree.return_value
+            mock_worktree_info = MagicMock()
+            mock_worktree_info.worktree_path = "/path/to/worktree"
+            mock_worktree_info.branch = "egg/test-branch"
+            mock_wt_manager.create_worktree.return_value = mock_worktree_info
+
+            response = client.post(
+                "/api/v1/sessions/create",
+                headers=launcher_auth_headers,
+                data=json.dumps(
+                    {
+                        "container_id": "test-container",
+                        "container_ip": "172.18.0.5",
+                        "mode": "private",
+                        "repos": ["owner/repo"],
+                        "pipeline_id": "issue-1016",
+                    }
+                ),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 200
+            data = json.loads(response.data)
+            assert data["success"] is True
+
+            # resolve_default_branch should NOT be called — work branch exists
+            mock_wt_manager.resolve_default_branch.assert_not_called()
+            # Verify create_worktree uses the pipeline work branch
+            call_kwargs = mock_wt_manager.create_worktree.call_args
+            base = call_kwargs.kwargs.get("base_branch") or call_kwargs[1].get("base_branch")
+            assert base == "origin/egg/issue-1016/work"
 
     def test_session_create_no_pipeline_uses_head(self, client, launcher_auth_headers, tmp_path):
         """Session create without pipeline_id uses HEAD as base branch."""
