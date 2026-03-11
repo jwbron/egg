@@ -8,7 +8,396 @@
   "pipeline_id": "issue-1027",
   "current_phase": "refine",
   "acceptance_criteria": [],
-  "phases": [],
+  "phases": [
+    {
+      "id": "phase-1",
+      "name": "Message API and Agent SDK",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-1-1",
+          "description": "Add Message dataclass to orchestrator/models.py, MESSAGE_SENT/MESSAGE_RECEIVED event types to orchestrator/events.py, and register message route blueprint in orchestrator/api.py",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Message dataclass has all fields with proper serialization; event types registered in EventType enum; message blueprint registered in orchestrator/api.py; tests pass",
+          "files_affected": [
+            "orchestrator/models.py",
+            "orchestrator/events.py",
+            "orchestrator/api.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-2",
+          "description": "Create orchestrator/message_store.py with in-memory per-pipeline message storage using Message model (add, get-since, status, clear) and thread-safe locking",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Unit tests pass for add, get-since, status, clear, and thread safety",
+          "files_affected": [
+            "orchestrator/message_store.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-3",
+          "description": "Create orchestrator/routes/messages.py with send, poll, and status REST endpoints; validate sender role; emit EventBus events",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Endpoints return correct responses; role validation works; EventBus events emitted; tests pass",
+          "files_affected": [
+            "orchestrator/routes/messages.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-4",
+          "description": "Add send_message, poll_messages, get_message_status to shared/egg_orchestrator/client.py and Message/MessageType types to shared/egg_orchestrator/types.py",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Client methods call correct endpoints; types serialize/deserialize correctly; unit tests pass",
+          "files_affected": [
+            "shared/egg_orchestrator/client.py",
+            "shared/egg_orchestrator/types.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-5",
+          "description": "Add message subcommand group to sandbox/egg_lib/orch_cli.py with send, poll, and status commands",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "CLI commands invoke correct client methods; JSON output; help text clear; tests pass",
+          "files_affected": [
+            "sandbox/egg_lib/orch_cli.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-6",
+          "description": "Write integration tests for message flow \u2014 send/poll, broadcast, role filtering",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "End-to-end send/poll/broadcast tests pass",
+          "files_affected": [
+            "orchestrator/tests/test_message_store.py",
+            "orchestrator/tests/test_message_api.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        }
+      ],
+      "dependencies": [],
+      "review_feedback": []
+    },
+    {
+      "id": "phase-2",
+      "name": "Concurrent Phase Executor",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-2-1",
+          "description": "Add concurrent execution config fields to PipelineConfig (concurrent_execution, max_concurrent_agents, message_poll_hint_seconds, consensus_timeout_minutes, agent_idle_timeout_minutes)",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Config fields serializable with backward-compatible defaults",
+          "files_affected": [
+            "orchestrator/models.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-2-2",
+          "description": "Create orchestrator/concurrent_executor.py with ConcurrentPhaseExecutor \u2014 spawns all agents with per-agent worktree branches, monitors health, collects completion signals.\nContainer failure behavior: (1) Single agent failure \u2014 log error, send AGENT_FAILED message to other agents, create HITL decision with options: retry (respawn on same branch), abort phase (stop all agents), or continue without (let remaining agents proceed to consensus). (2) Multiple simultaneous failures (2+ within 60s) \u2014 immediately abort phase, stop all agents, create HITL decision for human investigation. (3) Failure during consensus \u2014 remove agent's READY signal and treat as single failure.\n",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "All configured agents spawn concurrently with unique worktree branches; single failure creates HITL decision with retry/abort/continue options; multiple failures abort phase; tests pass with mocked containers",
+          "files_affected": [
+            "orchestrator/concurrent_executor.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-2-3",
+          "description": "Modify orchestrator/container_spawner.py to support concurrent multi-agent spawn with per-agent worktree branches and messaging env vars",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Multiple containers spawn concurrently; existing single-container spawn unaffected",
+          "files_affected": [
+            "orchestrator/container_spawner.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-2-4",
+          "description": "Wire routing in multi_agent.py and pipelines.py to delegate to ConcurrentPhaseExecutor when concurrent_execution is true",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Concurrent flag routes to new executor; false uses existing executor; no behavior change for existing pipelines",
+          "files_affected": [
+            "orchestrator/multi_agent.py",
+            "orchestrator/routes/pipelines.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-2-5",
+          "description": "Write tests for ConcurrentPhaseExecutor covering all-agent spawn, single failure HITL, multiple failure abort, max concurrency cap, worktree naming, failure during consensus",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "All test cases pass",
+          "files_affected": [
+            "orchestrator/tests/test_concurrent_executor.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        }
+      ],
+      "dependencies": [],
+      "review_feedback": []
+    },
+    {
+      "id": "phase-3",
+      "name": "Consensus Protocol",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-3-1",
+          "description": "Add ReadinessState enum (WORKING, READY, BLOCKED, OBJECTING) and AgentReadiness model to orchestrator/models.py",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Enum and model defined with proper serialization",
+          "files_affected": [
+            "orchestrator/models.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-3-2",
+          "description": "Create orchestrator/consensus.py with ConsensusEvaluator \u2014 tracks readiness, evaluates consensus, handles objections, triggers HITL on timeout",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Consensus evaluated correctly for all state combinations; timeout creates HITL; objection blocks; tests pass",
+          "files_affected": [
+            "orchestrator/consensus.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-3-3",
+          "description": "Add readiness signal handler to orchestrator/routes/signals.py with state and reason fields",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Readiness signals update agent state; invalid states rejected; EventBus events emitted; tests pass",
+          "files_affected": [
+            "orchestrator/routes/signals.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-3-4",
+          "description": "Add signal_readiness to shared/egg_orchestrator/client.py and egg-orch signal readiness CLI command",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Client method and CLI command work correctly",
+          "files_affected": [
+            "shared/egg_orchestrator/client.py",
+            "sandbox/egg_lib/orch_cli.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-3-5",
+          "description": "Wire ConsensusEvaluator into ConcurrentPhaseExecutor \u2014 monitor readiness, advance phase on consensus, background timeout check",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Phase advances on consensus; timeout creates HITL; objection blocks",
+          "files_affected": [
+            "orchestrator/concurrent_executor.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-3-6",
+          "description": "Write integration tests for consensus \u2014 all ready, objection blocks, timeout HITL, ready-working-ready cycle",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "All integration test scenarios pass",
+          "files_affected": [
+            "orchestrator/tests/test_consensus.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        }
+      ],
+      "dependencies": [],
+      "review_feedback": []
+    },
+    {
+      "id": "phase-4",
+      "name": "Agent Prompts and Integration Testing",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-4-1",
+          "description": "Update agent prompt templates with concurrent mode instructions \u2014 message polling, readiness signaling, collaboration patterns per role",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Prompt sections exist for each agent role covering concurrent mode behavior",
+          "files_affected": [
+            "sandbox/.claude/rules/mission.md"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-4-2",
+          "description": "Update checkpoint capture to include inter-agent message history in checkpoint data",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Checkpoint data includes messages; visible in egg-checkpoint show",
+          "files_affected": [
+            "gateway/checkpoint_handler.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-4-3",
+          "description": "Add concurrent execution monitoring \u2014 log message counts, consensus state, agent lifecycle; expose via egg-orch pipeline status",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Pipeline status shows concurrent agent states, message counts, consensus progress",
+          "files_affected": [
+            "orchestrator/routes/pipelines.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-4-4",
+          "description": "Create end-to-end integration test with concurrent_execution true \u2014 mocked agents exchange messages and reach consensus",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Integration test passes with message exchange and consensus completion",
+          "files_affected": [
+            "orchestrator/tests/test_concurrent_integration.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-4-5",
+          "description": "Document concurrent execution mode in docs/guides/sdlc-pipeline.md \u2014 config, behavior, protocol, troubleshooting",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Documentation covers all aspects of concurrent mode",
+          "files_affected": [
+            "docs/guides/sdlc-pipeline.md"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        }
+      ],
+      "dependencies": [],
+      "review_feedback": []
+    }
+  ],
   "decisions": [
     {
       "id": "decision-1",
@@ -225,9 +614,9 @@
       "role": "architect",
       "phase_id": null,
       "status": "complete",
-      "started_at": "2026-03-11T04:55:04.398313Z",
-      "completed_at": "2026-03-11T05:13:45.324697Z",
-      "commit": "3c68e8be65ebe45c0d1feb1495e4d0bcf2173ba4",
+      "started_at": "2026-03-11T05:10:53.688878Z",
+      "completed_at": "2026-03-11T05:13:58.078056Z",
+      "commit": null,
       "checkpoint_id": null,
       "outputs": {},
       "error": null,
@@ -238,9 +627,9 @@
       "role": "task_planner",
       "phase_id": null,
       "status": "complete",
-      "started_at": "2026-03-11T05:02:35.872076Z",
-      "completed_at": "2026-03-11T05:16:42.355328Z",
-      "commit": "8a1e98f51051a204daefbbda3771f1e7d163f932",
+      "started_at": "2026-03-11T05:13:58.082526Z",
+      "completed_at": "2026-03-11T05:16:54.711852Z",
+      "commit": null,
       "checkpoint_id": null,
       "outputs": {},
       "error": null,
@@ -251,9 +640,9 @@
       "role": "risk_analyst",
       "phase_id": null,
       "status": "complete",
-      "started_at": "2026-03-11T05:02:35.873005Z",
-      "completed_at": "2026-03-11T05:16:39.039653Z",
-      "commit": "8a1e98f51051a204daefbbda3771f1e7d163f932",
+      "started_at": "2026-03-11T05:13:58.084866Z",
+      "completed_at": "2026-03-11T05:16:52.891133Z",
+      "commit": null,
       "checkpoint_id": null,
       "outputs": {},
       "error": null,
