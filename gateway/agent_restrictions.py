@@ -199,7 +199,6 @@ CODER_PATTERNS = AgentFilePattern(
         # Documentation (Documenter handles)
         "docs/",
         "**/README.md",
-        "**/CHANGELOG.md",
         "**/*.md",
         # Contracts (API only)
         ".egg-state/contracts/",
@@ -257,7 +256,6 @@ TESTER_PATTERNS = AgentFilePattern(
         # Documentation (Documenter handles)
         "docs/",
         "**/README.md",
-        "**/CHANGELOG.md",
         # Contracts
         ".egg-state/contracts/",
     ],
@@ -272,7 +270,6 @@ DOCUMENTER_PATTERNS = AgentFilePattern(
         # Markdown files anywhere
         "**/*.md",
         "**/README.md",
-        "**/CHANGELOG.md",
         # Handoff output
         ".egg-state/agent-outputs/",
     ],

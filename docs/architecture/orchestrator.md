@@ -215,7 +215,7 @@ The orchestrator coordinates specialized agent roles across pipeline phases. Eac
 |------|----------------|
 | **Coder** | Write code, create commits, push branches |
 | **Tester** | Find gaps in implementation, write and run tests |
-| **Documenter** | Update docs, READMEs, and changelogs |
+| **Documenter** | Update docs and READMEs |
 | **Checker** | Run linters, formatters, and auto-fixers on code |
 | **Integrator** | Run full test suite, validate integration |
 

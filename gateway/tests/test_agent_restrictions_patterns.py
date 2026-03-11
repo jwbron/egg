@@ -252,9 +252,6 @@ class TestDocumenterRole:
     def test_can_write_readme(self, pattern):
         assert pattern.can_write("README.md") is True
 
-    def test_can_write_changelog(self, pattern):
-        assert pattern.can_write("CHANGELOG.md") is True
-
     def test_cannot_write_source_py(self, pattern):
         assert pattern.can_write("src/app.py") is False
 
