@@ -4534,15 +4534,30 @@ def _run_concurrent_phase(
                 error=str(track_err),
             )
 
-    # Check for spawn failures before waiting.
+    # Check for spawn failures before waiting.  Stop successfully-spawned
+    # containers so they don't continue running after the phase is aborted.
     spawn_failures = [e for e in executions if e.status.value == "failed"]
     if spawn_failures:
+        for e in executions:
+            if e.container_id and e.status.value != "failed":
+                try:
+                    spawner.docker.stop_container(e.container_id, timeout=10)
+                except Exception:
+                    pass
         logs = "\n".join(
             f"--- {e.role.value} (status={e.status.value}, error={e.error}) ---" for e in executions
         )
         return 1, logs
 
     # Wait for all containers to exit concurrently.
+    #
+    # NOTE: The ConcurrentPhaseExecutor exposes check_consensus() and
+    # handle_agent_failure() for consensus-driven phase advancement, but
+    # they are not used here.  For V1, phase completion is determined by
+    # container exit codes (same model as sequential/wave paths).
+    # Consensus-driven advancement — where agents signal READY/BLOCKED/
+    # OBJECTING and the orchestrator evaluates consensus mid-execution —
+    # will be integrated in a follow-up once the polling loop is added.
     active_executions = [e for e in executions if e.container_id]
     docker_client = spawner.docker
     all_logs: list[str] = []
