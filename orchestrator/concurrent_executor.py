@@ -93,8 +93,16 @@ class ConcurrentPhaseExecutor:
             "EGG_MESSAGE_POLL_INTERVAL": str(poll_interval),
         }
 
-    def spawn_all(self) -> list[AgentExecution]:
+    def spawn_all(
+        self,
+        agent_prompts: dict[AgentRole, str] | None = None,
+    ) -> list[AgentExecution]:
         """Spawn all agent containers concurrently.
+
+        Args:
+            agent_prompts: Mapping of role to prompt text. When provided,
+                each agent container is started with a Claude CLI command
+                using the role-specific prompt.
 
         Returns:
             List of AgentExecution records for spawned agents.
@@ -109,7 +117,8 @@ class ConcurrentPhaseExecutor:
                 # Register agent for consensus tracking
                 evaluator.register_agent(self.pipeline.id, role.value)
 
-                future = pool.submit(self._spawn_agent, role)
+                prompt_text = (agent_prompts or {}).get(role, "")
+                future = pool.submit(self._spawn_agent, role, prompt_text)
                 futures[future] = role
 
             for future in as_completed(futures):
@@ -139,21 +148,44 @@ class ConcurrentPhaseExecutor:
 
         return executions
 
-    def _spawn_agent(self, role: AgentRole) -> AgentExecution:
-        """Spawn a single agent container."""
+    def _spawn_agent(self, role: AgentRole, prompt_text: str = "") -> AgentExecution:
+        """Spawn a single agent container.
+
+        Args:
+            role: The agent role to spawn.
+            prompt_text: The prompt to pass to the Claude CLI. When non-empty,
+                a sandbox command is built and passed to the spawn function.
+        """
         branch = self.get_worktree_branch(role)
         env = self.get_agent_env(role)
+
+        command: list[str] | None = None
+        if prompt_text:
+            command = [
+                "claude",
+                "--dangerously-skip-permissions",
+                "--print",
+                "--verbose",
+                "--output-format",
+                "stream-json",
+                "--model",
+                "opus",
+                "--max-turns",
+                "200",
+                prompt_text,
+            ]
 
         result = self.spawn_fn(
             role=role,
             branch=branch,
             extra_env=env,
+            command=command,
         )
 
         return AgentExecution(
             role=role,
             status=AgentExecutionStatus.RUNNING,
-            container_id=getattr(result, "container_id", None),
+            container_id=result.container_info.container_id,
             started_at=datetime.now(UTC),
         )
 

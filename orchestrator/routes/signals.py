@@ -613,49 +613,76 @@ def handle_readiness_signal(
     except ImportError:
         from ..events import EventType, emit_event  # type: ignore[no-redef]
 
-    evaluator = get_consensus_evaluator()
-    readiness = evaluator.update_readiness(
-        pipeline_id,
-        agent_role_str,
-        ReadinessState(state_str),
-        reason=reason,
-    )
+    try:
+        store = get_state_store(repo_path)
+        store.load_pipeline(pipeline_id)
+    except InvalidPipelineIdError:
+        return make_error_response(
+            f"Invalid pipeline ID format: {pipeline_id}",
+            status_code=400,
+        )
+    except PipelineNotFoundError:
+        return make_error_response(
+            f"Pipeline {pipeline_id} not found",
+            status_code=404,
+        )
 
-    emit_event(
-        EventType.READINESS_CHANGED,
-        pipeline_id,
-        data={
-            "role": agent_role_str,
-            "readiness_state": state_str,
-            "reason": reason,
-        },
-    )
+    try:
+        evaluator = get_consensus_evaluator()
+        readiness = evaluator.update_readiness(
+            pipeline_id,
+            agent_role_str,
+            ReadinessState(state_str),
+            reason=reason,
+        )
 
-    # Check if consensus has been reached
-    consensus = evaluator.evaluate(pipeline_id)
-
-    logger.info(
-        "Readiness signal",
-        pipeline_id=pipeline_id,
-        role=agent_role_str,
-        state=state_str,
-        consensus_complete=consensus["is_complete"],
-    )
-
-    return make_success_response(
-        f"Readiness updated: {agent_role_str} -> {state_str}",
-        data={
-            "readiness": {
-                "role": readiness.role,
-                "state": readiness.state.value,
-                "reason": readiness.reason,
+        emit_event(
+            EventType.READINESS_CHANGED,
+            pipeline_id,
+            data={
+                "role": agent_role_str,
+                "readiness_state": state_str,
+                "reason": reason,
             },
-            "consensus": {
-                "is_complete": consensus["is_complete"],
-                "blocking_agents": consensus["blocking_agents"],
+        )
+
+        # Check if consensus has been reached
+        consensus = evaluator.evaluate(pipeline_id)
+
+        logger.info(
+            "Readiness signal",
+            pipeline_id=pipeline_id,
+            role=agent_role_str,
+            state=state_str,
+            consensus_complete=consensus["is_complete"],
+        )
+
+        return make_success_response(
+            f"Readiness updated: {agent_role_str} -> {state_str}",
+            data={
+                "readiness": {
+                    "role": readiness.role,
+                    "state": readiness.state.value,
+                    "reason": readiness.reason,
+                },
+                "consensus": {
+                    "is_complete": consensus["is_complete"],
+                    "blocking_agents": consensus["blocking_agents"],
+                },
             },
-        },
-    )
+        )
+    except Exception as e:
+        logger.error(
+            "Failed to process readiness signal",
+            pipeline_id=pipeline_id,
+            role=agent_role_str,
+            state=state_str,
+            error=str(e),
+        )
+        return make_error_response(
+            f"Failed to process readiness signal: {e}",
+            status_code=500,
+        )
 
 
 @signals_bp.route("/<pipeline_id>/signal/batch", methods=["POST"])

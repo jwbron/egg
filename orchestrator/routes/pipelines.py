@@ -4428,23 +4428,62 @@ def _run_concurrent_phase(
     """Run a phase using concurrent all-agents-at-once execution.
 
     Creates a ConcurrentPhaseExecutor that spawns all agents simultaneously,
-    each with its own worktree branch. Uses consensus-based phase completion.
+    each with its own worktree branch. Each container receives a role-specific
+    prompt built via ``_build_agent_prompt``. After spawning, waits for all
+    containers to exit and records their state in the pipeline store.
 
     Returns:
         (exit_code, logs) — 0 on success.
     """
+    import threading
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    from models import (
+        AgentExecution as StateAgentExecution,
+    )
+    from models import (
+        AgentExecutionStatus as StateAgentStatus,
+    )
+    from models import (
+        ContainerInfo,
+        ContainerStatus,
+        PipelinePhase,
+    )
+
     try:
         from concurrent_executor import ConcurrentPhaseExecutor
     except ImportError:
         from ..concurrent_executor import ConcurrentPhaseExecutor  # type: ignore
 
+    phase_str = phase if isinstance(phase, str) else phase.value
+    pipeline_mode = pipeline.mode or "issue"
+
+    # Build per-role prompts (matches _run_multi_agent_phase pattern).
+    roles = [AgentRole.CODER, AgentRole.TESTER, AgentRole.DOCUMENTER]
+    agent_prompts: dict[AgentRole, str] = {}
+    for role in roles:
+        prompt = _build_agent_prompt(
+            role_value=role.value,
+            phase=phase_str,
+            pipeline_id=pipeline_id,
+            pipeline_mode=pipeline_mode,
+            prompt=pipeline.prompt,
+            issue_number=pipeline.issue_number,
+            repo=pipeline.repo,
+            branch=pipeline.branch,
+            repo_path=str(worktree_repo_path),
+            short_circuit=pipeline.short_circuit,
+        )
+        agent_prompts[role] = prompt
+
+    # Create spawn function and executor.
     spawn_fn = spawner.create_concurrent_spawn_fn(
         pipeline_id=pipeline_id,
         issue_number=pipeline.issue_number,
         repo_volumes=repo_volumes,
         mode=gateway_mode,
         repos=repos,
-        phase=phase if isinstance(phase, str) else phase.value,
+        phase=phase_str,
         sandbox_env=sandbox_env,
         certs_volume=certs_volume,
     )
@@ -4456,15 +4495,147 @@ def _run_concurrent_phase(
         max_concurrent=max_concurrent,
     )
 
-    executions = executor.spawn_all()
+    # Spawn all agents with their prompts.
+    executions = executor.spawn_all(agent_prompts=agent_prompts)
 
-    has_failures = any(e.status.value == "failed" for e in executions)
-    logs = "\n".join(f"--- {e.role.value} (status={e.status.value}) ---" for e in executions)
+    # Record spawned containers/agents in pipeline state.
+    if store is not None:
+        try:
+            with get_pipeline_state_lock(pipeline_id):
+                pip = store.load_pipeline(pipeline_id)
+                phase_execution = pip.get_phase_execution(PipelinePhase(phase_str))
+                for exec_info in executions:
+                    if exec_info.container_id:
+                        container_info = ContainerInfo(
+                            container_id=exec_info.container_id,
+                            container_name=f"{pipeline_id}-{exec_info.role.value}",
+                            status=ContainerStatus.RUNNING,
+                            started_at=datetime.utcnow(),
+                            agent_role=exec_info.role,
+                        )
+                        phase_execution.containers.append(container_info)
 
-    if has_failures:
+                    agent_state = StateAgentExecution(
+                        role=exec_info.role,
+                        status=(
+                            StateAgentStatus.RUNNING
+                            if exec_info.status == StateAgentStatus.RUNNING
+                            else StateAgentStatus.FAILED
+                        ),
+                        container_id=exec_info.container_id,
+                        started_at=datetime.utcnow(),
+                    )
+                    phase_execution.agents.append(agent_state)
+                store.save_pipeline(pip)
+        except Exception as track_err:
+            logger.warning(
+                "Failed to record concurrent agents in pipeline state",
+                pipeline_id=pipeline_id,
+                error=str(track_err),
+            )
+
+    # Check for spawn failures before waiting.
+    spawn_failures = [e for e in executions if e.status.value == "failed"]
+    if spawn_failures:
+        logs = "\n".join(
+            f"--- {e.role.value} (status={e.status.value}, error={e.error}) ---" for e in executions
+        )
         return 1, logs
 
-    return 0, logs
+    # Wait for all containers to exit concurrently.
+    active_executions = [e for e in executions if e.container_id]
+    docker_client = spawner.docker
+    all_logs: list[str] = []
+    logs_lock = threading.Lock()
+    has_failures = [False]  # Mutable container for closure access
+
+    def _wait_and_record(exec_info: "StateAgentExecution") -> None:
+        """Wait for one container, capture logs, update pipeline state."""
+        try:
+            final_info = docker_client.wait_for_container(
+                exec_info.container_id,
+                timeout=3600,
+            )
+        except (ContainerNotFoundError, ContainerOperationError) as e:
+            logger.warning(
+                "Container lost during wait",
+                container_id=exec_info.container_id,
+                role=exec_info.role.value,
+                error=str(e),
+            )
+            final_info = ContainerInfo(
+                container_id=exec_info.container_id,
+                container_name=f"{pipeline_id}-{exec_info.role.value}",
+                status=ContainerStatus.FAILED,
+                exit_code=-1,
+                exited_at=datetime.utcnow(),
+            )
+
+        container_logs = ""
+        if final_info.exit_code != 0:
+            has_failures[0] = True
+            try:
+                container_logs = docker_client.get_container_logs(
+                    exec_info.container_id,
+                    tail=200,
+                )
+            except Exception:
+                pass
+
+        with logs_lock:
+            all_logs.append(
+                f"--- {exec_info.role.value} (exit={final_info.exit_code}) ---\n{container_logs}"
+            )
+
+        # Update container and agent status in pipeline state.
+        if store is not None:
+            try:
+                with get_pipeline_state_lock(pipeline_id):
+                    pip = store.load_pipeline(pipeline_id)
+                    pe = pip.get_phase_execution(PipelinePhase(phase_str))
+
+                    for ci in pe.containers:
+                        if ci.container_id == exec_info.container_id:
+                            ci.status = final_info.status
+                            ci.exited_at = final_info.exited_at
+                            ci.exit_code = final_info.exit_code
+                            break
+
+                    for agent in pe.agents:
+                        if agent.container_id == exec_info.container_id:
+                            agent.completed_at = datetime.utcnow()
+                            if final_info.exit_code == 0:
+                                agent.status = StateAgentStatus.COMPLETE
+                            else:
+                                agent.status = StateAgentStatus.FAILED
+                                agent.error = f"Container exited with code {final_info.exit_code}"
+                            break
+
+                    store.save_pipeline(pip)
+            except Exception as track_err:
+                logger.warning(
+                    "Failed to update concurrent agent state",
+                    container_id=exec_info.container_id,
+                    error=str(track_err),
+                )
+
+    with ThreadPoolExecutor(max_workers=len(active_executions) or 1) as pool:
+        futures = {pool.submit(_wait_and_record, e): e for e in active_executions}
+        for future in as_completed(futures):
+            exc = future.exception()
+            if exc:
+                logger.error(
+                    "Error waiting for concurrent agent",
+                    role=futures[future].role.value,
+                    error=str(exc),
+                )
+                has_failures[0] = True
+
+    combined_logs = "\n".join(all_logs)
+    if has_failures[0]:
+        return 1, combined_logs
+
+    return 0, combined_logs
 
 
 def _spawn_and_wait(

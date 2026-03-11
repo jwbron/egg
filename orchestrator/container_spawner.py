@@ -662,6 +662,7 @@ class ContainerSpawner:
             role: AgentRole,
             branch: str | None = None,
             extra_env: dict[str, str] | None = None,
+            command: list[str] | None = None,
         ) -> SpawnedContainer:
             merged_env = {**(sandbox_env or {}), **(extra_env or {})}
             return self.spawn_agent_container(
@@ -676,6 +677,7 @@ class ContainerSpawner:
                 phase=phase,
                 certs_volume=certs_volume,
                 branch=branch,
+                command=command,
             )
 
         return _spawn
