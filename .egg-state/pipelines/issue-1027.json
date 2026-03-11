@@ -508,10 +508,10 @@
         {
           "container_id": "791576884f05048ed4588a2b5dd52da5e23b13591616e051d2495136fc76f52c",
           "container_name": "egg-sandbox-egg-issue-1027-documenter",
-          "status": "running",
+          "status": "exited",
           "started_at": "2026-03-11T05:44:00.516208",
-          "exited_at": null,
-          "exit_code": null,
+          "exited_at": "2026-03-11T05:49:28.794867",
+          "exit_code": 0,
           "agent_role": "documenter",
           "session_token": null
         }
@@ -545,10 +545,10 @@
         },
         {
           "role": "documenter",
-          "status": "running",
+          "status": "complete",
           "container_id": "791576884f05048ed4588a2b5dd52da5e23b13591616e051d2495136fc76f52c",
           "started_at": "2026-03-11T05:44:00.516218",
-          "completed_at": null,
+          "completed_at": "2026-03-11T05:49:28.796651",
           "commit": null,
           "outputs": {},
           "error": null,
@@ -624,7 +624,7 @@
     }
   ],
   "created_at": "2026-03-11T04:15:49.526178",
-  "updated_at": "2026-03-11T05:44:00.516383",
+  "updated_at": "2026-03-11T05:49:28.796826",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
@@ -644,5 +644,5 @@
     "phase-3": "Consensus Protocol",
     "phase-4": "Agent Prompts and Integration Testing"
   },
-  "version": 75
+  "version": 76
 }
