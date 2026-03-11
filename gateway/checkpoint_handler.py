@@ -338,8 +338,9 @@ class CheckpointHandler:
             buffer_path = get_proxy_buffer_path(container_id)
 
             if not buffer_path.exists():
-                logger.debug(
-                    "No proxy buffer found for checkpoint",
+                logger.warning(
+                    "Proxy buffer missing for active session — transcript data will be lost. "
+                    "Buffer may not have been created yet or was cleaned up prematurely.",
                     container_id=container_id,
                     buffer_path=str(buffer_path),
                     commit_sha=commit_sha[:7],
@@ -492,6 +493,15 @@ class CheckpointHandler:
 
             try:
                 buffer_path = get_proxy_buffer_path(container_id)
+                if not buffer_path.exists():
+                    duration = (now - session.created_at).total_seconds()
+                    if duration > 10:
+                        logger.warning(
+                            "Proxy buffer missing for session-end checkpoint — transcript data lost",
+                            container_id=container_id,
+                            duration_seconds=duration,
+                            buffer_path=str(buffer_path),
+                        )
                 if buffer_path.exists():
                     (
                         extracted_metadata,

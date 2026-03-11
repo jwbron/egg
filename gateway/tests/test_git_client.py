@@ -263,6 +263,63 @@ class TestValidateGitArgs:
         assert not valid
         assert "not allowed" in error.lower()
 
+    def test_cat_file_allowed(self):
+        """cat-file -p <hash> should pass validation."""
+        valid, _error, normalized = validate_git_args("cat-file", ["-p", "abc123"])
+        assert valid
+        assert "-p" in normalized
+        assert "abc123" in normalized
+
+    def test_cat_file_type_and_size_allowed(self):
+        """cat-file -t and -s flags should pass validation."""
+        valid, _error, normalized = validate_git_args("cat-file", ["-t", "HEAD"])
+        assert valid
+        assert "-t" in normalized
+
+        valid, _error, normalized = validate_git_args("cat-file", ["-s", "HEAD"])
+        assert valid
+        assert "-s" in normalized
+
+    def test_cat_file_batch_allowed(self):
+        """cat-file --batch and --batch-check should pass validation."""
+        valid, _error, normalized = validate_git_args("cat-file", ["--batch"])
+        assert valid
+        assert "--batch" in normalized
+
+        valid, _error, normalized = validate_git_args("cat-file", ["--batch-check"])
+        assert valid
+        assert "--batch-check" in normalized
+
+    def test_cat_file_textconv_rejected(self):
+        """cat-file --textconv should be rejected (enables arbitrary code execution)."""
+        valid, error, _normalized = validate_git_args("cat-file", ["--textconv", "HEAD:file"])
+        assert not valid
+        assert "not allowed" in error.lower()
+
+    def test_cat_file_filters_rejected(self):
+        """cat-file --filters should be rejected (enables arbitrary code execution)."""
+        valid, error, _normalized = validate_git_args("cat-file", ["--filters", "HEAD:file"])
+        assert not valid
+        assert "not allowed" in error.lower()
+
+    def test_cat_file_blocked_flags(self):
+        """Unknown flags for cat-file should be rejected."""
+        valid, error, _normalized = validate_git_args("cat-file", ["--malicious"])
+        assert not valid
+        assert "not allowed" in error.lower()
+
+    def test_fetch_unshallow_allowed(self):
+        """fetch --unshallow should pass validation."""
+        valid, _error, normalized = validate_git_args("fetch", ["--unshallow"])
+        assert valid
+        assert "--unshallow" in normalized
+
+    def test_fetch_deepen_allowed(self):
+        """fetch --deepen=50 should pass validation."""
+        valid, _error, normalized = validate_git_args("fetch", ["--deepen=50"])
+        assert valid
+        assert "--deepen=50" in normalized
+
     def test_merge_strategy_option_accepted(self):
         """Merge -X with safe values should be accepted."""
         # -X theirs (short flag, separate value)
@@ -442,6 +499,7 @@ class TestGitAllowedCommands:
         assert "diff-tree" in GIT_ALLOWED_COMMANDS
         assert "branch" in GIT_ALLOWED_COMMANDS
         assert "merge-base" in GIT_ALLOWED_COMMANDS
+        assert "cat-file" in GIT_ALLOWED_COMMANDS
 
     def test_local_write_operations_defined(self):
         """Local write operations should be defined."""

@@ -450,6 +450,8 @@ class TestGetProxyBufferPath:
 
     def test_returns_correct_path(self):
         """Test that correct buffer path is returned."""
+        from egg_config import TRANSCRIPT_BUFFER_DIR
+
         path = get_proxy_buffer_path("my-container-id")
 
-        assert path == Path("/tmp/egg-transcripts/my-container-id.jsonl")
+        assert path == Path(TRANSCRIPT_BUFFER_DIR) / "my-container-id.jsonl"

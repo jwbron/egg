@@ -9,9 +9,9 @@ Issue: <JIRA link or "none">
 
 Test plan:
 <specific steps for reviewers>
-
-Authored-by: egg
 ```
+
+**Autonomous mode only**: When `EGG_PIPELINE_ID` is set, append `Authored-by: egg` to the PR body. In interactive/user mode, omit the signature.
 
 **Under 500 words total.** Focus on WHAT and WHY, not implementation details.
 

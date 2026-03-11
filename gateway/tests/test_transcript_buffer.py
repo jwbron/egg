@@ -1,5 +1,6 @@
 """Tests for transcript_buffer module - API traffic capture."""
 
+import os
 import threading
 from unittest.mock import patch
 
@@ -397,3 +398,34 @@ class TestStreamingCapture:
         entries = buffer.read_entries()
         assert len(entries) == 1
         assert "response" not in entries[0]  # No response key when content and usage are None
+
+
+class TestBufferDirConfiguration:
+    """Tests for configurable BUFFER_DIR."""
+
+    def test_module_buffer_dir_matches_config_default(self):
+        """Test that transcript_buffer.BUFFER_DIR uses the egg_config constant by default."""
+        import transcript_buffer
+        from egg_config import TRANSCRIPT_BUFFER_DIR
+
+        # When EGG_TRANSCRIPT_BUFFER_DIR is not set, BUFFER_DIR should match the constant
+        if "EGG_TRANSCRIPT_BUFFER_DIR" not in os.environ:
+            assert str(transcript_buffer.BUFFER_DIR) == TRANSCRIPT_BUFFER_DIR
+        else:
+            # If env var is set (e.g. in CI), BUFFER_DIR should match it
+            assert str(transcript_buffer.BUFFER_DIR) == os.environ["EGG_TRANSCRIPT_BUFFER_DIR"]
+
+    def test_get_buffer_path_uses_buffer_dir(self, tmp_path):
+        """Test that get_buffer_path returns path within BUFFER_DIR."""
+        import transcript_buffer
+
+        with patch.object(transcript_buffer, "BUFFER_DIR", tmp_path):
+            path = get_buffer_path("my-container")
+            assert path.parent == tmp_path
+            assert path.name == "my-container.jsonl"
+
+    def test_transcript_buffer_accepts_custom_dir(self, tmp_path):
+        """Test that TranscriptBuffer can use a custom buffer_dir."""
+        custom_dir = tmp_path / "custom"
+        buffer = TranscriptBuffer("test-container", buffer_dir=custom_dir)
+        assert buffer.buffer_path == custom_dir / "test-container.jsonl"

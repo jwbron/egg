@@ -291,6 +291,8 @@ GIT_ALLOWED_COMMANDS = {
             "--recurse-submodules",
             "--progress",
             "--no-progress",
+            "--unshallow",
+            "--deepen",
         ],
     },
     "ls-remote": {
@@ -846,6 +848,16 @@ GIT_ALLOWED_COMMANDS = {
             "--fork-point",
         ],
     },
+    "cat-file": {
+        "allowed_flags": [
+            "-p",
+            "-t",
+            "-s",
+            "-e",
+            "--batch",
+            "--batch-check",
+        ],
+    },
 }
 
 # Per-subcommand flag normalization: map short flags to long form for consistent
@@ -954,6 +966,7 @@ FLAG_NORMALIZATION = {
     "merge-base": {},
     "diff-tree": {},
     "reflog": {},
+    "cat-file": {},
 }
 
 

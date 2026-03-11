@@ -385,6 +385,14 @@ class TestGhApiPathValidation:
         assert valid is True
         assert error == ""
 
+    def test_pr_review_comment_reply_allowed(self):
+        """Replying to a PR review comment is allowed."""
+        valid, error = github_client.validate_gh_api_path(
+            "repos/owner/repo/pulls/comments/123456789/replies", method="POST"
+        )
+        assert valid is True
+        assert error == ""
+
     def test_issue_events_allowed(self):
         """Issue events endpoint is allowed."""
         valid, error = github_client.validate_gh_api_path("repos/owner/repo/issues/123/events")

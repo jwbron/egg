@@ -2477,8 +2477,15 @@ def gh_pr_edit() -> tuple[Response, int] | Response:
         return make_error("Missing repo")
     if not pr_number:
         return make_error("Missing pr_number")
+    if isinstance(pr_number, bool) or not isinstance(pr_number, int) or pr_number < 1:
+        return make_error("Invalid pr_number: must be a positive integer")
     if not title and not body:
         return make_error("Must provide title or body to edit")
+
+    # Validate repo format early (before any API calls)
+    repo_info = parse_owner_repo(repo)
+    if not repo_info:
+        return make_error("Invalid repo format: expected 'owner/repo'")
 
     # Determine auth mode for this repo
     auth_mode = get_auth_mode(repo)
@@ -2502,33 +2509,31 @@ def gh_pr_edit() -> tuple[Response, int] | Response:
         )
 
     # Check Private Repo Mode policy (if enabled)
-    repo_info = parse_owner_repo(repo)
-    if repo_info:
-        priv_result = check_private_repo_access(
-            operation="pr_edit",
-            owner=repo_info.owner,
-            repo=repo_info.repo,
-            for_write=True,
-            session_mode=session_mode,
+    priv_result = check_private_repo_access(
+        operation="pr_edit",
+        owner=repo_info.owner,
+        repo=repo_info.repo,
+        for_write=True,
+        session_mode=session_mode,
+    )
+    if not priv_result.allowed:
+        audit_log(
+            "pr_edit_denied_private_mode",
+            "gh_pr_edit",
+            success=False,
+            details={
+                "repo": repo,
+                "pr_number": pr_number,
+                "reason": priv_result.reason,
+                "visibility": priv_result.visibility,
+                "auth_mode": auth_mode,
+            },
         )
-        if not priv_result.allowed:
-            audit_log(
-                "pr_edit_denied_private_mode",
-                "gh_pr_edit",
-                success=False,
-                details={
-                    "repo": repo,
-                    "pr_number": pr_number,
-                    "reason": priv_result.reason,
-                    "visibility": priv_result.visibility,
-                    "auth_mode": auth_mode,
-                },
-            )
-            return make_error(
-                priv_result.reason,
-                status_code=403,
-                details=priv_result.to_dict(),
-            )
+        return make_error(
+            priv_result.reason,
+            status_code=403,
+            details=priv_result.to_dict(),
+        )
 
     # Check PR ownership (pass auth mode for relaxed policy in user mode)
     policy = get_policy_engine()
@@ -2553,11 +2558,11 @@ def gh_pr_edit() -> tuple[Response, int] | Response:
         )
 
     github = get_github_client(mode=auth_mode)
-    args = ["pr", "edit", str(pr_number), "--repo", repo]
+    args = ["api", f"repos/{repo_info.owner}/{repo_info.repo}/pulls/{pr_number}", "-X", "PATCH"]
     if title:
-        args.extend(["--title", title])
+        args.extend(["-f", f"title={title}"])
     if body:
-        args.extend(["--body", body])
+        args.extend(["-f", f"body={body}"])
 
     result = github.execute(args, timeout=30, mode=auth_mode)
 
@@ -3369,6 +3374,34 @@ def worktree_list() -> tuple[Response, int] | Response:
 # =============================================================================
 
 
+def _branch_exists_on_remote(manager: "WorktreeManager", repo_name: str, branch: str) -> bool:
+    """Check if a branch exists on the remote (origin) for a repository.
+
+    Args:
+        manager: WorktreeManager instance (provides repos_base path)
+        repo_name: Name of the repository
+        branch: Branch name without origin/ prefix (e.g., "egg/issue-42/work")
+
+    Returns:
+        True if origin/{branch} exists, False otherwise.
+    """
+    main_repo = manager.repos_base / repo_name
+    if not main_repo.exists():
+        return False
+    # Uses local tracking refs (origin/*) rather than querying the remote.
+    # This is reliable here because the gateway handles push/fetch operations
+    # which keep tracking refs up to date.  If stale refs ever become an
+    # issue, switch to `git ls-remote --exit-code origin {branch}`.
+    result = subprocess.run(
+        git_cmd("rev-parse", "--verify", f"origin/{branch}"),
+        cwd=main_repo,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return result.returncode == 0
+
+
 @app.route("/api/v1/sessions/create", methods=["POST"])
 @require_launcher_auth
 def session_create() -> tuple[Response, int] | Response:
@@ -3607,12 +3640,23 @@ def session_create() -> tuple[Response, int] | Response:
             repo_name = repo
 
         try:
-            # For pipeline sessions, use the remote default branch (e.g., origin/main)
-            # instead of HEAD.  HEAD may point to a feature branch in the main repo,
-            # which would pollute the worktree with commits outside the current phase's
+            # For pipeline sessions, prefer the pipeline's existing worktree
+            # branch (which contains artifacts from prior agents) over a fresh
+            # branch from origin/main.  This ensures HITL exec sessions can
+            # see drafts, contracts, and reviews committed by pipeline agents.
+            # See #1016.
+            #
+            # For fresh pipelines (no prior worktree branch), fall back to the
+            # remote default branch (e.g., origin/main) instead of HEAD.  HEAD
+            # may point to a feature branch in the main repo, which would
+            # pollute the worktree with commits outside the current phase's
             # allowed scope and cause push rejections.  See #860.
             if pipeline_id:
-                worktree_base_branch = manager.resolve_default_branch(repo_name)
+                pipeline_work_branch = f"egg/{pipeline_id}/work"
+                if _branch_exists_on_remote(manager, repo_name, pipeline_work_branch):
+                    worktree_base_branch = f"origin/{pipeline_work_branch}"
+                else:
+                    worktree_base_branch = manager.resolve_default_branch(repo_name)
             else:
                 worktree_base_branch = "HEAD"
 
@@ -4811,6 +4855,25 @@ def main() -> None:
             )
     except Exception as e:
         logger.warning("Startup session cleanup failed", error=str(e))
+
+    # Check for active sessions with missing transcript buffers.
+    # Buffers are now persisted, but may still be missing if the session hasn't
+    # made any API calls yet or the buffer was cleaned up prematurely.
+    try:
+        from egg_contracts.transcript_extractor import get_proxy_buffer_path
+
+        for session_info in session_manager.list_sessions():
+            cid = session_info.get("container_id")
+            if cid:
+                bp = get_proxy_buffer_path(cid)
+                if not bp.exists():
+                    logger.warning(
+                        "Active session has no transcript buffer — may not have been created yet or was cleaned up prematurely",
+                        container_id=cid,
+                        buffer_path=str(bp),
+                    )
+    except Exception as e:
+        logger.warning("Startup transcript buffer check failed", error=str(e))
 
     # Also check Docker directly as safety net — sessions may be
     # pruned but containers still running.
