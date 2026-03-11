@@ -277,6 +277,22 @@ class PipelineConfig(BaseModel):
         default=True,
         description="Enable parallel phase execution for independent plan phases (Tier 3 only)",
     )
+    concurrent_execution: bool = Field(
+        default=False,
+        description="Enable concurrent agent execution within a phase (all agents start simultaneously)",
+    )
+    max_concurrent_agents: int = Field(
+        default=4, ge=1, description="Maximum concurrent agents per phase"
+    )
+    message_poll_hint_seconds: int = Field(
+        default=30, ge=1, description="Suggested message polling interval for agents"
+    )
+    consensus_timeout_minutes: int = Field(
+        default=30, ge=1, description="Timeout for consensus before HITL escalation"
+    )
+    agent_idle_timeout_minutes: int = Field(
+        default=60, ge=1, description="Timeout for idle agents before termination"
+    )
 
 
 class Pipeline(BaseModel):

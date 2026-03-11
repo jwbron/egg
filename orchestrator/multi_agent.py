@@ -648,3 +648,15 @@ def create_multi_agent_executor(
     pipeline = store.load_pipeline(pipeline_id)
 
     return MultiAgentExecutor(pipeline, repo_path)
+
+
+def is_concurrent_execution(pipeline: Pipeline) -> bool:
+    """Check if a pipeline is configured for concurrent execution.
+
+    Args:
+        pipeline: Pipeline to check.
+
+    Returns:
+        True if concurrent_execution is enabled in the pipeline config.
+    """
+    return getattr(pipeline.config, "concurrent_execution", False)

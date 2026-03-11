@@ -959,6 +959,134 @@ def cmd_gateway_permissions(args: argparse.Namespace) -> int:
 
 
 # ---------------------------------------------------------------------------
+# Message commands (concurrent mode)
+# ---------------------------------------------------------------------------
+
+
+def cmd_message_send(args: argparse.Namespace) -> int:
+    """Send an inter-agent message."""
+    pid = require_pipeline_id(args)
+    role = args.role or get_agent_role_from_env()
+    if not role:
+        print("Error: --role required or set EGG_AGENT_ROLE", file=sys.stderr)
+        sys.exit(1)
+
+    data: dict[str, Any] = {
+        "from_role": role,
+        "to_role": args.to,
+        "message_type": args.type,
+        "subject": args.subject or "",
+        "body": args.body or "",
+    }
+
+    result = orch_request(f"/api/v1/pipelines/{pid}/messages", method="POST", data=data)
+
+    if args.json:
+        print_json(result)
+        return 0
+
+    if result.get("success"):
+        msg = result.get("data", {}).get("message", {})
+        print(f"Message sent: {msg.get('id', 'unknown')}")
+        return 0
+    print(f"Error: {result.get('message')}", file=sys.stderr)
+    return 1
+
+
+def cmd_message_poll(args: argparse.Namespace) -> int:
+    """Poll for inter-agent messages."""
+    pid = require_pipeline_id(args)
+
+    params: dict[str, str] = {}
+    role = args.role or get_agent_role_from_env()
+    if role:
+        params["role"] = role
+    if args.since:
+        params["since_id"] = args.since
+    if args.limit:
+        params["limit"] = str(args.limit)
+
+    endpoint = f"/api/v1/pipelines/{pid}/messages"
+    if params:
+        endpoint += "?" + urlencode(params)
+
+    result = orch_request(endpoint)
+
+    if args.json:
+        print_json(result)
+        return 0
+
+    messages = result.get("data", {}).get("messages", [])
+    if not messages:
+        print("No messages.")
+        return 0
+
+    for msg in messages:
+        ts = msg.get("timestamp", "")[:19]
+        from_r = msg.get("from_role", "?")
+        to_r = msg.get("to_role", "?")
+        mtype = msg.get("message_type", "?")
+        subject = msg.get("subject", "")
+        print(f"  [{ts}] {from_r} -> {to_r} ({mtype}): {subject}")
+        body = msg.get("body", "")
+        if body:
+            print(f"    {body[:200]}")
+
+    print(f"\n{len(messages)} message(s)")
+    return 0
+
+
+def cmd_message_status(args: argparse.Namespace) -> int:
+    """Get message bus status."""
+    pid = require_pipeline_id(args)
+    result = orch_request(f"/api/v1/pipelines/{pid}/messages/status")
+
+    if args.json:
+        print_json(result)
+        return 0
+
+    data = result.get("data", result)
+    print(f"Total messages: {data.get('total', 0)}")
+    by_type = data.get("by_type", {})
+    if by_type:
+        for mtype, count in by_type.items():
+            print(f"  {mtype}: {count}")
+    return 0
+
+
+def cmd_signal_readiness(args: argparse.Namespace) -> int:
+    """Signal readiness state for consensus."""
+    pid = require_pipeline_id(args)
+    role = _require_role(args)
+    data: dict[str, Any] = {
+        "signal_type": "readiness",
+        "agent_role": role,
+        "state": args.state,
+    }
+    if args.reason:
+        data["reason"] = args.reason
+
+    result = orch_request(f"/api/v1/pipelines/{pid}/signal", method="POST", data=data)
+
+    if args.json:
+        print_json(result)
+        return 0
+
+    if result.get("success"):
+        consensus = result.get("data", {}).get("consensus", {})
+        print(f"Readiness: {role} -> {args.state}")
+        if consensus.get("is_complete"):
+            print("Consensus reached!")
+        else:
+            blocking = consensus.get("blocking_agents", [])
+            if blocking:
+                print(f"Waiting on: {', '.join(blocking)}")
+        return 0
+    print(f"Error: {result.get('message')}", file=sys.stderr)
+    return 1
+
+
+# ---------------------------------------------------------------------------
 # Environment info
 # ---------------------------------------------------------------------------
 
@@ -1103,6 +1231,48 @@ def create_parser() -> argparse.ArgumentParser:
     sig_hb = signal_sub.add_parser("heartbeat", help="Send heartbeat")
     add_signal_args(sig_hb)
     sig_hb.set_defaults(func=cmd_signal_heartbeat)
+
+    # signal readiness (concurrent mode)
+    sig_ready = signal_sub.add_parser("readiness", help="Signal readiness state (concurrent mode)")
+    add_signal_args(sig_ready)
+    sig_ready.add_argument(
+        "--state",
+        required=True,
+        choices=["WORKING", "READY", "BLOCKED", "OBJECTING"],
+        help="Readiness state",
+    )
+    sig_ready.add_argument("--reason", help="Reason for state")
+    sig_ready.set_defaults(func=cmd_signal_readiness)
+
+    # -- message (concurrent mode) --
+    msg_parser = subparsers.add_parser("message", help="Inter-agent messaging (concurrent mode)")
+    msg_sub = msg_parser.add_subparsers(dest="message_command")
+
+    # message send
+    msg_send = msg_sub.add_parser("send", help="Send a message")
+    msg_send.add_argument("pipeline_id", nargs="?", help="Pipeline ID")
+    msg_send.add_argument("--role", help="Sender role (default: EGG_AGENT_ROLE)")
+    msg_send.add_argument("--to", required=True, help="Target role or 'all'")
+    msg_send.add_argument("--type", required=True, help="Message type (PROGRESS, QUESTION, STATUS)")
+    msg_send.add_argument("--subject", help="Message subject")
+    msg_send.add_argument("--body", help="Message body")
+    _add_json_flag(msg_send)
+    msg_send.set_defaults(func=cmd_message_send)
+
+    # message poll
+    msg_poll = msg_sub.add_parser("poll", help="Poll for messages")
+    msg_poll.add_argument("pipeline_id", nargs="?", help="Pipeline ID")
+    msg_poll.add_argument("--role", help="Filter for role (default: EGG_AGENT_ROLE)")
+    msg_poll.add_argument("--since", help="Return messages after this ID")
+    msg_poll.add_argument("--limit", type=int, help="Max messages")
+    _add_json_flag(msg_poll)
+    msg_poll.set_defaults(func=cmd_message_poll)
+
+    # message status
+    msg_status = msg_sub.add_parser("status", help="Message bus status")
+    msg_status.add_argument("pipeline_id", nargs="?", help="Pipeline ID")
+    _add_json_flag(msg_status)
+    msg_status.set_defaults(func=cmd_message_status)
 
     # -- phase --
     phase_parser = subparsers.add_parser("phase", help="Phase operations")

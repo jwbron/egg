@@ -58,6 +58,10 @@ class EventType(StrEnum):
     CONTAINER_STOPPED = "container.stopped"
     CONTAINER_REMOVED = "container.removed"
 
+    # Inter-agent messaging
+    MESSAGE_SENT = "message.sent"
+    MESSAGE_RECEIVED = "message.received"
+
     # HITL events
     DECISION_CREATED = "decision.created"
     DECISION_RESOLVED = "decision.resolved"
