@@ -86,9 +86,12 @@ orchestrator/
 ├── devserver.py            # Devserver lifecycle manager for deployment validation (DinD)
 ├── dispatch.py             # Agent dispatch logic
 ├── docker_client.py        # Docker API client
+├── concurrent_executor.py  # Concurrent phase executor (spawns all agents simultaneously)
+├── consensus.py            # Consensus protocol for concurrent phase completion
 ├── events.py               # Event bus for pipeline events
 ├── gateway_client.py       # Gateway API client (sessions, worktrees, config)
 ├── handoffs.py             # Agent handoff data management
+├── message_store.py        # In-memory inter-agent message store (concurrent mode)
 ├── metrics.py              # Pipeline metrics and telemetry
 ├── models.py               # Pydantic models for pipelines
 ├── multi_agent.py          # Multi-agent orchestration
@@ -116,10 +119,11 @@ orchestrator/
 │   ├── containers.py       # Container management endpoints
 │   ├── decisions.py        # HITL decision endpoints
 │   ├── health.py           # Health check endpoints
+│   ├── messages.py         # Inter-agent message bus endpoints (concurrent mode)
 │   ├── metrics.py          # Metrics endpoints
 │   ├── phases.py           # Phase management endpoints
 │   ├── pipelines.py        # Pipeline CRUD and visualization endpoints
-│   └── signals.py          # Signal handling endpoints
+│   └── signals.py          # Signal handling endpoints (incl. readiness for concurrent mode)
 ├── Dockerfile              # Orchestrator container image
 ├── entrypoint.sh           # Container entry point
 ├── requirements.txt        # Python dependencies
