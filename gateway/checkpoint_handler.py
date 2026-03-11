@@ -161,13 +161,17 @@ def _fetch_inter_agent_messages(
         import urllib.request
         import json as json_mod
 
-        # Fetch messages for this agent (received + broadcast)
+        # Fetch all messages involving this agent (sent, received, and broadcast).
+        # The limit=1000 cap is intentionally high to capture the full message
+        # history for a single pipeline phase — typical runs exchange <100 messages.
         url = (
             f"{orchestrator_url}/api/v1/pipelines/{pipeline_id}/messages"
             f"?role={agent_role}&limit=1000"
         )
         req = urllib.request.Request(url, method="GET")
         req.add_header("Accept", "application/json")
+        # 5-second timeout: checkpoint capture is best-effort; if the orchestrator
+        # is slow or unreachable, we skip messages rather than blocking the checkpoint.
         with urllib.request.urlopen(req, timeout=5) as resp:
             data = json_mod.loads(resp.read())
             for msg in data.get("data", {}).get("messages", []):

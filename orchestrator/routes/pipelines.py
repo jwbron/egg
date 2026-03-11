@@ -853,8 +853,22 @@ def _get_concurrent_status(pipeline: "Pipeline") -> dict | None:
     """Get concurrent execution monitoring data for a pipeline.
 
     Returns None if concurrent execution is not enabled for this pipeline.
-    Returns a dict with agent states, message counts, and consensus progress
-    when concurrent mode is active.
+    Returns a dict with the following structure when concurrent mode is active::
+
+        {
+            "enabled": True,
+            "max_concurrent_agents": int,
+            "messages": {"total": int, "by_type": {"PROGRESS": int, ...}},
+            "consensus": {
+                "agents": {"coder": {"state": "READY", ...}, ...},
+                "is_complete": bool,
+                "blocking_agents": ["role", ...]  # agents not yet READY
+            },
+            "agents": [{"role": str, "status": str}, ...]  # from phase execution
+        }
+
+    Dependencies on other concurrent-mode modules (message_store, consensus) are
+    imported lazily and degrade gracefully to empty structures when unavailable.
     """
     config = pipeline.config
     if not getattr(config, "concurrent_execution", False):
@@ -865,7 +879,9 @@ def _get_concurrent_status(pipeline: "Pipeline") -> dict | None:
         "max_concurrent_agents": getattr(config, "max_concurrent_agents", 4),
     }
 
-    # Try to get message store status (Phase 1 dependency)
+    # Message store provides aggregate counts of inter-agent messages by type.
+    # This module is implemented in phase-1 of the concurrent execution feature;
+    # ImportError is expected until that phase lands.
     try:
         from ..message_store import get_message_store  # type: ignore[import-not-found]
 
@@ -879,7 +895,9 @@ def _get_concurrent_status(pipeline: "Pipeline") -> dict | None:
         logger.debug("Message store not available for status", error=str(e))
         result["messages"] = {"total": 0, "by_type": {}}
 
-    # Try to get consensus state (Phase 3 dependency)
+    # Consensus evaluator tracks per-agent readiness states and determines
+    # whether all agents agree the phase is complete. Implemented in phase-3;
+    # blocking_agents lists roles that are not yet READY (WORKING or BLOCKED).
     try:
         from ..consensus import get_consensus_evaluator  # type: ignore[import-not-found]
 
@@ -907,7 +925,8 @@ def _get_concurrent_status(pipeline: "Pipeline") -> dict | None:
             "blocking_agents": [],
         }
 
-    # Include active agent lifecycle info from phase execution
+    # Agent lifecycle info from the phase execution record — shows which agents
+    # are spawned for the current phase and their container-level status.
     current_phase_name = pipeline.current_phase.value
     phase_exec = pipeline.phases.get(current_phase_name)
     if phase_exec and hasattr(phase_exec, "agents"):
