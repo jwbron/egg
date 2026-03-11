@@ -484,8 +484,33 @@
       "started_at": "2026-03-11T05:26:02.908561",
       "work_started_at": "2026-03-11T05:26:02.937867",
       "completed_at": null,
-      "containers": [],
-      "agents": [],
+      "containers": [
+        {
+          "container_id": "d27439df1c3e3ce32ea066c4abf16676928060807478aa5902c8757a0cbd3b53",
+          "container_name": "egg-sandbox-egg-issue-1027-coder",
+          "status": "running",
+          "started_at": "2026-03-11T05:26:03.704144",
+          "exited_at": null,
+          "exit_code": null,
+          "agent_role": "coder",
+          "session_token": null
+        }
+      ],
+      "agents": [
+        {
+          "role": "coder",
+          "status": "running",
+          "container_id": "d27439df1c3e3ce32ea066c4abf16676928060807478aa5902c8757a0cbd3b53",
+          "started_at": "2026-03-11T05:26:03.704149",
+          "completed_at": null,
+          "commit": null,
+          "outputs": {},
+          "error": null,
+          "retry_count": 0,
+          "conflicts": [],
+          "plan_phase_id": "phase-4"
+        }
+      ],
       "review_cycles": 0,
       "hitl_review_cycles": 0,
       "cycle_timings": [
@@ -553,7 +578,7 @@
     }
   ],
   "created_at": "2026-03-11T04:15:49.526178",
-  "updated_at": "2026-03-11T05:26:02.972490",
+  "updated_at": "2026-03-11T05:26:03.704210",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
@@ -573,5 +598,5 @@
     "phase-3": "Consensus Protocol",
     "phase-4": "Agent Prompts and Integration Testing"
   },
-  "version": 70
+  "version": 71
 }
