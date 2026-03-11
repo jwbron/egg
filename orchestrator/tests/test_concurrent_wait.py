@@ -138,9 +138,7 @@ class TestRunConcurrentPhaseWait:
             _make_execution(AgentRole.TESTER, "tester-abc"),
             _make_execution(AgentRole.DOCUMENTER, "doc-abc"),
         ]
-        pipeline, mock_store, mock_spawner, mock_docker, phase_exec = self._make_mocks(
-            executions
-        )
+        pipeline, mock_store, mock_spawner, mock_docker, phase_exec = self._make_mocks(executions)
 
         mock_executor_instance = MagicMock()
         mock_executor_instance.spawn_all.return_value = executions
@@ -274,9 +272,7 @@ class TestRunConcurrentPhaseWait:
             _make_execution(AgentRole.CODER, "coder-abc"),
         ]
 
-        pipeline, mock_store, mock_spawner, mock_docker, phase_exec = self._make_mocks(
-            executions
-        )
+        pipeline, mock_store, mock_spawner, mock_docker, phase_exec = self._make_mocks(executions)
 
         mock_executor_instance = MagicMock()
         mock_executor_instance.spawn_all.return_value = executions
@@ -306,9 +302,7 @@ class TestRunConcurrentPhaseWait:
     @patch("routes.pipelines.get_pipeline_state_lock")
     @patch("routes.pipelines._build_agent_prompt", return_value="test prompt")
     @patch("concurrent_executor.ConcurrentPhaseExecutor", autospec=False)
-    def test_store_none_does_not_crash(
-        self, MockExecutor, mock_build_prompt, mock_state_lock
-    ):
+    def test_store_none_does_not_crash(self, MockExecutor, mock_build_prompt, mock_state_lock):
         """When store=None, state recording is skipped gracefully."""
         executions = [
             _make_execution(AgentRole.CODER, "coder-abc"),
