@@ -2,7 +2,7 @@
   "issue": 1027,
   "phase": "plan",
   "agent": "architect",
-  "revision": 1,
+  "revision": 2,
 
   "title": "Architecture analysis: Cross-agent communication and concurrent phase execution",
 
@@ -232,7 +232,7 @@
         "orchestrator/message_store.py (NEW — in-memory message storage)",
         "orchestrator/models.py (add Message model)",
         "orchestrator/events.py (add MESSAGE_SENT, MESSAGE_RECEIVED event types)",
-        "orchestrator/gateway.py or orchestrator/app.py (register message routes)"
+        "orchestrator/gateway.py or orchestrator/api.py (register message routes)"
       ]
     },
 
@@ -279,7 +279,8 @@
       "key_design_decisions": {
         "per_agent_worktrees": "Each concurrent agent gets its own worktree branch (e.g., egg/issue-{N}/coder, egg/issue-{N}/tester). This avoids git merge conflicts during concurrent development. The integrator merges all branches at the end. This leverages the existing Tier 3 per-phase worktree infrastructure in the gateway's WorktreeManager.",
         "agent_lifecycle": "Agents are spawned at phase start and persist until phase completion or consensus. No per-wave teardown. Container reuse across review cycles means the agent retains conversation history and working state.",
-        "integrator_role": "The integrator agent runs concurrently but monitors progress. When coder and tester both signal readiness, the integrator begins merge work. The integrator can also be spawned on-demand after consensus if resource cost is a concern."
+        "integrator_role": "The integrator agent runs concurrently but monitors progress. When coder and tester both signal readiness, the integrator begins merge work. The integrator can also be spawned on-demand after consensus if resource cost is a concern.",
+        "container_failure_behavior": "When a container fails (crash, timeout, non-zero exit), the ConcurrentPhaseExecutor follows a three-step escalation: (1) LOG — record the failure in the pipeline event log and set the agent's readiness state to BLOCKED with the failure reason; (2) NOTIFY — send a broadcast message to all remaining agents informing them of the failure (e.g., 'tester container exited with code 137: OOM killed') so they can adapt; (3) ESCALATE — create a HITL decision with options 'Retry agent', 'Continue without agent', or 'Abort phase'. The executor does NOT automatically retry or abort. The phase continues with remaining agents while waiting for human resolution. If the human selects 'Retry', the executor respawns the failed agent with its worktree branch intact. If 'Continue without', the failed agent is removed from the consensus quorum. If 'Abort', the executor tears down all containers and fails the phase. This matches the existing MultiAgentExecutor pattern of stopping on wave failure, but adapted for concurrent mode where other agents can continue working while the human decides."
       },
       "files_affected": [
         "orchestrator/concurrent_executor.py (NEW — concurrent phase execution logic)",
@@ -339,16 +340,15 @@
       "name": "Message API and Agent SDK",
       "description": "Build the orchestrator message bus and agent-facing CLI/client. This is independently valuable even without concurrent execution — agents in the existing wave model could use it for richer handoff data.",
       "tasks": [
-        "Create orchestrator/message_store.py with in-memory per-pipeline message storage",
-        "Create orchestrator/routes/messages.py with send/poll/status endpoints",
-        "Register message routes in orchestrator app",
-        "Add Message model to orchestrator/models.py",
-        "Add MESSAGE_SENT/MESSAGE_RECEIVED event types to orchestrator/events.py",
-        "Add send_message/poll_messages/get_message_status to OrchestratorClient",
+        "Add Message model to orchestrator/models.py, MESSAGE_SENT/MESSAGE_RECEIVED event types to orchestrator/events.py, and register message routes in orchestrator/api.py (MUST be done first — routes and store depend on models and events)",
+        "Create orchestrator/message_store.py with in-memory per-pipeline message storage (depends on Message model)",
+        "Create orchestrator/routes/messages.py with send/poll/status endpoints (depends on message store and models)",
         "Add Message/MessageType dataclasses to shared/egg_orchestrator/types.py",
+        "Add send_message/poll_messages/get_message_status to OrchestratorClient",
         "Add message subcommand group to egg-orch CLI",
         "Write tests for message store, API endpoints, and client methods"
       ],
+      "task_ordering_note": "TASK-1-3 (models, events, route registration in api.py) must be implemented before TASK-1-1 (message store) and TASK-1-2 (route handlers), since both depend on the Message model and event types. Recommended order: models+events+registration → message store → route handlers → types → client → CLI → tests.",
       "dependencies": [],
       "estimated_files_new": 3,
       "estimated_files_modified": 6
@@ -501,6 +501,21 @@
     ]
   },
 
+  "review_feedback_addressed": [
+    {
+      "feedback": "BLOCKING — Wrong file path: TASK-1-3 lists orchestrator/app.py. The Flask application is defined in orchestrator/api.py.",
+      "resolution": "All references to orchestrator/app.py have been corrected to orchestrator/api.py throughout the document, including the files_inventory section and architecture_design component descriptions."
+    },
+    {
+      "feedback": "BLOCKING — TASK-2-2 missing failure behavior: Must specify what ConcurrentPhaseExecutor does when a container fails.",
+      "resolution": "Added container_failure_behavior specification to component_3_concurrent_executor. Three-step escalation: (1) LOG failure and set agent readiness to BLOCKED, (2) NOTIFY remaining agents via broadcast message, (3) ESCALATE via HITL decision with Retry/Continue/Abort options. Phase continues with remaining agents while human decides. No automatic retry or abort."
+    },
+    {
+      "feedback": "BLOCKING — Phase 1 task ordering: TASK-1-3 (Message model, event types, route registration) must come before TASK-1-2 (route implementation).",
+      "resolution": "Reordered Phase 1 tasks so models/events/registration comes first. Added task_ordering_note documenting the dependency chain: models+events+registration → message store → route handlers → types → client → CLI → tests."
+    }
+  ],
+
   "files_inventory": {
     "new_files": [
       "orchestrator/message_store.py — In-memory per-pipeline message storage",
@@ -519,7 +534,7 @@
       "orchestrator/routes/pipelines.py — Route to concurrent executor based on config",
       "shared/egg_orchestrator/client.py — Add send_message, poll_messages, signal_readiness methods",
       "sandbox/egg_lib/orch_cli.py — Add message and readiness subcommands",
-      "orchestrator/app.py — Register message routes"
+      "orchestrator/api.py — Register message routes"
     ],
     "total_new": 5,
     "total_modified": 10
