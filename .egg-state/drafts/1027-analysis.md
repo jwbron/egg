@@ -6,7 +6,7 @@
 
 Today, agents in the SDLC pipeline operate in a strictly sequential, wave-based model. Within the implement phase, agents execute in dependency-ordered waves (Coder → Tester+Documenter → Integrator), communicating only through file-based handoff data written at completion. There is no mechanism for agents to exchange messages while running, meaning a tester cannot flag a problematic approach until after the coder has fully completed, and a documenter cannot ask the coder for clarification mid-implementation.
 
-The desired outcome is a system where agents within the same phase can exchange messages in real-time, multiple agent types run concurrently rather than in sequential waves, and phase completion requires consensus from all participating agents.
+The desired outcome is a system where **all agents in a phase start immediately and run concurrently**, exchanging messages in real-time, and phase completion requires consensus from all participating agents. Agents should be **long-lived and reusable** across waves and cycles rather than spawned fresh for each wave.
 
 ## Current Behavior
 
@@ -18,7 +18,7 @@ The pipeline progresses through four sequential phases: REFINE → PLAN → IMPL
 - **Wave 2**: Tester + Documenter (both depend on Coder, run in parallel)
 - **Wave 3**: Integrator (depends on Coder + Tester)
 
-Each wave must fully complete before the next begins. Agents in the same wave run in parallel but cannot communicate with each other.
+Each wave must fully complete before the next begins. Agents in the same wave run in parallel but cannot communicate with each other. Each agent is spawned as a fresh container per wave and destroyed on completion.
 
 ### Inter-Agent Communication
 
@@ -32,7 +32,7 @@ There is no mechanism for in-flight message exchange between running agents.
 
 ### Agent Lifecycle
 
-Each agent runs in an isolated Docker container with its own session, worktree branch, and gateway-enforced restrictions (`gateway/README.md`). The orchestrator spawns containers via `ContainerSpawner` (`orchestrator/container_spawner.py`), monitors them via `ContainerMonitor` (`orchestrator/container_monitor.py`), and collects results via signal handlers (`orchestrator/routes/signals.py:76-400`).
+Each agent runs in an isolated Docker container with its own session, worktree branch, and gateway-enforced restrictions (`gateway/README.md`). The orchestrator spawns containers via `ContainerSpawner` (`orchestrator/container_spawner.py`), monitors them via `ContainerMonitor` (`orchestrator/container_monitor.py`), and collects results via signal handlers (`orchestrator/routes/signals.py:76-400`). Containers are created per-wave and torn down on completion — there is no container reuse across waves or cycles.
 
 ### Existing Infrastructure That Supports This Feature
 
@@ -61,8 +61,9 @@ Several components already exist that this feature could build on:
 - **Role-based mutation**: The contract system enforces role-based field ownership (`gateway/contract_api.py:61-107`). Concurrent agents cannot violate these boundaries.
 
 ### Resource Constraints
-- Running 3+ agents concurrently per phase multiplies compute costs (each agent is a Claude Code session with Opus-class model).
+- Running all agents concurrently per phase multiplies compute costs (each agent is a Claude Code session with Opus-class model).
 - Docker container overhead: memory, CPU, and network resources per container.
+- Agent reuse means long-lived containers — must handle idle resource consumption.
 
 ### Compatibility Constraints
 - Must not break existing Tier 1 (single-agent) and Tier 2 (wave-based) execution models.
@@ -72,7 +73,7 @@ Several components already exist that this feature could build on:
 
 ### Option A: Message Bus via Orchestrator (Polling-Based)
 
-**Approach**: Add a message queue to the orchestrator. Agents send messages via `egg-orch message send --to <role> --body "..."` and receive via `egg-orch message poll`. Messages are stored in-memory (or git-backed state) and routed through the orchestrator.
+**Approach**: Add a message queue to the orchestrator. Agents send messages via `egg-orch message send --to <role> --body "..."` and receive via `egg-orch message poll`. Messages are stored in-memory (or git-backed state) and routed through the orchestrator. All agents start immediately in each phase and are reused across waves/cycles.
 
 **Pros**:
 - Simple to implement — extends existing signal API pattern
@@ -124,28 +125,9 @@ Several components already exist that this feature could build on:
 - Requires shared filesystem mount between containers (currently isolated)
 - Pollutes the repository with signal files
 
-### Option D: Incremental Enhancement — Extend Wave Model with Feedback Loops
-
-**Approach**: Rather than full concurrent execution, add a feedback mechanism to the existing wave model. After Wave 2 (Tester+Documenter), if issues are found, the system can cycle back to Wave 1 (Coder) with specific feedback. This keeps sequential execution but adds the ability for later agents to influence earlier ones.
-
-**Pros**:
-- Minimal architecture changes — extends existing wave model
-- Preserves all existing guarantees (isolation, sequential commits, no merge conflicts)
-- Already partially implemented via review cycles (`PhaseExecution.review_cycles`)
-- No concurrent git access complexity
-- No new messaging infrastructure needed
-- Lower compute cost than full concurrency
-
-**Cons**:
-- Not "real-time collaboration" — still fundamentally sequential
-- Feedback loops add latency (full agent restart per cycle)
-- Doesn't address the core request for concurrent execution
-- Limited to structured feedback, not free-form conversation
-- Multiple cycles multiply total compute cost
-
 ## Recommended Approach
 
-**Option A (Message Bus via Orchestrator, Polling-Based)** for the communication channel, combined with **incremental concurrent execution** (agents in the same wave can message each other, with future expansion to cross-wave concurrency).
+**Option A (Message Bus via Orchestrator, Polling-Based)** for the communication channel, with **all agents starting immediately** in each phase and **agents reused across waves and cycles**.
 
 **Rationale**:
 
@@ -155,21 +137,17 @@ Several components already exist that this feature could build on:
 
 3. **Maintains guarantees**: Centralized message routing preserves the audit trail, policy enforcement, and checkpoint capture that are core to egg's security model.
 
-4. **Incremental path**: Start with messaging between agents in the same wave (Tester ↔ Documenter in Wave 2), then expand to cross-wave messaging, then explore true concurrent execution of currently-sequential agents.
+4. **Consensus is separable**: The consensus-based completion protocol can be built independently on top of the existing signal API, regardless of which messaging approach is chosen.
 
-5. **Consensus is separable**: The consensus-based completion protocol can be built independently on top of the existing signal API, regardless of which messaging approach is chosen.
+**Concurrent execution model**: All agents (coder, tester, documenter, integrator) start simultaneously at the beginning of each phase. Rather than sequential waves, agents collaborate in real-time — the coder shares progress, the tester writes tests against in-progress code, the documenter tracks changes, and the integrator monitors for merge readiness. Each agent gets its own worktree to avoid git conflicts.
 
-**Regarding concurrent execution**: Full concurrent execution (all agents running simultaneously) introduces significant git workspace complexity. The recommended path is:
+**Agent reuse model**: Instead of spawning fresh containers per wave, agents are long-lived and persist across waves and review cycles within a phase. When one cycle completes (e.g., reviewer requests changes), the same agent containers receive new instructions via the messaging system rather than being torn down and recreated. This eliminates container startup latency, preserves agent context (conversation history, working state), and reduces compute overhead from re-bootstrapping. The `MultiAgentExecutor` would shift from a wave-spawn-teardown pattern to a spawn-once-coordinate-via-messages pattern.
 
-- **Phase 1**: Add messaging API to orchestrator + agent CLI. Agents in same wave can communicate.
-- **Phase 2**: Add consensus-based completion for waves.
-- **Phase 3**: Explore relaxing wave boundaries (e.g., start Tester while Coder is still running, using file-level locking or per-agent worktrees).
-
-This incremental approach delivers value at each step while managing risk.
+**Key design change from current architecture**: The `AgentWave` class and wave-based execution in `MultiAgentExecutor` would be replaced by a `ConcurrentPhaseExecutor` that spawns all agents at phase start, coordinates via messaging, and collects consensus for phase completion. Waves become logical coordination points within the messaging protocol rather than container lifecycle boundaries.
 
 ## Open Questions
 
-All decisions and feedback questions below are registered in the contract at `.egg-state/contracts/1027.json` — 6 decisions and 1 feedback item (with 5 open-ended questions) are available for human review during phase approval.
+All decisions and feedback questions below are registered in the contract at `.egg-state/contracts/1027.json` — 5 decisions and 1 feedback item (with 6 open-ended questions) are available for human review during phase approval.
 
 ### Decision 1: Communication Model
 
@@ -207,17 +185,9 @@ All decisions and feedback questions below are registered in the contract at `.e
 - [ ] **Voting with HITL tiebreaker** — Majority wins; ties escalate to human
 - [ ] Other (explain in reply)
 
-### Decision 5: Scope of Initial Implementation
+### Decision 5: Resource Cost Management
 
-**Question**: Should the initial implementation target full concurrent execution (all agents running simultaneously) or start with messaging within the existing wave model?
-
-- [ ] **Full concurrency** — All agents (coder, tester, documenter) run simultaneously from the start
-- [ ] **Incremental** — Add messaging first within existing waves, then expand to cross-wave concurrency (recommended)
-- [ ] Other (explain in reply)
-
-### Decision 6: Resource Cost Management
-
-**Question**: Running 3+ concurrent agents per phase significantly increases compute cost. What cost controls should be in place?
+**Question**: Running all agents concurrently per phase (with reuse across cycles) significantly increases compute cost. What cost controls should be in place?
 
 - [ ] **No limit** — Let all agents run concurrently; optimize later
 - [ ] **Configurable concurrency cap** — `PipelineConfig.max_concurrent_agents` limits simultaneous agents (recommended)
@@ -226,11 +196,11 @@ All decisions and feedback questions below are registered in the contract at `.e
 
 ### Feedback Questions (registered as `feedback-1` in contract)
 
-The following open-ended questions are registered in the contract (`feedback-1`, questions Q1–Q5) for human input:
+The following open-ended questions are registered in the contract (`feedback-1`, questions Q1–Q6) for human input:
 
 1. **Message persistence** (Q1): Should inter-agent messages be persisted in the contract/pipeline state (git-backed, survives restarts) or kept in-memory only (lost on orchestrator restart)? What is the expected message volume per phase?
 
-2. **Agent integration pattern** (Q2): Claude Code agents are LLM sessions that use tools. How should incoming messages surface to the agent? Options include: (a) agent periodically calls `egg-orch message poll` as part of its workflow, (b) a wrapper script checks for messages between tool calls and injects them into the conversation, (c) messages appear as tool results in the agent's context. Which integration pattern is preferred?
+2. **Agent integration pattern** (Q2): Claude Code agents are LLM sessions that use tools. How should incoming messages surface to the agent? Options include: (a) agent periodically calls `egg-orch message poll` as part of its workflow, (b) a wrapper script checks for messages between tool calls and injects them into the conversation, (c) messages appear as tool results in the agent context. Which integration pattern is preferred?
 
 3. **Backward compatibility** (Q3): Should the concurrent execution model be a new complexity tier (Tier 4) or replace/enhance the existing Tier 2/3 models? The issue describes replacing sequential with concurrent, but existing pipelines rely on sequential guarantees.
 
@@ -238,14 +208,11 @@ The following open-ended questions are registered in the contract (`feedback-1`,
 
 5. **Message visibility** (Q5): Should all agents in a phase see all messages (broadcast), or should messaging be point-to-point only? Broadcast is simpler but may create noise for agents that don't need certain messages.
 
+6. **Agent idle behavior** (Q6): When agents are reused across cycles, how should an idle agent behave between active work periods? Should it poll for new instructions, sleep with a wakeup mechanism, or stay active and monitor other agents' progress?
+
 ---
 
 *Authored-by: egg*
-
-<!-- METADATA
-complexity_tier: high
-parallel_phases: true
--->
 
 ```yaml
 # metadata

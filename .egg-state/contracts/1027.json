@@ -140,34 +140,7 @@
     },
     {
       "id": "decision-5",
-      "question": "Should the initial implementation target full concurrency or start incrementally?",
-      "type": "hitl",
-      "options": [
-        {
-          "id": "opt-1",
-          "label": "Full concurrency (all agents simultaneously from the start)",
-          "description": null
-        },
-        {
-          "id": "opt-2",
-          "label": "Incremental (messaging first within existing waves, then expand)",
-          "description": null
-        },
-        {
-          "id": "opt-3",
-          "label": "Other (explain in reply)",
-          "description": null
-        }
-      ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
-      "debounce_until": null
-    },
-    {
-      "id": "decision-6",
-      "question": "What resource cost controls should be in place for concurrent agents?",
+      "question": "Running all agents concurrently per phase (with reuse across cycles) increases compute cost. What cost controls should be in place?",
       "type": "hitl",
       "options": [
         {
@@ -232,6 +205,11 @@
       {
         "id": "Q5",
         "question": "Message visibility: Should all agents in a phase see all messages (broadcast), or should messaging be point-to-point only? Broadcast is simpler but may create noise for agents that don't need certain messages.",
+        "answer": null
+      },
+      {
+        "id": "Q6",
+        "question": "Agent idle behavior: When agents are reused across cycles, how should an idle agent behave between active work periods? Should it poll for new instructions, sleep with a wakeup mechanism, or stay active and monitor other agents' progress?",
         "answer": null
       }
     ],
