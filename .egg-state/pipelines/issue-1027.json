@@ -553,13 +553,25 @@
     }
   ],
   "created_at": "2026-03-11T04:15:49.526178",
-  "updated_at": "2026-03-11T05:26:02.943415",
+  "updated_at": "2026-03-11T05:26:02.972490",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
   "complexity_tier": "high",
   "error": null,
-  "plan_phase_waves": null,
-  "plan_phase_names": null,
-  "version": 69
+  "plan_phase_waves": [
+    [
+      "phase-1",
+      "phase-2",
+      "phase-3",
+      "phase-4"
+    ]
+  ],
+  "plan_phase_names": {
+    "phase-1": "Message API and Agent SDK",
+    "phase-2": "Concurrent Phase Executor",
+    "phase-3": "Consensus Protocol",
+    "phase-4": "Agent Prompts and Integration Testing"
+  },
+  "version": 70
 }
