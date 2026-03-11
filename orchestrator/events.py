@@ -62,6 +62,9 @@ class EventType(StrEnum):
     MESSAGE_SENT = "message.sent"
     MESSAGE_RECEIVED = "message.received"
 
+    # Consensus / readiness
+    READINESS_CHANGED = "readiness.changed"
+
     # HITL events
     DECISION_CREATED = "decision.created"
     DECISION_RESOLVED = "decision.resolved"

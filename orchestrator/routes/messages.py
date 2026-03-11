@@ -130,9 +130,19 @@ def poll_messages(pipeline_id: str) -> tuple[Response, int]:
         since_id: Return only messages after this ID
         limit: Max messages to return (default 100)
     """
+    # Validate pipeline exists (consistent with send_message)
+    try:
+        store = get_state_store()
+        store.load_pipeline(pipeline_id)
+    except (InvalidPipelineIdError, PipelineNotFoundError) as e:
+        return _make_error(str(e), 404)
+
     role = request.args.get("role")
     since_id = request.args.get("since_id")
-    limit = int(request.args.get("limit", "100"))
+    try:
+        limit = int(request.args.get("limit", "100"))
+    except (ValueError, TypeError):
+        return _make_error("Invalid limit parameter: must be an integer")
 
     message_store = get_message_store()
     messages = message_store.get_messages(
@@ -154,6 +164,13 @@ def poll_messages(pipeline_id: str) -> tuple[Response, int]:
 @messages_bp.route("/<pipeline_id>/messages/status", methods=["GET"])
 def message_status(pipeline_id: str) -> tuple[Response, int]:
     """Get message bus status for a pipeline."""
+    # Validate pipeline exists (consistent with send_message)
+    try:
+        store = get_state_store()
+        store.load_pipeline(pipeline_id)
+    except (InvalidPipelineIdError, PipelineNotFoundError) as e:
+        return _make_error(str(e), 404)
+
     message_store = get_message_store()
     status = message_store.get_status(pipeline_id)
     return _make_success("Status retrieved", data=status)

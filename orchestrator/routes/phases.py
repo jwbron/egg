@@ -97,6 +97,28 @@ from routes import get_repo_path  # noqa: E402 — shared helper
 from routes.checks import teardown_devserver  # noqa: E402
 
 
+def _clear_concurrent_state(pipeline_id: str) -> None:
+    """Clear ephemeral message store and consensus state on phase transition."""
+    try:
+        from message_store import get_message_store
+    except ImportError:
+        from ..message_store import get_message_store  # type: ignore[no-redef]
+
+    try:
+        from consensus import get_consensus_evaluator
+    except ImportError:
+        from ..consensus import get_consensus_evaluator  # type: ignore[no-redef]
+
+    cleared = get_message_store().clear(pipeline_id)
+    get_consensus_evaluator().clear(pipeline_id)
+    if cleared:
+        logger.debug(
+            "Cleared concurrent state on phase transition",
+            pipeline_id=pipeline_id,
+            messages_cleared=cleared,
+        )
+
+
 def validate_phase_transition(
     current_phase: PipelinePhase,
     target_phase: PipelinePhase,
@@ -317,6 +339,9 @@ def advance_phase(pipeline_id: str) -> tuple[Response, int]:
         # Tear down any active devserver for the previous phase
         teardown_devserver(pipeline_id)
 
+        # Clear ephemeral inter-agent messaging and consensus state
+        _clear_concurrent_state(pipeline_id)
+
         logger.info(
             "Phase advanced",
             pipeline_id=pipeline_id,
@@ -467,6 +492,9 @@ def complete_phase(pipeline_id: str) -> tuple[Response, int]:
         # Tear down any active devserver for this pipeline
         teardown_devserver(pipeline_id)
 
+        # Clear ephemeral inter-agent messaging and consensus state
+        _clear_concurrent_state(pipeline_id)
+
         logger.info(
             "Phase completed",
             pipeline_id=pipeline_id,
@@ -541,6 +569,9 @@ def fail_phase(pipeline_id: str) -> tuple[Response, int]:
 
         # Tear down any active devserver for this pipeline
         teardown_devserver(pipeline_id)
+
+        # Clear ephemeral inter-agent messaging and consensus state
+        _clear_concurrent_state(pipeline_id)
 
         logger.error(
             "Phase failed",

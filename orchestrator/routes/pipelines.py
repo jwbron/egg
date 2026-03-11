@@ -884,15 +884,18 @@ def _get_concurrent_status(pipeline: "Pipeline") -> dict | None:
     # ImportError is expected until that phase lands.
     try:
         from ..message_store import get_message_store  # type: ignore[import-not-found]
+    except ImportError:
+        logger.debug("Message store not available for status")
+        get_message_store = None  # type: ignore[assignment]
 
+    if get_message_store is not None:
         store = get_message_store()
         msg_status = store.get_status(pipeline.id)
         result["messages"] = {
             "total": msg_status.get("total", 0),
             "by_type": msg_status.get("by_type", {}),
         }
-    except (ImportError, Exception) as e:
-        logger.debug("Message store not available for status", error=str(e))
+    else:
         result["messages"] = {"total": 0, "by_type": {}}
 
     # Consensus evaluator tracks per-agent readiness states and determines
@@ -900,7 +903,11 @@ def _get_concurrent_status(pipeline: "Pipeline") -> dict | None:
     # blocking_agents lists roles that are not yet READY (WORKING or BLOCKED).
     try:
         from ..consensus import get_consensus_evaluator  # type: ignore[import-not-found]
+    except ImportError:
+        logger.debug("Consensus evaluator not available for status")
+        get_consensus_evaluator = None  # type: ignore[assignment]
 
+    if get_consensus_evaluator is not None:
         evaluator = get_consensus_evaluator()
         consensus_state = evaluator.get_state(pipeline.id)
         result["consensus"] = {
@@ -915,8 +922,7 @@ def _get_concurrent_status(pipeline: "Pipeline") -> dict | None:
             "is_complete": consensus_state.get("is_complete", False),
             "blocking_agents": consensus_state.get("blocking_agents", []),
         }
-    except (ImportError, Exception) as e:
-        logger.debug("Consensus evaluator not available for status", error=str(e))
+    else:
         result["consensus"] = {
             "agents": {},
             "is_complete": False,
@@ -930,12 +936,15 @@ def _get_concurrent_status(pipeline: "Pipeline") -> dict | None:
     if phase_exec and hasattr(phase_exec, "agents"):
         agents_info = []
         for agent in phase_exec.agents:
-            agents_info.append(
-                {
-                    "role": agent.role if hasattr(agent, "role") else str(agent),
-                    "status": agent.status.value if hasattr(agent, "status") else "unknown",
-                }
-            )
+            if hasattr(agent, "role"):
+                role = agent.role.value if hasattr(agent.role, "value") else str(agent.role)
+            else:
+                role = str(agent)
+            if hasattr(agent, "status"):
+                status = agent.status.value if hasattr(agent.status, "value") else "unknown"
+            else:
+                status = "unknown"
+            agents_info.append({"role": role, "status": status})
         result["agents"] = agents_info
 
     return result
@@ -4403,6 +4412,61 @@ def _run_multi_agent_phase(
     return 0, combined_logs
 
 
+def _run_concurrent_phase(
+    pipeline_id: str,
+    pipeline: Pipeline,
+    phase: str,
+    spawner,
+    repo_volumes: dict[str, str],
+    gateway_mode: str,
+    repos: list[str],
+    sandbox_env: dict[str, str],
+    store,
+    certs_volume: str | None,
+    worktree_repo_path: Path,
+) -> tuple[int, str]:
+    """Run a phase using concurrent all-agents-at-once execution.
+
+    Creates a ConcurrentPhaseExecutor that spawns all agents simultaneously,
+    each with its own worktree branch. Uses consensus-based phase completion.
+
+    Returns:
+        (exit_code, logs) — 0 on success.
+    """
+    try:
+        from concurrent_executor import ConcurrentPhaseExecutor
+    except ImportError:
+        from ..concurrent_executor import ConcurrentPhaseExecutor  # type: ignore
+
+    spawn_fn = spawner.create_concurrent_spawn_fn(
+        pipeline_id=pipeline_id,
+        issue_number=pipeline.issue_number,
+        repo_volumes=repo_volumes,
+        mode=gateway_mode,
+        repos=repos,
+        phase=phase if isinstance(phase, str) else phase.value,
+        sandbox_env=sandbox_env,
+        certs_volume=certs_volume,
+    )
+
+    max_concurrent = getattr(pipeline.config, "max_concurrent_agents", 4)
+    executor = ConcurrentPhaseExecutor(
+        pipeline=pipeline,
+        spawn_fn=spawn_fn,
+        max_concurrent=max_concurrent,
+    )
+
+    executions = executor.spawn_all()
+
+    has_failures = any(e.status.value == "failed" for e in executions)
+    logs = "\n".join(f"--- {e.role.value} (status={e.status.value}) ---" for e in executions)
+
+    if has_failures:
+        return 1, logs
+
+    return 0, logs
+
+
 def _spawn_and_wait(
     spawner,
     pipeline_id: str,
@@ -5779,7 +5843,61 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                         and pipeline.config.multi_agent
                     )
 
-                    if use_tier3:
+                    try:
+                        from multi_agent import is_concurrent_execution
+                    except ImportError:
+                        from ..multi_agent import is_concurrent_execution  # type: ignore[no-redef]
+
+                    use_concurrent = is_concurrent_execution(pipeline) and current_phase.value in {
+                        "implement"
+                    }
+
+                    if use_concurrent:
+                        logger.info(
+                            "Spawning concurrent phase execution",
+                            pipeline_id=pipeline_id,
+                            phase=current_phase,
+                            review_cycle=review_cycle,
+                            mode=gateway_mode,
+                        )
+
+                        try:
+                            exit_code, container_logs = _run_concurrent_phase(
+                                pipeline_id=pipeline_id,
+                                pipeline=pipeline,
+                                phase=current_phase,
+                                spawner=spawner,
+                                repo_volumes=repo_volumes,
+                                gateway_mode=gateway_mode,
+                                repos=repos,
+                                sandbox_env=sandbox_env,
+                                store=store,
+                                certs_volume=certs_volume,
+                                worktree_repo_path=worktree_repo_path,
+                            )
+                        except ContainerSpawnError as e:
+                            with get_pipeline_state_lock(pipeline_id):
+                                pipeline = store.load_pipeline(pipeline_id)
+                                phase_execution = pipeline.get_phase_execution(current_phase)
+                                if phase_execution.cycle_timings:
+                                    phase_execution.cycle_timings[
+                                        -1
+                                    ].completed_at = datetime.utcnow()
+                                phase_execution.status = PipelineStatus.FAILED
+                                phase_execution.error = str(e)
+                                phase_execution.completed_at = datetime.utcnow()
+                                pipeline.status = PipelineStatus.FAILED
+                                pipeline.error = str(e)
+                                store.save_pipeline(pipeline)
+                            logger.error(
+                                "Failed to spawn concurrent containers",
+                                pipeline_id=pipeline_id,
+                                error=str(e),
+                            )
+                            phase_failed = True
+                            break
+
+                    elif use_tier3:
                         logger.info(
                             "Spawning Tier 3 phase-level dispatch for implement",
                             pipeline_id=pipeline_id,

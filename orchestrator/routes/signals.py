@@ -622,7 +622,7 @@ def handle_readiness_signal(
     )
 
     emit_event(
-        EventType.AGENT_COMPLETED if state_str == "READY" else EventType.AGENT_STARTED,
+        EventType.READINESS_CHANGED,
         pipeline_id,
         data={
             "role": agent_role_str,

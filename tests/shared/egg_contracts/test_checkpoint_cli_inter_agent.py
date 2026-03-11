@@ -34,7 +34,7 @@ def _make_checkpoint(**kwargs) -> CheckpointV2:
             output_tokens=50,
             total_tokens=150,
             cache_read_tokens=0,
-            cache_write_tokens=0,
+            cache_creation_tokens=0,
         ),
         "created_at": now,
         "session_started_at": now,
