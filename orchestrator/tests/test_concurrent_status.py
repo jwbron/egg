@@ -198,7 +198,9 @@ class TestPipelineStatusConcurrentEndpoint:
 
     @patch("routes.pipelines.get_repo_path", return_value="/tmp/test-repo")
     @patch("routes.pipelines._resolve_pipeline")
-    def test_concurrent_section_absent_for_non_concurrent(self, mock_resolve, mock_repo_path, client):
+    def test_concurrent_section_absent_for_non_concurrent(
+        self, mock_resolve, mock_repo_path, client
+    ):
         """Verify concurrent section is NOT present for non-concurrent pipelines."""
         pipeline = Pipeline(
             id="issue-100",

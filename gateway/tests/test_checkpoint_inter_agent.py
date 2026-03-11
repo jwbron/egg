@@ -7,11 +7,8 @@ interaction, error handling, and edge cases.
 import json
 import os
 from datetime import UTC, datetime
-from http.client import HTTPResponse
-from io import BytesIO
 from unittest.mock import MagicMock, patch
 
-import pytest
 from checkpoint_handler import _fetch_inter_agent_messages
 from egg_contracts.checkpoints import InterAgentMessage
 

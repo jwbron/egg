@@ -179,7 +179,9 @@ class InterAgentMessage(BaseModel):
     pipeline_id: str = Field(..., description="Pipeline this message belongs to")
     from_role: str = Field(..., description="Sender agent role (e.g., 'coder', 'tester')")
     to_role: str = Field(..., description="Target role or 'all' for broadcast")
-    message_type: str = Field(..., description="Message type (e.g., 'PROGRESS', 'QUESTION', 'STATUS')")
+    message_type: str = Field(
+        ..., description="Message type (e.g., 'PROGRESS', 'QUESTION', 'STATUS')"
+    )
     subject: str = Field(default="", description="Message subject line")
     body: str = Field(default="", description="Message body content")
     timestamp: datetime = Field(..., description="When the message was sent")

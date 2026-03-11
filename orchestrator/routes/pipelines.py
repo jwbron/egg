@@ -908,9 +908,7 @@ def _get_concurrent_status(pipeline: "Pipeline") -> dict | None:
                 role: {
                     "state": readiness.state.value,
                     "reason": readiness.reason,
-                    "updated_at": readiness.timestamp.isoformat()
-                    if readiness.timestamp
-                    else None,
+                    "updated_at": readiness.timestamp.isoformat() if readiness.timestamp else None,
                 }
                 for role, readiness in consensus_state.get("agents", {}).items()
             },
@@ -932,10 +930,12 @@ def _get_concurrent_status(pipeline: "Pipeline") -> dict | None:
     if phase_exec and hasattr(phase_exec, "agents"):
         agents_info = []
         for agent in phase_exec.agents:
-            agents_info.append({
-                "role": agent.role if hasattr(agent, "role") else str(agent),
-                "status": agent.status.value if hasattr(agent, "status") else "unknown",
-            })
+            agents_info.append(
+                {
+                    "role": agent.role if hasattr(agent, "role") else str(agent),
+                    "status": agent.status.value if hasattr(agent, "status") else "unknown",
+                }
+            )
         result["agents"] = agents_info
 
     return result

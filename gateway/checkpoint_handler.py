@@ -149,17 +149,15 @@ def _fetch_inter_agent_messages(
     if not pipeline_id or not agent_role:
         return []
 
-    orchestrator_url = os.environ.get(
-        "EGG_ORCHESTRATOR_URL", "http://egg-orchestrator:9849"
-    )
+    orchestrator_url = os.environ.get("EGG_ORCHESTRATOR_URL", "http://egg-orchestrator:9849")
     concurrent_mode = os.environ.get("EGG_CONCURRENT_MODE", "false").lower() == "true"
     if not concurrent_mode:
         return []
 
     messages: list[InterAgentMessage] = []
     try:
-        import urllib.request
         import json as json_mod
+        import urllib.request
 
         # Fetch all messages involving this agent (sent, received, and broadcast).
         # The limit=1000 cap is intentionally high to capture the full message
@@ -616,9 +614,7 @@ class CheckpointHandler:
             repo = self._resolve_repo(repo_path, session)
 
             # Fetch inter-agent messages for concurrent execution mode
-            inter_agent_messages = _fetch_inter_agent_messages(
-                pipeline_id, session.agent_role
-            )
+            inter_agent_messages = _fetch_inter_agent_messages(pipeline_id, session.agent_role)
 
             checkpoint = CheckpointV2(
                 id=checkpoint_id,

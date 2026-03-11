@@ -5,12 +5,9 @@ including direction arrows, grouping by type, and edge cases.
 """
 
 from datetime import UTC, datetime
-from io import StringIO
 
-import pytest
 from egg_contracts.checkpoint_cli import print_checkpoint_details
 from egg_contracts.checkpoints import (
-    AgentType,
     CheckpointV2,
     InterAgentMessage,
     SessionMetadata,

@@ -8,7 +8,7 @@ are mocked to test the orchestration logic in isolation.
 """
 
 import json
-from datetime import datetime, UTC
+from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -147,13 +147,16 @@ class TestConcurrentMessageExchange:
 
         def poll_messages(pipeline_id, role, since_id=None):
             return [
-                m for m in messages
+                m
+                for m in messages
                 if m["to_role"] in (role, "all")
                 and (since_id is None or int(m["id"].split("-")[1]) > int(since_id.split("-")[1]))
             ]
 
         # Coder sends progress to all
-        send_message("issue-999", "coder", "all", "PROGRESS", "API complete", "Finished API endpoints")
+        send_message(
+            "issue-999", "coder", "all", "PROGRESS", "API complete", "Finished API endpoints"
+        )
 
         # Tester polls and gets the message
         received = poll_messages("issue-999", "tester")
@@ -163,7 +166,14 @@ class TestConcurrentMessageExchange:
         assert received[0]["subject"] == "API complete"
 
         # Tester sends question to coder
-        send_message("issue-999", "tester", "coder", "QUESTION", "Test expectations", "What is expected return code?")
+        send_message(
+            "issue-999",
+            "tester",
+            "coder",
+            "QUESTION",
+            "Test expectations",
+            "What is expected return code?",
+        )
 
         # Coder polls and gets broadcast + targeted question
         received = poll_messages("issue-999", "coder")
@@ -176,13 +186,15 @@ class TestConcurrentMessageExchange:
         messages = []
 
         def send_message(from_role, to_role, msg_type, subject):
-            messages.append({
-                "id": f"msg-{len(messages) + 1}",
-                "from_role": from_role,
-                "to_role": to_role,
-                "message_type": msg_type,
-                "subject": subject,
-            })
+            messages.append(
+                {
+                    "id": f"msg-{len(messages) + 1}",
+                    "from_role": from_role,
+                    "to_role": to_role,
+                    "message_type": msg_type,
+                    "subject": subject,
+                }
+            )
 
         def poll_for_role(role):
             return [m for m in messages if m["to_role"] in (role, "all")]
@@ -220,8 +232,7 @@ class TestConcurrentConsensusFlow:
             """Phase completes when all non-integrator agents are READY
             and integrator is READY."""
             non_integrator_ready = all(
-                agent_states[r] == "READY"
-                for r in ("coder", "tester", "documenter")
+                agent_states[r] == "READY" for r in ("coder", "tester", "documenter")
             )
             integrator_ready = agent_states["integrator"] == "READY"
             return non_integrator_ready and integrator_ready
@@ -312,13 +323,15 @@ class TestConcurrentAgentFailureHandling:
             # Send AGENT_FAILED to all other agents
             for role in agent_states:
                 if role != failed_role:
-                    messages.append({
-                        "to_role": role,
-                        "from_role": "system",
-                        "message_type": "AGENT_FAILED",
-                        "subject": f"Agent {failed_role} has failed",
-                        "body": f"The {failed_role} agent encountered an error.",
-                    })
+                    messages.append(
+                        {
+                            "to_role": role,
+                            "from_role": "system",
+                            "message_type": "AGENT_FAILED",
+                            "subject": f"Agent {failed_role} has failed",
+                            "body": f"The {failed_role} agent encountered an error.",
+                        }
+                    )
             agent_states[failed_role] = "FAILED"
 
         handle_agent_failure("tester")
@@ -368,13 +381,15 @@ class TestConcurrentEndToEnd:
         phase_complete = False
 
         def send_msg(from_role, to_role, msg_type, subject):
-            messages.append({
-                "id": f"msg-{len(messages) + 1}",
-                "from_role": from_role,
-                "to_role": to_role,
-                "message_type": msg_type,
-                "subject": subject,
-            })
+            messages.append(
+                {
+                    "id": f"msg-{len(messages) + 1}",
+                    "from_role": from_role,
+                    "to_role": to_role,
+                    "message_type": msg_type,
+                    "subject": subject,
+                }
+            )
 
         def signal_ready(role, reason=""):
             agent_states[role] = "READY"
