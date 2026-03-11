@@ -81,13 +81,13 @@ orchestrator/
 ├── cli.py                  # CLI for pipeline management
 ├── container_spawner.py    # Sandbox container lifecycle
 ├── container_monitor.py    # Container health monitoring
+├── concurrent_executor.py  # Concurrent phase executor (spawns all agents simultaneously)
+├── consensus.py            # Consensus protocol for concurrent phase completion
 ├── dag_visualizer.py       # ASCII DAG visualization for pipeline status (incl. Tier 3 sub-phase rendering)
 ├── decision_queue.py       # HITL decision queue
 ├── devserver.py            # Devserver lifecycle manager for deployment validation (DinD)
 ├── dispatch.py             # Agent dispatch logic
 ├── docker_client.py        # Docker API client
-├── concurrent_executor.py  # Concurrent phase executor (spawns all agents simultaneously)
-├── consensus.py            # Consensus protocol for concurrent phase completion
 ├── events.py               # Event bus for pipeline events
 ├── gateway_client.py       # Gateway API client (sessions, worktrees, config)
 ├── handoffs.py             # Agent handoff data management
