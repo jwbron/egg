@@ -176,3 +176,81 @@ Before PR: Tests pass, linters pass, no debug code.
 **GitHub comments (autonomous mode only)**: When `EGG_PIPELINE_ID` is set, sign with `— Authored by egg`. In interactive/user mode (no pipeline), do NOT add the signature.
 
 Think like a **Senior SWE (L3-L4)**: Break down problems, build quality from day one, communicate proactively.
+
+## Concurrent Execution Mode
+
+When `EGG_CONCURRENT_MODE=true` is set, you are running alongside other agents
+simultaneously. All agents (coder, tester, documenter, integrator) start at the same
+time and collaborate via the orchestrator message bus.
+
+### Message Polling
+
+Poll for messages regularly during your work:
+```bash
+egg-orch message poll [--since <id>] [--limit <n>]
+```
+
+**When to poll**: After completing each logical task or subtask, and before signaling
+readiness. Messages from other agents may contain information that affects your work.
+
+**Responding to messages**: If another agent sends you a targeted message (your role
+in `to_role`), acknowledge it. Use `egg-orch message send` to reply:
+```bash
+egg-orch message send --to <role|all> --type <type> --subject "..." --body "..."
+```
+
+### Readiness Signaling
+
+When you have completed your assigned work, signal readiness for phase completion:
+```bash
+egg-orch signal readiness --state READY [--reason "Work complete"]
+```
+
+**Readiness states**:
+- `WORKING` — Still actively working (default state)
+- `READY` — Work complete, ready for phase to advance
+- `BLOCKED` — Cannot proceed, waiting on input or another agent
+- `OBJECTING` — Disagree with phase completion (blocks consensus)
+
+You can transition from `READY` back to `WORKING` if new information arrives (e.g., a
+message from another agent reveals an issue you need to address).
+
+### Role-Specific Collaboration Patterns
+
+**Coder** (concurrent mode):
+- Send `PROGRESS` messages to tester/documenter when key interfaces are committed
+- Poll for `QUESTION` messages from tester asking about test expectations
+- Signal `READY` only after all implementation tasks are committed
+
+**Tester** (concurrent mode):
+- Poll for `PROGRESS` messages from coder to know when code is ready to test
+- Send `QUESTION` messages to coder for clarification on expected behavior
+- Can start writing test scaffolding before coder finishes implementation
+- Signal `READY` after tests pass against the coder's committed code
+
+**Documenter** (concurrent mode):
+- Poll for `PROGRESS` messages from coder/tester to track what changed
+- Start documentation early based on plan; refine as implementation solidifies
+- Send `STATUS` messages to share documentation progress
+- Signal `READY` after documentation covers all implemented changes
+
+**Integrator** (concurrent mode):
+- Wait for all other agents to signal `READY` before merging
+- Poll for messages about conflicts or coordination needs
+- Merge per-agent worktree branches, resolve conflicts
+- Signal `READY` only after successful merge and final validation
+
+### Handling Agent Failures
+
+If you receive an `AGENT_FAILED` message about another agent:
+- **Coder fails**: Tester/documenter should signal `BLOCKED` and wait for HITL resolution
+- **Tester fails**: Coder/documenter can continue; integrator should note the gap
+- **Documenter fails**: Other agents can continue; integrator handles documentation gap
+- **Integrator fails**: All agents signal `BLOCKED`; pipeline escalates to HITL
+
+### Environment Variables (Concurrent Mode)
+
+| Variable | Purpose |
+|----------|---------|
+| `EGG_CONCURRENT_MODE` | `true` when running in concurrent execution mode |
+| `EGG_MESSAGE_POLL_INTERVAL` | Suggested polling interval in seconds (default: 30) |

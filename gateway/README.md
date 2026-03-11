@@ -345,6 +345,8 @@ GET /api/v1/repos/visibility
 
 The checkpoint API provides read access to agent session checkpoints stored on the `egg/checkpoints/v2` branch. These endpoints enable checkpoint access in the sandbox when checkpoints are stored in an external repository. The `repo_path` query parameter is inferred from the environment if omitted.
 
+**Inter-agent message capture:** When `EGG_CONCURRENT_MODE=true`, the checkpoint handler fetches inter-agent messages from the orchestrator message bus (`/api/v1/pipelines/{id}/messages`) during both commit-triggered and session-end checkpoint creation. Messages are stored in the checkpoint's `inter_agent_messages` field with direction (`sent`/`received`) relative to the checkpointed agent. This enables post-hoc analysis of agent collaboration patterns. See `checkpoint_handler.py:_fetch_inter_agent_messages()`.
+
 ```
 GET /api/v1/checkpoints
   Query: ?repo_path=<path>&issue=<n>&pr=<n>&branch=<name>&session=<id>
@@ -446,6 +448,7 @@ gateway/
 │   ├── test_phase_api.py
 │   ├── test_contract_api.py
 │   ├── test_checkpoint_handler.py
+│   ├── test_checkpoint_inter_agent.py  # Inter-agent message capture in concurrent mode
 │   ├── test_concurrency.py
 │   ├── test_config_validator.py
 │   ├── test_edge_cases.py

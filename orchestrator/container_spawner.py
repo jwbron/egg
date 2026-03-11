@@ -626,6 +626,62 @@ class ContainerSpawner:
         ip_suffix = (int(short_id[:4], 16) % 200) + 10  # 10-209
         return f"172.32.0.{ip_suffix}"
 
+    def create_concurrent_spawn_fn(
+        self,
+        pipeline_id: str,
+        issue_number: int | None,
+        repo_volumes: dict[str, str] | None,
+        mode: str,
+        repos: list[str] | None,
+        phase: str | None,
+        sandbox_env: dict[str, str] | None = None,
+        image: str | None = None,
+        certs_volume: str | None = None,
+    ):
+        """Create a spawn callable compatible with ConcurrentPhaseExecutor.
+
+        Returns a function with signature (role, branch, extra_env) that spawns
+        a container via spawn_agent_container.
+
+        Args:
+            pipeline_id: Pipeline ID.
+            issue_number: GitHub issue number.
+            repo_volumes: Repo name to host path mappings.
+            mode: Gateway mode (public/private/local).
+            repos: Repositories for gateway session.
+            phase: Current pipeline phase.
+            sandbox_env: Base environment variables.
+            image: Docker image override.
+            certs_volume: Certs volume name.
+
+        Returns:
+            Callable suitable for ConcurrentPhaseExecutor.spawn_fn.
+        """
+
+        def _spawn(
+            role: AgentRole,
+            branch: str | None = None,
+            extra_env: dict[str, str] | None = None,
+            command: list[str] | None = None,
+        ) -> SpawnedContainer:
+            merged_env = {**(sandbox_env or {}), **(extra_env or {})}
+            return self.spawn_agent_container(
+                pipeline_id=pipeline_id,
+                agent_role=role,
+                issue_number=issue_number,
+                repo_volumes=repo_volumes,
+                mode=mode,
+                image=image,
+                extra_env=merged_env,
+                repos=repos,
+                phase=phase,
+                certs_volume=certs_volume,
+                branch=branch,
+                command=command,
+            )
+
+        return _spawn
+
 
 class ContainerSpawnError(Exception):
     """Error during container spawning."""

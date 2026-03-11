@@ -168,6 +168,29 @@ class AgentType(StrEnum):
     UNKNOWN = "unknown"
 
 
+class InterAgentMessage(BaseModel):
+    """A message exchanged between agents via the orchestrator message bus.
+
+    Captured in checkpoints for auditability of inter-agent communication
+    during concurrent execution mode.
+    """
+
+    id: str = Field(..., description="Unique message ID")
+    pipeline_id: str = Field(..., description="Pipeline this message belongs to")
+    from_role: str = Field(..., description="Sender agent role (e.g., 'coder', 'tester')")
+    to_role: str = Field(..., description="Target role or 'all' for broadcast")
+    message_type: str = Field(
+        ..., description="Message type (e.g., 'PROGRESS', 'QUESTION', 'STATUS')"
+    )
+    subject: str = Field(default="", description="Message subject line")
+    body: str = Field(default="", description="Message body content")
+    timestamp: datetime = Field(..., description="When the message was sent")
+    direction: str = Field(
+        default="unknown",
+        description="'sent' or 'received' relative to the checkpointed agent",
+    )
+
+
 class CheckpointV2(BaseModel):
     """
     V2 checkpoint with rich metadata for querying.
@@ -236,6 +259,12 @@ class CheckpointV2(BaseModel):
         default_factory=list, description="Tool invocations made during the session"
     )
     token_usage: TokenUsage | None = Field(default=None, description="Token usage for the session")
+
+    # Inter-agent communication (concurrent execution mode)
+    inter_agent_messages: list[InterAgentMessage] = Field(
+        default_factory=list,
+        description="Messages sent and received via the orchestrator message bus during concurrent execution",
+    )
 
     # Timestamps
     created_at: datetime = Field(..., description="When checkpoint was created")

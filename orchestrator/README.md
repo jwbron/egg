@@ -8,7 +8,7 @@ The orchestrator manages the end-to-end SDLC pipeline that turns GitHub issues i
 
 - **Manages pipeline state** — persists phase transitions, agent executions, and decisions on a git-backed state branch
 - **Spawns and monitors containers** — creates sandbox containers with proper configuration via the gateway sidecar
-- **Coordinates multi-agent execution** — runs specialized agents (coder, tester, documenter, etc.) in dependency-ordered waves
+- **Coordinates multi-agent execution** — runs specialized agents (coder, tester, documenter, etc.) in dependency-ordered waves or concurrently with message-based coordination
 - **Handles HITL decisions** — queues questions for human reviewers and blocks until resolved
 - **Streams real-time status** — provides SSE streams and DAG visualizations for pipeline monitoring
 - **Validates deployments** — manages Docker-in-Docker devserver stacks for pre-merge testing
@@ -65,6 +65,16 @@ Agents execute in dependency-ordered waves:
 - **Tier 3** (high complexity): Each plan phase gets its own implement cycle (Coder → Tester → Documenter → Checker → Code Reviewer), with independent phases running in parallel. An Integrator with expanded write access runs after all phase cycles complete. The DAG visualization renders Tier 3 pipelines with individual sub-phase boxes arranged by dependency wave, connected by fan-out/fan-in connectors for parallel phases.
 
 Reviewers always run as a separate step after all workers complete, spawning in parallel with a configurable concurrency limit.
+
+### Concurrent Execution Mode
+
+When `concurrent_execution: true` is set in the pipeline configuration, agents within a phase run simultaneously rather than in waves. Agents coordinate through:
+
+- **Message bus** — Agents exchange typed messages (PROGRESS, QUESTION, RESPONSE, STATUS, AGENT_FAILED) via the orchestrator's message API. Messages can target a specific role or broadcast to all agents.
+- **Readiness consensus** — Each agent signals its readiness state (WORKING, READY, BLOCKED, OBJECTING). The phase advances only when all agents reach READY. Any OBJECTING agent blocks phase completion.
+- **Per-agent worktrees** — Each concurrent agent gets an isolated worktree branch (e.g., `egg/issue-999/coder`, `egg/issue-999/tester`). The integrator merges these at the end.
+
+The `GET /pipelines/{id}/status` endpoint includes a `concurrent` section when this mode is active, showing message counts, consensus state, and agent lifecycle info. See [SDLC Pipeline Guide — Concurrent Execution](../docs/guides/sdlc-pipeline.md#concurrent-execution-mode) for full details.
 
 ### Worktree Sync
 
@@ -233,7 +243,7 @@ orchestrator/
 │   ├── phases.py           # Phase management endpoints
 │   ├── pipelines.py        # Pipeline CRUD endpoints
 │   └── signals.py          # Sandbox signal callback endpoints
-└── tests/                  # Unit and integration tests (30+ files, including health check tests)
+└── tests/                  # Unit and integration tests (30+ files, including health check and concurrent execution tests)
 ```
 
 ## Health Check Framework

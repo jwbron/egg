@@ -34,6 +34,10 @@ Run `egg-orch --help` for full usage. All commands support `--json` for machine-
 | `egg-orch gateway health` | Check gateway health |
 | `egg-orch gateway phase --issue <n>` | Get current phase from gateway |
 | `egg-orch gateway permissions <phase>` | Get allowed ops for a phase |
+| `egg-orch message send [<id>] --to <role\|all> --type <type> --subject "..." --body "..."` | Send inter-agent message (concurrent mode) |
+| `egg-orch message poll [<id>] [--since <id>] [--limit <n>]` | Poll for messages from other agents (concurrent mode) |
+| `egg-orch message status [<id>]` | Get message bus status (concurrent mode) |
+| `egg-orch signal readiness [<id>] --state <WORKING\|READY\|BLOCKED\|OBJECTING> [--reason "..."]` | Signal readiness state (concurrent mode) |
 
 Pipeline ID can be omitted when `EGG_PIPELINE_ID` is set (auto-set in orchestrated mode).
 Agent role can be omitted when `EGG_AGENT_ROLE` is set.
@@ -48,6 +52,8 @@ Agent role can be omitted when `EGG_AGENT_ROLE` is set.
 | `EGG_ISSUE_NUMBER` | Current issue number |
 | `EGG_REPO_PATH` | Repository path (auto-set; points to specific repo when one exists, otherwise `~/repos/` — check with `ls` before running git commands) |
 | `GATEWAY_URL` | Gateway URL (default: `http://egg-gateway:9848`) |
+| `EGG_CONCURRENT_MODE` | `true` when running in concurrent execution mode |
+| `EGG_MESSAGE_POLL_INTERVAL` | Suggested message polling interval in seconds (default: 30) |
 
 ## Common Workflows
 

@@ -102,6 +102,7 @@ Each major component has detailed documentation:
 | **Designing agent workflows** | [Agent-Mode Design](guides/agent-mode-design.md) | [Architecture Overview](architecture/README.md) |
 | **Adding bot workflows** | [Agent-Mode Design](guides/agent-mode-design.md) | [Action README](../action/README.md), existing workflows in `.github/workflows/` |
 | **SDLC pipeline changes** | [SDLC Pipeline Guide](guides/sdlc-pipeline.md) | [The Agentic Feedback Loop](agentic-feedback-loop.md), [ADR: SDLC Pipeline](adr/implemented/ADR-SDLC-Pipeline.md), [Plan Template](templates/plan.md), [Analysis Template](templates/analysis.md), `orchestrator/` package |
+| **Concurrent execution mode** | [SDLC Pipeline Guide — Concurrent Execution](guides/sdlc-pipeline.md#concurrent-execution-mode) | [Orchestrator README](../orchestrator/README.md), [Checkpoint Access](guides/checkpoint-access.md), [Agent Rules](../sandbox/.claude/rules/mission.md#concurrent-execution-mode) |
 | **Health check framework** | [Health Checks README](../orchestrator/health_checks/README.md) | [Orchestrator Architecture](architecture/orchestrator.md), [Orchestrator README](../orchestrator/README.md) |
 | **Generating repository documentation** | [GitHub Automation: Documentation Onboarding](guides/github-automation.md#documentation-onboarding) | [Onboarding prompt](../shared/prompts/onboarding-docs-prompt.md), `egg-onboarding-docs` CLI |
 
@@ -117,4 +118,4 @@ Each major component has detailed documentation:
 
 ---
 
-*Last updated: 2026-02-22*
+*Last updated: 2026-03-11*
