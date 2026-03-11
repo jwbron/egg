@@ -169,7 +169,7 @@ This incremental approach delivers value at each step while managing risk.
 
 ## Open Questions
 
-> **Note**: The `egg-contract` CLI could not register decisions/feedback because the gateway contract API returns 404 for the contract on this worktree branch (the contract file exists locally at `.egg-state/contracts/1027.json` but the gateway cannot access it from its container context). Questions are documented below for human review during phase approval.
+All decisions and feedback questions below are registered in the contract at `.egg-state/contracts/1027.json` — 6 decisions and 1 feedback item (with 5 open-ended questions) are available for human review during phase approval.
 
 ### Decision 1: Communication Model
 
@@ -224,17 +224,19 @@ This incremental approach delivers value at each step while managing risk.
 - [ ] **On-demand spawning** — Only spawn additional agents when the lead agent requests collaboration
 - [ ] Other (explain in reply)
 
-### Feedback Questions
+### Feedback Questions (registered as `feedback-1` in contract)
 
-1. **Message persistence**: Should inter-agent messages be persisted in the contract/pipeline state (git-backed, survives restarts) or kept in-memory only (lost on orchestrator restart)? What is the expected message volume per phase?
+The following open-ended questions are registered in the contract (`feedback-1`, questions Q1–Q5) for human input:
 
-2. **Agent integration pattern**: Claude Code agents are LLM sessions that use tools. How should incoming messages surface to the agent? Options include: (a) agent periodically calls `egg-orch message poll` as part of its workflow, (b) a wrapper script checks for messages between tool calls and injects them into the conversation, (c) messages appear as tool results in the agent's context. Which integration pattern is preferred?
+1. **Message persistence** (Q1): Should inter-agent messages be persisted in the contract/pipeline state (git-backed, survives restarts) or kept in-memory only (lost on orchestrator restart)? What is the expected message volume per phase?
 
-3. **Backward compatibility**: Should the concurrent execution model be a new complexity tier (Tier 4) or replace/enhance the existing Tier 2/3 models? The issue describes replacing sequential with concurrent, but existing pipelines rely on sequential guarantees.
+2. **Agent integration pattern** (Q2): Claude Code agents are LLM sessions that use tools. How should incoming messages surface to the agent? Options include: (a) agent periodically calls `egg-orch message poll` as part of its workflow, (b) a wrapper script checks for messages between tool calls and injects them into the conversation, (c) messages appear as tool results in the agent's context. Which integration pattern is preferred?
 
-4. **Consensus timeout**: For consensus-based phase completion, what happens if one agent is stuck or crashed? Should there be a timeout after which the remaining agents' consensus is sufficient? What should the timeout be?
+3. **Backward compatibility** (Q3): Should the concurrent execution model be a new complexity tier (Tier 4) or replace/enhance the existing Tier 2/3 models? The issue describes replacing sequential with concurrent, but existing pipelines rely on sequential guarantees.
 
-5. **Message visibility**: Should all agents in a phase see all messages (broadcast), or should messaging be point-to-point only? Broadcast is simpler but may create noise for agents that don't need certain messages.
+4. **Consensus timeout** (Q4): For consensus-based phase completion, what happens if one agent is stuck or crashed? Should there be a timeout after which the remaining agents' consensus is sufficient? What should the timeout be?
+
+5. **Message visibility** (Q5): Should all agents in a phase see all messages (broadcast), or should messaging be point-to-point only? Broadcast is simpler but may create noise for agents that don't need certain messages.
 
 ---
 

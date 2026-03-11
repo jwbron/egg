@@ -14,7 +14,6 @@
       "id": "decision-1",
       "question": "What communication model should inter-agent messaging use?",
       "type": "hitl",
-      "phase": "refine",
       "options": [
         {
           "id": "opt-1",
@@ -47,7 +46,6 @@
       "id": "decision-2",
       "question": "What message format should inter-agent messages use?",
       "type": "hitl",
-      "phase": "refine",
       "options": [
         {
           "id": "opt-1",
@@ -80,7 +78,6 @@
       "id": "decision-3",
       "question": "How should concurrent agents share the git workspace?",
       "type": "hitl",
-      "phase": "refine",
       "options": [
         {
           "id": "opt-1",
@@ -113,7 +110,6 @@
       "id": "decision-4",
       "question": "How should disagreements between agents be resolved?",
       "type": "hitl",
-      "phase": "refine",
       "options": [
         {
           "id": "opt-1",
@@ -146,7 +142,6 @@
       "id": "decision-5",
       "question": "Should the initial implementation target full concurrency or start incrementally?",
       "type": "hitl",
-      "phase": "refine",
       "options": [
         {
           "id": "opt-1",
@@ -174,7 +169,6 @@
       "id": "decision-6",
       "question": "What resource cost controls should be in place for concurrent agents?",
       "type": "hitl",
-      "phase": "refine",
       "options": [
         {
           "id": "opt-1",
@@ -211,8 +205,109 @@
   "plan_review_cycles": 0,
   "plan_review_feedback": "",
   "pr": null,
-  "feedback": null,
+  "feedback": {
+    "id": "feedback-1",
+    "phase": "refine",
+    "questions": [
+      {
+        "id": "Q1",
+        "question": "Message persistence: Should inter-agent messages be persisted in the contract/pipeline state (git-backed, survives restarts) or kept in-memory only (lost on orchestrator restart)? What is the expected message volume per phase?",
+        "answer": null
+      },
+      {
+        "id": "Q2",
+        "question": "Agent integration pattern: Claude Code agents are LLM sessions that use tools. How should incoming messages surface to the agent? Options include: (a) agent periodically calls egg-orch message poll as part of its workflow, (b) a wrapper script checks for messages between tool calls and injects them into the conversation, (c) messages appear as tool results in the agent context. Which integration pattern is preferred?",
+        "answer": null
+      },
+      {
+        "id": "Q3",
+        "question": "Backward compatibility: Should the concurrent execution model be a new complexity tier (Tier 4) or replace/enhance the existing Tier 2/3 models? The issue describes replacing sequential with concurrent, but existing pipelines rely on sequential guarantees.",
+        "answer": null
+      },
+      {
+        "id": "Q4",
+        "question": "Consensus timeout: For consensus-based phase completion, what happens if one agent is stuck or crashed? Should there be a timeout after which the remaining agents consensus is sufficient? What should the timeout be?",
+        "answer": null
+      },
+      {
+        "id": "Q5",
+        "question": "Message visibility: Should all agents in a phase see all messages (broadcast), or should messaging be point-to-point only? Broadcast is simpler but may create noise for agents that don't need certain messages.",
+        "answer": null
+      }
+    ],
+    "submitted": false,
+    "submitted_by": null,
+    "submitted_at": null,
+    "comment_id": null,
+    "debounce_until": null
+  },
   "phase_configs": null,
-  "agent_executions": [],
+  "agent_executions": [
+    {
+      "role": "coder",
+      "phase_id": null,
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "commit": null,
+      "checkpoint_id": null,
+      "outputs": {},
+      "error": null,
+      "retry_count": 0,
+      "conflicts": []
+    },
+    {
+      "role": "tester",
+      "phase_id": null,
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "commit": null,
+      "checkpoint_id": null,
+      "outputs": {},
+      "error": null,
+      "retry_count": 0,
+      "conflicts": []
+    },
+    {
+      "role": "documenter",
+      "phase_id": null,
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "commit": null,
+      "checkpoint_id": null,
+      "outputs": {},
+      "error": null,
+      "retry_count": 0,
+      "conflicts": []
+    },
+    {
+      "role": "integrator",
+      "phase_id": null,
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "commit": null,
+      "checkpoint_id": null,
+      "outputs": {},
+      "error": null,
+      "retry_count": 0,
+      "conflicts": []
+    },
+    {
+      "role": "reviewer_agent_design",
+      "phase_id": null,
+      "status": "complete",
+      "started_at": null,
+      "completed_at": "2026-03-11T04:23:52.584771Z",
+      "commit": null,
+      "checkpoint_id": null,
+      "outputs": {},
+      "error": null,
+      "retry_count": 0,
+      "conflicts": []
+    }
+  ],
   "multi_agent_config": null
 }
