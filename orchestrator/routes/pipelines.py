@@ -830,6 +830,11 @@ def get_pipeline_status(pipeline_id: str) -> tuple[Response, int]:
                 "created_at": d.created_at.isoformat(),
             }
 
+        # Include concurrent execution monitoring when enabled
+        concurrent_data = _get_concurrent_status(pipeline)
+        if concurrent_data:
+            data["concurrent"] = concurrent_data
+
         return make_success_response("Status retrieved", data=data)
 
     except InvalidPipelineIdError:
@@ -842,6 +847,79 @@ def get_pipeline_status(pipeline_id: str) -> tuple[Response, int]:
             f"Pipeline {pipeline_id} not found",
             status_code=404,
         )
+
+
+def _get_concurrent_status(pipeline: "Pipeline") -> dict | None:
+    """Get concurrent execution monitoring data for a pipeline.
+
+    Returns None if concurrent execution is not enabled for this pipeline.
+    Returns a dict with agent states, message counts, and consensus progress
+    when concurrent mode is active.
+    """
+    config = pipeline.config
+    if not getattr(config, "concurrent_execution", False):
+        return None
+
+    result: dict = {
+        "enabled": True,
+        "max_concurrent_agents": getattr(config, "max_concurrent_agents", 4),
+    }
+
+    # Try to get message store status (Phase 1 dependency)
+    try:
+        from ..message_store import get_message_store  # type: ignore[import-not-found]
+
+        store = get_message_store()
+        msg_status = store.get_status(pipeline.id)
+        result["messages"] = {
+            "total": msg_status.get("total", 0),
+            "by_type": msg_status.get("by_type", {}),
+        }
+    except (ImportError, Exception) as e:
+        logger.debug("Message store not available for status", error=str(e))
+        result["messages"] = {"total": 0, "by_type": {}}
+
+    # Try to get consensus state (Phase 3 dependency)
+    try:
+        from ..consensus import get_consensus_evaluator  # type: ignore[import-not-found]
+
+        evaluator = get_consensus_evaluator()
+        consensus_state = evaluator.get_state(pipeline.id)
+        result["consensus"] = {
+            "agents": {
+                role: {
+                    "state": readiness.state.value,
+                    "reason": readiness.reason,
+                    "updated_at": readiness.timestamp.isoformat()
+                    if readiness.timestamp
+                    else None,
+                }
+                for role, readiness in consensus_state.get("agents", {}).items()
+            },
+            "is_complete": consensus_state.get("is_complete", False),
+            "blocking_agents": consensus_state.get("blocking_agents", []),
+        }
+    except (ImportError, Exception) as e:
+        logger.debug("Consensus evaluator not available for status", error=str(e))
+        result["consensus"] = {
+            "agents": {},
+            "is_complete": False,
+            "blocking_agents": [],
+        }
+
+    # Include active agent lifecycle info from phase execution
+    current_phase_name = pipeline.current_phase.value
+    phase_exec = pipeline.phases.get(current_phase_name)
+    if phase_exec and hasattr(phase_exec, "agents"):
+        agents_info = []
+        for agent in phase_exec.agents:
+            agents_info.append({
+                "role": agent.role if hasattr(agent, "role") else str(agent),
+                "status": agent.status.value if hasattr(agent, "status") else "unknown",
+            })
+        result["agents"] = agents_info
+
+    return result
 
 
 def _read_shared_criteria(
