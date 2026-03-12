@@ -480,9 +480,7 @@ def run_issue_mode(
     print(f"\n{DIM}Creating pipeline...{RESET}")
     try:
         network_mode = _detect_network_mode()
-        config: dict[str, object] | None = (
-            {"concurrent_execution": True} if concurrent else None
-        )
+        config: dict[str, object] | None = {"concurrent_execution": True} if concurrent else None
         client.create_pipeline(
             issue_number=issue_number,
             repo=repo,
@@ -506,9 +504,7 @@ def run_issue_mode(
                 elif status in ("complete", "cancelled"):
                     # Terminal — delete and re-create
                     print(f"  Pipeline was {status}. Restarting...")
-                    config = (
-                        {"concurrent_execution": True} if concurrent else None
-                    )
+                    config = {"concurrent_execution": True} if concurrent else None
                     _restart_pipeline(
                         client,
                         pipeline_id,
