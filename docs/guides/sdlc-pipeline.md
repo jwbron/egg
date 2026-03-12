@@ -1275,7 +1275,20 @@ message bus hosted by the orchestrator.
 
 ### Configuration
 
-Enable concurrent execution in the pipeline config:
+Enable concurrent execution with the `--concurrent` CLI flag:
+
+```bash
+# Issue mode
+egg-sdlc -r egg -i 999 --concurrent
+
+# Local/prompt mode
+egg-sdlc -r egg -p "Add feature X" --concurrent
+
+# Via egg-orch directly
+egg-orch pipeline create --repo owner/repo --issue 999 --branch egg/issue-999 --concurrent
+```
+
+Or pass it in the pipeline config JSON (e.g. via the API):
 
 ```json
 {
