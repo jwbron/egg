@@ -29,16 +29,9 @@ class TestCoordinatorInstructionsExist:
     """Tests for coordinator agent instructions (Phase 5, TASK-5-1)."""
 
     def test_coordinator_instructions_file_exists(self):
-        """sandbox/.claude/rules/coordinator.md must exist.
-
-        Gap: Coordinator agent instructions file needs to be created.
-        """
+        """sandbox/.claude/rules/coordinator.md must exist."""
         instructions_path = _project_root / "sandbox" / ".claude" / "rules" / "coordinator.md"
-        assert instructions_path.exists(), (
-            "sandbox/.claude/rules/coordinator.md does not exist. "
-            "Create coordinator agent instructions covering: mission, tools, "
-            "workflow selection guidance, escalation policy, guardrail awareness."
-        )
+        assert instructions_path.exists()
 
     def test_coordinator_instructions_under_3000_tokens(self):
         """Coordinator instructions should be under 3000 tokens."""
@@ -131,16 +124,9 @@ class TestCoordinatorDocumentation:
     """Tests for coordinator documentation (Phase 5, TASK-5-5)."""
 
     def test_coordinator_guide_exists(self):
-        """docs/guides/coordinator.md must exist.
-
-        Gap: Documentation not yet created.
-        """
+        """docs/guides/coordinator.md must exist."""
         guide_path = _project_root / "docs" / "guides" / "coordinator.md"
-        assert guide_path.exists(), (
-            "docs/guides/coordinator.md does not exist. "
-            "Create guide covering: architecture, configuration, MCP setup, "
-            "behavior, guardrails, troubleshooting."
-        )
+        assert guide_path.exists()
 
     def test_index_links_to_coordinator_guide(self):
         """docs/index.md must link to coordinator guide."""

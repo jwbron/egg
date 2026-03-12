@@ -20,27 +20,14 @@ class TestMCPServerModuleExists:
     """Tests for the existence of MCP server modules."""
 
     def test_mcp_server_file_exists(self):
-        """orchestrator/mcp_server.py must exist.
-
-        Gap: This is a net-new component.
-        """
+        """orchestrator/mcp_server.py must exist."""
         mcp_path = _project_root / "orchestrator" / "mcp_server.py"
-        assert mcp_path.exists(), (
-            "orchestrator/mcp_server.py does not exist. "
-            "Create SSE-based MCP server using the official mcp Python package."
-        )
+        assert mcp_path.exists()
 
     def test_mcp_tools_file_exists(self):
-        """orchestrator/mcp_tools.py must exist.
-
-        Gap: MCP tool definitions need to be created.
-        """
+        """orchestrator/mcp_tools.py must exist."""
         tools_path = _project_root / "orchestrator" / "mcp_tools.py"
-        assert tools_path.exists(), (
-            "orchestrator/mcp_tools.py does not exist. "
-            "Create MCP tool definitions: submit_task, get_status, provide_input, "
-            "list_tasks, cancel_task."
-        )
+        assert tools_path.exists()
 
 
 class TestMCPServerStructure:

@@ -101,7 +101,13 @@ class TestMCPServerApp:
         tools = data["tools"]
         assert len(tools) == 5
         tool_names = {t["name"] for t in tools}
-        assert tool_names == {"submit_task", "get_status", "provide_input", "list_tasks", "cancel_task"}
+        assert tool_names == {
+            "submit_task",
+            "get_status",
+            "provide_input",
+            "list_tasks",
+            "cancel_task",
+        }
 
     def test_call_tool_missing_body(self, mcp_client):
         response = mcp_client.post(

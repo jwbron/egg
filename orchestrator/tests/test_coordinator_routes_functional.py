@@ -147,9 +147,10 @@ class TestSpawnEndpoint:
         store = MagicMock()
         store.load_pipeline.return_value = _make_pipeline()
 
-        with patch("routes.coordinator.get_state_store", return_value=store), patch(
-            "routes.coordinator.get_pipeline_state_lock"
-        ) as mock_lock:
+        with (
+            patch("routes.coordinator.get_state_store", return_value=store),
+            patch("routes.coordinator.get_pipeline_state_lock") as mock_lock,
+        ):
             mock_lock.return_value.__enter__ = MagicMock()
             mock_lock.return_value.__exit__ = MagicMock(return_value=False)
 
@@ -452,9 +453,10 @@ class TestCancelEndpoint:
         store = MagicMock()
         store.load_pipeline.return_value = _make_pipeline()
 
-        with patch("routes.coordinator.get_state_store", return_value=store), patch(
-            "routes.coordinator.get_pipeline_state_lock"
-        ) as mock_lock:
+        with (
+            patch("routes.coordinator.get_state_store", return_value=store),
+            patch("routes.coordinator.get_pipeline_state_lock") as mock_lock,
+        ):
             mock_lock.return_value.__enter__ = MagicMock()
             mock_lock.return_value.__exit__ = MagicMock(return_value=False)
 
