@@ -31,7 +31,8 @@
       "ckpt-d89f0d9b6f403971",
       "ckpt-4fb1bd2c4c22ba00",
       "ckpt-0acf21ef70dc5f73",
-      "ckpt-3a69c59610d50839"
+      "ckpt-3a69c59610d50839",
+      "ckpt-7308deb306ce195d"
     ]
   },
   "by_commit": {},
@@ -70,7 +71,8 @@
       "ckpt-604ea983dc092b20",
       "ckpt-4fb1bd2c4c22ba00",
       "ckpt-0acf21ef70dc5f73",
-      "ckpt-3a69c59610d50839"
+      "ckpt-3a69c59610d50839",
+      "ckpt-7308deb306ce195d"
     ]
   },
   "by_pr": {},
@@ -129,7 +131,8 @@
       "ckpt-604ea983dc092b20",
       "ckpt-4fb1bd2c4c22ba00",
       "ckpt-0acf21ef70dc5f73",
-      "ckpt-3a69c59610d50839"
+      "ckpt-3a69c59610d50839",
+      "ckpt-7308deb306ce195d"
     ]
   },
   "by_status": {
@@ -164,7 +167,8 @@
       "ckpt-d89f0d9b6f403971",
       "ckpt-4fb1bd2c4c22ba00",
       "ckpt-0acf21ef70dc5f73",
-      "ckpt-3a69c59610d50839"
+      "ckpt-3a69c59610d50839",
+      "ckpt-7308deb306ce195d"
     ]
   },
   "by_trigger": {
@@ -199,7 +203,8 @@
       "ckpt-d89f0d9b6f403971",
       "ckpt-4fb1bd2c4c22ba00",
       "ckpt-0acf21ef70dc5f73",
-      "ckpt-3a69c59610d50839"
+      "ckpt-3a69c59610d50839",
+      "ckpt-7308deb306ce195d"
     ]
   },
   "checkpoints": [
@@ -791,8 +796,27 @@
       "tool_call_count": 0,
       "total_tokens": 0,
       "trigger_type": "session_end"
+    },
+    {
+      "agent_type": "unknown",
+      "branch": null,
+      "commit_sha": null,
+      "created_at": "2026-03-12T21:11:09.061733Z",
+      "files_touched_count": 0,
+      "id": "ckpt-7308deb306ce195d",
+      "issue_number": null,
+      "message_count": 0,
+      "pipeline_id": "state-sync",
+      "pipeline_phase": null,
+      "pr_number": null,
+      "repo": null,
+      "session_id": "state-sync-failsafe-push",
+      "session_status": "completed",
+      "tool_call_count": 0,
+      "total_tokens": 0,
+      "trigger_type": "session_end"
     }
   ],
-  "last_updated": "2026-03-12T21:11:08.009663Z",
+  "last_updated": "2026-03-12T21:11:09.928379Z",
   "schemaVersion": "2.0"
 }
