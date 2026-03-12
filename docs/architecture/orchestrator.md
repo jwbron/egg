@@ -388,7 +388,9 @@ Fixed IPs:
 - `GET /pipelines/{id}/visualization` - Pipeline status snapshot (JSON, text, or ASCII); for Tier 3 pipelines, the Implement phase is expanded into sub-phase boxes with fan-out/fan-in connectors
 - `GET /pipelines/{id}/stream` - Real-time SSE stream for single pipeline events and visualization
 - `GET /pipelines/stream` - Unified SSE stream for all active pipelines (supports `?ascii=true`, `?active_only=false`, `?full_dag=true`)
-- `POST /pipelines/{id}/signal` - Sandbox signals (complete, progress, error)
+- `POST /pipelines/{id}/signal` - Sandbox signals (complete, progress, error, readiness)
+- `GET|POST /pipelines/{id}/messages` - Inter-agent message bus (send/poll; concurrent mode)
+- `GET /pipelines/{id}/messages/status` - Message bus statistics (concurrent mode)
 - `GET /pipelines/{id}/decisions` - HITL decision queue
 - `POST /pipelines/{id}/deployment-check/start` - Start devserver for deployment validation
 - `GET /pipelines/{id}/deployment-check/status` - Poll devserver status
