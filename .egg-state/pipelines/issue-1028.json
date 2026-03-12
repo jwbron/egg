@@ -5,7 +5,7 @@
   "branch": "egg/issue-1028",
   "mode": "issue",
   "prompt": null,
-  "status": "running",
+  "status": "failed",
   "current_phase": "plan",
   "config": {
     "auto_create_pr": true,
@@ -161,13 +161,13 @@
     }
   ],
   "created_at": "2026-03-12T21:16:26.948922",
-  "updated_at": "2026-03-12T21:39:36.669522",
+  "updated_at": "2026-03-12T21:39:36.715323",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
   "complexity_tier": "mid",
-  "error": null,
+  "error": "Contract for 1028 is invalid: 4 validation errors for Contract\nfeedback.id\n  Field required [type=missing, input_value={'questions': [{'id': 'fe...e, 'submitted_at': None}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.12/v/missing\nfeedback.questions.0.id\n  String should match pattern '^Q[0-9]+$' [type=string_pattern_mismatch, input_value='feedback-1', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.12/v/string_pattern_mismatch\nfeedback.questions.1.id\n  String should match pattern '^Q[0-9]+$' [type=string_pattern_mismatch, input_value='feedback-2', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.12/v/string_pattern_mismatch\nfeedback.questions.2.id\n  String should match pattern '^Q[0-9]+$' [type=string_pattern_mismatch, input_value='feedback-3', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.12/v/string_pattern_mismatch",
   "plan_phase_waves": null,
   "plan_phase_names": null,
-  "version": 22
+  "version": 23
 }
