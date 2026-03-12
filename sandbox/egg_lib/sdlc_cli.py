@@ -476,11 +476,12 @@ def run_issue_mode(
     print(f"  Pipeline: {pipeline_id}")
     print(f"  Branch:   {branch}")
 
+    config: dict[str, object] | None = {"concurrent_execution": True} if concurrent else None
+
     # Create pipeline
     print(f"\n{DIM}Creating pipeline...{RESET}")
     try:
         network_mode = _detect_network_mode()
-        config: dict[str, object] | None = {"concurrent_execution": True} if concurrent else None
         client.create_pipeline(
             issue_number=issue_number,
             repo=repo,
@@ -504,7 +505,6 @@ def run_issue_mode(
                 elif status in ("complete", "cancelled"):
                     # Terminal — delete and re-create
                     print(f"  Pipeline was {status}. Restarting...")
-                    config = {"concurrent_execution": True} if concurrent else None
                     _restart_pipeline(
                         client,
                         pipeline_id,
@@ -534,9 +534,6 @@ def run_issue_mode(
                             file=sys.stderr,
                         )
                         return 1
-                    config2: dict[str, object] | None = (
-                        {"concurrent_execution": True} if concurrent else None
-                    )
                     _restart_pipeline(
                         client,
                         pipeline_id,
@@ -544,7 +541,7 @@ def run_issue_mode(
                         repo,
                         branch,
                         network_mode=network_mode,
-                        config=config2,
+                        config=config,
                     )
             except OrchestratorError as e2:
                 _write(f"{RED}Failed to restart pipeline: {e2}{RESET}\n", file=sys.stderr)
