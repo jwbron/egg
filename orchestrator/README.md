@@ -66,6 +66,18 @@ Agents execute in dependency-ordered waves:
 
 Reviewers always run as a separate step after all workers complete, spawning in parallel with a configurable concurrency limit.
 
+### Coordinator Mode
+
+When `coordinator_enabled: true` is set in the pipeline config, the orchestrator delegates workflow decisions to a **coordinator agent** instead of following the fixed phase sequence. The coordinator:
+
+- Analyzes the task and determines the optimal workflow (full SDLC, quick fix, docs-only, etc.)
+- Spawns agents on demand via the coordinator REST API
+- Skips or reorders phases based on task complexity
+- Escalates ambiguous decisions to humans via HITL
+- Recovers from crashes by re-reading persisted state
+
+The coordinator runs as a standard agent container with the `coordinator` role. An MCP server sidecar (port 9850) bridges external Claude Code sessions to the coordinator for conversational interaction. See the [Coordinator Guide](../docs/guides/coordinator.md) for full details.
+
 ### Concurrent Execution Mode
 
 When `concurrent_execution: true` is set in the pipeline configuration, agents within a phase run simultaneously rather than in waves. Agents coordinate through:
@@ -150,6 +162,18 @@ All endpoints are prefixed with `/api/v1`.
 | `POST` | `/pipelines/{id}/decisions/{did}/cancel` | Cancel decision |
 | `GET` | `/pipelines/{id}/decisions/status` | Decision queue summary |
 
+### Coordinator
+
+These endpoints require `coordinator_enabled: true` on the pipeline.
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/pipelines/{id}/coordinator/spawn` | Spawn agent via coordinator (guardrail-checked) |
+| `GET` | `/pipelines/{id}/coordinator/state` | Get coordinator state (agents, phases, decisions) |
+| `POST` | `/pipelines/{id}/coordinator/phase` | Advance or skip to target phase |
+| `POST` | `/pipelines/{id}/coordinator/escalate` | Create HITL escalation |
+| `DELETE` | `/pipelines/{id}/coordinator/agents/{role}` | Cancel running agent by role |
+
 ### Phases
 
 | Method | Path | Description |
@@ -212,6 +236,9 @@ orchestrator/
 ├── gateway_client.py       # Gateway API client for session management
 ├── docker_client.py        # Docker client wrapper
 ├── sandbox_template.py     # Sandbox container configuration templates
+├── coordinator_executor.py  # Coordinator container lifecycle (spawn, crash recovery, guardrails)
+├── mcp_server.py           # SSE-based MCP server for coordinator tools (port 9850)
+├── mcp_tools.py            # MCP tool definitions and handlers (submit_task, get_status, etc.)
 ├── events.py               # Event emission and tracking
 ├── health_checks/          # Two-tier health check framework (see health_checks/README.md)
 │   ├── types.py            # HealthCheck protocol, HealthResult, enums
@@ -235,6 +262,7 @@ orchestrator/
 ├── entrypoint.sh           # Container startup script
 ├── requirements.txt        # Python dependencies
 ├── routes/
+│   ├── coordinator.py      # Coordinator endpoints (spawn, state, phase, escalate, cancel)
 │   ├── checks.py           # Deployment check endpoints
 │   ├── containers.py       # Container lifecycle endpoints
 │   ├── decisions.py        # HITL decision endpoints
@@ -289,6 +317,10 @@ Health check results are emitted via the EventBus:
 | `system.health_check.completed` | Individual check or aggregate completion |
 | `system.health_check.degraded` | Check returned DEGRADED status |
 | `system.health_check.failed` | Check returned FAILED status |
+| `coordinator.spawn` | Coordinator spawned an agent |
+| `coordinator.decision` | Coordinator made a phase transition decision |
+| `coordinator.escalation` | Coordinator created a HITL escalation |
+| `coordinator.loopback` | Coordinator respawned after crash |
 
 ### Phase-Advance Gating
 
@@ -336,4 +368,5 @@ Defined in `shared/egg_config/constants.py`:
 - [Sandbox README](../sandbox/README.md) — Agent execution environment
 - [Shared README](../shared/README.md) — Shared packages (egg_contracts, egg_container, egg_config)
 - [SDLC Pipeline Guide](../docs/guides/sdlc-pipeline.md) — End-to-end pipeline usage
+- [Coordinator Guide](../docs/guides/coordinator.md) — Dynamic orchestration via coordinator agent and MCP server
 - [Architecture Overview](../docs/architecture/README.md) — System design
