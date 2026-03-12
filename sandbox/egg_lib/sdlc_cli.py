@@ -434,7 +434,7 @@ def _restart_pipeline(
     repo: str,
     branch: str,
     network_mode: str | None = None,
-    config: dict | None = None,
+    config: dict[str, object] | None = None,
 ) -> None:
     """Delete an existing pipeline and re-create it.
 
