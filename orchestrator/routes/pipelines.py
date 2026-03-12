@@ -8,6 +8,7 @@ import re
 import subprocess
 import sys
 import threading
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -4549,43 +4550,27 @@ def _run_concurrent_phase(
         )
         return 1, logs
 
-    # Wait for all containers to exit concurrently.
+    # Consensus-driven polling loop with container-exit fallback.
     #
-    # NOTE: The ConcurrentPhaseExecutor exposes check_consensus() and
-    # handle_agent_failure() for consensus-driven phase advancement, but
-    # they are not used here.  For V1, phase completion is determined by
-    # container exit codes (same model as sequential/wave paths).
-    # Consensus-driven advancement — where agents signal READY/BLOCKED/
-    # OBJECTING and the orchestrator evaluates consensus mid-execution —
-    # will be integrated in a follow-up once the polling loop is added.
+    # The loop periodically checks consensus via executor.check_consensus().
+    # When all agents signal READY, the phase completes immediately without
+    # waiting for containers to exit.  If consensus is never reached (timeout
+    # or all containers exit first), fall back to exit-code-based completion.
     active_executions = [e for e in executions if e.container_id]
     docker_client = spawner.docker
     all_logs: list[str] = []
-    logs_lock = threading.Lock()
     has_failures = [False]  # Mutable container for closure access
 
-    def _wait_and_record(exec_info: "StateAgentExecution") -> None:
-        """Wait for one container, capture logs, update pipeline state."""
-        try:
-            final_info = docker_client.wait_for_container(
-                exec_info.container_id,
-                timeout=3600,
-            )
-        except (ContainerNotFoundError, ContainerOperationError) as e:
-            logger.warning(
-                "Container lost during wait",
-                container_id=exec_info.container_id,
-                role=exec_info.role.value,
-                error=str(e),
-            )
-            final_info = ContainerInfo(
-                container_id=exec_info.container_id,
-                container_name=f"{pipeline_id}-{exec_info.role.value}",
-                status=ContainerStatus.FAILED,
-                exit_code=-1,
-                exited_at=datetime.utcnow(),
-            )
+    poll_interval = 5  # seconds
+    consensus_timeout = getattr(pipeline.config, "consensus_timeout_minutes", 30) * 60
+    start_time = time.monotonic()
+    objection_decision_created = False
 
+    # Track which containers have exited and their results.
+    exited_containers: dict[str, ContainerInfo] = {}
+
+    def _record_container_exit(exec_info: "StateAgentExecution", final_info: ContainerInfo) -> None:
+        """Capture logs and update pipeline state for an exited container."""
         container_logs = ""
         if final_info.exit_code != 0:
             has_failures[0] = True
@@ -4597,12 +4582,10 @@ def _run_concurrent_phase(
             except Exception:
                 pass
 
-        with logs_lock:
-            all_logs.append(
-                f"--- {exec_info.role.value} (exit={final_info.exit_code}) ---\n{container_logs}"
-            )
+        all_logs.append(
+            f"--- {exec_info.role.value} (exit={final_info.exit_code}) ---\n{container_logs}"
+        )
 
-        # Update container and agent status in pipeline state.
         if store is not None:
             try:
                 with get_pipeline_state_lock(pipeline_id):
@@ -4634,23 +4617,196 @@ def _run_concurrent_phase(
                     error=str(track_err),
                 )
 
-    with ThreadPoolExecutor(max_workers=len(active_executions) or 1) as pool:
-        futures = {pool.submit(_wait_and_record, e): e for e in active_executions}
-        for future in as_completed(futures):
-            exc = future.exception()
-            if exc:
-                logger.error(
-                    "Error waiting for concurrent agent",
-                    role=futures[future].role.value,
-                    error=str(exc),
+    def _stop_running_containers() -> None:
+        """Gracefully stop all containers that haven't exited yet."""
+        for e in active_executions:
+            if e.container_id not in exited_containers:
+                try:
+                    docker_client.stop_container(e.container_id, timeout=30)
+                except Exception:
+                    pass
+
+    def _update_agents_complete() -> None:
+        """Mark all running agents as COMPLETE in pipeline state (consensus path)."""
+        if store is None:
+            return
+        try:
+            with get_pipeline_state_lock(pipeline_id):
+                pip = store.load_pipeline(pipeline_id)
+                pe = pip.get_phase_execution(PipelinePhase(phase_str))
+                for agent in pe.agents:
+                    if agent.status == StateAgentStatus.RUNNING:
+                        agent.status = StateAgentStatus.COMPLETE
+                        agent.completed_at = datetime.utcnow()
+                store.save_pipeline(pip)
+        except Exception as track_err:
+            logger.warning(
+                "Failed to update agents to COMPLETE after consensus",
+                pipeline_id=pipeline_id,
+                error=str(track_err),
+            )
+
+    while True:
+        elapsed = time.monotonic() - start_time
+
+        # 1. Check consensus
+        try:
+            consensus = executor.check_consensus()
+        except Exception as e:
+            logger.warning(
+                "Consensus check failed, continuing poll",
+                pipeline_id=pipeline_id,
+                error=str(e),
+            )
+            consensus = {"is_complete": False, "has_objections": False, "blocking_agents": []}
+
+        # 2. Consensus reached — stop containers and return success
+        if consensus.get("is_complete"):
+            if _emit_event is not None:
+                _emit_event(
+                    EventType.CONSENSUS_REACHED,
+                    pipeline_id,
+                    data={"elapsed_seconds": elapsed},
                 )
-                has_failures[0] = True
+            logger.info(
+                "Consensus reached, stopping containers",
+                pipeline_id=pipeline_id,
+                elapsed_seconds=round(elapsed, 1),
+            )
+            _update_agents_complete()
+            _stop_running_containers()
+            combined_logs = "\n".join(all_logs) if all_logs else "Consensus reached; phase complete."
+            return 0, combined_logs
 
-    combined_logs = "\n".join(all_logs)
-    if has_failures[0]:
-        return 1, combined_logs
+        # 3. Handle objections (create HITL decision once)
+        if consensus.get("has_objections") and not objection_decision_created:
+            try:
+                pipeline.add_decision(
+                    question="Agent(s) objecting to phase completion. How to proceed?",
+                    options=["Override objections", "Wait for resolution", "Abort phase"],
+                    phase=pipeline.current_phase,
+                )
+                objection_decision_created = True
+                logger.info(
+                    "Objection detected, HITL decision created",
+                    pipeline_id=pipeline_id,
+                    blocking_agents=consensus.get("blocking_agents", []),
+                )
+            except Exception as e:
+                logger.warning(
+                    "Failed to create objection HITL decision",
+                    pipeline_id=pipeline_id,
+                    error=str(e),
+                )
 
-    return 0, combined_logs
+        # 4. Non-blocking check for exited containers
+        for exec_info in active_executions:
+            if exec_info.container_id in exited_containers:
+                continue
+            try:
+                info = docker_client.get_container_info(exec_info.container_id)
+            except (ContainerNotFoundError, ContainerOperationError) as e:
+                logger.warning(
+                    "Container lost during poll",
+                    container_id=exec_info.container_id,
+                    role=exec_info.role.value,
+                    error=str(e),
+                )
+                info = ContainerInfo(
+                    container_id=exec_info.container_id,
+                    container_name=f"{pipeline_id}-{exec_info.role.value}",
+                    status=ContainerStatus.FAILED,
+                    exit_code=-1,
+                    exited_at=datetime.utcnow(),
+                )
+
+            if info.status in (ContainerStatus.EXITED, ContainerStatus.FAILED):
+                exited_containers[exec_info.container_id] = info
+                _record_container_exit(exec_info, info)
+
+                # Handle non-zero exit as agent failure
+                if info.exit_code != 0:
+                    try:
+                        executor.handle_agent_failure(
+                            role=exec_info.role.value,
+                            error=f"Container exited with code {info.exit_code}",
+                        )
+                    except Exception as e:
+                        logger.warning(
+                            "handle_agent_failure error",
+                            role=exec_info.role.value,
+                            error=str(e),
+                        )
+
+        # 5. All containers exited — fall back to exit-code-based result
+        if len(exited_containers) >= len(active_executions):
+            combined_logs = "\n".join(all_logs)
+            if has_failures[0]:
+                return 1, combined_logs
+            return 0, combined_logs
+
+        # 6. Consensus timeout
+        if elapsed >= consensus_timeout:
+            if _emit_event is not None:
+                _emit_event(
+                    EventType.CONSENSUS_TIMEOUT,
+                    pipeline_id,
+                    data={
+                        "timeout_minutes": consensus_timeout / 60,
+                        "blocking_agents": consensus.get("blocking_agents", []),
+                    },
+                )
+            logger.warning(
+                "Consensus timeout reached, falling back to container exit",
+                pipeline_id=pipeline_id,
+                timeout_minutes=consensus_timeout / 60,
+            )
+            try:
+                pipeline.add_decision(
+                    question=f"Consensus not reached after {int(consensus_timeout / 60)} minutes. How to proceed?",
+                    options=["Continue waiting", "Accept current state", "Abort phase"],
+                    phase=pipeline.current_phase,
+                )
+            except Exception:
+                pass
+
+            # Fall back: wait for remaining containers with ThreadPoolExecutor
+            remaining = [e for e in active_executions if e.container_id not in exited_containers]
+            if remaining:
+                with ThreadPoolExecutor(max_workers=len(remaining)) as pool:
+                    def _wait_remaining(exec_info):
+                        try:
+                            final_info = docker_client.wait_for_container(
+                                exec_info.container_id, timeout=3600,
+                            )
+                        except (ContainerNotFoundError, ContainerOperationError):
+                            final_info = ContainerInfo(
+                                container_id=exec_info.container_id,
+                                container_name=f"{pipeline_id}-{exec_info.role.value}",
+                                status=ContainerStatus.FAILED,
+                                exit_code=-1,
+                                exited_at=datetime.utcnow(),
+                            )
+                        _record_container_exit(exec_info, final_info)
+
+                    futures = {pool.submit(_wait_remaining, e): e for e in remaining}
+                    for future in as_completed(futures):
+                        exc = future.exception()
+                        if exc:
+                            logger.error(
+                                "Error waiting for container after timeout",
+                                role=futures[future].role.value,
+                                error=str(exc),
+                            )
+                            has_failures[0] = True
+
+            combined_logs = "\n".join(all_logs)
+            if has_failures[0]:
+                return 1, combined_logs
+            return 0, combined_logs
+
+        # 7. Sleep before next poll
+        time.sleep(poll_interval)
 
 
 def _spawn_and_wait(
