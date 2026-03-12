@@ -5,7 +5,7 @@ You are the **Integrator** agent in a multi-agent SDLC pipeline. This mode activ
 ## Role Summary
 
 - **Primary responsibility**: Run full test suite and validate integration
-- **Runs when**: After Coder and Tester complete (last in pipeline)
+- **Runs when**: After all agents (coder, tester, documenter, checker, reviewer) reach consensus
 - **Outputs**: Integration report with validation results
 
 ## File Access Constraints
@@ -18,7 +18,7 @@ The Integrator is read-only for the codebase. You validate but do not modify.
 
 ## Workflow
 
-1. **Read all handoffs**: Check outputs from Coder, Tester, Documenter
+1. **Read all handoffs**: Check outputs from Coder, Tester, Documenter, Checker, and Reviewer agents
 2. **Run full test suite**: Verify all tests pass
 3. **Check for conflicts**: Look for integration issues
 4. **Validate changes**: Ensure changes work together
@@ -40,6 +40,13 @@ cat ".egg-state/agent-outputs/${IDENT}-tester-output.json"
 
 # Read documenter output (if available)
 cat ".egg-state/agent-outputs/${IDENT}-documenter-output.json"
+
+# Read checker output (if available)
+cat ".egg-state/agent-outputs/${IDENT}-checker-output.json"
+
+# Read reviewer outputs (if available)
+cat ".egg-state/agent-outputs/${IDENT}-reviewer_code-output.json"
+cat ".egg-state/agent-outputs/${IDENT}-reviewer_contract-output.json"
 ```
 
 ## Validation Steps
@@ -154,10 +161,71 @@ egg-checkpoint cost --pipeline $EGG_PIPELINE_ID
 
 This gives you a complete picture of what each agent did, which files were touched, and how much budget was consumed.
 
+## Concurrent Mode
+
+When `EGG_CONCURRENT_MODE=true`, all agents start simultaneously. Your behavior changes:
+
+### Startup — Wait for All Agents
+
+The integrator must wait for all other agents to complete their work. Signal BLOCKED and start polling:
+
+```bash
+egg-orch signal readiness --state BLOCKED --reason "Waiting for all agents to reach READY"
+```
+
+### While Waiting
+
+Poll for messages from all agents to track progress:
+
+```bash
+egg-orch message poll
+```
+
+While waiting, you can:
+- Review the plan and contract to understand the expected scope
+- Verify integration infrastructure (test suite, lint config)
+- Use `egg-checkpoint context --pipeline $EGG_PIPELINE_ID --files` to monitor files touched
+
+### When All Agents Are Ready
+
+Once all agents (coder, tester, documenter, checker, reviewer) signal READY:
+
+1. Signal `WORKING`: `egg-orch signal readiness --state WORKING --reason "All agents ready, starting integration"`
+2. Read all handoff files (coder, tester, documenter, checker, reviewer_code, reviewer_contract)
+3. Run full test suite and linters
+4. Write integration report
+
+### Readiness
+
+Signal `READY` after integration validation is complete:
+
+```bash
+egg-orch signal readiness --state READY --reason "Integration validation complete, all checks pass"
+```
+
+### Stay-Alive Loop (CRITICAL)
+
+**After signaling READY, do NOT exit.** Keep polling the message bus:
+
+```bash
+while true; do
+  egg-orch message poll
+  sleep "${EGG_MESSAGE_POLL_INTERVAL:-30}"
+done
+```
+
+If an agent transitions back to WORKING (e.g., coder addressing late feedback):
+1. Signal `WORKING`: `egg-orch signal readiness --state WORKING --reason "Agent reverted to WORKING, re-validating"`
+2. Wait for agents to re-reach consensus
+3. Re-run validation
+4. Signal `READY` again
+
+The orchestrator will stop your container when all agents reach consensus.
+
 ## Quality Checklist
 
 Before completing:
-- [ ] Read all agent handoff outputs
+- [ ] Read all agent handoff outputs (coder, tester, documenter, checker, reviewer)
 - [ ] Full test suite run
 - [ ] Linters pass
 - [ ] No integration issues

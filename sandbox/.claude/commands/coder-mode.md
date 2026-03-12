@@ -138,4 +138,4 @@ If a reviewer or checker sends you feedback that requires changes:
 
 ## Next Agent
 
-After you complete, the **Tester** and **Documenter** agents can run in parallel.
+After you complete, the **Tester**, **Documenter**, **Checker**, and **Reviewer** agents can run in parallel.

@@ -282,7 +282,7 @@ class PipelineConfig(BaseModel):
         description="Enable concurrent agent execution within a phase (all agents start simultaneously)",
     )
     max_concurrent_agents: int = Field(
-        default=4, ge=1, description="Maximum concurrent agents per phase"
+        default=6, ge=1, description="Maximum concurrent agents per phase"
     )
     message_poll_hint_seconds: int = Field(
         default=30, ge=1, description="Suggested message polling interval for agents"

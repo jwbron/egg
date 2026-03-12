@@ -877,7 +877,7 @@ def _get_concurrent_status(pipeline: "Pipeline") -> dict | None:
 
     result: dict = {
         "enabled": True,
-        "max_concurrent_agents": getattr(config, "max_concurrent_agents", 4),
+        "max_concurrent_agents": getattr(config, "max_concurrent_agents", 6),
     }
 
     # Message store provides aggregate counts of inter-agent messages by type.
@@ -4488,7 +4488,7 @@ def _run_concurrent_phase(
         certs_volume=certs_volume,
     )
 
-    max_concurrent = getattr(pipeline.config, "max_concurrent_agents", 4)
+    max_concurrent = getattr(pipeline.config, "max_concurrent_agents", 6)
     executor = ConcurrentPhaseExecutor(
         pipeline=pipeline,
         spawn_fn=spawn_fn,
