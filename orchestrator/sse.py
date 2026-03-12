@@ -240,9 +240,7 @@ class SSEClientManager:
                 cs = pipeline.coordinator_state
                 payload["coordinator"] = {
                     "workflow_type": cs.workflow_type,
-                    "agents_running": len(
-                        [a for a in cs.agents_spawned if a.status == "running"]
-                    ),
+                    "agents_running": len([a for a in cs.agents_spawned if a.status == "running"]),
                     "agents_total": len(cs.agents_spawned),
                     "escalations_pending": len(
                         [e for e in cs.escalations if e.resolved_at is None]

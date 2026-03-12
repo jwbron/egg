@@ -459,7 +459,7 @@ class OrchestratorClient:
     ) -> dict[str, Any]:
         """Spawn an agent via coordinator API."""
         endpoint = f"/api/v1/pipelines/{pipeline_id}/coordinator/spawn"
-        data = {"role": role}
+        data: dict[str, Any] = {"role": role}
         if task_context:
             data["task_context"] = task_context
         if extra_env:

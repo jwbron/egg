@@ -11,7 +11,6 @@ import sys
 import threading
 import time
 from pathlib import Path
-from typing import Any
 
 _shared_path = Path(__file__).parent.parent / "shared"
 if _shared_path.exists() and str(_shared_path) not in sys.path:
@@ -21,8 +20,10 @@ try:
     from egg_logging import get_logger
 except ImportError:
     import logging
+
     def get_logger(name: str, **kwargs) -> logging.Logger:
         return logging.getLogger(name)
+
 
 logger = get_logger("orchestrator.mcp_server")
 
@@ -76,7 +77,8 @@ class MCPServer:
         self.rate_limiter = RateLimiter(max_requests=rate_limit)
         self.gateway_url = gateway_url
 
-        from mcp_tools import CoordinatorToolHandler, COORDINATOR_TOOLS
+        from mcp_tools import COORDINATOR_TOOLS, CoordinatorToolHandler
+
         self.tool_handler = CoordinatorToolHandler(orchestrator_url=orchestrator_url)
         self.tools = COORDINATOR_TOOLS
         self._app = None
@@ -113,14 +115,17 @@ class MCPServer:
 
             result = self.tool_handler.handle_tool_call(tool_name, arguments)
 
-            return jsonify({
-                "content": [{"type": "text", "text": json.dumps(result, indent=2)}],
-                "isError": "error" in result,
-            })
+            return jsonify(
+                {
+                    "content": [{"type": "text", "text": json.dumps(result, indent=2)}],
+                    "isError": "error" in result,
+                }
+            )
 
         @app.route("/mcp/v1/sse")
         def sse_stream():
             """SSE endpoint for MCP protocol events."""
+
             def generate():
                 # Send initial tools list
                 tools_event = json.dumps({"type": "tools_list", "tools": self.tools})
@@ -129,7 +134,7 @@ class MCPServer:
                 # Keep connection alive with heartbeats
                 while True:
                     time.sleep(15)
-                    yield f": heartbeat\n\n"
+                    yield ": heartbeat\n\n"
 
             return Response(
                 generate(),

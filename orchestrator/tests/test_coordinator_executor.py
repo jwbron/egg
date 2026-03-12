@@ -11,7 +11,6 @@ Tests coordinator container lifecycle management including:
 
 import sys
 from pathlib import Path
-from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -21,8 +20,6 @@ for p in (_project_root / "orchestrator", _project_root / "shared"):
         sys.path.insert(0, str(p))
 
 from models import (
-    AgentRole,
-    CoordinatorState,
     GuardrailCounters,
     Pipeline,
     PipelineConfig,
@@ -51,7 +48,7 @@ class TestCoordinatorExecutorModuleExists:
             pytest.skip("coordinator_executor.py not yet created")
 
         try:
-            from coordinator_executor import CoordinatorExecutor
+            from coordinator_executor import CoordinatorExecutor  # noqa: F401
         except ImportError as e:
             pytest.fail(f"Cannot import CoordinatorExecutor: {e}")
 
@@ -84,9 +81,7 @@ class TestCoordinatorExecutorSpawn:
             pytest.skip("coordinator_executor.py not yet created")
 
         content = executor_path.read_text()
-        has_env_setup = (
-            "EGG_COORDINATOR_MODE" in content or "coordinator" in content.lower()
-        )
+        has_env_setup = "EGG_COORDINATOR_MODE" in content or "coordinator" in content.lower()
         assert has_env_setup, (
             "CoordinatorExecutor should inject EGG_COORDINATOR_MODE and related env vars"
         )
@@ -106,12 +101,9 @@ class TestCoordinatorExecutorRecovery:
 
         content = executor_path.read_text()
         has_recovery = any(
-            keyword in content.lower()
-            for keyword in ["respawn", "crash", "recovery", "restart"]
+            keyword in content.lower() for keyword in ["respawn", "crash", "recovery", "restart"]
         )
-        assert has_recovery, (
-            "CoordinatorExecutor should have crash detection and respawn logic"
-        )
+        assert has_recovery, "CoordinatorExecutor should have crash detection and respawn logic"
 
     def test_max_respawns_enforced(self):
         """Coordinator respawns must be limited (default 2).
@@ -142,9 +134,7 @@ class TestCoordinatorExecutorGuardrails:
 
         content = executor_path.read_text()
         has_max = "max" in content.lower() and "agent" in content.lower()
-        assert has_max, (
-            "CoordinatorExecutor should enforce max total agents guardrail"
-        )
+        assert has_max, "CoordinatorExecutor should enforce max total agents guardrail"
 
     def test_guardrail_counters_tracked(self):
         """GuardrailCounters model correctly tracks enforcement data."""

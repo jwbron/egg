@@ -296,7 +296,10 @@ def create_unified_sse_stream(
 
                         # Include coordinator state summary for coordinator events
                         evt = payload.get("event_type", "")
-                        if evt.startswith("coordinator.") and pipeline.coordinator_state is not None:
+                        if (
+                            evt.startswith("coordinator.")
+                            and pipeline.coordinator_state is not None
+                        ):
                             cs = pipeline.coordinator_state
                             payload["coordinator"] = {
                                 "workflow_type": cs.workflow_type,

@@ -848,10 +848,18 @@ class StateStore:
             # Merge updates into existing state
             current_data = pipeline.coordinator_state.model_dump()
             for key, value in state_updates.items():
-                if key in current_data and isinstance(current_data[key], list) and isinstance(value, list):
+                if (
+                    key in current_data
+                    and isinstance(current_data[key], list)
+                    and isinstance(value, list)
+                ):
                     # Append to lists rather than replacing
                     current_data[key].extend(value)
-                elif key in current_data and isinstance(current_data[key], dict) and isinstance(value, dict):
+                elif (
+                    key in current_data
+                    and isinstance(current_data[key], dict)
+                    and isinstance(value, dict)
+                ):
                     # Merge dicts
                     current_data[key].update(value)
                 else:

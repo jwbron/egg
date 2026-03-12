@@ -18,8 +18,10 @@ try:
     from egg_logging import get_logger
 except ImportError:
     import logging
+
     def get_logger(name: str, **kwargs) -> logging.Logger:
         return logging.getLogger(name)
+
 
 logger = get_logger("orchestrator.mcp_tools")
 
@@ -240,7 +242,11 @@ class CoordinatorToolHandler:
                 p_status = p.get("status", "")
                 if status_filter == "all":
                     coordinator_pipelines.append(p)
-                elif status_filter == "active" and p_status in ("pending", "running", "awaiting_human"):
+                elif status_filter == "active" and p_status in (
+                    "pending",
+                    "running",
+                    "awaiting_human",
+                ):
                     coordinator_pipelines.append(p)
                 elif status_filter == "completed" and p_status == "complete":
                     coordinator_pipelines.append(p)
@@ -248,7 +254,10 @@ class CoordinatorToolHandler:
                     coordinator_pipelines.append(p)
 
         limit = args.get("limit", 10)
-        return {"tasks": coordinator_pipelines[:limit], "total": len(coordinator_pipelines)}
+        return {
+            "tasks": coordinator_pipelines[:limit],
+            "total": len(coordinator_pipelines),
+        }
 
     def _handle_cancel_task(self, args: dict[str, Any]) -> dict[str, Any]:
         """Cancel a coordinator pipeline."""

@@ -22,10 +22,6 @@ from models import (
     Escalation,
     GuardrailCounters,
     PhaseDecision,
-    Pipeline,
-    PipelineConfig,
-    PipelinePhase,
-    PipelineStatus,
 )
 
 
@@ -71,9 +67,7 @@ class TestCoordinatorInstructionsExist:
             "escalat",  # Escalation policy
         ]
         for topic in required_topics:
-            assert topic in content, (
-                f"Coordinator instructions should cover '{topic}'"
-            )
+            assert topic in content, f"Coordinator instructions should cover '{topic}'"
 
 
 class TestCoordinatorContainerSpawning:
@@ -263,9 +257,7 @@ class TestCoordinatorWorkflowScenarios:
 
         assert len(state.agents_spawned) == 4
         assert state.guardrail_counters.total_agents_spawned == 4
-        loopback_decisions = [
-            d for d in state.phase_decisions if d.action == "loopback"
-        ]
+        loopback_decisions = [d for d in state.phase_decisions if d.action == "loopback"]
         assert len(loopback_decisions) == 1
 
     def test_escalation_workflow_state(self):

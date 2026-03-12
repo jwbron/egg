@@ -31,9 +31,7 @@ class TestCoordinatorRoleDefinition:
         Gap: Currently missing — the enum has no COORDINATOR value.
         """
         # This will fail until the coder adds COORDINATOR to the shared enum
-        assert hasattr(AgentRole, "COORDINATOR") or "coordinator" in [
-            r.value for r in AgentRole
-        ]
+        assert hasattr(AgentRole, "COORDINATOR") or "coordinator" in [r.value for r in AgentRole]
 
     def test_coordinator_registered_in_agent_roles_dict(self):
         """COORDINATOR must be registered in the AGENT_ROLES dict.

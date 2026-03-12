@@ -1111,9 +1111,7 @@ def cmd_coordinator_spawn(args: argparse.Namespace) -> int:
     if args.context:
         data["context"] = args.context
 
-    result = orch_request(
-        f"/api/v1/pipelines/{pid}/coordinator/spawn", method="POST", data=data
-    )
+    result = orch_request(f"/api/v1/pipelines/{pid}/coordinator/spawn", method="POST", data=data)
 
     if args.json:
         print_json(result)
@@ -1160,9 +1158,7 @@ def cmd_coordinator_phase(args: argparse.Namespace) -> int:
     if args.target:
         data["target_phase"] = args.target
 
-    result = orch_request(
-        f"/api/v1/pipelines/{pid}/coordinator/phase", method="POST", data=data
-    )
+    result = orch_request(f"/api/v1/pipelines/{pid}/coordinator/phase", method="POST", data=data)
 
     if args.json:
         print_json(result)
@@ -1187,9 +1183,7 @@ def cmd_coordinator_escalate(args: argparse.Namespace) -> int:
     if args.options:
         data["options"] = args.options
 
-    result = orch_request(
-        f"/api/v1/pipelines/{pid}/coordinator/escalate", method="POST", data=data
-    )
+    result = orch_request(f"/api/v1/pipelines/{pid}/coordinator/escalate", method="POST", data=data)
 
     if args.json:
         print_json(result)
@@ -1210,9 +1204,7 @@ def cmd_coordinator_cancel(args: argparse.Namespace) -> int:
         "role": args.role,
     }
 
-    result = orch_request(
-        f"/api/v1/pipelines/{pid}/coordinator/cancel", method="POST", data=data
-    )
+    result = orch_request(f"/api/v1/pipelines/{pid}/coordinator/cancel", method="POST", data=data)
 
     if args.json:
         print_json(result)
@@ -1449,9 +1441,7 @@ def create_parser() -> argparse.ArgumentParser:
     coord_escalate = coord_sub.add_parser("escalate", help="Escalate to HITL")
     coord_escalate.add_argument("pipeline_id", nargs="?", help="Pipeline ID")
     coord_escalate.add_argument("--question", required=True, help="Question for human")
-    coord_escalate.add_argument(
-        "--type", choices=["choice", "feedback"], help="Escalation type"
-    )
+    coord_escalate.add_argument("--type", choices=["choice", "feedback"], help="Escalation type")
     coord_escalate.add_argument("--options", nargs="*", help="Options for choice type")
     _add_json_flag(coord_escalate)
     coord_escalate.set_defaults(func=cmd_coordinator_escalate)

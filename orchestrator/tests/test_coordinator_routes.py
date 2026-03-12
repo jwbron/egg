@@ -5,11 +5,8 @@ Tests the REST endpoints for agent spawning, phase management,
 escalation, state queries, and role validation.
 """
 
-import json
 import sys
-import types
 from pathlib import Path
-from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -18,16 +15,6 @@ _project_root = Path(__file__).parent.parent.parent
 for p in (_project_root / "orchestrator", _project_root / "shared"):
     if p.exists() and str(p) not in sys.path:
         sys.path.insert(0, str(p))
-
-from models import (
-    AgentRole,
-    CoordinatorState,
-    GuardrailCounters,
-    Pipeline,
-    PipelineConfig,
-    PipelinePhase,
-    PipelineStatus,
-)
 
 
 class TestCoordinatorRoutesExist:

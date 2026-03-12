@@ -91,7 +91,7 @@ class TestAgentSpawnRecord:
 
     def test_retry_number_non_negative(self):
         """retry_number must be >= 0."""
-        with pytest.raises(Exception):
+        with pytest.raises(ValueError):
             AgentSpawnRecord(role=AgentRole.CODER, retry_number=-1)
 
 
@@ -186,9 +186,7 @@ class TestGuardrailCounters:
 
     def test_track_retries_by_role(self):
         """Counters track retries per role."""
-        counters = GuardrailCounters(
-            retries_by_role={"coder": 2, "tester": 1}
-        )
+        counters = GuardrailCounters(retries_by_role={"coder": 2, "tester": 1})
         assert counters.retries_by_role["coder"] == 2
         assert counters.retries_by_role["tester"] == 1
 
@@ -199,12 +197,12 @@ class TestGuardrailCounters:
 
     def test_non_negative_agents_spawned(self):
         """total_agents_spawned must be >= 0."""
-        with pytest.raises(Exception):
+        with pytest.raises(ValueError):
             GuardrailCounters(total_agents_spawned=-1)
 
     def test_non_negative_coordinator_respawns(self):
         """coordinator_respawns must be >= 0."""
-        with pytest.raises(Exception):
+        with pytest.raises(ValueError):
             GuardrailCounters(coordinator_respawns=-1)
 
 
@@ -377,7 +375,7 @@ class TestPipelineConfigCoordinatorEnabled:
 
     def test_coordinator_max_agents_minimum(self):
         """coordinator_max_agents must be >= 1."""
-        with pytest.raises(Exception):
+        with pytest.raises(ValueError):
             PipelineConfig(coordinator_max_agents=0)
 
     def test_coordinator_config_serialization_roundtrip(self):

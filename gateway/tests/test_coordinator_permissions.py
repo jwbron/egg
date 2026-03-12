@@ -17,10 +17,7 @@ for p in (_project_root / "gateway", _project_root / "shared"):
 import pytest
 from agent_restrictions import (
     AGENT_PATTERNS,
-    AgentFilePattern,
-    AgentRestrictionResult,
     AgentRole,
-    check_agent_file_access,
     get_agent_pattern,
     validate_agent_push,
 )
@@ -53,9 +50,8 @@ class TestCoordinatorFilePatterns:
 
         Gap: No coordinator patterns defined yet.
         """
-        has_coordinator = (
-            "coordinator" in AGENT_PATTERNS
-            or (hasattr(AgentRole, "COORDINATOR") and AgentRole.COORDINATOR in AGENT_PATTERNS)
+        has_coordinator = "coordinator" in AGENT_PATTERNS or (
+            hasattr(AgentRole, "COORDINATOR") and AgentRole.COORDINATOR in AGENT_PATTERNS
         )
         assert has_coordinator, (
             "COORDINATOR patterns not in AGENT_PATTERNS. "
@@ -196,7 +192,7 @@ class TestCoordinatorPhasePermissions:
         Gap: Not yet implemented.
         """
         try:
-            from phase_filter import PhaseFilter, PipelinePhase
+            from phase_filter import PipelinePhase
 
             if not hasattr(PipelinePhase, "COORDINATOR"):
                 pytest.skip("COORDINATOR phase not yet in PipelinePhase enum")

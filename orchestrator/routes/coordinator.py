@@ -101,7 +101,10 @@ def _check_spawn_guardrails(pipeline: Pipeline, role_str: str) -> tuple[bool, st
     # Check retries per role
     retries = state.guardrail_counters.retries_by_role.get(role_str, 0)
     if retries >= config.coordinator_max_retries_per_role:
-        return False, f"Max retries for role '{role_str}' reached ({config.coordinator_max_retries_per_role})"
+        return (
+            False,
+            f"Max retries for role '{role_str}' reached ({config.coordinator_max_retries_per_role})",
+        )
 
     return True, ""
 
@@ -161,9 +164,7 @@ def spawn_agent(pipeline_id: str) -> tuple[Response, int]:
         agent_role = AgentRole(role_str)
     except ValueError:
         valid_roles = [r.value for r in AgentRole]
-        return make_error_response(
-            f"Invalid role: {role_str}. Valid roles: {valid_roles}"
-        )
+        return make_error_response(f"Invalid role: {role_str}. Valid roles: {valid_roles}")
 
     task_context = data.get("task_context", "")
     extra_env = data.get("extra_env") or {}
@@ -199,7 +200,8 @@ def spawn_agent(pipeline_id: str) -> tuple[Response, int]:
 
             # Calculate retry number for this role
             existing_spawns = [
-                s for s in (pipeline.coordinator_state or CoordinatorState()).agents_spawned
+                s
+                for s in (pipeline.coordinator_state or CoordinatorState()).agents_spawned
                 if s.role.value == role_str
             ]
             retry_number = len(existing_spawns)
@@ -233,8 +235,12 @@ def spawn_agent(pipeline_id: str) -> tuple[Response, int]:
             pipeline.coordinator_state.guardrail_counters.total_agents_spawned += 1
 
             # Track retries per role
-            current_retries = pipeline.coordinator_state.guardrail_counters.retries_by_role.get(role_str, 0)
-            pipeline.coordinator_state.guardrail_counters.retries_by_role[role_str] = current_retries + 1
+            current_retries = pipeline.coordinator_state.guardrail_counters.retries_by_role.get(
+                role_str, 0
+            )
+            pipeline.coordinator_state.guardrail_counters.retries_by_role[role_str] = (
+                current_retries + 1
+            )
 
             store.save_pipeline(pipeline)
 
@@ -324,12 +330,10 @@ def cancel_agent(pipeline_id: str, role: str) -> tuple[Response, int]:
     """
     # Validate role
     try:
-        agent_role = AgentRole(role)
+        AgentRole(role)
     except ValueError:
         valid_roles = [r.value for r in AgentRole]
-        return make_error_response(
-            f"Invalid role: {role}. Valid roles: {valid_roles}"
-        )
+        return make_error_response(f"Invalid role: {role}. Valid roles: {valid_roles}")
 
     repo_path = get_repo_path()
 
@@ -456,9 +460,7 @@ def get_coordinator_state(pipeline_id: str) -> tuple[Response, int]:
 
         # Categorize agents by status
         running_agents = [
-            s.model_dump(mode="json")
-            for s in coord_state.agents_spawned
-            if s.status == "running"
+            s.model_dump(mode="json") for s in coord_state.agents_spawned if s.status == "running"
         ]
         completed_agents = [
             s.model_dump(mode="json")
@@ -468,9 +470,7 @@ def get_coordinator_state(pipeline_id: str) -> tuple[Response, int]:
 
         # Get pending decisions
         pending_decisions = [
-            d.model_dump(mode="json")
-            for d in pipeline.decisions
-            if d.status == "pending"
+            d.model_dump(mode="json") for d in pipeline.decisions if d.status == "pending"
         ]
 
         return make_success_response(

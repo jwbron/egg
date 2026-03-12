@@ -7,7 +7,6 @@ with incremental merge support.
 
 import sys
 from pathlib import Path
-from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -22,8 +21,6 @@ from models import (
     CoordinatorState,
     GuardrailCounters,
     PhaseDecision,
-    Pipeline,
-    PipelineConfig,
 )
 
 
@@ -95,9 +92,7 @@ class TestCoordinatorStateInPipeline:
         )
         assert len(state.agents_spawned) == 2
 
-        state.phase_decisions.append(
-            PhaseDecision(phase="implement", action="advance")
-        )
+        state.phase_decisions.append(PhaseDecision(phase="implement", action="advance"))
         assert len(state.phase_decisions) == 1
 
         state.guardrail_counters.total_agents_spawned = 2
@@ -113,9 +108,7 @@ class TestCoordinatorStateInPipeline:
         )
 
         # Add more data without losing existing
-        state.agents_spawned.append(
-            AgentSpawnRecord(role=AgentRole.TESTER, status="running")
-        )
+        state.agents_spawned.append(AgentSpawnRecord(role=AgentRole.TESTER, status="running"))
         assert len(state.agents_spawned) == 2
         assert state.agents_spawned[0].status == "complete"  # preserved
         assert state.agents_spawned[1].status == "running"  # new

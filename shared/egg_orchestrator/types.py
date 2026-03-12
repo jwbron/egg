@@ -322,6 +322,7 @@ class SignalResponse:
 @dataclass
 class CoordinatorSpawnData:
     """Data for coordinator spawn request."""
+
     role: str
     task_context: str = ""
     extra_env: dict[str, Any] = field(default_factory=dict)
@@ -338,6 +339,7 @@ class CoordinatorSpawnData:
 @dataclass
 class CoordinatorPhaseData:
     """Data for coordinator phase advance/skip request."""
+
     reason: str
     target_phase: str | None = None
 
@@ -351,6 +353,7 @@ class CoordinatorPhaseData:
 @dataclass
 class CoordinatorEscalateData:
     """Data for coordinator escalation request."""
+
     question: str
     escalation_type: str = "choice"
     options: list[str] = field(default_factory=list)

@@ -77,8 +77,7 @@ class TestMCPServerStructure:
 
         content = mcp_path.read_text()
         has_auth = any(
-            keyword in content.lower()
-            for keyword in ["auth", "token", "session", "validate"]
+            keyword in content.lower() for keyword in ["auth", "token", "session", "validate"]
         )
         assert has_auth, "MCP server should have authentication"
 

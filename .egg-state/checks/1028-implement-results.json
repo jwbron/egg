@@ -1,0 +1,20 @@
+{
+  "all_passed": true,
+  "checks": [
+    {
+      "name": "lint",
+      "passed": true,
+      "output": "==> Ruff check...\nAll checks passed!\n==> Ruff format check...\n461 files already formatted\n==> Mypy...\nSuccess: no issues found in 120 source files\n==> Shellcheck...\n==> Yamllint...\nSKIP: yamllint not installed\n==> Hadolint...\nSKIP: hadolint not installed\n==> Actionlint...\nSKIP: actionlint not installed\n==> Custom checks...\nOK: All 2 bin/ symlinks are valid\nOK: No forbidden host-services imports found in sandbox\nOK: No problematic sys.path patterns found\nOK: No docker/claude invocation violations found\nOK: No hardcoded port numbers found\nOK: No direct LLM API usage found outside sandbox\nOK: No non-alias Claude model references found\nOK: All reviewer jobs use the required naming prefix\nOK: No untrusted script execution with secrets found in workflows"
+    },
+    {
+      "name": "test",
+      "passed": true,
+      "output": "=========== 7713 passed, 89 skipped, 4 warnings in 97.90s (0:01:37) ============"
+    },
+    {
+      "name": "security",
+      "passed": true,
+      "output": "==> Running security scan...\nSKIP: bandit not installed"
+    }
+  ]
+}
