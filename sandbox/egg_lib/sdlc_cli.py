@@ -393,7 +393,10 @@ def run_local_mode(
     try:
         config = {"concurrent_execution": True} if concurrent else None
         pipeline = client.create_pipeline(
-            mode="local", prompt=prompt, repo=repo, network_mode=_detect_network_mode(),
+            mode="local",
+            prompt=prompt,
+            repo=repo,
+            network_mode=_detect_network_mode(),
             config=config,
         )
     except OrchestratorError as e:
@@ -503,8 +506,13 @@ def run_issue_mode(
                     print(f"  Pipeline was {status}. Restarting...")
                     config = {"concurrent_execution": True} if concurrent else None
                     _restart_pipeline(
-                        client, pipeline_id, issue_number, repo, branch,
-                        network_mode=network_mode, config=config,
+                        client,
+                        pipeline_id,
+                        issue_number,
+                        repo,
+                        branch,
+                        network_mode=network_mode,
+                        config=config,
                     )
                 elif status in ("running", "awaiting_human"):
                     print(f"  Pipeline status: {status}. Attaching to watch loop...")
@@ -528,8 +536,13 @@ def run_issue_mode(
                         return 1
                     config = {"concurrent_execution": True} if concurrent else None
                     _restart_pipeline(
-                        client, pipeline_id, issue_number, repo, branch,
-                        network_mode=network_mode, config=config,
+                        client,
+                        pipeline_id,
+                        issue_number,
+                        repo,
+                        branch,
+                        network_mode=network_mode,
+                        config=config,
                     )
             except OrchestratorError as e2:
                 _write(f"{RED}Failed to restart pipeline: {e2}{RESET}\n", file=sys.stderr)
@@ -649,7 +662,9 @@ def main() -> None:
             )
         exit_code = run_issue_mode(client, issue_number, repo, concurrent=args.concurrent)
     else:
-        exit_code = run_local_mode(client, prompt=args.prompt, repo=repo, concurrent=args.concurrent)
+        exit_code = run_local_mode(
+            client, prompt=args.prompt, repo=repo, concurrent=args.concurrent
+        )
 
     sys.exit(exit_code)
 
