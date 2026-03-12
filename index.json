@@ -38,7 +38,8 @@
       "ckpt-1cdb508cbd269423",
       "ckpt-452685c3a111a679",
       "ckpt-82958989677847b6",
-      "ckpt-9fb47759f4719990"
+      "ckpt-9fb47759f4719990",
+      "ckpt-a7b8c43054462040"
     ]
   },
   "by_commit": {},
@@ -58,7 +59,8 @@
       "ckpt-7e76496ee092d458",
       "ckpt-06176af9f7e2d547",
       "ckpt-4c4cfe1886c2ef51",
-      "ckpt-d89f0d9b6f403971"
+      "ckpt-d89f0d9b6f403971",
+      "ckpt-a7b8c43054462040"
     ],
     "state-sync": [
       "ckpt-3d7ebc8d74b29f81",
@@ -95,6 +97,9 @@
     ],
     "issue-1028-branch-cleanup-egg-0fae3eaffd04493905af975a5fbf140456f455a249c72dde069eea923ae1a6b5-work": [
       "ckpt-c1a677e9ed66c97b"
+    ],
+    "issue-1028-branch-cleanup-egg-2211eabfd384d1704a351fff4eef535c3155c2812daed32c5f44eedf0b7ae710-work": [
+      "ckpt-a7b8c43054462040"
     ],
     "issue-1028-branch-cleanup-egg-266742d1c4c61a45be1db1d03082d8bb3b29a960a2c50d81ab18073e0e2c69ab-work": [
       "ckpt-50445bb35d6de0b7"
@@ -192,7 +197,8 @@
       "ckpt-1cdb508cbd269423",
       "ckpt-452685c3a111a679",
       "ckpt-82958989677847b6",
-      "ckpt-9fb47759f4719990"
+      "ckpt-9fb47759f4719990",
+      "ckpt-a7b8c43054462040"
     ]
   },
   "by_trigger": {
@@ -234,7 +240,8 @@
       "ckpt-1cdb508cbd269423",
       "ckpt-452685c3a111a679",
       "ckpt-82958989677847b6",
-      "ckpt-9fb47759f4719990"
+      "ckpt-9fb47759f4719990",
+      "ckpt-a7b8c43054462040"
     ]
   },
   "checkpoints": [
@@ -959,8 +966,27 @@
       "tool_call_count": 0,
       "total_tokens": 0,
       "trigger_type": "session_end"
+    },
+    {
+      "agent_type": "unknown",
+      "branch": null,
+      "commit_sha": null,
+      "created_at": "2026-03-12T21:14:29.094411Z",
+      "files_touched_count": 0,
+      "id": "ckpt-a7b8c43054462040",
+      "issue_number": null,
+      "message_count": 0,
+      "pipeline_id": "issue-1028",
+      "pipeline_phase": null,
+      "pr_number": null,
+      "repo": null,
+      "session_id": "issue-1028-branch-cleanup-egg-2211eabfd384d1704a351fff4eef535c3155c2812daed32c5f44eedf0b7ae710-work",
+      "session_status": "completed",
+      "tool_call_count": 0,
+      "total_tokens": 0,
+      "trigger_type": "session_end"
     }
   ],
-  "last_updated": "2026-03-12T21:14:19.587853Z",
+  "last_updated": "2026-03-12T21:14:29.916961Z",
   "schemaVersion": "2.0"
 }
