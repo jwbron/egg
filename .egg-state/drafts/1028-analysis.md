@@ -53,6 +53,14 @@ MCP integration is partially implemented per `docs/adr/implemented/ADR-Context-S
 - No custom MCP server exists in the codebase for egg-specific operations
 - No MCP server exposes orchestrator APIs or coordinator capabilities
 
+### SSE Infrastructure
+
+The orchestrator already has mature SSE streaming (`orchestrator/sse.py` and `orchestrator/unified_sse.py`):
+- Per-pipeline event streaming with heartbeats
+- Unified multi-pipeline stream (added in #620)
+- Event bus with pub/sub pattern (`orchestrator/events.py`)
+- DAG visualization rendering per client preference
+
 ### Key Limitation
 
 The orchestrator has no concept of a persistent "coordinator" session. All intelligence about *what* to do lives in pre-configured dispatch logic (`shared/egg_contracts/orchestrator.py`) and phase defaults. The system cannot reason about whether a phase should be skipped, whether to loop back after a test failure, or whether a task is simple enough for a single agent. No coordinator-facing MCP server exists.
@@ -227,13 +235,20 @@ This approach is the most natural evolution of the current architecture. The coo
 
 The key insight is that the coordinator doesn't need to be a fundamentally different kind of entity. It's a Claude session with the right tools: spawn agents, send messages, monitor progress, advance phases, and escalate to humans. The orchestrator already provides most of these capabilities via its API.
 
-The main risk — coordinator session lifetime — can be mitigated with checkpoint/resume support (building on the existing checkpoint infrastructure) and by designing the coordinator to be stateless enough that it can resume from orchestrator state after a crash.
+The main risk — coordinator session lifetime — can be mitigated with checkpoint/resume support (building on the existing checkpoint infrastructure) and by designing the coordinator to be stateless enough that it can resume from orchestrator state after a crash. Per agent-design reviewer guidance: a resumed coordinator should re-assess from current orchestrator state (objectives + current state), not replay prior reasoning.
 
 Option B is explicitly rejected because it violates the EGG200 convention of not making direct LLM API calls from infrastructure code. Option C has merit for a future "interactive mode" but conflates the coordinator with the user's development environment. Option A can evolve into Option C later if desired.
 
 ### Observability
 
-The coordinator's decision-making must be observable. Since the coordinator runs as an agent container, its session will be captured by the checkpoint system. Key decisions (phase skipping, agent spawning, loopback reasoning) should be emitted as structured messages on the message bus for real-time monitoring via the SSE stream and DAG visualizer. Message types could include `WORKFLOW_DECISION` (coordinator chose to skip/reorder phases), `AGENT_SPAWN` (coordinator requested a new agent), and `ESCALATION` (coordinator surfaced a question to the human).
+The coordinator's decision-making must be observable. Since the coordinator runs as an agent container, its session will be captured by the checkpoint system. Key decisions should be emitted as lightweight event signals on the message bus for real-time monitoring via the SSE stream and DAG visualizer. Proposed message types:
+
+- `WORKFLOW_DECISION` — coordinator chose to skip/reorder phases (e.g., "skipping refine for simple bug fix")
+- `AGENT_SPAWN` — coordinator requested a new agent (e.g., "spawning coder for issue #432")
+- `ESCALATION` — coordinator surfaced a question to the human
+- `LOOPBACK` — coordinator decided to re-run an agent based on results (e.g., "tester found issue, re-spawning coder")
+
+These should be simple event emissions (subject + brief body), not detailed structured summaries of coordinator reasoning — per agent-design reviewer guidance, avoid building structured-output requirements around coordinator thinking.
 
 ## Open Questions
 
@@ -241,23 +256,40 @@ The following questions have been registered as contract decisions and feedback 
 
 ### Decisions (Multiple Choice)
 
-1. **Coordinator session persistence model**: How should the coordinator handle long-running tasks that exceed a single Claude session? (Claude's context window is ~200k tokens; typical pipeline runs are 30-120 min with potentially dozens of tool calls.)
+<!-- egg-hitl-decision id=decision-1 -->
+**1. Coordinator session persistence model**: How should the coordinator handle long-running tasks that exceed a single Claude session? (Claude's context window is ~200k tokens; typical pipeline runs are 30-120 min with potentially dozens of tool calls.)
+- **Checkpoint/resume** — Save coordinator state to orchestrator at key points; resume from state after crash (builds on existing checkpoint infra)
+- **Stateless polling** — Coordinator is ephemeral; re-spawned periodically to poll orchestrator state and take next action
+- **Long-running session** — Accept context limits; design coordinator prompts to be compact enough for a single session
 
-2. **Phase model for coordinator-driven pipelines**: Should the coordinator operate within the existing phase system (using dynamic phase selection within the REFINE → PLAN → IMPLEMENT → PR model), outside it (a new freeform execution model with its own permission model), or in a hybrid mode (phases exist but are advisory, with the coordinator able to skip/reorder freely)?
+<!-- egg-hitl-decision id=decision-2 -->
+**2. Phase model for coordinator-driven pipelines**: Should the coordinator operate within the existing phase system, outside it, or in a hybrid mode?
+- **Within existing phases** — Coordinator uses dynamic phase selection within the REFINE → PLAN → IMPLEMENT → PR model (can skip phases but phases still exist)
+- **Outside phases** — New freeform execution model with its own permission model
+- **Hybrid** — Phases exist but are advisory; coordinator can skip/reorder freely with a fallback permission model
 
-3. **Coordinator authority level**: What should the coordinator be able to do without human approval?
+<!-- egg-hitl-decision id=decision-3 -->
+**3. Coordinator authority level**: What should the coordinator be able to do without human approval?
+- **Full autonomy** — Spawn agents, skip phases, loop back, create PRs without approval (human reviews PR at the end)
+- **Checkpoint approval** — Autonomous within a phase but requires approval at phase boundaries
+- **Supervised** — Every significant decision (agent spawn, phase skip, loopback) requires human approval
 
-4. **Scope of initial implementation**: How much of the coordinator system should be built in the first iteration?
-
-5. **User interaction channel**: How should users interact with the coordinator?
+<!-- egg-hitl-decision id=decision-4 -->
+**4. Scope of initial implementation**: How much of the coordinator system should be built in the first iteration?
+- **Full system** — Coordinator agent + MCP server + Claude Code integration + async triggers
+- **Core only** — Coordinator agent + orchestrator API extensions (MCP server in follow-up)
+- **Prototype** — Coordinator agent with manual CLI interaction only (validate the concept before building MCP)
 
 ### Feedback (Open-Ended)
 
-6. **Cost guardrails**: What cost limits or guardrails should be applied to coordinator sessions? (e.g., max agents per task, max total token budget, max wall-clock time)
+<!-- egg-hitl-feedback id=feedback-1 -->
+**5. Cost guardrails**: What cost limits or guardrails should be applied to coordinator sessions? (e.g., max agents per task, max total token budget, max wall-clock time)
 
-7. **Failure recovery expectations**: What should happen when the coordinator session crashes mid-task with running agents?
+<!-- egg-hitl-feedback id=feedback-2 -->
+**6. Failure recovery expectations**: What should happen when the coordinator session crashes mid-task with running agents? (e.g., running agents continue and auto-commit, new coordinator is spawned to assess state, human is notified)
 
-8. **Multi-task coordination**: Should the coordinator be able to manage multiple related issues simultaneously, or is one-issue-at-a-time sufficient for v1?
+<!-- egg-hitl-feedback id=feedback-3 -->
+**7. Multi-task coordination**: Should the coordinator be able to manage multiple related issues simultaneously, or is one-issue-at-a-time sufficient for v1? Are there specific multi-task scenarios you want supported?
 
 ---
 

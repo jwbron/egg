@@ -9,7 +9,116 @@
   "current_phase": "refine",
   "acceptance_criteria": [],
   "phases": [],
-  "decisions": [],
+  "decisions": [
+    {
+      "id": "decision-1",
+      "question": "Coordinator session persistence model: How should the coordinator handle long-running tasks that exceed a single Claude session?",
+      "type": "hitl",
+      "options": [
+        {
+          "id": "opt-1a",
+          "label": "Checkpoint/resume",
+          "description": "Save state to orchestrator at key points; resume from state after crash (builds on existing checkpoint infra)"
+        },
+        {
+          "id": "opt-1b",
+          "label": "Stateless polling",
+          "description": "Coordinator is ephemeral; re-spawned periodically to poll orchestrator state and take next action"
+        },
+        {
+          "id": "opt-1c",
+          "label": "Long-running session",
+          "description": "Accept context limits; design coordinator prompts to be compact enough for a single session"
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-2",
+      "question": "Phase model for coordinator-driven pipelines: Should the coordinator operate within the existing phase system, outside it, or in hybrid mode?",
+      "type": "hitl",
+      "options": [
+        {
+          "id": "opt-2a",
+          "label": "Within existing phases",
+          "description": "Dynamic phase selection within REFINE\u2192PLAN\u2192IMPLEMENT\u2192PR (can skip but phases still exist)"
+        },
+        {
+          "id": "opt-2b",
+          "label": "Outside phases",
+          "description": "New freeform execution model with its own permission model"
+        },
+        {
+          "id": "opt-2c",
+          "label": "Hybrid",
+          "description": "Phases exist but are advisory; coordinator can skip/reorder freely with a fallback permission model"
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-3",
+      "question": "Coordinator authority level: What should the coordinator be able to do without human approval?",
+      "type": "hitl",
+      "options": [
+        {
+          "id": "opt-3a",
+          "label": "Full autonomy",
+          "description": "Spawn agents, skip phases, loop back, create PRs without approval (human reviews PR at the end)"
+        },
+        {
+          "id": "opt-3b",
+          "label": "Checkpoint approval",
+          "description": "Autonomous within a phase but requires approval at phase boundaries"
+        },
+        {
+          "id": "opt-3c",
+          "label": "Supervised",
+          "description": "Every significant decision (agent spawn, phase skip, loopback) requires human approval"
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-4",
+      "question": "Scope of initial implementation: How much of the coordinator system should be built in the first iteration?",
+      "type": "hitl",
+      "options": [
+        {
+          "id": "opt-4a",
+          "label": "Full system",
+          "description": "Coordinator agent + MCP server + Claude Code integration + async triggers"
+        },
+        {
+          "id": "opt-4b",
+          "label": "Core only",
+          "description": "Coordinator agent + orchestrator API extensions (MCP server in follow-up)"
+        },
+        {
+          "id": "opt-4c",
+          "label": "Prototype",
+          "description": "Coordinator agent with manual CLI interaction only (validate concept first)"
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    }
+  ],
   "workflow_owner": null,
   "audit_log": [],
   "refine_review_cycles": 0,
@@ -17,7 +126,32 @@
   "plan_review_cycles": 0,
   "plan_review_feedback": "",
   "pr": null,
-  "feedback": null,
+  "feedback": {
+    "id": "feedback-1",
+    "phase": null,
+    "questions": [
+      {
+        "id": "Q1",
+        "question": "What cost limits or guardrails should be applied to coordinator sessions? (e.g., max agents per task, max total token budget, max wall-clock time)",
+        "answer": null
+      },
+      {
+        "id": "Q2",
+        "question": "What should happen when the coordinator session crashes mid-task with running agents? (e.g., running agents continue and auto-commit, new coordinator is spawned to assess state, human is notified)",
+        "answer": null
+      },
+      {
+        "id": "Q3",
+        "question": "Should the coordinator be able to manage multiple related issues simultaneously, or is one-issue-at-a-time sufficient for v1? Are there specific multi-task scenarios you want supported?",
+        "answer": null
+      }
+    ],
+    "submitted": false,
+    "submitted_by": null,
+    "submitted_at": null,
+    "comment_id": null,
+    "debounce_until": null
+  },
   "phase_configs": null,
   "agent_executions": [],
   "multi_agent_config": null
