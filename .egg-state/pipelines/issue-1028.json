@@ -403,10 +403,10 @@
         {
           "container_id": "b18029b2f2913b9b425316f8b32602f9d71f2876d5e6d02725fceceae82d459d",
           "container_name": "issue-1028-tester",
-          "status": "running",
+          "status": "exited",
           "started_at": "2026-03-12T23:20:31.462096",
-          "exited_at": null,
-          "exit_code": null,
+          "exited_at": "2026-03-12T23:35:08.002931Z",
+          "exit_code": 0,
           "agent_role": "tester",
           "session_token": null
         },
@@ -512,10 +512,10 @@
         },
         {
           "role": "tester",
-          "status": "running",
+          "status": "complete",
           "container_id": "b18029b2f2913b9b425316f8b32602f9d71f2876d5e6d02725fceceae82d459d",
           "started_at": "2026-03-12T23:20:31.462101",
-          "completed_at": null,
+          "completed_at": "2026-03-12T23:35:11.752067",
           "commit": null,
           "outputs": {},
           "error": null,
@@ -607,7 +607,7 @@
     }
   ],
   "created_at": "2026-03-12T21:41:19.267800",
-  "updated_at": "2026-03-12T23:31:06.028097",
+  "updated_at": "2026-03-12T23:35:11.752619",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
@@ -615,5 +615,5 @@
   "error": null,
   "plan_phase_waves": null,
   "plan_phase_names": null,
-  "version": 63
+  "version": 64
 }
