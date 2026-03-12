@@ -21,6 +21,9 @@ from models import (
     PipelineStatus,
 )
 
+# Common consensus result for tests that rely on container-exit fallback.
+_NO_CONSENSUS = {"is_complete": False, "has_objections": False, "blocking_agents": []}
+
 
 def _make_concurrent_pipeline(pipeline_id: str = "issue-999") -> Pipeline:
     """Create a pipeline with concurrent_execution enabled."""
@@ -88,7 +91,8 @@ class TestRunConcurrentPhaseWait:
         Args:
             executions: List of AgentExecution returned by spawn_all.
             wait_results: Dict mapping container_id to ContainerInfo returned
-                by wait_for_container.  Defaults to exit_code=0 for all.
+                by wait_for_container / get_container_info.
+                Defaults to exit_code=0 for all.
         """
         pipeline = _make_concurrent_pipeline()
         phase_exec = _make_phase_execution()
@@ -116,7 +120,11 @@ class TestRunConcurrentPhaseWait:
         def _wait_side_effect(container_id, timeout=3600):
             return wait_results[container_id]
 
+        def _info_side_effect(container_id):
+            return wait_results[container_id]
+
         mock_docker.wait_for_container.side_effect = _wait_side_effect
+        mock_docker.get_container_info.side_effect = _info_side_effect
 
         # Spawner mock
         mock_spawner = MagicMock()
@@ -126,13 +134,17 @@ class TestRunConcurrentPhaseWait:
 
         return pipeline, mock_store, mock_spawner, mock_docker, phase_exec
 
+    @patch("routes.pipelines.time.sleep")
+    @patch("routes.pipelines.time.monotonic")
     @patch("routes.pipelines.get_pipeline_state_lock")
     @patch("routes.pipelines._build_agent_prompt", return_value="test prompt")
     @patch("concurrent_executor.ConcurrentPhaseExecutor", autospec=False)
     def test_all_containers_exit_successfully(
-        self, MockExecutor, mock_build_prompt, mock_state_lock
+        self, MockExecutor, mock_build_prompt, mock_state_lock, mock_monotonic, mock_sleep
     ):
         """When all containers exit with code 0, returns (0, logs)."""
+        mock_monotonic.return_value = 0.0
+
         executions = [
             _make_execution(AgentRole.CODER, "coder-abc"),
             _make_execution(AgentRole.TESTER, "tester-abc"),
@@ -142,6 +154,7 @@ class TestRunConcurrentPhaseWait:
 
         mock_executor_instance = MagicMock()
         mock_executor_instance.spawn_all.return_value = executions
+        mock_executor_instance.check_consensus.return_value = _NO_CONSENSUS
         MockExecutor.return_value = mock_executor_instance
 
         mock_state_lock.return_value.__enter__ = MagicMock(return_value=None)
@@ -162,15 +175,19 @@ class TestRunConcurrentPhaseWait:
         )
 
         assert exit_code == 0
-        assert mock_docker.wait_for_container.call_count == 3
+        assert mock_docker.get_container_info.call_count == 3
 
+    @patch("routes.pipelines.time.sleep")
+    @patch("routes.pipelines.time.monotonic")
     @patch("routes.pipelines.get_pipeline_state_lock")
     @patch("routes.pipelines._build_agent_prompt", return_value="test prompt")
     @patch("concurrent_executor.ConcurrentPhaseExecutor", autospec=False)
     def test_container_failure_returns_nonzero(
-        self, MockExecutor, mock_build_prompt, mock_state_lock
+        self, MockExecutor, mock_build_prompt, mock_state_lock, mock_monotonic, mock_sleep
     ):
         """When a container exits with non-zero code, returns (1, logs)."""
+        mock_monotonic.return_value = 0.0
+
         executions = [
             _make_execution(AgentRole.CODER, "coder-abc"),
             _make_execution(AgentRole.TESTER, "tester-abc"),
@@ -199,6 +216,7 @@ class TestRunConcurrentPhaseWait:
 
         mock_executor_instance = MagicMock()
         mock_executor_instance.spawn_all.return_value = executions
+        mock_executor_instance.check_consensus.return_value = _NO_CONSENSUS
         MockExecutor.return_value = mock_executor_instance
 
         mock_state_lock.return_value.__enter__ = MagicMock(return_value=None)
@@ -221,13 +239,17 @@ class TestRunConcurrentPhaseWait:
         assert exit_code == 1
         assert "tester" in logs
 
+    @patch("routes.pipelines.time.sleep")
+    @patch("routes.pipelines.time.monotonic")
     @patch("routes.pipelines.get_pipeline_state_lock")
     @patch("routes.pipelines._build_agent_prompt", return_value="test prompt")
     @patch("concurrent_executor.ConcurrentPhaseExecutor", autospec=False)
     def test_container_not_found_during_wait(
-        self, MockExecutor, mock_build_prompt, mock_state_lock
+        self, MockExecutor, mock_build_prompt, mock_state_lock, mock_monotonic, mock_sleep
     ):
-        """When a container disappears during wait, returns failure."""
+        """When a container disappears during poll, returns failure."""
+        mock_monotonic.return_value = 0.0
+
         from docker_client import ContainerNotFoundError
 
         executions = [
@@ -235,10 +257,11 @@ class TestRunConcurrentPhaseWait:
         ]
 
         pipeline, mock_store, mock_spawner, mock_docker, _ = self._make_mocks(executions)
-        mock_docker.wait_for_container.side_effect = ContainerNotFoundError("coder-abc")
+        mock_docker.get_container_info.side_effect = ContainerNotFoundError("coder-abc")
 
         mock_executor_instance = MagicMock()
         mock_executor_instance.spawn_all.return_value = executions
+        mock_executor_instance.check_consensus.return_value = _NO_CONSENSUS
         MockExecutor.return_value = mock_executor_instance
 
         mock_state_lock.return_value.__enter__ = MagicMock(return_value=None)
@@ -261,13 +284,17 @@ class TestRunConcurrentPhaseWait:
         assert exit_code == 1
         assert "coder" in logs
 
+    @patch("routes.pipelines.time.sleep")
+    @patch("routes.pipelines.time.monotonic")
     @patch("routes.pipelines.get_pipeline_state_lock")
     @patch("routes.pipelines._build_agent_prompt", return_value="test prompt")
     @patch("concurrent_executor.ConcurrentPhaseExecutor", autospec=False)
     def test_state_store_records_containers_and_agents(
-        self, MockExecutor, mock_build_prompt, mock_state_lock
+        self, MockExecutor, mock_build_prompt, mock_state_lock, mock_monotonic, mock_sleep
     ):
         """Pipeline state is updated with container/agent info after spawn and wait."""
+        mock_monotonic.return_value = 0.0
+
         executions = [
             _make_execution(AgentRole.CODER, "coder-abc"),
         ]
@@ -276,6 +303,7 @@ class TestRunConcurrentPhaseWait:
 
         mock_executor_instance = MagicMock()
         mock_executor_instance.spawn_all.return_value = executions
+        mock_executor_instance.check_consensus.return_value = _NO_CONSENSUS
         MockExecutor.return_value = mock_executor_instance
 
         mock_state_lock.return_value.__enter__ = MagicMock(return_value=None)
@@ -299,11 +327,17 @@ class TestRunConcurrentPhaseWait:
         # once after wait/status update
         assert mock_store.save_pipeline.call_count >= 2
 
+    @patch("routes.pipelines.time.sleep")
+    @patch("routes.pipelines.time.monotonic")
     @patch("routes.pipelines.get_pipeline_state_lock")
     @patch("routes.pipelines._build_agent_prompt", return_value="test prompt")
     @patch("concurrent_executor.ConcurrentPhaseExecutor", autospec=False)
-    def test_store_none_does_not_crash(self, MockExecutor, mock_build_prompt, mock_state_lock):
+    def test_store_none_does_not_crash(
+        self, MockExecutor, mock_build_prompt, mock_state_lock, mock_monotonic, mock_sleep
+    ):
         """When store=None, state recording is skipped gracefully."""
+        mock_monotonic.return_value = 0.0
+
         executions = [
             _make_execution(AgentRole.CODER, "coder-abc"),
         ]
@@ -311,6 +345,7 @@ class TestRunConcurrentPhaseWait:
 
         mock_executor_instance = MagicMock()
         mock_executor_instance.spawn_all.return_value = executions
+        mock_executor_instance.check_consensus.return_value = _NO_CONSENSUS
         MockExecutor.return_value = mock_executor_instance
 
         exit_code, logs = _run_concurrent_phase(

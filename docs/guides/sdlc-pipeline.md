@@ -1275,7 +1275,20 @@ message bus hosted by the orchestrator.
 
 ### Configuration
 
-Enable concurrent execution in the pipeline config:
+Enable concurrent execution with the `--concurrent` CLI flag:
+
+```bash
+# Issue mode
+egg-sdlc -r egg -i 999 --concurrent
+
+# Local/prompt mode
+egg-sdlc -r egg -p "Add feature X" --concurrent
+
+# Via egg-orch directly
+egg-orch pipeline create --repo owner/repo --issue 999 --branch egg/issue-999 --concurrent
+```
+
+Or pass it in the pipeline config JSON (e.g. via the API):
 
 ```json
 {
@@ -1349,8 +1362,13 @@ Phase completion in concurrent mode uses a consensus-based approach:
 1. Each agent works independently on its tasks
 2. When an agent completes its work, it signals `READY`
 3. Phase completes when **all** agents signal `READY`
+   - The orchestrator polls every 5 seconds and stops containers immediately on consensus
 4. Any agent can object (signal `OBJECTING`) to block completion
-5. Timeout triggers HITL escalation
+   - A HITL decision is created with options: **Override objections**, **Wait for resolution**, **Abort phase**
+5. Timeout (`consensus_timeout_minutes`, default 30) triggers HITL escalation
+   - Options: **Continue waiting**, **Accept current state**, **Abort phase**
+   - Phase falls back to exit-code-based completion while awaiting the decision
+6. If all containers exit before consensus, the phase completes based on container exit codes (same as non-concurrent mode)
 
 **Readiness states**:
 
