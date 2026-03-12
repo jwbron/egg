@@ -4436,7 +4436,6 @@ def _run_concurrent_phase(
     Returns:
         (exit_code, logs) — 0 on success.
     """
-    import threading
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
     from models import (
@@ -4675,7 +4674,9 @@ def _run_concurrent_phase(
             )
             _update_agents_complete()
             _stop_running_containers()
-            combined_logs = "\n".join(all_logs) if all_logs else "Consensus reached; phase complete."
+            combined_logs = (
+                "\n".join(all_logs) if all_logs else "Consensus reached; phase complete."
+            )
             return 0, combined_logs
 
         # 3. Handle objections (create HITL decision once)
@@ -4774,10 +4775,12 @@ def _run_concurrent_phase(
             remaining = [e for e in active_executions if e.container_id not in exited_containers]
             if remaining:
                 with ThreadPoolExecutor(max_workers=len(remaining)) as pool:
+
                     def _wait_remaining(exec_info):
                         try:
                             final_info = docker_client.wait_for_container(
-                                exec_info.container_id, timeout=3600,
+                                exec_info.container_id,
+                                timeout=3600,
                             )
                         except (ContainerNotFoundError, ContainerOperationError):
                             final_info = ContainerInfo(

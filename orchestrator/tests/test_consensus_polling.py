@@ -6,7 +6,7 @@ and falls back to container-exit-based completion.
 
 from datetime import datetime
 from pathlib import Path
-from unittest.mock import MagicMock, call, patch, PropertyMock
+from unittest.mock import MagicMock, patch
 
 from models import (
     AgentExecution,
@@ -102,14 +102,14 @@ def _base_mocks(executions, container_infos=None):
     return pipeline, mock_store, mock_spawner, mock_docker
 
 
-_CALL_ARGS = dict(
-    repo_volumes={},
-    gateway_mode="public",
-    repos=["owner/repo"],
-    sandbox_env={},
-    certs_volume=None,
-    worktree_repo_path=Path("/tmp/test-repo"),
-)
+_CALL_ARGS = {
+    "repo_volumes": {},
+    "gateway_mode": "public",
+    "repos": ["owner/repo"],
+    "sandbox_env": {},
+    "certs_volume": None,
+    "worktree_repo_path": Path("/tmp/test-repo"),
+}
 
 
 class TestConsensusReached:
