@@ -64,6 +64,8 @@ class EventType(StrEnum):
 
     # Consensus / readiness
     READINESS_CHANGED = "readiness.changed"
+    CONSENSUS_REACHED = "consensus.reached"
+    CONSENSUS_TIMEOUT = "consensus.timeout"
 
     # HITL events
     DECISION_CREATED = "decision.created"
