@@ -707,6 +707,83 @@ class TestMixedScenarios:
 
     @patch("routes.pipelines.time.sleep")
     @patch("routes.pipelines.time.monotonic")
+    @patch("routes.pipelines._emit_event")
+    @patch("routes.pipelines.get_pipeline_state_lock")
+    @patch("routes.pipelines._build_agent_prompt", return_value="test prompt")
+    @patch("concurrent_executor.ConcurrentPhaseExecutor", autospec=False)
+    def test_consensus_with_prior_failure_returns_nonzero(
+        self, MockExecutor, mock_prompt, mock_lock, mock_emit, mock_monotonic, mock_sleep
+    ):
+        """When a container fails but remaining agents reach consensus, returns (1, ...)."""
+        poll_count = [0]
+
+        def _monotonic():
+            return poll_count[0] * 5.0
+
+        mock_monotonic.side_effect = _monotonic
+
+        executions = [
+            _make_execution(AgentRole.CODER, "coder-1"),
+            _make_execution(AgentRole.TESTER, "tester-1"),
+        ]
+
+        # Coder exits 137 (OOM kill) immediately; tester stays running
+        failed_coder = ContainerInfo(
+            container_id="coder-1",
+            container_name="issue-999-coder",
+            status=ContainerStatus.FAILED,
+            exit_code=137,
+            exited_at=datetime.utcnow(),
+        )
+        running_tester = ContainerInfo(
+            container_id="tester-1",
+            container_name="issue-999-tester",
+            status=ContainerStatus.RUNNING,
+            exit_code=None,
+        )
+
+        def _get_info(cid):
+            if cid == "coder-1":
+                return failed_coder
+            return running_tester
+
+        pipeline, mock_store, mock_spawner, mock_docker = _base_mocks(executions)
+        mock_docker.get_container_info.side_effect = _get_info
+
+        def _check_consensus():
+            poll_count[0] += 1
+            # After handle_agent_failure removes coder, tester alone reaches consensus
+            if poll_count[0] >= 2:
+                return {"is_complete": True, "has_objections": False, "blocking_agents": []}
+            return {"is_complete": False, "has_objections": False, "blocking_agents": ["tester"]}
+
+        mock_executor_instance = MagicMock()
+        mock_executor_instance.spawn_all.return_value = executions
+        mock_executor_instance.check_consensus.side_effect = _check_consensus
+        MockExecutor.return_value = mock_executor_instance
+
+        mock_lock.return_value.__enter__ = MagicMock(return_value=None)
+        mock_lock.return_value.__exit__ = MagicMock(return_value=False)
+
+        exit_code, logs = _run_concurrent_phase(
+            pipeline_id="issue-999",
+            pipeline=pipeline,
+            phase="implement",
+            spawner=mock_spawner,
+            store=mock_store,
+            **_CALL_ARGS,
+        )
+
+        # Consensus was reached, but a prior failure means the phase should fail
+        assert exit_code == 1
+        # handle_agent_failure should have been called for the crashed coder
+        mock_executor_instance.handle_agent_failure.assert_called_once_with(
+            role="coder",
+            error="Container exited with code 137",
+        )
+
+    @patch("routes.pipelines.time.sleep")
+    @patch("routes.pipelines.time.monotonic")
     @patch("routes.pipelines.get_pipeline_state_lock")
     @patch("routes.pipelines._build_agent_prompt", return_value="test prompt")
     @patch("concurrent_executor.ConcurrentPhaseExecutor", autospec=False)
