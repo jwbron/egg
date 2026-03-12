@@ -504,7 +504,7 @@ def run_issue_mode(
                 elif status in ("complete", "cancelled"):
                     # Terminal — delete and re-create
                     print(f"  Pipeline was {status}. Restarting...")
-                    config = {"concurrent_execution": True} if concurrent else None
+                    config: dict[str, object] | None = {"concurrent_execution": True} if concurrent else None
                     _restart_pipeline(
                         client,
                         pipeline_id,
@@ -534,7 +534,7 @@ def run_issue_mode(
                             file=sys.stderr,
                         )
                         return 1
-                    config = {"concurrent_execution": True} if concurrent else None
+                    config2: dict[str, object] | None = {"concurrent_execution": True} if concurrent else None
                     _restart_pipeline(
                         client,
                         pipeline_id,
@@ -542,7 +542,7 @@ def run_issue_mode(
                         repo,
                         branch,
                         network_mode=network_mode,
-                        config=config,
+                        config=config2,
                     )
             except OrchestratorError as e2:
                 _write(f"{RED}Failed to restart pipeline: {e2}{RESET}\n", file=sys.stderr)
