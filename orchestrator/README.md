@@ -348,6 +348,7 @@ Defined in `shared/egg_config/constants.py`:
 |----------|-------|
 | Container name | `egg-orchestrator` |
 | Port | `9849` |
+| MCP server port | `9850` |
 | Isolated network IP | `172.32.0.3` |
 | External network IP | `172.33.0.3` |
 

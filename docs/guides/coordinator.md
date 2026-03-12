@@ -68,15 +68,24 @@ Configure Claude Code to connect to the MCP server:
 
 ### Available Tools
 
-| Tool | Description | Required Parameters |
-|------|-------------|---------------------|
-| `submit_task` | Submit a task for coordinator processing | `description` |
-| `get_status` | Check task/pipeline status | `task_id` |
-| `provide_input` | Respond to a coordinator escalation | `task_id`, `decision_id`, `response` |
-| `list_tasks` | List coordinator-managed pipelines | (none) |
-| `cancel_task` | Cancel a task | `task_id` |
+| Tool | Description | Required Parameters | Optional Parameters |
+|------|-------------|---------------------|---------------------|
+| `submit_task` | Submit a task for coordinator processing | `description` | `issue_number`, `repo`, `urgency`, `workflow_hint` |
+| `get_status` | Check task/pipeline status | `task_id` | |
+| `provide_input` | Respond to a coordinator escalation | `task_id`, `decision_id`, `response` | |
+| `list_tasks` | List coordinator-managed pipelines | (none) | `status_filter`, `limit` |
+| `cancel_task` | Cancel a task | `task_id` | `reason` |
 
-The `submit_task` tool accepts optional parameters: `issue_number`, `repo` (owner/name format), `urgency` (low/normal/high), and `workflow_hint` (bug_fix/feature/refactor).
+**`submit_task` parameters:**
+- `description` (required) — Natural language task description
+- `issue_number` (int) — GitHub issue number
+- `repo` (string) — Repository in `owner/name` format
+- `urgency` — `"low"`, `"normal"` (default), or `"high"`
+- `workflow_hint` — Hint for workflow selection (e.g., `"bug_fix"`, `"feature"`, `"refactor"`)
+
+**`list_tasks` parameters:**
+- `status_filter` — `"active"` (default), `"completed"`, `"failed"`, or `"all"`
+- `limit` (int) — Maximum results to return (default: 10)
 
 ### MCP Server Endpoints
 
@@ -101,41 +110,97 @@ All coordinator endpoints are under `/api/v1/pipelines/{id}/coordinator/`. They 
 | `POST` | `/coordinator/escalate` | Create a HITL escalation |
 | `DELETE` | `/coordinator/agents/{role}` | Cancel a running agent by role |
 
+### Response Format
+
+All coordinator endpoints return a standard envelope:
+
+```json
+// Success
+{"success": true, "message": "...", "data": {...}}
+
+// Error
+{"success": false, "message": "...", "details": {...}}
+```
+
+Common error codes:
+- **400** — Invalid request (missing fields, invalid role/phase)
+- **403** — Coordinator mode not enabled on the pipeline
+- **404** — Pipeline or agent not found
+- **429** — Guardrail limit exceeded (max agents or max retries per role)
+- **500** — Internal error (container spawn failure, etc.)
+
 ### Spawn Agent
 
 ```json
 POST /api/v1/pipelines/{id}/coordinator/spawn
 {
-  "role": "coder",
-  "task_context": "Fix the auth bug described in issue #432",
-  "extra_env": {"KEY": "VALUE"}
+  "role": "coder",                                     // required
+  "task_context": "Fix the auth bug in issue #432",    // optional
+  "extra_env": {"KEY": "VALUE"}                        // optional
 }
 ```
 
-Returns 429 if guardrail limits are exceeded.
+The `role` must be a valid `AgentRole`: `coder`, `tester`, `documenter`, `integrator`, `refiner`, `architect`, `task_planner`, `risk_analyst`, `reviewer`, `checker`, `inspector`, or `coordinator`.
+
+Returns 429 if guardrail limits are exceeded. The response includes the `spawn_record` with the assigned `retry_number` (0 for the first spawn of a given role, incremented for each subsequent spawn of the same role).
+
+### Get Coordinator State
+
+```
+GET /api/v1/pipelines/{id}/coordinator/state
+```
+
+Returns the full coordinator state including categorized agent lists:
+
+```json
+{
+  "success": true,
+  "data": {
+    "current_phase": "implement",
+    "status": "running",
+    "running_agents": [...],
+    "completed_agents": [...],
+    "pending_decisions": [...],
+    "coordinator_state": {...},
+    "guardrail_counters": {...}
+  }
+}
+```
+
+Agents are categorized by status: `running_agents` contains agents with status `"running"`, while `completed_agents` contains agents with status `"complete"`, `"failed"`, or `"cancelled"`.
 
 ### Phase Control
 
 ```json
 POST /api/v1/pipelines/{id}/coordinator/phase
 {
-  "target_phase": "implement",
-  "reason": "Simple bug fix, skipping to implement"
+  "target_phase": "implement",    // optional — skip to specific phase
+  "reason": "Simple bug fix"      // required
 }
 ```
 
-Omit `target_phase` to advance to the next phase in sequence.
+Omit `target_phase` to advance to the next phase in sequence. When `target_phase` is provided, the action is recorded as `"skip"`; otherwise it is recorded as `"advance"`. Valid phases: `refine`, `plan`, `implement`, `pr`.
 
 ### Escalate to Human
 
 ```json
 POST /api/v1/pipelines/{id}/coordinator/escalate
 {
-  "question": "Which approach should we use?",
-  "escalation_type": "choice",
-  "options": ["Option A", "Option B"]
+  "question": "Which approach should we use?",    // required
+  "escalation_type": "choice",                     // required — "choice" or "feedback"
+  "options": ["Option A", "Option B"]              // required for "choice" type
 }
 ```
+
+Creates a standard HITL decision in the orchestrator's decision queue. The escalation is also recorded in `CoordinatorState.escalations` for coordinator state tracking.
+
+### Cancel Agent
+
+```
+DELETE /api/v1/pipelines/{id}/coordinator/agents/{role}
+```
+
+Cancels the most recent running agent for the given role. The container is force-removed and the spawn record status is set to `"cancelled"`.
 
 ## CLI Commands
 
@@ -220,16 +285,56 @@ The `CoordinatorState` (stored in `Pipeline.coordinator_state`) tracks:
 | `escalations` | list[Escalation] | HITL escalation history with resolutions |
 | `guardrail_counters` | GuardrailCounters | Running counts for limit enforcement |
 
+### AgentSpawnRecord
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `role` | AgentRole | Agent role that was spawned |
+| `spawned_at` | datetime | When the agent was spawned |
+| `completed_at` | datetime? | When the agent completed (null while running) |
+| `status` | string | `"running"`, `"complete"`, `"failed"`, or `"cancelled"` |
+| `container_id` | string? | Docker container ID |
+| `task_context` | string | Task description given to the agent |
+| `retry_number` | int | Retry attempt number (0 for first spawn of this role) |
+
+### PhaseDecision
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `phase` | string | Target phase |
+| `action` | string | `"advance"` (next in sequence), `"skip"` (jump to target), or `"loopback"` (return to earlier phase) |
+| `reason` | string | Rationale for the decision |
+| `decided_at` | datetime | When the decision was made |
+
+### GuardrailCounters
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `total_agents_spawned` | int | Total successful agent spawns across all roles |
+| `retries_by_role` | dict[str, int] | Spawn count per role (incremented on each spawn, not just retries) |
+| `coordinator_respawns` | int | Number of times the coordinator has been respawned after crashes |
+| `started_at` | datetime | When the coordinator was first started |
+
+### Escalation
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `question` | string | Question posed to the human |
+| `escalation_type` | string | `"choice"` or `"feedback"` |
+| `created_at` | datetime | When the escalation was created |
+| `resolved_at` | datetime? | When resolved (null while pending) |
+| `resolution` | string? | Human's response text |
+
 ## Event Types
 
 The coordinator emits events via the orchestrator's event bus for monitoring and observability:
 
-| Event | Description |
-|-------|-------------|
-| `coordinator.spawn` | Agent spawned by the coordinator |
-| `coordinator.decision` | Phase transition decision made |
-| `coordinator.escalation` | HITL escalation created |
-| `coordinator.loopback` | Coordinator respawned after crash |
+| Event | Description | Data Fields |
+|-------|-------------|-------------|
+| `coordinator.spawn` | Agent spawned by the coordinator | `role`, `container_id`, `task_context`, `retry_number` |
+| `coordinator.decision` | Phase transition decision made | `previous_phase`, `current_phase`, `action`, `reason` |
+| `coordinator.escalation` | HITL escalation created | `question`, `escalation_type`, `options`, `decision_id` |
+| `coordinator.loopback` | Coordinator respawned after crash | `reason`, `respawn_count` |
 
 Subscribe to these via the SSE streams (`/pipelines/{id}/stream` or `/pipelines/stream`).
 
@@ -241,6 +346,19 @@ The coordinator agent role has restricted file access enforced by the gateway:
 - **Blocked writes**: All source code, docs, tests, contracts, drafts, and reviews
 
 This ensures the coordinator operates purely as an orchestration layer — it cannot modify code or pipeline artifacts directly.
+
+## Environment Variables
+
+The coordinator container receives these additional environment variables:
+
+| Variable | Value | Description |
+|----------|-------|-------------|
+| `EGG_COORDINATOR_MODE` | `"true"` | Indicates this container is the coordinator |
+| `EGG_COORDINATOR_TOOLS` | `"true"` | Enables coordinator CLI tools |
+| `EGG_ISSUE_NUMBER` | issue number | Set when the pipeline is tied to a GitHub issue |
+| `EGG_PIPELINE_ID` | pipeline ID | Standard pipeline identifier |
+
+The coordinator runs with `phase="coordinator"` — a special phase value distinct from the standard SDLC phases (`refine`, `plan`, `implement`, `pr`).
 
 ## Troubleshooting
 
