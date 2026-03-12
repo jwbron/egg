@@ -5,7 +5,7 @@
   "branch": "egg/issue-1028",
   "mode": "issue",
   "prompt": null,
-  "status": "running",
+  "status": "failed",
   "current_phase": "refine",
   "config": {
     "auto_create_pr": true,
@@ -21,10 +21,10 @@
   "phases": {
     "refine": {
       "phase": "refine",
-      "status": "running",
+      "status": "failed",
       "started_at": "2026-03-12T18:22:58.470491",
       "work_started_at": "2026-03-12T18:22:58.482242",
-      "completed_at": null,
+      "completed_at": "2026-03-12T18:23:01.911237",
       "containers": [
         {
           "container_id": "99c856d0dff376225c39b8c0487421f54cc4ad385265337ef1ad772abbcc36d2",
@@ -58,25 +58,25 @@
         {
           "cycle": 0,
           "started_at": "2026-03-12T18:22:58.482242",
-          "completed_at": null,
+          "completed_at": "2026-03-12T18:23:01.911152",
           "commit_sha": "a4be9f4a3eede2f716cd0ea0ac41a98f80d4abbc"
         }
       ],
       "artifacts": {},
-      "error": null,
+      "error": "Container exited with code 1\n--- container logs (last 10 lines) ---\n2026-03-12T18:23:00.849445241Z     GitHub token valid: False\n2026-03-12T18:23:00.849456741Z     Auth configured: True\n2026-03-12T18:23:00.849468116Z ⚠   Gateway degraded: Status: degraded (github_token=False, auth=True)\n2026-03-12T18:23:00.849480408Z ✓ Gateway ready! (public mode - direct internet access)\n2026-03-12T18:23:00.849492408Z ✓ Anthropic API routed through gateway: http://egg-gateway:9848\n2026-03-12T18:23:00.849504616Z   Credentials injected by gateway (not in container)\n2026-03-12T18:23:00.849516408Z Signaled error to orchestrator\n2026-03-12T18:23:00.849528033Z \n2026-03-12T18:23:00.849538741Z Cleaning up on container exit...\n2026-03-12T18:23:00.849550366Z ✓ Cleanup complete",
       "hitl_feedback": null,
       "phase_start_sha": null
     }
   },
   "decisions": [],
   "created_at": "2026-03-12T18:22:57.124093",
-  "updated_at": "2026-03-12T18:23:01.096318",
+  "updated_at": "2026-03-12T18:23:01.911772",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
   "complexity_tier": "mid",
-  "error": null,
+  "error": "Container exited with code 1\n--- container logs (last 10 lines) ---\n2026-03-12T18:23:00.849445241Z     GitHub token valid: False\n2026-03-12T18:23:00.849456741Z     Auth configured: True\n2026-03-12T18:23:00.849468116Z ⚠   Gateway degraded: Status: degraded (github_token=False, auth=True)\n2026-03-12T18:23:00.849480408Z ✓ Gateway ready! (public mode - direct internet access)\n2026-03-12T18:23:00.849492408Z ✓ Anthropic API routed through gateway: http://egg-gateway:9848\n2026-03-12T18:23:00.849504616Z   Credentials injected by gateway (not in container)\n2026-03-12T18:23:00.849516408Z Signaled error to orchestrator\n2026-03-12T18:23:00.849528033Z \n2026-03-12T18:23:00.849538741Z Cleaning up on container exit...\n2026-03-12T18:23:00.849550366Z ✓ Cleanup complete",
   "plan_phase_waves": null,
   "plan_phase_names": null,
-  "version": 8
+  "version": 9
 }
