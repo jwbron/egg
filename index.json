@@ -45,7 +45,8 @@
       "ckpt-d67ad3b3fb358250",
       "ckpt-c6fe028b75a97918",
       "ckpt-8bfd2a655a9fec30",
-      "ckpt-8fbb941e5a2a4736"
+      "ckpt-8fbb941e5a2a4736",
+      "ckpt-104eb957ef9aa65f"
     ]
   },
   "by_commit": {},
@@ -72,7 +73,8 @@
       "ckpt-d67ad3b3fb358250",
       "ckpt-c6fe028b75a97918",
       "ckpt-8bfd2a655a9fec30",
-      "ckpt-8fbb941e5a2a4736"
+      "ckpt-8fbb941e5a2a4736",
+      "ckpt-104eb957ef9aa65f"
     ],
     "state-sync": [
       "ckpt-3d7ebc8d74b29f81",
@@ -147,7 +149,8 @@
       "ckpt-8fbb941e5a2a4736"
     ],
     "issue-1028-failsafe-fetch": [
-      "ckpt-4c4cfe1886c2ef51"
+      "ckpt-4c4cfe1886c2ef51",
+      "ckpt-104eb957ef9aa65f"
     ],
     "issue-1028-failsafe-push": [
       "ckpt-9d12058300b48253",
@@ -228,7 +231,8 @@
       "ckpt-d67ad3b3fb358250",
       "ckpt-c6fe028b75a97918",
       "ckpt-8bfd2a655a9fec30",
-      "ckpt-8fbb941e5a2a4736"
+      "ckpt-8fbb941e5a2a4736",
+      "ckpt-104eb957ef9aa65f"
     ]
   },
   "by_trigger": {
@@ -277,7 +281,8 @@
       "ckpt-d67ad3b3fb358250",
       "ckpt-c6fe028b75a97918",
       "ckpt-8bfd2a655a9fec30",
-      "ckpt-8fbb941e5a2a4736"
+      "ckpt-8fbb941e5a2a4736",
+      "ckpt-104eb957ef9aa65f"
     ]
   },
   "checkpoints": [
@@ -1135,8 +1140,27 @@
       "tool_call_count": 0,
       "total_tokens": 0,
       "trigger_type": "session_end"
+    },
+    {
+      "agent_type": "unknown",
+      "branch": null,
+      "commit_sha": null,
+      "created_at": "2026-03-12T21:16:27.040864Z",
+      "files_touched_count": 0,
+      "id": "ckpt-104eb957ef9aa65f",
+      "issue_number": null,
+      "message_count": 0,
+      "pipeline_id": "issue-1028",
+      "pipeline_phase": null,
+      "pr_number": null,
+      "repo": null,
+      "session_id": "issue-1028-failsafe-fetch",
+      "session_status": "completed",
+      "tool_call_count": 0,
+      "total_tokens": 0,
+      "trigger_type": "session_end"
     }
   ],
-  "last_updated": "2026-03-12T21:14:41.441991Z",
+  "last_updated": "2026-03-12T21:16:27.928438Z",
   "schemaVersion": "2.0"
 }
