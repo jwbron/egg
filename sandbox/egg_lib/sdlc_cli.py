@@ -504,7 +504,9 @@ def run_issue_mode(
                 elif status in ("complete", "cancelled"):
                     # Terminal — delete and re-create
                     print(f"  Pipeline was {status}. Restarting...")
-                    config: dict[str, object] | None = {"concurrent_execution": True} if concurrent else None
+                    config: dict[str, object] | None = (
+                        {"concurrent_execution": True} if concurrent else None
+                    )
                     _restart_pipeline(
                         client,
                         pipeline_id,
@@ -534,7 +536,9 @@ def run_issue_mode(
                             file=sys.stderr,
                         )
                         return 1
-                    config2: dict[str, object] | None = {"concurrent_execution": True} if concurrent else None
+                    config2: dict[str, object] | None = (
+                        {"concurrent_execution": True} if concurrent else None
+                    )
                     _restart_pipeline(
                         client,
                         pipeline_id,
