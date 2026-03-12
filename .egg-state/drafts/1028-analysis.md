@@ -46,9 +46,16 @@ The recently merged concurrent execution system (`orchestrator/concurrent_execut
 
 Current roles are defined in `orchestrator/models.py:64-87` as an `AgentRole` enum: `CODER`, `REVIEWER`, `CHECKER`, `TESTER`, `DOCUMENTER`, `INTEGRATOR`, plus phase-specific roles (`ARCHITECT`, `TASK_PLANNER`, `RISK_ANALYST`, `REFINER`, `INSPECTOR`, and several reviewer subtypes). There is no `COORDINATOR` role.
 
+### MCP Integration Status
+
+MCP integration is partially implemented per `docs/adr/implemented/ADR-Context-Sync-Strategy-Custom-vs-MCP.md`:
+- GitHub MCP Server is active (configured via `api.githubcopilot.com`)
+- No custom MCP server exists in the codebase for egg-specific operations
+- No MCP server exposes orchestrator APIs or coordinator capabilities
+
 ### Key Limitation
 
-The orchestrator has no concept of a persistent "coordinator" session. All intelligence about *what* to do lives in pre-configured dispatch logic (`shared/egg_contracts/orchestrator.py`) and phase defaults. The system cannot reason about whether a phase should be skipped, whether to loop back after a test failure, or whether a task is simple enough for a single agent. No MCP server exists in the codebase.
+The orchestrator has no concept of a persistent "coordinator" session. All intelligence about *what* to do lives in pre-configured dispatch logic (`shared/egg_contracts/orchestrator.py`) and phase defaults. The system cannot reason about whether a phase should be skipped, whether to loop back after a test failure, or whether a task is simple enough for a single agent. No coordinator-facing MCP server exists.
 
 ## Constraints
 
@@ -58,7 +65,7 @@ The orchestrator has no concept of a persistent "coordinator" session. All intel
 - **Claude session persistence** — a coordinator Claude session managing a multi-hour workflow needs to handle context limits and session resumption. Claude's context window is ~200k tokens; typical SDLC pipeline runs span 30-120 minutes. The coordinator must survive context compression and potential session crashes.
 - **Docker container lifecycle** — the coordinator must live somewhere (a container, the host, or as a long-running process) and interact with Docker to spawn agent containers.
 - **Orchestrator API surface** — current APIs are designed for fixed-phase pipelines. The coordinator needs APIs for flexible agent spawning without rigid phase constraints.
-- **Agent instruction protocol** — the coordinator needs a mechanism to pass task-specific context, expectations, and instructions to each agent it spawns. Currently, agent instructions come from `sandbox/.claude/rules/` templates and contract data; a coordinator would need to inject dynamic per-task instructions.
+- **Agent instruction protocol** — the coordinator needs a mechanism to pass task-specific context, expectations, and instructions to each agent it spawns. Currently, agent instructions come from `sandbox/.claude/rules/` templates and contract data; a coordinator would need to inject dynamic per-task instructions. This should follow the "orientation not pre-fetching" principle — passing task objectives and lightweight metadata rather than pre-fetched diffs or file contents.
 
 ### Cost Constraints
 - A long-running coordinator session consuming tokens continuously, plus multiple agent sessions, could be significantly more expensive than the current model.
@@ -83,9 +90,9 @@ The orchestrator has no concept of a persistent "coordinator" session. All intel
 - Tools to spawn other agents (via orchestrator APIs, not direct Docker access)
 - Access to the message bus for monitoring agent progress
 - Ability to advance/skip phases via orchestrator APIs
-- MCP server for bridging the coordinator to external Claude Code sessions
+- MCP server for bridging the coordinator to external Claude Code sessions (see MCP Server Design section below)
 
-The coordinator uses `claude --print` (headless mode) for agent execution, consistent with existing agent patterns (see `concurrent_executor.py:164-176`). Sub-reasoning happens via Claude Code, not direct Anthropic API calls.
+The coordinator uses `claude --print` (headless mode) for agent execution, consistent with existing agent patterns (see `concurrent_executor.py`). Sub-reasoning happens via Claude Code, not direct Anthropic API calls.
 
 **Pros**:
 - Reuses existing infrastructure (container spawning, gateway sessions, message bus)
@@ -138,6 +145,80 @@ The coordinator uses `claude --print` (headless mode) for agent execution, consi
 - Host-level execution means less portability
 - May conflict with existing Claude Code session if user is also using it
 
+## MCP Server Design
+
+The issue identifies the MCP server as "a thin bridge between the coordinator and the outside world." This is a critical component that exposes coordinator capabilities to external Claude Code sessions.
+
+### Purpose
+
+The MCP server enables the human interaction pattern: a user in a Claude Code session describes a task conversationally, Claude calls MCP tools to submit the task to the coordinator, and receives status updates and escalations back through the same tools. The MCP server is not the coordinator itself — it's the communication layer between the coordinator agent (running inside a sandbox container) and external consumers (Claude Code sessions, async triggers).
+
+### Tool Definitions
+
+The MCP server would expose tools such as:
+- **`submit_task`** — Accept a natural language task description and optional metadata (issue number, repo, urgency). Creates a coordinator pipeline and returns a task ID.
+- **`get_status`** — Query the current state of a coordinator-managed task: which agents are running, what phase the work is in, any pending decisions.
+- **`provide_input`** — Supply human input in response to a coordinator escalation (e.g., answering a question, approving a direction, redirecting the approach).
+- **`list_tasks`** — List active and recent coordinator tasks.
+- **`cancel_task`** — Request cancellation of a running task.
+
+### Protocol Choices
+
+Two MCP transport protocols are available:
+
+- **stdio** — the coordinator launches the MCP server as a subprocess and communicates via stdin/stdout. This is the standard Claude Code MCP pattern. Simple to implement but requires the MCP server process to coexist with the Claude Code session.
+- **SSE (Server-Sent Events)** — the MCP server runs as an HTTP endpoint. The Claude Code session connects to it over the network. This allows the MCP server to run independently (e.g., as a sidecar alongside the orchestrator) and serve multiple clients.
+
+For the coordinator use case, **SSE is more appropriate** because:
+1. The MCP server needs to be reachable from any Claude Code session (not just one process)
+2. It should persist independently of any single client session
+3. It naturally maps to the orchestrator's existing HTTP API architecture
+4. It supports the async/unattended mode where no Claude Code session is active
+
+### State Management
+
+The MCP server itself is stateless — it proxies requests to the orchestrator, which owns all pipeline state. This means:
+- The MCP server can crash and restart without losing task state
+- Multiple MCP server instances can run concurrently (for availability)
+- State recovery is handled by the orchestrator's existing persistence model
+
+### Deployment
+
+The MCP server would run as a sidecar process alongside the orchestrator (or within the orchestrator container), sharing the same network. It translates MCP protocol messages into orchestrator REST API calls.
+
+## Claude Code Integration
+
+The issue describes the Claude Code session as the primary human interface. The user describes tasks conversationally; Claude calls MCP tools to submit tasks to the coordinator, check status, and provide input when escalated.
+
+### Interactive Mode
+
+In interactive mode, the user has an active Claude Code session. The interaction pattern is:
+
+1. User describes a task: "Fix the auth bug in #432"
+2. Claude Code calls `submit_task` via MCP → coordinator receives task
+3. Coordinator analyzes the issue, decides on agents, instructs orchestrator
+4. User can query status: "How's the auth fix going?" → `get_status` via MCP
+5. Coordinator escalates when input needed: "Tester found an edge case, should I have the coder fix it?" → `provide_input` via MCP
+6. User can redirect: "Actually include a documenter too" → `provide_input` via MCP
+
+The Claude Code session does not make workflow decisions — it's a conversational interface. The coordinator (running as an agent container) makes all orchestration decisions.
+
+### Relationship to Existing SDLC CLI
+
+The SDLC pipeline is one workflow the coordinator can choose to run. For simple tasks, the coordinator skips phases. The existing pipeline remains available directly via `egg-sdlc` for users who prefer explicit control. The coordinator mode and CLI mode coexist — they are alternative entry points into the same orchestrator.
+
+## Async / Unattended Mode
+
+The same coordinator agent can be triggered without a live Claude Code session. Entry points include:
+
+- **Slack** — user posts a task description; a Slack integration calls the MCP server's `submit_task` tool
+- **Webhook** — CI or external systems trigger tasks via HTTP
+- **GitHub issue events** — new issue created with a label triggers the coordinator (similar to existing `egg-sdlc` but with coordinator-driven workflow selection)
+
+In unattended mode, the coordinator runs to completion and notifies the human when done or when input is needed (via Slack, GitHub comment, or email). The MCP server and coordinator logic are shared between interactive and async modes — the only difference is the trigger mechanism and the notification channel.
+
+This is designated as a follow-on concern in the issue, but it influences the coordinator's design: the coordinator must not assume a live human session. Escalation must support both synchronous (MCP tool response) and asynchronous (notification + wait for response) patterns.
+
 ## Recommended Approach
 
 **Option A: Coordinator as an Orchestrator Extension** is recommended.
@@ -152,7 +233,7 @@ Option B is explicitly rejected because it violates the EGG200 convention of not
 
 ### Observability
 
-The coordinator's decision-making must be observable. Since the coordinator runs as an agent container, its session will be captured by the checkpoint system. Key decisions (phase skipping, agent spawning, loopback reasoning) should be emitted as structured messages on the message bus for real-time monitoring via the SSE stream and DAG visualizer.
+The coordinator's decision-making must be observable. Since the coordinator runs as an agent container, its session will be captured by the checkpoint system. Key decisions (phase skipping, agent spawning, loopback reasoning) should be emitted as structured messages on the message bus for real-time monitoring via the SSE stream and DAG visualizer. Message types could include `WORKFLOW_DECISION` (coordinator chose to skip/reorder phases), `AGENT_SPAWN` (coordinator requested a new agent), and `ESCALATION` (coordinator surfaced a question to the human).
 
 ## Open Questions
 
@@ -162,21 +243,21 @@ The following questions have been registered as contract decisions and feedback 
 
 1. **Coordinator session persistence model**: How should the coordinator handle long-running tasks that exceed a single Claude session? (Claude's context window is ~200k tokens; typical pipeline runs are 30-120 min with potentially dozens of tool calls.)
 
-2. **Phase enforcement for coordinator**: How should gateway phase enforcement work when the coordinator can dynamically skip/reorder phases?
+2. **Phase model for coordinator-driven pipelines**: Should the coordinator operate within the existing phase system (using dynamic phase selection within the REFINE → PLAN → IMPLEMENT → PR model), outside it (a new freeform execution model with its own permission model), or in a hybrid mode (phases exist but are advisory, with the coordinator able to skip/reorder freely)?
 
 3. **Coordinator authority level**: What should the coordinator be able to do without human approval?
 
 4. **Scope of initial implementation**: How much of the coordinator system should be built in the first iteration?
 
+5. **User interaction channel**: How should users interact with the coordinator?
+
 ### Feedback (Open-Ended)
 
-5. **Cost guardrails**: What cost limits or guardrails should be applied to coordinator sessions? (e.g., max agents per task, max total token budget, max wall-clock time)
+6. **Cost guardrails**: What cost limits or guardrails should be applied to coordinator sessions? (e.g., max agents per task, max total token budget, max wall-clock time)
 
-6. **Failure recovery expectations**: What should happen when the coordinator session crashes mid-task with running agents?
+7. **Failure recovery expectations**: What should happen when the coordinator session crashes mid-task with running agents?
 
-7. **Multi-task coordination**: Should the coordinator be able to manage multiple related issues simultaneously, or is one-issue-at-a-time sufficient for v1?
-
-8. **User interaction model**: How should users interact with the coordinator — via Slack, GitHub issue comments, a dedicated CLI, or the existing `egg` command? What is the expected UX for submitting tasks and receiving updates?
+8. **Multi-task coordination**: Should the coordinator be able to manage multiple related issues simultaneously, or is one-issue-at-a-time sufficient for v1?
 
 ---
 
