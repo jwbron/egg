@@ -9,7 +9,116 @@
   "current_phase": "refine",
   "acceptance_criteria": [],
   "phases": [],
-  "decisions": [],
+  "decisions": [
+    {
+      "id": "decision-1",
+      "question": "How should the coordinator handle long-running tasks that exceed a single Claude session?",
+      "type": "hitl",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Checkpoint/resume",
+          "description": "Checkpoint/resume: save state to orchestrator and resume from checkpoints"
+        },
+        {
+          "id": "opt-2",
+          "label": "Stateless",
+          "description": "Stateless: re-derive state from orchestrator on each invocation"
+        },
+        {
+          "id": "opt-3",
+          "label": "Persistent session",
+          "description": "Persistent session: keep coordinator session alive indefinitely"
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-2",
+      "question": "How should gateway phase enforcement work when the coordinator can dynamically skip/reorder phases?",
+      "type": "hitl",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Flexible phases",
+          "description": "Flexible phases: coordinator declares current phase, gateway enforces that phase's rules"
+        },
+        {
+          "id": "opt-2",
+          "label": "Phase-free mode",
+          "description": "Phase-free mode: coordinator operates with relaxed phase restrictions"
+        },
+        {
+          "id": "opt-3",
+          "label": "Phase templates",
+          "description": "Phase templates: predefined phase sequences the coordinator selects from"
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-3",
+      "question": "What should the coordinator be able to do without human approval?",
+      "type": "hitl",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Minimal authority",
+          "description": "Minimal authority: spawn agents and monitor only; all phase advances need human approval"
+        },
+        {
+          "id": "opt-2",
+          "label": "Moderate authority",
+          "description": "Moderate authority: spawn agents, skip phases, loop back; PR creation needs human approval"
+        },
+        {
+          "id": "opt-3",
+          "label": "Maximum authority",
+          "description": "Maximum authority: fully autonomous up to PR merge (which always requires human)"
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-4",
+      "question": "How much of the coordinator system should be built in the first iteration?",
+      "type": "hitl",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "MVP",
+          "description": "MVP: coordinator tools + flexible agent spawning API only"
+        },
+        {
+          "id": "opt-2",
+          "label": "Core",
+          "description": "Core: tools + flexible spawning + dynamic phase selection + basic monitoring"
+        },
+        {
+          "id": "opt-3",
+          "label": "Full",
+          "description": "Full: tools + spawning + phase skipping + adaptive loops + workflow templates"
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    }
+  ],
   "workflow_owner": null,
   "audit_log": [],
   "refine_review_cycles": 0,
@@ -17,7 +126,37 @@
   "plan_review_cycles": 0,
   "plan_review_feedback": "",
   "pr": null,
-  "feedback": null,
+  "feedback": {
+    "id": "feedback-1",
+    "phase": "refine",
+    "questions": [
+      {
+        "id": "Q1",
+        "question": "What cost limits or guardrails should be applied to coordinator sessions? (e.g., max tokens per task, max agent spawns, dollar budget)",
+        "answer": null
+      },
+      {
+        "id": "Q2",
+        "question": "What should happen when the coordinator session crashes mid-task? Should running agents continue autonomously, pause and wait, or be stopped?",
+        "answer": null
+      },
+      {
+        "id": "Q3",
+        "question": "Should the coordinator manage multiple related issues simultaneously, or is one-issue-at-a-time sufficient for v1?",
+        "answer": null
+      },
+      {
+        "id": "Q4",
+        "question": "How should users interact with the coordinator? (Slack, GitHub issue comments, dedicated CLI, existing egg command, or some combination?)",
+        "answer": null
+      }
+    ],
+    "submitted": false,
+    "submitted_by": null,
+    "submitted_at": null,
+    "comment_id": null,
+    "debounce_until": null
+  },
   "phase_configs": null,
   "agent_executions": [],
   "multi_agent_config": null
