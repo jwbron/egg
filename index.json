@@ -18,7 +18,8 @@
       "ckpt-d7b4765131e68ade",
       "ckpt-1316df3da315121e",
       "ckpt-79c58ff4d6c3f86d",
-      "ckpt-24cde7c7d2a349c0"
+      "ckpt-24cde7c7d2a349c0",
+      "ckpt-112f8d27f3d8a0a1"
     ]
   },
   "by_commit": {},
@@ -31,7 +32,8 @@
       "ckpt-59aa796236370f8a",
       "ckpt-e3b25b4798d487ea",
       "ckpt-9d12058300b48253",
-      "ckpt-d7b4765131e68ade"
+      "ckpt-d7b4765131e68ade",
+      "ckpt-112f8d27f3d8a0a1"
     ],
     "state-sync": [
       "ckpt-3d7ebc8d74b29f81",
@@ -67,7 +69,8 @@
     ],
     "issue-1028-failsafe-push": [
       "ckpt-9d12058300b48253",
-      "ckpt-d7b4765131e68ade"
+      "ckpt-d7b4765131e68ade",
+      "ckpt-112f8d27f3d8a0a1"
     ],
     "state-sync-failsafe-push": [
       "ckpt-3d7ebc8d74b29f81",
@@ -102,7 +105,8 @@
       "ckpt-d7b4765131e68ade",
       "ckpt-1316df3da315121e",
       "ckpt-79c58ff4d6c3f86d",
-      "ckpt-24cde7c7d2a349c0"
+      "ckpt-24cde7c7d2a349c0",
+      "ckpt-112f8d27f3d8a0a1"
     ]
   },
   "by_trigger": {
@@ -124,7 +128,8 @@
       "ckpt-d7b4765131e68ade",
       "ckpt-1316df3da315121e",
       "ckpt-79c58ff4d6c3f86d",
-      "ckpt-24cde7c7d2a349c0"
+      "ckpt-24cde7c7d2a349c0",
+      "ckpt-112f8d27f3d8a0a1"
     ]
   },
   "checkpoints": [
@@ -469,8 +474,27 @@
       "tool_call_count": 0,
       "total_tokens": 0,
       "trigger_type": "session_end"
+    },
+    {
+      "agent_type": "unknown",
+      "branch": null,
+      "commit_sha": null,
+      "created_at": "2026-03-12T20:10:15.333430Z",
+      "files_touched_count": 0,
+      "id": "ckpt-112f8d27f3d8a0a1",
+      "issue_number": null,
+      "message_count": 0,
+      "pipeline_id": "issue-1028",
+      "pipeline_phase": null,
+      "pr_number": null,
+      "repo": null,
+      "session_id": "issue-1028-failsafe-push",
+      "session_status": "completed",
+      "tool_call_count": 0,
+      "total_tokens": 0,
+      "trigger_type": "session_end"
     }
   ],
-  "last_updated": "2026-03-12T20:10:00.423142Z",
+  "last_updated": "2026-03-12T20:10:16.108307Z",
   "schemaVersion": "2.0"
 }
