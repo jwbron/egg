@@ -248,6 +248,8 @@ class TestConsensusReached:
             **_CALL_ARGS,
         )
 
+        # elapsed_seconds is 0.0 because mock_monotonic always returns 42.0,
+        # so start_time and the loop's time.monotonic() are identical.
         mock_emit.assert_any_call(
             EventType.CONSENSUS_REACHED,
             "issue-999",

@@ -4559,9 +4559,15 @@ def _run_concurrent_phase(
     docker_client = spawner.docker
     all_logs: list[str] = []
     has_failures = [False]  # Mutable container for closure access
+    # Lock protects all_logs and has_failures mutations from the
+    # ThreadPoolExecutor threads in the timeout fallback path (step 6).
+    # The main polling loop is single-threaded, but the lock is cheap
+    # and makes the code safe regardless of GIL guarantees.
+    _logs_lock = threading.Lock()
 
     poll_interval = 5  # seconds
-    consensus_timeout = getattr(pipeline.config, "consensus_timeout_minutes", 30) * 60
+    raw_timeout = getattr(pipeline.config, "consensus_timeout_minutes", 30)
+    consensus_timeout = max(raw_timeout, 1) * 60  # minimum 1 minute
     start_time = time.monotonic()
     objection_decision_created = False
 
@@ -4572,7 +4578,6 @@ def _run_concurrent_phase(
         """Capture logs and update pipeline state for an exited container."""
         container_logs = ""
         if final_info.exit_code != 0:
-            has_failures[0] = True
             try:
                 container_logs = docker_client.get_container_logs(
                     exec_info.container_id,
@@ -4581,9 +4586,12 @@ def _run_concurrent_phase(
             except Exception:
                 pass
 
-        all_logs.append(
-            f"--- {exec_info.role.value} (exit={final_info.exit_code}) ---\n{container_logs}"
-        )
+        with _logs_lock:
+            if final_info.exit_code != 0:
+                has_failures[0] = True
+            all_logs.append(
+                f"--- {exec_info.role.value} (exit={final_info.exit_code}) ---\n{container_logs}"
+            )
 
         if store is not None:
             try:
@@ -4659,7 +4667,7 @@ def _run_concurrent_phase(
             )
             consensus = {"is_complete": False, "has_objections": False, "blocking_agents": []}
 
-        # 2. Consensus reached — stop containers and return success
+        # 2. Consensus reached — stop containers and return
         if consensus.get("is_complete"):
             if _emit_event is not None:
                 _emit_event(
@@ -4671,15 +4679,28 @@ def _run_concurrent_phase(
                 "Consensus reached, stopping containers",
                 pipeline_id=pipeline_id,
                 elapsed_seconds=round(elapsed, 1),
+                has_failures=has_failures[0],
             )
             _update_agents_complete()
             _stop_running_containers()
             combined_logs = (
                 "\n".join(all_logs) if all_logs else "Consensus reached; phase complete."
             )
+            # If any container failed before consensus was reached (e.g. OOM
+            # kill), propagate the failure even though remaining agents agreed.
+            # The HITL decision from handle_agent_failure is still pending but
+            # callers need a non-zero exit to trigger failure handling.
+            if has_failures[0]:
+                return 1, combined_logs
             return 0, combined_logs
 
-        # 3. Handle objections (create HITL decision once)
+        # 3. Handle objections (create HITL decision once).
+        #    The decision is fire-and-forget: resolution is processed by the
+        #    orchestrator's decision queue (outside this function).  If the
+        #    human selects "Override objections", the orchestrator updates
+        #    agent readiness, which is picked up by check_consensus() on
+        #    the next poll iteration.  "Abort phase" triggers pipeline
+        #    cancellation via a separate control path.
         if consensus.get("has_objections") and not objection_decision_created:
             try:
                 pipeline.add_decision(
@@ -4721,7 +4742,11 @@ def _run_concurrent_phase(
                     exited_at=datetime.utcnow(),
                 )
 
-            if info.status in (ContainerStatus.EXITED, ContainerStatus.FAILED):
+            if info.status in (
+                ContainerStatus.EXITED,
+                ContainerStatus.FAILED,
+                ContainerStatus.REMOVED,
+            ):
                 exited_containers[exec_info.container_id] = info
                 _record_container_exit(exec_info, info)
 
@@ -4762,6 +4787,9 @@ def _run_concurrent_phase(
                 pipeline_id=pipeline_id,
                 timeout_minutes=consensus_timeout / 60,
             )
+            # Fire-and-forget HITL decision: the orchestrator's decision
+            # queue handles resolution asynchronously.  This function falls
+            # through to wait for remaining containers regardless.
             try:
                 pipeline.add_decision(
                     question=f"Consensus not reached after {int(consensus_timeout / 60)} minutes. How to proceed?",
@@ -4801,7 +4829,8 @@ def _run_concurrent_phase(
                                 role=futures[future].role.value,
                                 error=str(exc),
                             )
-                            has_failures[0] = True
+                            with _logs_lock:
+                                has_failures[0] = True
 
             combined_logs = "\n".join(all_logs)
             if has_failures[0]:
