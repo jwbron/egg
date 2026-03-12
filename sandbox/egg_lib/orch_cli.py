@@ -1109,7 +1109,7 @@ def cmd_coordinator_spawn(args: argparse.Namespace) -> int:
         "role": args.role,
     }
     if args.context:
-        data["context"] = args.context
+        data["task_context"] = args.context
 
     result = orch_request(f"/api/v1/pipelines/{pid}/coordinator/spawn", method="POST", data=data)
 
@@ -1178,8 +1178,7 @@ def cmd_coordinator_escalate(args: argparse.Namespace) -> int:
     data: dict[str, Any] = {
         "question": args.question,
     }
-    if args.type:
-        data["escalation_type"] = args.type
+    data["escalation_type"] = args.type or "feedback"
     if args.options:
         data["options"] = args.options
 
@@ -1200,11 +1199,8 @@ def cmd_coordinator_escalate(args: argparse.Namespace) -> int:
 def cmd_coordinator_cancel(args: argparse.Namespace) -> int:
     """Cancel a running agent via the coordinator."""
     pid = require_pipeline_id(args)
-    data: dict[str, Any] = {
-        "role": args.role,
-    }
 
-    result = orch_request(f"/api/v1/pipelines/{pid}/coordinator/cancel", method="POST", data=data)
+    result = orch_request(f"/api/v1/pipelines/{pid}/coordinator/agents/{args.role}", method="DELETE")
 
     if args.json:
         print_json(result)

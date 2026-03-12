@@ -11,7 +11,6 @@ Covers:
 - Models: boundary values, None handling, serialization round-trips
 """
 
-import json
 import sys
 import time
 from datetime import datetime
@@ -25,7 +24,7 @@ for p in (_project_root / "orchestrator", _project_root / "shared"):
     if p.exists() and str(p) not in sys.path:
         sys.path.insert(0, str(p))
 
-from coordinator_executor import CoordinatorConfig, CoordinatorExecutor
+from coordinator_executor import CoordinatorExecutor
 from mcp_server import MCPServer, RateLimiter
 from mcp_tools import COORDINATOR_TOOLS, CoordinatorToolHandler
 from models import (
@@ -40,7 +39,7 @@ from models import (
     PipelinePhase,
     PipelineStatus,
 )
-
+from pydantic import ValidationError
 
 # ── Helpers ───────────────────────────────────────────────────────────
 
@@ -167,7 +166,7 @@ class TestPhaseTransitionEdgeCases:
         )
         assert resp.status_code == 200
         data = resp.get_json()
-        assert data["data"]["action"] == "skip"
+        assert data["data"]["action"] == "loopback"
         assert data["data"]["current_phase"] == "refine"
         assert data["data"]["previous_phase"] == "implement"
 
@@ -178,7 +177,7 @@ class TestPhaseTransitionEdgeCases:
     def test_skip_to_current_phase(
         self, mock_repo, mock_lock, mock_store_fn, mock_emit, client
     ):
-        """Skip to the same phase we're already on — a no-op skip."""
+        """Skip to the same phase we're already on — rejected as no-op."""
         mock_repo.return_value = Path("/tmp/repo")
         mock_lock.return_value.__enter__ = MagicMock()
         mock_lock.return_value.__exit__ = MagicMock(return_value=False)
@@ -192,11 +191,10 @@ class TestPhaseTransitionEdgeCases:
             "/api/v1/pipelines/test-pipeline/coordinator/phase",
             json={"target_phase": "implement", "reason": "Re-entering implement"},
         )
-        assert resp.status_code == 200
+        assert resp.status_code == 400
         data = resp.get_json()
-        assert data["data"]["action"] == "skip"
-        # Same phase as before
-        assert data["data"]["previous_phase"] == data["data"]["current_phase"]
+        assert data["success"] is False
+        assert "current phase" in data["message"]
 
     @patch("routes.coordinator.emit_event")
     @patch("routes.coordinator.get_state_store")
@@ -822,7 +820,7 @@ class TestMCPToolHandlerGaps:
         handler = CoordinatorToolHandler()
         with patch.object(handler, "_make_request") as mock_req:
             mock_req.return_value = {"data": {"pipeline_id": "local-abc123"}}
-            result = handler._handle_submit_task({"description": "Refactor auth"})
+            handler._handle_submit_task({"description": "Refactor auth"})
             call_data = mock_req.call_args[1]["data"]
             assert call_data["mode"] == "local"
             assert call_data["prompt"] == "Refactor auth"
@@ -935,7 +933,7 @@ class TestMCPServerGaps:
         app = server.create_app()
         with app.test_client() as client:
             # First call should succeed
-            resp1 = client.post(
+            client.post(
                 "/mcp/v1/tools/call",
                 json={"name": "get_status", "arguments": {"task_id": "test"}},
             )
@@ -987,7 +985,7 @@ class TestModelBoundaryGaps:
 
     def test_guardrail_counters_reject_negative(self):
         """Negative values should be rejected by ge=0 constraint."""
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             GuardrailCounters(total_agents_spawned=-1)
 
     def test_escalation_resolved_fields(self):
@@ -1026,7 +1024,7 @@ class TestModelBoundaryGaps:
 
     def test_pipeline_config_coordinator_max_agents_min_1(self):
         """coordinator_max_agents must be >= 1."""
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             PipelineConfig(coordinator_max_agents=0)
 
     def test_pipeline_with_coordinator_state_round_trip(self):

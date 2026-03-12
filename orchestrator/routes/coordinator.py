@@ -5,6 +5,7 @@ Provides REST endpoints for coordinator-driven pipelines, including
 agent spawning, cancellation, phase control, and HITL escalation.
 """
 
+import os
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -34,6 +35,7 @@ except ImportError:
 from container_spawner import ContainerSpawnError, get_container_spawner
 from decision_queue import get_decision_queue
 from events import EventType, emit_event
+from gateway_client import GatewayError, get_gateway_client
 from models import (
     AgentRole,
     AgentSpawnRecord,
@@ -42,6 +44,7 @@ from models import (
     PhaseDecision,
     Pipeline,
     PipelinePhase,
+    PipelineStatus,
 )
 from state_store import (
     InvalidPipelineIdError,
@@ -206,12 +209,43 @@ def spawn_agent(pipeline_id: str) -> tuple[Response, int]:
             ]
             retry_number = len(existing_spawns)
 
+            # Resolve repo_volumes from existing worktrees for this pipeline.
+            # The gateway's create_worktrees is idempotent and reuses existing
+            # worktrees, so this is safe to call for already-started pipelines.
+            repo_volumes: dict[str, str] | None = None
+            repos: list[str] | None = None
+            mode = pipeline.network_mode or "public"
+            if pipeline.repo:
+                repos = [pipeline.repo]
+                try:
+                    gateway = get_gateway_client()
+                    host_uid = int(os.environ.get("HOST_UID", 1000))
+                    host_gid = int(os.environ.get("HOST_GID", 1000))
+                    wt_result = gateway.create_worktrees(
+                        container_id=pipeline_id,
+                        repos=repos,
+                        uid=host_uid,
+                        gid=host_gid,
+                    )
+                    if wt_result.success and wt_result.worktrees:
+                        repo_volumes = wt_result.worktrees
+                except GatewayError as gw_err:
+                    logger.warning(
+                        "Failed to resolve repo_volumes from gateway, "
+                        "spawning without repo mounts",
+                        pipeline_id=pipeline_id,
+                        error=str(gw_err),
+                    )
+
             # Spawn the container
             spawner = get_container_spawner()
             spawned = spawner.spawn_agent_container(
                 pipeline_id=pipeline_id,
                 agent_role=agent_role,
                 issue_number=pipeline.issue_number,
+                repo_volumes=repo_volumes,
+                mode=mode,
+                repos=repos,
                 extra_env=extra_env,
                 phase=pipeline.current_phase.value,
                 branch=pipeline.branch,
@@ -558,7 +592,16 @@ def advance_phase(pipeline_id: str) -> tuple[Response, int]:
             if err is not None:
                 return err
 
+            # Validate pipeline is in a state that allows phase transitions
+            if pipeline.status not in (PipelineStatus.RUNNING, PipelineStatus.AWAITING_HUMAN):
+                return make_error_response(
+                    f"Pipeline status is '{pipeline.status.value}', "
+                    "phase transitions require 'running' or 'awaiting_human' status",
+                    status_code=409,
+                )
+
             previous_phase = pipeline.current_phase
+            phase_order = list(PipelinePhase)
 
             # Determine action and target
             if target_phase_str:
@@ -570,7 +613,19 @@ def advance_phase(pipeline_id: str) -> tuple[Response, int]:
                     return make_error_response(
                         f"Invalid target_phase: {target_phase_str}. Valid phases: {valid_phases}"
                     )
-                action = "skip"
+
+                # Determine direction: forward skip or backward loopback
+                current_idx = phase_order.index(pipeline.current_phase)
+                target_idx = phase_order.index(target_phase)
+                if target_idx > current_idx:
+                    action = "skip"
+                elif target_idx < current_idx:
+                    action = "loopback"
+                else:
+                    return make_error_response(
+                        f"Target phase '{target_phase_str}' is the current phase",
+                        status_code=400,
+                    )
                 pipeline.current_phase = target_phase
             else:
                 # Advance to next phase in sequence

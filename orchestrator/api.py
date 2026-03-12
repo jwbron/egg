@@ -9,6 +9,7 @@ Provides REST endpoints for SDLC pipeline orchestration, including:
 - Health checks
 """
 
+import os
 import sys
 import time
 from pathlib import Path
@@ -141,6 +142,29 @@ def index() -> tuple[Response, int]:
                 "pipelines": "/api/v1/pipelines",
                 "metrics": "/api/v1/metrics",
                 "webhooks": "/api/v1/webhooks",
+                "mcp": "/mcp/health",
             },
         }
     ), 200
+
+
+# Start MCP server sidecar when coordinator support is enabled.
+# The MCP server runs in a background daemon thread and proxies tool calls
+# to the orchestrator's coordinator API endpoints.
+def _maybe_start_mcp_server() -> None:
+    """Start the MCP server if enabled via environment variable."""
+    if os.environ.get("EGG_MCP_SERVER_ENABLED", "").lower() in ("1", "true", "yes"):
+        try:
+            from mcp_server import start_mcp_server
+
+            mcp_port = int(os.environ.get("EGG_MCP_SERVER_PORT", "9850"))
+            mcp_rate_limit = int(os.environ.get("EGG_MCP_RATE_LIMIT", "30"))
+            start_mcp_server(port=mcp_port, rate_limit=mcp_rate_limit)
+            logger.info("MCP server started", port=mcp_port)
+        except ImportError:
+            logger.warning("MCP server module not available, skipping startup")
+        except Exception as e:
+            logger.error("Failed to start MCP server", error=str(e))
+
+
+_maybe_start_mcp_server()
