@@ -38,6 +38,7 @@ app = Flask(__name__)
 try:
     from routes.checks import checks_bp
     from routes.containers import containers_bp
+    from routes.coordinator import coordinator_bp
     from routes.decisions import decisions_bp
     from routes.health import health_bp
     from routes.messages import messages_bp
@@ -56,10 +57,12 @@ try:
     app.register_blueprint(decisions_bp)
     app.register_blueprint(messages_bp)
     app.register_blueprint(metrics_bp)
+    app.register_blueprint(coordinator_bp)
     app.register_blueprint(webhooks_bp)
 except ImportError:
     from .routes.checks import checks_bp  # type: ignore[no-redef]
     from .routes.containers import containers_bp  # type: ignore[no-redef]
+    from .routes.coordinator import coordinator_bp  # type: ignore[no-redef]
     from .routes.decisions import decisions_bp  # type: ignore[no-redef]
     from .routes.health import health_bp  # type: ignore[no-redef]
     from .routes.messages import messages_bp  # type: ignore[no-redef]
@@ -78,6 +81,7 @@ except ImportError:
     app.register_blueprint(decisions_bp)
     app.register_blueprint(messages_bp)
     app.register_blueprint(metrics_bp)
+    app.register_blueprint(coordinator_bp)
     app.register_blueprint(webhooks_bp)
 
 
