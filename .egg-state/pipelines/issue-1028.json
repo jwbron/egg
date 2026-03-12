@@ -54,10 +54,10 @@
         {
           "container_id": "eb6572c37c840a7aba929484fca96426efa1543a6004e93dcbc68f5c2d042c6e",
           "container_name": "egg-sandbox-egg-issue-1028-reviewer_refine",
-          "status": "running",
+          "status": "exited",
           "started_at": "2026-03-12T21:50:17.777806",
-          "exited_at": null,
-          "exit_code": null,
+          "exited_at": "2026-03-12T21:52:28.295260",
+          "exit_code": 0,
           "agent_role": "reviewer_refine",
           "session_token": null
         }
@@ -91,10 +91,10 @@
         },
         {
           "role": "reviewer_refine",
-          "status": "running",
+          "status": "complete",
           "container_id": "eb6572c37c840a7aba929484fca96426efa1543a6004e93dcbc68f5c2d042c6e",
           "started_at": "2026-03-12T21:50:17.777816",
-          "completed_at": null,
+          "completed_at": "2026-03-12T21:52:28.296051",
           "commit": null,
           "outputs": {},
           "error": null,
@@ -121,7 +121,7 @@
   },
   "decisions": [],
   "created_at": "2026-03-12T21:41:19.267800",
-  "updated_at": "2026-03-12T21:51:07.993012",
+  "updated_at": "2026-03-12T21:52:28.296216",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
@@ -129,5 +129,5 @@
   "error": null,
   "plan_phase_waves": null,
   "plan_phase_names": null,
-  "version": 11
+  "version": 12
 }
