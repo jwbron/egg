@@ -30,6 +30,10 @@ Commands:
     egg-orch container get <pid> <cid>           Get container info
     egg-orch container stop <pid> <cid>          Stop a container
     egg-orch container logs <pid> <cid>          Get container logs
+    egg-orch message send <pid> --to <role> ...  Send inter-agent message (concurrent mode)
+    egg-orch message poll <pid> ...              Poll for messages (concurrent mode)
+    egg-orch message status <pid>                Get message bus status (concurrent mode)
+    egg-orch signal readiness <pid> --state ...  Signal readiness state (concurrent mode)
 """
 
 import argparse
@@ -402,6 +406,8 @@ def cmd_pipeline_create(args: argparse.Namespace) -> int:
         data["prompt"] = args.prompt
     if args.network_mode:
         data["network_mode"] = args.network_mode
+    if args.concurrent:
+        data["config"] = {"concurrent_execution": True}
 
     result = orch_request("/api/v1/pipelines", method="POST", data=data)
 
@@ -1177,6 +1183,12 @@ def create_parser() -> argparse.ArgumentParser:
         "--network-mode",
         choices=["public", "private"],
         help="Network mode for spawned containers",
+    )
+    pl_create.add_argument(
+        "--concurrent",
+        action="store_true",
+        default=False,
+        help="Enable concurrent agent execution within phases",
     )
     _add_json_flag(pl_create)
     pl_create.set_defaults(func=cmd_pipeline_create)

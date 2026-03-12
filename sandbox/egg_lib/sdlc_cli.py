@@ -345,7 +345,12 @@ def watch_pipeline(
 # --- Local Mode ---
 
 
-def run_local_mode(client: OrchClient, prompt: str | None = None, repo: str | None = None) -> int:
+def run_local_mode(
+    client: OrchClient,
+    prompt: str | None = None,
+    repo: str | None = None,
+    concurrent: bool = False,
+) -> int:
     """Run egg-sdlc in local (prompt-driven) mode.
 
     Args:
@@ -386,8 +391,10 @@ def run_local_mode(client: OrchClient, prompt: str | None = None, repo: str | No
     print(f"\n{DIM}Creating local pipeline...{RESET}")
 
     try:
+        config = {"concurrent_execution": True} if concurrent else None
         pipeline = client.create_pipeline(
-            mode="local", prompt=prompt, repo=repo, network_mode=_detect_network_mode()
+            mode="local", prompt=prompt, repo=repo, network_mode=_detect_network_mode(),
+            config=config,
         )
     except OrchestratorError as e:
         _write(f"{RED}Failed to create pipeline: {e}{RESET}\n", file=sys.stderr)
@@ -424,6 +431,7 @@ def _restart_pipeline(
     repo: str,
     branch: str,
     network_mode: str | None = None,
+    config: dict | None = None,
 ) -> None:
     """Delete an existing pipeline and re-create it.
 
@@ -436,12 +444,18 @@ def _restart_pipeline(
         branch=branch,
         mode="issue",
         network_mode=network_mode,
+        config=config,
     )
     client.start_pipeline(pipeline_id)
     print(f"  {GREEN}Pipeline restarted.{RESET}")
 
 
-def run_issue_mode(client: OrchClient, issue_number: int, repo: str | None = None) -> int:
+def run_issue_mode(
+    client: OrchClient,
+    issue_number: int,
+    repo: str | None = None,
+    concurrent: bool = False,
+) -> int:
     """Run egg-sdlc in issue mode."""
     if not repo:
         _write(
@@ -463,12 +477,14 @@ def run_issue_mode(client: OrchClient, issue_number: int, repo: str | None = Non
     print(f"\n{DIM}Creating pipeline...{RESET}")
     try:
         network_mode = _detect_network_mode()
+        config = {"concurrent_execution": True} if concurrent else None
         client.create_pipeline(
             issue_number=issue_number,
             repo=repo,
             branch=branch,
             mode="issue",
             network_mode=network_mode,
+            config=config,
         )
     except OrchestratorError as e:
         if e.status_code == 409:
@@ -485,8 +501,10 @@ def run_issue_mode(client: OrchClient, issue_number: int, repo: str | None = Non
                 elif status in ("complete", "cancelled"):
                     # Terminal — delete and re-create
                     print(f"  Pipeline was {status}. Restarting...")
+                    config = {"concurrent_execution": True} if concurrent else None
                     _restart_pipeline(
-                        client, pipeline_id, issue_number, repo, branch, network_mode=network_mode
+                        client, pipeline_id, issue_number, repo, branch,
+                        network_mode=network_mode, config=config,
                     )
                 elif status in ("running", "awaiting_human"):
                     print(f"  Pipeline status: {status}. Attaching to watch loop...")
@@ -508,8 +526,10 @@ def run_issue_mode(client: OrchClient, issue_number: int, repo: str | None = Non
                             file=sys.stderr,
                         )
                         return 1
+                    config = {"concurrent_execution": True} if concurrent else None
                     _restart_pipeline(
-                        client, pipeline_id, issue_number, repo, branch, network_mode=network_mode
+                        client, pipeline_id, issue_number, repo, branch,
+                        network_mode=network_mode, config=config,
                     )
             except OrchestratorError as e2:
                 _write(f"{RED}Failed to restart pipeline: {e2}{RESET}\n", file=sys.stderr)
@@ -576,6 +596,12 @@ def main() -> None:
         metavar="TEXT",
         help="Task prompt for local mode (skips interactive input).",
     )
+    parser.add_argument(
+        "--concurrent",
+        action="store_true",
+        default=False,
+        help="Enable concurrent agent execution (agents run simultaneously within phases).",
+    )
 
     args = parser.parse_args()
 
@@ -621,9 +647,9 @@ def main() -> None:
                 f"{YELLOW}Warning: --prompt is ignored in issue mode.{RESET}\n",
                 file=sys.stderr,
             )
-        exit_code = run_issue_mode(client, issue_number, repo)
+        exit_code = run_issue_mode(client, issue_number, repo, concurrent=args.concurrent)
     else:
-        exit_code = run_local_mode(client, prompt=args.prompt, repo=repo)
+        exit_code = run_local_mode(client, prompt=args.prompt, repo=repo, concurrent=args.concurrent)
 
     sys.exit(exit_code)
 
