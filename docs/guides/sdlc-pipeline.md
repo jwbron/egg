@@ -1361,9 +1361,10 @@ Phase completion in concurrent mode uses a consensus-based approach:
 
 1. Each agent works independently on its tasks
 2. When an agent completes its work, it signals `READY`
-3. Phase completes when **all** agents signal `READY`
-4. Any agent can object (signal `OBJECTING`) to block completion
-5. Timeout triggers HITL escalation
+3. Phase completes when **all** agents signal `READY` — the orchestrator polls for consensus every 5 seconds and stops running containers immediately when consensus is reached
+4. Any agent can object (signal `OBJECTING`) to block completion — a HITL decision is created with options: **Override objections**, **Wait for resolution**, **Abort phase**
+5. Timeout (`consensus_timeout_minutes`, default 30) triggers HITL escalation with options: **Continue waiting**, **Accept current state**, **Abort phase**; phase then falls back to exit-code-based completion while awaiting the decision
+6. If all containers exit before consensus is reached, the phase completes based on container exit codes (same as non-concurrent mode)
 
 **Readiness states**:
 
