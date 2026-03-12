@@ -54,6 +54,7 @@ This index helps both humans and LLMs navigate the documentation efficiently.
 | [Reusable Workflows](guides/reusable-workflows.md) | Using egg's reusable workflows in external repositories |
 | [SDLC Pipeline](guides/sdlc-pipeline.md) | Operational guide for the structurally enforced SDLC pipeline |
 | [Checkpoint Access](guides/checkpoint-access.md) | Querying cross-agent checkpoints in multi-agent pipelines |
+| [Coordinator Agent](guides/coordinator.md) | Dynamic agent orchestration via conversational coordinator with MCP server |
 
 ### SDLC Pipeline Templates
 
@@ -103,6 +104,7 @@ Each major component has detailed documentation:
 | **Adding bot workflows** | [Agent-Mode Design](guides/agent-mode-design.md) | [Action README](../action/README.md), existing workflows in `.github/workflows/` |
 | **SDLC pipeline changes** | [SDLC Pipeline Guide](guides/sdlc-pipeline.md) | [The Agentic Feedback Loop](agentic-feedback-loop.md), [ADR: SDLC Pipeline](adr/implemented/ADR-SDLC-Pipeline.md), [Plan Template](templates/plan.md), [Analysis Template](templates/analysis.md), `orchestrator/` package |
 | **Concurrent execution mode** | [SDLC Pipeline Guide — Concurrent Execution](guides/sdlc-pipeline.md#concurrent-execution-mode) | [Orchestrator README](../orchestrator/README.md), [Checkpoint Access](guides/checkpoint-access.md), [Agent Rules](../sandbox/.claude/rules/mission.md#concurrent-execution-mode) |
+| **Coordinator / dynamic orchestration** | [Coordinator Agent Guide](guides/coordinator.md) | [SDLC Pipeline Guide](guides/sdlc-pipeline.md), [Agent-Mode Design](guides/agent-mode-design.md), [Orchestrator Architecture](architecture/orchestrator.md) |
 | **Health check framework** | [Health Checks README](../orchestrator/health_checks/README.md) | [Orchestrator Architecture](architecture/orchestrator.md), [Orchestrator README](../orchestrator/README.md) |
 | **Generating repository documentation** | [GitHub Automation: Documentation Onboarding](guides/github-automation.md#documentation-onboarding) | [Onboarding prompt](../shared/prompts/onboarding-docs-prompt.md), `egg-onboarding-docs` CLI |
 
@@ -118,4 +120,4 @@ Each major component has detailed documentation:
 
 ---
 
-*Last updated: 2026-03-11*
+*Last updated: 2026-03-12*
