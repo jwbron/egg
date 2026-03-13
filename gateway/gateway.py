@@ -39,11 +39,11 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, TypeVar
 
+F = TypeVar("F", bound=Callable[..., Any])  # noqa: UP047 – Python 3.11 compat
+
 import httpx
 from flask import Flask, Response, g, jsonify, request, stream_with_context
 from waitress import serve
-
-F = TypeVar("F", bound=Callable[..., Any])
 
 # Add shared directory to path for egg_logging
 # In container, egg_logging is at /app/egg_logging
@@ -382,7 +382,7 @@ def check_launcher_auth() -> tuple[bool, str]:
     return False, "Invalid launcher authorization token"
 
 
-def require_launcher_auth(f: F) -> F:
+def require_launcher_auth(f: F) -> F:  # noqa: UP047
     """Decorator to require launcher authentication for an endpoint."""
 
     @functools.wraps(f)

@@ -15,7 +15,7 @@ from typing import Any, TypeVar
 
 from flask import Response, g, jsonify, request
 
-F = TypeVar("F", bound=Callable[..., Any])
+F = TypeVar("F", bound=Callable[..., Any])  # noqa: UP047 – Python 3.11 compat
 
 # Set up logging - use egg_logging if available, otherwise standard logging
 _shared_path = Path(__file__).parent.parent / "shared"
@@ -92,7 +92,7 @@ def make_auth_error(message: str, status_code: int = 401) -> tuple[Response, int
     return jsonify({"success": False, "message": message}), status_code
 
 
-def require_session_auth(f: F) -> F:
+def require_session_auth(f: F) -> F:  # noqa: UP047
     """
     Decorator that validates session tokens in request handlers.
 

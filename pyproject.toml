@@ -59,8 +59,6 @@ ignore = ["E402", "E501"]
 # UP038: isinstance style is fine as-is in tests
 "tests/*" = ["UP038"]
 "integration_tests/*" = ["UP038"]
-# UP046/UP047: PEP 695 type parameter syntax not supported by mypy yet
-"gateway/*" = ["UP046", "UP047"]
 
 [tool.mypy]
 python_version = "3.13"
