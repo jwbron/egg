@@ -169,6 +169,13 @@ def spawn_agent(pipeline_id: str) -> tuple[Response, int]:
         valid_roles = [r.value for r in AgentRole]
         return make_error_response(f"Invalid role: {role_str}. Valid roles: {valid_roles}")
 
+    # Prevent coordinator from spawning another coordinator (privilege escalation)
+    if agent_role == AgentRole.COORDINATOR:
+        return make_error_response(
+            "Coordinator cannot spawn another coordinator",
+            status_code=403,
+        )
+
     task_context = data.get("task_context", "")
     extra_env = data.get("extra_env") or {}
 
@@ -600,7 +607,8 @@ def advance_phase(pipeline_id: str) -> tuple[Response, int]:
                 )
 
             previous_phase = pipeline.current_phase
-            phase_order = list(PipelinePhase)
+            # Exclude COORDINATOR pseudo-phase from sequential ordering
+            phase_order = [p for p in PipelinePhase if p != PipelinePhase.COORDINATOR]
 
             # Determine action and target
             if target_phase_str:
@@ -611,6 +619,12 @@ def advance_phase(pipeline_id: str) -> tuple[Response, int]:
                     valid_phases = [p.value for p in PipelinePhase]
                     return make_error_response(
                         f"Invalid target_phase: {target_phase_str}. Valid phases: {valid_phases}"
+                    )
+
+                if target_phase == PipelinePhase.COORDINATOR:
+                    return make_error_response(
+                        "Cannot transition to coordinator pseudo-phase",
+                        status_code=400,
                     )
 
                 # Determine direction: forward skip or backward loopback
@@ -628,7 +642,6 @@ def advance_phase(pipeline_id: str) -> tuple[Response, int]:
                 pipeline.current_phase = target_phase
             else:
                 # Advance to next phase in sequence
-                phase_order = list(PipelinePhase)
                 current_idx = phase_order.index(pipeline.current_phase)
                 if current_idx >= len(phase_order) - 1:
                     return make_error_response(
@@ -771,10 +784,10 @@ def escalate(pipeline_id: str) -> tuple[Response, int]:
 
             # Create HITL decision via decision queue
             queue = get_decision_queue(pipeline_id, repo_path)
-            decision = queue.add_decision(
+            decision = queue.queue_decision(
                 question=question,
                 options=options if escalation_type == "choice" else None,
-                phase=pipeline.current_phase.value,
+                phase=pipeline.current_phase,
             )
 
             # Record escalation in coordinator state

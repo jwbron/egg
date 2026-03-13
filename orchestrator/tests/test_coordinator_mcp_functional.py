@@ -75,17 +75,21 @@ class TestRateLimiter:
 class TestMCPServerApp:
     """Tests for MCPServer Flask endpoints."""
 
+    AUTH_HEADERS = {"Authorization": "Bearer test-token"}
+
     @pytest.fixture
     def mcp_client(self):
-        """Create an MCP server test client."""
+        """Create an MCP server test client with mocked auth."""
         server = MCPServer(
             orchestrator_url="http://localhost:9849",
             port=9850,
             rate_limit=100,
+            gateway_url="http://fake-gateway:9848",  # noqa: EGG002
         )
         app = server.create_app()
         app.config["TESTING"] = True
-        return app.test_client()
+        with patch.object(server, "_validate_gateway_token", return_value=True):
+            yield app.test_client()
 
     def test_health_endpoint(self, mcp_client):
         response = mcp_client.get("/health")
@@ -113,6 +117,7 @@ class TestMCPServerApp:
         response = mcp_client.post(
             "/mcp/v1/tools/call",
             content_type="application/json",
+            headers=self.AUTH_HEADERS,
         )
         assert response.status_code == 400
 
@@ -120,6 +125,7 @@ class TestMCPServerApp:
         response = mcp_client.post(
             "/mcp/v1/tools/call",
             json={"arguments": {}},
+            headers=self.AUTH_HEADERS,
         )
         assert response.status_code == 400
 
@@ -127,6 +133,7 @@ class TestMCPServerApp:
         response = mcp_client.post(
             "/mcp/v1/tools/call",
             json={"name": "nonexistent_tool", "arguments": {}},
+            headers=self.AUTH_HEADERS,
         )
         assert response.status_code == 200
         data = response.get_json()
@@ -144,6 +151,7 @@ class TestMCPServerApp:
                 "name": "submit_task",
                 "arguments": {"description": "Fix the bug"},
             },
+            headers=self.AUTH_HEADERS,
         )
         assert response.status_code == 200
         data = response.get_json()
@@ -158,10 +166,26 @@ class TestMCPServerApp:
         response = mcp_client.post(
             "/mcp/v1/tools/call",
             json={"name": "get_status", "arguments": {"task_id": "bad"}},
+            headers=self.AUTH_HEADERS,
         )
         assert response.status_code == 200
         data = response.get_json()
         assert data["isError"] is True
+
+    def test_call_tool_missing_auth_returns_401(self):
+        """Requests without auth header should be rejected."""
+        server = MCPServer(
+            orchestrator_url="http://localhost:9849",
+            gateway_url="http://fake-gateway:9848",  # noqa: EGG002
+        )
+        app = server.create_app()
+        app.config["TESTING"] = True
+        client = app.test_client()
+        response = client.post(
+            "/mcp/v1/tools/call",
+            json={"name": "test"},
+        )
+        assert response.status_code == 401
 
     def test_rate_limiting(self):
         """Server should return 429 when rate limit exceeded."""
@@ -169,28 +193,34 @@ class TestMCPServerApp:
             orchestrator_url="http://localhost:9849",
             port=9850,
             rate_limit=2,
+            gateway_url="http://fake-gateway:9848",  # noqa: EGG002
         )
         app = server.create_app()
         app.config["TESTING"] = True
         client = app.test_client()
 
-        with patch.object(CoordinatorToolHandler, "handle_tool_call", return_value={"ok": True}):
+        with (
+            patch.object(server, "_validate_gateway_token", return_value=True),
+            patch.object(CoordinatorToolHandler, "handle_tool_call", return_value={"ok": True}),
+        ):
             for _ in range(2):
                 response = client.post(
                     "/mcp/v1/tools/call",
                     json={"name": "get_status", "arguments": {"task_id": "x"}},
+                    headers=self.AUTH_HEADERS,
                 )
                 assert response.status_code == 200
 
             response = client.post(
                 "/mcp/v1/tools/call",
                 json={"name": "get_status", "arguments": {"task_id": "x"}},
+                headers=self.AUTH_HEADERS,
             )
             assert response.status_code == 429
 
     def test_sse_endpoint_returns_event_stream(self, mcp_client):
         """SSE endpoint should return event-stream content type."""
-        response = mcp_client.get("/mcp/v1/sse")
+        response = mcp_client.get("/mcp/v1/sse", headers=self.AUTH_HEADERS)
         assert response.content_type.startswith("text/event-stream")
 
 

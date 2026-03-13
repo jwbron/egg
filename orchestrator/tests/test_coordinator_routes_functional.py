@@ -834,7 +834,7 @@ class TestEscalateEndpoint:
         mock_decision = MagicMock()
         mock_decision.id = "d-123"
         mock_queue = MagicMock()
-        mock_queue.add_decision.return_value = mock_decision
+        mock_queue.queue_decision.return_value = mock_decision
         mock_queue_fn.return_value = mock_queue
 
         response = client.post(
@@ -872,7 +872,7 @@ class TestEscalateEndpoint:
         mock_decision = MagicMock()
         mock_decision.id = "d-456"
         mock_queue = MagicMock()
-        mock_queue.add_decision.return_value = mock_decision
+        mock_queue.queue_decision.return_value = mock_decision
         mock_queue_fn.return_value = mock_queue
 
         response = client.post(
@@ -887,7 +887,7 @@ class TestEscalateEndpoint:
         data = response.get_json()["data"]
         assert data["escalation_type"] == "feedback"
         # For feedback type, options should not be passed to queue
-        call_kwargs = mock_queue.add_decision.call_args
+        call_kwargs = mock_queue.queue_decision.call_args
         assert call_kwargs.kwargs.get("options") is None or call_kwargs[1].get("options") is None
 
     @patch("routes.coordinator.get_repo_path")
@@ -956,7 +956,7 @@ class TestEscalateEndpoint:
         mock_decision = MagicMock()
         mock_decision.id = "d-789"
         mock_queue = MagicMock()
-        mock_queue.add_decision.return_value = mock_decision
+        mock_queue.queue_decision.return_value = mock_decision
         mock_queue_fn.return_value = mock_queue
 
         client.post(

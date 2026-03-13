@@ -1166,7 +1166,9 @@ def cmd_coordinator_phase(args: argparse.Namespace) -> int:
 
     if result.get("success"):
         phase_data = result.get("data", {})
-        print(f"Phase transition: {phase_data.get('from', '?')} -> {phase_data.get('to', '?')}")
+        print(
+            f"Phase transition: {phase_data.get('previous_phase', '?')} -> {phase_data.get('current_phase', '?')}"
+        )
         return 0
     print(f"Error: {result.get('message')}", file=sys.stderr)
     return 1

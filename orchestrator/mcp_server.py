@@ -10,6 +10,7 @@ import json
 import sys
 import threading
 import time
+import urllib.request
 from pathlib import Path
 
 _shared_path = Path(__file__).parent.parent / "shared"
@@ -83,11 +84,59 @@ class MCPServer:
         self.tools = COORDINATOR_TOOLS
         self._app = None
 
+    def _validate_gateway_token(self, token: str) -> bool:
+        """Validate a session token against the gateway.
+
+        Args:
+            token: Bearer token from Authorization header
+
+        Returns:
+            True if the token is valid
+        """
+        if not self.gateway_url:
+            logger.warning("No gateway_url configured, skipping token validation")
+            return False
+
+        try:
+            url = f"{self.gateway_url}/api/v1/sessions/{token}"
+            req = urllib.request.Request(url, method="GET")
+            req.add_header("Content-Type", "application/json")
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                data = json.loads(resp.read())
+                return data.get("valid", False)
+        except Exception:
+            logger.warning("Gateway token validation failed", gateway_url=self.gateway_url)
+            return False
+
     def create_app(self):
         """Create the Flask application for the MCP server."""
+        import functools
+
         from flask import Flask, Response, jsonify, request
 
         app = Flask("egg-mcp-server")
+        server = self
+
+        def require_auth(f):
+            """Decorator that validates gateway session tokens on protected endpoints."""
+
+            @functools.wraps(f)
+            def decorated(*args, **kwargs):
+                if not server.gateway_url:
+                    # No gateway configured — reject all requests
+                    return jsonify({"error": "Authentication not configured"}), 503
+
+                auth_header = request.headers.get("Authorization", "")
+                if not auth_header.startswith("Bearer "):
+                    return jsonify({"error": "Missing or invalid Authorization header"}), 401
+
+                token = auth_header[7:]  # Remove "Bearer " prefix
+                if not server._validate_gateway_token(token):
+                    return jsonify({"error": "Invalid or expired session token"}), 401
+
+                return f(*args, **kwargs)
+
+            return decorated
 
         @app.route("/health")
         def health():
@@ -98,6 +147,7 @@ class MCPServer:
             return jsonify({"tools": self.tools})
 
         @app.route("/mcp/v1/tools/call", methods=["POST"])
+        @require_auth
         def call_tool():
             # Rate limiting
             if not self.rate_limiter.allow():
@@ -123,6 +173,7 @@ class MCPServer:
             )
 
         @app.route("/mcp/v1/sse")
+        @require_auth
         def sse_stream():
             """SSE endpoint for MCP protocol events."""
 
@@ -160,12 +211,14 @@ def start_mcp_server(
     orchestrator_url: str = "http://localhost:9849",
     port: int = DEFAULT_MCP_PORT,
     rate_limit: int = DEFAULT_RATE_LIMIT,
+    gateway_url: str | None = None,
 ) -> MCPServer:
     """Start the MCP server in a background thread."""
     server = MCPServer(
         orchestrator_url=orchestrator_url,
         port=port,
         rate_limit=rate_limit,
+        gateway_url=gateway_url,
     )
 
     thread = threading.Thread(target=server.run, daemon=True)
