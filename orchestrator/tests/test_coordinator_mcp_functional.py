@@ -99,7 +99,7 @@ class TestMCPServerApp:
         assert data["service"] == "egg-mcp-server"
 
     def test_list_tools(self, mcp_client):
-        response = mcp_client.get("/mcp/v1/tools")
+        response = mcp_client.get("/mcp/v1/tools", headers=self.AUTH_HEADERS)
         assert response.status_code == 200
         data = response.get_json()
         tools = data["tools"]

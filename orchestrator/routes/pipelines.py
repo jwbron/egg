@@ -6259,10 +6259,34 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                             )
 
                             # Wait for coordinator container to complete
-                            exit_code = coord_container.wait()
-                            container_logs = (
-                                coord_container.logs() if hasattr(coord_container, "logs") else ""
-                            )
+                            docker_client = spawner.docker
+                            try:
+                                final_info = docker_client.wait_for_container(
+                                    coord_container.container_info.container_id,
+                                    timeout=7200,
+                                )
+                                exit_code = final_info.exit_code
+                            except (ContainerNotFoundError, ContainerOperationError) as e:
+                                logger.warning(
+                                    "Coordinator container lost during wait",
+                                    container_id=coord_container.container_info.container_id,
+                                    error=str(e),
+                                )
+                                exit_code = -1
+
+                            if exit_code != 0:
+                                try:
+                                    container_logs = docker_client.get_container_logs(
+                                        coord_container.container_info.container_id,
+                                        tail=200,
+                                    )
+                                except Exception:
+                                    container_logs = ""
+                                logger.warning(
+                                    "Coordinator container failed",
+                                    pipeline_id=pipeline_id,
+                                    exit_code=exit_code,
+                                )
 
                             # Handle coordinator completion (crash recovery, etc.)
                             result = coord_executor.handle_coordinator_completion(
@@ -6271,6 +6295,12 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                             if result == "respawn":
                                 # Coordinator will be respawned — retry this phase
                                 continue
+                            elif result == "failed":
+                                phase_failed = True
+                                break
+                            else:
+                                # Coordinator completed successfully — skip generic dispatch
+                                break
 
                         except ContainerSpawnError as e:
                             with get_pipeline_state_lock(pipeline_id):

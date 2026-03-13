@@ -866,11 +866,15 @@ class TestMCPServerGaps:
             assert resp.status_code == 200
             assert resp.get_json()["status"] == "healthy"
 
-    def test_mcp_server_list_tools_returns_all_five(self):
-        server = MCPServer()
+    @patch.object(MCPServer, "_validate_gateway_token", return_value=True)
+    def test_mcp_server_list_tools_returns_all_five(self, _mock_validate):
+        server = MCPServer(gateway_url="http://fake-gateway:9848")  # noqa: EGG002
         app = server.create_app()
         with app.test_client() as client:
-            resp = client.get("/mcp/v1/tools")
+            resp = client.get(
+                "/mcp/v1/tools",
+                headers={"Authorization": "Bearer test-token"},
+            )
             assert resp.status_code == 200
             tools = resp.get_json()["tools"]
             assert len(tools) == 5

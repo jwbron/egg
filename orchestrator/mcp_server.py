@@ -7,9 +7,11 @@ the orchestrator.
 """
 
 import json
+import os
 import sys
 import threading
 import time
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
@@ -72,11 +74,13 @@ class MCPServer:
         port: int = DEFAULT_MCP_PORT,
         rate_limit: int = DEFAULT_RATE_LIMIT,
         gateway_url: str | None = None,
+        launcher_secret: str | None = None,
     ):
         self.orchestrator_url = orchestrator_url
         self.port = port
         self.rate_limiter = RateLimiter(max_requests=rate_limit)
         self.gateway_url = gateway_url
+        self.launcher_secret = launcher_secret or os.environ.get("EGG_LAUNCHER_SECRET", "")
 
         from mcp_tools import COORDINATOR_TOOLS, CoordinatorToolHandler
 
@@ -98,9 +102,12 @@ class MCPServer:
             return False
 
         try:
-            url = f"{self.gateway_url}/api/v1/sessions/{token}"
+            encoded_token = urllib.parse.quote(token, safe="")
+            url = f"{self.gateway_url}/api/v1/sessions/{encoded_token}"
             req = urllib.request.Request(url, method="GET")
             req.add_header("Content-Type", "application/json")
+            if self.launcher_secret:
+                req.add_header("Authorization", f"Bearer {self.launcher_secret}")
             with urllib.request.urlopen(req, timeout=5) as resp:
                 data = json.loads(resp.read())
                 return data.get("valid", False)
@@ -143,6 +150,7 @@ class MCPServer:
             return jsonify({"status": "healthy", "service": "egg-mcp-server"})
 
         @app.route("/mcp/v1/tools", methods=["GET"])
+        @require_auth
         def list_tools():
             return jsonify({"tools": self.tools})
 
@@ -212,6 +220,7 @@ def start_mcp_server(
     port: int = DEFAULT_MCP_PORT,
     rate_limit: int = DEFAULT_RATE_LIMIT,
     gateway_url: str | None = None,
+    launcher_secret: str | None = None,
 ) -> MCPServer:
     """Start the MCP server in a background thread."""
     server = MCPServer(
@@ -219,6 +228,7 @@ def start_mcp_server(
         port=port,
         rate_limit=rate_limit,
         gateway_url=gateway_url,
+        launcher_secret=launcher_secret,
     )
 
     thread = threading.Thread(target=server.run, daemon=True)
