@@ -284,15 +284,15 @@ message from another agent reveals an issue you need to address).
 - Signal `READY` after all tasks are verified
 
 **Integrator** (concurrent mode):
-- Wait for all other agents to signal `READY` before merging
+- Wait for all other agents to signal `READY` before validating
 - Poll for messages about conflicts or coordination needs
-- Merge per-agent worktree branches, resolve conflicts
-- Signal `READY` only after successful merge and final validation
+- Read all agent handoffs, run full test suite, validate integration
+- Signal `READY` only after successful validation
 
 ### Handling Agent Failures
 
 If you receive an `AGENT_FAILED` message about another agent:
-- **Coder fails**: Tester/documenter/checker/reviewer should signal `BLOCKED` and wait for HITL resolution
+- **Coder fails**: Tester/documenter/checker/reviewer_code/reviewer_contract should signal `BLOCKED` and wait for HITL resolution
 - **Tester fails**: Coder/documenter can continue; integrator should note the gap
 - **Documenter fails**: Other agents can continue; integrator handles documentation gap
 - **Checker fails**: Coder can continue; integrator runs checks during merge

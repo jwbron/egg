@@ -434,3 +434,24 @@ class TestConcurrentEndToEnd:
         assert len(progress_msgs) == 2
         question_msgs = [m for m in messages if m["message_type"] == "QUESTION"]
         assert len(question_msgs) == 1
+
+
+class TestGetAgentRoles:
+    """Tests for ConcurrentPhaseExecutor.get_agent_roles()."""
+
+    def test_returns_six_concurrent_roles(self):
+        """get_agent_roles returns all 6 implement-phase agent roles."""
+        from concurrent_executor import ConcurrentPhaseExecutor
+        from models import AgentRole
+
+        pipeline = _make_concurrent_pipeline()
+        executor = ConcurrentPhaseExecutor(pipeline=pipeline, spawn_fn=MagicMock())
+        roles = executor.get_agent_roles()
+
+        assert len(roles) == 6
+        assert AgentRole.CODER in roles
+        assert AgentRole.TESTER in roles
+        assert AgentRole.DOCUMENTER in roles
+        assert AgentRole.CHECKER in roles
+        assert AgentRole.REVIEWER_CODE in roles
+        assert AgentRole.REVIEWER_CONTRACT in roles

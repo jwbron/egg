@@ -92,7 +92,7 @@ When `EGG_CONCURRENT_MODE=true`, all agents start simultaneously. Your behavior 
 
 ### Startup
 
-Begin implementing immediately — you have no upstream dependencies. Other agents (tester, documenter, checker, reviewer) are waiting on your output.
+Begin implementing immediately — you have no upstream dependencies. Other agents (tester, documenter, checker, reviewer_code, reviewer_contract) are waiting on your output.
 
 ### Message Bus (Required)
 

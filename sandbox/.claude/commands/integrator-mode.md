@@ -188,7 +188,7 @@ While waiting, you can:
 
 ### When All Agents Are Ready
 
-Once all agents (coder, tester, documenter, checker, reviewer) signal READY:
+Once all agents (coder, tester, documenter, checker, reviewer_code, reviewer_contract) signal READY:
 
 1. Signal `WORKING`: `egg-orch signal readiness --state WORKING --reason "All agents ready, starting integration"`
 2. Read all handoff files (coder, tester, documenter, checker, reviewer_code, reviewer_contract)
@@ -225,7 +225,7 @@ The orchestrator will stop your container when all agents reach consensus.
 ## Quality Checklist
 
 Before completing:
-- [ ] Read all agent handoff outputs (coder, tester, documenter, checker, reviewer)
+- [ ] Read all agent handoff outputs (coder, tester, documenter, checker, reviewer_code, reviewer_contract)
 - [ ] Full test suite run
 - [ ] Linters pass
 - [ ] No integration issues
