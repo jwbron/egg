@@ -205,8 +205,15 @@ class CoordinatorToolHandler:
 
         result = self._make_request("/api/v1/pipelines", method="POST", data=data)
 
+        pipeline_id = result.get("data", {}).get("pipeline", {}).get("id", "")
+
+        if pipeline_id:
+            self._make_request(
+                f"/api/v1/pipelines/{quote(pipeline_id, safe='')}/start", method="POST"
+            )
+
         return {
-            "task_id": result.get("data", {}).get("pipeline_id", ""),
+            "task_id": pipeline_id,
             "status": "created",
             "message": f"Task submitted: {args['description'][:100]}",
         }
