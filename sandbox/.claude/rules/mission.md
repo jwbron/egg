@@ -180,8 +180,24 @@ Think like a **Senior SWE (L3-L4)**: Break down problems, build quality from day
 ## Concurrent Execution Mode
 
 When `EGG_CONCURRENT_MODE=true` is set, you are running alongside other agents
-simultaneously. All agents (coder, tester, documenter, integrator) start at the same
-time and collaborate via the orchestrator message bus.
+simultaneously. All agents (coder, tester, documenter, checker, reviewer_code,
+reviewer_contract) start at the same time and collaborate via the orchestrator
+message bus.
+
+### Universal Rules (ALL agents MUST follow)
+
+1. **Use the message bus.** Send PROGRESS/STATUS/QUESTION messages to coordinate.
+   Agents that don't communicate create blind spots. Polling alone is not enough —
+   you must also send messages when you have information others need.
+
+2. **After signaling READY, do NOT exit.** Keep polling the message bus at
+   `EGG_MESSAGE_POLL_INTERVAL` intervals. The orchestrator will stop your container
+   when consensus is reached. If you exit early, the orchestrator's fallback path
+   triggers prematurely and other agents may be killed mid-work.
+
+3. **React to new information.** If a message arrives after you signal READY that
+   affects your work (e.g., coder pushes new commits, reviewer finds an issue),
+   transition back to WORKING, address it, then signal READY again.
 
 ### Message Polling
 
@@ -197,6 +213,19 @@ readiness. Messages from other agents may contain information that affects your 
 in `to_role`), acknowledge it. Use `egg-orch message send` to reply:
 ```bash
 egg-orch message send --to <role|all> --type <type> --subject "..." --body "..."
+```
+
+### Stay-Alive Loop
+
+After signaling READY, enter a polling loop. Do NOT exit:
+
+```bash
+egg-orch signal readiness --state READY --reason "Work complete"
+# Stay alive — orchestrator stops containers on consensus
+while true; do
+  egg-orch message poll
+  sleep "${EGG_MESSAGE_POLL_INTERVAL:-30}"
+done
 ```
 
 ### Readiness Signaling
@@ -218,34 +247,56 @@ message from another agent reveals an issue you need to address).
 ### Role-Specific Collaboration Patterns
 
 **Coder** (concurrent mode):
-- Send `PROGRESS` messages to tester/documenter when key interfaces are committed
-- Poll for `QUESTION` messages from tester asking about test expectations
-- Signal `READY` only after all implementation tasks are committed
+- Send `PROGRESS` messages to all agents when key interfaces are committed
+- Poll for `QUESTION` messages from tester and feedback from reviewer_code, reviewer_contract, and checker
+- Signal `READY` only after all implementation tasks are committed and handoff written
+- Address reviewer_code/reviewer_contract/checker feedback before final READY
 
 **Tester** (concurrent mode):
-- Poll for `PROGRESS` messages from coder to know when code is ready to test
-- Send `QUESTION` messages to coder for clarification on expected behavior
-- Can start writing test scaffolding before coder finishes implementation
-- Signal `READY` after tests pass against the coder's committed code
+- Signal `BLOCKED` on startup if coder handoff is missing; poll for coder PROGRESS
+- Start writing test scaffolding based on plan while waiting for coder
+- Run tests against coder's actual committed code once available
+- Signal `READY` after tests run against coder's actual output
 
 **Documenter** (concurrent mode):
-- Poll for `PROGRESS` messages from coder/tester to track what changed
-- Start documentation early based on plan; refine as implementation solidifies
+- Signal `BLOCKED` on startup if coder handoff is missing; poll for coder PROGRESS
+- Draft documentation early based on plan; finalize after coder's changes are committed
 - Send `STATUS` messages to share documentation progress
-- Signal `READY` after documentation covers all implemented changes
+- Signal `READY` after documentation reflects coder's actual changes
+
+**Checker** (concurrent mode):
+- Signal `BLOCKED` on startup; poll for coder PROGRESS messages
+- Run checks (lint, type, test) incrementally as coder commits land
+- Auto-fix formatting/lint issues and commit fixes
+- Send failure notifications to coder via `egg-orch message send --to coder`
+- Signal `READY` when all checks pass or unfixable issues are documented
+
+**Reviewer (code)** (concurrent mode):
+- Signal `BLOCKED` on startup; poll for coder PROGRESS messages
+- Review committed code for correctness, patterns, security, performance
+- Send feedback to coder mid-flight so issues are fixed before consensus
+- Signal `READY` after all committed code has been reviewed
+
+**Reviewer (contract)** (concurrent mode):
+- Signal `BLOCKED` on startup; poll for coder PROGRESS messages
+- Verify each plan task is fully implemented with acceptance criteria met
+- Flag missing or out-of-scope work to coder via message bus
+- Signal `READY` after all tasks are verified
 
 **Integrator** (concurrent mode):
-- Wait for all other agents to signal `READY` before merging
+- Wait for all other agents to signal `READY` before validating
 - Poll for messages about conflicts or coordination needs
-- Merge per-agent worktree branches, resolve conflicts
-- Signal `READY` only after successful merge and final validation
+- Read all agent handoffs, run full test suite, validate integration
+- Signal `READY` only after successful validation
 
 ### Handling Agent Failures
 
 If you receive an `AGENT_FAILED` message about another agent:
-- **Coder fails**: Tester/documenter should signal `BLOCKED` and wait for HITL resolution
+- **Coder fails**: Tester/documenter/checker/reviewer_code/reviewer_contract should signal `BLOCKED` and wait for HITL resolution
 - **Tester fails**: Coder/documenter can continue; integrator should note the gap
 - **Documenter fails**: Other agents can continue; integrator handles documentation gap
+- **Checker fails**: Coder can continue; integrator runs checks during merge
+- **Reviewer (code/contract) fails**: Coder can continue; integrator notes review gap in PR
 - **Integrator fails**: All agents signal `BLOCKED`; pipeline escalates to HITL
 
 ### Environment Variables (Concurrent Mode)

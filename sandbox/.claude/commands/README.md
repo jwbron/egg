@@ -50,6 +50,16 @@ Switch to Tester agent mode for testing-focused work.
 
 **File**: `tester-mode.md`
 
+### /checker-mode
+Switch to Checker agent mode for running checks (lint, type, test) and auto-fixing issues.
+
+**File**: `checker-mode.md`
+
+### /reviewer-mode
+Switch to Reviewer agent mode for code quality or contract adherence review.
+
+**File**: `reviewer-mode.md`
+
 ## How Commands Work
 
 These commands are **slash commands** for Claude Code. They are markdown files that provide instructions to Claude on how to respond when you use the command syntax.

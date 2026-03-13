@@ -46,13 +46,13 @@ def _make_concurrent_pipeline(pipeline_id: str = "issue-999") -> Pipeline:
     # regular field assignments.
     try:
         config.concurrent_execution = True  # type: ignore[attr-defined]
-        config.max_concurrent_agents = 4  # type: ignore[attr-defined]
+        config.max_concurrent_agents = 6  # type: ignore[attr-defined]
         config.message_poll_hint_seconds = 30  # type: ignore[attr-defined]
         config.consensus_timeout_minutes = 30  # type: ignore[attr-defined]
     except (AttributeError, ValueError):
         # Fields not yet on PipelineConfig — set via __dict__ for testing
         config.__dict__["concurrent_execution"] = True
-        config.__dict__["max_concurrent_agents"] = 4
+        config.__dict__["max_concurrent_agents"] = 6
         config.__dict__["message_poll_hint_seconds"] = 30
         config.__dict__["consensus_timeout_minutes"] = 30
 
@@ -305,6 +305,36 @@ class TestConcurrentConsensusFlow:
         all_ready = all(s == "READY" for s in agent_states.values())
         assert not all_ready
 
+    def test_six_agent_consensus_requires_all_ready(self):
+        """Consensus with 6 agents requires all 6 to be READY."""
+        agent_states = {
+            "coder": "WORKING",
+            "tester": "WORKING",
+            "documenter": "WORKING",
+            "checker": "WORKING",
+            "reviewer_code": "WORKING",
+            "reviewer_contract": "WORKING",
+        }
+
+        def evaluate_consensus():
+            return all(s == "READY" for s in agent_states.values())
+
+        # Not ready with any agent still WORKING
+        assert not evaluate_consensus()
+
+        # Signal 5 of 6 agents READY — still no consensus
+        for role in ("coder", "tester", "documenter", "checker", "reviewer_code"):
+            agent_states[role] = "READY"
+        assert not evaluate_consensus()
+
+        # Final agent signals READY — consensus reached
+        agent_states["reviewer_contract"] = "READY"
+        assert evaluate_consensus()
+
+        # One agent reverts to WORKING — consensus broken
+        agent_states["checker"] = "WORKING"
+        assert not evaluate_consensus()
+
 
 class TestConcurrentAgentFailureHandling:
     """Test agent failure behavior in concurrent mode."""
@@ -434,3 +464,24 @@ class TestConcurrentEndToEnd:
         assert len(progress_msgs) == 2
         question_msgs = [m for m in messages if m["message_type"] == "QUESTION"]
         assert len(question_msgs) == 1
+
+
+class TestGetAgentRoles:
+    """Tests for ConcurrentPhaseExecutor.get_agent_roles()."""
+
+    def test_returns_six_concurrent_roles(self):
+        """get_agent_roles returns all 6 implement-phase agent roles."""
+        from concurrent_executor import ConcurrentPhaseExecutor
+        from models import AgentRole
+
+        pipeline = _make_concurrent_pipeline()
+        executor = ConcurrentPhaseExecutor(pipeline=pipeline, spawn_fn=MagicMock())
+        roles = executor.get_agent_roles()
+
+        assert len(roles) == 6
+        assert AgentRole.CODER in roles
+        assert AgentRole.TESTER in roles
+        assert AgentRole.DOCUMENTER in roles
+        assert AgentRole.CHECKER in roles
+        assert AgentRole.REVIEWER_CODE in roles
+        assert AgentRole.REVIEWER_CONTRACT in roles

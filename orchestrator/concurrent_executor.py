@@ -64,7 +64,7 @@ class ConcurrentPhaseExecutor:
         self,
         pipeline: Pipeline,
         spawn_fn: SpawnFn,
-        max_concurrent: int = 4,
+        max_concurrent: int = 6,
     ) -> None:
         self.pipeline = pipeline
         self.spawn_fn = spawn_fn
@@ -75,9 +75,17 @@ class ConcurrentPhaseExecutor:
     def get_agent_roles(self) -> list[AgentRole]:
         """Get the agent roles for concurrent execution.
 
-        Returns standard implement-phase roles: coder, tester, documenter.
+        Returns implement-phase roles: coder, tester, documenter,
+        checker, reviewer_code, reviewer_contract.
         """
-        return [AgentRole.CODER, AgentRole.TESTER, AgentRole.DOCUMENTER]
+        return [
+            AgentRole.CODER,
+            AgentRole.TESTER,
+            AgentRole.DOCUMENTER,
+            AgentRole.CHECKER,
+            AgentRole.REVIEWER_CODE,
+            AgentRole.REVIEWER_CONTRACT,
+        ]
 
     def get_worktree_branch(self, role: AgentRole) -> str:
         """Get the worktree branch name for an agent role."""
