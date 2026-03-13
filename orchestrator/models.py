@@ -9,17 +9,8 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Any, Literal, NamedTuple
 
+from egg_contracts.models import PipelinePhase
 from pydantic import BaseModel, Field
-
-
-class PipelinePhase(StrEnum):
-    """Current phase in the SDLC pipeline."""
-
-    REFINE = "refine"
-    PLAN = "plan"
-    IMPLEMENT = "implement"
-    PR = "pr"
-    COORDINATOR = "coordinator"
 
 
 class PipelineStatus(StrEnum):

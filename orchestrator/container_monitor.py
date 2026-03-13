@@ -472,13 +472,99 @@ def _reconcile_container_state(store: Any, container_info: ContainerInfo) -> boo
     return False
 
 
+def _reconcile_coordinator_agent(store: Any, container_info: ContainerInfo, failed: bool) -> bool:
+    """Update coordinator_state.agents_spawned when a child agent container exits.
+
+    Coordinator-spawned agents are tracked in pipeline.coordinator_state.agents_spawned,
+    not in phase_execution.containers/agents. This function finds the matching spawn
+    record and marks it as "complete" (exit code 0) or "failed" (non-zero exit).
+
+    Args:
+        store: StateStore instance
+        container_info: Info about the exited container
+        failed: True if the container exited with a non-zero exit code
+
+    Returns:
+        True if any pipeline state was updated
+    """
+    from state_store import VersionConflictError, get_pipeline_state_lock
+
+    try:
+        pipeline_ids: list[str] = store.list_pipelines()
+    except Exception as e:
+        logger.warning(
+            "Coordinator reconciliation: could not list pipelines",
+            error=str(e),
+        )
+        return False
+
+    for pipeline_id in pipeline_ids:
+        with get_pipeline_state_lock(pipeline_id):
+            try:
+                pipeline = store.load_pipeline(pipeline_id)
+            except Exception:
+                continue
+
+            if pipeline.coordinator_state is None:
+                continue
+
+            changed = False
+            for spawn_record in pipeline.coordinator_state.agents_spawned:
+                if (
+                    spawn_record.container_id == container_info.container_id
+                    and spawn_record.status == "running"
+                ):
+                    new_status = "failed" if failed else "complete"
+                    logger.info(
+                        "Coordinator reconciliation: agent container exited",
+                        pipeline_id=pipeline_id,
+                        role=str(spawn_record.role),
+                        container_id=container_info.container_id[:12],
+                        status=new_status,
+                        exit_code=container_info.exit_code,
+                    )
+                    spawn_record.status = new_status
+                    spawn_record.completed_at = container_info.exited_at or datetime.utcnow()
+                    changed = True
+
+            if changed:
+                try:
+                    store.save_pipeline(
+                        pipeline,
+                        expected_version=pipeline.version,
+                    )
+                    return True
+                except VersionConflictError:
+                    logger.warning(
+                        "Coordinator reconciliation: version conflict, skipping",
+                        pipeline_id=pipeline_id,
+                    )
+                    return False
+                except Exception as e:
+                    logger.error(
+                        "Coordinator reconciliation: could not save pipeline",
+                        pipeline_id=pipeline_id,
+                        error=str(e),
+                    )
+                    return False
+
+    return False
+
+
 def create_pipeline_reconciliation_handler(repo_path: str) -> EventHandler:
     """Create handler that updates pipeline state when containers exit.
 
     The handler is invoked by the ContainerMonitor whenever a container
-    state change is detected. Only FAILED events (non-zero exit) trigger
-    reconciliation — STOPPED (exit code 0) represents a graceful exit
-    and should not mark pipelines as failed.
+    state change is detected.
+
+    For non-coordinator (phase-tracked) containers, only FAILED events
+    (non-zero exit) trigger reconciliation — STOPPED (exit code 0)
+    represents a graceful exit and should not mark pipelines as failed.
+
+    For coordinator-spawned agents, both STOPPED and FAILED events are
+    handled: STOPPED marks the agent as "complete", FAILED marks it as
+    "failed". This allows the coordinator to detect when its child agents
+    finish work or crash.
 
     Args:
         repo_path: Path to the repository (for StateStore access)
@@ -488,12 +574,17 @@ def create_pipeline_reconciliation_handler(repo_path: str) -> EventHandler:
     """
 
     def handler(event: ContainerEvent) -> None:
-        if event.event_type != ContainerEvent.FAILED:
+        if event.event_type not in (ContainerEvent.FAILED, ContainerEvent.STOPPED):
             return
 
         from state_store import get_state_store
 
         store = get_state_store(repo_path)
-        _reconcile_container_state(store, event.container_info)
+
+        if event.event_type == ContainerEvent.FAILED:
+            _reconcile_container_state(store, event.container_info)
+            _reconcile_coordinator_agent(store, event.container_info, failed=True)
+        elif event.event_type == ContainerEvent.STOPPED:
+            _reconcile_coordinator_agent(store, event.container_info, failed=False)
 
     return handler

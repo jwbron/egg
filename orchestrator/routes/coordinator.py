@@ -243,6 +243,26 @@ def spawn_agent(pipeline_id: str) -> tuple[Response, int]:
                         error=str(gw_err),
                     )
 
+            # Build the agent command with prompt (required for --print mode)
+            agent_prompt = task_context or (
+                f"You are the {role_str} agent for pipeline {pipeline_id}. "
+                f"Execute your role for the {pipeline.current_phase.value} phase. "
+                f"Follow the instructions in your CLAUDE.md."
+            )
+            agent_command = [
+                "claude",
+                "--dangerously-skip-permissions",
+                "--print",
+                "--verbose",
+                "--output-format",
+                "stream-json",
+                "--model",
+                "opus",
+                "--max-turns",
+                "200",
+                agent_prompt,
+            ]
+
             # Spawn the container
             spawner = get_container_spawner()
             spawned = spawner.spawn_agent_container(
@@ -255,6 +275,7 @@ def spawn_agent(pipeline_id: str) -> tuple[Response, int]:
                 extra_env=extra_env,
                 phase=pipeline.current_phase.value,
                 branch=pipeline.branch,
+                command=agent_command,
             )
 
             # Create spawn record
