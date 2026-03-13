@@ -11,7 +11,7 @@ from typing import Any
 
 import yaml
 
-from .config import Config
+from .config import Config, GATEWAY_PORT, GATEWAY_PROXY_PORT
 from .docker import build_image
 from .output import error, info, success, warn
 
@@ -523,8 +523,8 @@ def _create_general_config() -> bool:
                 "git_name": "egg",
                 "git_email": "egg@localhost",
                 "compose_project_name": "egg",
-                "gateway_api_port": 9848,
-                "gateway_proxy_port": 3129,
+                "gateway_api_port": GATEWAY_PORT,
+                "gateway_proxy_port": GATEWAY_PROXY_PORT,
                 "orchestrator_api_port": 9849,
                 "mcp_server_port": 9850,
                 "mcp_rate_limit": 30,
@@ -559,8 +559,8 @@ def _create_general_config() -> bool:
         # Docker Compose
         "compose_project_name": "egg",
         # Network ports
-        "gateway_api_port": 9848,
-        "gateway_proxy_port": 3129,
+        "gateway_api_port": GATEWAY_PORT,
+        "gateway_proxy_port": GATEWAY_PROXY_PORT,
         "orchestrator_api_port": 9849,
         # MCP server (always enabled)
         "mcp_server_port": 9850,

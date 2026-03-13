@@ -14,12 +14,22 @@ The config_dir defaults to ~/.config/egg if not provided.
 import os
 import sys
 from pathlib import Path
+from typing import Any
 
 try:
     import yaml
 except ImportError:
     print("Error: PyYAML is required. Install with: pip install pyyaml", file=sys.stderr)
     sys.exit(1)
+
+try:
+    from egg_config.constants import GATEWAY_PORT, GATEWAY_PROXY_PORT
+except ImportError:
+    # Standalone script execution: add shared/ to path
+    _shared_dir = Path(__file__).parent.parent
+    if str(_shared_dir) not in sys.path:
+        sys.path.insert(0, str(_shared_dir))
+    from egg_config.constants import GATEWAY_PORT, GATEWAY_PROXY_PORT
 
 
 # Mapping from config.yaml keys to environment variable names.
@@ -31,8 +41,8 @@ CONFIG_KEY_MAP: list[tuple[str, str, str | None]] = [
     ("git_name", "EGG_USER_GIT_NAME", "egg"),
     ("git_email", "EGG_USER_GIT_EMAIL", "egg@localhost"),
     ("compose_project_name", "COMPOSE_PROJECT_NAME", "egg"),
-    ("gateway_api_port", "GATEWAY_API_PORT", "9848"),
-    ("gateway_proxy_port", "GATEWAY_PROXY_PORT", "3129"),
+    ("gateway_api_port", "GATEWAY_API_PORT", str(GATEWAY_PORT)),
+    ("gateway_proxy_port", "GATEWAY_PROXY_PORT", str(GATEWAY_PROXY_PORT)),
     ("orchestrator_api_port", "ORCHESTRATOR_API_PORT", "9849"),
     ("mcp_server_port", "EGG_MCP_SERVER_PORT", "9850"),
     ("mcp_rate_limit", "EGG_MCP_RATE_LIMIT", "30"),
@@ -111,7 +121,7 @@ def load_compose_env(config_dir: Path | None = None) -> dict[str, str]:
 
     # 1. Read config.yaml
     config_file = config_dir / "config.yaml"
-    config: dict = {}
+    config: dict[str, Any] = {}
     if config_file.exists():
         try:
             with open(config_file) as f:
