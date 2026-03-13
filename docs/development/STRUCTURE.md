@@ -83,6 +83,7 @@ orchestrator/
 ├── container_monitor.py    # Container health monitoring
 ├── concurrent_executor.py  # Concurrent phase executor (spawns all agents simultaneously)
 ├── consensus.py            # Consensus protocol for concurrent phase completion
+├── coordinator_executor.py # Coordinator agent lifecycle management (spawn, crash recovery)
 ├── dag_visualizer.py       # ASCII DAG visualization for pipeline status (incl. Tier 3 sub-phase rendering)
 ├── decision_queue.py       # HITL decision queue
 ├── devserver.py            # Devserver lifecycle manager for deployment validation (DinD)
@@ -91,6 +92,8 @@ orchestrator/
 ├── events.py               # Event bus for pipeline events
 ├── gateway_client.py       # Gateway API client (sessions, worktrees, config)
 ├── handoffs.py             # Agent handoff data management
+├── mcp_server.py           # MCP server sidecar for coordinator integration with Claude Code (port 9850)
+├── mcp_tools.py            # MCP tool definitions and handlers for coordinator operations
 ├── message_store.py        # In-memory inter-agent message store (concurrent mode)
 ├── metrics.py              # Pipeline metrics and telemetry
 ├── models.py               # Pydantic models for pipelines
@@ -114,13 +117,10 @@ orchestrator/
 │   │   └── state_consistency.py    # Cross-reference orchestrator state vs Docker vs contract
 │   └── tier2/              # Semantic checks (LLM-powered)
 │       └── agent_inspector.py   # Claude-powered agent progress analysis
-├── coordinator_executor.py # Coordinator agent lifecycle management (spawn, crash recovery)
-├── mcp_server.py           # MCP server sidecar for coordinator integration with Claude Code (port 9850)
-├── mcp_tools.py            # MCP tool definitions and handlers for coordinator operations
 ├── routes/                 # API route handlers
 │   ├── checks.py           # Deployment validation check endpoints
 │   ├── containers.py       # Container management endpoints
-│   ├── coordinator.py      # Coordinator REST API endpoints (spawn, state, phase, escalate)
+│   ├── coordinator.py      # Coordinator REST API endpoints (spawn, cancel, state, phase, escalate)
 │   ├── decisions.py        # HITL decision endpoints
 │   ├── health.py           # Health check endpoints
 │   ├── messages.py         # Inter-agent message bus endpoints (concurrent mode)
