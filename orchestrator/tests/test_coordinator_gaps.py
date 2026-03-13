@@ -798,9 +798,10 @@ class TestMCPToolHandlerGaps:
         """submit_task with issue sets mode='issue'."""
         handler = CoordinatorToolHandler()
         with patch.object(handler, "_make_request") as mock_req:
-            mock_req.return_value = {"data": {"pipeline_id": "issue-42"}}
+            mock_req.return_value = {"data": {"pipeline": {"id": "issue-42"}}}
             result = handler._handle_submit_task({"description": "Fix bug", "issue_number": 42})
-            call_data = mock_req.call_args[1]["data"]
+            # First call is create, second is start
+            call_data = mock_req.call_args_list[0][1]["data"]
             assert call_data["mode"] == "issue"
             assert call_data["issue_number"] == 42
             assert result["task_id"] == "issue-42"
@@ -809,9 +810,10 @@ class TestMCPToolHandlerGaps:
         """submit_task without issue sets mode='local' and includes prompt."""
         handler = CoordinatorToolHandler()
         with patch.object(handler, "_make_request") as mock_req:
-            mock_req.return_value = {"data": {"pipeline_id": "local-abc123"}}
+            mock_req.return_value = {"data": {"pipeline": {"id": "local-abc123"}}}
             handler._handle_submit_task({"description": "Refactor auth"})
-            call_data = mock_req.call_args[1]["data"]
+            # First call is create, second is start
+            call_data = mock_req.call_args_list[0][1]["data"]
             assert call_data["mode"] == "local"
             assert call_data["prompt"] == "Refactor auth"
 

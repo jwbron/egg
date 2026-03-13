@@ -254,7 +254,7 @@ class TestCoordinatorToolHandler:
 
     @patch.object(CoordinatorToolHandler, "_make_request")
     def test_submit_task_with_issue(self, mock_req):
-        mock_req.return_value = {"data": {"pipeline_id": "issue-42"}}
+        mock_req.return_value = {"data": {"pipeline": {"id": "issue-42"}}}
         handler = CoordinatorToolHandler()
         result = handler.handle_tool_call(
             "submit_task",
@@ -262,21 +262,22 @@ class TestCoordinatorToolHandler:
         )
         assert result["task_id"] == "issue-42"
         assert result["status"] == "created"
-        # Verify the request included issue_number and mode=issue
-        call_data = mock_req.call_args[1]["data"]
+        # Verify the create request included issue_number and mode=issue
+        call_data = mock_req.call_args_list[0][1]["data"]
         assert call_data["issue_number"] == 42
         assert call_data["mode"] == "issue"
 
     @patch.object(CoordinatorToolHandler, "_make_request")
     def test_submit_task_without_issue(self, mock_req):
-        mock_req.return_value = {"data": {"pipeline_id": "local-abcd1234"}}
+        mock_req.return_value = {"data": {"pipeline": {"id": "local-abcd1234"}}}
         handler = CoordinatorToolHandler()
         result = handler.handle_tool_call(
             "submit_task",
             {"description": "Improve performance"},
         )
         assert result["task_id"] == "local-abcd1234"
-        call_data = mock_req.call_args[1]["data"]
+        # First call is create, second is start
+        call_data = mock_req.call_args_list[0][1]["data"]
         assert call_data["mode"] == "local"
         assert call_data["prompt"] == "Improve performance"
 
