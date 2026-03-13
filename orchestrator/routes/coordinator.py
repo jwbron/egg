@@ -231,8 +231,7 @@ def spawn_agent(pipeline_id: str) -> tuple[Response, int]:
                         repo_volumes = wt_result.worktrees
                 except GatewayError as gw_err:
                     logger.warning(
-                        "Failed to resolve repo_volumes from gateway, "
-                        "spawning without repo mounts",
+                        "Failed to resolve repo_volumes from gateway, spawning without repo mounts",
                         pipeline_id=pipeline_id,
                         error=str(gw_err),
                     )

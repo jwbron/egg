@@ -1200,7 +1200,9 @@ def cmd_coordinator_cancel(args: argparse.Namespace) -> int:
     """Cancel a running agent via the coordinator."""
     pid = require_pipeline_id(args)
 
-    result = orch_request(f"/api/v1/pipelines/{pid}/coordinator/agents/{args.role}", method="DELETE")
+    result = orch_request(
+        f"/api/v1/pipelines/{pid}/coordinator/agents/{args.role}", method="DELETE"
+    )
 
     if args.json:
         print_json(result)

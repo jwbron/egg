@@ -174,9 +174,7 @@ class TestPhaseTransitionEdgeCases:
     @patch("routes.coordinator.get_state_store")
     @patch("routes.coordinator.get_pipeline_state_lock")
     @patch("routes.coordinator.get_repo_path")
-    def test_skip_to_current_phase(
-        self, mock_repo, mock_lock, mock_store_fn, mock_emit, client
-    ):
+    def test_skip_to_current_phase(self, mock_repo, mock_lock, mock_store_fn, mock_emit, client):
         """Skip to the same phase we're already on — rejected as no-op."""
         mock_repo.return_value = Path("/tmp/repo")
         mock_lock.return_value.__enter__ = MagicMock()
@@ -230,9 +228,7 @@ class TestPhaseTransitionEdgeCases:
     @patch("routes.coordinator.get_state_store")
     @patch("routes.coordinator.get_pipeline_state_lock")
     @patch("routes.coordinator.get_repo_path")
-    def test_advance_phase_empty_reason_rejected(
-        self, mock_repo, mock_lock, mock_store_fn, client
-    ):
+    def test_advance_phase_empty_reason_rejected(self, mock_repo, mock_lock, mock_store_fn, client):
         """Empty string reason should be rejected (falsy)."""
         mock_repo.return_value = Path("/tmp/repo")
 
@@ -577,9 +573,7 @@ class TestExecutorCrashRecovery:
     @patch("coordinator_executor.emit_event")
     @patch("coordinator_executor.get_state_store")
     @patch("coordinator_executor.get_pipeline_state_lock")
-    def test_crash_at_exact_max_respawns_fails(
-        self, mock_lock, mock_store_fn, mock_emit, tmp_path
-    ):
+    def test_crash_at_exact_max_respawns_fails(self, mock_lock, mock_store_fn, mock_emit, tmp_path):
         """When respawns == max_respawns, no more respawns allowed."""
         mock_lock.return_value.__enter__ = MagicMock()
         mock_lock.return_value.__exit__ = MagicMock(return_value=False)
@@ -626,9 +620,7 @@ class TestExecutorCrashRecovery:
 
     @patch("coordinator_executor.get_state_store")
     @patch("coordinator_executor.get_pipeline_state_lock")
-    def test_success_exit_without_coordinator_state(
-        self, mock_lock, mock_store_fn, tmp_path
-    ):
+    def test_success_exit_without_coordinator_state(self, mock_lock, mock_store_fn, tmp_path):
         """Exit code 0 without coordinator state sets COMPLETE."""
         mock_lock.return_value.__enter__ = MagicMock()
         mock_lock.return_value.__exit__ = MagicMock(return_value=False)
@@ -807,9 +799,7 @@ class TestMCPToolHandlerGaps:
         handler = CoordinatorToolHandler()
         with patch.object(handler, "_make_request") as mock_req:
             mock_req.return_value = {"data": {"pipeline_id": "issue-42"}}
-            result = handler._handle_submit_task(
-                {"description": "Fix bug", "issue_number": 42}
-            )
+            result = handler._handle_submit_task({"description": "Fix bug", "issue_number": 42})
             call_data = mock_req.call_args[1]["data"]
             assert call_data["mode"] == "issue"
             assert call_data["issue_number"] == 42
@@ -885,7 +875,13 @@ class TestMCPServerGaps:
             tools = resp.get_json()["tools"]
             assert len(tools) == 5
             names = {t["name"] for t in tools}
-            assert names == {"submit_task", "get_status", "provide_input", "list_tasks", "cancel_task"}
+            assert names == {
+                "submit_task",
+                "get_status",
+                "provide_input",
+                "list_tasks",
+                "cancel_task",
+            }
 
     def test_mcp_server_call_tool_missing_body(self):
         server = MCPServer()
