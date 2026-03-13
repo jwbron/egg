@@ -4880,6 +4880,7 @@ def _spawn_and_wait(
     branch: str | None = None,
     complexity_tier: str | None = None,
     plan_phase_id: str | None = None,
+    extra_mounts: list | None = None,
 ) -> tuple[int, str]:
     """Spawn a container, wait for it to exit, clean up, return (exit_code, logs).
 
@@ -4917,6 +4918,7 @@ def _spawn_and_wait(
         certs_volume=certs_volume,
         branch=branch,
         complexity_tier=complexity_tier,
+        extra_mounts=extra_mounts,
     )
 
     # Record container and agent in phase execution state
@@ -6302,12 +6304,14 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                         ]
 
                         try:
+                            from egg_container import MountSpec
+
                             exit_code, container_logs = _spawn_and_wait(
                                 spawner=spawner,
                                 pipeline_id=pipeline_id,
                                 agent_role=AgentRole.COORDINATOR,
                                 issue_number=pipeline.issue_number,
-                                repo_volumes=repo_volumes,
+                                repo_volumes={},
                                 gateway_mode=gateway_mode,
                                 repos=repos,
                                 phase=current_phase,
@@ -6316,6 +6320,13 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                                 store=store,
                                 certs_volume=certs_volume,
                                 branch=pipeline.branch,
+                                extra_mounts=[
+                                    MountSpec(
+                                        mount_type="tmpfs",
+                                        source=None,
+                                        destination="/home/egg/repos",
+                                    )
+                                ],
                             )
 
                             # Handle coordinator completion (crash recovery, etc.)

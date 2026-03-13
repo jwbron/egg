@@ -205,6 +205,7 @@ class ContainerSpawner:
         certs_volume: str | None = None,
         branch: str | None = None,
         complexity_tier: str | None = None,
+        extra_mounts: list[MountSpec] | None = None,
     ) -> SpawnedContainer:
         """Spawn a container for an agent.
 
@@ -392,6 +393,9 @@ class ContainerSpawner:
             # Caller's extra_env overrides spawner defaults
             if extra_env:
                 spawner_env.update(extra_env)
+
+            if extra_mounts:
+                mounts.extend(extra_mounts)
 
             # Build the unified container config using the shared builder.
             # This sets GATEWAY_URL (hostname-based), proxy vars, DNS lockdown,
