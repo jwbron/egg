@@ -54,5 +54,5 @@ def run_interactive() -> None:
     env.setdefault("DISABLE_COST_WARNINGS", "1")
     env.setdefault("NO_PROXY", "127.0.0.1")
 
-    print("[llm] Launching Claude Code with Opus 4.5...")
+    print("[llm] Launching Claude Code...")
     os.execvpe(cmd[0], cmd, env)
