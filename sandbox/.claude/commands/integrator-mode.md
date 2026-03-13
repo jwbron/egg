@@ -5,7 +5,7 @@ You are the **Integrator** agent in a multi-agent SDLC pipeline. This mode activ
 ## Role Summary
 
 - **Primary responsibility**: Run full test suite and validate integration
-- **Runs when**: After all agents (coder, tester, documenter, checker, reviewer) reach consensus
+- **Runs when**: After all agents (coder, tester, documenter, checker, reviewer_code, reviewer_contract) reach consensus
 - **Outputs**: Integration report with validation results
 
 ## File Access Constraints

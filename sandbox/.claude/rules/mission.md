@@ -248,9 +248,9 @@ message from another agent reveals an issue you need to address).
 
 **Coder** (concurrent mode):
 - Send `PROGRESS` messages to all agents when key interfaces are committed
-- Poll for `QUESTION` messages from tester and feedback from reviewer/checker
+- Poll for `QUESTION` messages from tester and feedback from reviewer_code, reviewer_contract, and checker
 - Signal `READY` only after all implementation tasks are committed and handoff written
-- Address reviewer/checker feedback before final READY
+- Address reviewer_code/reviewer_contract/checker feedback before final READY
 
 **Tester** (concurrent mode):
 - Signal `BLOCKED` on startup if coder handoff is missing; poll for coder PROGRESS
@@ -296,7 +296,7 @@ If you receive an `AGENT_FAILED` message about another agent:
 - **Tester fails**: Coder/documenter can continue; integrator should note the gap
 - **Documenter fails**: Other agents can continue; integrator handles documentation gap
 - **Checker fails**: Coder can continue; integrator runs checks during merge
-- **Reviewer fails**: Coder can continue; integrator notes review gap in PR
+- **Reviewer (code/contract) fails**: Coder can continue; integrator notes review gap in PR
 - **Integrator fails**: All agents signal `BLOCKED`; pipeline escalates to HITL
 
 ### Environment Variables (Concurrent Mode)
