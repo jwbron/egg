@@ -21,7 +21,6 @@ ADRs are organized by implementation status:
 | ADR | Summary |
 |-----|---------|
 | [Anthropic API Credential Injection](implemented/ADR-Anthropic-API-Credential-Injection.md) | Use ANTHROPIC_BASE_URL to route API traffic through gateway for credential injection |
-| [Context Sync Strategy](implemented/ADR-Context-Sync-Strategy-Custom-vs-MCP.md) | Hybrid approach: GitHub MCP implemented ✅, JIRA MCP pending ❌, Confluence sync retained |
 | [Declarative Setup Architecture](implemented/ADR-Declarative-Setup-Architecture.md) | Python-based declarative setup replacing bash scripts |
 | [Git Isolation Architecture](implemented/ADR-Git-Isolation-Architecture.md) | Gateway sidecar design for credential isolation |
 | [SDLC Pipeline](implemented/ADR-SDLC-Pipeline.md) | Structurally enforced agent checkpoints and verification gates |

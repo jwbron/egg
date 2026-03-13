@@ -2014,8 +2014,6 @@ Layer 6: Human Review
 
 ## MCP Considerations
 
-**Related ADR:** [ADR-Context-Sync-Strategy-Custom-vs-MCP](../implemented/ADR-Context-Sync-Strategy-Custom-vs-MCP.md) (PR #36)
-
 When MCP is adopted for GitHub operations, the gateway architecture adapts:
 
 **Option 1: MCP Server in Gateway**
@@ -2069,7 +2067,6 @@ Detailed implementation examples including:
 | ADR | Relationship |
 |-----|--------------|
 | [Architecture Overview](../../architecture/README.md) | Defines overall security model |
-| [ADR-Context-Sync-Strategy-Custom-vs-MCP](../implemented/ADR-Context-Sync-Strategy-Custom-vs-MCP.md) (PR #36) | MCP strategy affects how gateway integrates |
 
 ---
 
