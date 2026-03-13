@@ -12,7 +12,13 @@ from typing import Any
 
 import yaml
 
-from .config import GATEWAY_PORT, GATEWAY_PROXY_PORT, Config
+from .config import (
+    GATEWAY_PORT,
+    GATEWAY_PROXY_PORT,
+    MCP_SERVER_PORT,
+    ORCHESTRATOR_PORT,
+    Config,
+)
 from .docker import build_image
 from .output import error, info, success, warn
 
@@ -524,8 +530,8 @@ def _create_general_config() -> bool:
                 "compose_project_name": "egg",
                 "gateway_api_port": GATEWAY_PORT,
                 "gateway_proxy_port": GATEWAY_PROXY_PORT,
-                "orchestrator_api_port": 9849,
-                "mcp_server_port": 9850,
+                "orchestrator_api_port": ORCHESTRATOR_PORT,
+                "mcp_server_port": MCP_SERVER_PORT,
                 "mcp_rate_limit": 30,
             }
             for key, default in compose_defaults.items():
@@ -558,9 +564,9 @@ def _create_general_config() -> bool:
         # Network ports
         "gateway_api_port": GATEWAY_PORT,
         "gateway_proxy_port": GATEWAY_PROXY_PORT,
-        "orchestrator_api_port": 9849,
+        "orchestrator_api_port": ORCHESTRATOR_PORT,
         # MCP server (always enabled)
-        "mcp_server_port": 9850,
+        "mcp_server_port": MCP_SERVER_PORT,
         "mcp_rate_limit": 30,
     }
 

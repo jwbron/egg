@@ -112,7 +112,8 @@ def load_compose_env(config_dir: Path | None = None) -> dict[str, str]:
     """Read config.yaml + secrets and return env vars for docker-compose.
 
     Priority (highest to lowest):
-    1. Existing environment variables (not overridden)
+    1. Existing environment variables (not overridden) — enforced by
+       the conditional export in :func:`main`, not by this function
     2. Secrets from secrets.env and dedicated files
     3. Values from config.yaml
     4. Built-in defaults
