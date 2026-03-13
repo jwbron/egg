@@ -7,6 +7,8 @@
 FROM ubuntu:22.04
 
 ENV DEBIAN_FRONTEND=noninteractive
+# Allow pip to install alongside distutils-managed system packages (safe in Docker)
+ENV PIP_BREAK_SYSTEM_PACKAGES=1
 # Point GOMODCACHE at the module cache populated during `docker build`
 # (via build_commands in repositories.yaml). Without this, Go defaults to
 # $HOME/go/pkg/mod at runtime and can't find modules cached under
