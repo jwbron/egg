@@ -640,7 +640,7 @@ class TestExecutorCrashRecovery:
     @patch("coordinator_executor.emit_event")
     @patch("coordinator_executor.get_state_store")
     @patch("coordinator_executor.get_pipeline_state_lock")
-    def test_start_coordinator_raises_when_disabled(
+    def test_init_coordinator_state_raises_when_disabled(
         self, mock_lock, mock_store_fn, mock_emit, tmp_path
     ):
         """Initialising coordinator state on disabled pipeline raises ValueError."""
@@ -779,10 +779,14 @@ class TestMCPToolHandlerGaps:
             mock_req.return_value = {"data": {"pipeline": {"id": "issue-42"}}}
             result = handler._handle_submit_task({"description": "Fix bug", "issue_number": 42})
             # First call is the pipeline create; second is /start
+            assert mock_req.call_count == 2
             call_data = mock_req.call_args_list[0][1]["data"]
             assert call_data["mode"] == "issue"
             assert call_data["issue_number"] == 42
             assert result["task_id"] == "issue-42"
+            start_call = mock_req.call_args_list[1]
+            assert "/start" in start_call[0][0]
+            assert start_call[1]["method"] == "POST"
 
     def test_submit_task_without_issue_number(self):
         """submit_task without issue sets mode='local' and includes prompt."""
@@ -791,9 +795,13 @@ class TestMCPToolHandlerGaps:
             mock_req.return_value = {"data": {"pipeline": {"id": "local-abc123"}}}
             handler._handle_submit_task({"description": "Refactor auth"})
             # First call is the pipeline create; second is /start
+            assert mock_req.call_count == 2
             call_data = mock_req.call_args_list[0][1]["data"]
             assert call_data["mode"] == "local"
             assert call_data["prompt"] == "Refactor auth"
+            start_call = mock_req.call_args_list[1]
+            assert "/start" in start_call[0][0]
+            assert start_call[1]["method"] == "POST"
 
     def test_cancel_task_passes_reason(self):
         """cancel_task uses PATCH with status and reason."""

@@ -427,9 +427,13 @@ class TestCoordinatorToolHandler:
         assert result["task_id"] == "issue-42"
         assert result["status"] == "created"
         # First call is the pipeline create; second is /start
+        assert mock_req.call_count == 2
         call_data = mock_req.call_args_list[0][1]["data"]
         assert call_data["issue_number"] == 42
         assert call_data["mode"] == "issue"
+        start_call = mock_req.call_args_list[1]
+        assert "/start" in start_call[0][0]
+        assert start_call[1]["method"] == "POST"
 
     @patch.object(CoordinatorToolHandler, "_make_request")
     def test_submit_task_without_issue(self, mock_req):
@@ -441,9 +445,13 @@ class TestCoordinatorToolHandler:
         )
         assert result["task_id"] == "local-abcd1234"
         # First call is the pipeline create; second is /start
+        assert mock_req.call_count == 2
         call_data = mock_req.call_args_list[0][1]["data"]
         assert call_data["mode"] == "local"
         assert call_data["prompt"] == "Improve performance"
+        start_call = mock_req.call_args_list[1]
+        assert "/start" in start_call[0][0]
+        assert start_call[1]["method"] == "POST"
 
     @patch.object(CoordinatorToolHandler, "_make_request")
     def test_get_status(self, mock_req):
@@ -546,6 +554,8 @@ class TestCoordinatorToolHandler:
         )
         # Should not crash — returns empty string for pipeline_id
         assert result["task_id"] == ""
+        # No /start call when pipeline_id is empty
+        assert mock_req.call_count == 1
 
     @patch.object(CoordinatorToolHandler, "_make_request")
     def test_list_tasks_default_filter_is_active(self, mock_req):

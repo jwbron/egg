@@ -96,7 +96,7 @@ class TestShouldUseCoordinator:
         assert executor.should_use_coordinator("test-pipeline") is False
 
 
-# ── start_coordinator tests ──────────────────────────────────────────
+# ── init_coordinator_state tests ─────────────────────────────────────
 
 
 class TestInitCoordinatorState:

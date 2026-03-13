@@ -208,9 +208,17 @@ class CoordinatorToolHandler:
         pipeline_id = result.get("data", {}).get("pipeline", {}).get("id", "")
 
         if pipeline_id:
-            self._make_request(
-                f"/api/v1/pipelines/{quote(pipeline_id, safe='')}/start", method="POST"
-            )
+            try:
+                self._make_request(
+                    f"/api/v1/pipelines/{quote(pipeline_id, safe='')}/start", method="POST"
+                )
+            except Exception:
+                logger.error("Failed to start pipeline", pipeline_id=pipeline_id)
+                return {
+                    "task_id": pipeline_id,
+                    "status": "created_not_started",
+                    "message": "Pipeline created but failed to start. Use task_id to retry.",
+                }
 
         return {
             "task_id": pipeline_id,
