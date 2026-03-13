@@ -416,9 +416,7 @@ Fixed IPs:
 
 **MCP Server (`/mcp/`)**
 - `GET /health` - MCP server health check
-- `GET /mcp/v1/tools` - List available coordinator tools
-- `POST /mcp/v1/tools/call` - Execute a coordinator tool call
-- `GET /mcp/v1/sse` - SSE stream for MCP protocol events (tool listing + heartbeats)
+- `POST /mcp` - Streamable HTTP transport endpoint (MCP protocol via JSON-RPC)
 
 **CLI Access:**
 The `egg-orch` CLI (`sandbox/bin/egg-orch`) provides command-line access to all orchestrator API endpoints. Available in sandbox containers for agent use, or can be run from the host with appropriate environment variables. See the [README CLI Reference](../../README.md#egg-orch-cli) for command details.
