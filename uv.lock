@@ -433,7 +433,7 @@ requires-dist = [
     { name = "flask", specifier = ">=3.0.0,<4.0.0" },
     { name = "httpx", specifier = ">=0.27.0,<1.0.0" },
     { name = "hypothesis", marker = "extra == 'dev'", specifier = ">=6.100.0" },
-    { name = "mcp", extras = ["cli"], marker = "extra == 'dev'", specifier = ">=1.0.0" },
+    { name = "mcp", extras = ["cli"], marker = "extra == 'dev'", specifier = ">=1.20.0,<2.0.0" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.8.0" },
     { name = "pre-commit", marker = "extra == 'dev'", specifier = ">=3.6.0" },
     { name = "pydantic", specifier = ">=2.0.0,<3.0.0" },
