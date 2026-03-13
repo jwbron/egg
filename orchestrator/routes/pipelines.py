@@ -6207,6 +6207,9 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                     # Use multi-agent wave-based execution when enabled for
                     # implement and plan phases; single-CODER path otherwise.
                     # Tier 3 (high complexity) uses phase-level dispatch for implement.
+                    # Coordinator mode delegates all dispatch to the coordinator agent.
+                    use_coordinator = pipeline.config.coordinator_enabled
+
                     use_multi_agent = pipeline.config.multi_agent and current_phase.value in {
                         "implement",
                         "plan",
@@ -6226,7 +6229,102 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                         "implement"
                     }
 
-                    if use_concurrent:
+                    if use_coordinator:
+                        logger.info(
+                            "Routing to coordinator executor",
+                            pipeline_id=pipeline_id,
+                            phase=current_phase,
+                            review_cycle=review_cycle,
+                            mode=gateway_mode,
+                        )
+
+                        try:
+                            from coordinator_executor import CoordinatorExecutor
+                        except ImportError:
+                            from ..coordinator_executor import (
+                                CoordinatorExecutor,  # type: ignore[no-redef]
+                            )
+
+                        coord_executor = CoordinatorExecutor(repo_path=worktree_repo_path)
+                        try:
+                            coord_container = coord_executor.start_coordinator(
+                                pipeline_id=pipeline_id,
+                                spawner=spawner,
+                                issue_number=pipeline.issue_number,
+                                repo_volumes=repo_volumes,
+                                mode=gateway_mode,
+                                repos=repos,
+                                certs_volume=certs_volume,
+                                branch=pipeline.branch,
+                            )
+
+                            # Wait for coordinator container to complete
+                            docker_client = spawner.docker
+                            try:
+                                final_info = docker_client.wait_for_container(
+                                    coord_container.container_info.container_id,
+                                    timeout=7200,
+                                )
+                                exit_code = final_info.exit_code
+                            except (ContainerNotFoundError, ContainerOperationError) as e:
+                                logger.warning(
+                                    "Coordinator container lost during wait",
+                                    container_id=coord_container.container_info.container_id,
+                                    error=str(e),
+                                )
+                                exit_code = -1
+
+                            if exit_code != 0:
+                                try:
+                                    container_logs = docker_client.get_container_logs(
+                                        coord_container.container_info.container_id,
+                                        tail=200,
+                                    )
+                                except Exception:
+                                    container_logs = ""
+                                logger.warning(
+                                    "Coordinator container failed",
+                                    pipeline_id=pipeline_id,
+                                    exit_code=exit_code,
+                                )
+
+                            # Handle coordinator completion (crash recovery, etc.)
+                            result = coord_executor.handle_coordinator_completion(
+                                pipeline_id, exit_code
+                            )
+                            if result == "respawn":
+                                # Coordinator will be respawned — retry this phase
+                                continue
+                            elif result == "failed":
+                                phase_failed = True
+                                break
+                            else:
+                                # Coordinator completed successfully — skip generic dispatch
+                                break
+
+                        except ContainerSpawnError as e:
+                            with get_pipeline_state_lock(pipeline_id):
+                                pipeline = store.load_pipeline(pipeline_id)
+                                phase_execution = pipeline.get_phase_execution(current_phase)
+                                if phase_execution.cycle_timings:
+                                    phase_execution.cycle_timings[
+                                        -1
+                                    ].completed_at = datetime.utcnow()
+                                phase_execution.status = PipelineStatus.FAILED
+                                phase_execution.error = str(e)
+                                phase_execution.completed_at = datetime.utcnow()
+                                pipeline.status = PipelineStatus.FAILED
+                                pipeline.error = str(e)
+                                store.save_pipeline(pipeline)
+                            logger.error(
+                                "Failed to spawn coordinator",
+                                pipeline_id=pipeline_id,
+                                error=str(e),
+                            )
+                            phase_failed = True
+                            break
+
+                    elif use_concurrent:
                         logger.info(
                             "Spawning concurrent phase execution",
                             pipeline_id=pipeline_id,

@@ -626,6 +626,58 @@ class ContainerSpawner:
         ip_suffix = (int(short_id[:4], 16) % 200) + 10  # 10-209
         return f"172.32.0.{ip_suffix}"
 
+    def create_coordinator_spawn_fn(
+        self,
+        pipeline_id: str,
+        issue_number: int | None,
+        repo_volumes: dict[str, str] | None,
+        mode: str,
+        repos: list[str] | None,
+        image: str | None = None,
+        certs_volume: str | None = None,
+        branch: str | None = None,
+    ):
+        """Create a spawn callable for the coordinator agent.
+
+        Returns a function with signature (extra_env) that spawns the coordinator
+        container with proper phase and environment variables.
+
+        Args:
+            pipeline_id: Pipeline ID.
+            issue_number: GitHub issue number.
+            repo_volumes: Repo name to host path mappings.
+            mode: Gateway mode (public/private/local).
+            repos: Repositories for gateway session.
+            image: Docker image override.
+            certs_volume: Certs volume name.
+            branch: Branch name for gateway session.
+
+        Returns:
+            Callable suitable for CoordinatorExecutor.
+        """
+
+        def _spawn(extra_env: dict[str, str] | None = None) -> SpawnedContainer:
+            coordinator_env = {
+                "EGG_COORDINATOR_MODE": "true",
+                "EGG_COORDINATOR_TOOLS": "true",
+                **(extra_env or {}),
+            }
+            return self.spawn_agent_container(
+                pipeline_id=pipeline_id,
+                agent_role=AgentRole.COORDINATOR,
+                issue_number=issue_number,
+                repo_volumes=repo_volumes,
+                mode=mode,
+                image=image,
+                extra_env=coordinator_env,
+                repos=repos,
+                phase="coordinator",
+                certs_volume=certs_volume,
+                branch=branch,
+            )
+
+        return _spawn
+
     def create_concurrent_spawn_fn(
         self,
         pipeline_id: str,

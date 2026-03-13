@@ -225,6 +225,27 @@ class SSEClientManager:
             payload["status"] = pipeline.status.value
             payload["current_phase"] = pipeline.current_phase.value
             payload["pending_decisions"] = len(pipeline.get_pending_decisions())
+
+            # Include coordinator state summary for coordinator events
+            if (
+                event.event_type
+                in {
+                    EventType.COORDINATOR_SPAWN,
+                    EventType.COORDINATOR_DECISION,
+                    EventType.COORDINATOR_ESCALATION,
+                    EventType.COORDINATOR_LOOPBACK,
+                }
+                and pipeline.coordinator_state is not None
+            ):
+                cs = pipeline.coordinator_state
+                payload["coordinator"] = {
+                    "workflow_type": cs.workflow_type,
+                    "agents_running": len([a for a in cs.agents_spawned if a.status == "running"]),
+                    "agents_total": len(cs.agents_spawned),
+                    "escalations_pending": len(
+                        [e for e in cs.escalations if e.resolved_at is None]
+                    ),
+                }
         except Exception:
             logger.debug(
                 "Failed to attach pipeline state to SSE event",

@@ -9,6 +9,7 @@ Provides REST endpoints for SDLC pipeline orchestration, including:
 - Health checks
 """
 
+import os
 import sys
 import time
 from pathlib import Path
@@ -38,6 +39,7 @@ app = Flask(__name__)
 try:
     from routes.checks import checks_bp
     from routes.containers import containers_bp
+    from routes.coordinator import coordinator_bp
     from routes.decisions import decisions_bp
     from routes.health import health_bp
     from routes.messages import messages_bp
@@ -56,10 +58,12 @@ try:
     app.register_blueprint(decisions_bp)
     app.register_blueprint(messages_bp)
     app.register_blueprint(metrics_bp)
+    app.register_blueprint(coordinator_bp)
     app.register_blueprint(webhooks_bp)
 except ImportError:
     from .routes.checks import checks_bp  # type: ignore[no-redef]
     from .routes.containers import containers_bp  # type: ignore[no-redef]
+    from .routes.coordinator import coordinator_bp  # type: ignore[no-redef]
     from .routes.decisions import decisions_bp  # type: ignore[no-redef]
     from .routes.health import health_bp  # type: ignore[no-redef]
     from .routes.messages import messages_bp  # type: ignore[no-redef]
@@ -78,6 +82,7 @@ except ImportError:
     app.register_blueprint(decisions_bp)
     app.register_blueprint(messages_bp)
     app.register_blueprint(metrics_bp)
+    app.register_blueprint(coordinator_bp)
     app.register_blueprint(webhooks_bp)
 
 
@@ -137,6 +142,41 @@ def index() -> tuple[Response, int]:
                 "pipelines": "/api/v1/pipelines",
                 "metrics": "/api/v1/metrics",
                 "webhooks": "/api/v1/webhooks",
+                "mcp": "/mcp/health",
             },
         }
     ), 200
+
+
+# Start MCP server sidecar when coordinator support is enabled.
+# The MCP server runs in a background daemon thread and proxies tool calls
+# to the orchestrator's coordinator API endpoints.
+def _maybe_start_mcp_server() -> None:
+    """Start the MCP server if enabled via environment variable."""
+    if os.environ.get("EGG_MCP_SERVER_ENABLED", "").lower() in ("1", "true", "yes"):
+        try:
+            from mcp_server import start_mcp_server
+
+            mcp_port = int(os.environ.get("EGG_MCP_SERVER_PORT", "9850"))
+            mcp_rate_limit = int(os.environ.get("EGG_MCP_RATE_LIMIT", "30"))
+            try:
+                from egg_config import GATEWAY_PORT
+            except ImportError:
+                GATEWAY_PORT = 9848  # noqa: EGG002
+
+            gateway_url = os.environ.get("GATEWAY_URL", f"http://egg-gateway:{GATEWAY_PORT}")
+            launcher_secret = os.environ.get("EGG_LAUNCHER_SECRET", "")
+            start_mcp_server(
+                port=mcp_port,
+                rate_limit=mcp_rate_limit,
+                gateway_url=gateway_url,
+                launcher_secret=launcher_secret,
+            )
+            logger.info("MCP server started", port=mcp_port)
+        except ImportError:
+            logger.warning("MCP server module not available, skipping startup")
+        except Exception as e:
+            logger.error("Failed to start MCP server", error=str(e))
+
+
+_maybe_start_mcp_server()

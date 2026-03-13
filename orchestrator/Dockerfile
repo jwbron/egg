@@ -33,6 +33,8 @@ ENV PYTHONPATH="/app"
 
 # Orchestrator API port (configured in shared/egg_config/constants.py)
 EXPOSE 9849
+# MCP server port (configured via EGG_MCP_SERVER_PORT)
+EXPOSE 9850
 
 COPY orchestrator/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
