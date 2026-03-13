@@ -848,8 +848,8 @@ class TestMCPToolHandlerGaps:
 
 
 class TestMCPServerGaps:
-    """MCP server gaps: rate limiter window reset, health check, tool call
-    with missing arguments, tool call with empty name."""
+    """MCP server gaps: rate limiter window reset, health check, tool
+    registration, and rate limiting via Streamable HTTP transport."""
 
     def test_rate_limiter_allows_after_window_expires(self):
         """After window expires, requests should be allowed again."""
@@ -865,20 +865,53 @@ class TestMCPServerGaps:
         assert limiter.allow() is False
 
     def test_mcp_server_health_endpoint(self):
+        from starlette.testclient import TestClient
+
         server = MCPServer()
-        app = server.create_app()
-        with app.test_client() as client:
+        mcp = server.create_app()
+        app = mcp.streamable_http_app()
+        with TestClient(app) as client:
             resp = client.get("/health")
             assert resp.status_code == 200
-            assert resp.get_json()["status"] == "healthy"
+            assert resp.json()["status"] == "healthy"
 
-    def test_mcp_server_list_tools_returns_all_five(self):
+    def test_mcp_server_registers_all_five_tools(self):
+        from starlette.testclient import TestClient
+
         server = MCPServer()
-        app = server.create_app()
-        with app.test_client() as client:
-            resp = client.get("/mcp/v1/tools")
+        mcp = server.create_app()
+        app = mcp.streamable_http_app()
+        with TestClient(app) as client:
+            headers = {"Content-Type": "application/json", "Accept": "application/json"}
+            init_resp = client.post(
+                "/mcp",
+                json={
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "initialize",
+                    "params": {
+                        "protocolVersion": "2025-03-26",
+                        "capabilities": {},
+                        "clientInfo": {"name": "test", "version": "0.1.0"},
+                    },
+                },
+                headers=headers,
+            )
+            session_id = init_resp.headers.get("mcp-session-id")
+            if session_id:
+                headers["mcp-session-id"] = session_id
+            client.post(
+                "/mcp",
+                json={"jsonrpc": "2.0", "method": "notifications/initialized"},
+                headers=headers,
+            )
+            resp = client.post(
+                "/mcp",
+                json={"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}},
+                headers=headers,
+            )
             assert resp.status_code == 200
-            tools = resp.get_json()["tools"]
+            tools = resp.json()["result"]["tools"]
             assert len(tools) == 5
             names = {t["name"] for t in tools}
             assert names == {
@@ -889,62 +922,100 @@ class TestMCPServerGaps:
                 "cancel_task",
             }
 
-    def test_mcp_server_call_tool_missing_body(self):
-        server = MCPServer()
-        app = server.create_app()
-        with app.test_client() as client:
-            # Send with JSON content type but empty body triggers 400
-            resp = client.post(
-                "/mcp/v1/tools/call",
-                json=None,
-                content_type="application/json",
-            )
-            assert resp.status_code == 400
+    def test_mcp_server_mcp_endpoint_responds(self):
+        from starlette.testclient import TestClient
 
-    def test_mcp_server_call_tool_missing_name(self):
         server = MCPServer()
-        app = server.create_app()
-        with app.test_client() as client:
+        mcp = server.create_app()
+        app = mcp.streamable_http_app()
+        with TestClient(app) as client:
+            # Send an MCP initialize request
             resp = client.post(
-                "/mcp/v1/tools/call",
-                json={"arguments": {}},
-            )
-            assert resp.status_code == 400
-
-    def test_mcp_server_call_tool_unknown_returns_error(self):
-        server = MCPServer()
-        app = server.create_app()
-        with app.test_client() as client:
-            resp = client.post(
-                "/mcp/v1/tools/call",
-                json={"name": "bogus_tool", "arguments": {}},
+                "/mcp",
+                json={
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "initialize",
+                    "params": {
+                        "protocolVersion": "2025-03-26",
+                        "capabilities": {},
+                        "clientInfo": {"name": "test", "version": "0.1.0"},
+                    },
+                },
+                headers={"Content-Type": "application/json", "Accept": "application/json"},
             )
             assert resp.status_code == 200
-            data = resp.get_json()
-            assert data["isError"] is True
+            data = resp.json()
+            assert data.get("jsonrpc") == "2.0"
+            assert "result" in data
 
-    def test_mcp_server_sse_content_type(self):
-        server = MCPServer()
-        app = server.create_app()
-        with app.test_client() as client:
-            resp = client.get("/mcp/v1/sse")
-            assert resp.content_type.startswith("text/event-stream")
+    def test_mcp_server_rate_limit_in_tool_response(self):
+        import json
+        from unittest.mock import patch as _patch
 
-    def test_mcp_server_rate_limit_returns_429(self):
+        from starlette.testclient import TestClient
+
         server = MCPServer(rate_limit=1)
-        app = server.create_app()
-        with app.test_client() as client:
-            # First call should succeed
+        mcp = server.create_app()
+        app = mcp.streamable_http_app()
+
+        with (
+            _patch.object(CoordinatorToolHandler, "handle_tool_call", return_value={"ok": True}),
+            TestClient(app) as client,
+        ):
+            # Initialize
+            init_resp = client.post(
+                "/mcp",
+                json={
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "initialize",
+                    "params": {
+                        "protocolVersion": "2025-03-26",
+                        "capabilities": {},
+                        "clientInfo": {"name": "test", "version": "0.1.0"},
+                    },
+                },
+                headers={"Content-Type": "application/json", "Accept": "application/json"},
+            )
+            session_id = init_resp.headers.get("mcp-session-id")
+            headers = {"Content-Type": "application/json", "Accept": "application/json"}
+            if session_id:
+                headers["mcp-session-id"] = session_id
+
             client.post(
-                "/mcp/v1/tools/call",
-                json={"name": "get_status", "arguments": {"task_id": "test"}},
+                "/mcp",
+                json={"jsonrpc": "2.0", "method": "notifications/initialized"},
+                headers=headers,
             )
-            # Second call should be rate limited
+
+            # First call succeeds
+            client.post(
+                "/mcp",
+                json={
+                    "jsonrpc": "2.0",
+                    "id": 10,
+                    "method": "tools/call",
+                    "params": {"name": "get_status", "arguments": {"task_id": "test"}},
+                },
+                headers=headers,
+            )
+            # Second call hits rate limit
             resp2 = client.post(
-                "/mcp/v1/tools/call",
-                json={"name": "get_status", "arguments": {"task_id": "test"}},
+                "/mcp",
+                json={
+                    "jsonrpc": "2.0",
+                    "id": 11,
+                    "method": "tools/call",
+                    "params": {"name": "get_status", "arguments": {"task_id": "test"}},
+                },
+                headers=headers,
             )
-            assert resp2.status_code == 429
+            assert resp2.status_code == 200
+            data = resp2.json()
+            result_text = data["result"]["content"][0]["text"]
+            result = json.loads(result_text)
+            assert "Rate limit exceeded" in result.get("error", "")
 
 
 # ══════════════════════════════════════════════════════════════════════
