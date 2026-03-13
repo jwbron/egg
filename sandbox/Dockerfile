@@ -8,11 +8,14 @@ FROM ubuntu:22.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 # Allow pip to install over distutils-managed system packages (safe in Docker).
-# PIP_BREAK_SYSTEM_PACKAGES bypasses PEP 668; PIP_IGNORE_INSTALLED bypasses the
-# distutils uninstall error (e.g. blinker 1.4 installed by apt can't be removed
-# by pip, but we can still install a newer version into Python 3.13's site-packages).
+# PIP_BREAK_SYSTEM_PACKAGES bypasses PEP 668 — kept as ENV because agents may
+# pip-install at runtime in public mode.
 ENV PIP_BREAK_SYSTEM_PACKAGES=1
-ENV PIP_IGNORE_INSTALLED=1
+# PIP_IGNORE_INSTALLED bypasses the distutils uninstall error (e.g. blinker 1.4
+# installed by apt can't be removed by pip, but we can install a newer version
+# into Python 3.13's site-packages). ARG so it only applies during build — at
+# runtime it would cause pip to wastefully reinstall already-present packages.
+ARG PIP_IGNORE_INSTALLED=1
 # Point GOMODCACHE at the module cache populated during `docker build`
 # (via build_commands in repositories.yaml). Without this, Go defaults to
 # $HOME/go/pkg/mod at runtime and can't find modules cached under
