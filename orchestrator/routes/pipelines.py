@@ -6248,48 +6248,30 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                             )
 
                         coord_executor = CoordinatorExecutor(repo_path=worktree_repo_path)
+                        coord_executor.init_coordinator_state(pipeline_id)
+
+                        coordinator_env = {
+                            **sandbox_env,
+                            "EGG_COORDINATOR_MODE": "true",
+                            "EGG_COORDINATOR_TOOLS": "true",
+                        }
+
                         try:
-                            coord_container = coord_executor.start_coordinator(
-                                pipeline_id=pipeline_id,
+                            exit_code, container_logs = _spawn_and_wait(
                                 spawner=spawner,
+                                pipeline_id=pipeline_id,
+                                agent_role=AgentRole.COORDINATOR,
                                 issue_number=pipeline.issue_number,
                                 repo_volumes=repo_volumes,
-                                mode=gateway_mode,
+                                gateway_mode=gateway_mode,
                                 repos=repos,
+                                phase=current_phase,
+                                sandbox_env=coordinator_env,
+                                sandbox_command=None,
+                                store=store,
                                 certs_volume=certs_volume,
                                 branch=pipeline.branch,
-                                pipeline_env=sandbox_env,
                             )
-
-                            # Wait for coordinator container to complete
-                            docker_client = spawner.docker
-                            try:
-                                final_info = docker_client.wait_for_container(
-                                    coord_container.container_info.container_id,
-                                    timeout=7200,
-                                )
-                                exit_code = final_info.exit_code
-                            except (ContainerNotFoundError, ContainerOperationError) as e:
-                                logger.warning(
-                                    "Coordinator container lost during wait",
-                                    container_id=coord_container.container_info.container_id,
-                                    error=str(e),
-                                )
-                                exit_code = -1
-
-                            if exit_code != 0:
-                                try:
-                                    container_logs = docker_client.get_container_logs(
-                                        coord_container.container_info.container_id,
-                                        tail=200,
-                                    )
-                                except Exception:
-                                    container_logs = ""
-                                logger.warning(
-                                    "Coordinator container failed",
-                                    pipeline_id=pipeline_id,
-                                    exit_code=exit_code,
-                                )
 
                             # Handle coordinator completion (crash recovery, etc.)
                             result = coord_executor.handle_coordinator_completion(
