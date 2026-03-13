@@ -191,7 +191,7 @@ def create_unified_sse_stream(
     use_ascii: bool = False,
     active_only: bool = True,
     full_dag: bool = False,
-) -> Generator[str, None, None]:
+) -> Generator[str]:
     """Create a unified SSE stream for all pipelines.
 
     Yields SSE-formatted strings for use as a Flask streaming response.

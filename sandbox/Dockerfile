@@ -7,6 +7,15 @@
 FROM ubuntu:22.04
 
 ENV DEBIAN_FRONTEND=noninteractive
+# Allow pip to install over distutils-managed system packages (safe in Docker).
+# PIP_BREAK_SYSTEM_PACKAGES bypasses PEP 668 — kept as ENV because agents may
+# pip-install at runtime in public mode.
+ENV PIP_BREAK_SYSTEM_PACKAGES=1
+# PIP_IGNORE_INSTALLED bypasses the distutils uninstall error (e.g. blinker 1.4
+# installed by apt can't be removed by pip, but we can install a newer version
+# into Python 3.13's site-packages). ARG so it only applies during build — at
+# runtime it would cause pip to wastefully reinstall already-present packages.
+ARG PIP_IGNORE_INSTALLED=1
 # Point GOMODCACHE at the module cache populated during `docker build`
 # (via build_commands in repositories.yaml). Without this, Go defaults to
 # $HOME/go/pkg/mod at runtime and can't find modules cached under
@@ -52,19 +61,23 @@ RUN curl -fsSL https://repo.charm.sh/apt/gpg.key | gpg --dearmor -o /usr/share/k
     && apt-get install -y glow \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Python 3.11 as default (Ubuntu 22.04 ships with 3.10)
-# Required for datetime.UTC and other 3.11+ features used by egg scripts
+# Install Python 3.13 as default (Ubuntu 22.04 ships with 3.10)
 # Note: We run apt-get update twice - once before adding the PPA to refresh
 # base Ubuntu package lists (avoiding stale libexpat1 etc), and once after
-# to pick up deadsnakes packages
+# to pick up deadsnakes packages.
+# python3-pip from apt targets the system Python (3.10), not 3.13 — so we
+# omit it and bootstrap pip via ensurepip after setting update-alternatives.
 RUN apt-get update && \
     add-apt-repository -y ppa:deadsnakes/ppa && \
     apt-get update && \
-    apt-get install -y python3.11 python3.11-venv python3.11-dev python3-pip && \
-    update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1 && \
-    update-alternatives --set python3 /usr/bin/python3.11 && \
+    apt-get install -y python3.13 python3.13-venv python3.13-dev && \
+    update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.13 1 && \
+    update-alternatives --set python3 /usr/bin/python3.13 && \
     # Ensure 'python' command maps to python3 (many tools expect this)
-    update-alternatives --install /usr/bin/python python /usr/bin/python3.11 1
+    update-alternatives --install /usr/bin/python python /usr/bin/python3.13 1 && \
+    # Bootstrap pip for Python 3.13 (ensurepip installs pip3 to /usr/local/bin)
+    python3.13 -m ensurepip --upgrade && \
+    python3.13 -m pip install --no-cache-dir --upgrade pip
 
 # Install pyyaml early - required by docker-setup.py for reading config
 RUN pip3 install --no-cache-dir pyyaml

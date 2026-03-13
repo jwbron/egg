@@ -172,7 +172,7 @@ def networks_exist() -> bool:
 
 
 @pytest.fixture
-def external_container(networks_exist: bool) -> Generator[ContainerInfo, None, None]:
+def external_container(networks_exist: bool) -> Generator[ContainerInfo]:
     """Fixture that provides a test container on the external network."""
     container = start_test_container(EGG_EXTERNAL_NETWORK, "external")
     if not container:
@@ -191,7 +191,7 @@ def external_container(networks_exist: bool) -> Generator[ContainerInfo, None, N
 
 
 @pytest.fixture
-def isolated_container(networks_exist: bool) -> Generator[ContainerInfo, None, None]:
+def isolated_container(networks_exist: bool) -> Generator[ContainerInfo]:
     """Fixture that provides a test container on the isolated network."""
     container = start_test_container(EGG_ISOLATED_NETWORK, "isolated")
     if not container:
