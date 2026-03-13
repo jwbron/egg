@@ -1036,6 +1036,8 @@ class TestRemoteSync:
         call_count = 0
         original_in_flight = StateStore._push_in_flight
         original_pending = StateStore._push_pending
+        StateStore._push_in_flight = False
+        StateStore._push_pending = False
 
         def slow_sync():
             nonlocal call_count
@@ -1067,6 +1069,8 @@ class TestRemoteSync:
         call_count = 0
         original_in_flight = StateStore._push_in_flight
         original_pending = StateStore._push_pending
+        StateStore._push_in_flight = False
+        StateStore._push_pending = False
 
         def slow_sync():
             nonlocal call_count
@@ -1144,6 +1148,8 @@ class TestRemoteSync:
         call_count = 0
         original_in_flight = StateStore._push_in_flight
         original_pending = StateStore._push_pending
+        StateStore._push_in_flight = False
+        StateStore._push_pending = False
 
         def slow_sync():
             nonlocal call_count

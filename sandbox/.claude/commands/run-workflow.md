@@ -44,7 +44,7 @@ Store the returned `task_id`. Confirm submission to the user:
 
 ## Phase 3 — Monitor
 
-Set up recurring status polling using `CronCreate` with a 60-second interval. On each poll:
+Poll the pipeline status in a loop. Wait 60 seconds between each poll. On each poll:
 
 1. Call the `get_status` MCP tool with the `task_id`
 2. Display a compact status dashboard:
@@ -58,8 +58,8 @@ Recent: <latest message subject from recent_messages>
 
 3. Check for state transitions:
    - If `pending_decisions` is non-empty → move to Phase 4 (HITL)
-   - If `status` is `complete` → cancel the cron, move to Phase 5
-   - If `status` is `failed` → cancel the cron, move to Phase 5
+   - If `status` is `complete` → exit the loop, move to Phase 5
+   - If `status` is `failed` → exit the loop, move to Phase 5
 
 Keep the dashboard output concise. Only show changes from the previous poll when possible.
 
@@ -91,7 +91,7 @@ Confirm the input was submitted, then resume monitoring (Phase 3).
 
 ## Phase 5 — Complete
 
-Cancel any active monitoring cron job. Then summarize:
+The monitoring loop has exited. Summarize:
 
 ### On success:
 ```
@@ -119,6 +119,6 @@ Phase: <phase where failure occurred>
 
 - **Always use MCP tools** (`submit_task`, `get_status`, `provide_input`) — never call orchestrator APIs directly
 - **Never skip HITL** — always present decisions to the user and wait for their response
-- **Cancel cron on exit** — always clean up the monitoring cron when the workflow ends
+- **Stop polling on exit** — always exit the monitoring loop when the workflow ends
 - **Handle errors gracefully** — if an MCP tool call fails, inform the user and offer to retry
 - **Keep output concise** — don't flood the user with raw JSON; format status as a readable dashboard

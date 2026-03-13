@@ -446,15 +446,75 @@ class TestCoordinatorToolHandler:
 
     @patch.object(CoordinatorToolHandler, "_make_request")
     def test_get_status(self, mock_req):
-        mock_req.return_value = {
-            "data": {
-                "current_phase": "implement",
-                "running_agents": [],
-            }
-        }
+        mock_req.side_effect = [
+            # 1st call: coordinator state (primary)
+            {
+                "data": {
+                    "current_phase": "implement",
+                    "running_agents": [],
+                }
+            },
+            # 2nd call: pipeline details (enrichment)
+            {
+                "data": {
+                    "pipeline": {
+                        "id": "issue-42",
+                        "repo": "owner/repo",
+                        "issue_number": 42,
+                        "created_at": "2026-03-13T00:00:00Z",
+                        "mode": "local",
+                    }
+                }
+            },
+            # 3rd call: messages (enrichment)
+            {
+                "data": {
+                    "messages": [
+                        {
+                            "from_role": "coder",
+                            "type": "PROGRESS",
+                            "subject": "Implementation started",
+                            "timestamp": "2026-03-13T00:01:00Z",
+                        }
+                    ]
+                }
+            },
+        ]
         handler = CoordinatorToolHandler()
         result = handler.handle_tool_call("get_status", {"task_id": "issue-42"})
         assert result["current_phase"] == "implement"
+        # Verify enrichment: pipeline details
+        assert "pipeline" in result
+        assert result["pipeline"]["id"] == "issue-42"
+        assert result["pipeline"]["repo"] == "owner/repo"
+        assert result["pipeline"]["issue_number"] == 42
+        # Verify enrichment: recent messages
+        assert "recent_messages" in result
+        assert len(result["recent_messages"]) == 1
+        assert result["recent_messages"][0]["from_role"] == "coder"
+        assert result["recent_messages"][0]["subject"] == "Implementation started"
+
+    @patch.object(CoordinatorToolHandler, "_make_request")
+    def test_get_status_enrichment_fallback(self, mock_req):
+        """get_status returns core state when enrichment calls fail."""
+
+        def side_effect_fn(url, **kwargs):
+            if "coordinator/state" in url:
+                return {
+                    "data": {
+                        "current_phase": "plan",
+                        "running_agents": ["refiner"],
+                    }
+                }
+            raise ConnectionError("enrichment unavailable")
+
+        mock_req.side_effect = side_effect_fn
+        handler = CoordinatorToolHandler()
+        result = handler.handle_tool_call("get_status", {"task_id": "issue-99"})
+        assert result["current_phase"] == "plan"
+        # Enrichment keys should be absent (graceful fallback)
+        assert "pipeline" not in result
+        assert "recent_messages" not in result
 
     @patch.object(CoordinatorToolHandler, "_make_request")
     def test_provide_input(self, mock_req):
