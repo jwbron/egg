@@ -60,11 +60,14 @@ Configure Claude Code to connect to the MCP server:
 {
   "mcpServers": {
     "egg-coordinator": {
+      "type": "sse",
       "url": "http://localhost:9850/mcp/v1/sse"
     }
   }
 }
 ```
+
+The MCP server binds to `127.0.0.1` only — no authentication required.
 
 ### Available Tools
 
