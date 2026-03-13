@@ -23,7 +23,7 @@ _shared_path = Path(__file__).parent.parent / "shared"
 if _shared_path.exists() and str(_shared_path) not in sys.path:
     sys.path.insert(0, str(_shared_path))
 
-from egg_contracts.models import PipelinePhase
+from egg_contracts.models import PipelinePhase as PipelinePhase
 
 
 class OperationType(StrEnum):
