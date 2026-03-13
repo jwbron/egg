@@ -1,7 +1,7 @@
 """
 Functional tests for MCP server and coordinator tool handler.
 
-Tests the MCPServer Flask app, RateLimiter, CoordinatorToolHandler,
+Tests the MCPServer (FastMCP/Starlette), RateLimiter, CoordinatorToolHandler,
 and tool definitions with mocked orchestrator backend.
 """
 
@@ -73,32 +73,101 @@ class TestRateLimiter:
 
 
 class TestMCPServerApp:
-    """Tests for MCPServer Flask endpoints."""
+    """Tests for MCPServer Starlette/FastMCP endpoints."""
 
     @pytest.fixture
     def mcp_client(self):
-        """Create an MCP server test client."""
+        """Create an MCP server HTTPX test client with lifespan."""
+        from starlette.testclient import TestClient
+
         server = MCPServer(
             orchestrator_url="http://localhost:9849",
             port=9850,
             rate_limit=100,
         )
-        app = server.create_app()
-        app.config["TESTING"] = True
-        yield app.test_client()
+        mcp = server.create_app()
+        app = mcp.streamable_http_app()
+        with TestClient(app) as client:
+            yield client
 
     def test_health_endpoint(self, mcp_client):
         response = mcp_client.get("/health")
         assert response.status_code == 200
-        data = response.get_json()
+        data = response.json()
         assert data["status"] == "healthy"
         assert data["service"] == "egg-mcp-server"
 
-    def test_list_tools(self, mcp_client):
-        response = mcp_client.get("/mcp/v1/tools")
+    def test_mcp_endpoint_exists(self, mcp_client):
+        """The /mcp endpoint should accept POST requests (MCP protocol)."""
+        # A GET to /mcp should return 405 (only POST/DELETE are valid)
+        # or handle the SSE upgrade path depending on SDK version
+        response = mcp_client.post(
+            "/mcp",
+            json={
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2025-03-26",
+                    "capabilities": {},
+                    "clientInfo": {"name": "test", "version": "0.1.0"},
+                },
+            },
+            headers={"Content-Type": "application/json", "Accept": "application/json"},
+        )
+        # Should get a valid JSON-RPC response (200) with server capabilities
         assert response.status_code == 200
-        data = response.get_json()
-        tools = data["tools"]
+        data = response.json()
+        assert data.get("jsonrpc") == "2.0"
+        assert "result" in data
+        assert "serverInfo" in data["result"]
+
+    def test_mcp_tools_list(self, mcp_client):
+        """MCP tools/list should return all 5 coordinator tools."""
+        # Initialize first
+        init_resp = mcp_client.post(
+            "/mcp",
+            json={
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2025-03-26",
+                    "capabilities": {},
+                    "clientInfo": {"name": "test", "version": "0.1.0"},
+                },
+            },
+            headers={"Content-Type": "application/json", "Accept": "application/json"},
+        )
+        session_id = init_resp.headers.get("mcp-session-id")
+        headers = {"Content-Type": "application/json", "Accept": "application/json"}
+        if session_id:
+            headers["mcp-session-id"] = session_id
+
+        # Send initialized notification
+        mcp_client.post(
+            "/mcp",
+            json={
+                "jsonrpc": "2.0",
+                "method": "notifications/initialized",
+            },
+            headers=headers,
+        )
+
+        # List tools
+        response = mcp_client.post(
+            "/mcp",
+            json={
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "tools/list",
+                "params": {},
+            },
+            headers=headers,
+        )
+        assert response.status_code == 200
+        data = response.json()
+        tools = data["result"]["tools"]
         assert len(tools) == 5
         tool_names = {t["name"] for t in tools}
         assert tool_names == {
@@ -109,89 +178,160 @@ class TestMCPServerApp:
             "cancel_task",
         }
 
-    def test_call_tool_missing_body(self, mcp_client):
-        response = mcp_client.post(
-            "/mcp/v1/tools/call",
-            content_type="application/json",
-        )
-        assert response.status_code == 400
-
-    def test_call_tool_missing_name(self, mcp_client):
-        response = mcp_client.post(
-            "/mcp/v1/tools/call",
-            json={"arguments": {}},
-        )
-        assert response.status_code == 400
-
-    def test_call_tool_unknown_tool(self, mcp_client):
-        response = mcp_client.post(
-            "/mcp/v1/tools/call",
-            json={"name": "nonexistent_tool", "arguments": {}},
-        )
-        assert response.status_code == 200
-        data = response.get_json()
-        assert data["isError"] is True
-        result = json.loads(data["content"][0]["text"])
-        assert "unknown tool" in result.get("error", "").lower()
-
     @patch.object(CoordinatorToolHandler, "handle_tool_call")
     def test_call_tool_success(self, mock_handler, mcp_client):
         mock_handler.return_value = {"task_id": "issue-42", "status": "created"}
 
-        response = mcp_client.post(
-            "/mcp/v1/tools/call",
+        # Initialize session
+        init_resp = mcp_client.post(
+            "/mcp",
             json={
-                "name": "submit_task",
-                "arguments": {"description": "Fix the bug"},
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2025-03-26",
+                    "capabilities": {},
+                    "clientInfo": {"name": "test", "version": "0.1.0"},
+                },
             },
+            headers={"Content-Type": "application/json", "Accept": "application/json"},
+        )
+        session_id = init_resp.headers.get("mcp-session-id")
+        headers = {"Content-Type": "application/json", "Accept": "application/json"}
+        if session_id:
+            headers["mcp-session-id"] = session_id
+
+        mcp_client.post(
+            "/mcp",
+            json={"jsonrpc": "2.0", "method": "notifications/initialized"},
+            headers=headers,
+        )
+
+        # Call tool
+        response = mcp_client.post(
+            "/mcp",
+            json={
+                "jsonrpc": "2.0",
+                "id": 3,
+                "method": "tools/call",
+                "params": {
+                    "name": "submit_task",
+                    "arguments": {"description": "Fix the bug"},
+                },
+            },
+            headers=headers,
         )
         assert response.status_code == 200
-        data = response.get_json()
-        assert data["isError"] is False
-        result = json.loads(data["content"][0]["text"])
+        data = response.json()
+        assert "result" in data
+        content = data["result"]["content"]
+        assert len(content) > 0
+        result_text = content[0]["text"]
+        result = json.loads(result_text)
         assert result["task_id"] == "issue-42"
 
-    @patch.object(CoordinatorToolHandler, "handle_tool_call")
-    def test_call_tool_error_result(self, mock_handler, mcp_client):
-        mock_handler.return_value = {"error": "Something went wrong"}
-
-        response = mcp_client.post(
-            "/mcp/v1/tools/call",
-            json={"name": "get_status", "arguments": {"task_id": "bad"}},
-        )
-        assert response.status_code == 200
-        data = response.get_json()
-        assert data["isError"] is True
-
     def test_rate_limiting(self):
-        """Server should return 429 when rate limit exceeded."""
+        """Server should return rate limit error when limit exceeded."""
+        from starlette.testclient import TestClient
+
         server = MCPServer(
             orchestrator_url="http://localhost:9849",
             port=9850,
             rate_limit=2,
         )
-        app = server.create_app()
-        app.config["TESTING"] = True
-        client = app.test_client()
+        mcp = server.create_app()
+        app = mcp.streamable_http_app()
 
-        with patch.object(CoordinatorToolHandler, "handle_tool_call", return_value={"ok": True}):
-            for _ in range(2):
+        with patch.object(
+            CoordinatorToolHandler, "handle_tool_call", return_value={"ok": True}
+        ), TestClient(app) as client:
+            # Initialize session
+            init_resp = client.post(
+                "/mcp",
+                json={
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "initialize",
+                    "params": {
+                        "protocolVersion": "2025-03-26",
+                        "capabilities": {},
+                        "clientInfo": {"name": "test", "version": "0.1.0"},
+                    },
+                },
+                headers={
+                    "Content-Type": "application/json",
+                    "Accept": "application/json",
+                },
+            )
+            session_id = init_resp.headers.get("mcp-session-id")
+            headers = {"Content-Type": "application/json", "Accept": "application/json"}
+            if session_id:
+                headers["mcp-session-id"] = session_id
+
+            client.post(
+                "/mcp",
+                json={"jsonrpc": "2.0", "method": "notifications/initialized"},
+                headers=headers,
+            )
+
+            # Make calls up to the rate limit
+            for i in range(2):
                 response = client.post(
-                    "/mcp/v1/tools/call",
-                    json={"name": "get_status", "arguments": {"task_id": "x"}},
+                    "/mcp",
+                    json={
+                        "jsonrpc": "2.0",
+                        "id": 10 + i,
+                        "method": "tools/call",
+                        "params": {
+                            "name": "get_status",
+                            "arguments": {"task_id": "x"},
+                        },
+                    },
+                    headers=headers,
                 )
                 assert response.status_code == 200
+                data = response.json()
+                result_text = data["result"]["content"][0]["text"]
+                assert "Rate limit" not in result_text
 
+            # Third call should hit rate limit (returned in tool response text)
             response = client.post(
-                "/mcp/v1/tools/call",
-                json={"name": "get_status", "arguments": {"task_id": "x"}},
+                "/mcp",
+                json={
+                    "jsonrpc": "2.0",
+                    "id": 99,
+                    "method": "tools/call",
+                    "params": {
+                        "name": "get_status",
+                        "arguments": {"task_id": "x"},
+                    },
+                },
+                headers=headers,
             )
-            assert response.status_code == 429
+            assert response.status_code == 200
+            data = response.json()
+            result_text = data["result"]["content"][0]["text"]
+            result = json.loads(result_text)
+            assert "Rate limit exceeded" in result.get("error", "")
 
-    def test_sse_endpoint_returns_event_stream(self, mcp_client):
-        """SSE endpoint should return event-stream content type."""
-        response = mcp_client.get("/mcp/v1/sse")
-        assert response.content_type.startswith("text/event-stream")
+    def test_tools_registered_with_correct_schemas(self):
+        """All tools should be registered in FastMCP with proper parameters."""
+        server = MCPServer(
+            orchestrator_url="http://localhost:9849",
+            port=9850,
+            rate_limit=100,
+        )
+        mcp = server.create_app()
+        tools = list(mcp._tool_manager._tools.values())
+        tool_names = {t.name for t in tools}
+        assert tool_names == {
+            "submit_task",
+            "get_status",
+            "provide_input",
+            "list_tasks",
+            "cancel_task",
+        }
 
 
 # ── Tool definitions tests ───────────────────────────────────────────

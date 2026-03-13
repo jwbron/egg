@@ -16,3 +16,6 @@ pyyaml>=6.0.0
 
 # Requests for simple HTTP calls
 requests>=2.31.0
+
+# MCP SDK for Streamable HTTP transport (coordinator MCP server)
+mcp[cli]>=1.0.0

@@ -1,9 +1,9 @@
 """
-SSE-based MCP server for coordinator integration with Claude Code.
+MCP server for coordinator integration with Claude Code.
 
 Provides an MCP-compatible server that exposes coordinator tools
-via Server-Sent Events transport. Runs as a sidecar alongside
-the orchestrator.
+via Streamable HTTP transport using the official mcp Python SDK.
+Runs as a sidecar alongside the orchestrator.
 """
 
 import json
@@ -55,13 +55,15 @@ class RateLimiter:
 
 
 class MCPServer:
-    """MCP server with SSE transport for coordinator tools.
+    """MCP server with Streamable HTTP transport for coordinator tools.
+
+    Uses the official mcp Python SDK (FastMCP) to expose coordinator tools
+    over the Streamable HTTP transport protocol.
 
     Provides:
-    - Tool listing endpoint
-    - Tool execution endpoint
-    - Health check endpoint
-    - Rate limiting
+    - MCP tools via Streamable HTTP at /mcp
+    - Health check endpoint at /health
+    - Rate limiting on tool calls
 
     No authentication required — localhost-only access is enforced via
     Docker port mapping (127.0.0.1 binding in docker-compose.yml).
@@ -80,73 +82,75 @@ class MCPServer:
         from mcp_tools import COORDINATOR_TOOLS, CoordinatorToolHandler
 
         self.tool_handler = CoordinatorToolHandler(orchestrator_url=orchestrator_url)
-        self.tools = COORDINATOR_TOOLS
-        self._app = None
+        self.tools_config = COORDINATOR_TOOLS
+        self._mcp = None
 
     def create_app(self):
-        """Create the Flask application for the MCP server."""
-        from flask import Flask, Response, jsonify, request
+        """Create the FastMCP application with coordinator tools."""
+        from mcp.server.fastmcp import FastMCP
 
-        app = Flask("egg-mcp-server")
+        mcp = FastMCP(
+            "egg-mcp-server",
+            host="0.0.0.0",
+            port=self.port,
+            streamable_http_path="/mcp",
+            stateless_http=True,
+            json_response=True,
+        )
 
-        @app.route("/health")
-        def health():
-            return jsonify({"status": "healthy", "service": "egg-mcp-server"})
+        rate_limiter = self.rate_limiter
+        tool_handler = self.tool_handler
 
-        @app.route("/mcp/v1/tools", methods=["GET"])
-        def list_tools():
-            return jsonify({"tools": self.tools})
+        # Register /health as a custom route
+        @mcp.custom_route("/health", methods=["GET"])
+        async def health(request):
+            from starlette.responses import JSONResponse
 
-        @app.route("/mcp/v1/tools/call", methods=["POST"])
-        def call_tool():
-            if not self.rate_limiter.allow():
-                return jsonify({"error": "Rate limit exceeded"}), 429
+            return JSONResponse({"status": "healthy", "service": "egg-mcp-server"})
 
-            data = request.get_json()
-            if not data:
-                return jsonify({"error": "Missing request body"}), 400
+        # Register each coordinator tool with FastMCP.
+        # We create wrapper functions that delegate to CoordinatorToolHandler.
+        def _make_tool_fn(tool_name: str, tool_schema: dict):
+            """Build an async tool function for FastMCP from a tool schema."""
+            required = set(tool_schema.get("required", []))
+            properties = tool_schema.get("properties", {})
 
-            tool_name = data.get("name")
-            arguments = data.get("arguments", {})
+            async def tool_fn(**kwargs) -> str:
+                if not rate_limiter.allow():
+                    return json.dumps({"error": "Rate limit exceeded"})
+                result = tool_handler.handle_tool_call(tool_name, kwargs)
+                return json.dumps(result, indent=2)
 
-            if not tool_name:
-                return jsonify({"error": "Missing tool name"}), 400
+            # Build a useful signature so FastMCP can inspect parameters
+            import inspect
 
-            result = self.tool_handler.handle_tool_call(tool_name, arguments)
+            params = []
+            for prop_name, prop_def in properties.items():
+                default = prop_def.get("default", inspect.Parameter.empty)
+                if prop_name not in required and default is inspect.Parameter.empty:
+                    default = None
+                params.append(
+                    inspect.Parameter(
+                        prop_name,
+                        inspect.Parameter.KEYWORD_ONLY,
+                        default=default,
+                        annotation=_json_type_to_python(prop_def),
+                    )
+                )
+            tool_fn.__signature__ = inspect.Signature(params, return_annotation=str)
+            tool_fn.__name__ = tool_name
+            tool_fn.__qualname__ = tool_name
+            return tool_fn
 
-            return jsonify(
-                {
-                    "content": [{"type": "text", "text": json.dumps(result, indent=2)}],
-                    "isError": "error" in result,
-                }
-            )
+        for tool_def in self.tools_config:
+            fn = _make_tool_fn(tool_def["name"], tool_def["inputSchema"])
+            mcp.tool(
+                name=tool_def["name"],
+                description=tool_def["description"],
+            )(fn)
 
-        @app.route("/mcp/v1/sse")
-        def sse_stream():
-            """SSE endpoint for MCP protocol events."""
-
-            def generate():
-                # Send initial tools list
-                tools_event = json.dumps({"type": "tools_list", "tools": self.tools})
-                yield f"data: {tools_event}\n\n"
-
-                # Keep connection alive with heartbeats
-                while True:
-                    time.sleep(15)
-                    yield ": heartbeat\n\n"
-
-            return Response(
-                generate(),
-                mimetype="text/event-stream",
-                headers={
-                    "Cache-Control": "no-cache",
-                    "Connection": "keep-alive",
-                    "X-Accel-Buffering": "no",
-                },
-            )
-
-        self._app = app
-        return app
+        self._mcp = mcp
+        return mcp
 
     def run(self, host: str = "0.0.0.0", debug: bool = False):
         """Start the MCP server.
@@ -154,9 +158,21 @@ class MCPServer:
         Binds to 0.0.0.0 inside the container so Docker port forwarding works.
         Localhost-only access is enforced by the docker-compose port mapping.
         """
-        app = self.create_app()
+        mcp = self.create_app()
         logger.info("Starting MCP server", port=self.port, host=host)
-        app.run(host=host, port=self.port, debug=debug, threaded=True)
+        mcp.run(transport="streamable-http")
+
+
+def _json_type_to_python(prop_def: dict) -> type:
+    """Map JSON Schema type to Python type annotation for FastMCP."""
+    json_type = prop_def.get("type", "string")
+    mapping = {
+        "string": str,
+        "integer": int,
+        "number": float,
+        "boolean": bool,
+    }
+    return mapping.get(json_type, str)
 
 
 def start_mcp_server(
