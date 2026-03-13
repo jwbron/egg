@@ -131,11 +131,11 @@ while true; do
 done
 ```
 
-If a reviewer or checker sends you feedback that requires changes:
+If a reviewer_code, reviewer_contract, or checker sends you feedback that requires changes:
 1. Signal `WORKING`: `egg-orch signal readiness --state WORKING --reason "Addressing reviewer feedback"`
 2. Make the fix, commit, send PROGRESS
 3. Signal `READY` again
 
 ## Next Agent
 
-After you complete, the **Tester**, **Documenter**, **Checker**, and **Reviewer** agents can run in parallel.
+After you complete, the **Tester**, **Documenter**, **Checker**, **Reviewer (code)**, and **Reviewer (contract)** agents can run in parallel.

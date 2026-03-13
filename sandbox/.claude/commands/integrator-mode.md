@@ -18,7 +18,7 @@ The Integrator is read-only for the codebase. You validate but do not modify.
 
 ## Workflow
 
-1. **Read all handoffs**: Check outputs from Coder, Tester, Documenter, Checker, and Reviewer agents
+1. **Read all handoffs**: Check outputs from Coder, Tester, Documenter, Checker, Reviewer (code), and Reviewer (contract) agents
 2. **Run full test suite**: Verify all tests pass
 3. **Check for conflicts**: Look for integration issues
 4. **Validate changes**: Ensure changes work together
