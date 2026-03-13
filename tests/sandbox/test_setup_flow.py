@@ -218,7 +218,12 @@ class TestCreateGeneralConfig:
         # Include all compose defaults so the merge logic finds nothing to add
         import os
 
-        from egg_lib.config import GATEWAY_PORT, GATEWAY_PROXY_PORT
+        from egg_lib.config import (
+            GATEWAY_PORT,
+            GATEWAY_PROXY_PORT,
+            MCP_SERVER_PORT,
+            ORCHESTRATOR_PORT,
+        )
 
         full_config = {
             "anthropic_auth_method": "oauth",
@@ -230,8 +235,8 @@ class TestCreateGeneralConfig:
             "compose_project_name": "egg",
             "gateway_api_port": GATEWAY_PORT,
             "gateway_proxy_port": GATEWAY_PROXY_PORT,
-            "orchestrator_api_port": 9849,
-            "mcp_server_port": 9850,
+            "orchestrator_api_port": ORCHESTRATOR_PORT,
+            "mcp_server_port": MCP_SERVER_PORT,
             "mcp_rate_limit": 30,
         }
         import yaml

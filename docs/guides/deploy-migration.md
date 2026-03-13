@@ -120,7 +120,7 @@ services:
 
 ### Repositories
 
-The `repositories.yaml` file is still used. Point to it via `egg_config_dir` in `~/.config/egg/config.yaml`.
+The `repositories.yaml` file is still used. Set the `EGG_CONFIG_DIR` environment variable to point to its location, or place it in `~/.config/egg/`.
 
 ## Step-by-Step Migration
 
@@ -243,9 +243,9 @@ host_gid: 1000  # output of id -g
 Error: repositories.yaml not found
 ```
 
-Create it or set the config directory in `~/.config/egg/config.yaml`:
-```yaml
-egg_config_dir: /path/to/existing/config
+Create it in `~/.config/egg/`, or set the `EGG_CONFIG_DIR` environment variable to point to its location:
+```bash
+export EGG_CONFIG_DIR=/path/to/existing/config
 ```
 
 ## Pre-built Images
