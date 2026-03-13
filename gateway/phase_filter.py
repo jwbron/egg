@@ -11,10 +11,19 @@ from __future__ import annotations
 import fnmatch
 import json
 import posixpath
+import sys
 from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
 from typing import Any
+
+# Ensure the shared directory is on the path so egg_contracts is importable
+# whether running in a Docker container (/app) or from the host (../../shared).
+_shared_path = Path(__file__).parent.parent / "shared"
+if _shared_path.exists() and str(_shared_path) not in sys.path:
+    sys.path.insert(0, str(_shared_path))
+
+from egg_contracts.models import PipelinePhase as PipelinePhase
 
 
 class OperationType(StrEnum):
@@ -23,20 +32,6 @@ class OperationType(StrEnum):
     GIT = "git"
     GH = "gh"
     EGG_CONTRACT = "egg-contract"
-
-
-class PipelinePhase(StrEnum):
-    """Pipeline phases.
-
-    Note: This duplicates egg_contracts.models.PipelinePhase to avoid import
-    complexity in the gateway module. Values must be kept in sync.
-    """
-
-    ANALYZE = "analyze"
-    PLAN = "plan"
-    IMPLEMENT = "implement"
-    PR = "pr"
-    COORDINATOR = "coordinator"
 
 
 @dataclass

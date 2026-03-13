@@ -152,7 +152,7 @@ class StateStore:
         return cls._flock_fds[key]
 
     @contextmanager
-    def _git_op(self) -> Generator[None, None, None]:
+    def _git_op(self) -> Generator[None]:
         """Acquire thread + process locks for git operations.
 
         Combines a reentrant threading lock (for in-process thread

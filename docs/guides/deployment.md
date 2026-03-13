@@ -49,8 +49,8 @@ cd egg
 # Initialize configuration
 bin/egg-deploy init
 
-# Edit .env with your credentials
-vim .env
+# Review and edit configuration
+vim ~/.config/egg/config.yaml
 
 # Start the gateway
 bin/egg-deploy up
@@ -61,26 +61,22 @@ egg --public
 
 ### Configuration
 
-1. **Copy the environment template:**
+1. **Initialize configuration:**
    ```bash
-   cp .env.example .env
+   bin/egg-deploy init
    ```
+   This creates `~/.config/egg/config.yaml` with system defaults and generates a launcher secret.
 
-2. **Configure required variables:**
+2. **Set your GitHub token:**
    ```bash
-   # Generate a session secret
-   EGG_LAUNCHER_SECRET=$(openssl rand -hex 32)
-
-   # Set your GitHub token
-   GITHUB_USER_TOKEN=ghp_xxxxx
-
-   # Set your user identity and home directory
-   HOST_UID=$(id -u)
-   HOST_GID=$(id -g)
-   HOST_HOME=$HOME  # REQUIRED: orchestrator mounts $HOST_HOME/.egg-worktrees to read pipeline artifacts
+   echo 'ghp_xxxxx' > ~/.config/egg/github-token
+   chmod 600 ~/.config/egg/github-token
    ```
+   Or add `GITHUB_USER_TOKEN=ghp_xxxxx` to `~/.config/egg/secrets.env`.
 
-3. **Create repositories.yaml:**
+3. **Review settings** in `~/.config/egg/config.yaml` (host_home, host_uid, host_gid are auto-detected).
+
+4. **Create repositories.yaml:**
    ```yaml
    github_username: your-github-username
    bot_username: your-bot-name  # Required for bot operations
@@ -216,25 +212,25 @@ For details on creating releases, see [RELEASING.md](../../RELEASING.md).
 
 ### Using Pre-built Images
 
-For stability, pin to a major version in your `.env` file:
+For stability, pin to a major version in `~/.config/egg/config.yaml`:
 
-```bash
-EGG_GATEWAY_IMAGE=ghcr.io/jwbron/egg-gateway:v0
-EGG_SANDBOX_IMAGE=ghcr.io/jwbron/egg-sandbox:v0
+```yaml
+gateway_image: ghcr.io/jwbron/egg-gateway:v0
+sandbox_image: ghcr.io/jwbron/egg-sandbox:v0
 ```
 
 For full reproducibility, pin to an exact version:
 
-```bash
-EGG_GATEWAY_IMAGE=ghcr.io/jwbron/egg-gateway:v0.1.0
-EGG_SANDBOX_IMAGE=ghcr.io/jwbron/egg-sandbox:v0.1.0
+```yaml
+gateway_image: ghcr.io/jwbron/egg-gateway:v0.1.0
+sandbox_image: ghcr.io/jwbron/egg-sandbox:v0.1.0
 ```
 
 Or use `latest` for automatic updates (not recommended for production):
 
-```bash
-EGG_GATEWAY_IMAGE=ghcr.io/jwbron/egg-gateway:latest
-EGG_SANDBOX_IMAGE=ghcr.io/jwbron/egg-sandbox:latest
+```yaml
+gateway_image: ghcr.io/jwbron/egg-gateway:latest
+sandbox_image: ghcr.io/jwbron/egg-sandbox:latest
 ```
 
 You can also specify tags directly in a docker-compose.yml override.
@@ -245,7 +241,7 @@ You can also specify tags directly in a docker-compose.yml override.
 
 | File | Purpose |
 |------|---------|
-| `.env` | Environment variables for compose |
+| `~/.config/egg/config.yaml` | Non-secret settings for compose |
 | `repositories.yaml` | Repository configuration |
 
 ### Optional Files
@@ -321,10 +317,10 @@ If the orchestrator exits on startup with a root-related error, `HOST_UID` and `
 The orchestrator requires these environment variables to drop privileges before starting. Running as root would create git artifacts with root:root ownership, breaking host git operations.
 
 Fix:
-```bash
-# In your .env file (or hardcode the output of id -u / id -g)
-HOST_UID=$(id -u)
-HOST_GID=$(id -g)
+```yaml
+# In your ~/.config/egg/config.yaml
+host_uid: 1000  # output of id -u
+host_gid: 1000  # output of id -g
 ```
 
 If `.git` directories already have root-owned files:

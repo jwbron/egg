@@ -304,7 +304,7 @@ class Logger:
 
 
 @contextlib.contextmanager
-def timed_phase(name: str, logger: Logger) -> Generator[None, None, None]:
+def timed_phase(name: str, logger: Logger) -> Generator[None]:
     """Context manager that combines startup timing with debug logging.
 
     Wraps both _startup_timer.phase() and logger.phase_start/phase_end
@@ -791,9 +791,12 @@ def setup_egg_symlink(config: Config, logger: Logger) -> None:
     logger.info("  Use ~/egg/ for runtime scripts instead of ~/repos/egg/sandbox/")
 
 
+_CLAUDE_RULES_DIR = Path("/opt/claude-rules")
+
+
 def setup_agent_rules(config: Config, logger: Logger) -> None:
     """Set up CLAUDE.md agent rules."""
-    rules_dir = Path("/opt/claude-rules")
+    rules_dir = _CLAUDE_RULES_DIR
 
     # All rules always included so CLI tools are discoverable in any session
     rules_order = [

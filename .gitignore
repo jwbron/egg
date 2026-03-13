@@ -29,7 +29,7 @@ secrets.yaml
 .env
 .env.local
 .env.*.local
-# Note: .env.example is NOT ignored (it's a template)
+# Note: .env may be generated at runtime by egg --compose
 
 # IDE
 .idea/

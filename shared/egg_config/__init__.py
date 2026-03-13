@@ -57,6 +57,7 @@ from .constants import (
     GATEWAY_ISOLATED_IP,
     GATEWAY_PORT,
     GATEWAY_PROXY_PORT,
+    MCP_SERVER_PORT,
     ORCHESTRATOR_CONTAINER_NAME,
     ORCHESTRATOR_EXTERNAL_IP,
     ORCHESTRATOR_IMAGE_NAME,
@@ -98,6 +99,7 @@ __all__ = [
     "GATEWAY_ISOLATED_IP",
     "GATEWAY_PORT",
     "GATEWAY_PROXY_PORT",
+    "MCP_SERVER_PORT",
     # Service configurations
     "GatewayConfig",
     # Orchestrator constants

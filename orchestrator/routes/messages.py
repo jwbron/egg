@@ -31,6 +31,7 @@ except ImportError:
 
 from events import EventType, emit_event
 from message_store import Message, get_message_store
+from routes import get_repo_path
 from state_store import InvalidPipelineIdError, PipelineNotFoundError, get_state_store
 
 logger = get_logger("orchestrator.messages")
@@ -77,7 +78,7 @@ def send_message(pipeline_id: str) -> tuple[Response, int]:
 
     # Validate pipeline exists
     try:
-        store = get_state_store()
+        store = get_state_store(get_repo_path())
         pipeline = store.load_pipeline(pipeline_id)
     except (InvalidPipelineIdError, PipelineNotFoundError) as e:
         return _make_error(str(e), 404)
@@ -132,7 +133,7 @@ def poll_messages(pipeline_id: str) -> tuple[Response, int]:
     """
     # Validate pipeline exists (consistent with send_message)
     try:
-        store = get_state_store()
+        store = get_state_store(get_repo_path())
         store.load_pipeline(pipeline_id)
     except (InvalidPipelineIdError, PipelineNotFoundError) as e:
         return _make_error(str(e), 404)
@@ -166,7 +167,7 @@ def message_status(pipeline_id: str) -> tuple[Response, int]:
     """Get message bus status for a pipeline."""
     # Validate pipeline exists (consistent with send_message)
     try:
-        store = get_state_store()
+        store = get_state_store(get_repo_path())
         store.load_pipeline(pipeline_id)
     except (InvalidPipelineIdError, PipelineNotFoundError) as e:
         return _make_error(str(e), 404)

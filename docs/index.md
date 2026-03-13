@@ -11,7 +11,6 @@ This index helps both humans and LLMs navigate the documentation efficiently.
 | Document | Description |
 |----------|-------------|
 | [ADR Overview](adr/README.md) | Index of all ADRs and their status |
-| [Context Sync Strategy](adr/implemented/ADR-Context-Sync-Strategy-Custom-vs-MCP.md) | How external data (Confluence, JIRA, GitHub) is synced |
 | [Git Isolation Architecture](adr/implemented/ADR-Git-Isolation-Architecture.md) | Gateway sidecar design for credential isolation |
 | [Gateway Credential Injection](adr/implemented/ADR-Gateway-Credential-Injection.md) | Zero-credential sandbox design |
 | [Anthropic API Credential Injection](adr/implemented/ADR-Anthropic-API-Credential-Injection.md) | API key proxy via gateway |
@@ -53,8 +52,19 @@ This index helps both humans and LLMs navigate the documentation efficiently.
 | [GitHub Automation](guides/github-automation.md) | Built-in review bots, autofixer, conflict resolver, and doc updater workflows |
 | [Reusable Workflows](guides/reusable-workflows.md) | Using egg's reusable workflows in external repositories |
 | [SDLC Pipeline](guides/sdlc-pipeline.md) | Operational guide for the structurally enforced SDLC pipeline |
+| [Concurrent Execution](guides/concurrent-execution.md) | Concurrent agent execution: message bus, readiness signaling, consensus protocol |
+| [Tier 3 Dispatch](guides/tier3-dispatch.md) | Phase-level parallel dispatch for high-complexity tasks |
 | [Checkpoint Access](guides/checkpoint-access.md) | Querying cross-agent checkpoints in multi-agent pipelines |
 | [Coordinator Agent](guides/coordinator.md) | Dynamic agent orchestration via conversational coordinator with MCP server |
+
+### Reference
+
+| Document | Description |
+|----------|-------------|
+| [Agent Roles](reference/agent-roles.md) | All agent roles: purpose, phase, file access permissions, input/output artifacts |
+| [Agent Recovery](reference/agent-recovery.md) | Retry manager, circuit breaker, conflict detection, and resilience utilities |
+| [Post-Agent Commit](reference/post-agent-commit.md) | Auto-commit behavior on container exit: phase restrictions, error handling |
+| [Redaction](reference/redaction.md) | Checkpoint redaction patterns, security model, and limitations |
 
 ### SDLC Pipeline Templates
 
@@ -103,8 +113,13 @@ Each major component has detailed documentation:
 | **Designing agent workflows** | [Agent-Mode Design](guides/agent-mode-design.md) | [Architecture Overview](architecture/README.md) |
 | **Adding bot workflows** | [Agent-Mode Design](guides/agent-mode-design.md) | [Action README](../action/README.md), existing workflows in `.github/workflows/` |
 | **SDLC pipeline changes** | [SDLC Pipeline Guide](guides/sdlc-pipeline.md) | [The Agentic Feedback Loop](agentic-feedback-loop.md), [ADR: SDLC Pipeline](adr/implemented/ADR-SDLC-Pipeline.md), [Plan Template](templates/plan.md), [Analysis Template](templates/analysis.md), `orchestrator/` package |
-| **Concurrent execution mode** | [SDLC Pipeline Guide — Concurrent Execution](guides/sdlc-pipeline.md#concurrent-execution-mode) | [Orchestrator README](../orchestrator/README.md), [Checkpoint Access](guides/checkpoint-access.md), [Agent Rules](../sandbox/.claude/rules/mission.md#concurrent-execution-mode) |
+| **Concurrent execution mode** | [Concurrent Execution Guide](guides/concurrent-execution.md) | [SDLC Pipeline Guide](guides/sdlc-pipeline.md), [Checkpoint Access](guides/checkpoint-access.md), [Orchestrator Architecture](architecture/orchestrator.md) |
+| **Tier 3 / phase-level dispatch** | [Tier 3 Dispatch Guide](guides/tier3-dispatch.md) | [SDLC Pipeline Guide](guides/sdlc-pipeline.md), [Agent Roles Reference](reference/agent-roles.md) |
 | **Coordinator / dynamic orchestration** | [Coordinator Agent Guide](guides/coordinator.md) | [SDLC Pipeline Guide](guides/sdlc-pipeline.md), [Agent-Mode Design](guides/agent-mode-design.md), [Orchestrator Architecture](architecture/orchestrator.md) |
+| **Agent roles and file permissions** | [Agent Roles Reference](reference/agent-roles.md) | [SDLC Pipeline Guide](guides/sdlc-pipeline.md), [Tier 3 Dispatch Guide](guides/tier3-dispatch.md), [Architecture Overview](architecture/README.md) |
+| **Agent failure recovery** | [Agent Recovery Reference](reference/agent-recovery.md) | [Concurrent Execution Guide](guides/concurrent-execution.md), [Orchestrator Architecture](architecture/orchestrator.md) |
+| **Post-agent auto-commit** | [Post-Agent Commit Reference](reference/post-agent-commit.md) | [Architecture Overview](architecture/README.md) |
+| **Checkpoint redaction** | [Redaction Reference](reference/redaction.md) | [Checkpoint Access](guides/checkpoint-access.md), [Architecture Overview](architecture/README.md) |
 | **Health check framework** | [Health Checks README](../orchestrator/health_checks/README.md) | [Orchestrator Architecture](architecture/orchestrator.md), [Orchestrator README](../orchestrator/README.md) |
 | **Generating repository documentation** | [GitHub Automation: Documentation Onboarding](guides/github-automation.md#documentation-onboarding) | [Onboarding prompt](../shared/prompts/onboarding-docs-prompt.md), `egg-onboarding-docs` CLI |
 

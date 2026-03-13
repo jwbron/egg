@@ -86,6 +86,18 @@ The pipeline adapts its execution strategy to task complexity:
 
 Tier 3 decomposes large features into independent plan phases that run as parallel implement cycles (coder → tester → documenter → checker → code reviewer), each scoped to its own file boundaries. After all phases complete, an integrator merges the results and runs the full test suite.
 
+### Concurrent Execution Mode
+
+An optional execution mode where all implement-phase agents (coder, tester, documenter, checker, reviewers) start simultaneously, each in their own worktree branch. Agents communicate via the orchestrator message bus and signal readiness via a consensus protocol. Phase completion requires all agents to reach `READY` state. Enable with `concurrent_execution: true` in pipeline config.
+
+See [Concurrent Execution Guide](docs/guides/concurrent-execution.md) for the full protocol.
+
+### Coordinator Agent
+
+An optional dynamic orchestration mode where a `coordinator` agent — rather than fixed-phase dispatch — analyzes each task and determines the appropriate workflow: skipping unnecessary phases, spawning agents on demand, and adapting based on results. The coordinator interacts with a human via a Claude Code session connected to the MCP server (port 9850).
+
+See [Coordinator Agent Guide](docs/guides/coordinator.md) for full documentation.
+
 ### Two Modes
 
 - **Issue mode** (`egg-sdlc -r <repo> -i <issue>`): Pulls context from github issues, HITL via terminal prompts
@@ -93,30 +105,29 @@ Tier 3 decomposes large features into independent plan phases that run as parall
 
 ## Architecture
 
-egg is a two-container system: a **gateway** (trusted) that holds credentials and enforces policy, and a **sandbox** (untrusted) where the agent runs. The agent uses standard tools (`git`, `gh`, `curl`) — transparent wrappers intercept operations and route them through the gateway for validation.
+egg is a multi-container system: a **gateway** (trusted) that holds credentials and enforces policy, a **sandbox** (untrusted) where agent containers run, and an **orchestrator** that manages pipeline state, container lifecycle, and multi-agent coordination. The agent uses standard tools (`git`, `gh`, `curl`) — transparent wrappers intercept operations and route them through the gateway for validation.
 
 ```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                                 egg                                     │
-│                                                                         │
-│   ┌─────────────────────────┐      ┌─────────────────────────────────┐  │
-│   │    Gateway Sidecar      │      │    Sandbox Container            │  │
-│   │    (Trusted)            │      │    (Untrusted Agent)            │  │
-│   │                         │      │                                 │  │
-│   │  • Phase enforcement    │◀────▶│  • git/gh wrappers              │  │
-│   │  • Role validation      │      │  • Claude Code                  │  │
-│   │  • Credential injection │      │  • egg-contract CLI             │  │
-│   │  • Network policy       │      │  • Workspace files only         │  │
-│   │  • Branch policies      │      │  • No credentials, no .git/     │  │
-│   │                         │      │                                 │  │
-│   │  HAS: tokens, keys,     │      │  HAS: code, tools               │  │
-│   │       network access    │      │  NO:  secrets, direct network   │  │
-│   └─────────────────────────┘      └─────────────────────────────────┘  │
-│                                                                         │
-└─────────────────────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────────────────────┐
+│                                    egg                                         │
+│                                                                                │
+│  ┌───────────────────┐   ┌──────────────────────┐   ┌───────────────────────┐ │
+│  │   Orchestrator    │   │   Gateway Sidecar     │   │  Sandbox Containers   │ │
+│  │                   │   │   (Trusted)           │   │  (Untrusted Agents)   │ │
+│  │  • Pipeline state │◀──│                       │──▶│                       │ │
+│  │  • Container mgmt │   │  • Phase enforcement  │   │  • Claude Code        │ │
+│  │  • HITL decisions │   │  • Role validation    │   │  • git/gh wrappers    │ │
+│  │  • Health checks  │   │  • Credential inject  │   │  • egg-contract CLI   │ │
+│  │  • MCP server     │   │  • Network policy     │   │  • No credentials     │ │
+│  │  • Message bus    │   │  • Branch policies    │   │  • No direct network  │ │
+│  └───────────────────┘   └──────────────────────┘   └───────────────────────┘ │
+│                                                                                │
+└────────────────────────────────────────────────────────────────────────────────┘
 ```
 
 **Key principle**: The agent cannot bypass controls because the capabilities don't exist in its environment. The gateway physically blocks operations — this is infrastructure enforcement, not behavioral controls.
+
+**Orchestrator features**: Pipeline state persisted in a dedicated git worktree, per-pipeline worktree isolation, startup and runtime reconciliation of orphaned containers, two-tier health checks (programmatic + LLM-powered semantic), Docker-in-Docker devserver management for deployment validation, and an MCP server (port 9850) for Claude Code integration.
 
 For details on what's enforced and how, see the [Architecture Overview](docs/architecture/README.md) and [Gateway README](gateway/README.md).
 
@@ -175,6 +186,13 @@ See [action/README.md](action/README.md) for full documentation and [GitHub Auto
 | **Full docs index** | [docs/index.md](docs/index.md) |
 | **Architecture & security model** | [Architecture Overview](docs/architecture/README.md) |
 | **SDLC pipeline details** | [SDLC Pipeline Guide](docs/guides/sdlc-pipeline.md) |
+| **Concurrent execution mode** | [Concurrent Execution Guide](docs/guides/concurrent-execution.md) |
+| **Tier 3 / phase-level dispatch** | [Tier 3 Dispatch Guide](docs/guides/tier3-dispatch.md) |
+| **Coordinator agent** | [Coordinator Agent Guide](docs/guides/coordinator.md) |
+| **Agent roles & permissions** | [Agent Roles Reference](docs/reference/agent-roles.md) |
+| **Agent recovery & circuit breaker** | [Agent Recovery Reference](docs/reference/agent-recovery.md) |
+| **Post-agent auto-commit** | [Post-Agent Commit Reference](docs/reference/post-agent-commit.md) |
+| **Checkpoint redaction** | [Redaction Reference](docs/reference/redaction.md) |
 | **Gateway enforcement** | [Gateway README](gateway/README.md) |
 | **Sandbox environment** | [Sandbox README](sandbox/README.md) |
 | **Multi-agent orchestration** | [Orchestrator Architecture](docs/architecture/orchestrator.md) |

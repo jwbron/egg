@@ -50,7 +50,7 @@ These fields in `PipelineConfig` control coordinator behavior:
 
 ## MCP Server
 
-The MCP server runs alongside the orchestrator on port 9850, bridging Claude Code sessions to the coordinator via SSE transport.
+The MCP server runs alongside the orchestrator on port 9850, bridging Claude Code sessions to the coordinator via Streamable HTTP transport. It starts automatically — no configuration needed.
 
 ### Setup
 
@@ -60,8 +60,8 @@ Configure Claude Code to connect to the MCP server:
 {
   "mcpServers": {
     "egg-coordinator": {
-      "type": "sse",
-      "url": "http://localhost:9850/mcp/v1/sse"
+      "type": "http",
+      "url": "http://localhost:9850/mcp"
     }
   }
 }
@@ -97,9 +97,7 @@ access is already restricted to the local machine via this port binding.
 | Endpoint | Method | Description |
 |----------|--------|-------------|
 | `/health` | GET | Server health check |
-| `/mcp/v1/tools` | GET | List available tools |
-| `/mcp/v1/tools/call` | POST | Execute a tool call |
-| `/mcp/v1/sse` | GET | SSE stream for MCP protocol events |
+| `/mcp` | POST | Streamable HTTP transport endpoint (MCP protocol via JSON-RPC) |
 
 Rate limiting is enforced at 30 requests per minute by default.
 
@@ -373,7 +371,7 @@ The coordinator runs with `phase="coordinator"` — a special phase value distin
 
 **Escalation not resolved**: Check pending decisions via `egg-orch decision list <id>`. Escalations create standard HITL decisions that need human resolution.
 
-**MCP connection failed**: Verify the MCP server is running on port 9850 (`curl http://localhost:9850/health`). The server starts as a background thread alongside the orchestrator.
+**MCP connection failed**: Verify the MCP server is running on port 9850 (`curl http://localhost:9850/health`). The server starts automatically as a background thread alongside the orchestrator. Check the MCP port in `~/.config/egg/config.yaml` (`mcp_server_port`).
 
 **Coordinator crash loop**: Check the `coordinator_respawns` counter in coordinator state. If it equals `coordinator_max_respawns`, the pipeline has failed. Review container logs for the root cause: `egg-orch container logs <pipeline_id> <container_id>`.
 

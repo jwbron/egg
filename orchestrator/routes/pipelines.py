@@ -84,6 +84,8 @@ except ImportError:
     )
 
 if TYPE_CHECKING:
+    from egg_container import MountSpec
+
     try:
         from ..container_spawner import ContainerSpawner
     except ImportError:
@@ -501,10 +503,12 @@ def create_pipeline() -> tuple[Response, int]:
         )
 
     if mode == "local":
-        # Local mode: prompt required, issue_number/repo/branch optional
+        # Local mode: prompt and repo required
         prompt = data.get("prompt")
         if not prompt:
             return make_error_response("Missing prompt (required for local mode)")
+        if not data.get("repo"):
+            return make_error_response("Missing repo (required for local mode)")
 
         # Local pipelines always use the base EGG_REPO_PATH — not a repo-specific
         # subdirectory — so that list/get/start resolve to the same path.
@@ -3189,6 +3193,26 @@ def _build_agent_prompt(
             prior_feedback=review_feedback,
             repo_path=repo_path,
         )
+    elif role_value == "coordinator":
+        lines.extend(
+            [
+                "You are the COORDINATOR agent. Your mission: analyze the task, "
+                "determine the optimal workflow, and drive the pipeline to completion "
+                "by spawning and orchestrating specialized agents.",
+                "",
+                "**CRITICAL: You are an ORCHESTRATOR, not an implementer.**",
+                "Do NOT read files, edit code, write documentation, or do any implementation work yourself.",
+                "ALL implementation must be delegated to specialized agents (coder, tester, documenter, etc.).",
+                "",
+                "1. Run `egg-orch coordinator state $EGG_PIPELINE_ID` to check current state",
+                "2. Choose a workflow based on the task type (see coordinator.md in your CLAUDE.md)",
+                '3. Spawn agents using `egg-orch coordinator spawn $EGG_PIPELINE_ID --role <role> --context "<task>"`',
+                "4. Wait for agents to complete, then advance or complete the pipeline",
+                "",
+                "Follow the detailed coordinator instructions in your CLAUDE.md.",
+                "",
+            ]
+        )
     else:
         lines.extend(
             [
@@ -4858,6 +4882,7 @@ def _spawn_and_wait(
     branch: str | None = None,
     complexity_tier: str | None = None,
     plan_phase_id: str | None = None,
+    extra_mounts: "list[MountSpec] | None" = None,
 ) -> tuple[int, str]:
     """Spawn a container, wait for it to exit, clean up, return (exit_code, logs).
 
@@ -4895,6 +4920,7 @@ def _spawn_and_wait(
         certs_volume=certs_volume,
         branch=branch,
         complexity_tier=complexity_tier,
+        extra_mounts=extra_mounts,
     )
 
     # Record container and agent in phase execution state
@@ -6246,47 +6272,64 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                             )
 
                         coord_executor = CoordinatorExecutor(repo_path=worktree_repo_path)
+                        coord_executor.init_coordinator_state(pipeline_id)
+
+                        coordinator_env = {
+                            **sandbox_env,
+                            "EGG_COORDINATOR_MODE": "true",
+                            "EGG_COORDINATOR_TOOLS": "true",
+                        }
+
+                        coordinator_prompt = _build_agent_prompt(
+                            role_value="coordinator",
+                            phase=current_phase.value,
+                            pipeline_id=pipeline_id,
+                            pipeline_mode=pipeline_mode,
+                            prompt=pipeline.prompt,
+                            issue_number=pipeline.issue_number,
+                            repo=pipeline.repo,
+                            branch=pipeline.branch,
+                            review_cycle=review_cycle,
+                        )
+                        coordinator_command = [
+                            "claude",
+                            "--dangerously-skip-permissions",
+                            "--print",
+                            "--verbose",
+                            "--output-format",
+                            "stream-json",
+                            "--model",
+                            "opus",
+                            "--max-turns",
+                            "200",
+                            coordinator_prompt,
+                        ]
+
                         try:
-                            coord_container = coord_executor.start_coordinator(
-                                pipeline_id=pipeline_id,
+                            from egg_container import MountSpec
+
+                            exit_code, container_logs = _spawn_and_wait(
                                 spawner=spawner,
+                                pipeline_id=pipeline_id,
+                                agent_role=AgentRole.COORDINATOR,
                                 issue_number=pipeline.issue_number,
-                                repo_volumes=repo_volumes,
-                                mode=gateway_mode,
+                                repo_volumes={},
+                                gateway_mode=gateway_mode,
                                 repos=repos,
+                                phase=current_phase,
+                                sandbox_env=coordinator_env,
+                                sandbox_command=coordinator_command,
+                                store=store,
                                 certs_volume=certs_volume,
                                 branch=pipeline.branch,
-                            )
-
-                            # Wait for coordinator container to complete
-                            docker_client = spawner.docker
-                            try:
-                                final_info = docker_client.wait_for_container(
-                                    coord_container.container_info.container_id,
-                                    timeout=7200,
-                                )
-                                exit_code = final_info.exit_code
-                            except (ContainerNotFoundError, ContainerOperationError) as e:
-                                logger.warning(
-                                    "Coordinator container lost during wait",
-                                    container_id=coord_container.container_info.container_id,
-                                    error=str(e),
-                                )
-                                exit_code = -1
-
-                            if exit_code != 0:
-                                try:
-                                    container_logs = docker_client.get_container_logs(
-                                        coord_container.container_info.container_id,
-                                        tail=200,
+                                extra_mounts=[
+                                    MountSpec(
+                                        mount_type="tmpfs",
+                                        source=None,
+                                        destination="/home/egg/repos",
                                     )
-                                except Exception:
-                                    container_logs = ""
-                                logger.warning(
-                                    "Coordinator container failed",
-                                    pipeline_id=pipeline_id,
-                                    exit_code=exit_code,
-                                )
+                                ],
+                            )
 
                             # Handle coordinator completion (crash recovery, etc.)
                             result = coord_executor.handle_coordinator_completion(
