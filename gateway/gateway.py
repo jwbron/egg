@@ -37,7 +37,9 @@ import traceback
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeVar
+
+F = TypeVar("F", bound=Callable[..., Any])
 
 import httpx
 from flask import Flask, Response, g, jsonify, request, stream_with_context
@@ -380,7 +382,7 @@ def check_launcher_auth() -> tuple[bool, str]:
     return False, "Invalid launcher authorization token"
 
 
-def require_launcher_auth[F: Callable[..., Any]](f: F) -> F:
+def require_launcher_auth(f: F) -> F:
     """Decorator to require launcher authentication for an endpoint."""
 
     @functools.wraps(f)
