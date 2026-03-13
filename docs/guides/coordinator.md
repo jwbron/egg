@@ -67,7 +67,8 @@ Configure Claude Code to connect to the MCP server:
 }
 ```
 
-The MCP server binds to `127.0.0.1` only — no authentication required.
+The MCP server is accessible only from localhost — the Docker port mapping
+restricts access to `127.0.0.1`. No authentication is required.
 
 ### Available Tools
 

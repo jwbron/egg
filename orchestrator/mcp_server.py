@@ -63,7 +63,8 @@ class MCPServer:
     - Health check endpoint
     - Rate limiting
 
-    Binds to localhost only — no authentication required.
+    No authentication required — localhost-only access is enforced via
+    Docker port mapping (127.0.0.1 binding in docker-compose.yml).
     """
 
     def __init__(
@@ -147,11 +148,15 @@ class MCPServer:
         self._app = app
         return app
 
-    def run(self, debug: bool = False):
-        """Start the MCP server bound to localhost."""
+    def run(self, host: str = "0.0.0.0", debug: bool = False):
+        """Start the MCP server.
+
+        Binds to 0.0.0.0 inside the container so Docker port forwarding works.
+        Localhost-only access is enforced by the docker-compose port mapping.
+        """
         app = self.create_app()
-        logger.info("Starting MCP server", port=self.port, host="127.0.0.1")
-        app.run(host="127.0.0.1", port=self.port, debug=debug, threaded=True)
+        logger.info("Starting MCP server", port=self.port, host=host)
+        app.run(host=host, port=self.port, debug=debug, threaded=True)
 
 
 def start_mcp_server(
