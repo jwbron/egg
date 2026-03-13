@@ -114,9 +114,13 @@ orchestrator/
 │   │   └── state_consistency.py    # Cross-reference orchestrator state vs Docker vs contract
 │   └── tier2/              # Semantic checks (LLM-powered)
 │       └── agent_inspector.py   # Claude-powered agent progress analysis
+├── coordinator_executor.py # Coordinator agent lifecycle management (spawn, crash recovery)
+├── mcp_server.py           # MCP server sidecar for coordinator integration with Claude Code (port 9850)
+├── mcp_tools.py            # MCP tool definitions and handlers for coordinator operations
 ├── routes/                 # API route handlers
 │   ├── checks.py           # Deployment validation check endpoints
 │   ├── containers.py       # Container management endpoints
+│   ├── coordinator.py      # Coordinator REST API endpoints (spawn, state, phase, escalate)
 │   ├── decisions.py        # HITL decision endpoints
 │   ├── health.py           # Health check endpoints
 │   ├── messages.py         # Inter-agent message bus endpoints (concurrent mode)
