@@ -180,10 +180,10 @@ egg --exec "make test"     # run a command in an ephemeral container
 
 **Permission denied on repos**: The gateway and orchestrator need to run as your host UID. This is handled automatically via `HOST_UID`/`HOST_GID` in the entrypoint scripts. If issues persist, rebuild with `egg --compose --build`.
 
-**Orchestrator won't start (root-related error)**: The orchestrator refuses to run as root to prevent git artifacts from being created with root ownership. If you see an error about root, HOST_UID, or HOST_GID, it means `HOST_UID`/`HOST_GID` are not set or are set to 0. The `egg` CLI sets these automatically; if running via Docker Compose directly, ensure your `.env` file includes (or hardcode the output of `id -u`/`id -g`):
-```bash
-HOST_UID=$(id -u)
-HOST_GID=$(id -g)
+**Orchestrator won't start (root-related error)**: The orchestrator refuses to run as root to prevent git artifacts from being created with root ownership. If you see an error about root, HOST_UID, or HOST_GID, it means `HOST_UID`/`HOST_GID` are not set or are set to 0. The `egg` CLI sets these automatically; if running via Docker Compose directly, ensure your `~/.config/egg/config.yaml` includes:
+```yaml
+host_uid: 1000  # output of id -u
+host_gid: 1000  # output of id -g
 ```
 
 **Token refresher warnings**: If you see "No valid token available from token refresher", this means no GitHub App is configured. This is expected in PAT-only mode — ensure `auth_mode: user` is set for your repos so the gateway uses your PAT.
@@ -191,7 +191,7 @@ HOST_GID=$(id -g)
 **Orchestrator git errors**: The orchestrator stores pipeline state in git. `EGG_REPO_PATH` can be either a single git repository or a parent directory containing multiple repositories (the orchestrator will scan subdirectories automatically).
 
 **Empty repository in sandbox containers**: The orchestrator creates isolated git worktrees for each pipeline via the gateway's worktree API. If containers have empty working trees:
-1. Ensure `HOST_HOME` in your `.env` file matches your actual home directory: `echo $HOME`
+1. Ensure `host_home` in your `~/.config/egg/config.yaml` matches your actual home directory: `echo $HOME`
 2. Verify the gateway is healthy: `curl http://egg-gateway:9848/api/v1/health`
 3. Check orchestrator logs for worktree creation errors: `docker logs egg-orchestrator | grep -i worktree`
 
