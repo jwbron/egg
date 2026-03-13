@@ -75,7 +75,7 @@ access is already restricted to the local machine via this port binding.
 
 | Tool | Description | Required Parameters | Optional Parameters |
 |------|-------------|---------------------|---------------------|
-| `submit_task` | Submit a task for coordinator processing | `description` | `issue_number`, `repo`, `urgency`, `workflow_hint` |
+| `submit_task` | Submit a task for coordinator processing | `description`, `repo` | `issue_number`, `urgency`, `workflow_hint` |
 | `get_status` | Check task/pipeline status | `task_id` | |
 | `provide_input` | Respond to a coordinator escalation | `task_id`, `decision_id`, `response` | |
 | `list_tasks` | List coordinator-managed pipelines | (none) | `status_filter`, `limit` |
@@ -83,8 +83,8 @@ access is already restricted to the local machine via this port binding.
 
 **`submit_task` parameters:**
 - `description` (required) — Natural language task description
+- `repo` (required) — Repository to work on, in `owner/name` format (e.g. `myorg/myrepo`)
 - `issue_number` (int) — GitHub issue number
-- `repo` (string) — Repository in `owner/name` format
 - `urgency` — `"low"`, `"normal"` (default), or `"high"`
 - `workflow_hint` — Hint for workflow selection (e.g., `"bug_fix"`, `"feature"`, `"refactor"`)
 
