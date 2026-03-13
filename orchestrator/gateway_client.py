@@ -10,6 +10,7 @@ Provides coordination between the orchestrator and gateway sidecar for:
 
 import json
 import os
+import socket
 import sys
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -112,6 +113,47 @@ class GatewayClient:
     def base_url(self) -> str:
         """Get the gateway base URL."""
         return f"http://{self.gateway_host}:{self.gateway_port}"
+
+    @property
+    def self_ip(self) -> str:
+        """Get the local IP address used to reach the gateway.
+
+        The gateway validates that request source IP matches the session's
+        registered container_ip. For temporary sessions created by the
+        orchestrator itself, we must register with the IP that the gateway
+        will see as request.remote_addr.
+
+        Uses a UDP socket probe (no data sent) to determine which local
+        interface routes to the gateway host. Result is cached for the
+        lifetime of this client instance.
+        """
+        if not hasattr(self, "_self_ip_cache"):
+            self._self_ip_cache = self._resolve_self_ip()
+        return self._self_ip_cache
+
+    def _resolve_self_ip(self) -> str:
+        """Resolve the local IP that routes to the gateway host."""
+        try:
+            # Resolve gateway hostname to an IP for the UDP probe
+            gateway_addr = socket.getaddrinfo(
+                self.gateway_host, self.gateway_port, socket.AF_INET
+            )[0][4][0]
+            # UDP connect (no data sent) reveals which local IP routes there
+            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+                s.connect((gateway_addr, self.gateway_port))
+                local_ip: str = s.getsockname()[0]
+            logger.debug(
+                "Resolved self IP for gateway sessions",
+                self_ip=local_ip,
+                gateway_host=self.gateway_host,
+            )
+            return local_ip
+        except Exception as e:
+            logger.warning(
+                "Failed to resolve self IP, falling back to 127.0.0.1",
+                error=str(e),
+            )
+            return "127.0.0.1"
 
     def _make_request(
         self,
@@ -577,7 +619,7 @@ class GatewayClient:
             # Register a temporary session for the push
             session = self.register_session(
                 container_id=temp_container_id,
-                container_ip="127.0.0.1",
+                container_ip=self.self_ip,
                 mode="local",
                 pipeline_id=pipeline_id,
             )
@@ -643,7 +685,7 @@ class GatewayClient:
         try:
             session = self.register_session(
                 container_id=temp_container_id,
-                container_ip="127.0.0.1",
+                container_ip=self.self_ip,
                 mode="local",
                 pipeline_id=pipeline_id,
             )
@@ -720,7 +762,7 @@ class GatewayClient:
         try:
             session = self.register_session(
                 container_id=temp_container_id,
-                container_ip="127.0.0.1",
+                container_ip=self.self_ip,
                 mode="local",
                 pipeline_id=pipeline_id,
                 phase="pr",
@@ -786,7 +828,7 @@ class GatewayClient:
         try:
             session = self.register_session(
                 container_id=temp_container_id,
-                container_ip="127.0.0.1",
+                container_ip=self.self_ip,
                 mode="local",
                 pipeline_id=pipeline_id,
             )
@@ -845,7 +887,7 @@ class GatewayClient:
         try:
             session = self.register_session(
                 container_id=temp_container_id,
-                container_ip="127.0.0.1",
+                container_ip=self.self_ip,
                 mode="local",
                 pipeline_id=pipeline_id,
             )
@@ -905,7 +947,7 @@ class GatewayClient:
         try:
             session = self.register_session(
                 container_id=temp_container_id,
-                container_ip="127.0.0.1",
+                container_ip=self.self_ip,
                 mode="local",
                 pipeline_id=pipeline_id,
             )
