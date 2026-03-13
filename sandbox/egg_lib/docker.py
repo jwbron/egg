@@ -460,6 +460,15 @@ def create_dockerfile() -> None:
     else:
         warn("claude-commands directory not found")
 
+    # Copy skills directory from repo root to build context
+    # (Dockerfile references skills/)
+    skills_src = script_dir.parent / "skills"
+    skills_dest = Config.CONFIG_DIR / "skills"
+    if skills_src.exists():
+        _copy_directory_atomic(skills_src, skills_dest, "Claude skills", quiet)
+    else:
+        warn("skills directory not found")
+
     # Copy claude-rules directory to sandbox subdirectory of build context
     # (Dockerfile references sandbox/claude-rules/)
     # Use atomic copy with retry to handle race conditions
@@ -697,6 +706,7 @@ def compute_build_hash() -> str:
     - entrypoint.py
     - docker-setup.py
     - claude-commands/
+    - skills/ (from repo root)
     - claude-rules/
     - .claude/hooks/
     - bin/, egg_lib/, llm/, tools/, scripts/
@@ -749,6 +759,12 @@ def compute_build_hash() -> str:
     if hooks_path.exists():
         hasher.update(b".claude/hooks")
         hash_directory(hooks_path, hasher)
+
+    # skills/ directory from repo root
+    skills_path = repo_root / "skills"
+    if skills_path.exists():
+        hasher.update(b"skills")
+        hash_directory(skills_path, hasher)
 
     # shared/ directory from repo root
     shared_path = repo_root / "shared"
