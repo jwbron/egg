@@ -4,6 +4,7 @@ This module handles the setup flow, including configuration creation,
 checking host setup, and adding standard mounts.
 """
 
+import os
 import secrets
 import shutil
 from pathlib import Path
@@ -514,8 +515,6 @@ def _create_general_config() -> bool:
                 existing_config["anthropic_auth_method"] = expected_method
                 updated = True
             # Add compose settings if missing
-            import os
-
             compose_defaults: dict[str, Any] = {
                 "host_home": str(Path.home()),
                 "host_uid": os.getuid(),
