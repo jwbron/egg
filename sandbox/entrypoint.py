@@ -304,7 +304,7 @@ class Logger:
 
 
 @contextlib.contextmanager
-def timed_phase(name: str, logger: Logger) -> Generator[None, None, None]:
+def timed_phase(name: str, logger: Logger) -> Generator[None]:
     """Context manager that combines startup timing with debug logging.
 
     Wraps both _startup_timer.phase() and logger.phase_start/phase_end

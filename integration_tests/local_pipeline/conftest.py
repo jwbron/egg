@@ -116,7 +116,7 @@ def _cleanup_orphaned_containers() -> None:
 
 
 @pytest.fixture(scope="session")
-def local_pipeline_stack() -> Generator[LocalPipelineStack, None, None]:
+def local_pipeline_stack() -> Generator[LocalPipelineStack]:
     """Session-scoped fixture: build mock sandbox, start gateway+orchestrator.
 
     Builds the mock-sandbox image, starts the compose stack, waits for both
