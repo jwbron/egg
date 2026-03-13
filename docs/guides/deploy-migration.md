@@ -153,10 +153,9 @@ Add to `~/.config/egg/secrets.env`:
 ```bash
 # From your old secrets.env
 GITHUB_USER_TOKEN=ghp_xxxxx
-
-# From your old config
-EGG_CONFIG_DIR=/path/to/your/config
 ```
+
+If you need a custom config directory for `repositories.yaml`, set `EGG_CONFIG_DIR` in your shell profile (see [Repositories](#repositories) above).
 
 Repos are auto-mounted from `local_repos.paths` in your `repositories.yaml`.
 
