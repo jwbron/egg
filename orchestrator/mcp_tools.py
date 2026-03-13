@@ -47,23 +47,19 @@ COORDINATOR_TOOLS = [
                     "type": "string",
                     "description": "Repository to work on, in owner/name format (e.g. 'myorg/myrepo')",
                 },
-                "urgency": {
-                    "type": "string",
-                    "enum": ["low", "normal", "high"],
-                    "description": "Task urgency level",
-                    "default": "normal",
-                },
-                "workflow_hint": {
-                    "type": "string",
-                    "description": "Optional workflow hint (e.g., 'bug_fix', 'feature', 'refactor')",
-                },
             },
             "required": ["description", "repo"],
         },
     },
     {
         "name": "get_status",
-        "description": "Get the current status of a coordinator-managed task.",
+        "description": (
+            "Get the current status of a coordinator-managed task. "
+            "Returns coordinator state (current_phase, status, running_agents, "
+            "completed_agents, pending_decisions, guardrail_counters), "
+            "pipeline details (id, repo, issue_number, created_at, mode), "
+            "and recent_messages (from_role, type, subject, timestamp)."
+        ),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -227,10 +223,48 @@ class CoordinatorToolHandler:
         }
 
     def _handle_get_status(self, args: dict[str, Any]) -> dict[str, Any]:
-        """Get coordinator state for a pipeline."""
+        """Get enriched coordinator state for a pipeline.
+
+        Fetches coordinator state, pipeline details, and recent messages.
+        Falls back gracefully if pipeline details or messages fail.
+        """
         task_id = quote(args["task_id"], safe="")
+
+        # Primary: coordinator state (required)
         result = self._make_request(f"/api/v1/pipelines/{task_id}/coordinator/state")
-        return result.get("data", {})
+        status = result.get("data", {})
+
+        # Enrichment: pipeline details (optional)
+        try:
+            pipeline_result = self._make_request(f"/api/v1/pipelines/{task_id}")
+            pipeline_data = pipeline_result.get("data", {}).get("pipeline", {})
+            status["pipeline"] = {
+                "id": pipeline_data.get("id", ""),
+                "repo": pipeline_data.get("repo", ""),
+                "issue_number": pipeline_data.get("issue_number"),
+                "created_at": pipeline_data.get("created_at", ""),
+                "mode": pipeline_data.get("mode", ""),
+            }
+        except Exception:
+            logger.debug("Failed to fetch pipeline details", task_id=task_id)
+
+        # Enrichment: recent messages (optional)
+        try:
+            messages_result = self._make_request(f"/api/v1/pipelines/{task_id}/messages?limit=10")
+            raw_messages = messages_result.get("data", {}).get("messages", [])
+            status["recent_messages"] = [
+                {
+                    "from_role": m.get("from_role", ""),
+                    "type": m.get("type", ""),
+                    "subject": m.get("subject", ""),
+                    "timestamp": m.get("timestamp", ""),
+                }
+                for m in raw_messages
+            ]
+        except Exception:
+            logger.debug("Failed to fetch messages", task_id=task_id)
+
+        return status
 
     def _handle_provide_input(self, args: dict[str, Any]) -> dict[str, Any]:
         """Resolve an escalation decision."""

@@ -155,7 +155,7 @@ class CoordinatorExecutor:
                     state.guardrail_counters.coordinator_respawns += 1
                     pipeline.coordinator_state = state
                     pipeline.status = PipelineStatus.RUNNING
-                    store.save_pipeline(pipeline)
+                    store.save_pipeline(pipeline, expected_version=pipeline.version)
 
                     logger.info(
                         "Coordinator crashed, will respawn",
@@ -182,6 +182,6 @@ class CoordinatorExecutor:
                         pipeline_id=pipeline_id,
                     )
 
-            store.save_pipeline(pipeline)
+            store.save_pipeline(pipeline, expected_version=pipeline.version)
 
         return "complete" if exit_code == 0 else "failed"

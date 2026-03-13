@@ -37,7 +37,9 @@ import traceback
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeVar
+
+F = TypeVar("F", bound=Callable[..., Any])  # noqa: UP047 – Python 3.11 compat
 
 import httpx
 from flask import Flask, Response, g, jsonify, request, stream_with_context
@@ -380,7 +382,7 @@ def check_launcher_auth() -> tuple[bool, str]:
     return False, "Invalid launcher authorization token"
 
 
-def require_launcher_auth[F: Callable[..., Any]](f: F) -> F:
+def require_launcher_auth(f: F) -> F:  # noqa: UP047
     """Decorator to require launcher authentication for an endpoint."""
 
     @functools.wraps(f)
@@ -4016,8 +4018,10 @@ def session_update(session_token: str) -> tuple[Response, int] | Response:
     )
 
 
-# Valid SDLC pipeline phases — derived from phase_filter.PipelinePhase to avoid drift
-VALID_PIPELINE_PHASES = frozenset(p.value for p in PipelinePhase)
+# Valid SDLC pipeline phases — derived from phase_filter.PipelinePhase to avoid drift,
+# excluding "coordinator", which is an internal orchestration concern not a phase
+# external callers should set via the session phase endpoint.
+VALID_PIPELINE_PHASES = frozenset(p.value for p in PipelinePhase if p != PipelinePhase.COORDINATOR)
 
 
 @app.route("/api/v1/sessions/<session_token>/phase", methods=["PATCH"])

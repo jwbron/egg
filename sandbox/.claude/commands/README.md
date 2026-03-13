@@ -60,6 +60,20 @@ Switch to Reviewer agent mode for code quality or contract adherence review.
 
 **File**: `reviewer-mode.md`
 
+### /run-workflow
+Guide a full pipeline lifecycle: seed prompt creation, submit, monitor, HITL handling, and completion. Uses MCP tools (`submit_task`, `get_status`, `provide_input`) to interact with the coordinator.
+
+**Usage**: `/run-workflow`
+
+**What it does**:
+- Gathers task parameters (description, repo, issue)
+- Submits the task via the `submit_task` MCP tool
+- Sets up recurring polling to monitor pipeline progress
+- Handles HITL decisions inline (choice and feedback types)
+- Summarizes results on completion or failure
+
+**File**: `run-workflow.md`
+
 ## How Commands Work
 
 These commands are **slash commands** for Claude Code. They are markdown files that provide instructions to Claude on how to respond when you use the command syntax.
