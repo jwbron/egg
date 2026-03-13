@@ -228,7 +228,7 @@ egg/
 
 ```bash
 make setup           # Set up development environment (venv + pre-commit)
-make lint            # Run all linters (ruff, mypy, shellcheck, yamllint, hadolint)
+make lint            # Run all linters
 make test            # Run all tests
 make test-integration # Run integration tests (requires Docker)
 make security        # Run security scan (bandit)
