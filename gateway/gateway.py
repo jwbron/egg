@@ -37,11 +37,13 @@ import traceback
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeVar
 
 import httpx
 from flask import Flask, Response, g, jsonify, request, stream_with_context
 from waitress import serve
+
+F = TypeVar("F", bound=Callable[..., Any])
 
 # Add shared directory to path for egg_logging
 # In container, egg_logging is at /app/egg_logging
