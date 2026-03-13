@@ -20,6 +20,7 @@ All agent roles in egg, their responsibilities, phases, file access permissions,
 | `integrator` | Implement | No | coder, tester |
 | `reviewer_code` | Implement | Yes (with `reviewer_contract`) | integrator |
 | `reviewer_contract` | Implement | Yes (with `reviewer_code`) | integrator |
+| `reviewer_unified` | _(deprecated)_ | — | — |
 | `coordinator` | Coordinator | — | — |
 | `inspector` | Any | — | — (health checks) |
 
@@ -156,7 +157,7 @@ Reviewer roles always run as a distinct step after all workers and the integrato
 
 **Purpose**: Run linters, formatters, and auto-fixers on the code.
 
-**File access**: Same as `coder` (needs to modify source files to fix lint issues).
+**File access**: No explicit restriction patterns defined. The checker role is not registered in `AGENT_PATTERNS` in `gateway/agent_restrictions.py`, so it has unrestricted write access (allowed by the gateway's backwards-compatibility fallback for unknown roles).
 
 **Prompt context**: Summarized background, implementation summary.
 
@@ -216,7 +217,7 @@ The Tier 3 expanded access is required because the integrator must merge results
 - `EGG_COORDINATOR_MODE=true`
 - `EGG_COORDINATOR_TOOLS=true`
 
-See [Coordinator Guide](coordinator.md) for complete documentation.
+See [Coordinator Guide](../guides/coordinator.md) for complete documentation.
 
 ### `inspector`
 
