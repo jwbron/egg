@@ -213,9 +213,31 @@ class TestCreateGeneralConfig:
                 assert result is True
 
     def test_doesnt_overwrite_unchanged(self, tmp_path):
-        """Doesn't overwrite config when auth method hasn't changed."""
+        """Doesn't overwrite config when all settings are already present."""
         config_file = tmp_path / "config.yaml"
-        config_file.write_text("anthropic_auth_method: oauth\n")
+        # Include all compose defaults so the merge logic finds nothing to add
+        import os
+
+        from egg_lib.config import GATEWAY_PORT, GATEWAY_PROXY_PORT
+
+        full_config = {
+            "anthropic_auth_method": "oauth",
+            "host_home": str(Path.home()),
+            "host_uid": os.getuid(),
+            "host_gid": os.getgid(),
+            "git_name": "egg",
+            "git_email": "egg@localhost",
+            "compose_project_name": "egg",
+            "gateway_api_port": GATEWAY_PORT,
+            "gateway_proxy_port": GATEWAY_PROXY_PORT,
+            "orchestrator_api_port": 9849,
+            "mcp_server_port": 9850,
+            "mcp_rate_limit": 30,
+        }
+        import yaml
+
+        config_file.write_text(yaml.dump(full_config))
+        original_mtime = config_file.stat().st_mtime
         with patch("egg_lib.setup_flow.Config") as mock_config:
             mock_config.USER_CONFIG_DIR = tmp_path
             with patch(
@@ -224,6 +246,8 @@ class TestCreateGeneralConfig:
             ):
                 result = _create_general_config()
                 assert result is True
+                # File should not have been rewritten
+                assert config_file.stat().st_mtime == original_mtime
 
     def test_updates_changed_auth_method(self, tmp_path):
         """Updates config when auth method changed."""

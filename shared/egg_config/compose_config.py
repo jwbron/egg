@@ -23,13 +23,23 @@ except ImportError:
     sys.exit(1)
 
 try:
-    from egg_config.constants import GATEWAY_PORT, GATEWAY_PROXY_PORT
+    from egg_config.constants import (
+        GATEWAY_PORT,
+        GATEWAY_PROXY_PORT,
+        MCP_SERVER_PORT,
+        ORCHESTRATOR_PORT,
+    )
 except ImportError:
     # Standalone script execution: add shared/ to path
     _shared_dir = Path(__file__).parent.parent
     if str(_shared_dir) not in sys.path:
         sys.path.insert(0, str(_shared_dir))
-    from egg_config.constants import GATEWAY_PORT, GATEWAY_PROXY_PORT
+    from egg_config.constants import (
+        GATEWAY_PORT,
+        GATEWAY_PROXY_PORT,
+        MCP_SERVER_PORT,
+        ORCHESTRATOR_PORT,
+    )
 
 
 # Mapping from config.yaml keys to environment variable names.
@@ -43,8 +53,8 @@ CONFIG_KEY_MAP: list[tuple[str, str, str | None]] = [
     ("compose_project_name", "COMPOSE_PROJECT_NAME", "egg"),
     ("gateway_api_port", "GATEWAY_API_PORT", str(GATEWAY_PORT)),
     ("gateway_proxy_port", "GATEWAY_PROXY_PORT", str(GATEWAY_PROXY_PORT)),
-    ("orchestrator_api_port", "ORCHESTRATOR_API_PORT", "9849"),
-    ("mcp_server_port", "EGG_MCP_SERVER_PORT", "9850"),
+    ("orchestrator_api_port", "ORCHESTRATOR_API_PORT", str(ORCHESTRATOR_PORT)),
+    ("mcp_server_port", "EGG_MCP_SERVER_PORT", str(MCP_SERVER_PORT)),
     ("mcp_rate_limit", "EGG_MCP_RATE_LIMIT", "30"),
     # Image overrides (optional)
     ("gateway_image", "EGG_GATEWAY_IMAGE", None),
@@ -159,14 +169,20 @@ def load_compose_env(config_dir: Path | None = None) -> dict[str, str]:
 
 
 def main() -> None:
-    """CLI entrypoint: print KEY=VALUE lines for shell eval."""
+    """CLI entrypoint: print conditional export statements for shell eval.
+
+    Emits ``[ -z "${KEY+x}" ] && export KEY='value'`` so that pre-existing
+    environment variables are not overridden, matching the priority documented
+    in :func:`load_compose_env`.
+    """
     config_dir = Path(sys.argv[1]) if len(sys.argv) > 1 else None
     env_vars = load_compose_env(config_dir)
 
     for key, value in sorted(env_vars.items()):
         # Shell-safe quoting: single quotes with escaped single quotes
         safe_value = value.replace("'", "'\\''")
-        print(f"export {key}='{safe_value}'")
+        # Only set if not already in the environment (honour existing vars)
+        print(f"[ -z \"${{{key}+x}}\" ] && export {key}='{safe_value}'")
 
 
 if __name__ == "__main__":
