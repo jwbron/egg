@@ -1,16 +1,16 @@
 # egg
 
-A structurally enforced SDLC pipeline for autonomous LLM agents, turning tasks into reviewed pull requests with mandatory human gates.
+A structurally enforced SDLC pipeline for autonomous LLM agents, turning GitHub issues into reviewed pull requests with mandatory human gates.
 
 > *Inspired by Andy Weir's short story "The Egg": a contained environment where development happens before emerging into the world. The agent works inside the egg; when ready, it "hatches" via human review and merge.*
 
-**Note**: this project is currently under heavy development. The core workflow is functional, but continually being refined and refactored. Expect breakages and changing behavior for the foreseeable future.
+**Note**: This project is under active development. The core workflow is functional but continually being refined. Expect breakages and changing behavior.
 
 ## What It Does
 
 egg takes a GitHub issue (or a plain-text prompt) and produces a reviewed pull request autonomously. Multiple specialized agents analyze the task, plan an approach, implement code, write tests, update docs, and review each other's work. Humans stay in the loop at critical checkpoints but don't need to drive the process.
 
-The key idea: **constraints are enforced by infrastructure, not by prompts.** The agent can't skip steps, self-approve, or steal credentials because the gateway physically blocks those operations. There's no system prompt saying "please don't merge", the merge endpoint doesn't exist in the agent's environment.
+The key idea: **constraints are enforced by infrastructure, not by prompts.** The agent can't skip steps, self-approve, or steal credentials because the gateway physically blocks those operations. There's no system prompt saying "please don't merge" — the merge endpoint doesn't exist in the agent's environment.
 
 ## A Pipeline In Action
 
@@ -55,7 +55,7 @@ Point egg at a GitHub issue and it runs the full lifecycle. Here's what a comple
     ╚════════════╝
 ```
 
-Each box is a pipeline phase. Within each phase, specialized agents run in dependency-ordered waves. Some sequentially, some in parallel. The orchestrator manages the entire DAG. Humans approve at the refine and plan gates; then agents implement, test, review, and the orchestrator auto-creates the PR.
+Each box is a pipeline phase. Within each phase, specialized agents run in dependency-ordered waves — some sequentially, some in parallel. The orchestrator manages the entire DAG. Humans approve at the refine and plan gates; agents implement, test, and review; then the orchestrator auto-creates the PR.
 
 ## How It Works
 
@@ -69,7 +69,7 @@ Each box is a pipeline phase. Within each phase, specialized agents run in depen
 
 1. **Refine** — Agents analyze the task, research the codebase, and produce a requirements document. Reviewers validate the analysis. Human approves before planning begins.
 2. **Plan** — An architect recommends an approach, a task planner breaks it into discrete tasks with acceptance criteria, and a risk analyst flags concerns. Human approves before any code is written.
-3. **Implement** — A coder writes code, a tester finds gaps and writes tests, a documenter updates docs, and an integrator runs the full test suite. Code and contract reviewers provide line-level feedback. Re-implementation cycles continue until all checks pass.
+3. **Implement** — A coder writes code, a tester writes tests, a documenter updates docs, and an integrator runs the full test suite. Code and contract reviewers provide line-level feedback. Re-implementation cycles continue until all checks pass.
 4. **PR** — The orchestrator auto-creates the PR using metadata from the plan, commit log, and diff stats. No agent is spawned. Only a human can merge via GitHub UI.
 
 **Short-circuit mode**: Simple tasks (typos, config changes) skip the plan phase entirely — the refine phase signals `short_circuit: true` and jumps straight to implementation.
@@ -94,13 +94,13 @@ See [Concurrent Execution Guide](docs/guides/concurrent-execution.md) for the fu
 
 ### Coordinator Agent
 
-An optional dynamic orchestration mode where a `coordinator` agent — rather than fixed-phase dispatch — analyzes each task and determines the appropriate workflow: skipping unnecessary phases, spawning agents on demand, and adapting based on results. The coordinator interacts with a human via a Claude Code session connected to the MCP server (port 9850).
+An optional dynamic orchestration mode where a `coordinator` agent — rather than fixed-phase dispatch — analyzes each task and determines the appropriate workflow: skipping unnecessary phases, spawning agents on demand, and adapting based on results. The coordinator interacts with a human via a Claude Code session connected to the MCP server (port 9850, Streamable HTTP transport).
 
 See [Coordinator Agent Guide](docs/guides/coordinator.md) for full documentation.
 
 ### Two Modes
 
-- **Issue mode** (`egg-sdlc -r <repo> -i <issue>`): Pulls context from github issues, HITL via terminal prompts
+- **Issue mode** (`egg-sdlc -r <repo> -i <issue>`): Pulls context from GitHub issues, HITL via terminal prompts
 - **Local mode** (`egg-sdlc` or `egg-sdlc -r <repo> -p "prompt"`): Prompt-driven, HITL via terminal prompts
 
 ## Architecture
@@ -127,7 +127,7 @@ egg is a multi-container system: a **gateway** (trusted) that holds credentials 
 
 **Key principle**: The agent cannot bypass controls because the capabilities don't exist in its environment. The gateway physically blocks operations — this is infrastructure enforcement, not behavioral controls.
 
-**Orchestrator features**: Pipeline state persisted in a dedicated git worktree, per-pipeline worktree isolation, startup and runtime reconciliation of orphaned containers, two-tier health checks (programmatic + LLM-powered semantic), Docker-in-Docker devserver management for deployment validation, and an MCP server (port 9850) for Claude Code integration.
+**Orchestrator features**: Pipeline state persisted in a dedicated git worktree, per-pipeline worktree isolation, startup and runtime reconciliation of orphaned containers, two-tier health checks (programmatic + LLM-powered semantic), Docker-in-Docker devserver management for deployment validation, and an MCP server (port 9850, Streamable HTTP) for Claude Code integration.
 
 For details on what's enforced and how, see the [Architecture Overview](docs/architecture/README.md) and [Gateway README](gateway/README.md).
 
@@ -179,12 +179,31 @@ egg ships as a [GitHub Action](action/) for CI/CD integration — automated PR r
 
 See [action/README.md](action/README.md) for full documentation and [GitHub Automation Guide](docs/guides/github-automation.md) for built-in workflow examples.
 
+## Project Structure
+
+```
+egg/
+├── action/          # GitHub Action composite action
+├── bin/             # CLI entry points (egg, egg-sdlc, egg-deploy, egg-status, egg-pipeline-watch)
+├── config/          # Host configuration templates (repositories.yaml, config.yaml)
+├── docs/            # Documentation (architecture, ADRs, guides, reference, templates)
+├── gateway/         # Gateway sidecar (policy enforcement, credential injection, HTTP API)
+├── orchestrator/    # Pipeline orchestrator (state management, container lifecycle, MCP server)
+├── sandbox/         # Sandbox container (agent environment, Claude Code, tools)
+├── shared/          # Shared Python libraries (egg_config, egg_contracts, egg_logging, egg_git, prompts)
+├── integration_tests/  # Docker-based integration tests
+├── tests/           # Unit tests
+├── scripts/         # CI/validation scripts
+└── metrics/         # Agent activity and performance metrics
+```
+
 ## Documentation
 
 | Topic | Start Here |
 |-------|-----------|
 | **Full docs index** | [docs/index.md](docs/index.md) |
 | **Architecture & security model** | [Architecture Overview](docs/architecture/README.md) |
+| **Local quickstart (PAT setup)** | [Local Quickstart Guide](docs/guides/local-quickstart.md) |
 | **SDLC pipeline details** | [SDLC Pipeline Guide](docs/guides/sdlc-pipeline.md) |
 | **Concurrent execution mode** | [Concurrent Execution Guide](docs/guides/concurrent-execution.md) |
 | **Tier 3 / phase-level dispatch** | [Tier 3 Dispatch Guide](docs/guides/tier3-dispatch.md) |
@@ -199,17 +218,20 @@ See [action/README.md](action/README.md) for full documentation and [GitHub Auto
 | **Architecture decisions** | [ADR Index](docs/adr/README.md) |
 | **CLI reference** | [CLI Entry Points](bin/README.md) |
 | **GitHub automation** | [GitHub Automation Guide](docs/guides/github-automation.md) |
+| **Reusable workflows** | [Reusable Workflows Guide](docs/guides/reusable-workflows.md) |
 | **Agent design patterns** | [Agent Mode Design](docs/guides/agent-mode-design.md) |
+| **Checkpoint access** | [Checkpoint Access Guide](docs/guides/checkpoint-access.md) |
 | **Project structure** | [STRUCTURE.md](docs/development/STRUCTURE.md) |
 | **Contributing** | [CONTRIBUTING.md](CONTRIBUTING.md) |
 
 ## Development
 
 ```bash
-make setup           # Set up development environment
-make lint            # Run all linters
+make setup           # Set up development environment (venv + pre-commit)
+make lint            # Run all linters (ruff, mypy, shellcheck, yamllint, hadolint)
 make test            # Run all tests
-make test-integration # Run integration tests
+make test-integration # Run integration tests (requires Docker)
+make security        # Run security scan (bandit)
 make lint-fix        # Auto-fix lint issues
 make build           # Build Docker images
 ```
