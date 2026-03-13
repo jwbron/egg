@@ -138,7 +138,7 @@ local_repos:
 
 
 @pytest.fixture(scope="session")
-def egg_stack() -> Generator[EggStack, None, None]:
+def egg_stack() -> Generator[EggStack]:
     """Session-scoped fixture: start the gateway stack via docker compose.
 
     Builds the gateway image, starts it on test networks, waits for health,
@@ -249,7 +249,7 @@ def egg_stack() -> Generator[EggStack, None, None]:
 
 
 @pytest.fixture
-def gateway_session(egg_stack: EggStack) -> Generator[dict[str, Any], None, None]:
+def gateway_session(egg_stack: EggStack) -> Generator[dict[str, Any]]:
     """Function-scoped fixture: create a gateway session for isolation.
 
     Creates a unique session per test and cleans it up afterwards.
@@ -373,7 +373,7 @@ def exec_in_container(
 @pytest.fixture
 def isolated_container(
     egg_stack: EggStack,
-) -> Generator[ContainerInfo, None, None]:
+) -> Generator[ContainerInfo]:
     """Function-scoped fixture: alpine container on the isolated (private) network."""
     container = _start_container(egg_stack.isolated_network, "isolated")
     if not container:
@@ -385,7 +385,7 @@ def isolated_container(
 @pytest.fixture
 def external_container(
     egg_stack: EggStack,
-) -> Generator[ContainerInfo, None, None]:
+) -> Generator[ContainerInfo]:
     """Function-scoped fixture: alpine container on the external (public) network."""
     container = _start_container(egg_stack.external_network, "external")
     if not container:

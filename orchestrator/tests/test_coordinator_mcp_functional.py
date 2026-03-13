@@ -180,7 +180,7 @@ class TestMCPServerApp:
 
     @patch.object(CoordinatorToolHandler, "handle_tool_call")
     def test_call_tool_success(self, mock_handler, mcp_client):
-        mock_handler.return_value = {"task_id": "issue-42", "status": "created"}
+        mock_handler.return_value = {"task_id": "issue-42", "status": "started"}
 
         # Initialize session
         init_resp = mcp_client.post(
@@ -217,7 +217,7 @@ class TestMCPServerApp:
                 "method": "tools/call",
                 "params": {
                     "name": "submit_task",
-                    "arguments": {"description": "Fix the bug"},
+                    "arguments": {"description": "Fix the bug", "repo": "owner/repo"},
                 },
             },
             headers=headers,
@@ -416,31 +416,40 @@ class TestCoordinatorToolHandler:
 
     @patch.object(CoordinatorToolHandler, "_make_request")
     def test_submit_task_with_issue(self, mock_req):
-        mock_req.return_value = {"data": {"pipeline_id": "issue-42"}}
+        mock_req.return_value = {"data": {"pipeline": {"id": "issue-42"}}}
         handler = CoordinatorToolHandler()
         result = handler.handle_tool_call(
             "submit_task",
-            {"description": "Fix auth bug", "issue_number": 42},
+            {"description": "Fix auth bug", "issue_number": 42, "repo": "owner/repo"},
         )
         assert result["task_id"] == "issue-42"
-        assert result["status"] == "created"
-        # Verify the request included issue_number and mode=issue
-        call_data = mock_req.call_args[1]["data"]
+        assert result["status"] == "started"
+        # First call is the pipeline create; second is /start
+        assert mock_req.call_count == 2
+        call_data = mock_req.call_args_list[0][1]["data"]
         assert call_data["issue_number"] == 42
         assert call_data["mode"] == "issue"
+        start_call = mock_req.call_args_list[1]
+        assert "/start" in start_call[0][0]
+        assert start_call[1]["method"] == "POST"
 
     @patch.object(CoordinatorToolHandler, "_make_request")
     def test_submit_task_without_issue(self, mock_req):
-        mock_req.return_value = {"data": {"pipeline_id": "local-abcd1234"}}
+        mock_req.return_value = {"data": {"pipeline": {"id": "local-abcd1234"}}}
         handler = CoordinatorToolHandler()
         result = handler.handle_tool_call(
             "submit_task",
-            {"description": "Improve performance"},
+            {"description": "Improve performance", "repo": "owner/repo"},
         )
         assert result["task_id"] == "local-abcd1234"
-        call_data = mock_req.call_args[1]["data"]
+        # First call is the pipeline create; second is /start
+        assert mock_req.call_count == 2
+        call_data = mock_req.call_args_list[0][1]["data"]
         assert call_data["mode"] == "local"
         assert call_data["prompt"] == "Improve performance"
+        start_call = mock_req.call_args_list[1]
+        assert "/start" in start_call[0][0]
+        assert start_call[1]["method"] == "POST"
 
     @patch.object(CoordinatorToolHandler, "_make_request")
     def test_get_status(self, mock_req):
@@ -603,6 +612,24 @@ class TestCoordinatorToolHandler:
         )
         # Should not crash — returns empty string for pipeline_id
         assert result["task_id"] == ""
+        # No /start call when pipeline_id is empty
+        assert mock_req.call_count == 1
+
+    @patch.object(CoordinatorToolHandler, "_make_request")
+    def test_submit_task_start_failure_returns_created_not_started(self, mock_req):
+        """If /start fails, caller gets task_id with created_not_started status."""
+        mock_req.side_effect = [
+            {"data": {"pipeline": {"id": "test-123"}}},  # create succeeds
+            Exception("connection refused"),  # start fails
+        ]
+        handler = CoordinatorToolHandler()
+        result = handler.handle_tool_call(
+            "submit_task",
+            {"description": "Fix bug", "repo": "owner/repo"},
+        )
+        assert result["task_id"] == "test-123"
+        assert result["status"] == "created_not_started"
+        assert mock_req.call_count == 2
 
     @patch.object(CoordinatorToolHandler, "_make_request")
     def test_list_tasks_default_filter_is_active(self, mock_req):

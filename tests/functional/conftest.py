@@ -113,7 +113,7 @@ class MinimalGateway(GatewayClientMixin):
 
 
 @pytest.fixture(scope="module")
-def minimal_gateway() -> Generator[MinimalGateway, None, None]:
+def minimal_gateway() -> Generator[MinimalGateway]:
     """Module-scoped fixture: start a lightweight gateway container.
 
     Unlike the full egg_stack, this:
@@ -275,7 +275,7 @@ def minimal_gateway() -> Generator[MinimalGateway, None, None]:
 @pytest.fixture
 def functional_session(
     minimal_gateway: MinimalGateway,
-) -> Generator[dict[str, Any], None, None]:
+) -> Generator[dict[str, Any]]:
     """Function-scoped fixture: create a gateway session for test isolation.
 
     Creates a unique session per test and cleans it up afterwards.
@@ -427,7 +427,7 @@ def gh_command_tester(
 @pytest.fixture
 def session_lifecycle_tester(
     minimal_gateway: MinimalGateway,
-) -> Generator[Callable[..., dict[str, Any]], None, None]:
+) -> Generator[Callable[..., dict[str, Any]]]:
     """Factory fixture for testing session lifecycle operations.
 
     Usage:
