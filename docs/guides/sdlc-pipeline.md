@@ -1269,9 +1269,9 @@ egg-contract add-feedback --question "What is the expected request volume?" --qu
 
 ## Concurrent Execution Mode
 
-Concurrent execution mode enables all agents (coder, tester, documenter, integrator)
-to run simultaneously during the implement phase, collaborating via a polling-based
-message bus hosted by the orchestrator.
+Concurrent execution mode enables all agents (coder, tester, documenter, checker,
+reviewer_code, reviewer_contract) to run simultaneously during the implement phase,
+collaborating via a polling-based message bus hosted by the orchestrator.
 
 ### Configuration
 
@@ -1294,7 +1294,7 @@ Or pass it in the pipeline config JSON (e.g. via the API):
 {
   "config": {
     "concurrent_execution": true,
-    "max_concurrent_agents": 4,
+    "max_concurrent_agents": 6,
     "message_poll_hint_seconds": 30,
     "consensus_timeout_minutes": 30,
     "agent_idle_timeout_minutes": 60
@@ -1305,7 +1305,7 @@ Or pass it in the pipeline config JSON (e.g. via the API):
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `concurrent_execution` | bool | `false` | Enable concurrent mode (opt-in) |
-| `max_concurrent_agents` | int | `4` | Maximum agents running simultaneously |
+| `max_concurrent_agents` | int | `6` | Maximum agents running simultaneously |
 | `message_poll_hint_seconds` | int | `30` | Suggested polling interval for agents |
 | `consensus_timeout_minutes` | int | `30` | Timeout before HITL escalation |
 | `agent_idle_timeout_minutes` | int | `60` | Agent idle timeout |
@@ -1408,22 +1408,28 @@ tests pass.
 solidifies. Polls for `PROGRESS` from coder/tester. Signals `READY` after docs cover
 all changes.
 
-**Integrator**: Waits for all other agents to signal `READY`. Merges per-agent
-worktree branches. Resolves conflicts. Signals `READY` after successful merge and
-validation.
+**Checker**: Runs automated checks (tests, linting) and attempts autofixes. Polls for
+`PROGRESS` from coder to know when code is ready. Signals `READY` after checks pass.
+
+**Reviewer (code/contract)**: Reviews committed code or contract artifacts. Polls for
+`PROGRESS` from coder. Signals `READY` after review is complete.
 
 ### Per-Agent Worktrees
 
 Each concurrent agent operates on its own worktree branch to avoid git conflicts:
 
 ```
-egg/issue-999/coder       ← coder's work
-egg/issue-999/tester      ← tester's work
-egg/issue-999/documenter  ← documenter's work
-egg/issue-999/integrator  ← integrator merges all
+egg/issue-999/coder             ← coder's work
+egg/issue-999/tester            ← tester's work
+egg/issue-999/documenter        ← documenter's work
+egg/issue-999/checker           ← checker's work
+egg/issue-999/reviewer_code     ← code reviewer's work
+egg/issue-999/reviewer_contract ← contract reviewer's work
 ```
 
-The integrator is responsible for merging all agent branches at phase end.
+After all concurrent agents reach consensus, the integrator runs in a separate
+(non-concurrent) step to merge all per-agent worktree branches, resolve conflicts,
+run the full test suite, and validate integration before the phase completes.
 
 ### Failure Handling
 
@@ -1456,7 +1462,7 @@ Response includes a `concurrent` section:
 {
   "concurrent": {
     "enabled": true,
-    "max_concurrent_agents": 4,
+    "max_concurrent_agents": 6,
     "messages": {
       "total": 12,
       "by_type": {"PROGRESS": 5, "QUESTION": 3, "RESPONSE": 3, "STATUS": 1}
@@ -1466,10 +1472,12 @@ Response includes a `concurrent` section:
         "coder": {"state": "READY", "reason": "Implementation complete"},
         "tester": {"state": "WORKING", "reason": null},
         "documenter": {"state": "READY", "reason": "Docs updated"},
-        "integrator": {"state": "WORKING", "reason": null}
+        "checker": {"state": "READY", "reason": "All checks pass"},
+        "reviewer_code": {"state": "WORKING", "reason": null},
+        "reviewer_contract": {"state": "READY", "reason": "Contract approved"}
       },
       "is_complete": false,
-      "blocking_agents": ["tester", "integrator"]
+      "blocking_agents": ["tester", "reviewer_code"]
     }
   }
 }
@@ -1494,9 +1502,10 @@ identify blocked or stuck agents.
 **Message bus empty**: Verify the pipeline has `concurrent_execution: true` in its
 config. The message bus is only active for concurrent pipelines.
 
-**Merge conflicts at integration**: The integrator handles merge conflicts. If
-conflicts are complex, the integrator signals `BLOCKED` and a HITL decision is
-created. Consider adding role-based file restrictions to minimize overlap.
+**Merge conflicts at integration**: After all concurrent agents reach consensus, the
+integrator runs in a separate step to merge per-agent worktree branches. If conflicts
+are complex, the integrator signals `BLOCKED` and a HITL decision is created. Consider
+adding role-based file restrictions to minimize overlap.
 
 ---
 

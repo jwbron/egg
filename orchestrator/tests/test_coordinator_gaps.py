@@ -870,15 +870,11 @@ class TestMCPServerGaps:
             assert resp.status_code == 200
             assert resp.get_json()["status"] == "healthy"
 
-    @patch.object(MCPServer, "_validate_gateway_token", return_value=True)
-    def test_mcp_server_list_tools_returns_all_five(self, _mock_validate):
-        server = MCPServer(gateway_url="http://fake-gateway:9848")  # noqa: EGG002
+    def test_mcp_server_list_tools_returns_all_five(self):
+        server = MCPServer()
         app = server.create_app()
         with app.test_client() as client:
-            resp = client.get(
-                "/mcp/v1/tools",
-                headers={"Authorization": "Bearer test-token"},
-            )
+            resp = client.get("/mcp/v1/tools")
             assert resp.status_code == 200
             tools = resp.get_json()["tools"]
             assert len(tools) == 5
@@ -891,30 +887,8 @@ class TestMCPServerGaps:
                 "cancel_task",
             }
 
-    def test_mcp_server_call_tool_missing_auth(self):
-        server = MCPServer(gateway_url="http://fake-gateway:9848")  # noqa: EGG002
-        app = server.create_app()
-        with app.test_client() as client:
-            resp = client.post(
-                "/mcp/v1/tools/call",
-                json={"name": "test"},
-            )
-            assert resp.status_code == 401
-
-    def test_mcp_server_call_tool_no_gateway_returns_503(self):
+    def test_mcp_server_call_tool_missing_body(self):
         server = MCPServer()
-        app = server.create_app()
-        with app.test_client() as client:
-            resp = client.post(
-                "/mcp/v1/tools/call",
-                json={"name": "test"},
-                headers={"Authorization": "Bearer test-token"},
-            )
-            assert resp.status_code == 503
-
-    @patch.object(MCPServer, "_validate_gateway_token", return_value=True)
-    def test_mcp_server_call_tool_missing_body(self, _mock_validate):
-        server = MCPServer(gateway_url="http://fake-gateway:9848")  # noqa: EGG002
         app = server.create_app()
         with app.test_client() as client:
             # Send with JSON content type but empty body triggers 400
@@ -922,64 +896,51 @@ class TestMCPServerGaps:
                 "/mcp/v1/tools/call",
                 json=None,
                 content_type="application/json",
-                headers={"Authorization": "Bearer valid-token"},
             )
             assert resp.status_code == 400
 
-    @patch.object(MCPServer, "_validate_gateway_token", return_value=True)
-    def test_mcp_server_call_tool_missing_name(self, _mock_validate):
-        server = MCPServer(gateway_url="http://fake-gateway:9848")  # noqa: EGG002
+    def test_mcp_server_call_tool_missing_name(self):
+        server = MCPServer()
         app = server.create_app()
         with app.test_client() as client:
             resp = client.post(
                 "/mcp/v1/tools/call",
                 json={"arguments": {}},
-                headers={"Authorization": "Bearer valid-token"},
             )
             assert resp.status_code == 400
 
-    @patch.object(MCPServer, "_validate_gateway_token", return_value=True)
-    def test_mcp_server_call_tool_unknown_returns_error(self, _mock_validate):
-        server = MCPServer(gateway_url="http://fake-gateway:9848")  # noqa: EGG002
+    def test_mcp_server_call_tool_unknown_returns_error(self):
+        server = MCPServer()
         app = server.create_app()
         with app.test_client() as client:
             resp = client.post(
                 "/mcp/v1/tools/call",
                 json={"name": "bogus_tool", "arguments": {}},
-                headers={"Authorization": "Bearer valid-token"},
             )
             assert resp.status_code == 200
             data = resp.get_json()
             assert data["isError"] is True
 
-    @patch.object(MCPServer, "_validate_gateway_token", return_value=True)
-    def test_mcp_server_sse_content_type(self, _mock_validate):
-        server = MCPServer(gateway_url="http://fake-gateway:9848")  # noqa: EGG002
+    def test_mcp_server_sse_content_type(self):
+        server = MCPServer()
         app = server.create_app()
         with app.test_client() as client:
-            resp = client.get(
-                "/mcp/v1/sse",
-                headers={"Authorization": "Bearer valid-token"},
-            )
+            resp = client.get("/mcp/v1/sse")
             assert resp.content_type.startswith("text/event-stream")
 
-    @patch.object(MCPServer, "_validate_gateway_token", return_value=True)
-    def test_mcp_server_rate_limit_returns_429(self, _mock_validate):
-        server = MCPServer(rate_limit=1, gateway_url="http://fake-gateway:9848")  # noqa: EGG002
+    def test_mcp_server_rate_limit_returns_429(self):
+        server = MCPServer(rate_limit=1)
         app = server.create_app()
-        auth_headers = {"Authorization": "Bearer valid-token"}
         with app.test_client() as client:
             # First call should succeed
             client.post(
                 "/mcp/v1/tools/call",
                 json={"name": "get_status", "arguments": {"task_id": "test"}},
-                headers=auth_headers,
             )
             # Second call should be rate limited
             resp2 = client.post(
                 "/mcp/v1/tools/call",
                 json={"name": "get_status", "arguments": {"task_id": "test"}},
-                headers=auth_headers,
             )
             assert resp2.status_code == 429
 

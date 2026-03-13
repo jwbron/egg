@@ -7,12 +7,9 @@ the orchestrator.
 """
 
 import json
-import os
 import sys
 import threading
 import time
-import urllib.parse
-import urllib.request
 from pathlib import Path
 
 _shared_path = Path(__file__).parent.parent / "shared"
@@ -65,7 +62,9 @@ class MCPServer:
     - Tool execution endpoint
     - Health check endpoint
     - Rate limiting
-    - Gateway token authentication
+
+    No authentication required — localhost-only access is enforced via
+    Docker port mapping (127.0.0.1 binding in docker-compose.yml).
     """
 
     def __init__(
@@ -73,14 +72,10 @@ class MCPServer:
         orchestrator_url: str = "http://localhost:9849",
         port: int = DEFAULT_MCP_PORT,
         rate_limit: int = DEFAULT_RATE_LIMIT,
-        gateway_url: str | None = None,
-        launcher_secret: str | None = None,
     ):
         self.orchestrator_url = orchestrator_url
         self.port = port
         self.rate_limiter = RateLimiter(max_requests=rate_limit)
-        self.gateway_url = gateway_url
-        self.launcher_secret = launcher_secret or os.environ.get("EGG_LAUNCHER_SECRET", "")
 
         from mcp_tools import COORDINATOR_TOOLS, CoordinatorToolHandler
 
@@ -88,76 +83,22 @@ class MCPServer:
         self.tools = COORDINATOR_TOOLS
         self._app = None
 
-    def _validate_gateway_token(self, token: str) -> bool:
-        """Validate a session token against the gateway.
-
-        Args:
-            token: Bearer token from Authorization header
-
-        Returns:
-            True if the token is valid
-        """
-        if not self.gateway_url:
-            logger.warning("No gateway_url configured, skipping token validation")
-            return False
-
-        try:
-            encoded_token = urllib.parse.quote(token, safe="")
-            url = f"{self.gateway_url}/api/v1/sessions/{encoded_token}"
-            req = urllib.request.Request(url, method="GET")
-            req.add_header("Content-Type", "application/json")
-            if self.launcher_secret:
-                req.add_header("Authorization", f"Bearer {self.launcher_secret}")
-            with urllib.request.urlopen(req, timeout=5) as resp:
-                data = json.loads(resp.read())
-                return data.get("valid", False)
-        except Exception:
-            logger.warning("Gateway token validation failed", gateway_url=self.gateway_url)
-            return False
-
     def create_app(self):
         """Create the Flask application for the MCP server."""
-        import functools
-
         from flask import Flask, Response, jsonify, request
 
         app = Flask("egg-mcp-server")
-        server = self
-
-        def require_auth(f):
-            """Decorator that validates gateway session tokens on protected endpoints."""
-
-            @functools.wraps(f)
-            def decorated(*args, **kwargs):
-                if not server.gateway_url:
-                    # No gateway configured — reject all requests
-                    return jsonify({"error": "Authentication not configured"}), 503
-
-                auth_header = request.headers.get("Authorization", "")
-                if not auth_header.startswith("Bearer "):
-                    return jsonify({"error": "Missing or invalid Authorization header"}), 401
-
-                token = auth_header[7:]  # Remove "Bearer " prefix
-                if not server._validate_gateway_token(token):
-                    return jsonify({"error": "Invalid or expired session token"}), 401
-
-                return f(*args, **kwargs)
-
-            return decorated
 
         @app.route("/health")
         def health():
             return jsonify({"status": "healthy", "service": "egg-mcp-server"})
 
         @app.route("/mcp/v1/tools", methods=["GET"])
-        @require_auth
         def list_tools():
             return jsonify({"tools": self.tools})
 
         @app.route("/mcp/v1/tools/call", methods=["POST"])
-        @require_auth
         def call_tool():
-            # Rate limiting
             if not self.rate_limiter.allow():
                 return jsonify({"error": "Rate limit exceeded"}), 429
 
@@ -181,7 +122,6 @@ class MCPServer:
             )
 
         @app.route("/mcp/v1/sse")
-        @require_auth
         def sse_stream():
             """SSE endpoint for MCP protocol events."""
 
@@ -209,7 +149,11 @@ class MCPServer:
         return app
 
     def run(self, host: str = "0.0.0.0", debug: bool = False):
-        """Start the MCP server."""
+        """Start the MCP server.
+
+        Binds to 0.0.0.0 inside the container so Docker port forwarding works.
+        Localhost-only access is enforced by the docker-compose port mapping.
+        """
         app = self.create_app()
         logger.info("Starting MCP server", port=self.port, host=host)
         app.run(host=host, port=self.port, debug=debug, threaded=True)
@@ -219,16 +163,12 @@ def start_mcp_server(
     orchestrator_url: str = "http://localhost:9849",
     port: int = DEFAULT_MCP_PORT,
     rate_limit: int = DEFAULT_RATE_LIMIT,
-    gateway_url: str | None = None,
-    launcher_secret: str | None = None,
 ) -> MCPServer:
     """Start the MCP server in a background thread."""
     server = MCPServer(
         orchestrator_url=orchestrator_url,
         port=port,
         rate_limit=rate_limit,
-        gateway_url=gateway_url,
-        launcher_secret=launcher_secret,
     )
 
     thread = threading.Thread(target=server.run, daemon=True)
