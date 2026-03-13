@@ -37,9 +37,7 @@ import traceback
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, TypeVar
-
-F = TypeVar("F", bound=Callable[..., Any])
+from typing import Any
 
 import httpx
 from flask import Flask, Response, g, jsonify, request, stream_with_context
