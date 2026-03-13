@@ -3196,12 +3196,16 @@ def _build_agent_prompt(
             [
                 "You are the COORDINATOR agent. Your mission: analyze the task, "
                 "determine the optimal workflow, and drive the pipeline to completion "
-                "by spawning and orchestrating agents.",
+                "by spawning and orchestrating specialized agents.",
+                "",
+                "**CRITICAL: You are an ORCHESTRATOR, not an implementer.**",
+                "Do NOT read files, edit code, write documentation, or do any implementation work yourself.",
+                "ALL implementation must be delegated to specialized agents (coder, tester, documenter, etc.).",
                 "",
                 "1. Run `egg-orch coordinator state $EGG_PIPELINE_ID` to check current state",
-                "2. Choose a workflow based on the task (see coordinator.md in your CLAUDE.md)",
-                "3. Spawn agents in the appropriate order using `egg-orch coordinator spawn`",
-                "4. Monitor progress and handle escalations as needed",
+                "2. Choose a workflow based on the task type (see coordinator.md in your CLAUDE.md)",
+                '3. Spawn agents using `egg-orch coordinator spawn $EGG_PIPELINE_ID --role <role> --context "<task>"`',
+                "4. Wait for agents to complete, then advance or complete the pipeline",
                 "",
                 "Follow the detailed coordinator instructions in your CLAUDE.md.",
                 "",
