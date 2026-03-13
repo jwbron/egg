@@ -9,8 +9,6 @@ Gather task parameters from the user. You need:
 - **Task description** (required) — what should be done
 - **Repository** (required) — in `owner/name` format
 - **Issue number** (optional) — GitHub issue to work from
-- **Workflow hint** (optional) — `bug_fix`, `feature`, or `refactor`
-- **Urgency** (optional) — `low`, `normal` (default), or `high`
 
 Use `AskUserQuestion` if the user's description is vague or ambiguous. Clarify scope, expected behavior, or acceptance criteria before proceeding.
 
@@ -31,8 +29,6 @@ Arguments:
   description: <task description>
   repo: <owner/name>
   issue_number: <number, if provided>
-  workflow_hint: <hint, if provided>
-  urgency: <level, if provided>
 ```
 
 Store the returned `task_id`. Confirm submission to the user:

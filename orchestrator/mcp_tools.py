@@ -47,16 +47,6 @@ COORDINATOR_TOOLS = [
                     "type": "string",
                     "description": "Repository in owner/name format",
                 },
-                "urgency": {
-                    "type": "string",
-                    "enum": ["low", "normal", "high"],
-                    "description": "Task urgency level",
-                    "default": "normal",
-                },
-                "workflow_hint": {
-                    "type": "string",
-                    "description": "Optional workflow hint (e.g., 'bug_fix', 'feature', 'refactor')",
-                },
             },
             "required": ["description"],
         },

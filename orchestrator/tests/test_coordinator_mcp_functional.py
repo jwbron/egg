@@ -378,8 +378,6 @@ class TestToolDefinitions:
         assert "description" in schema["properties"]
         assert "issue_number" in schema["properties"]
         assert "repo" in schema["properties"]
-        assert "urgency" in schema["properties"]
-        assert schema["properties"]["urgency"]["enum"] == ["low", "normal", "high"]
 
     def test_get_status_requires_task_id(self):
         tool = next(t for t in COORDINATOR_TOOLS if t["name"] == "get_status")
