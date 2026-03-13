@@ -1412,7 +1412,7 @@ all changes.
 `PROGRESS` from coder to know when code is ready. Signals `READY` after checks pass.
 
 **Reviewer (code/contract)**: Reviews committed code or contract artifacts. Polls for
-`PROGRESS` from coder/tester. Signals `READY` after review is complete.
+`PROGRESS` from coder. Signals `READY` after review is complete.
 
 ### Per-Agent Worktrees
 
