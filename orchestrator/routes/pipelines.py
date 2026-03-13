@@ -84,6 +84,8 @@ except ImportError:
     )
 
 if TYPE_CHECKING:
+    from egg_container import MountSpec
+
     try:
         from ..container_spawner import ContainerSpawner
     except ImportError:
@@ -4880,7 +4882,7 @@ def _spawn_and_wait(
     branch: str | None = None,
     complexity_tier: str | None = None,
     plan_phase_id: str | None = None,
-    extra_mounts: list | None = None,
+    extra_mounts: "list[MountSpec] | None" = None,
 ) -> tuple[int, str]:
     """Spawn a container, wait for it to exit, clean up, return (exit_code, logs).
 

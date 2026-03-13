@@ -18,14 +18,24 @@ for p in (_project_root / "orchestrator", _project_root / "shared"):
 
 from coordinator_executor import CoordinatorConfig, CoordinatorExecutor
 from models import (
+    AgentExecution,
+    AgentExecutionStatus,
     AgentRole,
     AgentSpawnRecord,
+    ContainerInfo,
+    ContainerStatus,
     CoordinatorState,
     GuardrailCounters,
+    PhaseExecution,
     Pipeline,
     PipelineConfig,
     PipelineStatus,
 )
+
+try:
+    from egg_contracts.models import PipelinePhase
+except ImportError:
+    from models import PipelinePhase  # type: ignore[attr-defined]
 
 
 def _make_pipeline(
@@ -374,3 +384,101 @@ class TestHandleCompletion:
 
         assert result == "complete"
         assert pipeline.status == PipelineStatus.COMPLETE
+
+    @patch("coordinator_executor.emit_event")
+    @patch("coordinator_executor.get_pipeline_state_lock")
+    @patch("coordinator_executor.get_state_store")
+    def test_respawn_marks_coordinator_entries_exited(
+        self, mock_store_fn, mock_lock, mock_emit, tmp_path
+    ):
+        """Respawn path should mark coordinator container/agent entries as exited
+        to prevent the background monitor from racing and marking the pipeline FAILED."""
+        mock_lock.return_value.__enter__ = MagicMock()
+        mock_lock.return_value.__exit__ = MagicMock(return_value=False)
+
+        # Set up pipeline with coordinator entries in phase_execution
+        coordinator_container = ContainerInfo(
+            container_id="coord-container-123",
+            container_name="egg-coordinator-123",
+            status=ContainerStatus.RUNNING,
+            agent_role=AgentRole.COORDINATOR,
+        )
+        coordinator_agent = AgentExecution(
+            role=AgentRole.COORDINATOR,
+            status=AgentExecutionStatus.RUNNING,
+            container_id="coord-container-123",
+        )
+        pipeline = _make_pipeline(
+            status=PipelineStatus.RUNNING,
+            max_respawns=2,
+            coordinator_state=CoordinatorState(
+                guardrail_counters=GuardrailCounters(coordinator_respawns=0),
+            ),
+        )
+        phase_exec = PhaseExecution(
+            phase=PipelinePhase.IMPLEMENT,
+            containers=[coordinator_container],
+            agents=[coordinator_agent],
+        )
+        pipeline.phases[PipelinePhase.IMPLEMENT.value] = phase_exec
+
+        store = MagicMock()
+        store.load_pipeline.return_value = pipeline
+        mock_store_fn.return_value = store
+
+        executor = CoordinatorExecutor(tmp_path)
+        result = executor.handle_coordinator_completion("test-pipeline", exit_code=1)
+
+        assert result == "respawn"
+        # Container should be marked FAILED (not still RUNNING)
+        assert coordinator_container.status == ContainerStatus.FAILED
+        assert coordinator_container.exit_code == 1
+        assert coordinator_container.exited_at is not None
+        # Agent should be marked FAILED (not still RUNNING)
+        assert coordinator_agent.status == AgentExecutionStatus.FAILED
+        assert coordinator_agent.completed_at is not None
+
+    @patch("coordinator_executor.get_pipeline_state_lock")
+    @patch("coordinator_executor.get_state_store")
+    def test_success_marks_coordinator_entries_exited(self, mock_store_fn, mock_lock, tmp_path):
+        """Success path should mark coordinator container/agent entries as exited."""
+        mock_lock.return_value.__enter__ = MagicMock()
+        mock_lock.return_value.__exit__ = MagicMock(return_value=False)
+
+        coordinator_container = ContainerInfo(
+            container_id="coord-container-456",
+            container_name="egg-coordinator-456",
+            status=ContainerStatus.RUNNING,
+            agent_role=AgentRole.COORDINATOR,
+        )
+        coordinator_agent = AgentExecution(
+            role=AgentRole.COORDINATOR,
+            status=AgentExecutionStatus.RUNNING,
+            container_id="coord-container-456",
+        )
+        pipeline = _make_pipeline(
+            status=PipelineStatus.RUNNING,
+            coordinator_state=CoordinatorState(),
+        )
+        phase_exec = PhaseExecution(
+            phase=PipelinePhase.IMPLEMENT,
+            containers=[coordinator_container],
+            agents=[coordinator_agent],
+        )
+        pipeline.phases[PipelinePhase.IMPLEMENT.value] = phase_exec
+
+        store = MagicMock()
+        store.load_pipeline.return_value = pipeline
+        mock_store_fn.return_value = store
+
+        executor = CoordinatorExecutor(tmp_path)
+        result = executor.handle_coordinator_completion("test-pipeline", exit_code=0)
+
+        assert result == "complete"
+        # Container should be marked EXITED (not still RUNNING)
+        assert coordinator_container.status == ContainerStatus.EXITED
+        assert coordinator_container.exit_code == 0
+        assert coordinator_container.exited_at is not None
+        # Agent should be marked COMPLETE (not still RUNNING)
+        assert coordinator_agent.status == AgentExecutionStatus.COMPLETE
+        assert coordinator_agent.completed_at is not None

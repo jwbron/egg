@@ -11,6 +11,7 @@ Manages the lifecycle of the coordinator agent container:
 import sys
 import threading
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 
 _shared_path = Path(__file__).parent.parent / "shared"
@@ -27,7 +28,13 @@ except ImportError:
 
 
 from events import EventType, emit_event
-from models import CoordinatorState, PipelineStatus
+from models import (
+    AgentExecutionStatus,
+    AgentRole,
+    ContainerStatus,
+    CoordinatorState,
+    PipelineStatus,
+)
 from state_store import get_pipeline_state_lock, get_state_store
 
 logger = get_logger("orchestrator.coordinator_executor")
@@ -84,11 +91,41 @@ class CoordinatorExecutor:
         )
 
     def handle_coordinator_completion(self, pipeline_id: str, exit_code: int = 0):
-        """Handle coordinator container exit."""
+        """Handle coordinator container exit.
+
+        Also marks the coordinator's container/agent entries in phase_execution
+        as exited, preventing the background container monitor from finding
+        stale RUNNING entries and marking the pipeline FAILED.
+        """
         store = get_state_store(self.repo_path)
 
         with get_pipeline_state_lock(pipeline_id):
             pipeline = store.load_pipeline(pipeline_id)
+
+            # Mark coordinator container/agent entries in phase_execution as
+            # exited so the background monitor won't race and mark the pipeline
+            # FAILED after a respawn sets it back to RUNNING.
+            now = datetime.utcnow()
+            container_status = ContainerStatus.EXITED if exit_code == 0 else ContainerStatus.FAILED
+            agent_status = (
+                AgentExecutionStatus.COMPLETE if exit_code == 0 else AgentExecutionStatus.FAILED
+            )
+            for phase_execution in pipeline.phases.values():
+                for ci in phase_execution.containers:
+                    if (
+                        ci.agent_role == AgentRole.COORDINATOR
+                        and ci.status == ContainerStatus.RUNNING
+                    ):
+                        ci.status = container_status
+                        ci.exit_code = exit_code
+                        ci.exited_at = now
+                for agent in phase_execution.agents:
+                    if (
+                        agent.role == AgentRole.COORDINATOR
+                        and agent.status == AgentExecutionStatus.RUNNING
+                    ):
+                        agent.status = agent_status
+                        agent.completed_at = now
 
             if exit_code == 0:
                 # Check if all spawned agents are done
