@@ -24,8 +24,8 @@ from llm.result import AgentResult
 logger = logging.getLogger(__name__)
 
 # Default model for sandbox agents
-# Using the alias 'opus' which maps to the latest Opus model (claude-opus-4-5-*)
-DEFAULT_MODEL = "opus"
+# Using the alias 'opus[1m]' which maps to the latest Opus model with 1M context
+DEFAULT_MODEL = "opus[1m]"
 
 # Minimum known-good Claude Code version (for version check logging)
 MIN_CLAUDE_VERSION = "1.0.0"
@@ -247,8 +247,8 @@ async def run_agent_async(
         timeout: Override config timeout (seconds)
         cwd: Working directory for the agent
         on_output: Optional callback for streaming output line-by-line
-        model: Model to use (default: opus). Can be an alias ('opus', 'sonnet')
-               or full model ID ('claude-opus-4-5-20251101')
+        model: Model to use (default: opus[1m]). Can be an alias ('opus', 'sonnet')
+               or full model ID ('claude-opus-4-6-20250313')
 
     Returns:
         AgentResult with response and status. The result includes metadata
@@ -430,7 +430,7 @@ def run_agent(
 
     Args:
         prompt: The prompt to send to Claude
-        model: Model to use (default: opus)
+        model: Model to use (default: opus[1m])
         **kwargs: Additional arguments passed to run_agent_async
 
     Example:

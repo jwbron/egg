@@ -293,7 +293,7 @@ def gha_exec() -> int:
 
     # 5. Build claude command
     prompt = os.environ.get("INPUT_PROMPT", "")
-    model = os.environ.get("INPUT_MODEL", "opus")
+    model = os.environ.get("INPUT_MODEL", "opus[1m]")
     timeout = int(os.environ.get("INPUT_TIMEOUT", "30"))
 
     # --max-turns 200: Ensure agent has enough turns to complete work and post
