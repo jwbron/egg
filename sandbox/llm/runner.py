@@ -46,7 +46,7 @@ def run_interactive() -> None:
         print(f"[llm] ERROR: {e}", file=sys.stderr)
         sys.exit(1)
 
-    cmd.extend(["--model", "opus"])
+    cmd.extend(["--model", "opus[1m]"])
 
     # Set up environment for Claude
     env = os.environ.copy()

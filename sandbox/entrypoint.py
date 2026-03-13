@@ -905,7 +905,7 @@ def setup_claude(config: Config, logger: Logger) -> None:
         "editorMode": "normal",
         "autoUpdate": False,
         "outputStyle": "default",
-        "defaultModel": "opus",
+        "defaultModel": "opus[1m]",
         "showResumeCommand": False,
     }
 

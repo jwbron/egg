@@ -24,8 +24,8 @@ from llm.result import AgentResult
 logger = logging.getLogger(__name__)
 
 # Default model for sandbox agents
-# Using the alias 'opus' which maps to the latest Opus model (claude-opus-4-5-*)
-DEFAULT_MODEL = "opus"
+# Using the alias 'opus[1m]' which maps to the latest Opus model with 1M context
+DEFAULT_MODEL = "opus[1m]"
 
 # Minimum known-good Claude Code version (for version check logging)
 MIN_CLAUDE_VERSION = "1.0.0"
