@@ -71,12 +71,22 @@ The MCP server is accessible only from localhost — the Docker port mapping
 restricts access to `127.0.0.1`. No authentication is required because
 access is already restricted to the local machine via this port binding.
 
+### /run-workflow Slash Command
+
+The `/run-workflow` slash command provides a guided end-to-end workflow for submitting tasks and monitoring their progress. Invoke it from Claude Code:
+
+```
+/run-workflow --repo owner/name "Fix the auth bug"
+```
+
+It walks through five phases automatically: seed (gather parameters), submit (`submit_task`), monitor (`get_status` polling every 60 seconds), HITL (present decisions inline via `AskUserQuestion`), and complete (summarize results and show PR link). See `sandbox/.claude/commands/run-workflow.md` for the full workflow definition.
+
 ### Available Tools
 
 | Tool | Description | Required Parameters | Optional Parameters |
 |------|-------------|---------------------|---------------------|
-| `submit_task` | Submit a task for coordinator processing | `description`, `repo` | `issue_number`, `urgency`, `workflow_hint` |
-| `get_status` | Check task/pipeline status | `task_id` | |
+| `submit_task` | Submit a task for coordinator processing | `description`, `repo` | `issue_number` |
+| `get_status` | Check task/pipeline status; returns coordinator state, pipeline details, and recent messages | `task_id` | |
 | `provide_input` | Respond to a coordinator escalation | `task_id`, `decision_id`, `response` | |
 | `list_tasks` | List coordinator-managed pipelines | (none) | `status_filter`, `limit` |
 | `cancel_task` | Cancel a task | `task_id` | `reason` |
@@ -85,8 +95,6 @@ access is already restricted to the local machine via this port binding.
 - `description` (required) — Natural language task description
 - `repo` (required) — Repository to work on, in `owner/name` format (e.g. `myorg/myrepo`)
 - `issue_number` (int) — GitHub issue number
-- `urgency` — `"low"`, `"normal"` (default), or `"high"`
-- `workflow_hint` — Hint for workflow selection (e.g., `"bug_fix"`, `"feature"`, `"refactor"`)
 
 **`list_tasks` parameters:**
 - `status_filter` — `"active"` (default), `"completed"`, `"failed"`, or `"all"`
