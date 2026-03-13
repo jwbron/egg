@@ -363,6 +363,30 @@ class TestReconcileCoordinatorAgent:
         assert result is False
         store.save_pipeline.assert_not_called()
 
+    def test_handles_version_conflict(self):
+        """Returns False on VersionConflictError (concurrent writer won)."""
+        from state_store import VersionConflictError
+
+        container_id = "coord_agent_123"
+        pipeline = _make_pipeline_with_coordinator_agent(container_id)
+        store = _make_store(pipeline)
+        store.save_pipeline.side_effect = VersionConflictError("conflict")
+        exited_info = _make_container_info(container_id, exit_code=0)
+
+        result = _reconcile_coordinator_agent(store, exited_info, failed=False)
+
+        assert result is False
+
+    def test_handles_store_list_error(self):
+        """Returns False without crashing when store.list_pipelines fails."""
+        store = MagicMock()
+        store.list_pipelines.side_effect = Exception("Store unavailable")
+        exited_info = _make_container_info("some_id")
+
+        result = _reconcile_coordinator_agent(store, exited_info, failed=False)
+
+        assert result is False
+
 
 # ---------------------------------------------------------------------------
 # Tests: create_pipeline_reconciliation_handler

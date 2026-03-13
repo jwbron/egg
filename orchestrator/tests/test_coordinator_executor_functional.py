@@ -182,6 +182,10 @@ class TestInitCoordinatorState:
         executor.init_coordinator_state(pipeline_id="test-pipeline")
 
         mock_emit.assert_called_once()
+        from events import EventType
+
+        call_args = mock_emit.call_args[0]
+        assert call_args[0] == EventType.COORDINATOR_SPAWN
         call_kwargs = mock_emit.call_args[1]
         assert call_kwargs["data"]["role"] == "coordinator"
 

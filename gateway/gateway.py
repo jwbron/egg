@@ -4018,8 +4018,10 @@ def session_update(session_token: str) -> tuple[Response, int] | Response:
     )
 
 
-# Valid SDLC pipeline phases — derived from phase_filter.PipelinePhase to avoid drift
-VALID_PIPELINE_PHASES = frozenset(p.value for p in PipelinePhase)
+# Valid SDLC pipeline phases — derived from phase_filter.PipelinePhase to avoid drift,
+# excluding "coordinator", which is an internal orchestration concern not a phase
+# external callers should set via the session phase endpoint.
+VALID_PIPELINE_PHASES = frozenset(p.value for p in PipelinePhase if p != PipelinePhase.COORDINATOR)
 
 
 @app.route("/api/v1/sessions/<session_token>/phase", methods=["PATCH"])

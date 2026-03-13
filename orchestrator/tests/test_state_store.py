@@ -1034,6 +1034,8 @@ class TestRemoteSync:
         import time
 
         call_count = 0
+        original_in_flight = StateStore._push_in_flight
+        original_pending = StateStore._push_pending
         StateStore._push_in_flight = False
         StateStore._push_pending = False
 
@@ -1057,14 +1059,16 @@ class TestRemoteSync:
             # Two pushes: original + retry triggered by pending flag
             assert call_count == 2
         finally:
-            StateStore._push_in_flight = False
-            StateStore._push_pending = False
+            StateStore._push_in_flight = original_in_flight
+            StateStore._push_pending = original_pending
 
     def test_sync_to_remote_async_no_retry_without_pending(self, state_store):
         """_sync_to_remote_async does not retry when no pending commits arrived."""
         import time
 
         call_count = 0
+        original_in_flight = StateStore._push_in_flight
+        original_pending = StateStore._push_pending
         StateStore._push_in_flight = False
         StateStore._push_pending = False
 
@@ -1084,8 +1088,8 @@ class TestRemoteSync:
             # Only one push — no pending flag was set
             assert call_count == 1
         finally:
-            StateStore._push_in_flight = False
-            StateStore._push_pending = False
+            StateStore._push_in_flight = original_in_flight
+            StateStore._push_pending = original_pending
 
     def test_restore_from_remote_when_branch_exists(self, state_store):
         """_restore_from_remote fetches when remote branch exists."""
@@ -1142,6 +1146,8 @@ class TestRemoteSync:
         import time
 
         call_count = 0
+        original_in_flight = StateStore._push_in_flight
+        original_pending = StateStore._push_pending
         StateStore._push_in_flight = False
         StateStore._push_pending = False
 
@@ -1163,8 +1169,8 @@ class TestRemoteSync:
             # Should be capped at _MAX_PUSH_RETRIES (3): initial + 2 retries
             assert call_count == StateStore._MAX_PUSH_RETRIES
         finally:
-            StateStore._push_in_flight = False
-            StateStore._push_pending = False
+            StateStore._push_in_flight = original_in_flight
+            StateStore._push_pending = original_pending
 
     def test_delete_pipeline_triggers_remote_sync(self, state_store, mock_git):
         """delete_pipeline syncs to remote after committing deletion."""

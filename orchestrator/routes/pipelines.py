@@ -6308,6 +6308,10 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                         try:
                             from egg_container import MountSpec
 
+                            # Coordinator is a pure orchestrator — it should not read or
+                            # modify repository files. Empty repo_volumes + tmpfs over
+                            # ~/repos enforces this: the coordinator can only interact
+                            # via egg-orch CLI commands, not the filesystem.
                             exit_code, container_logs = _spawn_and_wait(
                                 spawner=spawner,
                                 pipeline_id=pipeline_id,
