@@ -161,7 +161,7 @@ For details, see the [Architecture Overview](docs/architecture/README.md) and [G
 | **Linux** (x86_64, arm64) | Supported | Primary development platform |
 | **macOS** (Apple Silicon, Intel) | Supported | Requires Docker Desktop |
 
-Both platforms use the same Docker-based architecture. The `egg` CLI detects the host platform and passes the appropriate UID/GID to the container.
+Both platforms use the same Docker-based architecture. The `egg` CLI detects the host platform and passes the appropriate UID/GID to the container. On macOS, UID/GID conflicts (e.g., GID 20 "staff" colliding with Ubuntu's "dialout") are resolved automatically at container startup.
 
 ## Quick Start
 
