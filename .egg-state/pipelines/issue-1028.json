@@ -788,7 +788,7 @@
       "phase": "pr",
       "status": "running",
       "started_at": "2026-03-13T00:02:29.038186",
-      "work_started_at": null,
+      "work_started_at": "2026-03-13T00:02:29.064801",
       "completed_at": null,
       "containers": [],
       "agents": [],
@@ -836,7 +836,7 @@
     }
   ],
   "created_at": "2026-03-12T21:41:19.267800",
-  "updated_at": "2026-03-13T00:02:29.038392",
+  "updated_at": "2026-03-13T00:02:29.065007",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
@@ -844,5 +844,5 @@
   "error": null,
   "plan_phase_waves": null,
   "plan_phase_names": null,
-  "version": 86
+  "version": 87
 }
