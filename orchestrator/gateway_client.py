@@ -135,9 +135,9 @@ class GatewayClient:
         """Resolve the local IP that routes to the gateway host."""
         try:
             # Resolve gateway hostname to an IP for the UDP probe
-            gateway_addr = socket.getaddrinfo(
-                self.gateway_host, self.gateway_port, socket.AF_INET
-            )[0][4][0]
+            gateway_addr = socket.getaddrinfo(self.gateway_host, self.gateway_port, socket.AF_INET)[
+                0
+            ][4][0]
             # UDP connect (no data sent) reveals which local IP routes there
             with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
                 s.connect((gateway_addr, self.gateway_port))
