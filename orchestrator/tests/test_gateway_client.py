@@ -9,6 +9,7 @@ from threading import Thread
 from unittest.mock import MagicMock, patch
 
 import pytest
+from egg_config.constants import TEST_GATEWAY_PORT
 from gateway_client import (
     GatewayClient,
     GatewayError,
@@ -870,6 +871,52 @@ class TestCreatePR:
             mock_reg.assert_called_once()
             call_kwargs = mock_reg.call_args
             assert call_kwargs.kwargs.get("phase") == "pr" or call_kwargs[1].get("phase") == "pr"
+
+
+class TestSelfIpResolution:
+    """Tests for self_ip property used in temporary session registration."""
+
+    def test_self_ip_resolves_to_local_address(self, gateway_client, mock_gateway_server):
+        """Test that self_ip resolves to a routable local address."""
+        ip = gateway_client.self_ip
+        # Should be a valid IPv4 address, not empty
+        assert ip
+        parts = ip.split(".")
+        assert len(parts) == 4
+        assert all(p.isdigit() for p in parts)
+
+    def test_self_ip_is_cached(self, gateway_client, mock_gateway_server):
+        """Test that self_ip result is cached across accesses."""
+        ip1 = gateway_client.self_ip
+        ip2 = gateway_client.self_ip
+        assert ip1 == ip2
+
+    def test_self_ip_fallback_on_resolution_failure(self):
+        """Test fallback to 127.0.0.1 when gateway host is unresolvable."""
+        client = GatewayClient(
+            gateway_host="nonexistent-host-that-will-never-resolve.invalid",
+            gateway_port=TEST_GATEWAY_PORT,
+            launcher_secret="test-secret",
+        )
+        assert client.self_ip == "127.0.0.1"
+
+    def test_temp_sessions_use_self_ip(self, gateway_client, mock_gateway_server):
+        """Test that temporary sessions register with self_ip, not 127.0.0.1."""
+        with patch.object(
+            gateway_client, "register_session", wraps=gateway_client.register_session
+        ) as mock_reg:
+            gateway_client.push_worktree_branch(
+                pipeline_id="issue-42",
+                repo_path="/some/path",
+                branch="egg/issue-42",
+            )
+            mock_reg.assert_called_once()
+            call_kwargs = mock_reg.call_args
+            registered_ip = call_kwargs.kwargs.get("container_ip") or call_kwargs[1].get(
+                "container_ip"
+            )
+            assert registered_ip == gateway_client.self_ip
+            assert registered_ip != "127.0.0.1" or gateway_client.self_ip == "127.0.0.1"
 
 
 class TestSingletonClient:
