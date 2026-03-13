@@ -791,9 +791,12 @@ def setup_egg_symlink(config: Config, logger: Logger) -> None:
     logger.info("  Use ~/egg/ for runtime scripts instead of ~/repos/egg/sandbox/")
 
 
+_CLAUDE_RULES_DIR = Path("/opt/claude-rules")
+
+
 def setup_agent_rules(config: Config, logger: Logger) -> None:
     """Set up CLAUDE.md agent rules."""
-    rules_dir = Path("/opt/claude-rules")
+    rules_dir = _CLAUDE_RULES_DIR
 
     # All rules always included so CLI tools are discoverable in any session
     rules_order = [

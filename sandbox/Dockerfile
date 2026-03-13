@@ -52,19 +52,23 @@ RUN curl -fsSL https://repo.charm.sh/apt/gpg.key | gpg --dearmor -o /usr/share/k
     && apt-get install -y glow \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Python 3.11 as default (Ubuntu 22.04 ships with 3.10)
-# Required for datetime.UTC and other 3.11+ features used by egg scripts
+# Install Python 3.13 as default (Ubuntu 22.04 ships with 3.10)
 # Note: We run apt-get update twice - once before adding the PPA to refresh
 # base Ubuntu package lists (avoiding stale libexpat1 etc), and once after
-# to pick up deadsnakes packages
+# to pick up deadsnakes packages.
+# python3-pip from apt targets the system Python (3.10), not 3.13 — so we
+# omit it and bootstrap pip via ensurepip after setting update-alternatives.
 RUN apt-get update && \
     add-apt-repository -y ppa:deadsnakes/ppa && \
     apt-get update && \
-    apt-get install -y python3.11 python3.11-venv python3.11-dev python3-pip && \
-    update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1 && \
-    update-alternatives --set python3 /usr/bin/python3.11 && \
+    apt-get install -y python3.13 python3.13-venv python3.13-dev && \
+    update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.13 1 && \
+    update-alternatives --set python3 /usr/bin/python3.13 && \
     # Ensure 'python' command maps to python3 (many tools expect this)
-    update-alternatives --install /usr/bin/python python /usr/bin/python3.11 1
+    update-alternatives --install /usr/bin/python python /usr/bin/python3.13 1 && \
+    # Bootstrap pip for Python 3.13 (ensurepip installs pip3 to /usr/local/bin)
+    python3.13 -m ensurepip --upgrade && \
+    python3.13 -m pip install --upgrade pip
 
 # Install pyyaml early - required by docker-setup.py for reading config
 RUN pip3 install --no-cache-dir pyyaml
