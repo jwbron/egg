@@ -29,6 +29,7 @@ GATEWAY_EXTERNAL_IP = "172.33.0.2"  # Gateway IP in external network
 ORCHESTRATOR_CONTAINER_NAME = "egg-orchestrator"
 ORCHESTRATOR_IMAGE_NAME = "egg-orchestrator"
 ORCHESTRATOR_PORT = 9849
+MCP_SERVER_PORT = 9850
 ORCHESTRATOR_ISOLATED_IP = "172.32.0.3"  # Orchestrator IP in isolated network
 ORCHESTRATOR_EXTERNAL_IP = "172.33.0.3"  # Orchestrator IP in external network
 
@@ -79,6 +80,7 @@ __all__ = [
     "GATEWAY_ISOLATED_IP",
     "GATEWAY_PORT",
     "GATEWAY_PROXY_PORT",
+    "MCP_SERVER_PORT",
     "ORCHESTRATOR_CONTAINER_NAME",
     "ORCHESTRATOR_EXTERNAL_IP",
     "ORCHESTRATOR_IMAGE_NAME",

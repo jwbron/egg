@@ -414,7 +414,7 @@ Fixed IPs:
 - `POST /pipelines/{id}/deployment-check/teardown` - Tear down devserver
 - `GET /pipelines/{id}/health` - On-demand pipeline health check (all tiers)
 
-**MCP Server (`/mcp/`)**  *(optional, requires `EGG_MCP_SERVER_ENABLED=true`)*
+**MCP Server (`/mcp/`)**
 - `GET /health` - MCP server health check
 - `GET /mcp/v1/tools` - List available coordinator tools
 - `POST /mcp/v1/tools/call` - Execute a coordinator tool call

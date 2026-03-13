@@ -50,7 +50,7 @@ These fields in `PipelineConfig` control coordinator behavior:
 
 ## MCP Server
 
-The MCP server runs alongside the orchestrator on port 9850, bridging Claude Code sessions to the coordinator via SSE transport.
+The MCP server runs alongside the orchestrator on port 9850, bridging Claude Code sessions to the coordinator via SSE transport. It starts automatically — no configuration needed.
 
 ### Setup
 
@@ -373,7 +373,7 @@ The coordinator runs with `phase="coordinator"` — a special phase value distin
 
 **Escalation not resolved**: Check pending decisions via `egg-orch decision list <id>`. Escalations create standard HITL decisions that need human resolution.
 
-**MCP connection failed**: Verify the MCP server is running on port 9850 (`curl http://localhost:9850/health`). The server starts as a background thread alongside the orchestrator.
+**MCP connection failed**: Verify the MCP server is running on port 9850 (`curl http://localhost:9850/health`). The server starts automatically as a background thread alongside the orchestrator. Check the MCP port in `~/.config/egg/config.yaml` (`mcp_server_port`).
 
 **Coordinator crash loop**: Check the `coordinator_respawns` counter in coordinator state. If it equals `coordinator_max_respawns`, the pipeline has failed. Review container logs for the root cause: `egg-orch container logs <pipeline_id> <container_id>`.
 
