@@ -1,7 +1,7 @@
 """
 Tests for MCP server (Phase 4).
 
-Tests the SSE-based MCP server sidecar for Claude Code integration,
+Tests the Streamable HTTP MCP server sidecar for Claude Code integration,
 including MCP tool definitions and security model.
 """
 
@@ -33,15 +33,15 @@ class TestMCPServerModuleExists:
 class TestMCPServerStructure:
     """Tests for MCP server implementation structure."""
 
-    def test_mcp_server_uses_sse_transport(self):
-        """MCP server must use SSE transport."""
+    def test_mcp_server_uses_streamable_http_transport(self):
+        """MCP server must use Streamable HTTP transport."""
         mcp_path = _project_root / "orchestrator" / "mcp_server.py"
         if not mcp_path.exists():
             pytest.skip("mcp_server.py not yet created")
 
         content = mcp_path.read_text()
-        has_sse = "sse" in content.lower()
-        assert has_sse, "MCP server should use SSE transport"
+        has_streamable = "streamable" in content.lower()
+        assert has_streamable, "MCP server should use Streamable HTTP transport"
 
     def test_mcp_server_has_health_endpoint(self):
         """MCP server must have a /health endpoint."""
