@@ -643,7 +643,7 @@ class TestExecutorCrashRecovery:
     def test_start_coordinator_raises_when_disabled(
         self, mock_lock, mock_store_fn, mock_emit, tmp_path
     ):
-        """Starting coordinator on disabled pipeline raises ValueError."""
+        """Initialising coordinator state on disabled pipeline raises ValueError."""
         mock_lock.return_value.__enter__ = MagicMock()
         mock_lock.return_value.__exit__ = MagicMock(return_value=False)
 
@@ -654,29 +654,7 @@ class TestExecutorCrashRecovery:
 
         executor = CoordinatorExecutor(tmp_path)
         with pytest.raises(ValueError, match="does not have coordinator enabled"):
-            executor.start_coordinator("test-pipeline")
-
-    @patch("coordinator_executor.emit_event")
-    @patch("coordinator_executor.get_state_store")
-    @patch("coordinator_executor.get_pipeline_state_lock")
-    def test_start_coordinator_propagates_spawn_error(
-        self, mock_lock, mock_store_fn, mock_emit, tmp_path
-    ):
-        """Spawner error should propagate up."""
-        mock_lock.return_value.__enter__ = MagicMock()
-        mock_lock.return_value.__exit__ = MagicMock(return_value=False)
-
-        pipeline = _make_pipeline()
-        store = MagicMock()
-        store.load_pipeline.return_value = pipeline
-        mock_store_fn.return_value = store
-
-        spawner = MagicMock()
-        spawner.spawn_agent_container.side_effect = RuntimeError("docker unavailable")
-
-        executor = CoordinatorExecutor(tmp_path)
-        with pytest.raises(RuntimeError, match="docker unavailable"):
-            executor.start_coordinator("test-pipeline", spawner=spawner)
+            executor.init_coordinator_state("test-pipeline")
 
     @patch("coordinator_executor.emit_event")
     @patch("coordinator_executor.get_state_store")
@@ -798,9 +776,10 @@ class TestMCPToolHandlerGaps:
         """submit_task with issue sets mode='issue'."""
         handler = CoordinatorToolHandler()
         with patch.object(handler, "_make_request") as mock_req:
-            mock_req.return_value = {"data": {"pipeline_id": "issue-42"}}
+            mock_req.return_value = {"data": {"pipeline": {"id": "issue-42"}}}
             result = handler._handle_submit_task({"description": "Fix bug", "issue_number": 42})
-            call_data = mock_req.call_args[1]["data"]
+            # First call is the pipeline create; second is /start
+            call_data = mock_req.call_args_list[0][1]["data"]
             assert call_data["mode"] == "issue"
             assert call_data["issue_number"] == 42
             assert result["task_id"] == "issue-42"
@@ -809,9 +788,10 @@ class TestMCPToolHandlerGaps:
         """submit_task without issue sets mode='local' and includes prompt."""
         handler = CoordinatorToolHandler()
         with patch.object(handler, "_make_request") as mock_req:
-            mock_req.return_value = {"data": {"pipeline_id": "local-abc123"}}
+            mock_req.return_value = {"data": {"pipeline": {"id": "local-abc123"}}}
             handler._handle_submit_task({"description": "Refactor auth"})
-            call_data = mock_req.call_args[1]["data"]
+            # First call is the pipeline create; second is /start
+            call_data = mock_req.call_args_list[0][1]["data"]
             assert call_data["mode"] == "local"
             assert call_data["prompt"] == "Refactor auth"
 

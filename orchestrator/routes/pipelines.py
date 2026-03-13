@@ -3191,6 +3191,22 @@ def _build_agent_prompt(
             prior_feedback=review_feedback,
             repo_path=repo_path,
         )
+    elif role_value == "coordinator":
+        lines.extend(
+            [
+                "You are the COORDINATOR agent. Your mission: analyze the task, "
+                "determine the optimal workflow, and drive the pipeline to completion "
+                "by spawning and orchestrating agents.",
+                "",
+                "1. Run `egg-orch coordinator state $EGG_PIPELINE_ID` to check current state",
+                "2. Choose a workflow based on the task (see coordinator.md in your CLAUDE.md)",
+                "3. Spawn agents in the appropriate order using `egg-orch coordinator spawn`",
+                "4. Monitor progress and handle escalations as needed",
+                "",
+                "Follow the detailed coordinator instructions in your CLAUDE.md.",
+                "",
+            ]
+        )
     else:
         lines.extend(
             [
@@ -6256,6 +6272,31 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                             "EGG_COORDINATOR_TOOLS": "true",
                         }
 
+                        coordinator_prompt = _build_agent_prompt(
+                            role_value="coordinator",
+                            phase=current_phase.value,
+                            pipeline_id=pipeline_id,
+                            pipeline_mode=pipeline_mode,
+                            prompt=pipeline.prompt,
+                            issue_number=pipeline.issue_number,
+                            repo=pipeline.repo,
+                            branch=pipeline.branch,
+                            review_cycle=review_cycle,
+                        )
+                        coordinator_command = [
+                            "claude",
+                            "--dangerously-skip-permissions",
+                            "--print",
+                            "--verbose",
+                            "--output-format",
+                            "stream-json",
+                            "--model",
+                            "opus",
+                            "--max-turns",
+                            "200",
+                            coordinator_prompt,
+                        ]
+
                         try:
                             exit_code, container_logs = _spawn_and_wait(
                                 spawner=spawner,
@@ -6267,7 +6308,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                                 repos=repos,
                                 phase=current_phase,
                                 sandbox_env=coordinator_env,
-                                sandbox_command=None,
+                                sandbox_command=coordinator_command,
                                 store=store,
                                 certs_volume=certs_volume,
                                 branch=pipeline.branch,
