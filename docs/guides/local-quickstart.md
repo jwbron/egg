@@ -180,7 +180,7 @@ egg --exec "make test"     # run a command in an ephemeral container
 
 **Permission denied on repos**: The gateway and orchestrator need to run as your host UID. This is handled automatically via `HOST_UID`/`HOST_GID` in the entrypoint scripts. If issues persist, rebuild with `egg --compose --build`.
 
-**Orchestrator won't start (root-related error)**: The orchestrator refuses to run as root to prevent git artifacts from being created with root ownership. If you see an error about root, HOST_UID, or HOST_GID, it means `HOST_UID`/`HOST_GID` are not set or are set to 0. The `egg` CLI sets these automatically; if running via Docker Compose directly, ensure your `~/.config/egg/config.yaml` includes:
+**Orchestrator won't start (root-related error)**: The orchestrator refuses to run as root to prevent git artifacts from being created with root ownership. If you see an error about root, HOST_UID, or HOST_GID, it means `HOST_UID`/`HOST_GID` are not set or are set to 0. The `egg` CLI sets these automatically; if values are wrong, check your `~/.config/egg/config.yaml`:
 ```yaml
 host_uid: 1000  # output of id -u
 host_gid: 1000  # output of id -g
