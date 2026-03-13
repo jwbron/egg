@@ -9,7 +9,25 @@ Complete documentation for egg: a structurally enforced SDLC pipeline for autono
 ### [Architecture](architecture/)
 System design and technical details.
 
-- **[Overview](architecture/README.md)** - Gateway + sandbox architecture
+- **[Overview](architecture/README.md)** - Gateway + sandbox + orchestrator architecture
+- **[Orchestrator Architecture](architecture/orchestrator.md)** - Deployment modes, state management, health checks
+
+### [Guides](guides/)
+Operational guides for specific features.
+
+- **[SDLC Pipeline](guides/sdlc-pipeline.md)** - Full pipeline operation
+- **[Concurrent Execution](guides/concurrent-execution.md)** - Message bus, readiness signaling, consensus
+- **[Tier 3 Dispatch](guides/tier3-dispatch.md)** - Phase-level parallel execution for high-complexity tasks
+- **[Coordinator Agent](guides/coordinator.md)** - Dynamic orchestration via MCP server
+- **[Checkpoint Access](guides/checkpoint-access.md)** - Querying agent checkpoints
+
+### [Reference](reference/)
+Detailed reference for specific components.
+
+- **[Agent Roles](reference/agent-roles.md)** - All roles: purpose, phase, file permissions, artifacts
+- **[Agent Recovery](reference/agent-recovery.md)** - Retry manager, circuit breaker, resilience utilities
+- **[Post-Agent Commit](reference/post-agent-commit.md)** - Auto-commit on container exit
+- **[Redaction](reference/redaction.md)** - Checkpoint redaction patterns and security model
 
 ### [Development](development/)
 For contributors and developers.
@@ -27,6 +45,7 @@ Architecture Decision Records.
 Each component directory contains its own README with detailed documentation:
 
 - **[Gateway](../gateway/README.md)** - Policy enforcement gateway (API endpoints, policy rules)
+- **[Orchestrator](../orchestrator/README.md)** - Pipeline execution, state management, container lifecycle
 - **[Sandbox](../sandbox/README.md)** - Agent container (entrypoint, tools, wrappers)
 - **[Shared Libraries](../shared/README.md)** - Reusable libraries (config, logging, git)
 - **[Configuration](../config/README.md)** - Repository and host configuration
