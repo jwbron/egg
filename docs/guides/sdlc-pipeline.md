@@ -1427,6 +1427,10 @@ egg/issue-999/reviewer_code     ← code reviewer's work
 egg/issue-999/reviewer_contract ← contract reviewer's work
 ```
 
+After all concurrent agents reach consensus, the integrator runs in a separate
+(non-concurrent) step to merge all per-agent worktree branches, resolve conflicts,
+run the full test suite, and validate integration before the phase completes.
+
 ### Failure Handling
 
 **Single agent failure**:
@@ -1498,9 +1502,10 @@ identify blocked or stuck agents.
 **Message bus empty**: Verify the pipeline has `concurrent_execution: true` in its
 config. The message bus is only active for concurrent pipelines.
 
-**Merge conflicts at integration**: The integrator handles merge conflicts. If
-conflicts are complex, the integrator signals `BLOCKED` and a HITL decision is
-created. Consider adding role-based file restrictions to minimize overlap.
+**Merge conflicts at integration**: After all concurrent agents reach consensus, the
+integrator runs in a separate step to merge per-agent worktree branches. If conflicts
+are complex, the integrator signals `BLOCKED` and a HITL decision is created. Consider
+adding role-based file restrictions to minimize overlap.
 
 ---
 
