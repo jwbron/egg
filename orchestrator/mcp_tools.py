@@ -222,7 +222,7 @@ class CoordinatorToolHandler:
 
         return {
             "task_id": pipeline_id,
-            "status": "created",
+            "status": "started",
             "message": f"Task submitted: {args['description'][:100]}",
         }
 

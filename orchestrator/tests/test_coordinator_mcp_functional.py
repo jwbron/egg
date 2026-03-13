@@ -180,7 +180,7 @@ class TestMCPServerApp:
 
     @patch.object(CoordinatorToolHandler, "handle_tool_call")
     def test_call_tool_success(self, mock_handler, mcp_client):
-        mock_handler.return_value = {"task_id": "issue-42", "status": "created"}
+        mock_handler.return_value = {"task_id": "issue-42", "status": "started"}
 
         # Initialize session
         init_resp = mcp_client.post(
@@ -425,7 +425,7 @@ class TestCoordinatorToolHandler:
             {"description": "Fix auth bug", "issue_number": 42, "repo": "owner/repo"},
         )
         assert result["task_id"] == "issue-42"
-        assert result["status"] == "created"
+        assert result["status"] == "started"
         # First call is the pipeline create; second is /start
         assert mock_req.call_count == 2
         call_data = mock_req.call_args_list[0][1]["data"]
@@ -556,6 +556,22 @@ class TestCoordinatorToolHandler:
         assert result["task_id"] == ""
         # No /start call when pipeline_id is empty
         assert mock_req.call_count == 1
+
+    @patch.object(CoordinatorToolHandler, "_make_request")
+    def test_submit_task_start_failure_returns_created_not_started(self, mock_req):
+        """If /start fails, caller gets task_id with created_not_started status."""
+        mock_req.side_effect = [
+            {"data": {"pipeline": {"id": "test-123"}}},  # create succeeds
+            Exception("connection refused"),  # start fails
+        ]
+        handler = CoordinatorToolHandler()
+        result = handler.handle_tool_call(
+            "submit_task",
+            {"description": "Fix bug", "repo": "owner/repo"},
+        )
+        assert result["task_id"] == "test-123"
+        assert result["status"] == "created_not_started"
+        assert mock_req.call_count == 2
 
     @patch.object(CoordinatorToolHandler, "_make_request")
     def test_list_tasks_default_filter_is_active(self, mock_req):
