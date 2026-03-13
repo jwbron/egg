@@ -316,16 +316,39 @@ class TestMCPServerApp:
             result = json.loads(result_text)
             assert "Rate limit exceeded" in result.get("error", "")
 
-    def test_tools_registered_with_correct_schemas(self):
+    def test_tools_registered_with_correct_schemas(self, mcp_client):
         """All tools should be registered in FastMCP with proper parameters."""
-        server = MCPServer(
-            orchestrator_url="http://localhost:9849",
-            port=9850,
-            rate_limit=100,
+        headers = {"Content-Type": "application/json", "Accept": "application/json"}
+        init_resp = mcp_client.post(
+            "/mcp",
+            json={
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2025-03-26",
+                    "capabilities": {},
+                    "clientInfo": {"name": "test", "version": "0.1.0"},
+                },
+            },
+            headers=headers,
         )
-        mcp = server.create_app()
-        tools = list(mcp._tool_manager._tools.values())
-        tool_names = {t.name for t in tools}
+        session_id = init_resp.headers.get("mcp-session-id")
+        if session_id:
+            headers["mcp-session-id"] = session_id
+        mcp_client.post(
+            "/mcp",
+            json={"jsonrpc": "2.0", "method": "notifications/initialized"},
+            headers=headers,
+        )
+        resp = mcp_client.post(
+            "/mcp",
+            json={"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}},
+            headers=headers,
+        )
+        assert resp.status_code == 200
+        tools = resp.json()["result"]["tools"]
+        tool_names = {t["name"] for t in tools}
         assert tool_names == {
             "submit_task",
             "get_status",

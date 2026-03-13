@@ -6,11 +6,14 @@ via Streamable HTTP transport using the official mcp Python SDK.
 Runs as a sidecar alongside the orchestrator.
 """
 
+import functools
 import json
 import sys
 import threading
 import time
 from pathlib import Path
+
+import anyio
 
 _shared_path = Path(__file__).parent.parent / "shared"
 if _shared_path.exists() and str(_shared_path) not in sys.path:
@@ -33,25 +36,27 @@ DEFAULT_RATE_LIMIT = 30  # requests per minute
 
 
 class RateLimiter:
-    """Simple token bucket rate limiter."""
+    """Simple sliding-window rate limiter (async-safe)."""
 
     def __init__(self, max_requests: int = DEFAULT_RATE_LIMIT, window_seconds: int = 60):
         self.max_requests = max_requests
         self.window_seconds = window_seconds
         self._requests: list[float] = []
-        self._lock = threading.Lock()
 
     def allow(self) -> bool:
-        """Check if a request is allowed."""
+        """Check if a request is allowed.
+
+        Safe to call from the event loop — no locks, just list operations
+        which are atomic under the GIL in CPython and fast enough that
+        contention is not a concern for single-event-loop usage.
+        """
         now = time.time()
-        with self._lock:
-            # Remove expired entries
-            cutoff = now - self.window_seconds
-            self._requests = [t for t in self._requests if t > cutoff]
-            if len(self._requests) >= self.max_requests:
-                return False
-            self._requests.append(now)
-            return True
+        cutoff = now - self.window_seconds
+        self._requests = [t for t in self._requests if t > cutoff]
+        if len(self._requests) >= self.max_requests:
+            return False
+        self._requests.append(now)
+        return True
 
 
 class MCPServer:
@@ -118,7 +123,9 @@ class MCPServer:
             async def tool_fn(**kwargs) -> str:
                 if not rate_limiter.allow():
                     return json.dumps({"error": "Rate limit exceeded"})
-                result = tool_handler.handle_tool_call(tool_name, kwargs)
+                result = await anyio.to_thread.run_sync(
+                    functools.partial(tool_handler.handle_tool_call, tool_name, kwargs)
+                )
                 return json.dumps(result, indent=2)
 
             # Build a useful signature so FastMCP can inspect parameters
@@ -152,14 +159,15 @@ class MCPServer:
         self._mcp = mcp
         return mcp
 
-    def run(self, host: str = "0.0.0.0", debug: bool = False):
+    def run(self):
         """Start the MCP server.
 
         Binds to 0.0.0.0 inside the container so Docker port forwarding works.
-        Localhost-only access is enforced by the docker-compose port mapping.
+        Host is set in the FastMCP constructor; localhost-only access is enforced
+        by the docker-compose port mapping.
         """
         mcp = self.create_app()
-        logger.info("Starting MCP server", port=self.port, host=host)
+        logger.info("Starting MCP server", port=self.port)
         mcp.run(transport="streamable-http")
 
 

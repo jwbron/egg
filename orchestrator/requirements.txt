@@ -18,4 +18,4 @@ pyyaml>=6.0.0
 requests>=2.31.0
 
 # MCP SDK for Streamable HTTP transport (coordinator MCP server)
-mcp[cli]>=1.0.0
+mcp[cli]>=1.0.0,<2.0.0

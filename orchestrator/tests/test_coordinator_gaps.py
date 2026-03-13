@@ -874,18 +874,51 @@ class TestMCPServerGaps:
             assert resp.json()["status"] == "healthy"
 
     def test_mcp_server_registers_all_five_tools(self):
+        from starlette.testclient import TestClient
+
         server = MCPServer()
         mcp = server.create_app()
-        tools = list(mcp._tool_manager._tools.values())
-        assert len(tools) == 5
-        names = {t.name for t in tools}
-        assert names == {
-            "submit_task",
-            "get_status",
-            "provide_input",
-            "list_tasks",
-            "cancel_task",
-        }
+        app = mcp.streamable_http_app()
+        with TestClient(app) as client:
+            headers = {"Content-Type": "application/json", "Accept": "application/json"}
+            init_resp = client.post(
+                "/mcp",
+                json={
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "initialize",
+                    "params": {
+                        "protocolVersion": "2025-03-26",
+                        "capabilities": {},
+                        "clientInfo": {"name": "test", "version": "0.1.0"},
+                    },
+                },
+                headers=headers,
+            )
+            session_id = init_resp.headers.get("mcp-session-id")
+            if session_id:
+                headers["mcp-session-id"] = session_id
+            client.post(
+                "/mcp",
+                json={"jsonrpc": "2.0", "method": "notifications/initialized"},
+                headers=headers,
+            )
+            resp = client.post(
+                "/mcp",
+                json={"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}},
+                headers=headers,
+            )
+            assert resp.status_code == 200
+            tools = resp.json()["result"]["tools"]
+            assert len(tools) == 5
+            names = {t["name"] for t in tools}
+            assert names == {
+                "submit_task",
+                "get_status",
+                "provide_input",
+                "list_tasks",
+                "cancel_task",
+            }
 
     def test_mcp_server_mcp_endpoint_responds(self):
         from starlette.testclient import TestClient
