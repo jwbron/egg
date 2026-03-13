@@ -68,6 +68,7 @@ class CoordinatorExecutor:
         image: str | None = None,
         certs_volume: str | None = None,
         branch: str | None = None,
+        pipeline_env: dict[str, str] | None = None,
     ):
         """Spawn the coordinator container for a pipeline.
 
@@ -89,11 +90,14 @@ class CoordinatorExecutor:
             pipeline.status = PipelineStatus.RUNNING
             store.save_pipeline(pipeline)
 
-        # Build coordinator-specific environment
-        extra_env = {
-            "EGG_COORDINATOR_MODE": "true",
-            "EGG_COORDINATOR_TOOLS": "true",
-        }
+        # Build coordinator-specific environment, merging with pipeline env
+        extra_env = dict(pipeline_env or {})
+        extra_env.update(
+            {
+                "EGG_COORDINATOR_MODE": "true",
+                "EGG_COORDINATOR_TOOLS": "true",
+            }
+        )
         if issue_number:
             extra_env["EGG_ISSUE_NUMBER"] = str(issue_number)
 

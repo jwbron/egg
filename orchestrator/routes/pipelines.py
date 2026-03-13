@@ -6258,6 +6258,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                                 repos=repos,
                                 certs_volume=certs_volume,
                                 branch=pipeline.branch,
+                                pipeline_env=sandbox_env,
                             )
 
                             # Wait for coordinator container to complete
