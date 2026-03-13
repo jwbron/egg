@@ -513,6 +513,30 @@ def print_checkpoint_details(checkpoint: CheckpointV2 | dict[str, Any]) -> None:
         for op, count in sorted(op_counts.items()):
             print(f"  {op}: {count}")
 
+    # Inter-agent messages (concurrent execution mode)
+    inter_agent_messages = data.get("inter_agent_messages", [])
+    if inter_agent_messages:
+        print()
+        print(f"Inter-Agent Messages: {len(inter_agent_messages)}")
+        sent = sum(1 for m in inter_agent_messages if m.get("direction") == "sent")
+        received = sum(1 for m in inter_agent_messages if m.get("direction") == "received")
+        print(f"  Sent: {sent}, Received: {received}")
+        # Group by message type
+        type_counts: dict[str, int] = {}
+        for m in inter_agent_messages:
+            msg_type = m.get("message_type", "unknown")
+            type_counts[msg_type] = type_counts.get(msg_type, 0) + 1
+        for msg_type, count in sorted(type_counts.items(), key=lambda x: -x[1]):
+            print(f"  {msg_type}: {count}")
+        print()
+        for m in inter_agent_messages:
+            direction = m.get("direction", "?")
+            arrow = "->" if direction == "sent" else "<-"
+            other = m.get("to_role") if direction == "sent" else m.get("from_role")
+            subject = m.get("subject", "")
+            timestamp = m.get("timestamp", "")
+            print(f"  {arrow} {other}: [{m.get('message_type', '')}] {subject} ({timestamp})")
+
 
 def _get_source_repo(repo_path: str | None = None) -> str | None:
     """Extract source repo name (owner/repo) from git remote URL.

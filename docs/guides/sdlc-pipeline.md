@@ -1267,4 +1267,237 @@ egg-contract add-feedback --question "What is the expected request volume?" --qu
 
 ---
 
+## Concurrent Execution Mode
+
+Concurrent execution mode enables all agents (coder, tester, documenter, integrator)
+to run simultaneously during the implement phase, collaborating via a polling-based
+message bus hosted by the orchestrator.
+
+### Configuration
+
+Enable concurrent execution with the `--concurrent` CLI flag:
+
+```bash
+# Issue mode
+egg-sdlc -r egg -i 999 --concurrent
+
+# Local/prompt mode
+egg-sdlc -r egg -p "Add feature X" --concurrent
+
+# Via egg-orch directly
+egg-orch pipeline create --repo owner/repo --issue 999 --branch egg/issue-999 --concurrent
+```
+
+Or pass it in the pipeline config JSON (e.g. via the API):
+
+```json
+{
+  "config": {
+    "concurrent_execution": true,
+    "max_concurrent_agents": 4,
+    "message_poll_hint_seconds": 30,
+    "consensus_timeout_minutes": 30,
+    "agent_idle_timeout_minutes": 60
+  }
+}
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `concurrent_execution` | bool | `false` | Enable concurrent mode (opt-in) |
+| `max_concurrent_agents` | int | `4` | Maximum agents running simultaneously |
+| `message_poll_hint_seconds` | int | `30` | Suggested polling interval for agents |
+| `consensus_timeout_minutes` | int | `30` | Timeout before HITL escalation |
+| `agent_idle_timeout_minutes` | int | `60` | Agent idle timeout |
+
+When `concurrent_execution` is `false` (default), the pipeline uses the existing
+wave-based sequential model (Coder → Tester+Documenter → Integrator) and all
+concurrent features are inactive.
+
+### Message Protocol
+
+Agents communicate via the orchestrator message bus using structured envelopes:
+
+```
+┌─────────────────────────────────────────────────────┐
+│  Message Envelope                                    │
+│  id: "msg-abc123"                                    │
+│  pipeline_id: "issue-999"                            │
+│  from_role: "coder"                                  │
+│  to_role: "tester" | "all"                           │
+│  message_type: "PROGRESS" | "QUESTION" | "STATUS"    │
+│  subject: "API endpoints complete"                   │
+│  body: "Implemented GET/POST/DELETE for /api/users"  │
+│  timestamp: "2026-03-11T10:30:00Z"                   │
+└─────────────────────────────────────────────────────┘
+```
+
+**Message types**:
+
+| Type | Purpose | Example |
+|------|---------|---------|
+| `PROGRESS` | Notify about completed work | Coder: "API endpoints committed" |
+| `QUESTION` | Ask another agent for clarification | Tester: "Expected status for invalid input?" |
+| `RESPONSE` | Reply to a question | Coder: "400 Bad Request" |
+| `STATUS` | Share current activity | Documenter: "Documenting API section" |
+| `AGENT_FAILED` | System notification of failure | System: "Tester agent crashed" |
+
+**CLI commands**:
+
+```bash
+# Send a message to another agent
+egg-orch message send --to tester --type PROGRESS --subject "API done" --body "..."
+
+# Poll for new messages
+egg-orch message poll [--since msg-abc123] [--limit 50]
+
+# Check message bus status
+egg-orch message status
+```
+
+### Consensus Protocol
+
+Phase completion in concurrent mode uses a consensus-based approach:
+
+1. Each agent works independently on its tasks
+2. When an agent completes its work, it signals `READY`
+3. Phase completes when **all** agents signal `READY`
+   - The orchestrator polls every 5 seconds and stops containers immediately on consensus
+4. Any agent can object (signal `OBJECTING`) to block completion
+   - A HITL decision is created with options: **Override objections**, **Wait for resolution**, **Abort phase**
+5. Timeout (`consensus_timeout_minutes`, default 30) triggers HITL escalation
+   - Options: **Continue waiting**, **Accept current state**, **Abort phase**
+   - Phase falls back to exit-code-based completion while awaiting the decision
+6. If all containers exit before consensus, the phase completes based on container exit codes (same as non-concurrent mode)
+
+**Readiness states**:
+
+| State | Meaning |
+|-------|---------|
+| `WORKING` | Agent is actively working (initial state) |
+| `READY` | Agent has completed its work |
+| `BLOCKED` | Agent cannot proceed (awaiting input/dependency) |
+| `OBJECTING` | Agent disagrees with phase completion |
+
+Agents can transition from `READY` back to `WORKING` if new information requires
+additional work (e.g., a message from another agent reveals an issue).
+
+**CLI commands**:
+
+```bash
+# Signal readiness
+egg-orch signal readiness --state READY --reason "All tests pass"
+
+# Signal objection
+egg-orch signal readiness --state OBJECTING --reason "Found failing test"
+```
+
+### Agent Behavior
+
+Each agent role has specific behavior patterns in concurrent mode:
+
+**Coder**: Implements code and sends `PROGRESS` messages when key interfaces are
+committed. Responds to `QUESTION` messages from tester/documenter. Signals `READY`
+after all implementation tasks are committed.
+
+**Tester**: Begins scaffolding tests early. Polls for coder `PROGRESS` to know when
+code is ready. Sends `QUESTION` messages for clarification. Signals `READY` after
+tests pass.
+
+**Documenter**: Starts documentation based on the plan. Refines as implementation
+solidifies. Polls for `PROGRESS` from coder/tester. Signals `READY` after docs cover
+all changes.
+
+**Integrator**: Waits for all other agents to signal `READY`. Merges per-agent
+worktree branches. Resolves conflicts. Signals `READY` after successful merge and
+validation.
+
+### Per-Agent Worktrees
+
+Each concurrent agent operates on its own worktree branch to avoid git conflicts:
+
+```
+egg/issue-999/coder       ← coder's work
+egg/issue-999/tester      ← tester's work
+egg/issue-999/documenter  ← documenter's work
+egg/issue-999/integrator  ← integrator merges all
+```
+
+The integrator is responsible for merging all agent branches at phase end.
+
+### Failure Handling
+
+**Single agent failure**:
+1. Error is logged
+2. `AGENT_FAILED` message sent to all other agents
+3. HITL decision created with options: **Retry** (respawn), **Abort phase** (stop all),
+   or **Continue without** (proceed without the failed agent)
+
+**Multiple simultaneous failures** (2+ agents within 60 seconds):
+- Phase is immediately aborted
+- All remaining agents are stopped
+- HITL decision created for human investigation
+
+**Failure during consensus** (after READY signal):
+- Agent's READY signal is revoked
+- Treated as a single agent failure (above)
+
+### Monitoring
+
+Pipeline status includes concurrent execution data when the feature is enabled:
+
+```bash
+egg-orch pipeline status issue-999
+```
+
+Response includes a `concurrent` section:
+
+```json
+{
+  "concurrent": {
+    "enabled": true,
+    "max_concurrent_agents": 4,
+    "messages": {
+      "total": 12,
+      "by_type": {"PROGRESS": 5, "QUESTION": 3, "RESPONSE": 3, "STATUS": 1}
+    },
+    "consensus": {
+      "agents": {
+        "coder": {"state": "READY", "reason": "Implementation complete"},
+        "tester": {"state": "WORKING", "reason": null},
+        "documenter": {"state": "READY", "reason": "Docs updated"},
+        "integrator": {"state": "WORKING", "reason": null}
+      },
+      "is_complete": false,
+      "blocking_agents": ["tester", "integrator"]
+    }
+  }
+}
+```
+
+Inter-agent message history is also captured in agent checkpoints and visible via:
+
+```bash
+egg-checkpoint show ckpt-<id>
+```
+
+### Troubleshooting
+
+**Agent not receiving messages**: Check that the agent is polling with the correct
+role. Messages are filtered by `to_role` — only targeted messages and broadcasts
+(`to_role: "all"`) are returned.
+
+**Consensus timeout**: If agents don't reach consensus within `consensus_timeout_minutes`,
+a HITL decision is created. Check agent states via `egg-orch pipeline status` to
+identify blocked or stuck agents.
+
+**Message bus empty**: Verify the pipeline has `concurrent_execution: true` in its
+config. The message bus is only active for concurrent pipelines.
+
+**Merge conflicts at integration**: The integrator handles merge conflicts. If
+conflicts are complex, the integrator signals `BLOCKED` and a HITL decision is
+created. Consider adding role-based file restrictions to minimize overlap.
+
+---
+
 *See also: [The Agentic Feedback Loop](../agentic-feedback-loop.md), [ADR: SDLC Pipeline](../adr/implemented/ADR-SDLC-Pipeline.md), [Analysis Template](../templates/analysis.md), [Plan Template](../templates/plan.md), [GitHub Automation](github-automation.md)*

@@ -36,6 +36,7 @@ class PipelinePhase(StrEnum):
     PLAN = "plan"
     IMPLEMENT = "implement"
     PR = "pr"
+    COORDINATOR = "coordinator"
 
 
 @dataclass
@@ -205,7 +206,10 @@ class PhaseFileRestriction:
 
             for pattern in self.allowed_patterns:
                 if self._matches_pattern(normalized, pattern):
-                    return True, f"File '{file_path}' matches allowed pattern '{pattern}'"
+                    return (
+                        True,
+                        f"File '{file_path}' matches allowed pattern '{pattern}'",
+                    )
 
             return False, f"File '{file_path}' does not match any allowed pattern"
 
@@ -415,12 +419,18 @@ class PhaseFilter:
                     Operation(OperationType.GH, "issue edit *", "Edit issues"),
                     Operation(OperationType.GIT, "push *", "Push state files to remote"),
                     Operation(
-                        OperationType.EGG_CONTRACT, "add-decision *", "Create HITL decisions"
+                        OperationType.EGG_CONTRACT,
+                        "add-decision *",
+                        "Create HITL decisions",
                     ),
                     Operation(OperationType.EGG_CONTRACT, "show *", "View contract state"),
                 ],
                 blocked_operations=[
-                    Operation(OperationType.GH, "pr create*", "Cannot create PRs during analyze"),
+                    Operation(
+                        OperationType.GH,
+                        "pr create*",
+                        "Cannot create PRs during analyze",
+                    ),
                 ],
                 exit_requires="human",
             ),
@@ -430,7 +440,9 @@ class PhaseFilter:
                     Operation(OperationType.GH, "issue edit *", "Edit issues"),
                     Operation(OperationType.GIT, "push *", "Push state files to remote"),
                     Operation(
-                        OperationType.EGG_CONTRACT, "add-decision *", "Create HITL decisions"
+                        OperationType.EGG_CONTRACT,
+                        "add-decision *",
+                        "Create HITL decisions",
                     ),
                     Operation(OperationType.EGG_CONTRACT, "show *", "View contract state"),
                 ],
@@ -447,7 +459,11 @@ class PhaseFilter:
                     Operation(OperationType.EGG_CONTRACT, "show *", "View contract state"),
                 ],
                 blocked_operations=[
-                    Operation(OperationType.GH, "pr create*", "Cannot create PRs until complete"),
+                    Operation(
+                        OperationType.GH,
+                        "pr create*",
+                        "Cannot create PRs until complete",
+                    ),
                 ],
                 exit_requires="reviewer",
             ),
@@ -459,6 +475,27 @@ class PhaseFilter:
                     Operation(OperationType.EGG_CONTRACT, "show *", "View contract state"),
                 ],
                 blocked_operations=[],
+                exit_requires="human",
+            ),
+            PipelinePhase.COORDINATOR: PhasePermissions(
+                allowed_operations=[
+                    Operation(OperationType.GIT, "push *", "Push state files to remote"),
+                    Operation(
+                        OperationType.EGG_CONTRACT,
+                        "add-decision *",
+                        "Create HITL decisions",
+                    ),
+                    Operation(
+                        OperationType.EGG_CONTRACT,
+                        "add-feedback *",
+                        "Create HITL feedback",
+                    ),
+                    Operation(OperationType.EGG_CONTRACT, "show *", "View contract state"),
+                ],
+                blocked_operations=[
+                    Operation(OperationType.GH, "pr create*", "Coordinator cannot create PRs"),
+                    Operation(OperationType.GH, "pr merge*", "Coordinator cannot merge PRs"),
+                ],
                 exit_requires="human",
             ),
         }
@@ -477,7 +514,9 @@ class PhaseFilter:
             ),
         ]
 
-    def _get_default_phase_file_restrictions(self) -> dict[PipelinePhase, PhaseFileRestriction]:
+    def _get_default_phase_file_restrictions(
+        self,
+    ) -> dict[PipelinePhase, PhaseFileRestriction]:
         """Get default phase-based file restrictions.
 
         These defaults define which files can be pushed during each phase:
@@ -521,6 +560,18 @@ class PhaseFilter:
             PipelinePhase.PR: PhaseFileRestriction(
                 allowed_patterns=["*"],
                 description="PR phase can push everything",
+            ),
+            PipelinePhase.COORDINATOR: PhaseFileRestriction(
+                allowed_patterns=[
+                    ".egg-state/agent-outputs/*",
+                    ".egg-state/checkpoints/*",
+                ],
+                blocked_patterns=[
+                    ".egg-state/contracts/*",
+                    ".egg-state/drafts/*",
+                    ".egg-state/reviews/*",
+                ],
+                description="Coordinator phase can only push agent outputs and checkpoints",
             ),
         }
 

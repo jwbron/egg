@@ -38,6 +38,7 @@ class PipelinePhase(StrEnum):
     PLAN = "plan"
     IMPLEMENT = "implement"
     PR = "pr"
+    COORDINATOR = "coordinator"
 
 
 class DecisionType(StrEnum):

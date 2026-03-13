@@ -54,6 +54,8 @@ class AgentRole:
     REVIEWER_REFINE = "reviewer_refine"
     REVIEWER_PLAN = "reviewer_plan"
     REVIEWER_UNIFIED = "reviewer_unified"  # Vestigial: kept for backwards compatibility with persisted pipeline state
+    # Coordinator role
+    COORDINATOR = "coordinator"
 
 
 @dataclass
@@ -199,7 +201,6 @@ CODER_PATTERNS = AgentFilePattern(
         # Documentation (Documenter handles)
         "docs/",
         "**/README.md",
-        "**/CHANGELOG.md",
         "**/*.md",
         # Contracts (API only)
         ".egg-state/contracts/",
@@ -257,7 +258,6 @@ TESTER_PATTERNS = AgentFilePattern(
         # Documentation (Documenter handles)
         "docs/",
         "**/README.md",
-        "**/CHANGELOG.md",
         # Contracts
         ".egg-state/contracts/",
     ],
@@ -272,7 +272,6 @@ DOCUMENTER_PATTERNS = AgentFilePattern(
         # Markdown files anywhere
         "**/*.md",
         "**/README.md",
-        "**/CHANGELOG.md",
         # Handoff output
         ".egg-state/agent-outputs/",
     ],
@@ -488,6 +487,36 @@ REVIEWER_UNIFIED_PATTERNS = AgentFilePattern(
     blocked_patterns=_REVIEWER_BLOCKED,
 )
 
+# Coordinator agent patterns
+# Coordinator can only write to agent-outputs (for state persistence)
+COORDINATOR_PATTERNS = AgentFilePattern(
+    role=AgentRole.COORDINATOR,
+    description="Coordinator agent: agent-outputs only (orchestrates other agents)",
+    allowed_patterns=[
+        ".egg-state/agent-outputs/",
+    ],
+    blocked_patterns=[
+        # Source code (coordinator must not modify code directly)
+        "src/",
+        "lib/",
+        "shared/",
+        "gateway/",
+        "sandbox/",
+        "action/",
+        "orchestrator/",
+        # Docs and tests
+        "docs/",
+        "tests/",
+        "test/",
+        # Protected state
+        ".egg-state/contracts/",
+        ".egg-state/drafts/",
+        ".egg-state/reviews/",
+        ".github/",
+    ],
+)
+
+
 # Registry of all agent patterns
 AGENT_PATTERNS: dict[str, AgentFilePattern] = {
     AgentRole.CODER: CODER_PATTERNS,
@@ -504,6 +533,7 @@ AGENT_PATTERNS: dict[str, AgentFilePattern] = {
     AgentRole.REVIEWER_REFINE: REVIEWER_REFINE_PATTERNS,
     AgentRole.REVIEWER_PLAN: REVIEWER_PLAN_PATTERNS,
     AgentRole.REVIEWER_UNIFIED: REVIEWER_UNIFIED_PATTERNS,
+    AgentRole.COORDINATOR: COORDINATOR_PATTERNS,
 }
 
 

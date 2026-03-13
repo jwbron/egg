@@ -19,6 +19,7 @@ class PipelinePhase(StrEnum):
     PLAN = "plan"
     IMPLEMENT = "implement"
     PR = "pr"
+    COORDINATOR = "coordinator"
 
 
 class PipelineStatus(StrEnum):
@@ -78,6 +79,8 @@ class AgentRole(StrEnum):
     REFINER = "refiner"
     # Health check roles
     INSPECTOR = "inspector"
+    # Coordinator role
+    COORDINATOR = "coordinator"
     # Reviewer roles (specific subtypes)
     REVIEWER_CODE = "reviewer_code"
     REVIEWER_CONTRACT = "reviewer_contract"
@@ -246,6 +249,75 @@ class ComplexityTier(StrEnum):
     HIGH = "high"
 
 
+class AgentSpawnRecord(BaseModel):
+    """Record of a coordinator-spawned agent."""
+
+    role: AgentRole = Field(..., description="Agent role that was spawned")
+    spawned_at: datetime = Field(default_factory=datetime.utcnow, description="When spawned")
+    completed_at: datetime | None = Field(default=None, description="When completed")
+    status: str = Field(
+        default="running", description="Status: running, complete, failed, cancelled"
+    )
+    container_id: str | None = Field(default=None, description="Container ID")
+    task_context: str = Field(default="", description="Task description given to the agent")
+    retry_number: int = Field(default=0, ge=0, description="Retry attempt number")
+
+
+class PhaseDecision(BaseModel):
+    """Record of a coordinator phase decision."""
+
+    phase: str = Field(..., description="Phase that was decided on")
+    action: str = Field(..., description="Action taken: advance, skip, loopback")
+    reason: str = Field(default="", description="Reason for the decision")
+    decided_at: datetime = Field(default_factory=datetime.utcnow, description="When decided")
+
+
+class Escalation(BaseModel):
+    """Record of a coordinator escalation to human."""
+
+    question: str = Field(..., description="Question posed to human")
+    escalation_type: str = Field(default="choice", description="Type: choice or feedback")
+    created_at: datetime = Field(default_factory=datetime.utcnow, description="When created")
+    resolved_at: datetime | None = Field(default=None, description="When resolved")
+    resolution: str | None = Field(default=None, description="Human's response")
+
+
+class GuardrailCounters(BaseModel):
+    """Counters for coordinator guardrail enforcement."""
+
+    total_agents_spawned: int = Field(default=0, ge=0, description="Total agents spawned")
+    retries_by_role: dict[str, int] = Field(
+        default_factory=dict, description="Retry count per role"
+    )
+    coordinator_respawns: int = Field(default=0, ge=0, description="Coordinator respawn count")
+    started_at: datetime = Field(
+        default_factory=datetime.utcnow, description="When coordinator started"
+    )
+
+
+class CoordinatorState(BaseModel):
+    """Persistent state for coordinator-driven pipelines.
+
+    Stores workflow decisions, agent spawn history, phase transitions,
+    escalation history, and guardrail counters. Persisted in the Pipeline
+    model so a crashed coordinator can re-assess from current state.
+    """
+
+    workflow_type: str = Field(
+        default="", description="Detected workflow type (e.g., bug_fix, feature)"
+    )
+    agents_spawned: list[AgentSpawnRecord] = Field(
+        default_factory=list, description="History of spawned agents"
+    )
+    phase_decisions: list[PhaseDecision] = Field(
+        default_factory=list, description="Phase transition decisions"
+    )
+    escalations: list[Escalation] = Field(default_factory=list, description="Escalation history")
+    guardrail_counters: GuardrailCounters = Field(
+        default_factory=GuardrailCounters, description="Guardrail enforcement counters"
+    )
+
+
 class PipelineConfig(BaseModel):
     """Configuration for pipeline execution."""
 
@@ -255,7 +327,8 @@ class PipelineConfig(BaseModel):
         "This field is retained for backwards compatibility with existing pipeline configs.",
     )
     multi_agent: bool = Field(
-        default=True, description="Use multi-agent execution in implement and plan phases"
+        default=True,
+        description="Use multi-agent execution in implement and plan phases",
     )
     parallel_agents: bool = Field(default=True, description="Run independent agents in parallel")
     max_parallel_agents: int = Field(
@@ -268,14 +341,47 @@ class PipelineConfig(BaseModel):
         description="Max HITL revision cycles per phase (independent of agentic review budget)",
     )
     hitl_gates: bool = Field(
-        default=True, description="Pause for human approval after analyze and plan phases"
+        default=True,
+        description="Pause for human approval after analyze and plan phases",
     )
     allow_short_circuit: bool = Field(
-        default=True, description="Allow analyze agent to skip plan phase for low-complexity tasks"
+        default=True,
+        description="Allow analyze agent to skip plan phase for low-complexity tasks",
     )
     enable_parallel_phases: bool = Field(
         default=True,
         description="Enable parallel phase execution for independent plan phases (Tier 3 only)",
+    )
+    concurrent_execution: bool = Field(
+        default=False,
+        description="Enable concurrent agent execution within a phase (all agents start simultaneously)",
+    )
+    max_concurrent_agents: int = Field(
+        default=6, ge=1, description="Maximum concurrent agents per phase"
+    )
+    message_poll_hint_seconds: int = Field(
+        default=30, ge=1, description="Suggested message polling interval for agents"
+    )
+    consensus_timeout_minutes: int = Field(
+        default=30, ge=1, description="Timeout for consensus before HITL escalation"
+    )
+    agent_idle_timeout_minutes: int = Field(
+        default=60, ge=1, description="Timeout for idle agents before termination"
+    )
+    coordinator_enabled: bool = Field(
+        default=False,
+        description="Enable coordinator-driven dynamic orchestration instead of fixed-phase dispatch",
+    )
+    coordinator_max_agents: int = Field(
+        default=10, ge=1, description="Maximum total agents the coordinator can spawn"
+    )
+    coordinator_max_retries_per_role: int = Field(
+        default=2,
+        ge=0,
+        description="Maximum retries per agent role in coordinator mode",
+    )
+    coordinator_max_respawns: int = Field(
+        default=2, ge=0, description="Maximum coordinator respawns after crash"
     )
 
 
@@ -322,13 +428,18 @@ class Pipeline(BaseModel):
         return v
 
     short_circuit: bool = Field(
-        default=False, description="Skip plan phase (analyze → implement) for low-complexity tasks"
+        default=False,
+        description="Skip plan phase (analyze → implement) for low-complexity tasks",
     )
     complexity_tier: ComplexityTier = Field(
         default=ComplexityTier.MID,
         description="Complexity tier: low (short-circuit), mid (standard), high (phase-level dispatch)",
     )
     error: str | None = Field(default=None, description="Error if failed")
+    coordinator_state: CoordinatorState | None = Field(
+        default=None,
+        description="Coordinator workflow state for coordinator-driven pipelines",
+    )
     plan_phase_waves: list[list[str]] | None = Field(
         default=None,
         description="Tier 3 plan phase waves for DAG visualization. "
@@ -341,7 +452,9 @@ class Pipeline(BaseModel):
         "Populated alongside plan_phase_waves by _run_tier3_implement().",
     )
     version: int = Field(
-        default=1, ge=1, description="Optimistic locking version (incremented on each save)"
+        default=1,
+        ge=1,
+        description="Optimistic locking version (incremented on each save)",
     )
 
     def get_phase_execution(self, phase: PipelinePhase) -> PhaseExecution:

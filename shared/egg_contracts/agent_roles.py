@@ -53,6 +53,8 @@ class AgentRole(StrEnum):
     REVIEWER_REFINE = "reviewer_refine"
     REVIEWER_PLAN = "reviewer_plan"
     REVIEWER_UNIFIED = "reviewer_unified"  # Vestigial: kept for backwards compatibility with persisted pipeline state
+    # Coordinator role
+    COORDINATOR = "coordinator"
 
 
 class AgentStatus(StrEnum):
@@ -266,7 +268,6 @@ DOCUMENTER_ROLE = AgentRoleDefinition(
         allowed_write=[
             "docs/",
             "**/README.md",
-            "**/CHANGELOG.md",
             "**/*.md",  # All markdown files
             ".egg-state/agent-outputs/",  # For handoff data
         ],
@@ -592,6 +593,46 @@ REVIEWER_PLAN_ROLE = AgentRoleDefinition(
 )
 
 
+# Coordinator role definition
+COORDINATOR_ROLE = AgentRoleDefinition(
+    role=AgentRole.COORDINATOR,
+    description="Orchestrates dynamic workflows by spawning agents and managing phase transitions",
+    responsibilities=[
+        "Analyze task requirements and determine workflow",
+        "Spawn appropriate agents via orchestrator APIs",
+        "Monitor agent progress and make phase transition decisions",
+        "Escalate ambiguous decisions to human",
+        "Enforce guardrails (max agents, retries, wall-clock time)",
+    ],
+    dependencies=[],  # Coordinator runs independently
+    file_access=FileAccessPattern(
+        allowed_read=[],  # Can read all files
+        allowed_write=[
+            ".egg-state/agent-outputs/",
+        ],
+        blocked_write=[
+            # Coordinator must not modify source code or contracts directly
+            "**/*.py",
+            "**/*.ts",
+            "**/*.tsx",
+            "**/*.js",
+            "**/*.jsx",
+            "**/*.go",
+            "**/*.java",
+            ".egg-state/contracts/",
+            ".egg-state/drafts/",
+            ".egg-state/reviews/",
+            "docs/",
+            "tests/",
+            "test/",
+        ],
+    ),
+    can_run_in_parallel=False,  # Only one coordinator per pipeline
+    produces_outputs=["workflow_decisions", "agent_assignments"],
+    requires_inputs=[],
+)
+
+
 # Registry of all agent roles
 AGENT_ROLES: dict[AgentRole, AgentRoleDefinition] = {
     # Implement-phase roles
@@ -605,6 +646,8 @@ AGENT_ROLES: dict[AgentRole, AgentRoleDefinition] = {
     AgentRole.RISK_ANALYST: RISK_ANALYST_ROLE,
     # Analyze-phase roles
     AgentRole.REFINER: REFINER_ROLE,
+    # Coordinator role
+    AgentRole.COORDINATOR: COORDINATOR_ROLE,
     # Reviewer roles
     AgentRole.REVIEWER_CODE: REVIEWER_CODE_ROLE,
     AgentRole.REVIEWER_CONTRACT: REVIEWER_CONTRACT_ROLE,

@@ -58,9 +58,24 @@ class EventType(StrEnum):
     CONTAINER_STOPPED = "container.stopped"
     CONTAINER_REMOVED = "container.removed"
 
+    # Inter-agent messaging
+    MESSAGE_SENT = "message.sent"
+    MESSAGE_RECEIVED = "message.received"
+
+    # Consensus / readiness
+    READINESS_CHANGED = "readiness.changed"
+    CONSENSUS_REACHED = "consensus.reached"
+    CONSENSUS_TIMEOUT = "consensus.timeout"
+
     # HITL events
     DECISION_CREATED = "decision.created"
     DECISION_RESOLVED = "decision.resolved"
+
+    # Coordinator events
+    COORDINATOR_DECISION = "coordinator.decision"
+    COORDINATOR_SPAWN = "coordinator.spawn"
+    COORDINATOR_ESCALATION = "coordinator.escalation"
+    COORDINATOR_LOOPBACK = "coordinator.loopback"
 
     # System events — health check framework (see health_checks/runner.py)
     HEALTH_CHECK = "system.health_check"

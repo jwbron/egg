@@ -86,6 +86,56 @@ Before completing:
 - [ ] No debug code left behind
 - [ ] Handoff file written
 
+## Concurrent Mode
+
+When `EGG_CONCURRENT_MODE=true`, all agents start simultaneously. Your behavior changes:
+
+### Startup
+
+Begin implementing immediately — you have no upstream dependencies. Other agents (tester, documenter, checker, reviewer_code, reviewer_contract) are waiting on your output.
+
+### Message Bus (Required)
+
+You MUST actively use the message bus to coordinate with other agents:
+
+```bash
+# After committing a key interface or module, notify others
+egg-orch message send --to all --type PROGRESS --subject "Committed auth module" --body "Files: auth.py, middleware.py. Ready for review/testing."
+
+# Poll for questions from tester, feedback from reviewer
+egg-orch message poll
+```
+
+**When to send PROGRESS**: After each significant commit (new module, API change, key interface). This unblocks tester/documenter/checker who are waiting for your code.
+
+### Readiness
+
+Signal `READY` only after:
+- All plan tasks are implemented and committed
+- Handoff file is written
+- `egg-contract add-commit` linked for each task
+
+```bash
+egg-orch signal readiness --state READY --reason "All tasks implemented, handoff written"
+```
+
+### Stay-Alive Loop (CRITICAL)
+
+**After signaling READY, do NOT exit.** Keep polling the message bus:
+
+```bash
+# Stay alive — the orchestrator will stop your container when consensus is reached
+while true; do
+  egg-orch message poll
+  sleep "${EGG_MESSAGE_POLL_INTERVAL:-30}"
+done
+```
+
+If a reviewer_code, reviewer_contract, or checker sends you feedback that requires changes:
+1. Signal `WORKING`: `egg-orch signal readiness --state WORKING --reason "Addressing reviewer feedback"`
+2. Make the fix, commit, send PROGRESS
+3. Signal `READY` again
+
 ## Next Agent
 
-After you complete, the **Tester** and **Documenter** agents can run in parallel.
+After you complete, the **Tester**, **Documenter**, **Checker**, **Reviewer (code)**, and **Reviewer (contract)** agents can run in parallel.

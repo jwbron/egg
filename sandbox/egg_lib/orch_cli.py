@@ -30,6 +30,15 @@ Commands:
     egg-orch container get <pid> <cid>           Get container info
     egg-orch container stop <pid> <cid>          Stop a container
     egg-orch container logs <pid> <cid>          Get container logs
+    egg-orch message send <pid> --to <role> ...  Send inter-agent message (concurrent mode)
+    egg-orch message poll <pid> ...              Poll for messages (concurrent mode)
+    egg-orch message status <pid>                Get message bus status (concurrent mode)
+    egg-orch signal readiness <pid> --state ...  Signal readiness state (concurrent mode)
+    egg-orch coordinator spawn <pid> --role ...  Spawn agent via coordinator
+    egg-orch coordinator state <pid>             Get coordinator state
+    egg-orch coordinator phase <pid> --reason .. Request phase transition
+    egg-orch coordinator escalate <pid> ...      Escalate to HITL
+    egg-orch coordinator cancel <pid> --role ..  Cancel a running agent
 """
 
 import argparse
@@ -402,6 +411,8 @@ def cmd_pipeline_create(args: argparse.Namespace) -> int:
         data["prompt"] = args.prompt
     if args.network_mode:
         data["network_mode"] = args.network_mode
+    if args.concurrent:
+        data["config"] = {"concurrent_execution": True}
 
     result = orch_request("/api/v1/pipelines", method="POST", data=data)
 
@@ -959,6 +970,254 @@ def cmd_gateway_permissions(args: argparse.Namespace) -> int:
 
 
 # ---------------------------------------------------------------------------
+# Message commands (concurrent mode)
+# ---------------------------------------------------------------------------
+
+
+def cmd_message_send(args: argparse.Namespace) -> int:
+    """Send an inter-agent message."""
+    pid = require_pipeline_id(args)
+    role = args.role or get_agent_role_from_env()
+    if not role:
+        print("Error: --role required or set EGG_AGENT_ROLE", file=sys.stderr)
+        sys.exit(1)
+
+    data: dict[str, Any] = {
+        "from_role": role,
+        "to_role": args.to,
+        "message_type": args.type,
+        "subject": args.subject or "",
+        "body": args.body or "",
+    }
+
+    result = orch_request(f"/api/v1/pipelines/{pid}/messages", method="POST", data=data)
+
+    if args.json:
+        print_json(result)
+        return 0
+
+    if result.get("success"):
+        msg = result.get("data", {}).get("message", {})
+        print(f"Message sent: {msg.get('id', 'unknown')}")
+        return 0
+    print(f"Error: {result.get('message')}", file=sys.stderr)
+    return 1
+
+
+def cmd_message_poll(args: argparse.Namespace) -> int:
+    """Poll for inter-agent messages."""
+    pid = require_pipeline_id(args)
+
+    params: dict[str, str] = {}
+    role = args.role or get_agent_role_from_env()
+    if role:
+        params["role"] = role
+    if args.since:
+        params["since_id"] = args.since
+    if args.limit:
+        params["limit"] = str(args.limit)
+
+    endpoint = f"/api/v1/pipelines/{pid}/messages"
+    if params:
+        endpoint += "?" + urlencode(params)
+
+    result = orch_request(endpoint)
+
+    if args.json:
+        print_json(result)
+        return 0
+
+    messages = result.get("data", {}).get("messages", [])
+    if not messages:
+        print("No messages.")
+        return 0
+
+    for msg in messages:
+        ts = msg.get("timestamp", "")[:19]
+        from_r = msg.get("from_role", "?")
+        to_r = msg.get("to_role", "?")
+        mtype = msg.get("message_type", "?")
+        subject = msg.get("subject", "")
+        print(f"  [{ts}] {from_r} -> {to_r} ({mtype}): {subject}")
+        body = msg.get("body", "")
+        if body:
+            print(f"    {body[:200]}")
+
+    print(f"\n{len(messages)} message(s)")
+    return 0
+
+
+def cmd_message_status(args: argparse.Namespace) -> int:
+    """Get message bus status."""
+    pid = require_pipeline_id(args)
+    result = orch_request(f"/api/v1/pipelines/{pid}/messages/status")
+
+    if args.json:
+        print_json(result)
+        return 0
+
+    data = result.get("data", result)
+    print(f"Total messages: {data.get('total', 0)}")
+    by_type = data.get("by_type", {})
+    if by_type:
+        for mtype, count in by_type.items():
+            print(f"  {mtype}: {count}")
+    return 0
+
+
+def cmd_signal_readiness(args: argparse.Namespace) -> int:
+    """Signal readiness state for consensus."""
+    pid = require_pipeline_id(args)
+    role = _require_role(args)
+    data: dict[str, Any] = {
+        "signal_type": "readiness",
+        "agent_role": role,
+        "state": args.state,
+    }
+    if args.reason:
+        data["reason"] = args.reason
+
+    result = orch_request(f"/api/v1/pipelines/{pid}/signal", method="POST", data=data)
+
+    if args.json:
+        print_json(result)
+        return 0
+
+    if result.get("success"):
+        consensus = result.get("data", {}).get("consensus", {})
+        print(f"Readiness: {role} -> {args.state}")
+        if consensus.get("is_complete"):
+            print("Consensus reached!")
+        else:
+            blocking = consensus.get("blocking_agents", [])
+            if blocking:
+                print(f"Waiting on: {', '.join(blocking)}")
+        return 0
+    print(f"Error: {result.get('message')}", file=sys.stderr)
+    return 1
+
+
+# ---------------------------------------------------------------------------
+# Coordinator commands
+# ---------------------------------------------------------------------------
+
+
+def cmd_coordinator_spawn(args: argparse.Namespace) -> int:
+    """Spawn an agent via the coordinator."""
+    pid = require_pipeline_id(args)
+    data: dict[str, Any] = {
+        "role": args.role,
+    }
+    if args.context:
+        data["task_context"] = args.context
+
+    result = orch_request(f"/api/v1/pipelines/{pid}/coordinator/spawn", method="POST", data=data)
+
+    if args.json:
+        print_json(result)
+        return 0
+
+    if result.get("success"):
+        agent = result.get("data", {})
+        print(f"Agent spawned: role={args.role}, container={agent.get('container_id', 'unknown')}")
+        return 0
+    print(f"Error: {result.get('message')}", file=sys.stderr)
+    return 1
+
+
+def cmd_coordinator_state(args: argparse.Namespace) -> int:
+    """Get coordinator state for a pipeline."""
+    pid = require_pipeline_id(args)
+    result = orch_request(f"/api/v1/pipelines/{pid}/coordinator/state")
+
+    if args.json:
+        print_json(result)
+        return 0
+
+    data = result.get("data", result)
+    state = data.get("coordinator_state", data)
+    print(f"Workflow type: {state.get('workflow_type', 'unknown')}")
+    agents = state.get("agents_spawned", [])
+    if agents:
+        print(f"Agents spawned ({len(agents)}):")
+        for a in agents:
+            print(f"  - {a.get('role', '?')} [{a.get('status', '?')}]")
+    counters = state.get("guardrail_counters", {})
+    if counters:
+        print(f"Total agents spawned: {counters.get('total_agents_spawned', 0)}")
+        print(f"Coordinator respawns: {counters.get('coordinator_respawns', 0)}")
+    return 0
+
+
+def cmd_coordinator_phase(args: argparse.Namespace) -> int:
+    """Request a phase transition via the coordinator."""
+    pid = require_pipeline_id(args)
+    data: dict[str, Any] = {
+        "reason": args.reason,
+    }
+    if args.target:
+        data["target_phase"] = args.target
+
+    result = orch_request(f"/api/v1/pipelines/{pid}/coordinator/phase", method="POST", data=data)
+
+    if args.json:
+        print_json(result)
+        return 0
+
+    if result.get("success"):
+        phase_data = result.get("data", {})
+        print(
+            f"Phase transition: {phase_data.get('previous_phase', '?')} -> {phase_data.get('current_phase', '?')}"
+        )
+        return 0
+    print(f"Error: {result.get('message')}", file=sys.stderr)
+    return 1
+
+
+def cmd_coordinator_escalate(args: argparse.Namespace) -> int:
+    """Escalate a question to HITL via the coordinator."""
+    pid = require_pipeline_id(args)
+    data: dict[str, Any] = {
+        "question": args.question,
+    }
+    data["escalation_type"] = args.type or "feedback"
+    if args.options:
+        data["options"] = args.options
+
+    result = orch_request(f"/api/v1/pipelines/{pid}/coordinator/escalate", method="POST", data=data)
+
+    if args.json:
+        print_json(result)
+        return 0
+
+    if result.get("success"):
+        esc = result.get("data", {})
+        print(f"Escalation created: {esc.get('id', 'unknown')}")
+        return 0
+    print(f"Error: {result.get('message')}", file=sys.stderr)
+    return 1
+
+
+def cmd_coordinator_cancel(args: argparse.Namespace) -> int:
+    """Cancel a running agent via the coordinator."""
+    pid = require_pipeline_id(args)
+
+    result = orch_request(
+        f"/api/v1/pipelines/{pid}/coordinator/agents/{args.role}", method="DELETE"
+    )
+
+    if args.json:
+        print_json(result)
+        return 0
+
+    if result.get("success"):
+        print(f"Agent cancelled: role={args.role}")
+        return 0
+    print(f"Error: {result.get('message')}", file=sys.stderr)
+    return 1
+
+
+# ---------------------------------------------------------------------------
 # Environment info
 # ---------------------------------------------------------------------------
 
@@ -1050,6 +1309,12 @@ def create_parser() -> argparse.ArgumentParser:
         choices=["public", "private"],
         help="Network mode for spawned containers",
     )
+    pl_create.add_argument(
+        "--concurrent",
+        action="store_true",
+        default=False,
+        help="Enable concurrent agent execution within phases",
+    )
     _add_json_flag(pl_create)
     pl_create.set_defaults(func=cmd_pipeline_create)
 
@@ -1103,6 +1368,90 @@ def create_parser() -> argparse.ArgumentParser:
     sig_hb = signal_sub.add_parser("heartbeat", help="Send heartbeat")
     add_signal_args(sig_hb)
     sig_hb.set_defaults(func=cmd_signal_heartbeat)
+
+    # signal readiness (concurrent mode)
+    sig_ready = signal_sub.add_parser("readiness", help="Signal readiness state (concurrent mode)")
+    add_signal_args(sig_ready)
+    sig_ready.add_argument(
+        "--state",
+        required=True,
+        choices=["WORKING", "READY", "BLOCKED", "OBJECTING"],
+        help="Readiness state",
+    )
+    sig_ready.add_argument("--reason", help="Reason for state")
+    sig_ready.set_defaults(func=cmd_signal_readiness)
+
+    # -- message (concurrent mode) --
+    msg_parser = subparsers.add_parser("message", help="Inter-agent messaging (concurrent mode)")
+    msg_sub = msg_parser.add_subparsers(dest="message_command")
+
+    # message send
+    msg_send = msg_sub.add_parser("send", help="Send a message")
+    msg_send.add_argument("pipeline_id", nargs="?", help="Pipeline ID")
+    msg_send.add_argument("--role", help="Sender role (default: EGG_AGENT_ROLE)")
+    msg_send.add_argument("--to", required=True, help="Target role or 'all'")
+    msg_send.add_argument("--type", required=True, help="Message type (PROGRESS, QUESTION, STATUS)")
+    msg_send.add_argument("--subject", help="Message subject")
+    msg_send.add_argument("--body", help="Message body")
+    _add_json_flag(msg_send)
+    msg_send.set_defaults(func=cmd_message_send)
+
+    # message poll
+    msg_poll = msg_sub.add_parser("poll", help="Poll for messages")
+    msg_poll.add_argument("pipeline_id", nargs="?", help="Pipeline ID")
+    msg_poll.add_argument("--role", help="Filter for role (default: EGG_AGENT_ROLE)")
+    msg_poll.add_argument("--since", help="Return messages after this ID")
+    msg_poll.add_argument("--limit", type=int, help="Max messages")
+    _add_json_flag(msg_poll)
+    msg_poll.set_defaults(func=cmd_message_poll)
+
+    # message status
+    msg_status = msg_sub.add_parser("status", help="Message bus status")
+    msg_status.add_argument("pipeline_id", nargs="?", help="Pipeline ID")
+    _add_json_flag(msg_status)
+    msg_status.set_defaults(func=cmd_message_status)
+
+    # -- coordinator --
+    coord_parser = subparsers.add_parser("coordinator", help="Coordinator operations")
+    coord_sub = coord_parser.add_subparsers(dest="coordinator_command")
+
+    # coordinator spawn
+    coord_spawn = coord_sub.add_parser("spawn", help="Spawn an agent via coordinator")
+    coord_spawn.add_argument("pipeline_id", nargs="?", help="Pipeline ID")
+    coord_spawn.add_argument("--role", required=True, help="Agent role to spawn")
+    coord_spawn.add_argument("--context", help="Additional context for the agent")
+    _add_json_flag(coord_spawn)
+    coord_spawn.set_defaults(func=cmd_coordinator_spawn)
+
+    # coordinator state
+    coord_state = coord_sub.add_parser("state", help="Get coordinator state")
+    coord_state.add_argument("pipeline_id", nargs="?", help="Pipeline ID")
+    _add_json_flag(coord_state)
+    coord_state.set_defaults(func=cmd_coordinator_state)
+
+    # coordinator phase
+    coord_phase = coord_sub.add_parser("phase", help="Request phase transition")
+    coord_phase.add_argument("pipeline_id", nargs="?", help="Pipeline ID")
+    coord_phase.add_argument("--reason", required=True, help="Reason for phase transition")
+    coord_phase.add_argument("--target", help="Target phase")
+    _add_json_flag(coord_phase)
+    coord_phase.set_defaults(func=cmd_coordinator_phase)
+
+    # coordinator escalate
+    coord_escalate = coord_sub.add_parser("escalate", help="Escalate to HITL")
+    coord_escalate.add_argument("pipeline_id", nargs="?", help="Pipeline ID")
+    coord_escalate.add_argument("--question", required=True, help="Question for human")
+    coord_escalate.add_argument("--type", choices=["choice", "feedback"], help="Escalation type")
+    coord_escalate.add_argument("--options", nargs="*", help="Options for choice type")
+    _add_json_flag(coord_escalate)
+    coord_escalate.set_defaults(func=cmd_coordinator_escalate)
+
+    # coordinator cancel
+    coord_cancel = coord_sub.add_parser("cancel", help="Cancel a running agent")
+    coord_cancel.add_argument("pipeline_id", nargs="?", help="Pipeline ID")
+    coord_cancel.add_argument("--role", required=True, help="Agent role to cancel")
+    _add_json_flag(coord_cancel)
+    coord_cancel.set_defaults(func=cmd_coordinator_cancel)
 
     # -- phase --
     phase_parser = subparsers.add_parser("phase", help="Phase operations")
@@ -1246,7 +1595,7 @@ def create_parser() -> argparse.ArgumentParser:
     gw_perms = gw_sub.add_parser("permissions", help="Get allowed operations for a phase")
     gw_perms.add_argument(
         "phase",
-        choices=["analyze", "plan", "implement", "pr"],
+        choices=["analyze", "plan", "implement", "pr", "coordinator"],
         help="SDLC phase",
     )
     _add_json_flag(gw_perms)

@@ -10,10 +10,13 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "sandbox"))
 
 from egg_lib.sdlc_cli import (
     _resolve_repo_dir,
+    _restart_pipeline,
     _write,
     parse_sse_stream,
     render_event_info,
     render_header,
+    run_issue_mode,
+    run_local_mode,
     watch_pipeline,
 )
 
@@ -424,3 +427,94 @@ class TestWatchPipelineDraftPager:
             pipeline_id="issue-42",
             client=client,
         )
+
+
+# ---------------------------------------------------------------------------
+# Concurrent config wiring tests
+# ---------------------------------------------------------------------------
+
+
+class TestRestartPipelineConcurrentConfig:
+    """Verify _restart_pipeline passes config to create_pipeline."""
+
+    def test_concurrent_config_passed(self):
+        client = MagicMock()
+        config = {"concurrent_execution": True}
+        _restart_pipeline(
+            client,
+            "issue-1",
+            1,
+            "owner/repo",
+            "egg/issue-1",
+            network_mode="public",
+            config=config,
+        )
+        client.create_pipeline.assert_called_once_with(
+            issue_number=1,
+            repo="owner/repo",
+            branch="egg/issue-1",
+            mode="issue",
+            network_mode="public",
+            config={"concurrent_execution": True},
+        )
+
+    def test_no_concurrent_config(self):
+        client = MagicMock()
+        _restart_pipeline(
+            client,
+            "issue-2",
+            2,
+            "owner/repo",
+            "egg/issue-2",
+            network_mode="private",
+        )
+        client.create_pipeline.assert_called_once_with(
+            issue_number=2,
+            repo="owner/repo",
+            branch="egg/issue-2",
+            mode="issue",
+            network_mode="private",
+            config=None,
+        )
+
+
+class TestRunLocalModeConcurrent:
+    """Verify run_local_mode passes concurrent config to create_pipeline."""
+
+    @patch("egg_lib.sdlc_cli.watch_pipeline", return_value="complete")
+    @patch("egg_lib.sdlc_cli._detect_network_mode", return_value="public")
+    def test_concurrent_true(self, _mock_net, _mock_watch):
+        client = MagicMock()
+        client.create_pipeline.return_value = {"id": "local-1"}
+        run_local_mode(client, prompt="Build feature X", repo="owner/repo", concurrent=True)
+        _, kwargs = client.create_pipeline.call_args
+        assert kwargs["config"] == {"concurrent_execution": True}
+
+    @patch("egg_lib.sdlc_cli.watch_pipeline", return_value="complete")
+    @patch("egg_lib.sdlc_cli._detect_network_mode", return_value="public")
+    def test_concurrent_false(self, _mock_net, _mock_watch):
+        client = MagicMock()
+        client.create_pipeline.return_value = {"id": "local-2"}
+        run_local_mode(client, prompt="Build feature Y", repo="owner/repo", concurrent=False)
+        _, kwargs = client.create_pipeline.call_args
+        assert kwargs["config"] is None
+
+
+class TestRunIssueModeConcurrent:
+    """Verify run_issue_mode passes concurrent config to create_pipeline."""
+
+    @patch("egg_lib.sdlc_cli.watch_pipeline", return_value="complete")
+    @patch("egg_lib.sdlc_cli._detect_network_mode", return_value="public")
+    def test_concurrent_true_creates_with_config(self, _mock_net, _mock_watch):
+        client = MagicMock()
+        run_issue_mode(client, issue_number=99, repo="owner/repo", concurrent=True)
+        _, kwargs = client.create_pipeline.call_args
+        assert kwargs["config"] == {"concurrent_execution": True}
+
+    @patch("egg_lib.sdlc_cli.watch_pipeline", return_value="complete")
+    @patch("egg_lib.sdlc_cli._detect_network_mode", return_value="public")
+    def test_concurrent_false_creates_without_config(self, _mock_net, _mock_watch):
+        client = MagicMock()
+        run_issue_mode(client, issue_number=100, repo="owner/repo", concurrent=False)
+        _, kwargs = client.create_pipeline.call_args
+        assert kwargs["config"] is None

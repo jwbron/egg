@@ -76,6 +76,7 @@ from egg_contracts.checkpoints import (
     CheckpointIndexV2,
     CheckpointV2,
     FileOperation,
+    InterAgentMessage,
     SessionMetadata,
     SessionStatus,
     ToolCall,
@@ -133,6 +134,72 @@ CHECKPOINT_ENABLED = os.environ.get("CHECKPOINT_ENABLED", "true").lower() == "tr
 
 # Validation pattern for checkpoint_repo values (must be "owner/repo" format)
 _REPO_PATTERN = re.compile(r"^[a-zA-Z0-9._-]+/[a-zA-Z0-9._-]+$")
+
+
+def _fetch_inter_agent_messages(
+    pipeline_id: str | None,
+    agent_role: str | None,
+) -> list[InterAgentMessage]:
+    """Fetch inter-agent messages from the orchestrator message bus.
+
+    Returns messages sent and received by this agent during concurrent execution.
+    Returns an empty list if the orchestrator is unreachable or concurrent mode
+    is not active (no message endpoints available).
+    """
+    if not pipeline_id or not agent_role:
+        return []
+
+    orchestrator_url = os.environ.get("EGG_ORCHESTRATOR_URL", "http://egg-orchestrator:9849")
+    concurrent_mode = os.environ.get("EGG_CONCURRENT_MODE", "false").lower() == "true"
+    if not concurrent_mode:
+        return []
+
+    messages: list[InterAgentMessage] = []
+    try:
+        import json as json_mod
+        import urllib.request
+
+        # Fetch all messages involving this agent (sent, received, and broadcast).
+        # The limit=1000 cap is intentionally high to capture the full message
+        # history for a single pipeline phase — typical runs exchange <100 messages.
+        url = (
+            f"{orchestrator_url}/api/v1/pipelines/{pipeline_id}/messages"
+            f"?role={agent_role}&limit=1000"
+        )
+        req = urllib.request.Request(url, method="GET")
+        req.add_header("Accept", "application/json")
+        # 5-second timeout: checkpoint capture is best-effort; if the orchestrator
+        # is slow or unreachable, we skip messages rather than blocking the checkpoint.
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            data = json_mod.loads(resp.read())
+            for msg in data.get("data", {}).get("messages", []):
+                direction = "received"
+                if msg.get("from_role") == agent_role:
+                    direction = "sent"
+                messages.append(
+                    InterAgentMessage(
+                        id=msg.get("id", ""),
+                        pipeline_id=pipeline_id,
+                        from_role=msg.get("from_role", ""),
+                        to_role=msg.get("to_role", "all"),
+                        message_type=msg.get("message_type", ""),
+                        subject=msg.get("subject", ""),
+                        body=msg.get("body", ""),
+                        timestamp=datetime.fromisoformat(msg["timestamp"])
+                        if "timestamp" in msg
+                        else datetime.now(UTC),
+                        direction=direction,
+                    )
+                )
+    except Exception as e:
+        logger.debug(
+            "Could not fetch inter-agent messages for checkpoint",
+            error=str(e),
+            pipeline_id=pipeline_id,
+            agent_role=agent_role,
+        )
+
+    return messages
 
 
 def _validate_checkpoint_repo(checkpoint_repo: str) -> str:
@@ -338,8 +405,9 @@ class CheckpointHandler:
             buffer_path = get_proxy_buffer_path(container_id)
 
             if not buffer_path.exists():
-                logger.debug(
-                    "No proxy buffer found for checkpoint",
+                logger.warning(
+                    "Proxy buffer missing for active session — transcript data will be lost. "
+                    "Buffer may not have been created yet or was cleaned up prematurely.",
                     container_id=container_id,
                     buffer_path=str(buffer_path),
                     commit_sha=commit_sha[:7],
@@ -402,6 +470,11 @@ class CheckpointHandler:
             )
 
             now = datetime.now(UTC)
+
+            # Fetch inter-agent messages for concurrent execution mode
+            agent_role = session.agent_role if session else None
+            inter_agent_messages = _fetch_inter_agent_messages(pipeline_id, agent_role)
+
             checkpoint = CheckpointV2(
                 id=checkpoint_id,
                 trigger_type=TriggerType.COMMIT,
@@ -420,6 +493,7 @@ class CheckpointHandler:
                 files_touched=file_operations,
                 tool_calls=tool_calls,
                 token_usage=token_usage,
+                inter_agent_messages=inter_agent_messages,
                 created_at=now,
                 session_started_at=session_metadata.started_at,
                 session_ended_at=session_metadata.ended_at,
@@ -492,6 +566,15 @@ class CheckpointHandler:
 
             try:
                 buffer_path = get_proxy_buffer_path(container_id)
+                if not buffer_path.exists():
+                    duration = (now - session.created_at).total_seconds()
+                    if duration > 10:
+                        logger.warning(
+                            "Proxy buffer missing for session-end checkpoint — transcript data lost",
+                            container_id=container_id,
+                            duration_seconds=duration,
+                            buffer_path=str(buffer_path),
+                        )
                 if buffer_path.exists():
                     (
                         extracted_metadata,
@@ -530,6 +613,9 @@ class CheckpointHandler:
             pipeline_id = self._resolve_pipeline_id(session)
             repo = self._resolve_repo(repo_path, session)
 
+            # Fetch inter-agent messages for concurrent execution mode
+            inter_agent_messages = _fetch_inter_agent_messages(pipeline_id, session.agent_role)
+
             checkpoint = CheckpointV2(
                 id=checkpoint_id,
                 trigger_type=TriggerType.SESSION_END,
@@ -548,6 +634,7 @@ class CheckpointHandler:
                 files_touched=file_operations,
                 tool_calls=tool_calls,
                 token_usage=token_usage,
+                inter_agent_messages=inter_agent_messages,
                 created_at=now,
                 session_started_at=session.created_at,
                 session_ended_at=now,

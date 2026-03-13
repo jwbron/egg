@@ -16,6 +16,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 from urllib.error import HTTPError, URLError
+from urllib.parse import quote
 from urllib.request import Request, urlopen
 
 # Add shared directory to path for egg_logging and config
@@ -351,7 +352,7 @@ class GatewayClient:
         """
         try:
             result = self._make_request(
-                f"/api/v1/sessions/{session_token}",
+                f"/api/v1/sessions/{quote(session_token, safe='')}",
                 method="GET",
                 use_launcher_auth=True,
             )
@@ -373,7 +374,7 @@ class GatewayClient:
         """
         try:
             result = self._make_request(
-                f"/api/v1/sessions/{session_token}",
+                f"/api/v1/sessions/{quote(session_token, safe='')}",
                 method="DELETE",
                 use_launcher_auth=True,
             )
@@ -409,7 +410,7 @@ class GatewayClient:
                 data["container_ip"] = container_ip
 
             result = self._make_request(
-                f"/api/v1/sessions/{session_token}",
+                f"/api/v1/sessions/{quote(session_token, safe='')}",
                 method="PATCH",
                 data=data,
                 use_launcher_auth=True,
@@ -435,7 +436,7 @@ class GatewayClient:
         """
         try:
             result = self._make_request(
-                f"/api/v1/sessions/by-container/{container_id}",
+                f"/api/v1/sessions/by-container/{quote(container_id, safe='')}",
                 method="DELETE",
                 use_launcher_auth=True,
             )

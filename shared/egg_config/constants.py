@@ -51,6 +51,10 @@ DEVSERVER_HARD_TIMEOUT_SECONDS = 300  # Hard time cap for entire devserver lifec
 CHECKPOINT_BRANCH = "egg/checkpoints/v2"
 PIPELINE_STATE_BRANCH = "egg/pipeline-state"
 
+# Transcript buffer directory — persistent path that survives container restarts.
+# Follows the same pattern as SESSION_PERSISTENCE_DIR.
+TRANSCRIPT_BUFFER_DIR = "/home/egg/.egg-state/transcripts"
+
 # Test constants - use these in unit tests to avoid coupling to production values
 # Using a clearly fake port (1234) makes it obvious when tests accidentally
 # connect to real services
@@ -83,4 +87,5 @@ __all__ = [
     "PIPELINE_STATE_BRANCH",
     "TEST_GATEWAY_PORT",
     "TEST_GATEWAY_PROXY_PORT",
+    "TRANSCRIPT_BUFFER_DIR",
 ]

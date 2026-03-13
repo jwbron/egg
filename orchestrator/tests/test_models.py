@@ -399,7 +399,7 @@ class TestPipeline:
                 "branch": "egg/issue-496",
                 "mode": "issue",
                 "status": "pending",
-                "current_phase": "refine",
+                "current_phase": "analyze",
             }
         )
         restored = Pipeline.model_validate_json(raw)
@@ -461,7 +461,7 @@ class TestPipeline:
                 "branch": "egg/issue-496",
                 "mode": "issue",
                 "status": "pending",
-                "current_phase": "refine",
+                "current_phase": "analyze",
                 "decisions": [
                     {
                         "id": "decision-1",
@@ -505,7 +505,8 @@ class TestAgentRole:
         assert AgentRole.REVIEWER_REFINE in roles
         assert AgentRole.REVIEWER_PLAN in roles
         assert AgentRole.REVIEWER_UNIFIED in roles
-        assert len(roles) == 17
+        assert AgentRole.COORDINATOR in roles
+        assert len(roles) == 18
 
 
 class TestBackwardCompatibility:

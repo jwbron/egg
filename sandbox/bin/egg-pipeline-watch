@@ -113,6 +113,20 @@ def _write(text: str, file=None) -> None:
     file.flush()
 
 
+_STATE_ICONS = {
+    "READY": GREEN + "R",
+    "WORKING": CYAN + "W",
+    "BLOCKED": YELLOW + "B",
+    "OBJECTING": RED + "X",
+}
+
+
+def _agent_icon(info: object) -> str:
+    """Return a single colored icon character for an agent's readiness state."""
+    state = info.get("state", "WORKING") if isinstance(info, dict) else str(info)
+    return f"{_STATE_ICONS.get(state, DIM + '?')}{RESET}"
+
+
 def format_status_line(pipeline_id: str, data: dict) -> str:
     """Format a single-line status display."""
     status = data.get("status", "unknown")
@@ -130,6 +144,15 @@ def format_status_line(pipeline_id: str, data: dict) -> str:
     line = f"{BOLD}{pipeline_id}{RESET}  {color}{display_status}{RESET}  phase={phase}"
     if pending:
         line += f"  {YELLOW}({pending} pending decision{'s' if pending != 1 else ''}){RESET}"
+
+    # Compact concurrent agent states
+    concurrent = data.get("concurrent")
+    if concurrent:
+        agents = concurrent.get("consensus", {}).get("agents", {})
+        if agents:
+            parts = [_agent_icon(info) for _, info in sorted(agents.items())]
+            line += f"  agents=[{''.join(parts)}]"
+
     if time_part:
         line += f"  {DIM}{time_part}{RESET}"
 
@@ -143,6 +166,47 @@ def render_header(pipeline_id: str, event_type: str | None = None) -> str:
     if event_type:
         lines.append(f"{DIM}Last event: {event_type}{RESET}")
     lines.append("")
+    return "\n".join(lines)
+
+
+def _render_concurrent_info(concurrent: dict) -> str:
+    """Render concurrent execution status (agent readiness, messages, consensus)."""
+    lines = []
+
+    # Agent readiness states
+    consensus = concurrent.get("consensus", {})
+    agents = consensus.get("agents", {})
+    if agents:
+        state_colors = {
+            "READY": GREEN,
+            "WORKING": CYAN,
+            "BLOCKED": YELLOW,
+            "OBJECTING": RED,
+        }
+        parts = []
+        for role, info in sorted(agents.items()):
+            state = info.get("state", "WORKING") if isinstance(info, dict) else str(info)
+            color = state_colors.get(state, DIM)
+            parts.append(f"{color}{role}:{state}{RESET}")
+        lines.append(f"  Agents: {' | '.join(parts)}")
+
+    # Consensus status
+    is_complete = consensus.get("is_complete", False)
+    blocking = consensus.get("blocking_agents", [])
+    if is_complete:
+        lines.append(f"  Consensus: {GREEN}reached{RESET}")
+    elif blocking:
+        lines.append(f"  Consensus: waiting on {YELLOW}{', '.join(blocking)}{RESET}")
+
+    # Message bus stats
+    messages = concurrent.get("messages", {})
+    total = messages.get("total", 0)
+    if total:
+        by_type = messages.get("by_type", {})
+        type_parts = [f"{t}={c}" for t, c in sorted(by_type.items())]
+        type_str = f" ({', '.join(type_parts)})" if type_parts else ""
+        lines.append(f"  Messages: {total}{type_str}")
+
     return "\n".join(lines)
 
 
@@ -163,6 +227,12 @@ def render_event_info(data: dict) -> str:
     if timestamp:
         time_part = _utc_to_local_time(timestamp)
         lines.append(f"  {DIM}Updated: {time_part}  Event: {event_type}{RESET}")
+
+    # Concurrent execution info
+    concurrent = data.get("concurrent")
+    if concurrent:
+        lines.append("")
+        lines.append(_render_concurrent_info(concurrent))
 
     return "\n".join(lines)
 
