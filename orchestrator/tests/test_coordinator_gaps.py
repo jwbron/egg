@@ -916,15 +916,18 @@ class TestMCPServerGaps:
 
     def test_mcp_server_rate_limit_in_tool_response(self):
         import json
-        from starlette.testclient import TestClient
         from unittest.mock import patch as _patch
+
+        from starlette.testclient import TestClient
 
         server = MCPServer(rate_limit=1)
         mcp = server.create_app()
         app = mcp.streamable_http_app()
 
-        with _patch.object(CoordinatorToolHandler, "handle_tool_call", return_value={"ok": True}), \
-                TestClient(app) as client:
+        with (
+            _patch.object(CoordinatorToolHandler, "handle_tool_call", return_value={"ok": True}),
+            TestClient(app) as client,
+        ):
             # Initialize
             init_resp = client.post(
                 "/mcp",

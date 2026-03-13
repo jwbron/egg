@@ -243,9 +243,10 @@ class TestMCPServerApp:
         mcp = server.create_app()
         app = mcp.streamable_http_app()
 
-        with patch.object(
-            CoordinatorToolHandler, "handle_tool_call", return_value={"ok": True}
-        ), TestClient(app) as client:
+        with (
+            patch.object(CoordinatorToolHandler, "handle_tool_call", return_value={"ok": True}),
+            TestClient(app) as client,
+        ):
             # Initialize session
             init_resp = client.post(
                 "/mcp",
