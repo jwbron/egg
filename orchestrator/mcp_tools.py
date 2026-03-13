@@ -245,9 +245,7 @@ class CoordinatorToolHandler:
 
         # Enrichment: recent messages (optional)
         try:
-            messages_result = self._make_request(
-                f"/api/v1/pipelines/{task_id}/messages?limit=10"
-            )
+            messages_result = self._make_request(f"/api/v1/pipelines/{task_id}/messages?limit=10")
             raw_messages = messages_result.get("data", {}).get("messages", [])
             status["recent_messages"] = [
                 {
