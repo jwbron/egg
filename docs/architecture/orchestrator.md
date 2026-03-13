@@ -414,7 +414,7 @@ Fixed IPs:
 - `POST /pipelines/{id}/deployment-check/teardown` - Tear down devserver
 - `GET /pipelines/{id}/health` - On-demand pipeline health check (all tiers)
 
-**MCP Server (`/mcp/`)**
+**MCP Server (`/mcp`)**
 - `GET /health` - MCP server health check
 - `POST /mcp` - Streamable HTTP transport endpoint (MCP protocol via JSON-RPC)
 
