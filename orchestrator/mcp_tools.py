@@ -45,10 +45,10 @@ COORDINATOR_TOOLS = [
                 },
                 "repo": {
                     "type": "string",
-                    "description": "Repository in owner/name format",
+                    "description": "Repository to work on, in owner/name format (e.g. 'myorg/myrepo')",
                 },
             },
-            "required": ["description"],
+            "required": ["description", "repo"],
         },
     },
     {
@@ -201,9 +201,24 @@ class CoordinatorToolHandler:
 
         result = self._make_request("/api/v1/pipelines", method="POST", data=data)
 
+        pipeline_id = result.get("data", {}).get("pipeline", {}).get("id", "")
+
+        if pipeline_id:
+            try:
+                self._make_request(
+                    f"/api/v1/pipelines/{quote(pipeline_id, safe='')}/start", method="POST"
+                )
+            except Exception:
+                logger.error("Failed to start pipeline", pipeline_id=pipeline_id)
+                return {
+                    "task_id": pipeline_id,
+                    "status": "created_not_started",
+                    "message": "Pipeline created but failed to start. Use task_id to retry.",
+                }
+
         return {
-            "task_id": result.get("data", {}).get("pipeline_id", ""),
-            "status": "created",
+            "task_id": pipeline_id,
+            "status": "started",
             "message": f"Task submitted: {args['description'][:100]}",
         }
 

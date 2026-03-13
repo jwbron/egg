@@ -46,9 +46,8 @@ class RateLimiter:
     def allow(self) -> bool:
         """Check if a request is allowed.
 
-        Safe to call from the event loop — no locks, just list operations
-        which are atomic under the GIL in CPython and fast enough that
-        contention is not a concern for single-event-loop usage.
+        Safe to call from the event loop — single-event-loop usage means
+        no concurrent calls to this method, so no locks are needed.
         """
         now = time.time()
         cutoff = now - self.window_seconds
