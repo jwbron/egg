@@ -143,13 +143,13 @@ bin/egg-deploy init
 ```
 
 This creates:
-- `.env` from `.env.example`
-- Generates a new launcher secret
-- Sets `HOST_UID` and `HOST_GID`
+- `~/.config/egg/config.yaml` with system defaults
+- Generates a new launcher secret at `~/.config/egg/launcher-secret`
+- Sets `host_uid`, `host_gid`, and `host_home` in config.yaml
 
 ### 3. Migrate Secrets
 
-Edit `.env` and set:
+Add to `~/.config/egg/secrets.env`:
 ```bash
 # From your old secrets.env
 GITHUB_USER_TOKEN=ghp_xxxxx

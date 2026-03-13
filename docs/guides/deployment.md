@@ -61,24 +61,20 @@ egg --public
 
 ### Configuration
 
-1. **Copy the environment template:**
+1. **Initialize configuration:**
    ```bash
-   cp .env.example .env
+   bin/egg-deploy init
    ```
+   This creates `~/.config/egg/config.yaml` with system defaults and generates a launcher secret.
 
-2. **Configure required variables:**
+2. **Set your GitHub token:**
    ```bash
-   # Generate a session secret
-   EGG_LAUNCHER_SECRET=$(openssl rand -hex 32)
-
-   # Set your GitHub token
-   GITHUB_USER_TOKEN=ghp_xxxxx
-
-   # Set your user identity and home directory
-   HOST_UID=$(id -u)
-   HOST_GID=$(id -g)
-   HOST_HOME=$HOME  # REQUIRED: orchestrator mounts $HOST_HOME/.egg-worktrees to read pipeline artifacts
+   echo 'ghp_xxxxx' > ~/.config/egg/github-token
+   chmod 600 ~/.config/egg/github-token
    ```
+   Or add `GITHUB_USER_TOKEN=ghp_xxxxx` to `~/.config/egg/secrets.env`.
+
+3. **Review settings** in `~/.config/egg/config.yaml` (host_home, host_uid, host_gid are auto-detected).
 
 3. **Create repositories.yaml:**
    ```yaml
@@ -322,7 +318,7 @@ The orchestrator requires these environment variables to drop privileges before 
 
 Fix:
 ```bash
-# In your .env file (or hardcode the output of id -u / id -g)
+# In your ~/.config/egg/config.yaml (host_uid / host_gid fields)
 HOST_UID=$(id -u)
 HOST_GID=$(id -g)
 ```

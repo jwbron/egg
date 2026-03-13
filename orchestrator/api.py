@@ -148,35 +148,34 @@ def index() -> tuple[Response, int]:
     ), 200
 
 
-# Start MCP server sidecar when coordinator support is enabled.
+# Start MCP server sidecar unconditionally.
 # The MCP server runs in a background daemon thread and proxies tool calls
 # to the orchestrator's coordinator API endpoints.
-def _maybe_start_mcp_server() -> None:
-    """Start the MCP server if enabled via environment variable."""
-    if os.environ.get("EGG_MCP_SERVER_ENABLED", "").lower() in ("1", "true", "yes"):
+def _start_mcp_server() -> None:
+    """Start the MCP server sidecar."""
+    try:
+        from mcp_server import start_mcp_server
+
+        mcp_port = int(os.environ.get("EGG_MCP_SERVER_PORT", "9850"))
+        mcp_rate_limit = int(os.environ.get("EGG_MCP_RATE_LIMIT", "30"))
         try:
-            from mcp_server import start_mcp_server
-
-            mcp_port = int(os.environ.get("EGG_MCP_SERVER_PORT", "9850"))
-            mcp_rate_limit = int(os.environ.get("EGG_MCP_RATE_LIMIT", "30"))
-            try:
-                from egg_config import GATEWAY_PORT
-            except ImportError:
-                GATEWAY_PORT = 9848  # noqa: EGG002
-
-            gateway_url = os.environ.get("GATEWAY_URL", f"http://egg-gateway:{GATEWAY_PORT}")
-            launcher_secret = os.environ.get("EGG_LAUNCHER_SECRET", "")
-            start_mcp_server(
-                port=mcp_port,
-                rate_limit=mcp_rate_limit,
-                gateway_url=gateway_url,
-                launcher_secret=launcher_secret,
-            )
-            logger.info("MCP server started", port=mcp_port)
+            from egg_config import GATEWAY_PORT
         except ImportError:
-            logger.warning("MCP server module not available, skipping startup")
-        except Exception as e:
-            logger.error("Failed to start MCP server", error=str(e))
+            GATEWAY_PORT = 9848  # noqa: EGG002
+
+        gateway_url = os.environ.get("GATEWAY_URL", f"http://egg-gateway:{GATEWAY_PORT}")
+        launcher_secret = os.environ.get("EGG_LAUNCHER_SECRET", "")
+        start_mcp_server(
+            port=mcp_port,
+            rate_limit=mcp_rate_limit,
+            gateway_url=gateway_url,
+            launcher_secret=launcher_secret,
+        )
+        logger.info("MCP server started", port=mcp_port)
+    except ImportError:
+        logger.warning("MCP server module not available, skipping startup")
+    except Exception as e:
+        logger.error("Failed to start MCP server", error=str(e))
 
 
-_maybe_start_mcp_server()
+_start_mcp_server()
