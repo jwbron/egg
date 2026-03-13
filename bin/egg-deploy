@@ -84,6 +84,11 @@ validate_config() {
         errors=$((errors + 1))
     fi
 
+    if [ -z "${HOST_HOME:-}" ]; then
+        error "HOST_HOME is not set. Add 'host_home: $HOME' to config.yaml"
+        errors=$((errors + 1))
+    fi
+
     if [ -z "${GITHUB_USER_TOKEN:-}" ] && [ -z "${BOT_GITHUB_TOKEN:-}" ]; then
         warn "Neither GITHUB_USER_TOKEN nor BOT_GITHUB_TOKEN is set"
         warn "Git operations will not work without GitHub authentication"
