@@ -115,6 +115,71 @@ Before completing:
 - [ ] Gaps documented in handoff output
 - [ ] Handoff file written
 
+## Concurrent Mode
+
+When `EGG_CONCURRENT_MODE=true`, all agents start simultaneously. Your behavior changes:
+
+### Startup — Wait for Coder
+
+Check if the coder's handoff file exists:
+
+```bash
+IDENT="${EGG_ISSUE_NUMBER:-$EGG_PIPELINE_ID}"
+HANDOFF=".egg-state/agent-outputs/${IDENT}-coder-output.json"
+if [ ! -f "$HANDOFF" ]; then
+  # Coder hasn't finished yet — signal BLOCKED and start polling
+  egg-orch signal readiness --state BLOCKED --reason "Waiting for coder handoff"
+fi
+```
+
+### While Waiting
+
+While the coder is still working:
+1. Poll for `PROGRESS` messages from the coder
+2. Start writing test scaffolding based on the plan context (`egg-contract show`)
+3. Review the plan tasks to understand what will need testing
+
+```bash
+# Poll for coder progress
+egg-orch message poll
+
+# Ask the coder a question if needed
+egg-orch message send --to coder --type QUESTION --subject "Expected behavior for edge case" --body "What should parse_config() return for empty input?"
+```
+
+### When Coder Is Ready
+
+Once the handoff file appears or the coder signals `READY`:
+1. Signal `WORKING`: `egg-orch signal readiness --state WORKING --reason "Coder output available, running tests"`
+2. Read the handoff and run your full test workflow
+3. Send test results to other agents: `egg-orch message send --to all --type STATUS --subject "Test results" --body "14/15 passed, 1 gap found"`
+
+### Readiness
+
+Signal `READY` only after tests have run against the coder's actual committed code (not just scaffolding).
+
+```bash
+egg-orch signal readiness --state READY --reason "Tests complete: 14/15 passed, gaps documented"
+```
+
+### Stay-Alive Loop (CRITICAL)
+
+**After signaling READY, do NOT exit.** Keep polling the message bus:
+
+```bash
+while true; do
+  egg-orch message poll
+  sleep "${EGG_MESSAGE_POLL_INTERVAL:-30}"
+done
+```
+
+If the coder pushes more commits after you signaled READY:
+1. Signal `WORKING`: `egg-orch signal readiness --state WORKING --reason "Re-testing after new coder commits"`
+2. Re-run affected tests
+3. Signal `READY` again
+
+The orchestrator will stop your container when all agents reach consensus.
+
 ## Next Agent
 
 After you complete, the **Integrator** agent will run the full test suite.

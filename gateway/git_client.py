@@ -52,8 +52,23 @@ def git_cmd(*args: str) -> list[str]:
       A malicious repo could include hooks that execute arbitrary code on the gateway
       (outside the sandbox). By pointing hooksPath to /dev/null (not a directory),
       git will never find any hooks to execute. See issue #58.
+    - gc.auto=0: Prevent automatic garbage collection. git gc --auto runs
+      git worktree prune as part of cleanup, which can delete worktree admin
+      directories if their paths appear temporarily inaccessible (e.g., during
+      Docker mount races). Disabling auto-gc prevents mid-session admin dir
+      deletion. Garbage collection still runs at gateway startup via the
+      explicit prune_stale_worktrees() call.
     """
-    return [GIT_CLI, "-c", "safe.directory=*", "-c", "core.hooksPath=/dev/null", *args]
+    return [
+        GIT_CLI,
+        "-c",
+        "safe.directory=*",
+        "-c",
+        "core.hooksPath=/dev/null",
+        "-c",
+        "gc.auto=0",
+        *args,
+    ]
 
 
 def ssh_url_to_https(url: str) -> str:
@@ -242,6 +257,19 @@ BLOCKED_GIT_FLAGS = [
     "--receive-pack",  # Arbitrary command execution
 ]
 
+# Allowed values for flags that take restricted arguments
+# Maps flag name to set of allowed values
+ALLOWED_FLAG_VALUES: dict[str, set[str]] = {
+    "--strategy-option": {
+        "ours",
+        "theirs",
+        "patience",
+        "ignore-space-change",
+        "ignore-all-space",
+        "ignore-space-at-eol",
+    },
+}
+
 # Per-operation allowlist of flags that are permitted
 # This is more secure than a blocklist - unknown flags are rejected by default
 GIT_ALLOWED_COMMANDS = {
@@ -263,6 +291,8 @@ GIT_ALLOWED_COMMANDS = {
             "--recurse-submodules",
             "--progress",
             "--no-progress",
+            "--unshallow",
+            "--deepen",
         ],
     },
     "ls-remote": {
@@ -352,6 +382,22 @@ GIT_ALLOWED_COMMANDS = {
             "--no-index",
             "--unified",
             "-U",
+        ],
+    },
+    "diff-tree": {
+        "allowed_flags": [
+            "--no-commit-id",
+            "--name-only",
+            "--name-status",
+            "--stat",
+            "--numstat",
+            "--diff-filter",
+            "--format",
+            "--pretty",
+            "--abbrev-commit",
+            "-r",
+            "-t",
+            "-p",
         ],
     },
     "show": {
@@ -575,8 +621,10 @@ GIT_ALLOWED_COMMANDS = {
             "--quit",
             "--message",
             "--no-edit",
+            "--strategy-option",
             "--verbose",
             "--quiet",
+            "-X",
             "-m",
             "-v",
             "-q",
@@ -800,6 +848,16 @@ GIT_ALLOWED_COMMANDS = {
             "--fork-point",
         ],
     },
+    "cat-file": {
+        "allowed_flags": [
+            "-p",
+            "-t",
+            "-s",
+            "-e",
+            "--batch",
+            "--batch-check",
+        ],
+    },
 }
 
 # Per-subcommand flag normalization: map short flags to long form for consistent
@@ -880,7 +938,7 @@ FLAG_NORMALIZATION = {
     "clean": {"-f": "--force", "-n": "--dry-run", "-q": "--quiet"},
     "rm": {"-f": "--force", "-n": "--dry-run", "-q": "--quiet"},
     "mv": {"-f": "--force", "-n": "--dry-run", "-v": "--verbose"},
-    "merge": {"-m": "--message", "-v": "--verbose", "-q": "--quiet"},
+    "merge": {"-m": "--message", "-v": "--verbose", "-q": "--quiet", "-X": "--strategy-option"},
     "rebase": {"-v": "--verbose", "-q": "--quiet"},
     "reset": {"-q": "--quiet"},
     "restore": {"-S": "--staged", "-W": "--worktree", "-s": "--source", "-q": "--quiet"},
@@ -906,7 +964,9 @@ FLAG_NORMALIZATION = {
     "describe": {},
     "config": {},
     "merge-base": {},
+    "diff-tree": {},
     "reflog": {},
+    "cat-file": {},
 }
 
 
@@ -931,6 +991,16 @@ def normalize_flag(flag: str, operation: str | None = None) -> str:
         base, value = flag.split("=", 1)
         normalized = mapping.get(base, base)
         return f"{normalized}={value}"
+    # Handle combined short-flag+value form (e.g., -Xtheirs → --strategy-option=theirs)
+    # Git allows single-char flags to have values appended without a space.
+    # Only apply for flags that take restricted values (in ALLOWED_FLAG_VALUES),
+    # not boolean flags like -f/-q/-v where appended text is always invalid.
+    if len(flag) > 2 and flag[0] == "-" and flag[1] != "-" and flag[:2] in mapping:
+        short_flag = flag[:2]
+        value = flag[2:]
+        normalized = mapping[short_flag]
+        if normalized in ALLOWED_FLAG_VALUES:
+            return f"{normalized}={value}"
     return mapping.get(flag, flag)
 
 
@@ -1016,6 +1086,34 @@ def validate_git_args(operation: str, args: list[str]) -> tuple[bool, str, list[
                 f"Allowed flags: {', '.join(sorted(allowed_flags))}",
                 [],
             )
+
+        # Validate flag values for flags with restricted allowed values
+        if flag_base in ALLOWED_FLAG_VALUES:
+            allowed_values = ALLOWED_FLAG_VALUES[flag_base]
+            if "=" in normalized_flag:
+                # Value is inline: --strategy-option=theirs
+                value = normalized_flag.split("=", 1)[1]
+            elif i + 1 < len(args) and not args[i + 1].startswith("-"):
+                # Value is the next argument: -X theirs
+                # NOTE: This heuristic assumes allowed values never start with "-".
+                # All current values (ours, theirs, patience, etc.) satisfy this.
+                value = args[i + 1]
+                i += 1  # consume the value argument
+                normalized_flag = f"{flag_base}={value}"
+            else:
+                return (
+                    False,
+                    f"Flag '{arg}' requires a value. "
+                    f"Allowed values: {', '.join(sorted(allowed_values))}",
+                    [],
+                )
+            if value not in allowed_values:
+                return (
+                    False,
+                    f"Value '{value}' is not allowed for {flag_base}. "
+                    f"Allowed values: {', '.join(sorted(allowed_values))}",
+                    [],
+                )
 
         normalized.append(normalized_flag)
         i += 1

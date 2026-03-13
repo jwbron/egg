@@ -5,12 +5,12 @@
 # container lifecycle via API.
 #
 # Usage:
-#   1. Copy .env.example to .env and configure
-#   2. docker compose up -d
+#   1. Run 'egg-deploy init' to generate ~/.config/egg/config.yaml
+#   2. egg-deploy up
 #   3. Run egg --compose to start sandbox sessions
 #
-# Or use the unified launcher:
-#   bin/egg-deploy up
+# Environment variables are loaded from config.yaml by egg-deploy.
+# See config/config.yaml.example for all available settings.
 #
 # Network topology:
 #   sandbox (172.32.0.x) -> gateway (172.32.0.2:3129) -> Internet (allowlisted)
@@ -102,6 +102,8 @@ services:
     ports:
       # Orchestrator API - used by sandbox for pipeline state management
       - "${ORCHESTRATOR_API_PORT:-9849}:9849"
+      # MCP server - used by external Claude Code sessions
+      - "127.0.0.1:${EGG_MCP_SERVER_PORT:-9850}:9850"
     environment:
       # Core configuration
       - ORCHESTRATOR_PORT=9849

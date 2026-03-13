@@ -39,11 +39,17 @@ The gateway sidecar is the **trusted** component that holds credentials and vali
 | Operation | Policy | Check |
 |-----------|--------|-------|
 | `git push` | Branch ownership + Phase filter | Branch has open PR authored by egg, OR branch starts with `egg-` or `egg/`, AND operation is allowed in current phase |
-| `gh pr create` | Phase filter | Operation is allowed in current phase (typically only in 'pr' phase) |
-| `gh pr comment` | PR ownership | PR must be authored by egg |
+| `gh pr create` | Phase filter + mode policy | Operation is allowed in current phase (typically only in 'pr' phase)<br>In user mode, PR is forced to draft<br>Blocked in reviewer mode |
+| `gh pr comment` | Allowed on any PR | PR must exist and be accessible |
 | `gh pr merge` | **BLOCKED** | No merge endpoint - human must merge via GitHub UI |
-| `gh pr edit` | PR ownership | PR must be authored by egg |
-| `gh pr close` | PR ownership | PR must be authored by egg |
+| `gh pr edit` | PR ownership | PR must be authored by egg or configured user |
+| `gh pr close` | PR ownership | PR must be authored by egg or configured user |
+| `gh api PATCH repos/.../issues/comments/{id}` | Comment ownership | Comment must be authored by egg or configured user |
+| `gh api PATCH repos/.../pulls/comments/{id}` | Comment ownership | Comment must be authored by egg or configured user |
+| `gh api PATCH repos/.../comments/{id}` (commits) | Comment ownership | Comment must be authored by egg or configured user |
+| `gh api POST repos/.../issues/{id}/labels` | Issue/PR ownership | Issue or PR must be authored by egg or configured user |
+| `gh api POST repos/.../pulls/{id}/requested_reviewers` | PR ownership | PR must be authored by egg or configured user |
+| `gh api POST repos/.../pulls/{id}/reviews` | Allowed on any PR | PR must exist and be accessible |
 
 **Bot variants for ownership check**: `egg`, `egg[bot]`, `app/egg`, `apps/egg`
 
@@ -84,6 +90,7 @@ The gateway enforces file-level access restrictions to prevent certain roles fro
 - Fail-closed security: if file detection fails, push is blocked with HTTP 500
 - Backwards compatibility: when session role is unavailable, file restrictions are skipped to support legacy sessions
 - **Tier-aware access**: Agent file restrictions accept an optional `complexity_tier` parameter. In Tier 3 (`high`), the Integrator role uses `INTEGRATOR_TIER3_PATTERNS` which grants write access to source, test, and documentation directories for fixing integration issues across phase boundaries (while still blocking `.egg-state/contracts/` and `.github/`)
+- **Coordinator role**: The `coordinator` agent role is restricted to `.egg-state/agent-outputs/` only. All source code, docs, tests, contracts, drafts, reviews, and `.github/` are blocked. This ensures the coordinator operates purely as an orchestration layer without modifying pipeline artifacts directly (defined in `agent_restrictions.py` as `COORDINATOR_PATTERNS`)
 
 **Error messages:**
 - `Push denied: Role 'X' cannot modify: <files>. <reason>` (HTTP 403) - File blocked by restriction
@@ -225,8 +232,8 @@ POST /api/v1/git/fetch
 
 ```
 POST /api/v1/gh/pr/create
-  Request: {repo, title, body, base, head}
-  Policy: phase_filter
+  Request: {repo, title, body, base, head, draft? (bool)}
+  Policy: phase_filter + mode_policy (user mode forces draft=true; reviewer mode blocked)
 
 POST /api/v1/gh/pr/comment
   Request: {repo, pr_number, body}
@@ -362,6 +369,8 @@ GET /api/v1/repos/visibility
 
 The checkpoint API provides read access to agent session checkpoints stored on the `egg/checkpoints/v2` branch. These endpoints enable checkpoint access in the sandbox when checkpoints are stored in an external repository. The `repo_path` query parameter is inferred from the environment if omitted.
 
+**Inter-agent message capture:** When `EGG_CONCURRENT_MODE=true`, the checkpoint handler fetches inter-agent messages from the orchestrator message bus (`/api/v1/pipelines/{id}/messages`) during both commit-triggered and session-end checkpoint creation. Messages are stored in the checkpoint's `inter_agent_messages` field with direction (`sent`/`received`) relative to the checkpointed agent. This enables post-hoc analysis of agent collaboration patterns. See `checkpoint_handler.py:_fetch_inter_agent_messages()`.
+
 ```
 GET /api/v1/checkpoints
   Query: ?repo_path=<path>&issue=<n>&pr=<n>&branch=<name>&session=<id>
@@ -463,6 +472,7 @@ gateway/
 │   ├── test_phase_api.py
 │   ├── test_contract_api.py
 │   ├── test_checkpoint_handler.py
+│   ├── test_checkpoint_inter_agent.py  # Inter-agent message capture in concurrent mode
 │   ├── test_concurrency.py
 │   ├── test_config_validator.py
 │   ├── test_edge_cases.py

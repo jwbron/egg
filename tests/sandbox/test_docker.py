@@ -698,10 +698,12 @@ class TestCopyRepoWatchFiles:
         manifest_path = build_dir / "repo-deps" / "manifest.json"
         assert manifest_path.exists()
         manifest = json.loads(manifest_path.read_text())
-        assert len(manifest) == 1
-        assert manifest[0]["repo"] == "org/web-app"
-        assert manifest[0]["commands"] == ["npm ci"]
-        assert manifest[0]["watch_files"] == ["package-lock.json"]
+        build_commands = manifest["build_commands"]
+        assert len(build_commands) == 1
+        assert build_commands[0]["repo"] == "org/web-app"
+        assert build_commands[0]["commands"] == ["npm ci"]
+        assert build_commands[0]["watch_files"] == ["package-lock.json"]
+        assert manifest["extra_packages"] == {"apt": [], "dnf": []}
 
     def test_manifest_includes_multiple_repos(self, tmp_path):
         """Manifest includes all repos with build_commands."""
@@ -745,13 +747,78 @@ class TestCopyRepoWatchFiles:
         manifest_path = build_dir / "repo-deps" / "manifest.json"
         assert manifest_path.exists()
         manifest = json.loads(manifest_path.read_text())
-        assert len(manifest) == 2
-        repos = [m["repo"] for m in manifest]
+        build_commands = manifest["build_commands"]
+        assert len(build_commands) == 2
+        repos = [m["repo"] for m in build_commands]
         assert "org/app-a" in repos
         assert "org/app-b" in repos
 
-    def test_no_manifest_when_no_build_commands(self, tmp_path):
-        """No manifest.json when no repos have build_commands."""
+    def test_manifest_includes_extra_packages(self, tmp_path):
+        """Manifest includes extra_packages when configured in docker_setup."""
+        import json
+
+        from egg_lib.docker import _copy_repo_watch_files
+
+        config = {
+            "repo_settings": {},
+            "docker_setup": {
+                "extra_packages": {
+                    "apt": ["golang-go", "nodejs"],
+                    "dnf": ["golang", "nodejs"],
+                }
+            },
+        }
+
+        build_dir = tmp_path / "build-context"
+        build_dir.mkdir()
+
+        with patch("egg_lib.docker._load_repos_config", return_value=config):
+            with patch("egg_lib.docker.Config") as mock_config:
+                mock_config.CONFIG_DIR = build_dir
+                _copy_repo_watch_files(quiet=True)
+
+        manifest_path = build_dir / "repo-deps" / "manifest.json"
+        assert manifest_path.exists()
+        manifest = json.loads(manifest_path.read_text())
+        assert manifest["extra_packages"] == {
+            "apt": ["golang-go", "nodejs"],
+            "dnf": ["golang", "nodejs"],
+        }
+        assert manifest["build_commands"] == []
+
+    def test_manifest_includes_generic_packages(self, tmp_path):
+        """Generic packages are appended to both apt and dnf lists in manifest."""
+        import json
+
+        from egg_lib.docker import _copy_repo_watch_files
+
+        config = {
+            "repo_settings": {},
+            "docker_setup": {
+                "extra_packages": {
+                    "apt": ["libssl-dev"],
+                    "dnf": ["openssl-devel"],
+                    "packages": ["curl", "wget"],
+                }
+            },
+        }
+
+        build_dir = tmp_path / "build-context"
+        build_dir.mkdir()
+
+        with patch("egg_lib.docker._load_repos_config", return_value=config):
+            with patch("egg_lib.docker.Config") as mock_config:
+                mock_config.CONFIG_DIR = build_dir
+                _copy_repo_watch_files(quiet=True)
+
+        manifest_path = build_dir / "repo-deps" / "manifest.json"
+        assert manifest_path.exists()
+        manifest = json.loads(manifest_path.read_text())
+        assert manifest["extra_packages"]["apt"] == ["libssl-dev", "curl", "wget"]
+        assert manifest["extra_packages"]["dnf"] == ["openssl-devel", "curl", "wget"]
+
+    def test_no_manifest_when_no_build_commands_or_extra_packages(self, tmp_path):
+        """No manifest.json when no repos have build_commands or extra_packages."""
         from egg_lib.docker import _copy_repo_watch_files
 
         config = {"repo_settings": {"org/app": {"checks": []}}}
@@ -1089,9 +1156,10 @@ class TestCopyRepoWatchFilesEdgeCases:
         manifest_path = build_dir / "repo-deps" / "manifest.json"
         assert manifest_path.exists()
         manifest = json.loads(manifest_path.read_text())
-        assert len(manifest) == 1
-        assert manifest[0]["repo"] == "org/unknown-repo"
-        assert manifest[0]["commands"] == ["pip install -r req.txt"]
+        build_commands = manifest["build_commands"]
+        assert len(build_commands) == 1
+        assert build_commands[0]["repo"] == "org/unknown-repo"
+        assert build_commands[0]["commands"] == ["pip install -r req.txt"]
         # .empty should NOT exist since manifest was written
         assert not (build_dir / "repo-deps" / ".empty").exists()
 
@@ -1173,8 +1241,9 @@ class TestCopyRepoWatchFilesEdgeCases:
         manifest_path = build_dir / "repo-deps" / "manifest.json"
         assert manifest_path.exists()
         manifest = json.loads(manifest_path.read_text())
-        assert len(manifest) == 1
-        assert manifest[0]["commands"] == ["npm ci"]
+        build_commands = manifest["build_commands"]
+        assert len(build_commands) == 1
+        assert build_commands[0]["commands"] == ["npm ci"]
 
 
 class TestHashBuildCommandWatchFilesEdgeCases:

@@ -505,7 +505,8 @@ class TestAgentRole:
         assert AgentRole.REVIEWER_REFINE in roles
         assert AgentRole.REVIEWER_PLAN in roles
         assert AgentRole.REVIEWER_UNIFIED in roles
-        assert len(roles) == 17
+        assert AgentRole.COORDINATOR in roles
+        assert len(roles) == 18
 
 
 class TestBackwardCompatibility:

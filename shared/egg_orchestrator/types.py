@@ -43,12 +43,33 @@ class SignalType(StrEnum):
     - PROGRESS: Progress update during execution
     - ERROR: Error occurred (may be recoverable)
     - HEARTBEAT: Keep-alive signal for monitoring
+    - READINESS: Agent readiness state for consensus (concurrent mode)
     """
 
     COMPLETE = "complete"
     PROGRESS = "progress"
     ERROR = "error"
     HEARTBEAT = "heartbeat"
+    READINESS = "readiness"
+
+
+class MessageType(StrEnum):
+    """Message types for inter-agent communication."""
+
+    PROGRESS = "PROGRESS"
+    QUESTION = "QUESTION"
+    STATUS = "STATUS"
+    AGENT_FAILED = "AGENT_FAILED"
+    HANDOFF = "HANDOFF"
+
+
+class ReadinessState(StrEnum):
+    """Agent readiness states for consensus."""
+
+    WORKING = "WORKING"
+    READY = "READY"
+    BLOCKED = "BLOCKED"
+    OBJECTING = "OBJECTING"
 
 
 class AgentRole(StrEnum):
@@ -73,6 +94,8 @@ class AgentRole(StrEnum):
     REVIEWER_REFINE = "reviewer_refine"
     REVIEWER_PLAN = "reviewer_plan"
     REVIEWER_UNIFIED = "reviewer_unified"  # Vestigial: kept for backwards compatibility with persisted pipeline state
+    # Coordinator role
+    COORDINATOR = "coordinator"
 
 
 @dataclass
@@ -190,6 +213,66 @@ class HeartbeatData:
 
 
 @dataclass
+class ReadinessData:
+    """Data for readiness signal (concurrent mode consensus).
+
+    Attributes:
+        agent_role: Role of the agent
+        state: Readiness state (WORKING, READY, BLOCKED, OBJECTING)
+        reason: Optional reason for state change
+    """
+
+    agent_role: str
+    state: str
+    reason: str | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary for API calls."""
+        result: dict[str, Any] = {
+            "signal_type": SignalType.READINESS.value,
+            "agent_role": self.agent_role,
+            "state": self.state,
+        }
+        if self.reason:
+            result["reason"] = self.reason
+        return result
+
+
+@dataclass
+class MessageData:
+    """Data for sending an inter-agent message.
+
+    Attributes:
+        from_role: Sender agent role
+        to_role: Target role or 'all' for broadcast
+        message_type: Message type (PROGRESS, QUESTION, STATUS, etc.)
+        subject: Message subject
+        body: Message body
+        metadata: Additional metadata
+    """
+
+    from_role: str
+    to_role: str = "all"
+    message_type: str = "STATUS"
+    subject: str = ""
+    body: str = ""
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary for API calls."""
+        result: dict[str, Any] = {
+            "from_role": self.from_role,
+            "to_role": self.to_role,
+            "message_type": self.message_type,
+            "subject": self.subject,
+            "body": self.body,
+        }
+        if self.metadata:
+            result["metadata"] = self.metadata
+        return result
+
+
+@dataclass
 class SignalPayload:
     """Generic signal payload for orchestrator API.
 
@@ -236,13 +319,72 @@ class SignalResponse:
         )
 
 
+@dataclass
+class CoordinatorSpawnData:
+    """Data for coordinator spawn request."""
+
+    role: str
+    task_context: str = ""
+    extra_env: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        result: dict[str, Any] = {"role": self.role}
+        if self.task_context:
+            result["task_context"] = self.task_context
+        if self.extra_env:
+            result["extra_env"] = self.extra_env
+        return result
+
+
+@dataclass
+class CoordinatorPhaseData:
+    """Data for coordinator phase advance/skip request."""
+
+    reason: str
+    target_phase: str | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        result: dict[str, Any] = {"reason": self.reason}
+        if self.target_phase:
+            result["target_phase"] = self.target_phase
+        return result
+
+
+@dataclass
+class CoordinatorEscalateData:
+    """Data for coordinator escalation request."""
+
+    question: str
+    escalation_type: str = "choice"
+    options: list[str] = field(default_factory=list)
+    questions: list[dict[str, str]] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
+        result: dict[str, Any] = {
+            "question": self.question,
+            "escalation_type": self.escalation_type,
+        }
+        if self.options:
+            result["options"] = self.options
+        if self.questions:
+            result["questions"] = self.questions
+        return result
+
+
 __all__ = [
     "AgentRole",
     "CompletionData",
+    "CoordinatorEscalateData",
+    "CoordinatorPhaseData",
+    "CoordinatorSpawnData",
     "DeploymentMode",
     "ErrorData",
     "HeartbeatData",
+    "MessageData",
+    "MessageType",
     "ProgressData",
+    "ReadinessData",
+    "ReadinessState",
     "SignalPayload",
     "SignalResponse",
     "SignalType",

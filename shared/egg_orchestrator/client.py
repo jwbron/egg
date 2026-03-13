@@ -22,7 +22,9 @@ from .types import (
     CompletionData,
     ErrorData,
     HeartbeatData,
+    MessageData,
     ProgressData,
+    ReadinessData,
     SignalResponse,
     SignalType,
 )
@@ -350,6 +352,166 @@ class OrchestratorClient:
             container_id=container_id,
         )
         return self._send_signal(pipeline_id, data.to_dict())
+
+    def signal_readiness(
+        self,
+        pipeline_id: str,
+        agent_role: str,
+        state: str,
+        reason: str | None = None,
+    ) -> SignalResponse:
+        """Signal readiness state for consensus (concurrent mode).
+
+        Args:
+            pipeline_id: Pipeline ID
+            agent_role: Role of the agent
+            state: Readiness state (WORKING, READY, BLOCKED, OBJECTING)
+            reason: Optional reason for state change
+
+        Returns:
+            SignalResponse from orchestrator
+        """
+        data = ReadinessData(
+            agent_role=agent_role,
+            state=state,
+            reason=reason,
+        )
+        return self._send_signal(pipeline_id, data.to_dict())
+
+    def send_message(
+        self,
+        pipeline_id: str,
+        from_role: str,
+        to_role: str = "all",
+        message_type: str = "STATUS",
+        subject: str = "",
+        body: str = "",
+        metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Send an inter-agent message.
+
+        Args:
+            pipeline_id: Pipeline ID
+            from_role: Sender role
+            to_role: Target role or 'all'
+            message_type: Message type
+            subject: Message subject
+            body: Message body
+            metadata: Additional metadata
+
+        Returns:
+            Response data from orchestrator
+        """
+        msg_data = MessageData(
+            from_role=from_role,
+            to_role=to_role,
+            message_type=message_type,
+            subject=subject,
+            body=body,
+            metadata=metadata or {},
+        )
+        endpoint = f"/api/v1/pipelines/{pipeline_id}/messages"
+        return self._make_request(endpoint, method="POST", data=msg_data.to_dict())
+
+    def poll_messages(
+        self,
+        pipeline_id: str,
+        role: str | None = None,
+        since_id: str | None = None,
+        limit: int = 100,
+    ) -> dict[str, Any]:
+        """Poll for inter-agent messages.
+
+        Args:
+            pipeline_id: Pipeline ID
+            role: Filter for messages targeted to this role
+            since_id: Return only messages after this ID
+            limit: Max messages to return
+
+        Returns:
+            Response data with messages list
+        """
+        params = []
+        if role:
+            params.append(f"role={role}")
+        if since_id:
+            params.append(f"since_id={since_id}")
+        params.append(f"limit={limit}")
+        query = "&".join(params)
+        endpoint = f"/api/v1/pipelines/{pipeline_id}/messages?{query}"
+        return self._make_request(endpoint)
+
+    def get_message_status(self, pipeline_id: str) -> dict[str, Any]:
+        """Get message bus status for a pipeline.
+
+        Returns:
+            Response data with message counts
+        """
+        endpoint = f"/api/v1/pipelines/{pipeline_id}/messages/status"
+        return self._make_request(endpoint)
+
+    def coordinator_spawn_agent(
+        self,
+        pipeline_id: str,
+        role: str,
+        task_context: str = "",
+        extra_env: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Spawn an agent via coordinator API."""
+        endpoint = f"/api/v1/pipelines/{pipeline_id}/coordinator/spawn"
+        data: dict[str, Any] = {"role": role}
+        if task_context:
+            data["task_context"] = task_context
+        if extra_env:
+            data["extra_env"] = extra_env
+        return self._make_request(endpoint, method="POST", data=data)
+
+    def coordinator_get_state(self, pipeline_id: str) -> dict[str, Any]:
+        """Get comprehensive coordinator state."""
+        endpoint = f"/api/v1/pipelines/{pipeline_id}/coordinator/state"
+        return self._make_request(endpoint)
+
+    def coordinator_advance_phase(
+        self,
+        pipeline_id: str,
+        reason: str,
+        target_phase: str | None = None,
+    ) -> dict[str, Any]:
+        """Advance or skip to a specific phase."""
+        endpoint = f"/api/v1/pipelines/{pipeline_id}/coordinator/phase"
+        data: dict[str, Any] = {"reason": reason}
+        if target_phase:
+            data["target_phase"] = target_phase
+        return self._make_request(endpoint, method="POST", data=data)
+
+    def coordinator_escalate(
+        self,
+        pipeline_id: str,
+        question: str,
+        escalation_type: str = "choice",
+        options: list[str] | None = None,
+        questions: list[dict[str, str]] | None = None,
+    ) -> dict[str, Any]:
+        """Create a HITL escalation."""
+        endpoint = f"/api/v1/pipelines/{pipeline_id}/coordinator/escalate"
+        data: dict[str, Any] = {
+            "question": question,
+            "escalation_type": escalation_type,
+        }
+        if options:
+            data["options"] = options
+        if questions:
+            data["questions"] = questions
+        return self._make_request(endpoint, method="POST", data=data)
+
+    def coordinator_cancel_agent(
+        self,
+        pipeline_id: str,
+        role: str,
+    ) -> dict[str, Any]:
+        """Cancel a running agent."""
+        endpoint = f"/api/v1/pipelines/{pipeline_id}/coordinator/agents/{role}"
+        return self._make_request(endpoint, method="DELETE")
 
     def send_signal(
         self,

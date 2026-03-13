@@ -11,10 +11,19 @@ from __future__ import annotations
 import fnmatch
 import json
 import posixpath
+import sys
 from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
 from typing import Any
+
+# Ensure the shared directory is on the path so egg_contracts is importable
+# whether running in a Docker container (/app) or from the host (../../shared).
+_shared_path = Path(__file__).parent.parent / "shared"
+if _shared_path.exists() and str(_shared_path) not in sys.path:
+    sys.path.insert(0, str(_shared_path))
+
+from egg_contracts.models import PipelinePhase as PipelinePhase
 
 
 class OperationType(StrEnum):
@@ -23,19 +32,6 @@ class OperationType(StrEnum):
     GIT = "git"
     GH = "gh"
     EGG_CONTRACT = "egg-contract"
-
-
-class PipelinePhase(StrEnum):
-    """Pipeline phases.
-
-    Note: This duplicates egg_contracts.models.PipelinePhase to avoid import
-    complexity in the gateway module. Values must be kept in sync.
-    """
-
-    REFINE = "refine"
-    PLAN = "plan"
-    IMPLEMENT = "implement"
-    PR = "pr"
 
 
 @dataclass
@@ -205,7 +201,10 @@ class PhaseFileRestriction:
 
             for pattern in self.allowed_patterns:
                 if self._matches_pattern(normalized, pattern):
-                    return True, f"File '{file_path}' matches allowed pattern '{pattern}'"
+                    return (
+                        True,
+                        f"File '{file_path}' matches allowed pattern '{pattern}'",
+                    )
 
             return False, f"File '{file_path}' does not match any allowed pattern"
 
@@ -415,12 +414,18 @@ class PhaseFilter:
                     Operation(OperationType.GH, "issue edit *", "Edit issues"),
                     Operation(OperationType.GIT, "push *", "Push state files to remote"),
                     Operation(
-                        OperationType.EGG_CONTRACT, "add-decision *", "Create HITL decisions"
+                        OperationType.EGG_CONTRACT,
+                        "add-decision *",
+                        "Create HITL decisions",
                     ),
                     Operation(OperationType.EGG_CONTRACT, "show *", "View contract state"),
                 ],
                 blocked_operations=[
-                    Operation(OperationType.GH, "pr create*", "Cannot create PRs during refine"),
+                    Operation(
+                        OperationType.GH,
+                        "pr create*",
+                        "Cannot create PRs during refine",
+                    ),
                 ],
                 exit_requires="human",
             ),
@@ -430,7 +435,9 @@ class PhaseFilter:
                     Operation(OperationType.GH, "issue edit *", "Edit issues"),
                     Operation(OperationType.GIT, "push *", "Push state files to remote"),
                     Operation(
-                        OperationType.EGG_CONTRACT, "add-decision *", "Create HITL decisions"
+                        OperationType.EGG_CONTRACT,
+                        "add-decision *",
+                        "Create HITL decisions",
                     ),
                     Operation(OperationType.EGG_CONTRACT, "show *", "View contract state"),
                 ],
@@ -447,7 +454,11 @@ class PhaseFilter:
                     Operation(OperationType.EGG_CONTRACT, "show *", "View contract state"),
                 ],
                 blocked_operations=[
-                    Operation(OperationType.GH, "pr create*", "Cannot create PRs until complete"),
+                    Operation(
+                        OperationType.GH,
+                        "pr create*",
+                        "Cannot create PRs until complete",
+                    ),
                 ],
                 exit_requires="reviewer",
             ),
@@ -459,6 +470,27 @@ class PhaseFilter:
                     Operation(OperationType.EGG_CONTRACT, "show *", "View contract state"),
                 ],
                 blocked_operations=[],
+                exit_requires="human",
+            ),
+            PipelinePhase.COORDINATOR: PhasePermissions(
+                allowed_operations=[
+                    Operation(OperationType.GIT, "push *", "Push state files to remote"),
+                    Operation(
+                        OperationType.EGG_CONTRACT,
+                        "add-decision *",
+                        "Create HITL decisions",
+                    ),
+                    Operation(
+                        OperationType.EGG_CONTRACT,
+                        "add-feedback *",
+                        "Create HITL feedback",
+                    ),
+                    Operation(OperationType.EGG_CONTRACT, "show *", "View contract state"),
+                ],
+                blocked_operations=[
+                    Operation(OperationType.GH, "pr create*", "Coordinator cannot create PRs"),
+                    Operation(OperationType.GH, "pr merge*", "Coordinator cannot merge PRs"),
+                ],
                 exit_requires="human",
             ),
         }
@@ -477,7 +509,9 @@ class PhaseFilter:
             ),
         ]
 
-    def _get_default_phase_file_restrictions(self) -> dict[PipelinePhase, PhaseFileRestriction]:
+    def _get_default_phase_file_restrictions(
+        self,
+    ) -> dict[PipelinePhase, PhaseFileRestriction]:
         """Get default phase-based file restrictions.
 
         These defaults define which files can be pushed during each phase:
@@ -521,6 +555,18 @@ class PhaseFilter:
             PipelinePhase.PR: PhaseFileRestriction(
                 allowed_patterns=["*"],
                 description="PR phase can push everything",
+            ),
+            PipelinePhase.COORDINATOR: PhaseFileRestriction(
+                allowed_patterns=[
+                    ".egg-state/agent-outputs/*",
+                    ".egg-state/checkpoints/*",
+                ],
+                blocked_patterns=[
+                    ".egg-state/contracts/*",
+                    ".egg-state/drafts/*",
+                    ".egg-state/reviews/*",
+                ],
+                description="Coordinator phase can only push agent outputs and checkpoints",
             ),
         }
 

@@ -61,7 +61,7 @@ If push fails:
 
 | Path | Purpose |
 |------|---------|
-| `~/repos/` | Code workspace (RW) - mounted repositories |
+| `~/repos/` | Code workspace (RW) - contains repos, but is NOT itself a git repo. Run git commands from `~/repos/<repo>/`, not `~/repos/`. |
 | `~/repos/<repo>/.egg-state/` | SDLC pipeline state (may be readonly in implement phase) |
 | `~/context-sync/` | Confluence/JIRA (RO) |
 | `~/sharing/` | Persistent data, notifications, context |

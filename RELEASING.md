@@ -31,7 +31,7 @@ Each release produces:
 |----------|------|
 | Docker images | `vX.Y.Z`, `vX.Y`, `vX`, `latest` (stable only) |
 | Git tags | `vX.Y.Z`, `vX.Y`, `vX` (floating, stable only) |
-| GitHub Release | `vX.Y.Z` with changelog |
+| GitHub Release | `vX.Y.Z` with release notes |
 
 Pre-release versions only produce the exact version tag (`vX.Y.Z-suffix`).
 
@@ -41,7 +41,6 @@ Pre-release versions only produce the exact version tag (`vX.Y.Z-suffix`).
 
 - All tests passing on main
 - No critical open issues
-- CHANGELOG.md updated (if applicable)
 
 ### Using the Release Script
 
@@ -67,7 +66,7 @@ After running the script:
 
 1. Go to https://github.com/jwbron/egg/releases/new?tag=vX.Y.Z
 2. Copy the release notes template from the script output
-3. Edit the highlights and changelog sections
+3. Edit the highlights and release notes sections
 4. For pre-release versions, check "Set as a pre-release"
 5. Publish the release
 
@@ -86,7 +85,7 @@ During release:
 
 - [ ] Run `create-release.sh --dry-run` to verify
 - [ ] Run `create-release.sh` to create and push tags
-- [ ] Create GitHub release with changelog
+- [ ] Create GitHub release with release notes
 - [ ] Verify Docker images are pushed
 
 After release:

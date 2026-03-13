@@ -29,8 +29,9 @@ All persistent user configuration is consolidated under `~/.config/egg/`:
 
 ```
 ~/.config/egg/
-├── config.yaml        # Non-secret settings (Slack channel, sync intervals, etc.)
+├── config.yaml        # All non-secret settings (compose, ports, identity, etc.)
 ├── secrets.env        # All secrets (Slack, GitHub, Confluence, JIRA tokens)
+├── launcher-secret    # Gateway launcher secret (dedicated file)
 ├── github-token       # GitHub token (dedicated file)
 ├── github-app-id      # GitHub App ID (if using App auth)
 ├── github-app-installation-id  # GitHub App Installation ID
@@ -58,7 +59,40 @@ This directory respects `$XDG_CACHE_HOME` if set.
 
 **Note**: Previously this was `~/.egg/`. The egg script auto-migrates on first run.
 
+## config.yaml Schema
+
+The `config.yaml` file stores all non-secret settings for egg, including Docker Compose
+configuration (previously in `.env`). See `config/config.yaml.example` for a full template.
+
+| Key | Env Var | Default | Description |
+|-----|---------|---------|-------------|
+| `host_home` | `HOST_HOME` | — | Host home directory (required for worktree mounts) |
+| `host_uid` | `HOST_UID` | `1000` | Host UID for file ownership |
+| `host_gid` | `HOST_GID` | `1000` | Host GID for file ownership |
+| `git_name` | `EGG_USER_GIT_NAME` | `egg` | Git user name for commits |
+| `git_email` | `EGG_USER_GIT_EMAIL` | `egg@localhost` | Git email for commits |
+| `compose_project_name` | `COMPOSE_PROJECT_NAME` | `egg` | Docker Compose project name |
+| `gateway_api_port` | `GATEWAY_API_PORT` | `9848` | Gateway API port |
+| `gateway_proxy_port` | `GATEWAY_PROXY_PORT` | `3129` | Squid proxy port |
+| `orchestrator_api_port` | `ORCHESTRATOR_API_PORT` | `9849` | Orchestrator API port |
+| `mcp_server_port` | `EGG_MCP_SERVER_PORT` | `9850` | MCP server port |
+| `mcp_rate_limit` | `EGG_MCP_RATE_LIMIT` | `30` | MCP requests per minute |
+| `anthropic_auth_method` | — | `oauth` | Auth method: `oauth` or `api_key` |
+| `gateway_image` | `EGG_GATEWAY_IMAGE` | — | Gateway image override |
+| `orchestrator_image` | `EGG_ORCHESTRATOR_IMAGE` | — | Orchestrator image override |
+| `sandbox_image` | `EGG_SANDBOX_IMAGE` | — | Sandbox image override |
+| `gateway_bot_name` | `GATEWAY_BOT_NAME` | — | Bot name (GitHub App mode) |
+| `gateway_bot_branch_prefix` | `GATEWAY_BOT_BRANCH_PREFIX` | — | Bot branch prefix |
+| `gateway_trusted_users` | `GATEWAY_TRUSTED_USERS` | — | Trusted user list |
+
+Secrets (`EGG_LAUNCHER_SECRET`, `GITHUB_USER_TOKEN`, `BOT_GITHUB_TOKEN`) are stored in
+`secrets.env` or dedicated files (`launcher-secret`, `github-token`), never in `config.yaml`.
+
+The `egg-deploy` script reads `config.yaml` via `shared/egg_config/compose_config.py`
+and exports the values as environment variables for `docker-compose.yml`.
+
 **Templates:**
+- `config/config.yaml.example` - Full config.yaml template with all settings
 - `config/secrets.template.env` - Secrets template
 
 **In-repo modules:**
@@ -166,13 +200,14 @@ Each `build_commands` entry has:
 **How it works:**
 1. `create_dockerfile()` copies each repo's watch files from `local_repos.paths` into the build context at `~/.config/egg/repo-deps/<repo-name>/`
 2. `compute_build_hash()` includes watch file contents, so the image rebuilds automatically when dependency files change
-3. During `docker build`, the `docker-setup.py` script reads `build_commands` from all repos and executes them in order
+3. During `docker build`, the `docker-setup.py` script reads both `build_commands` and `extra_packages` from `manifest.json` (since `repositories.yaml` is unavailable in the build context) and executes them in order
 4. All repos' dependencies are installed into the **same image** — no per-repo images
 
 **Key properties:**
 - Repos without `build_commands` are unaffected (backwards compatible)
 - Docker layer caching means no rebuild when dependencies are unchanged
 - The existing `docker_setup.extra_packages` (apt/dnf) remains for OS-level packages; `build_commands` is for project-level dependencies
+- Both `build_commands` and `extra_packages` are included in `manifest.json` for the Docker build context
 
 ### Checkpoint Repository Configuration
 

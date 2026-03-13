@@ -184,6 +184,18 @@ See `orchestrator/routes/pipelines.py:WORKTREE_BASE_DIR` and `gateway/worktree_m
 
 The orchestrator coordinates specialized agent roles across pipeline phases. Each role runs in its own sandbox container with scoped permissions enforced by the gateway.
 
+### Coordinator Role
+
+When `coordinator_enabled: true` is set on a pipeline, a single **coordinator** agent runs instead of the fixed-phase dispatcher. The coordinator analyzes the task, spawns agents on demand, and manages phase transitions dynamically via the coordinator REST API.
+
+| Role | Responsibility |
+|------|----------------|
+| **Coordinator** | Analyze task requirements, spawn appropriate agents, manage phase transitions, escalate HITL decisions |
+
+**Execution model**: The coordinator container runs first and drives the entire pipeline. It communicates with the orchestrator via `egg-orch coordinator` CLI commands or the coordinator REST API. Guardrails (max agents, max retries per role, max respawns) prevent runaway behavior and are enforced by the orchestrator.
+
+See the [Coordinator Guide](../guides/coordinator.md) for operational details.
+
 ### Refine Phase Roles
 
 | Role | Responsibility |
@@ -215,7 +227,7 @@ The orchestrator coordinates specialized agent roles across pipeline phases. Eac
 |------|----------------|
 | **Coder** | Write code, create commits, push branches |
 | **Tester** | Find gaps in implementation, write and run tests |
-| **Documenter** | Update docs, READMEs, and changelogs |
+| **Documenter** | Update docs and READMEs |
 | **Checker** | Run linters, formatters, and auto-fixers on code |
 | **Integrator** | Run full test suite, validate integration |
 
@@ -388,12 +400,23 @@ Fixed IPs:
 - `GET /pipelines/{id}/visualization` - Pipeline status snapshot (JSON, text, or ASCII); for Tier 3 pipelines, the Implement phase is expanded into sub-phase boxes with fan-out/fan-in connectors
 - `GET /pipelines/{id}/stream` - Real-time SSE stream for single pipeline events and visualization
 - `GET /pipelines/stream` - Unified SSE stream for all active pipelines (supports `?ascii=true`, `?active_only=false`, `?full_dag=true`)
-- `POST /pipelines/{id}/signal` - Sandbox signals (complete, progress, error)
+- `POST /pipelines/{id}/signal` - Sandbox signals (complete, progress, error, readiness)
+- `GET|POST /pipelines/{id}/messages` - Inter-agent message bus (send/poll; concurrent mode)
+- `GET /pipelines/{id}/messages/status` - Message bus statistics (concurrent mode)
 - `GET /pipelines/{id}/decisions` - HITL decision queue
+- `POST /pipelines/{id}/coordinator/spawn` - Spawn an agent via coordinator (requires `coordinator_enabled`)
+- `GET /pipelines/{id}/coordinator/state` - Get coordinator state (agents, phases, guardrails)
+- `POST /pipelines/{id}/coordinator/phase` - Advance or skip to a target phase
+- `POST /pipelines/{id}/coordinator/escalate` - Create a HITL escalation from the coordinator
+- `DELETE /pipelines/{id}/coordinator/agents/{role}` - Cancel a running agent by role
 - `POST /pipelines/{id}/deployment-check/start` - Start devserver for deployment validation
 - `GET /pipelines/{id}/deployment-check/status` - Poll devserver status
 - `POST /pipelines/{id}/deployment-check/teardown` - Tear down devserver
 - `GET /pipelines/{id}/health` - On-demand pipeline health check (all tiers)
+
+**MCP Server (`/mcp`)**
+- `GET /health` - MCP server health check
+- `POST /mcp` - Streamable HTTP transport endpoint (MCP protocol via JSON-RPC)
 
 **CLI Access:**
 The `egg-orch` CLI (`sandbox/bin/egg-orch`) provides command-line access to all orchestrator API endpoints. Available in sandbox containers for agent use, or can be run from the host with appropriate environment variables. See the [README CLI Reference](../../README.md#egg-orch-cli) for command details.

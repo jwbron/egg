@@ -293,6 +293,30 @@ test_git_operations() {
         record_result "git_fetch" "fail" "Exit $EXIT_CODE" "$RESP"
     fi
 
+    log_test "git fetch with --depth flag (flag value not expanded as refspec)"
+    RESP=$(git fetch origin --depth 1 main 2>&1)
+    EXIT_CODE=$?
+    if [[ $EXIT_CODE -eq 0 ]]; then
+        log_pass "git fetch --depth works (flag value preserved)"
+        record_result "git_fetch_depth" "pass" "Works" "$RESP"
+    else
+        log_fail "git fetch --depth failed (exit $EXIT_CODE) — flag value may have been expanded as refspec"
+        log_info "$RESP"
+        record_result "git_fetch_depth" "fail" "Exit $EXIT_CODE" "$RESP"
+    fi
+
+    log_test "git fetch with explicit refspec (not double-expanded)"
+    RESP=$(git fetch origin +refs/heads/main:refs/remotes/origin/main 2>&1)
+    EXIT_CODE=$?
+    if [[ $EXIT_CODE -eq 0 ]]; then
+        log_pass "git fetch with explicit refspec works"
+        record_result "git_fetch_refspec" "pass" "Works" "$RESP"
+    else
+        log_fail "git fetch with explicit refspec failed (exit $EXIT_CODE)"
+        log_info "$RESP"
+        record_result "git_fetch_refspec" "fail" "Exit $EXIT_CODE" "$RESP"
+    fi
+
     log_test "git push --dry-run to bot-prefixed branch"
     BRANCH="egg-test-$$"
     git checkout -b "$BRANCH" origin/main 2>/dev/null

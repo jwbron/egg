@@ -1,0 +1,86 @@
+# Egg Configuration
+#
+# Copy this file to ~/.config/egg/config.yaml and configure.
+# Run 'egg-deploy init' to generate this automatically with system defaults.
+#
+# Secrets (tokens, keys) go in ~/.config/egg/secrets.env or dedicated files
+# (e.g., ~/.config/egg/github-token, ~/.config/egg/launcher-secret).
+# They should NEVER be stored in config.yaml.
+
+# =============================================================================
+# Host Identity (required for worktree bind mounts)
+# =============================================================================
+
+# Must match your actual home directory for worktree path translation.
+# Find with: echo $HOME
+host_home: /home/your-username
+
+# File ownership UID/GID (should match your user)
+# Find with: id -u && id -g
+host_uid: 1000
+host_gid: 1000
+
+# =============================================================================
+# Git Identity
+# =============================================================================
+
+# Git user for commits made by egg
+git_name: egg
+git_email: egg@localhost
+
+# =============================================================================
+# Docker Compose
+# =============================================================================
+
+# Compose project name (prefixes container and network names)
+compose_project_name: egg
+
+# =============================================================================
+# Network Ports
+# =============================================================================
+
+# Gateway API port (for git/gh operations from sandbox)
+gateway_api_port: 9848
+
+# Squid proxy port (for filtered internet access)
+gateway_proxy_port: 3129
+
+# Orchestrator API port (for pipeline state management)
+orchestrator_api_port: 9849
+
+# =============================================================================
+# MCP Server
+# =============================================================================
+# The MCP server runs alongside the orchestrator and bridges Claude Code
+# sessions to the coordinator. It is always enabled.
+
+# MCP server port
+mcp_server_port: 9850
+
+# MCP rate limit (requests per minute)
+mcp_rate_limit: 30
+
+# =============================================================================
+# Anthropic Authentication
+# =============================================================================
+
+# Authentication method: "oauth" or "api_key"
+anthropic_auth_method: oauth
+
+# =============================================================================
+# Optional: Image Overrides
+# =============================================================================
+# Uncomment to use pre-built images from GHCR instead of building locally.
+
+# gateway_image: ghcr.io/jwbron/egg-gateway:latest
+# orchestrator_image: ghcr.io/jwbron/egg-orchestrator:latest
+# sandbox_image: ghcr.io/jwbron/egg-sandbox:latest
+
+# =============================================================================
+# Optional: Bot Mode (for GitHub App authentication)
+# =============================================================================
+# Uncomment to enable bot mode with GitHub App authentication.
+
+# gateway_bot_name: your-bot-name
+# gateway_bot_branch_prefix: your-bot-name
+# gateway_trusted_users: user1,user2

@@ -8,7 +8,7 @@ The orchestrator manages the end-to-end SDLC pipeline that turns GitHub issues i
 
 - **Manages pipeline state** — persists phase transitions, agent executions, and decisions on a git-backed state branch
 - **Spawns and monitors containers** — creates sandbox containers with proper configuration via the gateway sidecar
-- **Coordinates multi-agent execution** — runs specialized agents (coder, tester, documenter, etc.) in dependency-ordered waves
+- **Coordinates multi-agent execution** — runs specialized agents (coder, tester, documenter, etc.) in dependency-ordered waves or concurrently with message-based coordination
 - **Handles HITL decisions** — queues questions for human reviewers and blocks until resolved
 - **Streams real-time status** — provides SSE streams and DAG visualizations for pipeline monitoring
 - **Validates deployments** — manages Docker-in-Docker devserver stacks for pre-merge testing
@@ -65,6 +65,28 @@ Agents execute in dependency-ordered waves:
 - **Tier 3** (high complexity): Each plan phase gets its own implement cycle (Coder → Tester → Documenter → Checker → Code Reviewer), with independent phases running in parallel. Each coder agent is scoped to its plan phase's `files_affected` union via per-task file restrictions (see gateway README), preventing cross-contamination between parallel agents. An Integrator with expanded write access runs after all phase cycles complete. The DAG visualization renders Tier 3 pipelines with individual sub-phase boxes arranged by dependency wave, connected by fan-out/fan-in connectors for parallel phases.
 
 Reviewers always run as a separate step after all workers complete, spawning in parallel with a configurable concurrency limit.
+
+### Coordinator Mode
+
+When `coordinator_enabled: true` is set in the pipeline config, the orchestrator delegates workflow decisions to a **coordinator agent** instead of following the fixed phase sequence. The coordinator:
+
+- Analyzes the task and determines the optimal workflow (full SDLC, quick fix, docs-only, etc.)
+- Spawns agents on demand via the coordinator REST API
+- Skips or reorders phases based on task complexity
+- Escalates ambiguous decisions to humans via HITL
+- Recovers from crashes by re-reading persisted state
+
+The coordinator runs as a standard agent container with the `coordinator` role. An MCP server sidecar (port 9850) bridges external Claude Code sessions to the coordinator for conversational interaction. See the [Coordinator Guide](../docs/guides/coordinator.md) for full details.
+
+### Concurrent Execution Mode
+
+When `concurrent_execution: true` is set in the pipeline configuration, agents within a phase run simultaneously rather than in waves. Agents coordinate through:
+
+- **Message bus** — Agents exchange typed messages (PROGRESS, QUESTION, RESPONSE, STATUS, AGENT_FAILED) via the orchestrator's message API. Messages can target a specific role or broadcast to all agents.
+- **Readiness consensus** — Each agent signals its readiness state (WORKING, READY, BLOCKED, OBJECTING). The phase advances only when all agents reach READY. Any OBJECTING agent blocks phase completion.
+- **Per-agent worktrees** — Each concurrent agent gets an isolated worktree branch (e.g., `egg/issue-999/coder`, `egg/issue-999/tester`). The integrator merges these at the end.
+
+The `GET /pipelines/{id}/status` endpoint includes a `concurrent` section when this mode is active, showing message counts, consensus state, and agent lifecycle info. See [SDLC Pipeline Guide — Concurrent Execution](../docs/guides/sdlc-pipeline.md#concurrent-execution-mode) for full details.
 
 ### Worktree Sync
 
@@ -140,6 +162,18 @@ All endpoints are prefixed with `/api/v1`.
 | `POST` | `/pipelines/{id}/decisions/{did}/cancel` | Cancel decision |
 | `GET` | `/pipelines/{id}/decisions/status` | Decision queue summary |
 
+### Coordinator
+
+These endpoints require `coordinator_enabled: true` on the pipeline.
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/pipelines/{id}/coordinator/spawn` | Spawn agent via coordinator (guardrail-checked) |
+| `GET` | `/pipelines/{id}/coordinator/state` | Get coordinator state (agents, phases, decisions) |
+| `POST` | `/pipelines/{id}/coordinator/phase` | Advance or skip to target phase |
+| `POST` | `/pipelines/{id}/coordinator/escalate` | Create HITL escalation |
+| `DELETE` | `/pipelines/{id}/coordinator/agents/{role}` | Cancel running agent by role |
+
 ### Phases
 
 | Method | Path | Description |
@@ -202,6 +236,9 @@ orchestrator/
 ├── gateway_client.py       # Gateway API client for session management
 ├── docker_client.py        # Docker client wrapper
 ├── sandbox_template.py     # Sandbox container configuration templates
+├── coordinator_executor.py  # Coordinator container lifecycle (spawn, crash recovery, guardrails)
+├── mcp_server.py           # SSE-based MCP server for coordinator tools (port 9850)
+├── mcp_tools.py            # MCP tool definitions and handlers (submit_task, get_status, etc.)
 ├── events.py               # Event emission and tracking
 ├── health_checks/          # Two-tier health check framework (see health_checks/README.md)
 │   ├── types.py            # HealthCheck protocol, HealthResult, enums
@@ -225,6 +262,7 @@ orchestrator/
 ├── entrypoint.sh           # Container startup script
 ├── requirements.txt        # Python dependencies
 ├── routes/
+│   ├── coordinator.py      # Coordinator endpoints (spawn, state, phase, escalate, cancel)
 │   ├── checks.py           # Deployment check endpoints
 │   ├── containers.py       # Container lifecycle endpoints
 │   ├── decisions.py        # HITL decision endpoints
@@ -233,7 +271,7 @@ orchestrator/
 │   ├── phases.py           # Phase management endpoints
 │   ├── pipelines.py        # Pipeline CRUD endpoints
 │   └── signals.py          # Sandbox signal callback endpoints
-└── tests/                  # Unit and integration tests (30+ files, including health check tests)
+└── tests/                  # Unit and integration tests (30+ files, including health check and concurrent execution tests)
 ```
 
 ## Health Check Framework
@@ -279,6 +317,10 @@ Health check results are emitted via the EventBus:
 | `system.health_check.completed` | Individual check or aggregate completion |
 | `system.health_check.degraded` | Check returned DEGRADED status |
 | `system.health_check.failed` | Check returned FAILED status |
+| `coordinator.spawn` | Coordinator spawned an agent |
+| `coordinator.decision` | Coordinator made a phase transition decision |
+| `coordinator.escalation` | Coordinator created a HITL escalation |
+| `coordinator.loopback` | Coordinator respawned after crash |
 
 ### Phase-Advance Gating
 
@@ -306,6 +348,7 @@ Defined in `shared/egg_config/constants.py`:
 |----------|-------|
 | Container name | `egg-orchestrator` |
 | Port | `9849` |
+| MCP server port | `9850` |
 | Isolated network IP | `172.32.0.3` |
 | External network IP | `172.33.0.3` |
 
@@ -326,4 +369,5 @@ Defined in `shared/egg_config/constants.py`:
 - [Sandbox README](../sandbox/README.md) — Agent execution environment
 - [Shared README](../shared/README.md) — Shared packages (egg_contracts, egg_container, egg_config)
 - [SDLC Pipeline Guide](../docs/guides/sdlc-pipeline.md) — End-to-end pipeline usage
+- [Coordinator Guide](../docs/guides/coordinator.md) — Dynamic orchestration via coordinator agent and MCP server
 - [Architecture Overview](../docs/architecture/README.md) — System design

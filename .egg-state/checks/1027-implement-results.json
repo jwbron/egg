@@ -1,0 +1,20 @@
+{
+  "all_passed": true,
+  "checks": [
+    {
+      "name": "lint",
+      "passed": true,
+      "output": "==> Ruff check...\nAll checks passed!\n==> Ruff format check...\n442 files already formatted\n==> Mypy...\nSuccess: no issues found in 120 source files\n==> Shellcheck...\n==> Custom checks...\nOK: All checks passed"
+    },
+    {
+      "name": "test",
+      "passed": true,
+      "output": "7491 passed, 87 skipped, 4 warnings in 99.69s (0:01:39)"
+    },
+    {
+      "name": "security",
+      "passed": true,
+      "output": "==> Running security scan...\nSKIP: bandit not installed"
+    }
+  ]
+}

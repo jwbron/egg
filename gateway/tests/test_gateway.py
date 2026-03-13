@@ -1249,6 +1249,39 @@ class TestGhPrCreate:
             assert data["success"] is True
             assert "pull/42" in data["data"]["stdout"]
 
+    def test_pr_create_user_mode_forces_draft_flag(self, client, auth_headers):
+        """User mode forces --draft flag in gh pr create args."""
+        with (
+            patch.object(gateway, "get_github_client") as mock_gh,
+            patch.object(gateway, "get_auth_mode", return_value="user"),
+        ):
+            mock_result = MagicMock()
+            mock_result.success = True
+            mock_result.stdout = "https://github.com/test/repo/pull/43"
+            mock_result.stderr = ""
+            mock_gh.return_value.execute.return_value = mock_result
+
+            response = client.post(
+                "/api/v1/gh/pr/create",
+                headers=auth_headers,
+                data=json.dumps(
+                    {
+                        "repo": "test/repo",
+                        "title": "Add feature",
+                        "body": "Description",
+                        "base": "main",
+                        "head": "feature-branch",
+                    }
+                ),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 200
+            # Verify --draft was passed to execute
+            call_args = mock_gh.return_value.execute.call_args
+            args_list = call_args[0][0]  # First positional arg is the args list
+            assert "--draft" in args_list
+
 
 class TestGhPrCreatePhaseRestrictions:
     """Tests for phase-based PR creation restrictions."""
@@ -1578,6 +1611,203 @@ class TestGhPrEdit:
             )
 
             assert response.status_code == 403
+
+    def test_pr_edit_uses_rest_api(self, client, auth_headers):
+        """PR edit should use gh api REST call instead of gh pr edit."""
+        with (
+            patch.object(gateway, "get_policy_engine") as mock_policy,
+            patch.object(gateway, "get_github_client") as mock_gh,
+        ):
+            mock_engine = MagicMock()
+            mock_engine.check_pr_ownership.return_value = PolicyResult(
+                allowed=True,
+                reason="PR is owned by bot",
+                details={"author": "bot"},
+            )
+            mock_policy.return_value = mock_engine
+
+            mock_gh_result = MagicMock()
+            mock_gh_result.success = True
+            mock_gh_result.stdout = '{"number": 123, "title": "New title"}'
+            mock_gh_result.stderr = ""
+            mock_gh.return_value.execute.return_value = mock_gh_result
+
+            response = client.post(
+                "/api/v1/gh/pr/edit",
+                headers=auth_headers,
+                data=json.dumps(
+                    {
+                        "repo": "test/repo",
+                        "pr_number": 123,
+                        "title": "New title",
+                        "body": "New body",
+                    }
+                ),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 200
+            # Verify gh api REST args were used
+            call_args = mock_gh.return_value.execute.call_args[0][0]
+            assert call_args[0] == "api"
+            assert "repos/test/repo/pulls/123" in call_args[1]
+            assert "-X" in call_args
+            assert "PATCH" in call_args
+            assert "-f" in call_args
+            assert "title=New title" in call_args
+            assert "body=New body" in call_args
+
+    def test_pr_edit_rejects_non_integer_pr_number(self, client, auth_headers):
+        """PR edit should reject non-integer pr_number."""
+        response = client.post(
+            "/api/v1/gh/pr/edit",
+            headers=auth_headers,
+            data=json.dumps(
+                {
+                    "repo": "test/repo",
+                    "pr_number": "42/../../repos/other/issues/1",
+                    "title": "New title",
+                }
+            ),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 400
+        data = response.get_json()
+        assert "positive integer" in data["message"].lower()
+
+    def test_pr_edit_rejects_boolean_pr_number(self, client, auth_headers):
+        """PR edit should reject boolean pr_number (bool is subclass of int)."""
+        response = client.post(
+            "/api/v1/gh/pr/edit",
+            headers=auth_headers,
+            data=json.dumps(
+                {
+                    "repo": "test/repo",
+                    "pr_number": True,
+                    "title": "New title",
+                }
+            ),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 400
+        data = response.get_json()
+        assert "positive integer" in data["message"].lower()
+
+    def test_pr_edit_rejects_negative_pr_number(self, client, auth_headers):
+        """PR edit should reject negative pr_number."""
+        response = client.post(
+            "/api/v1/gh/pr/edit",
+            headers=auth_headers,
+            data=json.dumps(
+                {
+                    "repo": "test/repo",
+                    "pr_number": -1,
+                    "title": "New title",
+                }
+            ),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 400
+        data = response.get_json()
+        assert "positive integer" in data["message"].lower()
+
+    def test_pr_edit_rejects_malformed_repo(self, client, auth_headers):
+        """PR edit should reject repo without owner/repo format."""
+        response = client.post(
+            "/api/v1/gh/pr/edit",
+            headers=auth_headers,
+            data=json.dumps(
+                {
+                    "repo": "noslash",
+                    "pr_number": 123,
+                    "title": "New title",
+                }
+            ),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 400
+        data = response.get_json()
+        assert "owner/repo" in data["message"].lower()
+
+    def test_pr_edit_title_only(self, client, auth_headers):
+        """PR edit with title only should send only title field."""
+        with (
+            patch.object(gateway, "get_policy_engine") as mock_policy,
+            patch.object(gateway, "get_github_client") as mock_gh,
+        ):
+            mock_engine = MagicMock()
+            mock_engine.check_pr_ownership.return_value = PolicyResult(
+                allowed=True,
+                reason="PR is owned by bot",
+                details={"author": "bot"},
+            )
+            mock_policy.return_value = mock_engine
+
+            mock_gh_result = MagicMock()
+            mock_gh_result.success = True
+            mock_gh_result.stdout = '{"number": 123, "title": "New title"}'
+            mock_gh_result.stderr = ""
+            mock_gh.return_value.execute.return_value = mock_gh_result
+
+            response = client.post(
+                "/api/v1/gh/pr/edit",
+                headers=auth_headers,
+                data=json.dumps(
+                    {
+                        "repo": "test/repo",
+                        "pr_number": 123,
+                        "title": "New title",
+                    }
+                ),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 200
+            call_args = mock_gh.return_value.execute.call_args[0][0]
+            assert "title=New title" in call_args
+            assert not any("body=" in arg for arg in call_args)
+
+    def test_pr_edit_body_only(self, client, auth_headers):
+        """PR edit with body only should send only body field."""
+        with (
+            patch.object(gateway, "get_policy_engine") as mock_policy,
+            patch.object(gateway, "get_github_client") as mock_gh,
+        ):
+            mock_engine = MagicMock()
+            mock_engine.check_pr_ownership.return_value = PolicyResult(
+                allowed=True,
+                reason="PR is owned by bot",
+                details={"author": "bot"},
+            )
+            mock_policy.return_value = mock_engine
+
+            mock_gh_result = MagicMock()
+            mock_gh_result.success = True
+            mock_gh_result.stdout = '{"number": 123, "body": "New body"}'
+            mock_gh_result.stderr = ""
+            mock_gh.return_value.execute.return_value = mock_gh_result
+
+            response = client.post(
+                "/api/v1/gh/pr/edit",
+                headers=auth_headers,
+                data=json.dumps(
+                    {
+                        "repo": "test/repo",
+                        "pr_number": 123,
+                        "body": "New body",
+                    }
+                ),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 200
+            call_args = mock_gh.return_value.execute.call_args[0][0]
+            assert "body=New body" in call_args
+            assert not any("title=" in arg for arg in call_args)
 
 
 class TestGhPrClose:
@@ -3340,6 +3570,8 @@ class TestSessionCreateWithPhase:
             patch.object(gateway, "get_session_manager", return_value=manager),
             patch.object(gateway, "get_repo_visibility", return_value="private"),
             patch.object(gateway, "get_worktree_manager") as mock_worktree,
+            # Pipeline work branch doesn't exist, forcing fallback to default branch
+            patch.object(gateway, "_branch_exists_on_remote", return_value=False),
         ):
             mock_wt_manager = mock_worktree.return_value
             mock_wt_manager.resolve_default_branch.return_value = "origin/main"
@@ -3368,12 +3600,64 @@ class TestSessionCreateWithPhase:
             assert data["success"] is True
 
             # Verify resolve_default_branch was called for the repo
+            # (pipeline work branch doesn't exist, so falls back)
             mock_wt_manager.resolve_default_branch.assert_called_once_with("repo")
             # Verify create_worktree received the resolved branch, not HEAD
             call_kwargs = mock_wt_manager.create_worktree.call_args
             assert call_kwargs.kwargs.get("base_branch") or call_kwargs[1].get("base_branch")
             base = call_kwargs.kwargs.get("base_branch") or call_kwargs[1].get("base_branch")
             assert base == "origin/main"
+
+    def test_session_create_pipeline_prefers_work_branch(
+        self, client, launcher_auth_headers, tmp_path
+    ):
+        """Session create with pipeline_id uses pipeline work branch when it exists.
+
+        When a pipeline's worktree branch (egg/{pipeline_id}/work) exists on
+        the remote, new sessions should use it as the worktree base so that
+        HITL exec sessions can see artifacts from prior agents.  See #1016.
+        """
+        from session_manager import SessionManager
+
+        manager = SessionManager(persistence_file=tmp_path / "sessions.json")
+
+        with (
+            patch.object(gateway, "get_session_manager", return_value=manager),
+            patch.object(gateway, "get_repo_visibility", return_value="private"),
+            patch.object(gateway, "get_worktree_manager") as mock_worktree,
+            patch.object(gateway, "_branch_exists_on_remote", return_value=True),
+        ):
+            mock_wt_manager = mock_worktree.return_value
+            mock_worktree_info = MagicMock()
+            mock_worktree_info.worktree_path = "/path/to/worktree"
+            mock_worktree_info.branch = "egg/test-branch"
+            mock_wt_manager.create_worktree.return_value = mock_worktree_info
+
+            response = client.post(
+                "/api/v1/sessions/create",
+                headers=launcher_auth_headers,
+                data=json.dumps(
+                    {
+                        "container_id": "test-container",
+                        "container_ip": "172.18.0.5",
+                        "mode": "private",
+                        "repos": ["owner/repo"],
+                        "pipeline_id": "issue-1016",
+                    }
+                ),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 200
+            data = json.loads(response.data)
+            assert data["success"] is True
+
+            # resolve_default_branch should NOT be called — work branch exists
+            mock_wt_manager.resolve_default_branch.assert_not_called()
+            # Verify create_worktree uses the pipeline work branch
+            call_kwargs = mock_wt_manager.create_worktree.call_args
+            base = call_kwargs.kwargs.get("base_branch") or call_kwargs[1].get("base_branch")
+            assert base == "origin/egg/issue-1016/work"
 
     def test_session_create_no_pipeline_uses_head(self, client, launcher_auth_headers, tmp_path):
         """Session create without pipeline_id uses HEAD as base branch."""
@@ -3497,6 +3781,87 @@ class TestSessionCreateWithPhase:
             assert response.status_code == 400
             data = json.loads(response.data)
             assert "repos" in data["message"].lower()
+
+
+class TestSessionCreateRepoVisibilityFiltering:
+    """Tests for session creation repo filtering based on visibility and mode."""
+
+    def test_public_repo_included_in_private_mode(self, client, launcher_auth_headers, tmp_path):
+        """Public repos are included in private mode session creation.
+
+        In private mode the network is locked down, so mounting a public repo
+        doesn't grant broader internet access.  Write restrictions are enforced
+        separately by push policy.
+        """
+        from session_manager import SessionManager
+
+        manager = SessionManager(persistence_file=tmp_path / "sessions.json")
+
+        with (
+            patch.object(gateway, "get_session_manager", return_value=manager),
+            patch.object(gateway, "get_repo_visibility", return_value="public"),
+            patch.object(gateway, "get_worktree_manager") as mock_worktree,
+        ):
+            mock_worktree_info = MagicMock()
+            mock_worktree_info.worktree_path = "/path/to/worktree"
+            mock_worktree_info.branch = "egg/test-branch"
+            mock_worktree.return_value.create_worktree.return_value = mock_worktree_info
+
+            response = client.post(
+                "/api/v1/sessions/create",
+                headers=launcher_auth_headers,
+                data=json.dumps(
+                    {
+                        "container_id": "test-container",
+                        "container_ip": "172.18.0.5",
+                        "mode": "private",
+                        "repos": ["owner/public-repo"],
+                    }
+                ),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 200
+            data = json.loads(response.data)
+            assert data["success"] is True
+            assert "owner/public-repo" in data["data"]["filtered_repos"]
+
+    def test_unknown_visibility_excluded_in_private_mode(
+        self, client, launcher_auth_headers, tmp_path
+    ):
+        """Repos with unknown visibility are excluded in private mode."""
+        from session_manager import SessionManager
+
+        manager = SessionManager(persistence_file=tmp_path / "sessions.json")
+
+        with (
+            patch.object(gateway, "get_session_manager", return_value=manager),
+            patch.object(gateway, "get_repo_visibility", return_value=None),
+            patch.object(gateway, "get_worktree_manager") as mock_worktree,
+        ):
+            mock_worktree_info = MagicMock()
+            mock_worktree_info.worktree_path = "/path/to/worktree"
+            mock_worktree_info.branch = "egg/test-branch"
+            mock_worktree.return_value.create_worktree.return_value = mock_worktree_info
+
+            response = client.post(
+                "/api/v1/sessions/create",
+                headers=launcher_auth_headers,
+                data=json.dumps(
+                    {
+                        "container_id": "test-container",
+                        "container_ip": "172.18.0.5",
+                        "mode": "private",
+                        "repos": ["owner/unknown-repo"],
+                    }
+                ),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 200
+            data = json.loads(response.data)
+            assert data["success"] is True
+            assert "owner/unknown-repo" not in data["data"]["filtered_repos"]
 
 
 class TestSessionCreateLocalOnlyRepos:
@@ -4759,6 +5124,7 @@ class TestCheckpointRepoBypass:
         mock_session.container_id = "test-container"
         mock_session.expires_at = None
         mock_session.pipeline_id = None
+        mock_session.checkpoint_repo = None
 
         mock_result = SessionValidationResult(valid=True, session=mock_session)
 
@@ -5078,3 +5444,704 @@ class TestCheckpointRepoBypass:
 
             assert response.status_code == 200
             mock_priv_check.assert_called_once()
+
+    def test_gh_execute_checkpoint_repo_bypasses_private_mode(self, client, session_auth_headers):
+        """gh_execute on a checkpoint repo skips check_private_repo_access entirely."""
+        with (
+            patch.object(gateway, "get_github_client") as mock_gh,
+            patch.object(gateway, "is_checkpoint_repo", return_value=True),
+            patch.object(gateway, "check_private_repo_access") as mock_priv_check,
+        ):
+            mock_result = MagicMock()
+            mock_result.success = True
+            mock_result.stdout = "checkpoint data"
+            mock_result.stderr = ""
+            mock_result.to_dict.return_value = {
+                "success": True,
+                "stdout": "checkpoint data",
+                "stderr": "",
+            }
+            mock_gh.return_value.execute.return_value = mock_result
+
+            response = client.post(
+                "/api/v1/gh/execute",
+                headers=session_auth_headers,
+                data=json.dumps(
+                    {
+                        "args": ["api", "repos/ckpt-owner/ckpt-repo/git/refs"],
+                        "repo": "ckpt-owner/ckpt-repo",
+                    }
+                ),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 200
+            mock_priv_check.assert_not_called()
+
+    def test_gh_execute_non_checkpoint_repo_still_checked(self, client, session_auth_headers):
+        """gh_execute on a non-checkpoint repo still calls check_private_repo_access."""
+        from private_repo_policy import PrivateRepoPolicyResult
+
+        mock_policy_result = PrivateRepoPolicyResult(
+            allowed=True,
+            reason="Public repo allowed",
+            visibility="public",
+        )
+
+        with (
+            patch.object(gateway, "get_github_client") as mock_gh,
+            patch.object(gateway, "is_checkpoint_repo", return_value=False),
+            patch.object(
+                gateway, "check_private_repo_access", return_value=mock_policy_result
+            ) as mock_priv_check,
+        ):
+            mock_result = MagicMock()
+            mock_result.success = True
+            mock_result.stdout = "PR #1"
+            mock_result.stderr = ""
+            mock_result.to_dict.return_value = {
+                "success": True,
+                "stdout": "PR #1",
+                "stderr": "",
+            }
+            mock_gh.return_value.execute.return_value = mock_result
+
+            response = client.post(
+                "/api/v1/gh/execute",
+                headers=session_auth_headers,
+                data=json.dumps(
+                    {
+                        "args": ["pr", "list"],
+                        "repo": "owner/repo",
+                    }
+                ),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 200
+            mock_priv_check.assert_called_once()
+
+    def test_session_fallback_recognises_checkpoint_repo(self, client):
+        """_is_checkpoint_repo_for_request falls back to session.checkpoint_repo.
+
+        When is_checkpoint_repo() (config-based) returns False but the
+        session's checkpoint_repo matches, the request should still be
+        exempted from private mode policy.
+        """
+        import sys
+
+        import auth
+
+        mock_session = MagicMock()
+        mock_session.mode = "public"
+        mock_session.container_id = "test-container"
+        mock_session.expires_at = None
+        mock_session.pipeline_id = None
+        mock_session.checkpoint_repo = "ckpt-owner/ckpt-repo"
+
+        mock_result = SessionValidationResult(valid=True, session=mock_session)
+
+        auth._session_manager = None
+        auth._rate_limiter = None
+        if "gateway.auth" in sys.modules:
+            sys.modules["gateway.auth"]._session_manager = None
+            sys.modules["gateway.auth"]._rate_limiter = None
+
+        current_session_manager = sys.modules.get("session_manager", session_manager)
+
+        with (
+            patch.object(
+                current_session_manager,
+                "validate_session_for_request",
+                return_value=mock_result,
+            ),
+            patch("subprocess.run") as mock_run,
+            patch.object(gateway, "get_token_for_repo", return_value=("token", "bot", "")),
+            patch.object(gateway, "is_checkpoint_repo", return_value=False),
+            patch.object(gateway, "check_private_repo_access") as mock_priv_check,
+        ):
+            mock_run.side_effect = self._mock_subprocess_for_remote("fetch")
+
+            response = client.post(
+                "/api/v1/git/fetch",
+                headers={"Authorization": "Bearer test-session-token"},
+                data=json.dumps(
+                    {
+                        "repo_path": "/home/egg/repos/test",
+                        "remote": "origin",
+                    }
+                ),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 200
+            mock_priv_check.assert_not_called()
+
+
+class TestCommentEditOwnership:
+    """Tests for comment edit ownership enforcement in gh_execute."""
+
+    def test_patch_comment_blocked_when_not_owned(self, client, auth_headers):
+        """PATCH on an issue comment not owned by bot returns 403."""
+        with (
+            patch.object(gateway, "get_github_client"),
+            patch.object(gateway, "get_policy_engine") as mock_policy,
+            patch.object(gateway, "get_auth_mode", return_value="bot"),
+        ):
+            mock_engine = MagicMock()
+            mock_engine.check_comment_ownership.return_value = PolicyResult(
+                allowed=False,
+                reason="Comment 123 is not owned by bot or configured user (author: random-human)",
+            )
+            mock_policy.return_value = mock_engine
+
+            response = client.post(
+                "/api/v1/gh/execute",
+                headers=auth_headers,
+                data=json.dumps(
+                    {
+                        "args": [
+                            "api",
+                            "-X",
+                            "PATCH",
+                            "repos/owner/repo/issues/comments/123",
+                            "-f",
+                            "body=new body",
+                        ],
+                        "repo": "owner/repo",
+                    }
+                ),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 403
+            data = json.loads(response.data)
+            assert "not owned" in data["message"]
+
+    def test_patch_comment_allowed_when_owned_by_bot(self, client, auth_headers):
+        """PATCH on a comment owned by bot succeeds."""
+        with (
+            patch.object(gateway, "get_github_client") as mock_gh,
+            patch.object(gateway, "get_policy_engine") as mock_policy,
+            patch.object(gateway, "get_auth_mode", return_value="bot"),
+        ):
+            mock_engine = MagicMock()
+            mock_engine.check_comment_ownership.return_value = PolicyResult(
+                allowed=True,
+                reason="Comment is owned by bot",
+            )
+            mock_policy.return_value = mock_engine
+
+            mock_result = MagicMock()
+            mock_result.success = True
+            mock_result.stdout = '{"id": 123, "body": "new body"}'
+            mock_result.stderr = ""
+            mock_result.returncode = 0
+            mock_result.to_dict.return_value = {
+                "success": True,
+                "stdout": '{"id": 123, "body": "new body"}',
+                "stderr": "",
+                "returncode": 0,
+            }
+            mock_gh.return_value.execute.return_value = mock_result
+
+            response = client.post(
+                "/api/v1/gh/execute",
+                headers=auth_headers,
+                data=json.dumps(
+                    {
+                        "args": [
+                            "api",
+                            "-X",
+                            "PATCH",
+                            "repos/owner/repo/issues/comments/123",
+                            "-f",
+                            "body=new body",
+                        ],
+                        "repo": "owner/repo",
+                    }
+                ),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 200
+
+    def test_get_comment_no_ownership_check(self, client, auth_headers):
+        """GET on a comment endpoint does not trigger ownership check."""
+        with (
+            patch.object(gateway, "get_github_client") as mock_gh,
+            patch.object(gateway, "get_policy_engine") as mock_policy,
+            patch.object(gateway, "get_auth_mode", return_value="bot"),
+        ):
+            mock_result = MagicMock()
+            mock_result.success = True
+            mock_result.stdout = '{"id": 123}'
+            mock_result.stderr = ""
+            mock_result.returncode = 0
+            mock_result.to_dict.return_value = {
+                "success": True,
+                "stdout": '{"id": 123}',
+                "stderr": "",
+                "returncode": 0,
+            }
+            mock_gh.return_value.execute.return_value = mock_result
+
+            response = client.post(
+                "/api/v1/gh/execute",
+                headers=auth_headers,
+                data=json.dumps(
+                    {
+                        "args": ["api", "repos/owner/repo/issues/comments/123"],
+                        "repo": "owner/repo",
+                    }
+                ),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 200
+            # Policy engine should NOT have been asked about comment ownership
+            mock_policy.return_value.check_comment_ownership.assert_not_called()
+
+    def test_post_comment_list_no_ownership_check(self, client, auth_headers):
+        """POST to create a new comment does not trigger ownership check."""
+        with (
+            patch.object(gateway, "get_github_client") as mock_gh,
+            patch.object(gateway, "get_policy_engine") as mock_policy,
+            patch.object(gateway, "get_auth_mode", return_value="bot"),
+        ):
+            mock_result = MagicMock()
+            mock_result.success = True
+            mock_result.stdout = '{"id": 999}'
+            mock_result.stderr = ""
+            mock_result.returncode = 0
+            mock_result.to_dict.return_value = {
+                "success": True,
+                "stdout": '{"id": 999}',
+                "stderr": "",
+                "returncode": 0,
+            }
+            mock_gh.return_value.execute.return_value = mock_result
+
+            response = client.post(
+                "/api/v1/gh/execute",
+                headers=auth_headers,
+                data=json.dumps(
+                    {
+                        "args": [
+                            "api",
+                            "-X",
+                            "POST",
+                            "repos/owner/repo/issues/42/comments",
+                            "-f",
+                            "body=hello",
+                        ],
+                        "repo": "owner/repo",
+                    }
+                ),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 200
+            mock_policy.return_value.check_comment_ownership.assert_not_called()
+
+    def test_patch_pr_review_comment_blocked(self, client, auth_headers):
+        """PATCH on a PR review comment not owned returns 403."""
+        with (
+            patch.object(gateway, "get_github_client"),
+            patch.object(gateway, "get_policy_engine") as mock_policy,
+            patch.object(gateway, "get_auth_mode", return_value="bot"),
+        ):
+            mock_engine = MagicMock()
+            mock_engine.check_comment_ownership.return_value = PolicyResult(
+                allowed=False,
+                reason="Comment 456 is not owned by bot (author: someone-else)",
+            )
+            mock_policy.return_value = mock_engine
+
+            response = client.post(
+                "/api/v1/gh/execute",
+                headers=auth_headers,
+                data=json.dumps(
+                    {
+                        "args": [
+                            "api",
+                            "-X",
+                            "PATCH",
+                            "repos/owner/repo/pulls/comments/456",
+                            "-f",
+                            "body=edited",
+                        ],
+                        "repo": "owner/repo",
+                    }
+                ),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 403
+
+
+class TestLabelMutationOwnership:
+    """Tests for label mutation ownership enforcement in gh_execute."""
+
+    def test_post_labels_blocked_when_not_owned(self, client, auth_headers):
+        """POST labels on an issue not owned by bot returns 403."""
+        with (
+            patch.object(gateway, "get_github_client"),
+            patch.object(gateway, "get_policy_engine") as mock_policy,
+            patch.object(gateway, "get_auth_mode", return_value="bot"),
+        ):
+            mock_engine = MagicMock()
+            mock_engine.check_issue_ownership.return_value = PolicyResult(
+                allowed=False,
+                reason="Issue/PR #42 is not owned by bot (author: someone)",
+            )
+            mock_policy.return_value = mock_engine
+
+            response = client.post(
+                "/api/v1/gh/execute",
+                headers=auth_headers,
+                data=json.dumps(
+                    {
+                        "args": [
+                            "api",
+                            "-X",
+                            "POST",
+                            "repos/owner/repo/issues/42/labels",
+                            "-f",
+                            "labels[]=bug",
+                        ],
+                        "repo": "owner/repo",
+                    }
+                ),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 403
+            data = json.loads(response.data)
+            assert "not owned" in data["message"]
+
+    def test_post_labels_allowed_when_owned(self, client, auth_headers):
+        """POST labels on a bot-owned issue succeeds."""
+        with (
+            patch.object(gateway, "get_github_client") as mock_gh,
+            patch.object(gateway, "get_policy_engine") as mock_policy,
+            patch.object(gateway, "get_auth_mode", return_value="bot"),
+        ):
+            mock_engine = MagicMock()
+            mock_engine.check_issue_ownership.return_value = PolicyResult(
+                allowed=True, reason="owned by bot"
+            )
+            mock_policy.return_value = mock_engine
+
+            mock_result = MagicMock()
+            mock_result.success = True
+            mock_result.stdout = "[]"
+            mock_result.stderr = ""
+            mock_result.returncode = 0
+            mock_result.to_dict.return_value = {
+                "success": True,
+                "stdout": "[]",
+                "stderr": "",
+                "returncode": 0,
+            }
+            mock_gh.return_value.execute.return_value = mock_result
+
+            response = client.post(
+                "/api/v1/gh/execute",
+                headers=auth_headers,
+                data=json.dumps(
+                    {
+                        "args": [
+                            "api",
+                            "-X",
+                            "POST",
+                            "repos/owner/repo/issues/42/labels",
+                            "-f",
+                            "labels[]=bug",
+                        ],
+                        "repo": "owner/repo",
+                    }
+                ),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 200
+
+    def test_get_labels_no_ownership_check(self, client, auth_headers):
+        """GET on labels does not trigger ownership check."""
+        with (
+            patch.object(gateway, "get_github_client") as mock_gh,
+            patch.object(gateway, "get_policy_engine") as mock_policy,
+            patch.object(gateway, "get_auth_mode", return_value="bot"),
+        ):
+            mock_result = MagicMock()
+            mock_result.success = True
+            mock_result.stdout = "[]"
+            mock_result.stderr = ""
+            mock_result.returncode = 0
+            mock_result.to_dict.return_value = {
+                "success": True,
+                "stdout": "[]",
+                "stderr": "",
+                "returncode": 0,
+            }
+            mock_gh.return_value.execute.return_value = mock_result
+
+            response = client.post(
+                "/api/v1/gh/execute",
+                headers=auth_headers,
+                data=json.dumps(
+                    {
+                        "args": ["api", "repos/owner/repo/issues/42/labels"],
+                        "repo": "owner/repo",
+                    }
+                ),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 200
+            mock_policy.return_value.check_issue_ownership.assert_not_called()
+
+
+class TestReviewerMutationOwnership:
+    """Tests for PR reviewer mutation ownership enforcement in gh_execute."""
+
+    def test_post_reviewers_blocked_when_not_owned(self, client, auth_headers):
+        """POST requested_reviewers on unowned PR returns 403."""
+        with (
+            patch.object(gateway, "get_github_client"),
+            patch.object(gateway, "get_policy_engine") as mock_policy,
+            patch.object(gateway, "get_auth_mode", return_value="bot"),
+        ):
+            mock_engine = MagicMock()
+            mock_engine.check_pr_ownership.return_value = PolicyResult(
+                allowed=False,
+                reason="PR #10 is not owned by bot (author: someone)",
+            )
+            mock_policy.return_value = mock_engine
+
+            response = client.post(
+                "/api/v1/gh/execute",
+                headers=auth_headers,
+                data=json.dumps(
+                    {
+                        "args": [
+                            "api",
+                            "-X",
+                            "POST",
+                            "repos/owner/repo/pulls/10/requested_reviewers",
+                            "-f",
+                            "reviewers[]=octocat",
+                        ],
+                        "repo": "owner/repo",
+                    }
+                ),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 403
+
+    def test_post_reviewers_allowed_when_owned(self, client, auth_headers):
+        """POST requested_reviewers on bot-owned PR succeeds."""
+        with (
+            patch.object(gateway, "get_github_client") as mock_gh,
+            patch.object(gateway, "get_policy_engine") as mock_policy,
+            patch.object(gateway, "get_auth_mode", return_value="bot"),
+        ):
+            mock_engine = MagicMock()
+            mock_engine.check_pr_ownership.return_value = PolicyResult(
+                allowed=True, reason="owned by bot"
+            )
+            mock_policy.return_value = mock_engine
+
+            mock_result = MagicMock()
+            mock_result.success = True
+            mock_result.stdout = "{}"
+            mock_result.stderr = ""
+            mock_result.returncode = 0
+            mock_result.to_dict.return_value = {
+                "success": True,
+                "stdout": "{}",
+                "stderr": "",
+                "returncode": 0,
+            }
+            mock_gh.return_value.execute.return_value = mock_result
+
+            response = client.post(
+                "/api/v1/gh/execute",
+                headers=auth_headers,
+                data=json.dumps(
+                    {
+                        "args": [
+                            "api",
+                            "-X",
+                            "POST",
+                            "repos/owner/repo/pulls/10/requested_reviewers",
+                            "-f",
+                            "reviewers[]=octocat",
+                        ],
+                        "repo": "owner/repo",
+                    }
+                ),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 200
+
+    def test_get_reviewers_no_ownership_check(self, client, auth_headers):
+        """GET requested_reviewers does not trigger ownership check."""
+        with (
+            patch.object(gateway, "get_github_client") as mock_gh,
+            patch.object(gateway, "get_policy_engine") as mock_policy,
+            patch.object(gateway, "get_auth_mode", return_value="bot"),
+        ):
+            mock_result = MagicMock()
+            mock_result.success = True
+            mock_result.stdout = "{}"
+            mock_result.stderr = ""
+            mock_result.returncode = 0
+            mock_result.to_dict.return_value = {
+                "success": True,
+                "stdout": "{}",
+                "stderr": "",
+                "returncode": 0,
+            }
+            mock_gh.return_value.execute.return_value = mock_result
+
+            response = client.post(
+                "/api/v1/gh/execute",
+                headers=auth_headers,
+                data=json.dumps(
+                    {
+                        "args": ["api", "repos/owner/repo/pulls/10/requested_reviewers"],
+                        "repo": "owner/repo",
+                    }
+                ),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 200
+            mock_policy.return_value.check_pr_ownership.assert_not_called()
+
+
+class TestReviewCreationCheck:
+    """Tests for PR review creation check via gh api in gh_execute."""
+
+    def test_post_review_on_nonexistent_pr_blocked(self, client, auth_headers):
+        """POST review on non-existent PR returns 403."""
+        with (
+            patch.object(gateway, "get_github_client"),
+            patch.object(gateway, "get_policy_engine") as mock_policy,
+            patch.object(gateway, "get_auth_mode", return_value="bot"),
+        ):
+            mock_engine = MagicMock()
+            mock_engine.check_pr_review_allowed.return_value = PolicyResult(
+                allowed=False,
+                reason="PR #999 not found or inaccessible",
+            )
+            mock_policy.return_value = mock_engine
+
+            response = client.post(
+                "/api/v1/gh/execute",
+                headers=auth_headers,
+                data=json.dumps(
+                    {
+                        "args": [
+                            "api",
+                            "-X",
+                            "POST",
+                            "repos/owner/repo/pulls/999/reviews",
+                            "-f",
+                            "body=LGTM",
+                            "-f",
+                            "event=APPROVE",
+                        ],
+                        "repo": "owner/repo",
+                    }
+                ),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 403
+
+    def test_post_review_on_existing_pr_allowed(self, client, auth_headers):
+        """POST review on existing PR succeeds."""
+        with (
+            patch.object(gateway, "get_github_client") as mock_gh,
+            patch.object(gateway, "get_policy_engine") as mock_policy,
+            patch.object(gateway, "get_auth_mode", return_value="bot"),
+        ):
+            mock_engine = MagicMock()
+            mock_engine.check_pr_review_allowed.return_value = PolicyResult(
+                allowed=True, reason="Reviews are allowed"
+            )
+            mock_policy.return_value = mock_engine
+
+            mock_result = MagicMock()
+            mock_result.success = True
+            mock_result.stdout = '{"id": 1}'
+            mock_result.stderr = ""
+            mock_result.returncode = 0
+            mock_result.to_dict.return_value = {
+                "success": True,
+                "stdout": '{"id": 1}',
+                "stderr": "",
+                "returncode": 0,
+            }
+            mock_gh.return_value.execute.return_value = mock_result
+
+            response = client.post(
+                "/api/v1/gh/execute",
+                headers=auth_headers,
+                data=json.dumps(
+                    {
+                        "args": [
+                            "api",
+                            "-X",
+                            "POST",
+                            "repos/owner/repo/pulls/5/reviews",
+                            "-f",
+                            "body=LGTM",
+                        ],
+                        "repo": "owner/repo",
+                    }
+                ),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 200
+
+    def test_get_reviews_no_check(self, client, auth_headers):
+        """GET on reviews does not trigger review check."""
+        with (
+            patch.object(gateway, "get_github_client") as mock_gh,
+            patch.object(gateway, "get_policy_engine") as mock_policy,
+            patch.object(gateway, "get_auth_mode", return_value="bot"),
+        ):
+            mock_result = MagicMock()
+            mock_result.success = True
+            mock_result.stdout = "[]"
+            mock_result.stderr = ""
+            mock_result.returncode = 0
+            mock_result.to_dict.return_value = {
+                "success": True,
+                "stdout": "[]",
+                "stderr": "",
+                "returncode": 0,
+            }
+            mock_gh.return_value.execute.return_value = mock_result
+
+            response = client.post(
+                "/api/v1/gh/execute",
+                headers=auth_headers,
+                data=json.dumps(
+                    {
+                        "args": ["api", "repos/owner/repo/pulls/5/reviews"],
+                        "repo": "owner/repo",
+                    }
+                ),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 200
+            mock_policy.return_value.check_pr_review_allowed.assert_not_called()

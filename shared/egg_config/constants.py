@@ -29,6 +29,7 @@ GATEWAY_EXTERNAL_IP = "172.33.0.2"  # Gateway IP in external network
 ORCHESTRATOR_CONTAINER_NAME = "egg-orchestrator"
 ORCHESTRATOR_IMAGE_NAME = "egg-orchestrator"
 ORCHESTRATOR_PORT = 9849
+MCP_SERVER_PORT = 9850
 ORCHESTRATOR_ISOLATED_IP = "172.32.0.3"  # Orchestrator IP in isolated network
 ORCHESTRATOR_EXTERNAL_IP = "172.33.0.3"  # Orchestrator IP in external network
 
@@ -50,6 +51,10 @@ DEVSERVER_HARD_TIMEOUT_SECONDS = 300  # Hard time cap for entire devserver lifec
 # orchestrator (state persistence).  Keep these in sync via this shared module.
 CHECKPOINT_BRANCH = "egg/checkpoints/v2"
 PIPELINE_STATE_BRANCH = "egg/pipeline-state"
+
+# Transcript buffer directory — persistent path that survives container restarts.
+# Follows the same pattern as SESSION_PERSISTENCE_DIR.
+TRANSCRIPT_BUFFER_DIR = "/home/egg/.egg-state/transcripts"
 
 # Test constants - use these in unit tests to avoid coupling to production values
 # Using a clearly fake port (1234) makes it obvious when tests accidentally
@@ -75,6 +80,7 @@ __all__ = [
     "GATEWAY_ISOLATED_IP",
     "GATEWAY_PORT",
     "GATEWAY_PROXY_PORT",
+    "MCP_SERVER_PORT",
     "ORCHESTRATOR_CONTAINER_NAME",
     "ORCHESTRATOR_EXTERNAL_IP",
     "ORCHESTRATOR_IMAGE_NAME",
@@ -83,4 +89,5 @@ __all__ = [
     "PIPELINE_STATE_BRANCH",
     "TEST_GATEWAY_PORT",
     "TEST_GATEWAY_PROXY_PORT",
+    "TRANSCRIPT_BUFFER_DIR",
 ]

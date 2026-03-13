@@ -1,0 +1,740 @@
+{
+  "issue": 1028,
+  "phase": "plan",
+  "agent": "architect",
+  "revision": 2,
+  "revision_notes": "Addresses plan review feedback: (1) includes full analysis options and rationale inline, (2) explicitly documents assumed defaults for all unresolved HITL decisions with per-task impact analysis, (3) splits oversized tasks TASK-2-1, TASK-3-1, and TASK-4-1 into appropriately scoped subtasks.",
+
+  "title": "Architecture analysis: Conversational Claude coordinator for dynamic agent orchestration",
+
+  "summary": "Introduce a coordinator agent that understands tasks, determines workflows, and drives the orchestrator dynamically. The recommended approach (Option A: Embedded Coordinator) adds a COORDINATOR agent role with elevated gateway permissions and coordinator-specific tools (spawn agents, monitor message bus, advance/skip phases, escalate to humans). A new SSE-based MCP server acts as a thin stateless bridge between external Claude Code sessions and the coordinator. The coordinator operates in hybrid phase mode — existing phases are advisory, the coordinator can skip/reorder them freely. The orchestrator gains new APIs for flexible agent spawning outside rigid phase sequences. Implementation is phased: v1 delivers the coordinator agent + orchestrator API extensions + MCP server; async triggers follow in v2.",
+
+  "analysis_options_and_rationale": {
+    "description": "Three approaches were evaluated during the refine phase. This section captures the full analysis so the plan reviewer can verify the recommended approach.",
+    "options": [
+      {
+        "id": "A",
+        "title": "Embedded Coordinator — coordinator as a privileged agent container",
+        "approach": "Add a COORDINATOR agent role that runs as a standard agent container with elevated permissions. The coordinator uses claude --print (headless mode), consistent with all existing agents. It interacts with the orchestrator via REST APIs to spawn agents, monitor progress, advance/skip phases, and escalate decisions. A new SSE-based MCP server bridges external Claude Code sessions to the coordinator.",
+        "pros": [
+          "Reuses existing infrastructure (container spawning, gateway sessions, message bus, SSE streaming, checkpoint system)",
+          "Orchestrator remains single source of truth for pipeline state",
+          "Gateway enforcement is naturally preserved — coordinator is just another (privileged) agent",
+          "Incremental: existing SDLC pipeline runs unchanged; coordinator is opt-in",
+          "No new services needed beyond MCP sidecar",
+          "Follows EGG200 convention (LLM reasoning inside Claude Code sessions, not direct API calls from infra)"
+        ],
+        "cons": [
+          "Coordinator session lifetime bounded by Claude's context window (~200k tokens)",
+          "Container overhead while coordinator is running",
+          "Orchestrator API needs significant extensions for flexible agent spawning",
+          "Phase enforcement model needs to accommodate cross-phase coordinator"
+        ]
+      },
+      {
+        "id": "B",
+        "title": "External Coordinator Service — standalone service with direct Anthropic API",
+        "approach": "Build a new standalone coordinator service that manages a Claude session via direct Anthropic API calls and translates high-level task descriptions into orchestrator API calls.",
+        "pros": [
+          "Clean separation of concerns",
+          "Can manage multiple pipelines from single service",
+          "Custom session persistence without container lifecycle constraints",
+          "Independent scaling"
+        ],
+        "cons": [
+          "Violates EGG200 convention — makes direct Anthropic API calls from infrastructure code, bypassing the sandbox boundary (per docs/guides/agent-mode-design.md)",
+          "New service to build, deploy, maintain",
+          "Must duplicate or proxy orchestrator functionality",
+          "Requires own Anthropic API credential management",
+          "Higher total cost"
+        ],
+        "rejected_reason": "Violates EGG200: LLM reasoning must happen inside Claude Code sessions, not via programmatic API calls from orchestration services. This is a fundamental architectural principle."
+      },
+      {
+        "id": "C",
+        "title": "Host-Level Claude Code Session — coordinator runs on the host",
+        "approach": "The coordinator runs as a Claude Code session on the host, using existing tools plus coordinator-specific skills. It interacts with the orchestrator via egg-orch CLI.",
+        "pros": [
+          "Leverages Claude Code's native tool system",
+          "Natural conversation interface",
+          "Can directly read repository context",
+          "Lower barrier to entry"
+        ],
+        "cons": [
+          "Runs outside sandbox security boundary",
+          "Less isolation than container-based coordinator",
+          "May conflict with user's existing Claude Code session",
+          "Depends on Claude Code-specific features that may change",
+          "Less portable"
+        ],
+        "rejected_reason": "Conflates coordinator with user's development environment. Option A can evolve into host-level mode later. Foundation should be container-based for security isolation."
+      }
+    ],
+    "recommendation": "Option A: Embedded Coordinator",
+    "recommendation_rationale": "Natural evolution of the current architecture. The coordinator is just another agent with elevated permissions and coordinator-specific tools. This preserves the security model, reuses all existing infrastructure, and requires no new services beyond the MCP sidecar. The main risk (session lifetime) is mitigated by persisting state in the orchestrator and supporting checkpoint/resume."
+  },
+
+  "unresolved_hitl_decisions": {
+    "description": "The refine phase registered 4 HITL decisions and 3 feedback questions, all currently unresolved. This section documents the assumed default for each, justifies it, and specifies exactly which tasks would change if a different option is selected.",
+    "decisions": [
+      {
+        "id": "decision-1",
+        "question": "Coordinator session persistence model: How should the coordinator handle long-running tasks that exceed a single Claude session?",
+        "options": ["Checkpoint/resume", "Stateless polling", "Long-running session"],
+        "assumed_default": "Checkpoint/resume",
+        "justification": "Builds on existing checkpoint infrastructure (egg-checkpoint). Balances reliability (state survives crashes) with efficiency (no constant re-spawning). The coordinator saves workflow state to orchestrator at key decision points; a crashed coordinator re-assesses from current state rather than replaying reasoning.",
+        "tasks_affected_if_different": [
+          {
+            "option": "Stateless polling",
+            "affected_tasks": ["TASK-1-4", "TASK-3-1a", "TASK-3-1b", "TASK-5-1", "TASK-5-2"],
+            "nature_of_changes": "TASK-1-4: coordinator_state schema would need a 'last_poll_timestamp' and 'next_action_queue' instead of checkpoint markers. TASK-3-1a: CoordinatorExecutor would implement a periodic respawn loop (spawn coordinator → coordinator takes one action → exits → respawn after interval) instead of long-running monitoring. TASK-3-1b: crash handling becomes simpler (coordinator is ephemeral anyway) but health monitoring adds polling interval configuration. TASK-5-1: coordinator instructions would be stateless (each invocation starts fresh from orchestrator state) rather than checkpoint-aware. TASK-5-2: prompt generation would always include full state reconstruction, not just on-resume."
+          },
+          {
+            "option": "Long-running session",
+            "affected_tasks": ["TASK-1-4", "TASK-3-1b", "TASK-5-1"],
+            "nature_of_changes": "TASK-1-4: coordinator_state becomes minimal (no checkpoint markers needed, context window is the state). TASK-3-1b: crash handling must notify human rather than auto-respawn (no state to resume from). TASK-5-1: coordinator instructions must emphasize compact output and context-window management strategies."
+          }
+        ]
+      },
+      {
+        "id": "decision-2",
+        "question": "Phase model for coordinator-driven pipelines: Should the coordinator operate within the existing phase system, outside it, or in hybrid mode?",
+        "options": ["Within existing phases", "Outside phases", "Hybrid"],
+        "assumed_default": "Hybrid",
+        "justification": "Phases remain as an organizational concept and permission boundary, but the coordinator can skip/reorder freely. This preserves backward compatibility (non-coordinator pipelines use fixed phases unchanged) while giving the coordinator the flexibility the issue requires.",
+        "tasks_affected_if_different": [
+          {
+            "option": "Within existing phases",
+            "affected_tasks": ["TASK-2-1b", "TASK-3-1a", "TASK-3-3"],
+            "nature_of_changes": "TASK-2-1b: the phase endpoint would only support advance-to-next (not skip-to-arbitrary), removing the skip-to logic. TASK-3-1a: CoordinatorExecutor would track phase progression strictly (coordinator must advance through phases in order, can only skip forward). TASK-3-3: gateway permissions would use the existing per-phase permission model rather than a coordinator pseudo-phase — the coordinator gets the permissions of whatever phase it is currently in."
+          },
+          {
+            "option": "Outside phases",
+            "affected_tasks": ["TASK-3-3", "TASK-3-4", "TASK-5-1"],
+            "nature_of_changes": "TASK-3-3: requires building a completely new permission model for coordinator-driven pipelines (not a pseudo-phase extension). Gateway phase_filter.py would need a separate code path for 'phaseless' pipelines. TASK-3-4: session_manager would need to handle sessions without a phase field. TASK-5-1: coordinator instructions would not reference phases at all."
+          }
+        ]
+      },
+      {
+        "id": "decision-3",
+        "question": "Coordinator authority level: What should the coordinator be able to do without human approval?",
+        "options": ["Full autonomy", "Checkpoint approval", "Supervised"],
+        "assumed_default": "Full autonomy",
+        "justification": "The issue describes the coordinator as managing the full lifecycle autonomously, escalating only for ambiguous requirements, architecture decisions, and PR readiness. This matches the 'full autonomy' option. The coordinator's authority is already bounded by guardrails (max agents, max retries, max time) which prevent runaway behavior.",
+        "tasks_affected_if_different": [
+          {
+            "option": "Checkpoint approval",
+            "affected_tasks": ["TASK-2-1b", "TASK-3-1a", "TASK-5-1"],
+            "nature_of_changes": "TASK-2-1b: the phase endpoint would create a mandatory HITL gate before advancing phases (coordinator requests advance → human approves → advance proceeds). TASK-3-1a: CoordinatorExecutor would implement a phase-boundary pause (coordinator spawns agents, waits for completion, then blocks until human approves phase transition). TASK-5-1: coordinator instructions would include mandatory escalation at each phase boundary."
+          },
+          {
+            "option": "Supervised",
+            "affected_tasks": ["TASK-2-1a", "TASK-2-1b", "TASK-3-1a", "TASK-4-2", "TASK-5-1"],
+            "nature_of_changes": "TASK-2-1a: spawn endpoint would create HITL approval before actually spawning (coordinator requests spawn → human approves → container spawns). TASK-2-1b: all phase/escalate operations require human approval gates. TASK-3-1a: CoordinatorExecutor would implement approval queuing for every coordinator action. TASK-4-2: MCP tools would need an 'approve_action' tool for the human to approve queued coordinator decisions. TASK-5-1: coordinator instructions would describe an approval-request workflow rather than autonomous execution."
+          }
+        ]
+      },
+      {
+        "id": "decision-4",
+        "question": "Scope of initial implementation: How much of the coordinator system should be built in the first iteration?",
+        "options": ["Full system", "Core only", "Prototype"],
+        "assumed_default": "Core only (coordinator agent + orchestrator API extensions + MCP server, without async triggers)",
+        "justification": "The issue explicitly marks async triggers as a follow-on concern. Building the coordinator + APIs + MCP server delivers the full interactive workflow (user submits task via MCP → coordinator manages lifecycle) while deferring Slack/webhook/CI triggers to v2.",
+        "tasks_affected_if_different": [
+          {
+            "option": "Full system",
+            "affected_tasks": ["New tasks required"],
+            "nature_of_changes": "Would add Phase 6 with tasks for: Slack integration (webhook receiver, task submission from Slack messages), webhook trigger endpoint (HTTP endpoint for CI/external systems), GitHub issue event handler (label-triggered coordinator). Each requires its own authentication, rate limiting, and notification channel. Estimated 4-5 additional tasks."
+          },
+          {
+            "option": "Prototype",
+            "affected_tasks": ["Phase 4 removed entirely", "TASK-5-1 simplified"],
+            "nature_of_changes": "All Phase 4 tasks (TASK-4-1a, TASK-4-1b, TASK-4-2, TASK-4-3, TASK-4-4) would be removed. The coordinator would be operated solely via egg-orch CLI commands, not MCP. TASK-5-1 (coordinator instructions) would document CLI-only usage. Claude Code integration documentation in TASK-5-5 would be deferred."
+          }
+        ]
+      }
+    ],
+    "feedback_questions": [
+      {
+        "id": "feedback-Q1",
+        "question": "What cost limits or guardrails should be applied to coordinator sessions?",
+        "assumed_default": "Max 10 agents per task, max 2 retries per role, configurable max wall-clock time (default 120 minutes). Orchestrator enforces limits; coordinator is terminated if exceeded.",
+        "justification": "These defaults prevent runaway spawning while allowing realistic multi-agent workflows. A complex feature might use: 1 coder + 1 tester + 1 documenter + 1 integrator + 2 retries = 8 agents, well within the 10-agent limit.",
+        "tasks_affected_if_different": "TASK-1-4 (guardrail_counters schema), TASK-2-1a (spawn guardrail enforcement), TASK-3-1b (global guardrail enforcement). Changes would be field values and threshold checks, not structural."
+      },
+      {
+        "id": "feedback-Q2",
+        "question": "What should happen when the coordinator session crashes mid-task with running agents?",
+        "assumed_default": "Running agents continue and auto-commit (existing behavior). Orchestrator detects coordinator exit, auto-respawns a new coordinator (up to max 2 respawns) that re-assesses from orchestrator state. After max respawns, notifies human.",
+        "justification": "Matches the checkpoint/resume persistence model. Running agents should not be interrupted — their work is valuable. The new coordinator inherits the same pipeline state and can make informed decisions about next steps.",
+        "tasks_affected_if_different": "TASK-3-1b (crash handling logic). If 'always notify human' is preferred, remove auto-respawn and replace with HITL escalation on coordinator exit."
+      },
+      {
+        "id": "feedback-Q3",
+        "question": "Should the coordinator be able to manage multiple related issues simultaneously?",
+        "assumed_default": "One-issue-at-a-time for v1. Each issue gets its own coordinator instance and pipeline.",
+        "justification": "Multi-issue coordination adds significant complexity (cross-issue dependency resolution, shared branch management, conflict detection). Single-issue coordinators can run in parallel across different issues without cross-contamination. Multi-issue support can be added in v2 as an orchestrator-level feature.",
+        "tasks_affected_if_different": "Would require new tasks: coordinator cross-pipeline awareness, shared state between coordinators, dependency graph management. Structural change to CoordinatorExecutor (TASK-3-1a/b) and coordinator instructions (TASK-5-1)."
+      }
+    ]
+  },
+
+  "problem_statement": {
+    "description": "The current SDLC pipeline follows a rigid, fixed-phase sequence (REFINE → PLAN → IMPLEMENT → PR) driven by CLI commands and pre-configured dispatch logic. Every task traverses the same phases regardless of complexity. Phase transitions require explicit CLI invocation or GitHub Actions automation. The system cannot reason about task complexity, skip unnecessary phases, loop back after failures, or adapt workflows in real time. There is no conversational interface — all orchestration requires knowledge of egg-orch, egg-contract, and phase mechanics.",
+    "root_causes": [
+      {
+        "id": "RC-1",
+        "title": "Fixed phase sequencing with no adaptive routing",
+        "description": "PipelinePhase enum defines exactly four phases (REFINE, PLAN, IMPLEMENT, PR) traversed sequentially. Phase transitions are driven by explicit API calls (POST /pipelines/{id}/phase) with no logic to evaluate whether a phase should be skipped based on task characteristics.",
+        "location": "orchestrator/models.py:15-21, orchestrator/routes/phases.py"
+      },
+      {
+        "id": "RC-2",
+        "title": "No intelligent task assessment or workflow selection",
+        "description": "The dispatch system (PipelineDispatcher in orchestrator/dispatch.py) delegates to egg_contracts.Orchestrator which returns fixed DispatchDecision objects. No mechanism to evaluate task complexity and select an appropriate workflow.",
+        "location": "orchestrator/dispatch.py, shared/egg_contracts/orchestrator.py"
+      },
+      {
+        "id": "RC-3",
+        "title": "No feedback loop or loopback capability",
+        "description": "When a tester finds an issue, the system cannot automatically re-spawn the coder. The message bus (#1027) enables communication but no agent has authority to act on messages by spawning new agents.",
+        "location": "orchestrator/multi_agent.py, orchestrator/concurrent_executor.py"
+      },
+      {
+        "id": "RC-4",
+        "title": "No conversational interface for task submission",
+        "description": "Tasks enter via CLI (egg-sdlc, egg-orch pipeline create) or GitHub Actions. No natural language interface and no MCP server to bridge external Claude Code sessions with the orchestrator.",
+        "location": "orchestrator/routes/pipelines.py:468-567"
+      },
+      {
+        "id": "RC-5",
+        "title": "No coordinator role in the agent model",
+        "description": "The AgentRole enum (17 roles across lines 64-87) has no COORDINATOR role. All roles are task-execution or review roles. No role has cross-phase authority.",
+        "location": "orchestrator/models.py:64-87"
+      }
+    ]
+  },
+
+  "current_architecture": {
+    "execution_model": "Wave-based sequential execution via MultiAgentExecutor or concurrent execution via ConcurrentPhaseExecutor. Both operate within a single phase — no cross-phase agent spawning.",
+    "communication_model": "Completion-time handoff data (orchestrator/handoffs.py) for wave-based mode. In-memory message bus (orchestrator/message_store.py) for concurrent mode with typed messages. No external-facing message interface.",
+    "phase_model": "Four fixed phases (REFINE → PLAN → IMPLEMENT → PR) with per-phase permissions enforced by gateway (gateway/phase_filter.py). Phase transitions require explicit API calls.",
+    "agent_model": "17 roles in AgentRole enum. File access per role in shared/egg_contracts/agent_roles.py. Gateway enforces role-based restrictions at commit time (gateway/agent_restrictions.py). Instructions from sandbox/.claude/rules/ templates.",
+    "key_components": [
+      {
+        "name": "PipelinePhase enum",
+        "file": "orchestrator/models.py",
+        "lines": "15-21",
+        "description": "Four fixed phases. No dynamic phase selection."
+      },
+      {
+        "name": "AgentRole enum",
+        "file": "orchestrator/models.py",
+        "lines": "64-87",
+        "description": "17 roles. No COORDINATOR role."
+      },
+      {
+        "name": "PipelineConfig",
+        "file": "orchestrator/models.py",
+        "lines": "249-295",
+        "description": "Pipeline configuration with multi_agent, concurrent_execution, max_parallel_agents. No coordinator_enabled flag."
+      },
+      {
+        "name": "Pipeline model",
+        "file": "orchestrator/models.py",
+        "lines": "298-352",
+        "description": "Pipeline state including status, current_phase, config, phases, decisions. No coordinator_state field."
+      },
+      {
+        "name": "StateStore",
+        "file": "orchestrator/state_store.py",
+        "description": "Git-backed pipeline state persistence. Methods: load_pipeline, save_pipeline, create_pipeline, update_pipeline. No coordinator-specific methods."
+      },
+      {
+        "name": "EventBus and EventType",
+        "file": "orchestrator/events.py",
+        "lines": "35-80",
+        "description": "22 event types covering pipeline/phase/agent/container/message/consensus/HITL lifecycle. No coordinator event types."
+      },
+      {
+        "name": "ContainerSpawner",
+        "file": "orchestrator/container_spawner.py",
+        "description": "spawn_agent_container() accepts agent_role, pipeline_id, extra_env for extensibility. Already supports arbitrary roles via AgentRole."
+      },
+      {
+        "name": "PhaseFilter",
+        "file": "gateway/phase_filter.py",
+        "description": "Per-phase operation permissions. Phases: refine, plan, implement, pr. No coordinator pseudo-phase."
+      },
+      {
+        "name": "Agent restrictions",
+        "file": "gateway/agent_restrictions.py",
+        "description": "Per-role file access patterns. Security model: blocked patterns checked first. validate_agent_push() is gateway entry point."
+      },
+      {
+        "name": "SessionManager",
+        "file": "gateway/session_manager.py",
+        "description": "register_session() creates session with token, binds container_id, mode, pipeline_id, agent_role, phase. Already accepts arbitrary agent_role strings."
+      },
+      {
+        "name": "OrchestratorClient",
+        "file": "shared/egg_orchestrator/client.py",
+        "description": "Signal methods (complete, progress, error, heartbeat, readiness) and message bus methods (send, poll, status). No coordinator-specific methods."
+      },
+      {
+        "name": "orch_cli.py",
+        "file": "sandbox/egg_lib/orch_cli.py",
+        "description": "10 subcommand groups (health, env, pipeline, signal, phase, decision, container, message, gateway). No coordinator subcommand."
+      },
+      {
+        "name": "API blueprints",
+        "file": "orchestrator/api.py",
+        "description": "10 registered blueprints (checks, health, pipelines, containers, phases, signals, decisions, messages, metrics, webhooks). No coordinator blueprint."
+      },
+      {
+        "name": "ConcurrentPhaseExecutor",
+        "file": "orchestrator/concurrent_executor.py",
+        "description": "Spawns all agents simultaneously within a phase. Manages consensus, failure handling, per-agent worktrees. Foundation pattern for coordinator executor."
+      },
+      {
+        "name": "SSE streaming",
+        "file": "orchestrator/sse.py, orchestrator/unified_sse.py",
+        "description": "Per-pipeline and unified multi-pipeline event streaming. Foundation for MCP server real-time updates."
+      }
+    ]
+  },
+
+  "recommended_approach": {
+    "title": "Option A: Embedded Coordinator — coordinator as a privileged agent container within the existing orchestrator",
+    "description": "Add a COORDINATOR agent role that runs as a standard agent container with elevated permissions and coordinator-specific tools. The coordinator uses Claude in headless mode (claude --print), consistent with all existing agents. It interacts with the orchestrator via REST APIs to spawn agents, monitor progress, advance/skip phases, and escalate decisions. A new SSE-based MCP server runs as a sidecar alongside the orchestrator, bridging external Claude Code sessions to the coordinator.",
+    "justification": "Natural evolution of the current architecture. Preserves the security model, reuses all existing infrastructure, follows EGG200 convention. Option B rejected for violating EGG200. Option C rejected for breaking security isolation.",
+
+    "components": [
+      {
+        "id": "C-1",
+        "name": "COORDINATOR agent role",
+        "description": "New agent role in AgentRole enum with AgentRoleDefinition in agent_roles.py. Write access only to .egg-state/agent-outputs/, blocked from source code and contracts. Elevated orchestrator API permissions (spawn agents across phases, skip/reorder phases, create HITL escalations).",
+        "files_affected": ["orchestrator/models.py", "shared/egg_contracts/agent_roles.py", "gateway/agent_restrictions.py"],
+        "new_files": [],
+        "dependencies": []
+      },
+      {
+        "id": "C-2",
+        "name": "Orchestrator API extensions for coordinator-driven spawning",
+        "description": "New REST endpoints restricted to COORDINATOR role: spawn agent, cancel agent, query state, advance/skip phases, create escalations. Existing dispatch system unchanged for non-coordinator pipelines.",
+        "files_affected": ["orchestrator/api.py"],
+        "new_files": ["orchestrator/routes/coordinator.py"],
+        "dependencies": ["C-1"]
+      },
+      {
+        "id": "C-3",
+        "name": "Coordinator gateway permissions",
+        "description": "New 'coordinator' pseudo-phase in gateway granting cross-phase operation permissions. Coordinator cannot push to production branches, create PRs, or modify source code directly.",
+        "files_affected": ["gateway/phase_filter.py", "gateway/agent_restrictions.py", "gateway/session_manager.py"],
+        "new_files": [],
+        "dependencies": ["C-1"]
+      },
+      {
+        "id": "C-4",
+        "name": "MCP server (SSE-based sidecar)",
+        "description": "New SSE-based MCP server alongside orchestrator. Tools: submit_task, get_status, provide_input, list_tasks, cancel_task. Stateless — proxies to orchestrator REST API. SSE transport for multi-client support and async mode compatibility.",
+        "files_affected": [],
+        "new_files": ["orchestrator/mcp_server.py", "orchestrator/mcp_tools.py"],
+        "dependencies": ["C-2"]
+      },
+      {
+        "id": "C-5",
+        "name": "Coordinator agent instructions and prompt design",
+        "description": "New sandbox/.claude/rules/coordinator.md defining coordinator operating model. Follows 'prefer what over how' and 'orientation not pre-fetching' principles.",
+        "files_affected": [],
+        "new_files": ["sandbox/.claude/rules/coordinator.md"],
+        "dependencies": ["C-1", "C-2"]
+      },
+      {
+        "id": "C-6",
+        "name": "Coordinator workflow state persistence",
+        "description": "New coordinator_state field on Pipeline model. Structured state (workflow_type, agents_spawned, phase_decisions, escalations, guardrail_counters) persisted via state_store. Crashed coordinator re-assesses from current state.",
+        "files_affected": ["orchestrator/models.py", "orchestrator/state_store.py"],
+        "new_files": [],
+        "dependencies": ["C-2"]
+      },
+      {
+        "id": "C-7",
+        "name": "Coordinator observability via message bus and SSE",
+        "description": "New event types: COORDINATOR_DECISION, COORDINATOR_SPAWN, COORDINATOR_ESCALATION, COORDINATOR_LOOPBACK. Lightweight event emissions surfaced via SSE stream.",
+        "files_affected": ["orchestrator/events.py"],
+        "new_files": [],
+        "dependencies": ["C-1"]
+      },
+      {
+        "id": "C-8",
+        "name": "Pipeline mode: coordinator-driven execution",
+        "description": "coordinator_enabled flag on PipelineConfig (default false). When enabled, orchestrator spawns coordinator instead of fixed-phase dispatch. Existing pipelines unaffected.",
+        "files_affected": ["orchestrator/models.py", "orchestrator/routes/pipelines.py"],
+        "new_files": ["orchestrator/coordinator_executor.py"],
+        "dependencies": ["C-1", "C-2", "C-3"]
+      }
+    ],
+
+    "coordinator_tools": [
+      {"tool": "spawn_agent", "orchestrator_api": "POST /api/v1/pipelines/{id}/coordinator/spawn"},
+      {"tool": "get_pipeline_state", "orchestrator_api": "GET /api/v1/pipelines/{id}/coordinator/state"},
+      {"tool": "advance_phase", "orchestrator_api": "POST /api/v1/pipelines/{id}/coordinator/phase"},
+      {"tool": "escalate_to_human", "orchestrator_api": "POST /api/v1/pipelines/{id}/coordinator/escalate"},
+      {"tool": "cancel_agent", "orchestrator_api": "DELETE /api/v1/pipelines/{id}/coordinator/agents/{role}"},
+      {"tool": "send_message", "orchestrator_api": "POST /api/v1/pipelines/{id}/messages"},
+      {"tool": "poll_messages", "orchestrator_api": "GET /api/v1/pipelines/{id}/messages"}
+    ],
+
+    "mcp_tools": [
+      {"tool": "submit_task", "parameters": ["description", "issue_number", "repo", "urgency", "workflow_hint"]},
+      {"tool": "get_status", "parameters": ["task_id"]},
+      {"tool": "provide_input", "parameters": ["task_id", "escalation_id", "response"]},
+      {"tool": "list_tasks", "parameters": ["status_filter", "limit"]},
+      {"tool": "cancel_task", "parameters": ["task_id", "reason"]}
+    ]
+  },
+
+  "alternatives_considered": [
+    {
+      "id": "ALT-B",
+      "title": "Option B: External Coordinator Service",
+      "rejected_reason": "Violates EGG200: LLM reasoning must happen inside Claude Code sessions, not via programmatic API calls from orchestration services."
+    },
+    {
+      "id": "ALT-C",
+      "title": "Option C: Host-Level Claude Code Session",
+      "rejected_reason": "Conflates coordinator with user's development environment. Breaks security isolation. Option A can evolve into host-level mode later."
+    }
+  ],
+
+  "technical_decisions": [
+    {
+      "id": "TD-1",
+      "title": "Coordinator runs as agent container, not standalone service",
+      "decision": "Standard agent container with COORDINATOR role, using claude --print in headless mode.",
+      "rationale": "Preserves security model, reuses container infrastructure, follows EGG200.",
+      "trade_offs": "Container overhead, context window limits. Mitigated by checkpoint/resume."
+    },
+    {
+      "id": "TD-2",
+      "title": "MCP server uses SSE transport, runs as orchestrator sidecar",
+      "decision": "SSE transport, stateless, shares orchestrator network.",
+      "rationale": "Multi-client support, persists across client disconnections, supports async mode.",
+      "trade_offs": "Network dependency. Alternative: stdio is simpler but requires co-located processes."
+    },
+    {
+      "id": "TD-3",
+      "title": "Hybrid phase model — phases advisory for coordinator",
+      "decision": "Existing phases remain but are advisory when coordinator_enabled is true. Gateway uses 'coordinator' pseudo-phase.",
+      "rationale": "Backward compatible. Coordinator gets flexibility without breaking structural guarantees for other agents.",
+      "trade_offs": "Two execution models. Mitigated by keeping coordinator pseudo-phase minimal."
+    },
+    {
+      "id": "TD-4",
+      "title": "Orientation-not-prefetching for coordinator-to-agent instructions",
+      "decision": "Coordinator passes task objectives, issue number, branch, focus area — not pre-fetched diffs or file contents.",
+      "rationale": "Per agent-mode design guidelines. Agents gather their own context. Pre-fetching wastes coordinator tokens.",
+      "trade_offs": "Agents spend tokens gathering context. Mitigated by specific task objectives."
+    },
+    {
+      "id": "TD-5",
+      "title": "Coordinator state persists in orchestrator, not context window",
+      "decision": "Workflow decisions persisted as structured state in Pipeline model (coordinator_state field).",
+      "rationale": "Context window insufficient for multi-hour workflows. Git-backed state store provides reliable persistence.",
+      "trade_offs": "State serialization overhead. Coordinator must reconstruct context on resume."
+    },
+    {
+      "id": "TD-6",
+      "title": "Opt-in coordinator mode via PipelineConfig flag",
+      "decision": "coordinator_enabled=true activates coordinator mode. Default is false.",
+      "rationale": "Zero risk of breaking existing workflows. Incremental adoption.",
+      "trade_offs": "Two execution paths to maintain."
+    }
+  ],
+
+  "implementation_task_breakdown": {
+    "description": "Tasks split to address review feedback about oversized tasks. TASK-2-1, TASK-3-1, and TASK-4-1 are each split into two subtasks with clear scope boundaries.",
+    "phases": [
+      {
+        "id": 1,
+        "name": "Coordinator Role and Data Model",
+        "goal": "Add COORDINATOR agent role, PipelineConfig flag, coordinator state persistence, and event types.",
+        "tasks": [
+          {
+            "id": "TASK-1-1",
+            "description": "Add COORDINATOR to AgentRole enum, coordinator_enabled boolean to PipelineConfig (default false), coordinator_state optional dict to Pipeline model.",
+            "files": ["orchestrator/models.py"],
+            "acceptance": "AgentRole.COORDINATOR exists. PipelineConfig serializes with/without coordinator_enabled. Pipeline stores/retrieves coordinator_state. Backward compatible. Tests pass."
+          },
+          {
+            "id": "TASK-1-2",
+            "description": "Add COORDINATOR_ROLE AgentRoleDefinition to shared/egg_contracts/agent_roles.py. Write access only to .egg-state/agent-outputs/, blocked from source and contracts.",
+            "files": ["shared/egg_contracts/agent_roles.py"],
+            "acceptance": "COORDINATOR_ROLE has correct restrictions. Registered in AGENT_ROLES. Tests pass."
+          },
+          {
+            "id": "TASK-1-3",
+            "description": "Add coordinator event types to orchestrator/events.py: COORDINATOR_DECISION, COORDINATOR_SPAWN, COORDINATOR_ESCALATION, COORDINATOR_LOOPBACK.",
+            "files": ["orchestrator/events.py"],
+            "acceptance": "Event types in enum. Events can be emitted via EventBus. Tests pass."
+          },
+          {
+            "id": "TASK-1-4",
+            "description": "Add coordinator state management methods to orchestrator/state_store.py: update_coordinator_state() and get_coordinator_state(). State schema: workflow_type, agents_spawned, phase_decisions, escalations, guardrail_counters.",
+            "files": ["orchestrator/state_store.py"],
+            "acceptance": "State persists across restarts. Incremental updates work. Guardrail counters accurate. Tests pass."
+          }
+        ],
+        "dependencies": []
+      },
+      {
+        "id": 2,
+        "name": "Orchestrator API Extensions",
+        "goal": "Add coordinator-specific REST endpoints, client methods, and CLI commands.",
+        "tasks": [
+          {
+            "id": "TASK-2-1a",
+            "description": "Create orchestrator/routes/coordinator.py with spawn and cancel endpoints: POST /api/v1/pipelines/{id}/coordinator/spawn (spawn agent with role/context, validate against guardrails — max agents, max retries per role) and DELETE /api/v1/pipelines/{id}/coordinator/agents/{role} (cancel running agent, stop container, record in coordinator state). Both endpoints restricted to COORDINATOR role.",
+            "files": ["orchestrator/routes/coordinator.py"],
+            "acceptance": "Spawn endpoint creates container with correct env. Spawn enforces guardrails (rejects when limits exceeded). Cancel stops container and records cancellation. Role validation rejects non-coordinator callers. Tests pass."
+          },
+          {
+            "id": "TASK-2-1b",
+            "description": "Add remaining coordinator endpoints to orchestrator/routes/coordinator.py: GET /api/v1/pipelines/{id}/coordinator/state (comprehensive state: phase, running/completed agents, pending HITL, message bus summary, guardrail counters), POST /api/v1/pipelines/{id}/coordinator/phase (advance or skip-to phase with reason), POST /api/v1/pipelines/{id}/coordinator/escalate (create HITL decision or feedback). Register the coordinator blueprint in orchestrator/api.py.",
+            "files": ["orchestrator/routes/coordinator.py", "orchestrator/api.py"],
+            "acceptance": "State endpoint returns comprehensive data. Phase endpoint records decisions. Escalation creates HITL items. Blueprint registered. Tests pass."
+          },
+          {
+            "id": "TASK-2-2",
+            "description": "Add coordinator client methods to shared/egg_orchestrator/client.py and types to shared/egg_orchestrator/types.py.",
+            "files": ["shared/egg_orchestrator/client.py", "shared/egg_orchestrator/types.py"],
+            "acceptance": "Client methods call correct endpoints. Types serialize/deserialize. Tests pass."
+          },
+          {
+            "id": "TASK-2-3",
+            "description": "Add coordinator subcommand group to sandbox/egg_lib/orch_cli.py: spawn, state, phase, escalate, cancel.",
+            "files": ["sandbox/egg_lib/orch_cli.py"],
+            "acceptance": "CLI commands invoke correct client methods. JSON and human-readable output. Tests pass."
+          },
+          {
+            "id": "TASK-2-4",
+            "description": "Write tests for all coordinator routes.",
+            "files": ["orchestrator/tests/test_coordinator_routes.py"],
+            "acceptance": "All test cases pass with mocked dependencies."
+          }
+        ],
+        "dependencies": ["Phase 1"]
+      },
+      {
+        "id": 3,
+        "name": "Coordinator Executor and Gateway Permissions",
+        "goal": "Build coordinator container lifecycle management and gateway permission model.",
+        "tasks": [
+          {
+            "id": "TASK-3-1a",
+            "description": "Create orchestrator/coordinator_executor.py with CoordinatorExecutor class — core lifecycle: spawn coordinator container as first agent when coordinator_enabled is true, inject coordinator-specific environment (EGG_COORDINATOR_MODE, task context, repo info), handle coordinator completion (verify all spawned agents done, pipeline state clean, mark complete).",
+            "files": ["orchestrator/coordinator_executor.py"],
+            "acceptance": "Coordinator spawns on pipeline creation when coordinator_enabled. Correct env injected. Completion handled cleanly. Tests pass with mocked containers."
+          },
+          {
+            "id": "TASK-3-1b",
+            "description": "Add health monitoring, crash handling, and guardrails to CoordinatorExecutor: monitor coordinator heartbeat/timeout, detect coordinator exit and optionally respawn (configurable: auto-respawn up to max 2 vs. notify human), enforce global guardrails (max total agents, max wall-clock time, max coordinator respawns).",
+            "files": ["orchestrator/coordinator_executor.py"],
+            "acceptance": "Crash detection and respawn works. Auto-respawn honors max respawns limit. Global guardrails enforced (max agents, max time, max respawns). Tests pass."
+          },
+          {
+            "id": "TASK-3-2",
+            "description": "Wire CoordinatorExecutor into pipeline creation flow in orchestrator/routes/pipelines.py. Route to CoordinatorExecutor when coordinator_enabled is true, existing dispatch when false.",
+            "files": ["orchestrator/routes/pipelines.py"],
+            "acceptance": "coordinator_enabled=true routes to CoordinatorExecutor. False uses existing dispatch. No behavior change for existing pipelines. Tests pass."
+          },
+          {
+            "id": "TASK-3-3",
+            "description": "Add coordinator pseudo-phase permissions to gateway/phase_filter.py and coordinator file restrictions to gateway/agent_restrictions.py.",
+            "files": ["gateway/phase_filter.py", "gateway/agent_restrictions.py"],
+            "acceptance": "Coordinator sessions get correct permissions. Spawn/phase ops allowed. PR merge/create blocked. File restrictions enforced. Tests pass."
+          },
+          {
+            "id": "TASK-3-4",
+            "description": "Update gateway/session_manager.py to support coordinator sessions with coordinator pseudo-phase.",
+            "files": ["gateway/session_manager.py"],
+            "acceptance": "Coordinator containers get valid gateway sessions. Phase correctly associated. Tests pass."
+          },
+          {
+            "id": "TASK-3-5",
+            "description": "Write tests for CoordinatorExecutor and gateway coordinator permissions.",
+            "files": ["orchestrator/tests/test_coordinator_executor.py", "gateway/tests/test_coordinator_permissions.py"],
+            "acceptance": "All test cases pass."
+          }
+        ],
+        "dependencies": ["Phase 2"]
+      },
+      {
+        "id": 4,
+        "name": "MCP Server",
+        "goal": "Build SSE-based MCP server bridging external Claude Code sessions to the coordinator.",
+        "tasks": [
+          {
+            "id": "TASK-4-1a",
+            "description": "Create orchestrator/mcp_server.py — HTTP server with SSE transport: Flask or aiohttp application on configurable port (default 9850), MCP protocol implementation (tool listing, tool execution, SSE event streaming for responses), health endpoint (GET /health). Listens only on egg-isolated network.",
+            "files": ["orchestrator/mcp_server.py"],
+            "acceptance": "Server starts and accepts MCP protocol connections via SSE. Health endpoint responds. Basic MCP protocol works (tool listing, tool execution). Tests pass."
+          },
+          {
+            "id": "TASK-4-1b",
+            "description": "Add authentication and rate limiting to MCP server: validate requests against gateway session tokens, configurable max requests per minute (default 30), reject unauthenticated requests with clear error messages.",
+            "files": ["orchestrator/mcp_server.py"],
+            "acceptance": "Authentication validates tokens. Unauthenticated requests rejected. Rate limiting enforced (429 response when exceeded). Tests pass."
+          },
+          {
+            "id": "TASK-4-2",
+            "description": "Create orchestrator/mcp_tools.py — MCP tool definitions: submit_task, get_status, provide_input, list_tasks, cancel_task. Each proxies to orchestrator REST API.",
+            "files": ["orchestrator/mcp_tools.py"],
+            "acceptance": "Each tool correctly proxies to orchestrator API. Tool schemas follow MCP spec. Error handling returns clear messages. Tests pass."
+          },
+          {
+            "id": "TASK-4-3",
+            "description": "Add MCP server startup to orchestrator deployment. Configuration for port, auth, rate limits. Document connection URL.",
+            "files": ["orchestrator/api.py"],
+            "acceptance": "MCP server starts alongside orchestrator. Configuration documented. Claude Code can connect. Tests pass."
+          },
+          {
+            "id": "TASK-4-4",
+            "description": "Write tests for MCP tools, authentication, and rate limiting.",
+            "files": ["orchestrator/tests/test_mcp_server.py", "orchestrator/tests/test_mcp_tools.py"],
+            "acceptance": "All test cases pass with mocked orchestrator client."
+          }
+        ],
+        "dependencies": ["Phase 3"]
+      },
+      {
+        "id": 5,
+        "name": "Coordinator Instructions and Integration Testing",
+        "goal": "Write coordinator agent prompt, update SSE events, and validate end-to-end.",
+        "tasks": [
+          {
+            "id": "TASK-5-1",
+            "description": "Create sandbox/.claude/rules/coordinator.md — coordinator agent instructions covering: mission, available tools, workflow selection guidance, agent instruction protocol, escalation policy, guardrail awareness, state management, observability.",
+            "files": ["sandbox/.claude/rules/coordinator.md"],
+            "acceptance": "Instructions cover all responsibilities. Tool usage documented. Workflow guidance includes examples. Fits within ~3000 tokens."
+          },
+          {
+            "id": "TASK-5-2",
+            "description": "Add coordinator container spawning support to orchestrator/container_spawner.py. Coordinator gets coordinator.md in CLAUDE.md. Resume prompt includes current orchestrator state.",
+            "files": ["orchestrator/container_spawner.py"],
+            "acceptance": "Coordinator containers spawn with coordinator.md. Prompt includes task context. Resume includes state. Tests pass."
+          },
+          {
+            "id": "TASK-5-3",
+            "description": "Update SSE streaming to include coordinator event types in pipeline event stream and DAG visualizer.",
+            "files": ["orchestrator/sse.py", "orchestrator/unified_sse.py"],
+            "acceptance": "Coordinator events in SSE stream. DAG renders coordinator as node. Tests pass."
+          },
+          {
+            "id": "TASK-5-4",
+            "description": "Create end-to-end integration test: coordinator-enabled pipeline lifecycle and crash/respawn scenario.",
+            "files": ["orchestrator/tests/test_coordinator_integration.py"],
+            "acceptance": "Integration test passes with mocked containers. Full lifecycle exercised. Crash/respawn verified."
+          },
+          {
+            "id": "TASK-5-5",
+            "description": "Document coordinator feature in docs/guides/coordinator.md. Update docs/index.md.",
+            "files": ["docs/guides/coordinator.md", "docs/index.md"],
+            "acceptance": "Documentation covers setup, usage, troubleshooting. Index links to coordinator guide."
+          }
+        ],
+        "dependencies": ["Phase 4"]
+      }
+    ]
+  },
+
+  "risks": [
+    {
+      "id": "R-1",
+      "title": "Coordinator session lifetime vs. multi-hour workflows",
+      "severity": "high",
+      "mitigation": "Persist state in orchestrator. Checkpoint/resume from state. Compact prompts."
+    },
+    {
+      "id": "R-2",
+      "title": "Runaway agent spawning",
+      "severity": "high",
+      "mitigation": "Guardrails: max 10 agents, max 2 retries/role, max wall-clock time. Orchestrator enforces."
+    },
+    {
+      "id": "R-3",
+      "title": "Gateway permission model complexity",
+      "severity": "medium",
+      "mitigation": "Coordinator pseudo-phase is minimal: state writes + orchestrator API only."
+    },
+    {
+      "id": "R-4",
+      "title": "MCP server as new attack surface",
+      "severity": "medium",
+      "mitigation": "Listens only on egg network. Authentication via gateway tokens. Rate limiting."
+    },
+    {
+      "id": "R-5",
+      "title": "Coordinator crash with running agents",
+      "severity": "medium",
+      "mitigation": "Agents continue and auto-commit. Orchestrator auto-respawns coordinator (max 2). Human notified after max."
+    },
+    {
+      "id": "R-6",
+      "title": "Dual execution model maintenance",
+      "severity": "low",
+      "mitigation": "Coordinator reuses existing infra. New code in coordinator-specific files."
+    }
+  ],
+
+  "dependencies": [
+    {
+      "id": "DEP-1",
+      "title": "Cross-agent communication (#1027)",
+      "status": "merged",
+      "description": "Message bus, consensus, concurrent execution. Foundation for coordinator monitoring."
+    },
+    {
+      "id": "DEP-2",
+      "title": "HITL decisions from refine phase",
+      "status": "pending",
+      "description": "4 unresolved decisions and 3 feedback questions. This revision documents assumed defaults with explicit impact analysis for each alternative. See unresolved_hitl_decisions section."
+    }
+  ],
+
+  "key_files": {
+    "to_modify": [
+      "orchestrator/models.py",
+      "orchestrator/events.py",
+      "orchestrator/state_store.py",
+      "orchestrator/api.py",
+      "orchestrator/routes/pipelines.py",
+      "orchestrator/container_spawner.py",
+      "orchestrator/sse.py",
+      "orchestrator/unified_sse.py",
+      "shared/egg_contracts/agent_roles.py",
+      "shared/egg_orchestrator/client.py",
+      "shared/egg_orchestrator/types.py",
+      "sandbox/egg_lib/orch_cli.py",
+      "gateway/phase_filter.py",
+      "gateway/agent_restrictions.py",
+      "gateway/session_manager.py",
+      "docs/index.md"
+    ],
+    "to_create": [
+      "orchestrator/routes/coordinator.py",
+      "orchestrator/coordinator_executor.py",
+      "orchestrator/mcp_server.py",
+      "orchestrator/mcp_tools.py",
+      "sandbox/.claude/rules/coordinator.md",
+      "docs/guides/coordinator.md",
+      "orchestrator/tests/test_coordinator_routes.py",
+      "orchestrator/tests/test_coordinator_executor.py",
+      "orchestrator/tests/test_mcp_server.py",
+      "orchestrator/tests/test_mcp_tools.py",
+      "orchestrator/tests/test_coordinator_integration.py",
+      "gateway/tests/test_coordinator_permissions.py"
+    ]
+  }
+}
