@@ -158,18 +158,9 @@ def _start_mcp_server() -> None:
 
         mcp_port = int(os.environ.get("EGG_MCP_SERVER_PORT", "9850"))
         mcp_rate_limit = int(os.environ.get("EGG_MCP_RATE_LIMIT", "30"))
-        try:
-            from egg_config import GATEWAY_PORT
-        except ImportError:
-            GATEWAY_PORT = 9848  # noqa: EGG002
-
-        gateway_url = os.environ.get("GATEWAY_URL", f"http://egg-gateway:{GATEWAY_PORT}")
-        launcher_secret = os.environ.get("EGG_LAUNCHER_SECRET", "")
         start_mcp_server(
             port=mcp_port,
             rate_limit=mcp_rate_limit,
-            gateway_url=gateway_url,
-            launcher_secret=launcher_secret,
         )
         logger.info("MCP server started", port=mcp_port)
     except ImportError:
