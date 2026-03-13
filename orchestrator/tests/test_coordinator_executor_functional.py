@@ -62,13 +62,11 @@ class TestCoordinatorConfig:
         assert config.max_retries_per_role == 2
         assert config.max_respawns == 2
         assert config.max_wall_clock_minutes == 120
-        assert config.auto_respawn is True
 
     def test_custom_values(self):
-        config = CoordinatorConfig(max_agents=5, max_respawns=0, auto_respawn=False)
+        config = CoordinatorConfig(max_agents=5, max_respawns=0)
         assert config.max_agents == 5
         assert config.max_respawns == 0
-        assert config.auto_respawn is False
 
 
 # ── should_use_coordinator tests ─────────────────────────────────────
@@ -447,54 +445,3 @@ class TestHandleCompletion:
 
         assert result == "complete"
         assert pipeline.status == PipelineStatus.COMPLETE
-
-
-# ── check_guardrails tests ──────────────────────────────────────────
-
-
-class TestCheckGuardrails:
-    """Tests for CoordinatorExecutor.check_guardrails."""
-
-    @patch("coordinator_executor.get_state_store")
-    def test_within_limits(self, mock_store_fn, tmp_path):
-        pipeline = _make_pipeline(
-            coordinator_state=CoordinatorState(
-                guardrail_counters=GuardrailCounters(total_agents_spawned=5),
-            ),
-        )
-        store = MagicMock()
-        store.load_pipeline.return_value = pipeline
-        mock_store_fn.return_value = store
-
-        executor = CoordinatorExecutor(tmp_path)
-        allowed, reason = executor.check_guardrails("test-pipeline")
-        assert allowed is True
-        assert reason == ""
-
-    @patch("coordinator_executor.get_state_store")
-    def test_over_max_agents(self, mock_store_fn, tmp_path):
-        pipeline = _make_pipeline(
-            coordinator_state=CoordinatorState(
-                guardrail_counters=GuardrailCounters(total_agents_spawned=10),
-            ),
-        )
-        store = MagicMock()
-        store.load_pipeline.return_value = pipeline
-        mock_store_fn.return_value = store
-
-        executor = CoordinatorExecutor(tmp_path)
-        allowed, reason = executor.check_guardrails("test-pipeline")
-        assert allowed is False
-        assert "max agents" in reason.lower()
-
-    @patch("coordinator_executor.get_state_store")
-    def test_no_coordinator_state(self, mock_store_fn, tmp_path):
-        """Pipeline without coordinator_state should pass guardrails."""
-        pipeline = _make_pipeline(coordinator_state=None)
-        store = MagicMock()
-        store.load_pipeline.return_value = pipeline
-        mock_store_fn.return_value = store
-
-        executor = CoordinatorExecutor(tmp_path)
-        allowed, reason = executor.check_guardrails("test-pipeline")
-        assert allowed is True

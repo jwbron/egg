@@ -171,6 +171,17 @@ class TestSpawnEndpoint:
         assert response.status_code == 400
         assert "extra_env" in response.get_json()["message"]
 
+    @patch("routes.coordinator.get_repo_path")
+    def test_spawn_coordinator_role_rejected(self, mock_repo, client):
+        """Coordinator cannot spawn another coordinator (privilege escalation)."""
+        mock_repo.return_value = Path("/tmp/repo")
+        response = client.post(
+            "/api/v1/pipelines/test-pipeline/coordinator/spawn",
+            json={"role": "coordinator"},
+        )
+        assert response.status_code == 403
+        assert "cannot spawn another coordinator" in response.get_json()["message"].lower()
+
     @patch("routes.coordinator.get_state_store")
     @patch("routes.coordinator.get_pipeline_state_lock")
     @patch("routes.coordinator.get_repo_path")

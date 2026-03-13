@@ -102,6 +102,8 @@ services:
     ports:
       # Orchestrator API - used by sandbox for pipeline state management
       - "${ORCHESTRATOR_API_PORT:-9849}:9849"
+      # MCP server - used by external Claude Code sessions
+      - "${EGG_MCP_SERVER_PORT:-9850}:9850"
     environment:
       # Core configuration
       - ORCHESTRATOR_PORT=9849

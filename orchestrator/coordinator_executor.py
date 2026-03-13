@@ -41,7 +41,6 @@ class CoordinatorConfig:
     max_retries_per_role: int = 2
     max_respawns: int = 2
     max_wall_clock_minutes: int = 120
-    auto_respawn: bool = True
 
 
 class CoordinatorExecutor:
@@ -166,10 +165,7 @@ class CoordinatorExecutor:
                     max_respawns=pipeline.config.coordinator_max_respawns,
                 )
 
-                if (
-                    config.auto_respawn
-                    and state.guardrail_counters.coordinator_respawns < config.max_respawns
-                ):
+                if state.guardrail_counters.coordinator_respawns < config.max_respawns:
                     state.guardrail_counters.coordinator_respawns += 1
                     pipeline.coordinator_state = state
                     pipeline.status = PipelineStatus.RUNNING
@@ -203,19 +199,3 @@ class CoordinatorExecutor:
             store.save_pipeline(pipeline)
 
         return "complete" if exit_code == 0 else "failed"
-
-    def check_guardrails(self, pipeline_id: str) -> tuple[bool, str]:
-        """Check if coordinator operations are within guardrails."""
-        store = get_state_store(self.repo_path)
-        pipeline = store.load_pipeline(pipeline_id)
-
-        if not pipeline.coordinator_state:
-            return True, ""
-
-        state = pipeline.coordinator_state
-        config = pipeline.config
-
-        if state.guardrail_counters.total_agents_spawned >= config.coordinator_max_agents:
-            return False, f"Max agents limit reached ({config.coordinator_max_agents})"
-
-        return True, ""
