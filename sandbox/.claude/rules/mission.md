@@ -259,7 +259,7 @@ message from another agent reveals an issue you need to address).
 - Signal `READY` after tests run against coder's actual output
 
 **Documenter** (concurrent mode):
-- Signal `BLOCKED` on startup if coder handoff is missing; poll for coder PROGRESS
+- Signal `BLOCKED` on startup if coder handoff is missing; poll for coder/tester PROGRESS
 - Draft documentation early based on plan; finalize after coder's changes are committed
 - Send `STATUS` messages to share documentation progress
 - Signal `READY` after documentation reflects coder's actual changes
