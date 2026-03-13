@@ -46,13 +46,13 @@ def _make_concurrent_pipeline(pipeline_id: str = "issue-999") -> Pipeline:
     # regular field assignments.
     try:
         config.concurrent_execution = True  # type: ignore[attr-defined]
-        config.max_concurrent_agents = 4  # type: ignore[attr-defined]
+        config.max_concurrent_agents = 6  # type: ignore[attr-defined]
         config.message_poll_hint_seconds = 30  # type: ignore[attr-defined]
         config.consensus_timeout_minutes = 30  # type: ignore[attr-defined]
     except (AttributeError, ValueError):
         # Fields not yet on PipelineConfig — set via __dict__ for testing
         config.__dict__["concurrent_execution"] = True
-        config.__dict__["max_concurrent_agents"] = 4
+        config.__dict__["max_concurrent_agents"] = 6
         config.__dict__["message_poll_hint_seconds"] = 30
         config.__dict__["consensus_timeout_minutes"] = 30
 
