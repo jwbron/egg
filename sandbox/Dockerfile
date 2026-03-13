@@ -74,7 +74,7 @@ RUN apt-get update && \
     update-alternatives --install /usr/bin/python python /usr/bin/python3.13 1 && \
     # Bootstrap pip for Python 3.13 (ensurepip installs pip3 to /usr/local/bin)
     python3.13 -m ensurepip --upgrade && \
-    python3.13 -m pip install --upgrade pip
+    python3.13 -m pip install --no-cache-dir --upgrade pip
 
 # Install pyyaml early - required by docker-setup.py for reading config
 RUN pip3 install --no-cache-dir pyyaml
