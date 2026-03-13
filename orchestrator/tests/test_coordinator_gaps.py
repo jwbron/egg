@@ -1130,10 +1130,11 @@ class TestToolDefinitionGaps:
             assert "description" in tool, f"Tool {tool['name']} missing description"
             assert "inputSchema" in tool, f"Tool {tool['name']} missing inputSchema"
 
-    def test_submit_task_requires_description(self):
-        """submit_task schema has 'description' as required."""
+    def test_submit_task_requires_description_and_repo(self):
+        """submit_task schema has 'description' and 'repo' as required."""
         tool = next(t for t in COORDINATOR_TOOLS if t["name"] == "submit_task")
         assert "description" in tool["inputSchema"]["required"]
+        assert "repo" in tool["inputSchema"]["required"]
 
     def test_provide_input_requires_all_fields(self):
         """provide_input requires task_id, decision_id, response."""

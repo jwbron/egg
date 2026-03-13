@@ -375,6 +375,7 @@ class TestToolDefinitions:
         schema = tool["inputSchema"]
         assert schema["type"] == "object"
         assert "description" in schema["required"]
+        assert "repo" in schema["required"]
         assert "description" in schema["properties"]
         assert "issue_number" in schema["properties"]
         assert "repo" in schema["properties"]
