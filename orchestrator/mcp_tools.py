@@ -235,11 +235,11 @@ class CoordinatorToolHandler:
         pipelines = result.get("data", {}).get("pipelines", [])
 
         # Filter to coordinator-enabled pipelines
+        status_filter = args.get("status_filter", "active")
         coordinator_pipelines = []
         for p in pipelines:
             config = p.get("config", {})
             if config.get("coordinator_enabled"):
-                status_filter = args.get("status_filter", "active")
                 p_status = p.get("status", "")
                 if status_filter == "all":
                     coordinator_pipelines.append(p)
@@ -268,6 +268,7 @@ class CoordinatorToolHandler:
             data["reason"] = args["reason"]
         result = self._make_request(
             f"/api/v1/pipelines/{task_id}",
-            method="DELETE",
+            method="PATCH",
+            data=data,
         )
         return result

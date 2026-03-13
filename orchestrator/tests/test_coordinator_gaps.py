@@ -816,12 +816,16 @@ class TestMCPToolHandlerGaps:
             assert call_data["prompt"] == "Refactor auth"
 
     def test_cancel_task_passes_reason(self):
-        """cancel_task includes reason in request."""
+        """cancel_task uses PATCH with status and reason."""
         handler = CoordinatorToolHandler()
         with patch.object(handler, "_make_request") as mock_req:
             mock_req.return_value = {"success": True}
             handler._handle_cancel_task({"task_id": "issue-42", "reason": "No longer needed"})
-            mock_req.assert_called_once()
+            mock_req.assert_called_once_with(
+                "/api/v1/pipelines/issue-42",
+                method="PATCH",
+                data={"status": "cancelled", "reason": "No longer needed"},
+            )
 
     def test_provide_input_calls_correct_endpoint(self):
         """provide_input posts to the correct decision endpoint."""
