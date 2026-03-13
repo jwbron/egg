@@ -9,6 +9,7 @@ from threading import Thread
 from unittest.mock import MagicMock, patch
 
 import pytest
+from egg_config.constants import TEST_GATEWAY_PORT
 from gateway_client import (
     GatewayClient,
     GatewayError,
@@ -894,7 +895,7 @@ class TestSelfIpResolution:
         """Test fallback to 127.0.0.1 when gateway host is unresolvable."""
         client = GatewayClient(
             gateway_host="nonexistent-host-that-will-never-resolve.invalid",
-            gateway_port=9848,
+            gateway_port=TEST_GATEWAY_PORT,
             launcher_secret="test-secret",
         )
         assert client.self_ip == "127.0.0.1"
