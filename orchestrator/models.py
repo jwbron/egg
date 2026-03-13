@@ -13,7 +13,6 @@ from egg_contracts.models import PipelinePhase
 from pydantic import BaseModel, Field, field_validator
 
 
-
 class PipelineStatus(StrEnum):
     """Overall status of a pipeline."""
 
