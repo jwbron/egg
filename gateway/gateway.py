@@ -380,7 +380,7 @@ def check_launcher_auth() -> tuple[bool, str]:
     return False, "Invalid launcher authorization token"
 
 
-def require_launcher_auth[F: Callable[..., Any]](f: F) -> F:
+def require_launcher_auth(f: F) -> F:
     """Decorator to require launcher authentication for an endpoint."""
 
     @functools.wraps(f)

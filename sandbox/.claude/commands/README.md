@@ -66,7 +66,7 @@ Guide a full pipeline lifecycle: seed prompt creation, submit, monitor, HITL han
 **Usage**: `/run-workflow`
 
 **What it does**:
-- Gathers task parameters (description, repo, issue, workflow hint, urgency)
+- Gathers task parameters (description, repo, issue)
 - Submits the task via the `submit_task` MCP tool
 - Sets up recurring polling to monitor pipeline progress
 - Handles HITL decisions inline (choice and feedback types)

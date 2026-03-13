@@ -92,7 +92,7 @@ def make_auth_error(message: str, status_code: int = 401) -> tuple[Response, int
     return jsonify({"success": False, "message": message}), status_code
 
 
-def require_session_auth[F: Callable[..., Any]](f: F) -> F:
+def require_session_auth(f: F) -> F:
     """
     Decorator that validates session tokens in request handlers.
 

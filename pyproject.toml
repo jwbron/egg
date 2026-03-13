@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Sandboxed LLM code execution environment"
 readme = "README.md"
 license = {text = "MIT"}
-requires-python = ">=3.11"
+requires-python = ">=3.13"
 dependencies = [
     "flask>=3.0.0,<4.0.0",
     "waitress>=3.0.0,<4.0.0",
@@ -45,7 +45,7 @@ python-preference = "system"
 
 [tool.ruff]
 line-length = 100
-target-version = "py311"
+target-version = "py313"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "C4", "UP"]
@@ -59,9 +59,11 @@ ignore = ["E402", "E501"]
 # UP038: isinstance style is fine as-is in tests
 "tests/*" = ["UP038"]
 "integration_tests/*" = ["UP038"]
+# UP046/UP047: PEP 695 type parameter syntax not supported by mypy yet
+"gateway/*" = ["UP046", "UP047"]
 
 [tool.mypy]
-python_version = "3.11"
+python_version = "3.13"
 strict = true
 warn_return_any = true
 warn_unused_ignores = true

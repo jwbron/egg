@@ -333,7 +333,7 @@ def create_sse_stream(
     repo_path: Path | None = None,
     use_ascii: bool = False,
     include_initial: bool = True,
-) -> Generator[str, None, None]:
+) -> Generator[str]:
     """Create an SSE event stream generator for a pipeline.
 
     This generator yields SSE-formatted strings and is designed to be
