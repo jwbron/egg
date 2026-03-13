@@ -750,15 +750,7 @@ class TestSetupAgentRules:
         logger = entrypoint.Logger(quiet=True)
 
         # Patch Path("/opt/claude-rules") to point to our temp rules dir
-        original_path_init = Path.__new__
-
-        def patched_path_new(cls, *args, **kwargs):
-            result = original_path_init(cls, *args, **kwargs)
-            if str(result) == "/opt/claude-rules":
-                return rules_dir
-            return result
-
-        with patch.object(Path, "__new__", patched_path_new):
+        with patch.object(entrypoint, "_CLAUDE_RULES_DIR", rules_dir):
             entrypoint.setup_agent_rules(config, logger)
 
         claude_md = claude_dir / "CLAUDE.md"
@@ -798,15 +790,7 @@ class TestSetupAgentRules:
 
         logger = entrypoint.Logger(quiet=True)
 
-        original_path_init = Path.__new__
-
-        def patched_path_new(cls, *args, **kwargs):
-            result = original_path_init(cls, *args, **kwargs)
-            if str(result) == "/opt/claude-rules":
-                return rules_dir
-            return result
-
-        with patch.object(Path, "__new__", patched_path_new):
+        with patch.object(entrypoint, "_CLAUDE_RULES_DIR", rules_dir):
             entrypoint.setup_agent_rules(config, logger)
 
         claude_md = claude_dir / "CLAUDE.md"
@@ -844,15 +828,7 @@ class TestSetupAgentRules:
 
         logger = entrypoint.Logger(quiet=True)
 
-        original_path_init = Path.__new__
-
-        def patched_path_new(cls, *args, **kwargs):
-            result = original_path_init(cls, *args, **kwargs)
-            if str(result) == "/opt/claude-rules":
-                return rules_dir
-            return result
-
-        with patch.object(Path, "__new__", patched_path_new):
+        with patch.object(entrypoint, "_CLAUDE_RULES_DIR", rules_dir):
             entrypoint.setup_agent_rules(config, logger)
 
         claude_md = claude_dir / "CLAUDE.md"
@@ -906,15 +882,7 @@ class TestSetupAgentRules:
 
         logger = entrypoint.Logger(quiet=True)
 
-        original_path_init = Path.__new__
-
-        def patched_path_new(cls, *args, **kwargs):
-            result = original_path_init(cls, *args, **kwargs)
-            if str(result) == "/opt/claude-rules":
-                return rules_dir
-            return result
-
-        with patch.object(Path, "__new__", patched_path_new):
+        with patch.object(entrypoint, "_CLAUDE_RULES_DIR", rules_dir):
             entrypoint.setup_agent_rules(config, logger)
 
         # Stale symlink should be removed
@@ -950,15 +918,7 @@ class TestSetupAgentRules:
 
         logger = entrypoint.Logger(quiet=True)
 
-        original_path_init = Path.__new__
-
-        def patched_path_new(cls, *args, **kwargs):
-            result = original_path_init(cls, *args, **kwargs)
-            if str(result) == "/opt/claude-rules":
-                return rules_dir
-            return result
-
-        with patch.object(Path, "__new__", patched_path_new):
+        with patch.object(entrypoint, "_CLAUDE_RULES_DIR", rules_dir):
             entrypoint.setup_agent_rules(config, logger)
 
         # Real file should be preserved

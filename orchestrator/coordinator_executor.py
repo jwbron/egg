@@ -11,6 +11,7 @@ Manages the lifecycle of the coordinator agent container:
 import sys
 import threading
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 
 _shared_path = Path(__file__).parent.parent / "shared"
@@ -27,7 +28,13 @@ except ImportError:
 
 
 from events import EventType, emit_event
-from models import AgentRole, CoordinatorState, PipelineStatus
+from models import (
+    AgentExecutionStatus,
+    AgentRole,
+    ContainerStatus,
+    CoordinatorState,
+    PipelineStatus,
+)
 from state_store import get_pipeline_state_lock, get_state_store
 
 logger = get_logger("orchestrator.coordinator_executor")
@@ -57,22 +64,11 @@ class CoordinatorExecutor:
         pipeline = store.load_pipeline(pipeline_id)
         return pipeline.config.coordinator_enabled
 
-    def start_coordinator(
-        self,
-        pipeline_id: str,
-        spawner=None,
-        issue_number: int | None = None,
-        repo_volumes: dict[str, str] | None = None,
-        mode: str = "public",
-        repos: list[str] | None = None,
-        image: str | None = None,
-        certs_volume: str | None = None,
-        branch: str | None = None,
-    ):
-        """Spawn the coordinator container for a pipeline.
+    def init_coordinator_state(self, pipeline_id: str) -> None:
+        """Initialise coordinator state and mark pipeline as running.
 
-        This is called when a pipeline with coordinator_enabled=True is started.
-        The coordinator runs as a standard agent container with elevated permissions.
+        Call this before spawning the coordinator container via _spawn_and_wait.
+        Raises ValueError if coordinator is not enabled for the pipeline.
         """
         store = get_state_store(self.repo_path)
 
@@ -82,49 +78,11 @@ class CoordinatorExecutor:
             if not pipeline.config.coordinator_enabled:
                 raise ValueError(f"Pipeline {pipeline_id} does not have coordinator enabled")
 
-            # Initialize coordinator state if needed
             if pipeline.coordinator_state is None:
                 pipeline.coordinator_state = CoordinatorState()
 
             pipeline.status = PipelineStatus.RUNNING
             store.save_pipeline(pipeline)
-
-        # Build coordinator-specific environment
-        extra_env = {
-            "EGG_COORDINATOR_MODE": "true",
-            "EGG_COORDINATOR_TOOLS": "true",
-        }
-        if issue_number:
-            extra_env["EGG_ISSUE_NUMBER"] = str(issue_number)
-
-        container = None
-        if spawner:
-            try:
-                container = spawner.spawn_agent_container(
-                    pipeline_id=pipeline_id,
-                    agent_role=AgentRole.COORDINATOR,
-                    issue_number=issue_number,
-                    repo_volumes=repo_volumes,
-                    mode=mode,
-                    image=image,
-                    extra_env=extra_env,
-                    repos=repos,
-                    phase="coordinator",
-                    certs_volume=certs_volume,
-                    branch=branch,
-                )
-                logger.info(
-                    "Coordinator container spawned",
-                    pipeline_id=pipeline_id,
-                    container_id=container.container_info.container_id[:12],
-                )
-            except Exception as e:
-                logger.error(
-                    "Failed to spawn coordinator",
-                    pipeline_id=pipeline_id,
-                    error=str(e),
-                )
-                raise
 
         emit_event(
             EventType.COORDINATOR_SPAWN,
@@ -132,14 +90,42 @@ class CoordinatorExecutor:
             data={"role": "coordinator", "action": "start"},
         )
 
-        return container
-
     def handle_coordinator_completion(self, pipeline_id: str, exit_code: int = 0):
-        """Handle coordinator container exit."""
+        """Handle coordinator container exit.
+
+        Also marks the coordinator's container/agent entries in phase_execution
+        as exited, preventing the background container monitor from finding
+        stale RUNNING entries and marking the pipeline FAILED.
+        """
         store = get_state_store(self.repo_path)
 
         with get_pipeline_state_lock(pipeline_id):
             pipeline = store.load_pipeline(pipeline_id)
+
+            # Mark coordinator container/agent entries in phase_execution as
+            # exited so the background monitor won't race and mark the pipeline
+            # FAILED after a respawn sets it back to RUNNING.
+            now = datetime.utcnow()
+            container_status = ContainerStatus.EXITED if exit_code == 0 else ContainerStatus.FAILED
+            agent_status = (
+                AgentExecutionStatus.COMPLETE if exit_code == 0 else AgentExecutionStatus.FAILED
+            )
+            for phase_execution in pipeline.phases.values():
+                for ci in phase_execution.containers:
+                    if (
+                        ci.agent_role == AgentRole.COORDINATOR
+                        and ci.status == ContainerStatus.RUNNING
+                    ):
+                        ci.status = container_status
+                        ci.exit_code = exit_code
+                        ci.exited_at = now
+                for agent in phase_execution.agents:
+                    if (
+                        agent.role == AgentRole.COORDINATOR
+                        and agent.status == AgentExecutionStatus.RUNNING
+                    ):
+                        agent.status = agent_status
+                        agent.completed_at = now
 
             if exit_code == 0:
                 # Check if all spawned agents are done

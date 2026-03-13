@@ -37,9 +37,7 @@ import traceback
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, TypeVar
-
-F = TypeVar("F", bound=Callable[..., Any])
+from typing import Any
 
 import httpx
 from flask import Flask, Response, g, jsonify, request, stream_with_context
@@ -94,6 +92,7 @@ try:
     )
     from .phase_filter import (
         OperationType,
+        PipelinePhase,
         check_agent_restrictions,
         check_file_restrictions,
         check_phase_file_restrictions,
@@ -158,6 +157,7 @@ except ImportError:
     )
     from phase_filter import (  # type: ignore[no-redef, import-untyped]
         OperationType,
+        PipelinePhase,
         check_agent_restrictions,
         check_file_restrictions,
         check_phase_file_restrictions,
@@ -4016,8 +4016,8 @@ def session_update(session_token: str) -> tuple[Response, int] | Response:
     )
 
 
-# Valid SDLC pipeline phases
-VALID_PIPELINE_PHASES = frozenset({"refine", "plan", "implement", "pr"})
+# Valid SDLC pipeline phases — derived from phase_filter.PipelinePhase to avoid drift
+VALID_PIPELINE_PHASES = frozenset(p.value for p in PipelinePhase)
 
 
 @app.route("/api/v1/sessions/<session_token>/phase", methods=["PATCH"])
