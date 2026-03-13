@@ -45,7 +45,7 @@ COORDINATOR_TOOLS = [
                 },
                 "repo": {
                     "type": "string",
-                    "description": "Repository in owner/name format",
+                    "description": "Repository to work on, in owner/name format (e.g. 'myorg/myrepo')",
                 },
                 "urgency": {
                     "type": "string",
@@ -58,7 +58,7 @@ COORDINATOR_TOOLS = [
                     "description": "Optional workflow hint (e.g., 'bug_fix', 'feature', 'refactor')",
                 },
             },
-            "required": ["description"],
+            "required": ["description", "repo"],
         },
     },
     {

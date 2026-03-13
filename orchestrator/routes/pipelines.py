@@ -501,10 +501,12 @@ def create_pipeline() -> tuple[Response, int]:
         )
 
     if mode == "local":
-        # Local mode: prompt required, issue_number/repo/branch optional
+        # Local mode: prompt and repo required
         prompt = data.get("prompt")
         if not prompt:
             return make_error_response("Missing prompt (required for local mode)")
+        if not data.get("repo"):
+            return make_error_response("Missing repo (required for local mode)")
 
         # Local pipelines always use the base EGG_REPO_PATH — not a repo-specific
         # subdirectory — so that list/get/start resolve to the same path.
