@@ -12,7 +12,7 @@ from typing import Any
 
 import yaml
 
-from .config import Config, GATEWAY_PORT, GATEWAY_PROXY_PORT
+from .config import GATEWAY_PORT, GATEWAY_PROXY_PORT, Config
 from .docker import build_image
 from .output import error, info, success, warn
 
@@ -543,8 +543,6 @@ def _create_general_config() -> bool:
         except Exception:
             pass  # Fall through to create new config
 
-    import os
-
     config: dict[str, Any] = {
         # Anthropic authentication method based on configured credentials
         "anthropic_auth_method": expected_method,
@@ -656,8 +654,6 @@ def add_standard_mounts(mount_args: list[str], quiet: bool = False) -> None:
     These mounts are always added dynamically rather than relying on config files,
     ensuring they're always available even if setup hasn't been run recently.
     """
-    import os
-
     # Mount the shared certs Docker named volume for the gateway CA certificate.
     # The gateway (whether started via docker-compose or programmatically) writes
     # its CA cert to the '{project_name}-certs' named volume at /shared/certs.
