@@ -9,6 +9,7 @@ via the MCP protocol.
 import sys
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 _shared_path = Path(__file__).parent.parent / "shared"
 if _shared_path.exists() and str(_shared_path) not in sys.path:
@@ -212,14 +213,14 @@ class CoordinatorToolHandler:
 
     def _handle_get_status(self, args: dict[str, Any]) -> dict[str, Any]:
         """Get coordinator state for a pipeline."""
-        task_id = args["task_id"]
+        task_id = quote(args["task_id"], safe="")
         result = self._make_request(f"/api/v1/pipelines/{task_id}/coordinator/state")
         return result.get("data", {})
 
     def _handle_provide_input(self, args: dict[str, Any]) -> dict[str, Any]:
         """Resolve an escalation decision."""
-        task_id = args["task_id"]
-        decision_id = args["decision_id"]
+        task_id = quote(args["task_id"], safe="")
+        decision_id = quote(args["decision_id"], safe="")
         data = {"resolution": args["response"]}
         result = self._make_request(
             f"/api/v1/pipelines/{task_id}/decisions/{decision_id}",
@@ -261,7 +262,7 @@ class CoordinatorToolHandler:
 
     def _handle_cancel_task(self, args: dict[str, Any]) -> dict[str, Any]:
         """Cancel a coordinator pipeline."""
-        task_id = args["task_id"]
+        task_id = quote(args["task_id"], safe="")
         data = {"status": "cancelled"}
         if args.get("reason"):
             data["reason"] = args["reason"]
