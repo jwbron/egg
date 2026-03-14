@@ -1,6 +1,6 @@
 """Concurrent phase executor for running multiple agents simultaneously.
 
-Spawns all agents at phase start, each with its own worktree branch.
+Spawns all agents at phase start, all sharing the pipeline branch.
 Monitors agent health, collects completion signals, and manages
 consensus-based phase completion.
 """
@@ -50,9 +50,9 @@ MULTI_FAILURE_WINDOW_SECONDS = 60
 class ConcurrentPhaseExecutor:
     """Executes a pipeline phase with all agents running concurrently.
 
-    Each agent gets its own worktree branch (egg/issue-{N}/{role}) and
-    communicates via the orchestrator message bus. Phase completion
-    requires consensus from all agents.
+    All agents share the pipeline branch and communicate via the
+    orchestrator message bus. Phase completion requires consensus
+    from all agents.
 
     Container failure behavior:
     - Single failure: Log, notify other agents, create HITL decision
@@ -89,9 +89,16 @@ class ConcurrentPhaseExecutor:
         ]
 
     def get_worktree_branch(self, role: AgentRole) -> str:
-        """Get the worktree branch name for an agent role."""
+        """Get the worktree branch name for an agent role.
+
+        Returns the pipeline's shared branch when set, falling back to
+        an issue-based branch name.  All agents share the same branch
+        so their commits land on a single history.
+        """
+        if self.pipeline.branch:
+            return self.pipeline.branch
         issue = self.pipeline.issue_number or self.pipeline.id
-        return f"egg/issue-{issue}/{role.value}"
+        return f"egg/issue-{issue}"
 
     def get_agent_env(self, role: AgentRole) -> dict[str, str]:
         """Get additional environment variables for concurrent mode."""

@@ -301,9 +301,13 @@ class TestSpawnEndpoint:
         mock_lock.return_value.__enter__ = MagicMock()
         mock_lock.return_value.__exit__ = MagicMock(return_value=False)
 
+        # tester depends on coder — provide a completed coder record
         pipeline = _make_pipeline(
             coordinator_state=CoordinatorState(
                 guardrail_counters=GuardrailCounters(total_agents_spawned=1),
+                agents_spawned=[
+                    AgentSpawnRecord(role=AgentRole.CODER, status="complete"),
+                ],
             ),
         )
         store = MagicMock()
@@ -1289,12 +1293,22 @@ class TestPhaseRoleValidation:
     def test_spawn_reviewer_role_allowed_for_phase(
         self, mock_repo, mock_lock, mock_store_fn, mock_spawner_fn, mock_emit, client
     ):
-        """Reviewer roles should be allowed for their corresponding phase."""
+        """Reviewer roles should be allowed for their corresponding phase
+        when all dependencies have completed."""
         mock_repo.return_value = Path("/tmp/repo")
         mock_lock.return_value.__enter__ = MagicMock()
         mock_lock.return_value.__exit__ = MagicMock(return_value=False)
 
-        pipeline = _make_pipeline(phase=PipelinePhase.IMPLEMENT)
+        # reviewer_code depends on integrator, task_planner, risk_analyst
+        completed_deps = [
+            AgentSpawnRecord(role=AgentRole.INTEGRATOR, status="complete"),
+            AgentSpawnRecord(role=AgentRole.TASK_PLANNER, status="complete"),
+            AgentSpawnRecord(role=AgentRole.RISK_ANALYST, status="complete"),
+        ]
+        pipeline = _make_pipeline(
+            phase=PipelinePhase.IMPLEMENT,
+            coordinator_state=CoordinatorState(agents_spawned=completed_deps),
+        )
         store = MagicMock()
         store.load_pipeline.return_value = pipeline
         mock_store_fn.return_value = store
@@ -1348,7 +1362,17 @@ class TestPhaseRoleValidation:
         mock_lock.return_value.__enter__ = MagicMock()
         mock_lock.return_value.__exit__ = MagicMock(return_value=False)
 
-        pipeline = _make_pipeline(phase=PipelinePhase.IMPLEMENT)
+        # reviewer_plan depends on task_planner and risk_analyst — satisfy
+        # those so the dependency check passes and phase-role check fires
+        pipeline = _make_pipeline(
+            phase=PipelinePhase.IMPLEMENT,
+            coordinator_state=CoordinatorState(
+                agents_spawned=[
+                    AgentSpawnRecord(role=AgentRole.TASK_PLANNER, status="complete"),
+                    AgentSpawnRecord(role=AgentRole.RISK_ANALYST, status="complete"),
+                ],
+            ),
+        )
         store = MagicMock()
         store.load_pipeline.return_value = pipeline
         mock_store_fn.return_value = store
@@ -1421,5 +1445,151 @@ class TestPhaseRoleValidation:
         response = client.post(
             "/api/v1/pipelines/test-pipeline/coordinator/spawn",
             json={"role": "coder"},
+        )
+        assert response.status_code == 200
+
+
+# ── Dependency validation tests ────────────────────────────────────
+
+
+class TestSpawnDependencyValidation:
+    """Spawn must be blocked when role dependencies are not complete."""
+
+    @patch("routes.coordinator.get_state_store")
+    @patch("routes.coordinator.get_pipeline_state_lock")
+    @patch("routes.coordinator.get_repo_path")
+    def test_spawn_blocked_when_dependency_not_complete(
+        self, mock_repo, mock_lock, mock_store_fn, client
+    ):
+        """Spawning reviewer_code without its dependencies complete returns 409."""
+        mock_repo.return_value = Path("/tmp/repo")
+        mock_lock.return_value.__enter__ = MagicMock()
+        mock_lock.return_value.__exit__ = MagicMock(return_value=False)
+
+        # Only integrator completed — task_planner and risk_analyst missing
+        pipeline = _make_pipeline(
+            phase=PipelinePhase.IMPLEMENT,
+            coordinator_state=CoordinatorState(
+                agents_spawned=[
+                    AgentSpawnRecord(role=AgentRole.INTEGRATOR, status="complete"),
+                    AgentSpawnRecord(role=AgentRole.TASK_PLANNER, status="running"),
+                ],
+            ),
+        )
+        store = MagicMock()
+        store.load_pipeline.return_value = pipeline
+        mock_store_fn.return_value = store
+
+        response = client.post(
+            "/api/v1/pipelines/test-pipeline/coordinator/spawn",
+            json={"role": "reviewer_code"},
+        )
+        assert response.status_code == 409
+        body = response.get_json()
+        assert "dependencies not yet complete" in body["message"]
+        assert "missing_dependencies" in body["details"]
+
+    @patch("routes.coordinator.emit_event")
+    @patch("routes.coordinator.get_container_spawner")
+    @patch("routes.coordinator.get_state_store")
+    @patch("routes.coordinator.get_pipeline_state_lock")
+    @patch("routes.coordinator.get_repo_path")
+    def test_spawn_allowed_when_dependencies_complete(
+        self, mock_repo, mock_lock, mock_store_fn, mock_spawner_fn, mock_emit, client
+    ):
+        """Spawning tester succeeds when coder has completed."""
+        mock_repo.return_value = Path("/tmp/repo")
+        mock_lock.return_value.__enter__ = MagicMock()
+        mock_lock.return_value.__exit__ = MagicMock(return_value=False)
+
+        # tester depends on coder — coder is complete
+        pipeline = _make_pipeline(
+            phase=PipelinePhase.IMPLEMENT,
+            coordinator_state=CoordinatorState(
+                agents_spawned=[
+                    AgentSpawnRecord(role=AgentRole.CODER, status="complete"),
+                ],
+            ),
+        )
+        store = MagicMock()
+        store.load_pipeline.return_value = pipeline
+        mock_store_fn.return_value = store
+
+        spawner = MagicMock()
+        spawned = MagicMock()
+        spawned.container_info = ContainerInfo(
+            container_id="tst123", container_name="egg-test-tester"
+        )
+        spawner.spawn_agent_container.return_value = spawned
+        mock_spawner_fn.return_value = spawner
+
+        response = client.post(
+            "/api/v1/pipelines/test-pipeline/coordinator/spawn",
+            json={"role": "tester"},
+        )
+        assert response.status_code == 200
+        assert response.get_json()["data"]["role"] == "tester"
+
+
+# ── Spawn contract enforcement tests ──────────────────────────────
+
+
+class TestSpawnContractEnforcement:
+    """Spawn must be blocked in implement/PR phases without a contract."""
+
+    @patch("routes.coordinator.get_state_store")
+    @patch("routes.coordinator.get_pipeline_state_lock")
+    @patch("routes.coordinator.get_repo_path")
+    def test_spawn_blocked_without_contract_in_implement_phase(
+        self, mock_repo, mock_lock, mock_store_fn, client
+    ):
+        """Spawning in implement phase without contract_synced returns 409."""
+        mock_repo.return_value = Path("/tmp/repo")
+        mock_lock.return_value.__enter__ = MagicMock()
+        mock_lock.return_value.__exit__ = MagicMock(return_value=False)
+
+        pipeline = _make_pipeline(phase=PipelinePhase.IMPLEMENT)
+        pipeline.contract_synced = False
+        store = MagicMock()
+        store.load_pipeline.return_value = pipeline
+        mock_store_fn.return_value = store
+
+        response = client.post(
+            "/api/v1/pipelines/test-pipeline/coordinator/spawn",
+            json={"role": "coder"},
+        )
+        assert response.status_code == 409
+        assert "contract" in response.get_json()["message"].lower()
+
+    @patch("routes.coordinator.emit_event")
+    @patch("routes.coordinator.get_container_spawner")
+    @patch("routes.coordinator.get_state_store")
+    @patch("routes.coordinator.get_pipeline_state_lock")
+    @patch("routes.coordinator.get_repo_path")
+    def test_spawn_allowed_without_contract_in_refine_phase(
+        self, mock_repo, mock_lock, mock_store_fn, mock_spawner_fn, mock_emit, client
+    ):
+        """Spawning in refine phase is allowed even without a contract."""
+        mock_repo.return_value = Path("/tmp/repo")
+        mock_lock.return_value.__enter__ = MagicMock()
+        mock_lock.return_value.__exit__ = MagicMock(return_value=False)
+
+        pipeline = _make_pipeline(phase=PipelinePhase.REFINE)
+        pipeline.contract_synced = False
+        store = MagicMock()
+        store.load_pipeline.return_value = pipeline
+        mock_store_fn.return_value = store
+
+        spawner = MagicMock()
+        spawned = MagicMock()
+        spawned.container_info = ContainerInfo(
+            container_id="ref123", container_name="egg-test-refiner"
+        )
+        spawner.spawn_agent_container.return_value = spawned
+        mock_spawner_fn.return_value = spawner
+
+        response = client.post(
+            "/api/v1/pipelines/test-pipeline/coordinator/spawn",
+            json={"role": "refiner"},
         )
         assert response.status_code == 200

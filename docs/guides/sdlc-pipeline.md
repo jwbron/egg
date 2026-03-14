@@ -28,7 +28,7 @@ Agents cannot be trusted to self-police via prompts alone. The pipeline enforces
 
 ### 2. Contract-as-Code
 
-All pipeline state is stored in JSON contracts at `.egg-state/contracts/{identifier}.json` and committed to the feature branch (not main), where `{identifier}` is the issue number for issue-mode pipelines or the pipeline ID for local-mode pipelines. This provides:
+All pipeline state is stored in JSON contracts at `.egg-state/contracts/{identifier}.json` and committed to the feature branch (not main), where `{identifier}` is the issue number for issue-driven pipelines or the pipeline ID for prompt-driven pipelines. This provides:
 
 - Auditable history of all state changes
 - Recovery from failures without losing progress
@@ -48,7 +48,7 @@ Code reviews are performed by the existing PR review workflow (`reusable-review.
 
 ### 4. Human-in-the-Loop at Critical Points
 
-The pipeline pauses for human approval at phase transitions (refine and plan). The orchestrator's decision queue handles approval in both issue and local modes, and supports requesting changes with a circuit breaker (`max_review_cycles`, default 3) to prevent unbounded revision loops.
+The pipeline pauses for human approval at phase transitions (refine and plan). The orchestrator's decision queue handles approval and supports requesting changes with a circuit breaker (`max_review_cycles`, default 3) to prevent unbounded revision loops.
 
 ## Pipeline Architecture
 
@@ -812,7 +812,7 @@ Pipeline decisions made during refine and plan phases are automatically synced t
 **How it works:**
 
 1. Agents create decisions via `OrchClient.create_decision()` or by queueing HITL checkpoints
-2. Human resolves the decision (via terminal in local mode, or checkbox in issue mode)
+2. Human resolves the decision (via terminal in prompt-driven mode, or checkbox in issue-driven mode)
 3. After the phase completes, `_sync_pipeline_decisions_to_contract()` converts resolved non-phase-gate `HITLDecision` objects to contract `Decision` format
 4. Synced decisions appear in `.egg-state/contracts/{identifier}.json` under the `decisions` array
 5. Implement-phase agents can read these decisions from the contract to understand context
@@ -1197,16 +1197,16 @@ The `egg-sdlc` CLI provides an interactive terminal interface for driving SDLC p
 **Usage:**
 
 ```bash
-# Issue mode: start/attach to pipeline for a GitHub issue
+# Issue-driven: start/attach to pipeline for a GitHub issue
 egg-sdlc -r <repo_dir> -i <issue_number>
 egg-sdlc -r <repo_dir> <issue_number>        # Short form (positional issue)
 egg-sdlc --private -r <repo_dir> -i <issue_number>  # Private mode (network lockdown)
 
-# Local mode: prompt-driven pipeline (no GitHub)
+# Prompt-driven: interactive pipeline (no GitHub issue)
 egg-sdlc
 ```
 
-**Note:** Issue mode requires the `-r/--repo` flag specifying the repository directory name under `~/repos/` (e.g., `egg`). The flag also accepts full `owner/repo` format for direct specification. Repo autodetection was removed in favor of explicit specification.
+**Note:** Issue-driven pipelines require the `-r/--repo` flag specifying the repository directory name under `~/repos/` (e.g., `egg`). The flag also accepts full `owner/repo` format for direct specification. Repo autodetection was removed in favor of explicit specification.
 
 **Features:**
 - Real-time DAG visualization (reuses `egg-pipeline-watch` SSE patterns)
@@ -1237,7 +1237,7 @@ The SDLC pipeline can also be triggered via the local orchestrator API:
 # Via orchestrator API
 curl -X POST http://localhost:9849/api/v1/pipelines \
   -H "Content-Type: application/json" \
-  -d '{"issue_number": 123, "mode": "issue"}'
+  -d '{"issue_number": 123, "repo": "owner/repo", "branch": "egg/issue-123"}'
 
 # Via egg-orch CLI
 egg-orch pipeline create --issue 123
@@ -1278,10 +1278,10 @@ collaborating via a polling-based message bus hosted by the orchestrator.
 Enable concurrent execution with the `--concurrent` CLI flag:
 
 ```bash
-# Issue mode
+# Issue-driven
 egg-sdlc -r egg -i 999 --concurrent
 
-# Local/prompt mode
+# Prompt-driven
 egg-sdlc -r egg -p "Add feature X" --concurrent
 
 # Via egg-orch directly

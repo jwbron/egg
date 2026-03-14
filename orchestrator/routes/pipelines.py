@@ -4296,7 +4296,7 @@ def _run_concurrent_phase(
     """Run a phase using concurrent all-agents-at-once execution.
 
     Creates a ConcurrentPhaseExecutor that spawns all agents simultaneously,
-    each with its own worktree branch. Each container receives a role-specific
+    all sharing the pipeline branch. Each container receives a role-specific
     prompt built via ``_build_agent_prompt``. After spawning, waits for all
     containers to exit and records their state in the pipeline store.
 
