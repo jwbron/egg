@@ -47,14 +47,16 @@ If the user ran `/run-workflow` with no arguments, ask a **single** `AskUserQues
 - **Header**: "Task"
 - **Options**:
   - **"Browse recent issues"** — description: "List recent open issues to pick from"
+  - **"Help me scope the task"** — description: "Ask clarifying questions about requirements before submitting"
 
-The user will either select "Browse recent issues" or type in the auto-added "Other" field.
+The user will select an option or type in the auto-added "Other" field.
 
 Handle each response:
 
 - **Other (integer)** → Treat as an issue number. Fetch with `gh issue view` and proceed to Phase 2.
 - **Other (text)** → Treat as a free-text task description. Proceed to Phase 2.
 - **Browse recent issues** → Run `gh issue list --repo <repo> --state open --limit 10 --json number,title` and present the results as a second `AskUserQuestion` with each issue as an option. Then proceed to Phase 2.
+- **Help me scope the task** → Ask 1–2 follow-up questions about scope and acceptance criteria, then proceed to Phase 2.
 
 **Never ask for the repo and the task in separate questions.** If the repo could not be auto-detected, include a repo question in the same `AskUserQuestion` call (multi-question mode).
 
