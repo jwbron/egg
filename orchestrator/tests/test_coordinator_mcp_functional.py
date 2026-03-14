@@ -376,8 +376,10 @@ class TestToolDefinitions:
         assert schema["type"] == "object"
         assert "description" in schema["required"]
         assert "repo" in schema["required"]
+        assert "branch" not in schema.get("required", [])
         assert "description" in schema["properties"]
         assert "issue_number" in schema["properties"]
+        assert "branch" in schema["properties"]
         assert "repo" in schema["properties"]
 
     def test_get_status_requires_task_id(self):
@@ -430,9 +432,27 @@ class TestCoordinatorToolHandler:
         call_data = mock_req.call_args_list[0][1]["data"]
         assert call_data["issue_number"] == 42
         assert call_data["mode"] == "issue"
+        assert call_data["branch"] == "egg/issue-42"
         start_call = mock_req.call_args_list[1]
         assert "/start" in start_call[0][0]
         assert start_call[1]["method"] == "POST"
+
+    @patch.object(CoordinatorToolHandler, "_make_request")
+    def test_submit_task_with_issue_and_branch_override(self, mock_req):
+        mock_req.return_value = {"data": {"pipeline": {"id": "issue-42"}}}
+        handler = CoordinatorToolHandler()
+        result = handler.handle_tool_call(
+            "submit_task",
+            {
+                "description": "Fix auth bug",
+                "issue_number": 42,
+                "repo": "owner/repo",
+                "branch": "egg/custom-branch",
+            },
+        )
+        assert result["task_id"] == "issue-42"
+        call_data = mock_req.call_args_list[0][1]["data"]
+        assert call_data["branch"] == "egg/custom-branch"
 
     @patch.object(CoordinatorToolHandler, "_make_request")
     def test_submit_task_without_issue(self, mock_req):
