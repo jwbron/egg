@@ -113,7 +113,7 @@ class TestConsensusWrapperBehavior:
             f.write(f'echo "$@" >> {shlex.quote(log_file)}\n')
             # Return JSON with is_complete=true so the polling loop exits fast
             f.write('echo \'{"data": {"consensus": {"is_complete": true}}}\'\n')
-        os.chmod(mock_path, 0o755)
+        os.chmod(mock_path, 0o755)  # nosec B103 - test helper needs executable permissions
         return mock_path
 
     @staticmethod
