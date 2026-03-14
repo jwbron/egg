@@ -798,6 +798,8 @@ class TestMCPToolHandlerGaps:
                 {"description": "Fix bug", "issue_number": 42, "branch": "egg/my-branch"}
             )
             call_data = mock_req.call_args_list[0][1]["data"]
+            assert call_data["mode"] == "issue"
+            assert call_data["issue_number"] == 42
             assert call_data["branch"] == "egg/my-branch"
 
     def test_submit_task_without_issue_number(self):
