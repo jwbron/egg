@@ -11,6 +11,8 @@ Tests coordinator container lifecycle management including:
 
 import sys
 from pathlib import Path
+from datetime import datetime
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -20,11 +22,16 @@ for p in (_project_root / "orchestrator", _project_root / "shared"):
         sys.path.insert(0, str(p))
 
 from models import (
+    AgentRole,
+    AgentSpawnRecord,
+    ContainerInfo,
+    CoordinatorState,
     GuardrailCounters,
     Pipeline,
     PipelineConfig,
     PipelineStatus,
 )
+from coordinator_executor import CoordinatorExecutor
 
 
 class TestCoordinatorExecutorModuleExists:
@@ -202,3 +209,172 @@ class TestCoordinatorPipelineWiring:
             branch="egg/issue-999",
         )
         assert pipeline.status == PipelineStatus.PENDING
+
+
+def _make_pipeline_with_coordinator(
+    pipeline_id: str = "issue-100",
+    agents: list[AgentSpawnRecord] | None = None,
+) -> Pipeline:
+    """Helper to create a pipeline with coordinator state and running agents."""
+    state = CoordinatorState()
+    if agents:
+        state.agents_spawned = agents
+    return Pipeline(
+        id=pipeline_id,
+        issue_number=100,
+        repo="owner/repo",
+        branch="egg/issue-100",
+        status=PipelineStatus.RUNNING,
+        config=PipelineConfig(coordinator_enabled=True),
+        coordinator_state=state,
+    )
+
+
+class TestCoordinatorCompletionDoesNotSetComplete:
+    """Verify handle_coordinator_completion does NOT set pipeline.status = COMPLETE."""
+
+    @patch("coordinator_executor.get_state_store")
+    @patch("coordinator_executor.get_pipeline_state_lock")
+    @patch("coordinator_executor.emit_event")
+    def test_completion_does_not_set_pipeline_complete(
+        self, mock_emit, mock_lock, mock_store_fn
+    ):
+        """On exit code 0 with no running agents, pipeline.status must NOT be COMPLETE."""
+        pipeline = _make_pipeline_with_coordinator()
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = pipeline
+        mock_store_fn.return_value = mock_store
+        mock_lock.return_value.__enter__ = MagicMock(return_value=None)
+        mock_lock.return_value.__exit__ = MagicMock(return_value=False)
+
+        executor = CoordinatorExecutor(repo_path="/tmp/test")
+        result = executor.handle_coordinator_completion("issue-100", exit_code=0)
+
+        assert result == "complete"
+        # Pipeline status must NOT have been set to COMPLETE by the executor
+        assert pipeline.status != PipelineStatus.COMPLETE
+
+    @patch("coordinator_executor.get_state_store")
+    @patch("coordinator_executor.get_pipeline_state_lock")
+    @patch("coordinator_executor.emit_event")
+    def test_completion_returns_drained_when_agents_running(
+        self, mock_emit, mock_lock, mock_store_fn
+    ):
+        """On exit code 0 with running agents, result should be 'drained'."""
+        agents = [
+            AgentSpawnRecord(
+                role=AgentRole.CODER,
+                status="running",
+                container_id="container-abc",
+            ),
+        ]
+        pipeline = _make_pipeline_with_coordinator(agents=agents)
+
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = pipeline
+        mock_store_fn.return_value = mock_store
+        mock_lock.return_value.__enter__ = MagicMock(return_value=None)
+        mock_lock.return_value.__exit__ = MagicMock(return_value=False)
+
+        mock_docker = MagicMock()
+        mock_docker.stop_container.return_value = MagicMock(exit_code=0)
+
+        executor = CoordinatorExecutor(repo_path="/tmp/test", docker_client=mock_docker)
+        result = executor.handle_coordinator_completion("issue-100", exit_code=0)
+
+        assert result == "drained"
+        assert pipeline.status != PipelineStatus.COMPLETE
+        mock_docker.stop_container.assert_called_once_with("container-abc", timeout=30)
+
+
+class TestDrainRunningAgents:
+    """Tests for _drain_running_agents."""
+
+    @patch("coordinator_executor.get_state_store")
+    @patch("coordinator_executor.get_pipeline_state_lock")
+    def test_drain_updates_spawn_records(self, mock_lock, mock_store_fn):
+        """Draining should update spawn records to complete/failed."""
+        agents = [
+            AgentSpawnRecord(
+                role=AgentRole.CODER,
+                status="running",
+                container_id="ctr-1",
+            ),
+            AgentSpawnRecord(
+                role=AgentRole.TESTER,
+                status="running",
+                container_id="ctr-2",
+            ),
+            AgentSpawnRecord(
+                role=AgentRole.DOCUMENTER,
+                status="complete",
+                container_id="ctr-3",
+            ),
+        ]
+        pipeline = _make_pipeline_with_coordinator(agents=agents)
+
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = pipeline
+        mock_store_fn.return_value = mock_store
+        mock_lock.return_value.__enter__ = MagicMock(return_value=None)
+        mock_lock.return_value.__exit__ = MagicMock(return_value=False)
+
+        mock_docker = MagicMock()
+        mock_docker.stop_container.return_value = MagicMock(exit_code=0)
+
+        executor = CoordinatorExecutor(repo_path="/tmp/test", docker_client=mock_docker)
+        drained = executor._drain_running_agents("issue-100")
+
+        assert drained == 2
+        assert agents[0].status == "complete"
+        assert agents[1].status == "complete"
+        assert agents[2].status == "complete"  # unchanged — was already complete
+        assert mock_docker.stop_container.call_count == 2
+
+    @patch("coordinator_executor.get_state_store")
+    @patch("coordinator_executor.get_pipeline_state_lock")
+    def test_drain_handles_stop_failure(self, mock_lock, mock_store_fn):
+        """Drain should continue even if individual container stops fail."""
+        agents = [
+            AgentSpawnRecord(
+                role=AgentRole.CODER,
+                status="running",
+                container_id="ctr-1",
+            ),
+            AgentSpawnRecord(
+                role=AgentRole.TESTER,
+                status="running",
+                container_id="ctr-2",
+            ),
+        ]
+        pipeline = _make_pipeline_with_coordinator(agents=agents)
+
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = pipeline
+        mock_store_fn.return_value = mock_store
+        mock_lock.return_value.__enter__ = MagicMock(return_value=None)
+        mock_lock.return_value.__exit__ = MagicMock(return_value=False)
+
+        mock_docker = MagicMock()
+        # First call raises, second succeeds
+        mock_docker.stop_container.side_effect = [
+            Exception("Docker socket error"),
+            MagicMock(exit_code=0),
+        ]
+
+        executor = CoordinatorExecutor(repo_path="/tmp/test", docker_client=mock_docker)
+        drained = executor._drain_running_agents("issue-100")
+
+        # Both should be drained (one failed, one succeeded)
+        assert drained == 2
+        assert agents[0].status == "failed"  # stop raised
+        assert agents[1].status == "complete"  # stop succeeded
+        assert mock_docker.stop_container.call_count == 2
+
+    @patch("coordinator_executor.get_state_store")
+    @patch("coordinator_executor.get_pipeline_state_lock")
+    def test_drain_without_docker_client(self, mock_lock, mock_store_fn):
+        """Without docker_client, drain should return 0 and not error."""
+        executor = CoordinatorExecutor(repo_path="/tmp/test", docker_client=None)
+        drained = executor._drain_running_agents("issue-100")
+        assert drained == 0
