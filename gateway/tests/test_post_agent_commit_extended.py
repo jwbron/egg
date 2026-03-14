@@ -290,6 +290,109 @@ class TestPushBranchDetection:
         mock_push.assert_not_called()
 
 
+class TestProtectedBranchSalvage:
+    """Tests for auto-commit salvage when worktree is on main/master."""
+
+    @patch("post_agent_commit._push_via_gateway", return_value=True)
+    @patch("post_agent_commit.subprocess.run")
+    def test_main_branch_creates_salvage(self, mock_run, mock_push, tmp_path):
+        """When on main, a salvage branch is created before pushing."""
+        mock_run.side_effect = [
+            MagicMock(returncode=0, stdout=" M file.py\n", stderr=""),
+            MagicMock(returncode=0, stdout="", stderr=""),
+            MagicMock(returncode=0, stdout="", stderr=""),
+            MagicMock(returncode=0, stdout="sha123\n", stderr=""),
+            # rev-parse --abbrev-ref HEAD -> main
+            MagicMock(returncode=0, stdout="main\n", stderr=""),
+            # git checkout -b egg/salvage-c1
+            MagicMock(returncode=0, stdout="", stderr=""),
+        ]
+        result = auto_commit_worktree(
+            str(tmp_path),
+            container_id="c1",
+            session_token="tok",
+            gateway_url="http://gw:9848",
+        )
+        assert result == "sha123"
+        mock_push.assert_called_once_with(
+            str(tmp_path), "tok", "http://gw:9848", "egg/salvage-c1",
+        )
+
+    @patch("post_agent_commit._push_via_gateway", return_value=True)
+    @patch("post_agent_commit.subprocess.run")
+    def test_master_branch_creates_salvage(self, mock_run, mock_push, tmp_path):
+        """When on master, a salvage branch is created before pushing."""
+        mock_run.side_effect = [
+            MagicMock(returncode=0, stdout=" M file.py\n", stderr=""),
+            MagicMock(returncode=0, stdout="", stderr=""),
+            MagicMock(returncode=0, stdout="", stderr=""),
+            MagicMock(returncode=0, stdout="sha123\n", stderr=""),
+            # rev-parse --abbrev-ref HEAD -> master
+            MagicMock(returncode=0, stdout="master\n", stderr=""),
+            # git checkout -b egg/salvage-c1
+            MagicMock(returncode=0, stdout="", stderr=""),
+        ]
+        result = auto_commit_worktree(
+            str(tmp_path),
+            container_id="c1",
+            session_token="tok",
+            gateway_url="http://gw:9848",
+        )
+        assert result == "sha123"
+        mock_push.assert_called_once_with(
+            str(tmp_path), "tok", "http://gw:9848", "egg/salvage-c1",
+        )
+
+    @patch("post_agent_commit._push_via_gateway", return_value=True)
+    @patch("post_agent_commit.subprocess.run")
+    def test_salvage_branch_failure_skips_push(self, mock_run, mock_push, tmp_path):
+        """If salvage branch creation fails, push is skipped entirely."""
+        mock_run.side_effect = [
+            MagicMock(returncode=0, stdout=" M file.py\n", stderr=""),
+            MagicMock(returncode=0, stdout="", stderr=""),
+            MagicMock(returncode=0, stdout="", stderr=""),
+            MagicMock(returncode=0, stdout="sha123\n", stderr=""),
+            # rev-parse --abbrev-ref HEAD -> main
+            MagicMock(returncode=0, stdout="main\n", stderr=""),
+            # git checkout -b fails (branch already exists)
+            MagicMock(returncode=128, stdout="", stderr="branch already exists"),
+        ]
+        result = auto_commit_worktree(
+            str(tmp_path),
+            container_id="c1",
+            session_token="tok",
+            gateway_url="http://gw:9848",
+        )
+        # Commit still returned, but no push attempted
+        assert result == "sha123"
+        mock_push.assert_not_called()
+
+    @patch("post_agent_commit._push_via_gateway", return_value=True)
+    @patch("post_agent_commit.subprocess.run")
+    def test_egg_branch_not_salvaged(self, mock_run, mock_push, tmp_path):
+        """Normal egg/ branches are pushed directly without salvage."""
+        mock_run.side_effect = [
+            MagicMock(returncode=0, stdout=" M file.py\n", stderr=""),
+            MagicMock(returncode=0, stdout="", stderr=""),
+            MagicMock(returncode=0, stdout="", stderr=""),
+            MagicMock(returncode=0, stdout="sha123\n", stderr=""),
+            # rev-parse --abbrev-ref HEAD -> egg/my-feature
+            MagicMock(returncode=0, stdout="egg/my-feature\n", stderr=""),
+        ]
+        result = auto_commit_worktree(
+            str(tmp_path),
+            container_id="c1",
+            session_token="tok",
+            gateway_url="http://gw:9848",
+        )
+        assert result == "sha123"
+        # No checkout -b call, direct push to egg/my-feature
+        assert len(mock_run.call_args_list) == 5  # no extra checkout call
+        mock_push.assert_called_once_with(
+            str(tmp_path), "tok", "http://gw:9848", "egg/my-feature",
+        )
+
+
 class TestParseChangedFilesExtended:
     """Extended tests for _parse_changed_files()."""
 
