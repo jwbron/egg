@@ -1282,11 +1282,17 @@ class TestGhPrCreate:
             args_list = call_args[0][0]  # First positional arg is the args list
             assert "--draft" in args_list
 
-    def test_pr_create_injects_pipeline_metadata(self, client):
-        """Session with pipeline_id/agent_role/issue_number → body contains metadata marker."""
+    @staticmethod
+    def _setup_pipeline_session():
+        """Create a mock pipeline session with auth/session patches.
+
+        Returns (mock_result, mock_policy_result, current_session_manager) for use
+        in patch.object context managers.
+        """
         import sys
 
         import auth
+        from private_repo_policy import PrivateRepoPolicyResult
 
         mock_session = MagicMock()
         mock_session.mode = "public"
@@ -1298,9 +1304,6 @@ class TestGhPrCreate:
         mock_session.phase = None
 
         mock_result = SessionValidationResult(valid=True, session=mock_session)
-
-        from private_repo_policy import PrivateRepoPolicyResult
-
         mock_policy_result = PrivateRepoPolicyResult(
             allowed=True, reason="Test", visibility="public"
         )
@@ -1312,6 +1315,13 @@ class TestGhPrCreate:
             sys.modules["gateway.auth"]._rate_limiter = None
 
         current_session_manager = sys.modules.get("session_manager", session_manager)
+        return mock_result, mock_policy_result, current_session_manager
+
+    def test_pr_create_injects_pipeline_metadata(self, client):
+        """Session with pipeline_id/agent_role/issue_number → body contains metadata marker."""
+        mock_result, mock_policy_result, current_session_manager = (
+            self._setup_pipeline_session()
+        )
 
         with (
             patch.object(
@@ -1388,34 +1398,9 @@ class TestGhPrCreate:
 
     def test_pr_create_applies_labels_on_success(self, client):
         """After success, verify label create + issue edit calls."""
-        import sys
-
-        import auth
-
-        mock_session = MagicMock()
-        mock_session.mode = "public"
-        mock_session.container_id = "test-container"
-        mock_session.expires_at = None
-        mock_session.pipeline_id = "issue-42"
-        mock_session.agent_role = "coder"
-        mock_session.issue_number = 42
-        mock_session.phase = None
-
-        mock_result = SessionValidationResult(valid=True, session=mock_session)
-
-        from private_repo_policy import PrivateRepoPolicyResult
-
-        mock_policy_result = PrivateRepoPolicyResult(
-            allowed=True, reason="Test", visibility="public"
+        mock_result, mock_policy_result, current_session_manager = (
+            self._setup_pipeline_session()
         )
-
-        auth._session_manager = None
-        auth._rate_limiter = None
-        if "gateway.auth" in sys.modules:
-            sys.modules["gateway.auth"]._session_manager = None
-            sys.modules["gateway.auth"]._rate_limiter = None
-
-        current_session_manager = sys.modules.get("session_manager", session_manager)
 
         with (
             patch.object(
@@ -1472,34 +1457,9 @@ class TestGhPrCreate:
 
     def test_pr_create_label_failure_nonfatal(self, client):
         """Label failure doesn't affect PR creation response."""
-        import sys
-
-        import auth
-
-        mock_session = MagicMock()
-        mock_session.mode = "public"
-        mock_session.container_id = "test-container"
-        mock_session.expires_at = None
-        mock_session.pipeline_id = "issue-42"
-        mock_session.agent_role = "coder"
-        mock_session.issue_number = 42
-        mock_session.phase = None
-
-        mock_result = SessionValidationResult(valid=True, session=mock_session)
-
-        from private_repo_policy import PrivateRepoPolicyResult
-
-        mock_policy_result = PrivateRepoPolicyResult(
-            allowed=True, reason="Test", visibility="public"
+        mock_result, mock_policy_result, current_session_manager = (
+            self._setup_pipeline_session()
         )
-
-        auth._session_manager = None
-        auth._rate_limiter = None
-        if "gateway.auth" in sys.modules:
-            sys.modules["gateway.auth"]._session_manager = None
-            sys.modules["gateway.auth"]._rate_limiter = None
-
-        current_session_manager = sys.modules.get("session_manager", session_manager)
 
         call_count = 0
 
