@@ -3213,6 +3213,27 @@ def _build_agent_prompt(
                 "",
             ]
         )
+    elif role_value == "overseer":
+        lines.extend(
+            [
+                "You are the OVERSEER agent. Your mission: continuously monitor pipeline health, "
+                "detect agent stalls and failures, and take corrective action.",
+                "",
+                "**CRITICAL: You are a MONITOR, not an implementer or orchestrator.**",
+                "Do NOT write code, spawn agents, advance phases, or create PRs.",
+                "You have NO repository access. Your tools are egg-orch commands, gh issue create, and Haiku API.",
+                "",
+                "1. Run `egg-orch pipeline status $EGG_PIPELINE_ID` to get initial state",
+                "2. Run `egg-orch container list` to identify all running agents",
+                "3. Enter your monitoring loop (see overseer.md in your CLAUDE.md)",
+                "4. Detect stalls via adaptive threshold + Haiku classification",
+                "5. Take corrective action: nudge -> redirect -> HITL escalation -> issue filing",
+                "6. Send a health summary when the pipeline completes",
+                "",
+                "Follow the detailed overseer instructions in your CLAUDE.md.",
+                "",
+            ]
+        )
     else:
         lines.extend(
             [
