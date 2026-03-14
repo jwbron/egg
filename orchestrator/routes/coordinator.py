@@ -212,9 +212,7 @@ def spawn_agent(pipeline_id: str) -> tuple[Response, int]:
             # Validate role is appropriate for the current phase
             current_phase_str = pipeline.current_phase.value
             try:
-                valid_roles = get_roles_for_phase(
-                    current_phase_str, include_reviewers=True
-                )
+                valid_roles = get_roles_for_phase(current_phase_str, include_reviewers=True)
                 valid_role_names = [r.value for r in valid_roles]
                 if role_str not in valid_role_names:
                     logger.warning(
