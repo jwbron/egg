@@ -48,8 +48,8 @@ class TestBuildConsensusWrappedCommand:
         cmd = build_consensus_wrapped_command("Do something")
         script = cmd[2]
         # Should check EGG_CONCURRENT_MODE and exit early if not set
-        assert 'EGG_CONCURRENT_MODE' in script
-        assert 'exit $CLAUDE_EXIT' in script
+        assert "EGG_CONCURRENT_MODE" in script
+        assert "exit $CLAUDE_EXIT" in script
 
     def test_custom_model_and_max_turns(self):
         """Should support custom model and max_turns."""

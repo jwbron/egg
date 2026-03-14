@@ -590,9 +590,7 @@ class TestSpawnUsesConsensusWrapper:
 
         pipeline = _make_concurrent_pipeline()
         mock_spawn = MagicMock()
-        mock_spawn.return_value = MagicMock(
-            container_info=MagicMock(container_id="abc123")
-        )
+        mock_spawn.return_value = MagicMock(container_info=MagicMock(container_id="abc123"))
 
         executor = ConcurrentPhaseExecutor(pipeline=pipeline, spawn_fn=mock_spawn)
         executor._spawn_agent(AgentRole.CODER, prompt_text="Do the work")

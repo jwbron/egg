@@ -9,7 +9,6 @@ stay-alive protocol.
 
 import shlex
 
-
 # Shell script that wraps the Claude CLI invocation. After Claude exits,
 # if EGG_CONCURRENT_MODE is set, it auto-signals READY (if the agent
 # didn't) and polls until consensus is reached or a timeout expires.
