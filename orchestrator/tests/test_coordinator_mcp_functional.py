@@ -555,7 +555,7 @@ class TestCoordinatorToolHandler:
         assert result["success"] is True
         # Verify correct endpoint
         mock_req.assert_called_once_with(
-            "/api/v1/pipelines/issue-42/decisions/d-1",
+            "/api/v1/pipelines/issue-42/decisions/d-1/resolve",
             method="POST",
             data={"resolution": "REST"},
         )

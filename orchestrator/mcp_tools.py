@@ -275,7 +275,7 @@ class CoordinatorToolHandler:
         decision_id = quote(args["decision_id"], safe="")
         data = {"resolution": args["response"]}
         result = self._make_request(
-            f"/api/v1/pipelines/{task_id}/decisions/{decision_id}",
+            f"/api/v1/pipelines/{task_id}/decisions/{decision_id}/resolve",
             method="POST",
             data=data,
         )

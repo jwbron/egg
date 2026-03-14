@@ -485,3 +485,35 @@ class TestGetAgentRoles:
         assert AgentRole.CHECKER in roles
         assert AgentRole.REVIEWER_CODE in roles
         assert AgentRole.REVIEWER_CONTRACT in roles
+
+
+class TestGetWorktreeBranch:
+    """Tests for ConcurrentPhaseExecutor.get_worktree_branch()."""
+
+    def test_get_worktree_branch_returns_pipeline_branch(self):
+        """When pipeline.branch is set, all roles share it."""
+        from concurrent_executor import ConcurrentPhaseExecutor
+        from models import AgentRole
+
+        pipeline = _make_concurrent_pipeline()
+        assert pipeline.branch == "egg/issue-999"
+
+        executor = ConcurrentPhaseExecutor(pipeline=pipeline, spawn_fn=MagicMock())
+
+        for role in executor.get_agent_roles():
+            assert executor.get_worktree_branch(role) == "egg/issue-999"
+
+    def test_get_worktree_branch_fallback(self):
+        """When pipeline.branch is empty, falls back to issue-based name."""
+        from concurrent_executor import ConcurrentPhaseExecutor
+        from models import AgentRole
+
+        pipeline = _make_concurrent_pipeline()
+        pipeline.branch = ""  # Clear branch
+
+        executor = ConcurrentPhaseExecutor(pipeline=pipeline, spawn_fn=MagicMock())
+
+        branch = executor.get_worktree_branch(AgentRole.CODER)
+        assert branch == "egg/issue-999"
+        # Confirm no role suffix
+        assert "coder" not in branch
