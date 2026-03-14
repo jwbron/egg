@@ -209,6 +209,10 @@ def _allocate_container_ip(
     # Use a file lock to serialize concurrent IP allocations.
     # This prevents two egg processes from inspecting the network at the
     # same time and picking the same "next available" IP.
+    # Note: the lock is released before `docker run`, so two processes can
+    # still allocate sequentially, both complete before either starts a
+    # container, and collide. The retry logic in callers handles this
+    # remaining race.
     lock_path = Path(f"/tmp/egg-ip-alloc-{network}.lock")
     lock_fd = None
     try:
@@ -725,8 +729,11 @@ def run_claude(
                         sys.stderr.write(stderr_text)
                         return False
                 elif result.returncode == 125 and container_ip and ip_attempt == 0:
-                    # First attempt: stderr went to terminal. Docker returns
-                    # 125 for daemon errors including networking conflicts.
+                    # First attempt: stderr went to terminal so we can't inspect
+                    # the error message. Exit code 125 covers all Docker daemon
+                    # errors (not just IP conflicts), so this is an imprecise
+                    # heuristic — a non-IP error will trigger one unnecessary
+                    # retry cycle before failing on the second attempt.
                     is_ip_conflict = True
 
                 if not is_ip_conflict:
@@ -769,15 +776,16 @@ def run_claude(
                 mode=repo_mode,
                 mount_args=mount_args_retry,
                 quiet=True,
-                phase=os.environ.get("EGG_PIPELINE_PHASE"),
-                issue_number=int(os.environ.get("EGG_ISSUE_NUMBER", "0")) or None,
-                pr_number=int(os.environ.get("EGG_PR_NUMBER", "0")) or None,
-                pipeline_id=os.environ.get("EGG_PIPELINE_ID"),
-                agent_role=os.environ.get("EGG_AGENT_ROLE"),
+                phase=pipeline_phase,
+                issue_number=issue_number,
+                pr_number=pr_number,
+                pipeline_id=pipeline_id,
+                agent_role=agent_role,
             )
             if not session_token:
                 error("Failed to re-create session for retry")
                 return False
+            add_standard_mounts(mount_args_retry, quiet=True)
             # Rebuild docker command with new IP and session token
             cmd = build_sandbox_docker_cmd(
                 container_name=container_id,
@@ -1105,6 +1113,11 @@ def exec_in_new_container(
                 else:
                     sys.stderr.write(stderr_text)
             elif result.returncode == 125 and container_ip and ip_attempt == 0:
+                # First attempt: stderr went to terminal so we can't inspect
+                # the error message. Exit code 125 covers all Docker daemon
+                # errors (not just IP conflicts), so this is an imprecise
+                # heuristic — a non-IP error will trigger one unnecessary
+                # retry cycle before failing on the second attempt.
                 is_ip_conflict = True
 
             if not is_ip_conflict:
@@ -1169,6 +1182,7 @@ def exec_in_new_container(
         if not session_token:
             error("Failed to re-create session for retry")
             break
+        add_standard_mounts(mount_args_retry, quiet=True)
         cmd = build_sandbox_docker_cmd(
             container_name=container_id,
             image=ctx.sandbox_image,
