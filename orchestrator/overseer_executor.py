@@ -57,7 +57,6 @@ class OverseerExecutor:
     def __init__(self, repo_path: str | Path):
         self.repo_path = Path(repo_path)
         self._thread: threading.Thread | None = None
-        self._stop_event = threading.Event()
 
     def should_spawn_overseer(self, pipeline_id: str) -> bool:
         """Check if the overseer should be spawned for this pipeline."""

@@ -31,6 +31,9 @@ secrets.yaml
 .env.*.local
 # Note: .env may be generated at runtime by egg --compose
 
+# Claude Code (generated at container startup by sandbox/entrypoint.py)
+CLAUDE.md
+
 # IDE
 .idea/
 .vscode/

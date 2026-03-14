@@ -103,6 +103,9 @@ def _check_spawn_guardrails(pipeline: Pipeline, role_str: str) -> tuple[bool, st
     if state.agents_spawned:
         task_agent_count = sum(1 for a in state.agents_spawned if a.role not in infra_roles)
     else:
+        # Fallback: when the detailed agent list is unavailable, use the
+        # counter.  In practice the overseer is auto-spawned by the pipeline
+        # runner (not via coordinator), so it won't inflate this counter.
         task_agent_count = state.guardrail_counters.total_agents_spawned
     if task_agent_count >= config.coordinator_max_agents:
         return False, f"Max agents limit reached ({config.coordinator_max_agents})"

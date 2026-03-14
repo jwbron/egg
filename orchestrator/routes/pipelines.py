@@ -6471,6 +6471,16 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                             )
                             phase_failed = True
                             break
+                        finally:
+                            # Clean up overseer when coordinator exits (success,
+                            # failure, or respawn). Without this the overseer
+                            # container keeps running with no owner.
+                            if overseer_executor is not None:
+                                logger.info(
+                                    "Waiting for overseer to complete",
+                                    pipeline_id=pipeline_id,
+                                )
+                                overseer_executor.wait_for_completion(timeout=30)
 
                     elif use_concurrent:
                         logger.info(
