@@ -78,7 +78,7 @@
   },
   "decisions": [],
   "created_at": "2026-03-14T19:17:37.901759",
-  "updated_at": "2026-03-14T19:17:46.191567",
+  "updated_at": "2026-03-14T19:18:15.180266",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
@@ -86,17 +86,29 @@
   "error": null,
   "coordinator_state": {
     "workflow_type": "",
-    "agents_spawned": [],
+    "agents_spawned": [
+      {
+        "role": "refiner",
+        "spawned_at": "2026-03-14T19:18:15.180147",
+        "completed_at": null,
+        "status": "running",
+        "container_id": "89971c8c327b9f82d15bf004c7b69072af797709dc9f25704081b68832ee2f56",
+        "task_context": "Refine issue #1059: Implement overseer agent for pipeline health monitoring. The issue has detailed requirements including: tiered Haiku/Opus architecture, adaptive stall detection, HITL-only restart authority, always-on auto-spawn, and integration with shared/egg_agent/. Your job: review the requirements for completeness, identify gaps or ambiguities, ensure the infrastructure changes list is complete, validate the design decisions, and produce a refined requirements document in .egg-state/drafts/. Key areas to validate: (1) How does the overseer container get spawned alongside coordinator — what changes to container_spawner.py are needed? (2) Are the file access patterns for overseer role complete? (3) Is the CLAUDE.md overseer section scope well-defined? (4) Check dependency status of #1088 (Agent SDK) and #1027 (message bus). (5) Validate the overseer vs mediator boundary is clear.",
+        "retry_number": 0
+      }
+    ],
     "phase_decisions": [],
     "escalations": [],
     "guardrail_counters": {
-      "total_agents_spawned": 0,
-      "retries_by_role": {},
+      "total_agents_spawned": 1,
+      "retries_by_role": {
+        "refiner": 1
+      },
       "coordinator_respawns": 0,
       "started_at": "2026-03-14T19:17:45.016402"
     }
   },
   "plan_phase_waves": null,
   "plan_phase_names": null,
-  "version": 8
+  "version": 9
 }
