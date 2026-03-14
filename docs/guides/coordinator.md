@@ -152,7 +152,14 @@ POST /api/v1/pipelines/{id}/coordinator/spawn
 }
 ```
 
-The `role` must be a valid `AgentRole`: `coder`, `tester`, `documenter`, `integrator`, `refiner`, `architect`, `task_planner`, `risk_analyst`, `reviewer`, `checker`, `inspector`, or `coordinator`.
+The `role` must be a valid `AgentRole` **and** must be appropriate for the current pipeline phase. The orchestrator validates phase-role alignment and returns 400 if the role is not valid for the current phase:
+
+| Phase | Valid roles |
+|-------|-------------|
+| `refine` | `refiner`, `reviewer_refine`, `reviewer_agent_design` |
+| `plan` | `architect`, `task_planner`, `risk_analyst`, `reviewer_plan` |
+| `implement` | `coder`, `tester`, `documenter`, `integrator`, `reviewer_code`, `reviewer_contract` |
+| `pr`, `coordinator` | Any role (no phase-role restriction) |
 
 Returns 429 if guardrail limits are exceeded. The response includes the `spawn_record` with the assigned `retry_number` (0 for the first spawn of a given role, incremented for each subsequent spawn of the same role).
 
@@ -375,6 +382,8 @@ The coordinator runs with `phase="coordinator"` — a special phase value distin
 ## Troubleshooting
 
 **Coordinator not spawning**: Verify `coordinator_enabled: true` in the pipeline config via `egg-orch pipeline get <id>`.
+
+**Agent spawn rejected (HTTP 400 — invalid phase-role)**: The role is not valid for the current pipeline phase. Check the current phase via `egg-orch coordinator state <id>` and spawn a role that matches. For example, `coder` is only valid in the `implement` phase; `refiner` is only valid in the `refine` phase. Phases `pr` and `coordinator` have no restriction.
 
 **Agent spawn rejected (HTTP 429)**: Check guardrail limits via `egg-orch coordinator state <id>`. The `guardrail_counters` section shows current counts vs. configured limits.
 
