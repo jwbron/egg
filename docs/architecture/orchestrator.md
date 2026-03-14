@@ -109,8 +109,11 @@ Pipelines can specify an explicit network mode that controls internet access for
 The PR phase no longer spawns an agent. Instead, the orchestrator auto-creates the PR via `GatewayClient.create_pr()`, which:
 1. Extracts PR title/description from the contract's `pr` field (populated by the plan agent)
 2. Falls back to the issue title or pipeline ID if no PR metadata exists
-3. Appends git commit log and diff stats to the PR body
+3. Appends git commit log, diff stats, and a **Pipeline Context** section (pipeline ID + issue number) to the PR body
 4. Creates the PR via the gateway using a temporary session with `phase="pr"` permissions
+5. Applies `egg` and `agent:orchestrator` labels to the newly created PR
+
+The gateway also injects an `<!-- egg-pipeline-context ... -->` HTML comment into the PR body containing machine-parseable pipeline metadata (`pipeline_id`, `agent_role`, `issue`). Labels are applied best-effort — failures are logged but non-fatal.
 
 This eliminates the need for agent interaction during PR creation and ensures consistent PR formatting across all pipelines.
 
