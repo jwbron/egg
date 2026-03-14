@@ -78,7 +78,7 @@
   },
   "decisions": [],
   "created_at": "2026-03-14T22:50:42.745933",
-  "updated_at": "2026-03-14T22:51:18.670041",
+  "updated_at": "2026-03-14T22:51:32.298794",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
@@ -95,14 +95,24 @@
         "container_id": "423c33af816f635993f361cc591bebf379d9130c70904f2e96c1a033afedc3c9",
         "task_context": "Refine issue #1059: Implement overseer agent for pipeline health monitoring. The issue has detailed requirements covering: tiered Haiku/Opus architecture, adaptive stall detection, HITL-only restart authority, auto-spawning with coordinator, infrastructure monitoring, and autonomous issue filing. Your job: 1) Check dependencies (#1027 cross-agent comms, #1028 coordinator framework, #1088 Agent SDK) — verify their current state (merged? in progress?). 2) Review existing code in orchestrator/models.py (AgentRole enum), shared/egg_contracts/agent_roles.py, orchestrator/routes/pipelines.py (coordinator spawn logic), orchestrator/routes/coordinator.py (guardrail logic), and orchestrator/container_spawner.py to understand what exists and what needs changing. 3) Check if shared/egg_agent/ exists yet (dependency on #1088). 4) Identify any gaps or ambiguities in the requirements. 5) Write a refinement summary to .egg-state/drafts/refine-summary.md covering: dependency status, code areas to modify, risks, and any open questions for the human.",
         "retry_number": 0
+      },
+      {
+        "role": "reviewer_refine",
+        "spawned_at": "2026-03-14T22:51:32.298676",
+        "completed_at": null,
+        "status": "running",
+        "container_id": "5f2aee1affd14899d4eba70a061115dbf0b1672abdba832cdecd95ad4d613ce8",
+        "task_context": "Review the refinement of issue #1059: Implement overseer agent for pipeline health monitoring. This is a large feature adding a new agent type to the egg SDLC pipeline. Wait for the refiner to produce output in .egg-state/drafts/, then review for: 1) Are all dependencies correctly identified and their status verified? 2) Are there gaps in the requirements that could block implementation? 3) Is the scope appropriate or does it need to be broken down? 4) Are the infrastructure changes (new AgentRole, auto-spawn logic, container config) well-understood? 5) Are there security concerns with the overseer's access pattern? Write your review to .egg-state/agent-outputs/reviewer_refine.md.",
+        "retry_number": 0
       }
     ],
     "phase_decisions": [],
     "escalations": [],
     "guardrail_counters": {
-      "total_agents_spawned": 1,
+      "total_agents_spawned": 2,
       "retries_by_role": {
-        "refiner": 1
+        "refiner": 1,
+        "reviewer_refine": 1
       },
       "coordinator_respawns": 0,
       "started_at": "2026-03-14T22:50:51.362537"
@@ -110,5 +120,5 @@
   },
   "plan_phase_waves": null,
   "plan_phase_names": null,
-  "version": 9
+  "version": 10
 }
