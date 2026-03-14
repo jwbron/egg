@@ -321,26 +321,60 @@ def auto_commit_worktree(
             )
             if branch_result.returncode == 0 and branch_result.stdout.strip():
                 branch = branch_result.stdout.strip()
-                pushed = _push_via_gateway(
-                    worktree_path,
-                    session_token,
-                    gateway_url,
-                    branch,
-                )
-                if pushed:
-                    logger.info(
-                        "Auto-commit pushed via gateway",
-                        event_type="post_agent_auto_push",
-                        commit_sha=sha,
-                        branch=branch,
-                        container_id=container_id,
+
+                # Never push auto-commits to protected branches.  If the
+                # agent's worktree was on main/master (e.g. worktree setup
+                # failed to create an egg/ branch), create a salvage branch
+                # so the WIP commit lands somewhere safe.
+                should_push = True
+                if branch in ("main", "master"):
+                    salvage = f"egg/salvage-{container_id}"
+                    cb = _git(
+                        "checkout",
+                        "-b",
+                        salvage,
+                        cwd=worktree_path,
                     )
-                else:
-                    logger.warning(
-                        "Auto-commit push failed, commit is local only",
-                        commit_sha=sha,
-                        container_id=container_id,
+                    if cb.returncode == 0:
+                        logger.info(
+                            "Moved auto-commit off protected branch",
+                            event_type="post_agent_salvage_branch",
+                            original_branch=branch,
+                            salvage_branch=salvage,
+                            container_id=container_id,
+                        )
+                        branch = salvage
+                    else:
+                        logger.warning(
+                            "Failed to create salvage branch, skipping push",
+                            original_branch=branch,
+                            salvage_branch=salvage,
+                            stderr=cb.stderr,
+                            container_id=container_id,
+                        )
+                        should_push = False
+
+                if should_push:
+                    pushed = _push_via_gateway(
+                        worktree_path,
+                        session_token,
+                        gateway_url,
+                        branch,
                     )
+                    if pushed:
+                        logger.info(
+                            "Auto-commit pushed via gateway",
+                            event_type="post_agent_auto_push",
+                            commit_sha=sha,
+                            branch=branch,
+                            container_id=container_id,
+                        )
+                    else:
+                        logger.warning(
+                            "Auto-commit push failed, commit is local only",
+                            commit_sha=sha,
+                            container_id=container_id,
+                        )
 
         return sha
 
