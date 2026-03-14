@@ -4,6 +4,36 @@ Reusable Python libraries shared between the gateway sidecar and sandbox contain
 
 ## Packages
 
+### egg_agent
+
+Claude Agent SDK wrapper for in-sandbox agent execution and orchestrator command building.
+
+- `run_agent()` / `run_agent_async()` — run a Claude agent in-process via `claude-agent-sdk`
+- `build_agent_command()` — build the `claude --print` command list for orchestrator-spawned containers
+- `AgentResult` — dataclass with response text, success flag, and SDK metadata (cost, turns, duration)
+
+```python
+# In-sandbox: call another agent in-process
+from egg_agent import AgentResult
+from egg_agent.client import run_agent
+
+result = run_agent("Inspect this code for issues", model="sonnet", max_turns=1)
+if result.success:
+    print(result.stdout)
+
+# In orchestrator: build a container command
+from egg_agent import build_agent_command
+
+cmd = build_agent_command("Fix the bug", model="opus", max_turns=200)
+spawner.spawn_agent_container(..., command=cmd)
+```
+
+**Files:**
+- `client.py` — `run_agent()`, `run_agent_async()` using `claude-agent-sdk`
+- `command.py` — `build_agent_command()` for orchestrator-spawned containers
+- `result.py` — `AgentResult` dataclass
+- `__main__.py` — CLI entry point (`python3 -m egg_agent "prompt"`)
+
 ### [egg_config](egg_config/README.md)
 
 Unified configuration framework for egg services.
