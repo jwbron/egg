@@ -29,7 +29,6 @@ except ImportError:
 
 
 from sandbox_template import (
-    ORCHESTRATOR_CONTAINER_NAME,
     ORCHESTRATOR_ISOLATED_IP,
     ORCHESTRATOR_PORT,
 )
@@ -41,6 +40,7 @@ try:
         GATEWAY_EXTERNAL_IP,
         GATEWAY_ISOLATED_IP,
         GATEWAY_PORT,
+        ORCHESTRATOR_EXTERNAL_IP,
     )
     from egg_config import (
         EGG_EXTERNAL_NETWORK as _DEFAULT_EXTERNAL_NETWORK,
@@ -56,6 +56,7 @@ except ImportError:
     GATEWAY_PORT = 9848  # noqa: EGG002
     GATEWAY_ISOLATED_IP = "172.32.0.2"
     GATEWAY_EXTERNAL_IP = "172.33.0.2"
+    ORCHESTRATOR_EXTERNAL_IP = "172.33.0.3"
 
 # Allow override via environment for test stacks with non-standard network names
 EGG_ISOLATED_NETWORK = os.environ.get("EGG_ISOLATED_NETWORK", _DEFAULT_ISOLATED_NETWORK)
@@ -378,7 +379,7 @@ class ContainerSpawner:
             # git proxy can map /home/egg/repos/<name> to the correct worktree
             # at /home/egg/.egg-worktrees/<id>/<name>.
             orchestrator_host = (
-                ORCHESTRATOR_ISOLATED_IP if mode == "private" else ORCHESTRATOR_CONTAINER_NAME
+                ORCHESTRATOR_ISOLATED_IP if mode == "private" else ORCHESTRATOR_EXTERNAL_IP
             )
             orchestrator_url = f"http://{orchestrator_host}:{ORCHESTRATOR_PORT}"
             spawner_env: dict[str, str] = {
