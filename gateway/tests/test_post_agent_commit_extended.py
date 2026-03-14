@@ -315,7 +315,10 @@ class TestProtectedBranchSalvage:
         )
         assert result == "sha123"
         mock_push.assert_called_once_with(
-            str(tmp_path), "tok", "http://gw:9848", "egg/salvage-c1",
+            str(tmp_path),
+            "tok",
+            "http://gw:9848",
+            "egg/salvage-c1",
         )
 
     @patch("post_agent_commit._push_via_gateway", return_value=True)
@@ -340,7 +343,10 @@ class TestProtectedBranchSalvage:
         )
         assert result == "sha123"
         mock_push.assert_called_once_with(
-            str(tmp_path), "tok", "http://gw:9848", "egg/salvage-c1",
+            str(tmp_path),
+            "tok",
+            "http://gw:9848",
+            "egg/salvage-c1",
         )
 
     @patch("post_agent_commit._push_via_gateway", return_value=True)
@@ -389,7 +395,10 @@ class TestProtectedBranchSalvage:
         # No checkout -b call, direct push to egg/my-feature
         assert len(mock_run.call_args_list) == 5  # no extra checkout call
         mock_push.assert_called_once_with(
-            str(tmp_path), "tok", "http://gw:9848", "egg/my-feature",
+            str(tmp_path),
+            "tok",
+            "http://gw:9848",
+            "egg/my-feature",
         )
 
 

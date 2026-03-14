@@ -329,7 +329,9 @@ def auto_commit_worktree(
                 if branch in ("main", "master"):
                     salvage = f"egg/salvage-{container_id}"
                     cb = _git(
-                        "checkout", "-b", salvage,
+                        "checkout",
+                        "-b",
+                        salvage,
                         cwd=worktree_path,
                     )
                     if cb.returncode == 0:
