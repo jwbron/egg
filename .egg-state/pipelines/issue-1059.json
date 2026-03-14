@@ -76,26 +76,9 @@
       "phase_start_sha": null
     }
   },
-  "decisions": [
-    {
-      "id": "decision-1",
-      "question": "Refine phase agents timed out (all 6 spawns hit container time limit). Issue #1059 already contains an extremely detailed spec with requirements, design decisions, infrastructure changes, success criteria, and dependencies. Should we: (A) Advance to plan phase using the issue as the refinement — it's already more detailed than most refinement outputs, or (B) Investigate and fix the container timeout issue before retrying?",
-      "context": "",
-      "options": [
-        "Advance to plan phase (issue is the refinement)",
-        "Fix timeouts and retry refine"
-      ],
-      "decision_type": "choice",
-      "questions": [],
-      "status": "pending",
-      "created_at": "2026-03-14T18:57:33.417700",
-      "resolved_at": null,
-      "resolution": null,
-      "phase": "refine"
-    }
-  ],
+  "decisions": [],
   "created_at": "2026-03-14T18:49:16.888546",
-  "updated_at": "2026-03-14T18:57:33.421919",
+  "updated_at": "2026-03-14T18:57:33.443423",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
@@ -160,7 +143,15 @@
       }
     ],
     "phase_decisions": [],
-    "escalations": [],
+    "escalations": [
+      {
+        "question": "Refine phase agents timed out (all 6 spawns hit container time limit). Issue #1059 already contains an extremely detailed spec with requirements, design decisions, infrastructure changes, success criteria, and dependencies. Should we: (A) Advance to plan phase using the issue as the refinement — it's already more detailed than most refinement outputs, or (B) Investigate and fix the container timeout issue before retrying?",
+        "escalation_type": "choice",
+        "created_at": "2026-03-14T18:57:33.441137",
+        "resolved_at": null,
+        "resolution": null
+      }
+    ],
     "guardrail_counters": {
       "total_agents_spawned": 6,
       "retries_by_role": {
