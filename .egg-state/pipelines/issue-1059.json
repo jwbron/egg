@@ -4,7 +4,7 @@
   "repo": "jwbron/egg",
   "branch": "egg/issue-1059",
   "prompt": null,
-  "status": "cancelled",
+  "status": "running",
   "current_phase": "implement",
   "config": {
     "auto_create_pr": true,
@@ -107,7 +107,7 @@
   },
   "decisions": [],
   "created_at": "2026-03-14T18:49:16.888546",
-  "updated_at": "2026-03-14T19:16:10.014765",
+  "updated_at": "2026-03-14T19:16:22.870282",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
@@ -255,11 +255,11 @@
         "risk_analyst": 1,
         "reviewer_plan": 1
       },
-      "coordinator_respawns": 1,
+      "coordinator_respawns": 2,
       "started_at": "2026-03-14T18:49:26.569463"
     }
   },
   "plan_phase_waves": null,
   "plan_phase_names": null,
-  "version": 42
+  "version": 43
 }
