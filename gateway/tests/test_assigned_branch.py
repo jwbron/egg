@@ -737,9 +737,7 @@ class TestSessionCreateSharedPipelineBranch:
             assert result.session is not None
             assert result.session.assigned_branch == "egg/issue-42/work"
 
-    def test_non_pipeline_session_no_assigned_branch(
-        self, client, launcher_headers, tmp_path
-    ):
+    def test_non_pipeline_session_no_assigned_branch(self, client, launcher_headers, tmp_path):
         """Non-pipeline sessions should NOT get an assigned_branch from the
         fallback logic."""
         manager = SessionManager(persistence_file=tmp_path / "sessions.json")
