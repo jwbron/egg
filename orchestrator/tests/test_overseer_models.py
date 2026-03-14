@@ -3,6 +3,7 @@ Tests for overseer-related model fields in PipelineConfig and AgentRole.
 """
 
 import pytest
+from pydantic import ValidationError
 from models import (
     AgentRole,
     Pipeline,
@@ -65,17 +66,17 @@ class TestPipelineConfigOverseerDefaults:
 
     def test_overseer_poll_interval_minimum(self):
         """overseer_poll_interval_seconds must be >= 5."""
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             PipelineConfig(overseer_poll_interval_seconds=2)
 
     def test_overseer_stall_threshold_minimum(self):
         """overseer_stall_base_threshold_seconds must be >= 30."""
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             PipelineConfig(overseer_stall_base_threshold_seconds=10)
 
     def test_overseer_max_redirects_minimum(self):
         """overseer_max_redirects_before_escalation must be >= 1."""
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             PipelineConfig(overseer_max_redirects_before_escalation=0)
 
 
