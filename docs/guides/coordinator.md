@@ -310,10 +310,11 @@ This review cycle is separate from coordinator crash recovery — review loops u
 If the coordinator container crashes:
 
 1. Running agents continue operating and auto-commit their work on exit.
-2. The orchestrator detects the coordinator exit and checks the respawn budget.
-3. If respawns remain, a new coordinator container is spawned automatically.
-4. The new coordinator reads `egg-orch coordinator state` to re-assess the current situation — what agents have run, their results, the current phase, and any pending decisions.
-5. If max respawns are exhausted, the pipeline fails with a notification.
+2. The orchestrator detects the coordinator exit and checks the pipeline status.
+3. If the pipeline is already in a terminal state (cancelled, failed, or complete), respawn is skipped — the coordinator exit is recorded and no new container is launched.
+4. Otherwise, the respawn budget is checked. If respawns remain, a new coordinator container is spawned automatically.
+5. The new coordinator reads `egg-orch coordinator state` to re-assess the current situation — what agents have run, their results, the current phase, and any pending decisions.
+6. If max respawns are exhausted, the pipeline fails with a notification.
 
 ## Coordinator State Model
 
