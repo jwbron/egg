@@ -316,6 +316,7 @@ class TestTerminatedPipelineSyncsState:
 
         mock_store = MagicMock()
         mock_store.update_pipeline.return_value = pipeline
+        mock_store.load_pipeline.return_value = pipeline
         # Simulate update_pipeline setting status to cancelled
         pipeline.status = PipelineStatus.CANCELLED
         mock_resolve.return_value = (mock_store, pipeline)
@@ -369,6 +370,7 @@ class TestTerminatedPipelineSyncsState:
 
         mock_store = MagicMock()
         mock_store.update_pipeline.return_value = pipeline
+        mock_store.load_pipeline.return_value = pipeline
         pipeline.status = PipelineStatus.CANCELLED
         mock_resolve.return_value = (mock_store, pipeline)
 
@@ -408,6 +410,7 @@ class TestTerminatedPipelineSyncsState:
 
         mock_store = MagicMock()
         mock_store.update_pipeline.return_value = pipeline
+        mock_store.load_pipeline.return_value = pipeline
         pipeline.status = PipelineStatus.FAILED
         mock_resolve.return_value = (mock_store, pipeline)
 

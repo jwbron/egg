@@ -559,17 +559,20 @@ def create_pipeline() -> tuple[Response, int]:
 
 
 def _mark_pipeline_records_terminated(
-    pipeline: "Pipeline",
     store: "StateStore",
     pipeline_id: str,
-) -> None:
+) -> "Pipeline":
     """Mark all running containers and agents as stopped after pipeline termination.
 
     Called when a pipeline transitions to a terminal state (cancelled or failed).
     After Docker containers are force-removed, the pipeline state still shows
-    them as "running". This function syncs the persisted state to reflect that
-    containers have been removed and agents are no longer running.
+    them as "running". This reloads the latest state from the store (to avoid
+    overwriting coordinator updates made between the status change and container
+    cleanup), marks running records as stopped, and saves.
+
+    Returns the updated pipeline so the caller can use it in the response.
     """
+    pipeline = store.load_pipeline(pipeline_id)
     now = datetime.utcnow()
     changed = False
 
@@ -602,18 +605,13 @@ def _mark_pipeline_records_terminated(
                 changed = True
 
     if changed:
-        try:
-            store.save_pipeline(pipeline)
-            logger.info(
-                "Synced pipeline state after termination",
-                pipeline_id=pipeline_id,
-            )
-        except Exception as e:
-            logger.warning(
-                "Failed to sync pipeline state after termination",
-                pipeline_id=pipeline_id,
-                error=str(e),
-            )
+        store.save_pipeline(pipeline)
+        logger.info(
+            "Synced pipeline state after termination",
+            pipeline_id=pipeline_id,
+        )
+
+    return pipeline
 
 
 @pipelines_bp.route("/<pipeline_id>", methods=["PATCH"])
@@ -694,9 +692,17 @@ def update_pipeline(pipeline_id: str) -> tuple[Response, int]:
                     exc_info=True,
                 )
 
-            # Sync pipeline state: mark all running containers/agents as
-            # stopped so the persisted state reflects reality after cleanup.
-            _mark_pipeline_records_terminated(pipeline, store, pipeline_id)
+            # Sync pipeline state: reload latest state (coordinator may have
+            # written updates between status change and container cleanup),
+            # mark all running records as stopped, and re-save.
+            try:
+                pipeline = _mark_pipeline_records_terminated(store, pipeline_id)
+            except Exception as e:
+                logger.warning(
+                    "Failed to sync pipeline state after termination",
+                    pipeline_id=pipeline_id,
+                    error=str(e),
+                )
 
         logger.info("Pipeline updated", pipeline_id=pipeline_id)
 
