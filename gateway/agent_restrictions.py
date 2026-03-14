@@ -56,6 +56,8 @@ class AgentRole:
     REVIEWER_UNIFIED = "reviewer_unified"  # Vestigial: kept for backwards compatibility with persisted pipeline state
     # Coordinator role
     COORDINATOR = "coordinator"
+    # Overseer role (pipeline health monitoring)
+    OVERSEER = "overseer"
 
 
 @dataclass
