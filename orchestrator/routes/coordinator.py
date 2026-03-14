@@ -34,6 +34,7 @@ except ImportError:
 
 from container_spawner import ContainerSpawnError, get_container_spawner
 from decision_queue import get_decision_queue
+from egg_agent import build_agent_command
 from egg_contracts.agent_roles import get_role_definition, get_roles_for_phase
 from events import EventType, emit_event
 from gateway_client import GatewayError, get_gateway_client
@@ -344,19 +345,7 @@ def spawn_agent(pipeline_id: str) -> tuple[Response, int]:
                 'sleep "${EGG_MESSAGE_POLL_INTERVAL:-30}"; done'
             )
 
-            agent_command = [
-                "claude",
-                "--dangerously-skip-permissions",
-                "--print",
-                "--verbose",
-                "--output-format",
-                "stream-json",
-                "--model",
-                "opus",
-                "--max-turns",
-                "200",
-                agent_prompt,
-            ]
+            agent_command = build_agent_command(agent_prompt)
 
             # Spawn the container
             spawner = get_container_spawner()
