@@ -97,8 +97,14 @@ def _check_spawn_guardrails(pipeline: Pipeline, role_str: str) -> tuple[bool, st
     config = pipeline.config
     state = pipeline.coordinator_state or CoordinatorState()
 
-    # Check total agents
-    if state.guardrail_counters.total_agents_spawned >= config.coordinator_max_agents:
+    # Check total agents — exclude infrastructure roles (overseer) that don't
+    # count against the coordinator's agent budget.
+    infra_roles = {"overseer"}
+    if state.agents_spawned:
+        task_agent_count = sum(1 for a in state.agents_spawned if a.role not in infra_roles)
+    else:
+        task_agent_count = state.guardrail_counters.total_agents_spawned
+    if task_agent_count >= config.coordinator_max_agents:
         return False, f"Max agents limit reached ({config.coordinator_max_agents})"
 
     # Check retries per role

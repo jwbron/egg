@@ -6308,6 +6308,88 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                         try:
                             from egg_container import MountSpec
 
+                            # Spawn overseer in background if enabled
+                            overseer_executor = None
+                            if pipeline.config.overseer_enabled:
+                                try:
+                                    from overseer_executor import OverseerExecutor
+                                except ImportError:
+                                    from ..overseer_executor import (
+                                        OverseerExecutor,  # type: ignore[no-redef]
+                                    )
+
+                                overseer_executor = OverseerExecutor(
+                                    repo_path=worktree_repo_path
+                                )
+
+                                overseer_env = {
+                                    **sandbox_env,
+                                    "EGG_OVERSEER_MODE": "true",
+                                    "EGG_OVERSEER_POLL_INTERVAL": str(
+                                        pipeline.config.overseer_poll_interval_seconds
+                                    ),
+                                    "EGG_OVERSEER_STALL_THRESHOLD": str(
+                                        pipeline.config.overseer_stall_base_threshold_seconds
+                                    ),
+                                    "EGG_OVERSEER_MAX_REDIRECTS": str(
+                                        pipeline.config.overseer_max_redirects_before_escalation
+                                    ),
+                                }
+
+                                overseer_prompt = _build_agent_prompt(
+                                    role_value="overseer",
+                                    phase=current_phase.value,
+                                    pipeline_id=pipeline_id,
+                                    pipeline_mode=pipeline_mode,
+                                    prompt=pipeline.prompt,
+                                    issue_number=pipeline.issue_number,
+                                    repo=pipeline.repo,
+                                    branch=pipeline.branch,
+                                    review_cycle=review_cycle,
+                                )
+                                overseer_command = [
+                                    "claude",
+                                    "--dangerously-skip-permissions",
+                                    "--print",
+                                    "--verbose",
+                                    "--output-format",
+                                    "stream-json",
+                                    "--model",
+                                    "haiku",
+                                    "--max-turns",
+                                    "500",
+                                    overseer_prompt,
+                                ]
+
+                                overseer_executor.spawn_in_background(
+                                    spawn_fn=_spawn_and_wait,
+                                    spawner=spawner,
+                                    pipeline_id=pipeline_id,
+                                    agent_role=AgentRole.OVERSEER,
+                                    issue_number=pipeline.issue_number,
+                                    repo_volumes={},
+                                    gateway_mode=gateway_mode,
+                                    repos=repos,
+                                    phase=current_phase,
+                                    sandbox_env=overseer_env,
+                                    sandbox_command=overseer_command,
+                                    store=store,
+                                    certs_volume=certs_volume,
+                                    branch=pipeline.branch,
+                                    extra_mounts=[
+                                        MountSpec(
+                                            mount_type="tmpfs",
+                                            source=None,
+                                            destination="/home/egg/repos",
+                                        )
+                                    ],
+                                )
+
+                                logger.info(
+                                    "Overseer spawned in background",
+                                    pipeline_id=pipeline_id,
+                                )
+
                             # Coordinator is a pure orchestrator — it should not read or
                             # modify repository files. Empty repo_volumes + tmpfs over
                             # ~/repos enforces this: the coordinator can only interact
