@@ -1075,7 +1075,7 @@ def setup_command_timeout(config: Config, logger: Logger) -> None:
     a grace period, then sends SIGKILL.
 
     Configuration:
-        BASH_COMMAND_TIMEOUT  – seconds (default 120, 0 to disable)
+        BASH_COMMAND_TIMEOUT  – seconds (default 300, 0 to disable)
         BASH_COMMAND_TIMEOUT_GRACE – SIGKILL grace period (default 10)
 
     Non-``-c`` invocations (interactive shells, script sourcing) pass
@@ -1089,12 +1089,12 @@ def setup_command_timeout(config: Config, logger: Logger) -> None:
         logger.info("Command timeout wrapper already installed")
         return
 
-    timeout_secs = os.environ.get("BASH_COMMAND_TIMEOUT", "120")
+    timeout_secs = os.environ.get("BASH_COMMAND_TIMEOUT", "300")
     try:
         int(timeout_secs)
     except ValueError:
-        logger.warn(f"Invalid BASH_COMMAND_TIMEOUT value: {timeout_secs!r}, using 120")
-        timeout_secs = "120"
+        logger.warn(f"Invalid BASH_COMMAND_TIMEOUT value: {timeout_secs!r}, using 300")
+        timeout_secs = "300"
 
     # Move real bash to bash.real
     try:
@@ -1844,6 +1844,20 @@ def run_exec(config: Config, logger: Logger, args: list[str]) -> int:
     env = os.environ.copy()
     # Remove launcher secret — privileged credential not for Claude's use
     env.pop("EGG_LAUNCHER_SECRET", None)
+
+    # Bypass the BASH_COMMAND_TIMEOUT wrapper for the top-level command.
+    #
+    # setup_command_timeout() replaces /bin/bash with a wrapper that kills
+    # "bash -c ..." invocations after BASH_COMMAND_TIMEOUT seconds (default
+    # 300).  This is correct for individual commands Claude runs via the
+    # Bash tool, but the top-level exec command (e.g. the consensus wrapper
+    # script) is a long-running process that must not be killed.  Using
+    # bash.real here bypasses the per-command timeout for the top-level
+    # invocation only — Claude's internal bash commands still go through
+    # /bin/bash and remain subject to the timeout.
+    real_bash = Path("/bin/bash.real")
+    if real_bash.exists() and args and args[0] in ("bash", "/bin/bash"):
+        args = [str(real_bash)] + args[1:]
 
     # Print timing summary before exec
     _startup_timer.print_summary()

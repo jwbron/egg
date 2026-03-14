@@ -22,7 +22,7 @@ Agents cannot be trusted to self-police via prompts alone. The pipeline enforces
 - **Agent-role file restrictions**: Each agent role (coder, tester, documenter, integrator, etc.) has allowed and blocked file patterns enforced at push time. Controlled by the `EGG_AGENT_RESTRICTIONS_ENFORCE` environment variable (default: warn-only mode with audit logging; set to `true` to block violating pushes)
 - **Role-based field ownership**: Contract mutations are validated against caller role
 - **Completion signal branch verification**: When an agent signals completion with a commit SHA, the orchestrator verifies the commit exists on the pipeline's expected branch (HTTP 409 on mismatch)
-- **Per-command timeout**: Shell commands in the sandbox are wrapped with a configurable timeout (default 120s) to prevent runaway commands like `grep -rn / ` from hanging the container. Configurable via `BASH_COMMAND_TIMEOUT`
+- **Per-command timeout**: Shell commands in the sandbox are wrapped with a configurable timeout (default 300s) to prevent runaway commands like `grep -rn / ` from hanging the container. Configurable via `BASH_COMMAND_TIMEOUT`
 - **Post-agent auto-commit**: Uncommitted work is automatically preserved when agent containers exit, with phase-restricted files restored (not committed) using `check_phase_file_restrictions()` and allowed files pushed via the gateway API
 - **Separate context windows**: Each agent invocation runs in a separate GitHub Actions job with fresh context
 
