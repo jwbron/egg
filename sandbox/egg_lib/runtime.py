@@ -1092,117 +1092,118 @@ def exec_in_new_container(
                 except Exception as e:
                     error(f"Ephemeral gateway cleanup failed: {e}")
 
-    for ip_attempt in range(max_ip_retries):
-        try:
-            result = subprocess.run(
-                cmd,
-                timeout=timeout_seconds,
-                check=False,
-                capture_output=(ip_attempt > 0),
-            )
-            run_success = result.returncode == 0
-            if run_success:
-                break
+    try:
+        for ip_attempt in range(max_ip_retries):
+            try:
+                result = subprocess.run(
+                    cmd,
+                    timeout=timeout_seconds,
+                    check=False,
+                    capture_output=(ip_attempt > 0),
+                )
+                run_success = result.returncode == 0
+                if run_success:
+                    break
 
-            # Check for IP conflict error
-            is_ip_conflict = False
-            if ip_attempt > 0 and result.stderr:
-                stderr_text = result.stderr.decode("utf-8", errors="replace")
-                if "Address already in use" in stderr_text:
+                # Check for IP conflict error
+                is_ip_conflict = False
+                if ip_attempt > 0 and result.stderr:
+                    stderr_text = result.stderr.decode("utf-8", errors="replace")
+                    if "Address already in use" in stderr_text:
+                        is_ip_conflict = True
+                    else:
+                        sys.stderr.write(stderr_text)
+                elif result.returncode == 125 and container_ip and ip_attempt == 0:
+                    # First attempt: stderr went to terminal so we can't inspect
+                    # the error message. Exit code 125 covers all Docker daemon
+                    # errors (not just IP conflicts), so this is an imprecise
+                    # heuristic — a non-IP error will trigger one unnecessary
+                    # retry cycle before failing on the second attempt.
                     is_ip_conflict = True
-                else:
-                    sys.stderr.write(stderr_text)
-            elif result.returncode == 125 and container_ip and ip_attempt == 0:
-                # First attempt: stderr went to terminal so we can't inspect
-                # the error message. Exit code 125 covers all Docker daemon
-                # errors (not just IP conflicts), so this is an imprecise
-                # heuristic — a non-IP error will trigger one unnecessary
-                # retry cycle before failing on the second attempt.
-                is_ip_conflict = True
 
-            if not is_ip_conflict:
+                if not is_ip_conflict:
+                    break
+                warn("Container start failed (IP address conflict), retrying...")
+            except subprocess.TimeoutExpired:
+                print()
+                error(f"Container execution timed out after {timeout_minutes} minutes")
+                subprocess.run(
+                    ["docker", "kill", container_id],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    check=False,
+                )
                 break
-            warn("Container start failed (IP address conflict), retrying...")
-        except subprocess.TimeoutExpired:
-            print()
-            error(f"Container execution timed out after {timeout_minutes} minutes")
+            except KeyboardInterrupt:
+                print()
+                warn("Interrupted by user")
+                subprocess.run(
+                    ["docker", "kill", container_id],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    check=False,
+                )
+                break
+            except Exception as e:
+                error(f"Failed to run container: {e}")
+                break
+
+            # Re-allocate IP and rebuild command for retry
+            if container_ip:
+                failed_ips.add(container_ip)
+            # Clean up old session
+            if repos:
+                _cleanup_session(session_token, container_id)
             subprocess.run(
-                ["docker", "kill", container_id],
+                ["docker", "rm", "-f", container_id],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
                 check=False,
             )
-            break
-        except KeyboardInterrupt:
-            print()
-            warn("Interrupted by user")
-            subprocess.run(
-                ["docker", "kill", container_id],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                check=False,
+            container_ip = _allocate_container_ip(
+                network=net_config.network_name, exclude_ips=failed_ips
             )
-            break
-        except Exception as e:
-            error(f"Failed to run container: {e}")
-            break
-
-        # Re-allocate IP and rebuild command for retry
-        if container_ip:
-            failed_ips.add(container_ip)
-        # Clean up old session
-        if repos:
-            _cleanup_session(session_token, container_id)
-        subprocess.run(
-            ["docker", "rm", "-f", container_id],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            check=False,
-        )
-        container_ip = _allocate_container_ip(
-            network=net_config.network_name, exclude_ips=failed_ips
-        )
-        if not container_ip:
-            error("Failed to allocate a new container IP after conflict")
-            break
-        info(f"Retrying with new IP: {container_ip}")
-        mount_args_retry: list[str] = []
-        session_token, repos, _filtered_repos = _setup_session_repos(
-            container_id=container_id,
-            container_ip=container_ip,
-            mode=repo_mode,
-            mount_args=mount_args_retry,
-            quiet=True,
-            phase=pipeline_phase,
-            issue_number=issue_number,
-            pr_number=pr_number,
-            pipeline_id=pipeline_id,
-            agent_role=agent_role,
-        )
-        if not session_token:
-            error("Failed to re-create session for retry")
-            break
-        add_standard_mounts(mount_args_retry, quiet=True)
-        cmd = build_sandbox_docker_cmd(
-            container_name=container_id,
-            image=ctx.sandbox_image,
-            network=net_config,
-            container_ip=container_ip,
-            session_token=session_token,
-            runtime_uid=os.getuid(),
-            runtime_gid=os.getgid(),
-            extra_env=caller_env,
-            extra_args=log_config,
-        )
-        lifecycle_flags = ["-i"]
-        if sys.stdin.isatty():
-            lifecycle_flags.append("-t")
-        cmd[LIFECYCLE_FLAGS_INDEX:LIFECYCLE_FLAGS_INDEX] = lifecycle_flags
-        cmd[-1:-1] = mount_args_retry
-        cmd.extend(command)
-        time.sleep(0.5)
-
-    # Always save logs and cleanup container
-    cleanup_container()
+            if not container_ip:
+                error("Failed to allocate a new container IP after conflict")
+                break
+            info(f"Retrying with new IP: {container_ip}")
+            mount_args_retry: list[str] = []
+            session_token, repos, _filtered_repos = _setup_session_repos(
+                container_id=container_id,
+                container_ip=container_ip,
+                mode=repo_mode,
+                mount_args=mount_args_retry,
+                quiet=True,
+                phase=pipeline_phase,
+                issue_number=issue_number,
+                pr_number=pr_number,
+                pipeline_id=pipeline_id,
+                agent_role=agent_role,
+            )
+            if not session_token:
+                error("Failed to re-create session for retry")
+                break
+            add_standard_mounts(mount_args_retry, quiet=True)
+            cmd = build_sandbox_docker_cmd(
+                container_name=container_id,
+                image=ctx.sandbox_image,
+                network=net_config,
+                container_ip=container_ip,
+                session_token=session_token,
+                runtime_uid=os.getuid(),
+                runtime_gid=os.getgid(),
+                extra_env=caller_env,
+                extra_args=log_config,
+            )
+            lifecycle_flags = ["-i"]
+            if sys.stdin.isatty():
+                lifecycle_flags.append("-t")
+            cmd[LIFECYCLE_FLAGS_INDEX:LIFECYCLE_FLAGS_INDEX] = lifecycle_flags
+            cmd[-1:-1] = mount_args_retry
+            cmd.extend(command)
+            time.sleep(0.5)
+    finally:
+        # Always save logs and cleanup container
+        cleanup_container()
 
     return run_success
