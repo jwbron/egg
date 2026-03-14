@@ -95,7 +95,7 @@ It walks through five phases automatically: seed (gather parameters), submit (`s
 - `description` (required) — Natural language task description
 - `repo` (required) — Repository to work on, in `owner/name` format (e.g. `myorg/myrepo`)
 - `issue_number` (int) — GitHub issue number
-- `branch` (string) — Branch name override. When `issue_number` is provided, defaults to `egg/issue-<N>` if omitted.
+- `branch` (string) — Branch name override. Only applies when `issue_number` is provided. Defaults to `egg/issue-<N>` if omitted.
 
 **`list_tasks` parameters:**
 - `status_filter` — `"active"` (default), `"completed"`, `"failed"`, or `"all"`
