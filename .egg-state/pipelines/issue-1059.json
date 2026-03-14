@@ -78,7 +78,7 @@
   },
   "decisions": [],
   "created_at": "2026-03-14T18:49:16.888546",
-  "updated_at": "2026-03-14T18:56:06.748930",
+  "updated_at": "2026-03-14T18:56:37.725756",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
@@ -126,8 +126,8 @@
       {
         "role": "reviewer_refine",
         "spawned_at": "2026-03-14T18:54:33.311837",
-        "completed_at": null,
-        "status": "running",
+        "completed_at": "2026-03-14T18:56:33.595906Z",
+        "status": "failed",
         "container_id": "60b162ba54c59e90c809c0774c604b323ad1760d391de6850c7b361a03a5bcb8",
         "task_context": "Review the refinement for issue #1059 (overseer agent). The refiner is producing output in .egg-state/drafts/refinement.md. \n\nIMPORTANT: Work efficiently — you have limited time.\n\n1. Read the issue: gh issue view 1059\n2. Wait for .egg-state/drafts/refinement.md to appear (check every 15s)\n3. Once it exists, review for:\n   - Completeness: are all 8 infrastructure changes from the issue covered?\n   - Are the dependency statuses (#1027, #1028, #1088) accurately captured?\n   - Are risks identified (e.g., egg_agent SDK readiness, container config for no-repo mount)?\n   - Any scope items missing?\n4. Write your review to .egg-state/agent-outputs/review_refine.md\n5. Commit and push\n\nDo NOT spend time reading lots of code files. Focus on reviewing the refinement document.",
         "retry_number": 1
@@ -157,5 +157,5 @@
   },
   "plan_phase_waves": null,
   "plan_phase_names": null,
-  "version": 18
+  "version": 19
 }
