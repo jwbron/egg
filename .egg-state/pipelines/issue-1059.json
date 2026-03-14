@@ -76,9 +76,26 @@
       "phase_start_sha": null
     }
   },
-  "decisions": [],
+  "decisions": [
+    {
+      "id": "decision-1",
+      "question": "Implementation complete (commit db8e54b29 on branch egg/egg-issue-1059-coder/work, 8 files, 486 insertions, all 3672 tests pass). Cannot create PR because my coordinator container is phase-locked to 'refine' even though pipeline is in 'pr' phase. Options: (1) Human creates the PR manually from the branch, (2) Spawn a new agent in the PR phase to create it. Branch: egg/egg-issue-1059-coder/work, Target: main.",
+      "context": "",
+      "options": [
+        "Create PR manually from branch egg/egg-issue-1059-coder/work",
+        "Spawn new agent for PR creation"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-03-14T20:14:22.118904",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "pr"
+    }
+  ],
   "created_at": "2026-03-14T19:17:37.901759",
-  "updated_at": "2026-03-14T20:13:08.755473",
+  "updated_at": "2026-03-14T20:14:22.120790",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
@@ -227,5 +244,5 @@
   },
   "plan_phase_waves": null,
   "plan_phase_names": null,
-  "version": 31
+  "version": 32
 }
