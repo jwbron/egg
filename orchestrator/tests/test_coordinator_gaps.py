@@ -212,6 +212,7 @@ class TestPhaseTransitionEdgeCases:
             ]
         )
         pipeline = _make_pipeline(phase=PipelinePhase.PLAN, coordinator_state=state)
+        pipeline.config.hitl_gates = False
         store = MagicMock()
         store.load_pipeline.return_value = pipeline
         mock_store_fn.return_value = store
