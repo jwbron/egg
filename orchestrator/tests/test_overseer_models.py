@@ -3,12 +3,12 @@ Tests for overseer-related model fields in PipelineConfig and AgentRole.
 """
 
 import pytest
-from pydantic import ValidationError
 from models import (
     AgentRole,
     Pipeline,
     PipelineConfig,
 )
+from pydantic import ValidationError
 
 
 class TestOverseerRole:
