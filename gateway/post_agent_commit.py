@@ -326,6 +326,7 @@ def auto_commit_worktree(
                 # agent's worktree was on main/master (e.g. worktree setup
                 # failed to create an egg/ branch), create a salvage branch
                 # so the WIP commit lands somewhere safe.
+                should_push = True
                 if branch in ("main", "master"):
                     salvage = f"egg/salvage-{container_id}"
                     cb = _git(
@@ -351,9 +352,9 @@ def auto_commit_worktree(
                             stderr=cb.stderr,
                             container_id=container_id,
                         )
-                        branch = None  # type: ignore[assignment]
+                        should_push = False
 
-                if branch:
+                if should_push:
                     pushed = _push_via_gateway(
                         worktree_path,
                         session_token,
