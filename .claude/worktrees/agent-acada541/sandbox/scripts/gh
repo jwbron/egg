@@ -1,0 +1,1235 @@
+#!/bin/bash
+#
+# gh CLI wrapper for egg container
+# Routes gh commands through the gateway sidecar for policy enforcement.
+#
+# Security: Requires gateway sidecar - fails closed if gateway unavailable.
+# The gateway sidecar holds the GitHub token and enforces policies:
+# - PR operations (create, comment, edit, close) go through gateway
+# - Merge operations are blocked (human must merge via GitHub UI)
+# - Read-only operations are passed through
+#
+
+# Gateway runs as container on egg-network, reachable by container name.
+# GATEWAY_URL is set by the container launcher (egg_container.build_sandbox_docker_cmd).
+# We require it to be set - no hardcoded fallback to avoid port drift.
+# See shared/egg_config/constants.py for port definitions.
+if [ -z "$GATEWAY_URL" ]; then
+    echo "ERROR: GATEWAY_URL environment variable is not set." >&2
+    echo "This variable must be set by the container launcher." >&2
+    echo "If running manually, set GATEWAY_URL=http://egg-gateway:<port>" >&2
+    exit 1
+fi
+# Session token for per-container authentication (required)
+EGG_SESSION_TOKEN="${EGG_SESSION_TOKEN:-}"
+# Worktree container ID - set by egg launcher to translate container paths
+# Container sees ~/repos/X but gateway needs ~/.egg-worktrees/<container-id>/X
+# After PR #545, gateway mounts at container paths (/home/egg/...) not host paths
+EGG_WORKTREE_HOST_PATH="${EGG_WORKTREE_HOST_PATH:-}"
+CONTAINER_REPOS_DIR="${HOME}/repos"
+# Fixed container home path (must match gateway's CONTAINER_HOME)
+GATEWAY_CONTAINER_HOME="/home/egg"
+
+# Function to translate container path to gateway-accessible path
+# Container sees /home/egg/repos/X but gateway needs /home/egg/.egg-worktrees/<id>/X
+# Note: Gateway mounts host paths at container paths (PR #545), so we output
+# container-style paths, not host paths.
+translate_path_for_gateway() {
+    local container_path="$1"
+
+    # If no worktree host path is set, return the path as-is
+    if [ -z "$EGG_WORKTREE_HOST_PATH" ]; then
+        echo "$container_path"
+        return
+    fi
+
+    # Check if path is under the container's repos directory
+    if [[ "$container_path" == "$CONTAINER_REPOS_DIR"/* ]]; then
+        local relative_path="${container_path#$CONTAINER_REPOS_DIR/}"
+        # Extract container ID from EGG_WORKTREE_HOST_PATH
+        # e.g., /home/user/.egg-worktrees/egg-20260123-000359-244376 -> egg-20260123-000359-244376
+        local container_id="${EGG_WORKTREE_HOST_PATH##*/}"
+        # Construct the gateway container path (not host path!)
+        # Gateway mounts ~/.egg-worktrees at /home/egg/.egg-worktrees
+        echo "${GATEWAY_CONTAINER_HOME}/.egg-worktrees/${container_id}/${relative_path}"
+    else
+        echo "$container_path"
+    fi
+}
+
+# Function to show no gateway error message
+show_no_gateway_message() {
+    cat >&2 << 'EOF'
+
+================================================================================
+  GATEWAY SIDECAR NOT AVAILABLE
+================================================================================
+
+Cannot run gh command: The gateway sidecar is required but not reachable.
+
+The gateway enforces ownership policies and holds GitHub credentials.
+Without it, gh operations are not allowed.
+
+Please ensure:
+  1. Gateway sidecar is running on the host:
+     systemctl --user status gateway-sidecar
+
+  2. The container can reach the gateway:
+     curl $GATEWAY_URL/api/v1/health
+
+================================================================================
+
+EOF
+    return 1
+}
+
+# Function to show merge blocked message
+show_merge_blocked_message() {
+    cat >&2 << 'EOF'
+
+================================================================================
+  MERGE OPERATIONS NOT SUPPORTED
+================================================================================
+
+The gateway sidecar does not support merge operations.
+
+Human must merge PRs via the GitHub web interface.
+
+This is a safety measure to ensure human review before merging.
+
+================================================================================
+
+EOF
+    return 1
+}
+
+# Function to get authentication token for gateway requests
+# Session token is required for all container operations
+get_gateway_auth() {
+    if [ -n "$EGG_SESSION_TOKEN" ]; then
+        echo "$EGG_SESSION_TOKEN"
+        return 0
+    fi
+    echo ""
+}
+
+# Function to check if gateway is available
+check_gateway_available() {
+    if command -v curl >/dev/null 2>&1; then
+        curl -s --connect-timeout 2 "${GATEWAY_URL}/api/v1/health" >/dev/null 2>&1
+        return $?
+    fi
+    return 1
+}
+
+# Function to extract repo from current directory or args
+get_repo() {
+    local repo=""
+
+    # Check if --repo is specified
+    for i in "${!ARGS[@]}"; do
+        if [[ "${ARGS[$i]}" == "--repo" ]] && [[ -n "${ARGS[$((i+1))]}" ]]; then
+            repo="${ARGS[$((i+1))]}"
+            break
+        elif [[ "${ARGS[$i]}" == --repo=* ]]; then
+            repo="${ARGS[$i]#--repo=}"
+            break
+        elif [[ "${ARGS[$i]}" == -R ]] && [[ -n "${ARGS[$((i+1))]}" ]]; then
+            repo="${ARGS[$((i+1))]}"
+            break
+        fi
+    done
+
+    # If no --repo, try to get from git remote
+    if [ -z "$repo" ]; then
+        local url
+        url=$(git remote get-url origin 2>/dev/null)
+        if [ -n "$url" ]; then
+            # Extract owner/repo from URL
+            repo=$(echo "$url" | sed -E 's|.*github\.com[:/]([^/]+)/(.+)\.git$|\1/\2|; t; s|.*github\.com[:/]([^/]+)/(.+)$|\1/\2|')
+        fi
+    fi
+
+    # If no --repo and no git remote, fall back to EGG_REPO env var
+    if [ -z "$repo" ] && [ -n "$EGG_REPO" ]; then
+        repo="$EGG_REPO"
+    fi
+
+    echo "$repo"
+}
+
+# Function to call gateway API with authentication
+call_gateway() {
+    local endpoint="$1"
+    local payload="$2"
+
+    # Get session token for authentication
+    local secret
+    secret=$(get_gateway_auth)
+    if [ -z "$secret" ]; then
+        echo "ERROR: EGG_SESSION_TOKEN not set. Session required for gateway access" >&2
+        return 1
+    fi
+
+    # Write response to temp file to avoid bash variable issues with large responses
+    # (echo "$var" can mangle data, and $() strips trailing newlines)
+    local tmpfile curl_errfile
+    tmpfile=$(mktemp)
+    curl_errfile=$(mktemp)
+    trap 'rm -f "$tmpfile" "$curl_errfile"' EXIT
+
+    local http_code
+    http_code=$(curl -s -w "%{http_code}" \
+        -X POST \
+        -H "Content-Type: application/json" \
+        -H "Authorization: Bearer $secret" \
+        -d "$payload" \
+        -o "$tmpfile" \
+        "${GATEWAY_URL}${endpoint}" 2>"$curl_errfile")
+
+    local curl_exit=$?
+    if [ $curl_exit -ne 0 ]; then
+        echo "ERROR: Failed to connect to gateway (curl exit $curl_exit)" >&2
+        cat "$curl_errfile" >&2
+        rm -f "$tmpfile" "$curl_errfile"
+        trap - EXIT
+        return 1
+    fi
+    rm -f "$curl_errfile"
+
+    # Parse response with a single Python invocation (not multiple echo|python3 pipes).
+    # Python writes stdout to fd 1 and stderr to fd 2, then exits with the right code.
+    # Note: f-strings like f'ERROR: {message}' are safe inside bash double-quotes
+    # because bash does not expand {braces} within double-quoted strings.
+    python3 -c "
+import json, sys
+
+try:
+    with open(sys.argv[1]) as f:
+        data = json.load(f)
+except (json.JSONDecodeError, OSError) as e:
+    print(f'ERROR: Failed to parse gateway response: {e}', file=sys.stderr)
+    sys.exit(1)
+
+if data.get('success'):
+    stdout = (data.get('data') or {}).get('stdout', '')
+    if stdout:
+        # Use sys.stdout.write to preserve exact output (no extra newline)
+        sys.stdout.write(stdout)
+        # Add trailing newline if the output doesn't end with one
+        if not stdout.endswith('\n'):
+            sys.stdout.write('\n')
+    sys.exit(0)
+else:
+    message = data.get('message', 'Unknown error')
+    print(f'ERROR: {message}', file=sys.stderr)
+    stderr_out = (data.get('data') or {}).get('stderr', '')
+    if stderr_out:
+        print(stderr_out, file=sys.stderr)
+    http = sys.argv[2]
+    if http == '401':
+        print('Authentication failed - check session token', file=sys.stderr)
+    elif http == '429':
+        print('Rate limit exceeded - please wait before trying again', file=sys.stderr)
+    sys.exit(1)
+" "$tmpfile" "$http_code"
+
+    local py_exit=$?
+    rm -f "$tmpfile"
+    trap - EXIT
+    return $py_exit
+}
+
+# Function to handle PR create - uses proper JSON escaping
+handle_pr_create() {
+    local repo
+    repo=$(get_repo)
+
+    if [ -z "$repo" ]; then
+        echo "ERROR: Could not determine repository" >&2
+        return 1
+    fi
+
+    # Parse args for title, body, base, head, draft
+    local title="" body="" body_file="" base="main" head="" draft=false
+
+    local i=0
+    while [ $i -lt ${#ARGS[@]} ]; do
+        case "${ARGS[$i]}" in
+            --title|-t)
+                ((i++))
+                title="${ARGS[$i]}"
+                ;;
+            --body|-b)
+                ((i++))
+                body="${ARGS[$i]}"
+                ;;
+            --body-file|-F)
+                ((i++))
+                body_file="${ARGS[$i]}"
+                ;;
+            --base|-B)
+                ((i++))
+                base="${ARGS[$i]}"
+                ;;
+            --head|-H)
+                ((i++))
+                head="${ARGS[$i]}"
+                ;;
+            --draft|-d)
+                draft=true
+                ;;
+        esac
+        ((i++))
+    done
+
+    # Get current branch if head not specified
+    if [ -z "$head" ]; then
+        head=$(git branch --show-current 2>/dev/null)
+    fi
+
+    if [ -z "$title" ]; then
+        echo "ERROR: Missing --title for PR create" >&2
+        return 1
+    fi
+
+    # Resolve body: --body and --body-file are mutually exclusive
+    if [ -n "$body" ] && [ -n "$body_file" ]; then
+        echo "ERROR: Cannot use both --body and --body-file" >&2
+        return 1
+    fi
+
+    if [ -n "$body_file" ]; then
+        if [ ! -f "$body_file" ]; then
+            echo "ERROR: File not found: $body_file" >&2
+            return 1
+        fi
+        body=$(cat "$body_file") || { echo "ERROR: Failed to read $body_file" >&2; return 1; }
+    fi
+
+    # Build JSON payload using Python for proper escaping
+    local payload
+    payload=$(python3 -c "
+import json
+import sys
+print(json.dumps({
+    'repo': sys.argv[1],
+    'title': sys.argv[2],
+    'body': sys.argv[3],
+    'base': sys.argv[4],
+    'head': sys.argv[5],
+    'draft': sys.argv[6] == 'true'
+}))
+" "$repo" "$title" "$body" "$base" "$head" "$draft")
+
+    call_gateway "/api/v1/gh/pr/create" "$payload"
+}
+
+# Function to handle PR comment - uses proper JSON escaping
+handle_pr_comment() {
+    local repo
+    repo=$(get_repo)
+
+    if [ -z "$repo" ]; then
+        echo "ERROR: Could not determine repository" >&2
+        return 1
+    fi
+
+    # Parse args for PR number and body
+    local pr_number="" body="" body_file=""
+
+    local i=0
+    while [ $i -lt ${#ARGS[@]} ]; do
+        case "${ARGS[$i]}" in
+            --body|-b)
+                ((i++))
+                body="${ARGS[$i]}"
+                ;;
+            --body-file|-F)
+                ((i++))
+                body_file="${ARGS[$i]}"
+                ;;
+            [0-9]*)
+                if [ -z "$pr_number" ]; then
+                    pr_number="${ARGS[$i]}"
+                fi
+                ;;
+        esac
+        ((i++))
+    done
+
+    if [ -z "$pr_number" ]; then
+        echo "ERROR: Missing PR number" >&2
+        return 1
+    fi
+
+    # Resolve body: --body and --body-file are mutually exclusive
+    if [ -n "$body" ] && [ -n "$body_file" ]; then
+        echo "ERROR: Cannot use both --body and --body-file" >&2
+        return 1
+    fi
+
+    if [ -n "$body_file" ]; then
+        if [ ! -f "$body_file" ]; then
+            echo "ERROR: File not found: $body_file" >&2
+            return 1
+        fi
+        body=$(cat "$body_file") || { echo "ERROR: Failed to read $body_file" >&2; return 1; }
+    fi
+
+    if [ -z "$body" ]; then
+        echo "ERROR: Missing --body or --body-file for PR comment" >&2
+        return 1
+    fi
+
+    # Build JSON payload using Python for proper escaping
+    local payload
+    payload=$(python3 -c "
+import json
+import sys
+print(json.dumps({
+    'repo': sys.argv[1],
+    'pr_number': int(sys.argv[2]),
+    'body': sys.argv[3]
+}))
+" "$repo" "$pr_number" "$body")
+
+    call_gateway "/api/v1/gh/pr/comment" "$payload"
+}
+
+# Function to handle PR edit - uses proper JSON escaping
+handle_pr_edit() {
+    local repo
+    repo=$(get_repo)
+
+    if [ -z "$repo" ]; then
+        echo "ERROR: Could not determine repository" >&2
+        return 1
+    fi
+
+    # Parse args for PR number, title, body
+    local pr_number="" title="" body="" body_file=""
+
+    local i=0
+    while [ $i -lt ${#ARGS[@]} ]; do
+        case "${ARGS[$i]}" in
+            --title|-t)
+                ((i++))
+                title="${ARGS[$i]}"
+                ;;
+            --body|-b)
+                ((i++))
+                body="${ARGS[$i]}"
+                ;;
+            --body-file|-F)
+                ((i++))
+                body_file="${ARGS[$i]}"
+                ;;
+            [0-9]*)
+                if [ -z "$pr_number" ]; then
+                    pr_number="${ARGS[$i]}"
+                fi
+                ;;
+        esac
+        ((i++))
+    done
+
+    if [ -z "$pr_number" ]; then
+        echo "ERROR: Missing PR number" >&2
+        return 1
+    fi
+
+    # Resolve body: --body and --body-file are mutually exclusive
+    if [ -n "$body" ] && [ -n "$body_file" ]; then
+        echo "ERROR: Cannot use both --body and --body-file" >&2
+        return 1
+    fi
+
+    if [ -n "$body_file" ]; then
+        if [ ! -f "$body_file" ]; then
+            echo "ERROR: File not found: $body_file" >&2
+            return 1
+        fi
+        body=$(cat "$body_file") || { echo "ERROR: Failed to read $body_file" >&2; return 1; }
+    fi
+
+    # Build JSON payload using Python for proper escaping
+    local payload
+    payload=$(python3 -c "
+import json
+import sys
+data = {
+    'repo': sys.argv[1],
+    'pr_number': int(sys.argv[2])
+}
+if sys.argv[3]:
+    data['title'] = sys.argv[3]
+if sys.argv[4]:
+    data['body'] = sys.argv[4]
+print(json.dumps(data))
+" "$repo" "$pr_number" "$title" "$body")
+
+    call_gateway "/api/v1/gh/pr/edit" "$payload"
+}
+
+# Function to handle PR close
+handle_pr_close() {
+    local repo
+    repo=$(get_repo)
+
+    if [ -z "$repo" ]; then
+        echo "ERROR: Could not determine repository" >&2
+        return 1
+    fi
+
+    # Parse args for PR number
+    local pr_number=""
+
+    for arg in "${ARGS[@]}"; do
+        if [[ "$arg" =~ ^[0-9]+$ ]]; then
+            pr_number="$arg"
+            break
+        fi
+    done
+
+    if [ -z "$pr_number" ]; then
+        echo "ERROR: Missing PR number" >&2
+        return 1
+    fi
+
+    # Build JSON payload
+    local payload
+    payload=$(python3 -c "
+import json
+import sys
+print(json.dumps({
+    'repo': sys.argv[1],
+    'pr_number': int(sys.argv[2])
+}))
+" "$repo" "$pr_number")
+
+    call_gateway "/api/v1/gh/pr/close" "$payload"
+}
+
+# Function to handle PR review - adds automated review marker
+# This allows workflows to identify bot reviews by looking for the marker
+# rather than relying on username heuristics.
+#
+# Self-review handling:
+# When a separate reviewer bot is configured (REVIEWER_APP_* secrets), reviews
+# are posted using that account, enabling approve/request-changes on bot PRs.
+# When no reviewer is configured, this function falls back to self-review mode:
+# - Proactively detects self-authored PRs and downgrades review type to comment
+# - Reactively catches GitHub API errors and falls back to issue comment
+# The verdict is preserved in the marker regardless of how the review is posted.
+handle_pr_review() {
+    local repo
+    repo=$(get_repo)
+
+    if [ -z "$repo" ]; then
+        echo "ERROR: Could not determine repository" >&2
+        return 1
+    fi
+
+    # Get bot name from environment (set by egg launcher) or use default
+    local bot_name="${EGG_BOT_NAME:-egg}"
+
+    # Parse args for PR number, body, and review type
+    local pr_number="" body="" review_type="" body_file=""
+
+    local i=0
+    while [ $i -lt ${#ARGS[@]} ]; do
+        case "${ARGS[$i]}" in
+            --body|-b)
+                ((i++))
+                body="${ARGS[$i]}"
+                ;;
+            --body-file|-F)
+                ((i++))
+                body_file="${ARGS[$i]}"
+                ;;
+            --approve|-a)
+                review_type="approve"
+                ;;
+            --request-changes|-r)
+                review_type="request-changes"
+                ;;
+            --comment|-c)
+                review_type="comment"
+                ;;
+            [0-9]*)
+                if [ -z "$pr_number" ]; then
+                    pr_number="${ARGS[$i]}"
+                fi
+                ;;
+        esac
+        ((i++))
+    done
+
+    if [ -z "$pr_number" ]; then
+        echo "ERROR: Missing PR number" >&2
+        return 1
+    fi
+
+    # Get PR head commit SHA for the marker.
+    # Prefer EGG_COMMIT_SHA (set by the workflow to the SHA that was actually
+    # checked out and reviewed) over a live API query. A live query can race
+    # with commits pushed during the review, causing the marker to reference
+    # a commit whose code was never reviewed.
+    local commit_sha="${EGG_COMMIT_SHA:-}"
+    if [ -z "$commit_sha" ] && [ -n "$pr_number" ] && [ -n "$repo" ]; then
+        local sha_payload
+        sha_payload=$(python3 -c "
+import json
+import sys
+print(json.dumps({'args': ['pr', 'view', sys.argv[2], '--repo', sys.argv[1], '--json', 'headRefOid', '--jq', '.headRefOid']}))
+" "$repo" "$pr_number")
+        commit_sha=$(call_gateway "/api/v1/gh/execute" "$sha_payload" 2>/dev/null | tr -d '[:space:]')
+    fi
+
+    if [ -z "$commit_sha" ]; then
+        echo "WARNING: Could not determine commit SHA for review marker" >&2
+    fi
+
+    # DEPRECATED: Self-review detection (fallback when no separate reviewer bot)
+    # When REVIEWER_APP_* secrets are configured, the gateway uses a separate
+    # reviewer account and this detection is not needed. This code remains as
+    # a fallback for installations that haven't configured a reviewer bot.
+    # See: https://github.com/jwbron/egg/issues/287
+    #
+    # Proactively detect self-authored PRs and downgrade review types accordingly.
+    # This avoids a wasted round-trip when the GitHub API rejects the request.
+    # See: https://github.com/jwbron/egg/issues/298
+    #
+    # We compare against the bot_name (from EGG_BOT_NAME env var) rather than
+    # querying the GitHub API. The `gh api user` endpoint doesn't work with
+    # GitHub App installation tokens (returns 403 "Resource not accessible by
+    # integration"), so we use pattern matching against known bot identity formats.
+    local original_review_type="$review_type"
+    if [ "$review_type" = "request-changes" ] || [ "$review_type" = "approve" ]; then
+        # Get PR author login
+        local pr_author_payload
+        pr_author_payload=$(python3 -c "
+import json
+import sys
+print(json.dumps({'args': ['pr', 'view', sys.argv[2], '--repo', sys.argv[1], '--json', 'author', '--jq', '.author.login']}))
+" "$repo" "$pr_number")
+        local pr_author
+        local pr_author_stderr
+        pr_author_stderr=$(mktemp)
+        pr_author=$(call_gateway "/api/v1/gh/execute" "$pr_author_payload" 2>"$pr_author_stderr" | tr -d '[:space:]')
+        local pr_author_exit=$?
+
+        if [ $pr_author_exit -ne 0 ] || [ -z "$pr_author" ]; then
+            # Log error at debug level but continue (reactive fallback will catch self-reviews)
+            if [ -s "$pr_author_stderr" ]; then
+                echo "DEBUG: Failed to fetch PR author for proactive self-review check: $(cat "$pr_author_stderr")" >&2
+            fi
+            rm -f "$pr_author_stderr"
+        else
+            rm -f "$pr_author_stderr"
+
+            # Check if PR author matches known bot identity patterns:
+            # - "bot_name" (exact match)
+            # - "bot_name[bot]" (GitHub App format)
+            # - "app/bot_name" (alternative GitHub App format)
+            local is_self_authored=false
+            if [ "$pr_author" = "$bot_name" ] || \
+               [ "$pr_author" = "${bot_name}[bot]" ] || \
+               [ "$pr_author" = "app/${bot_name}" ]; then
+                is_self_authored=true
+            fi
+
+            if [ "$is_self_authored" = true ]; then
+                local action_desc=""
+                if [ "$review_type" = "request-changes" ]; then
+                    action_desc="request changes on"
+                else
+                    action_desc="approve"
+                fi
+                echo "INFO: Self-authored PR detected (author=$pr_author, bot=$bot_name). Downgrading --${review_type} to --comment." >&2
+                echo "  GitHub does not allow bots to $action_desc their own PRs." >&2
+                echo "  The review verdict is preserved in the marker comment." >&2
+                review_type="comment"
+            fi
+        fi
+    fi
+
+    # Resolve body: --body and --body-file are mutually exclusive
+    if [ -n "$body" ] && [ -n "$body_file" ]; then
+        echo "ERROR: Cannot use both --body and --body-file" >&2
+        return 1
+    fi
+
+    if [ -n "$body_file" ]; then
+        if [ ! -f "$body_file" ]; then
+            echo "ERROR: File not found: $body_file" >&2
+            return 1
+        fi
+        body=$(cat "$body_file") || { echo "ERROR: Failed to read $body_file" >&2; return 1; }
+    fi
+
+    # Add automated review marker to the body
+    # Format: <!-- egg-automated-review bot=<name> commit=<sha> verdict=<type> -->
+    # This marker is hidden in rendered markdown but can be parsed by workflows
+    # Note: verdict preserves the original intent even if downgraded for self-review
+    local verdict="${original_review_type:-${review_type:-comment}}"
+    # Promote approve → approve-with-suggestions when reviewer signals suggestions
+    if [[ "$verdict" == "approve" && "$body" == *"<!-- has-suggestions -->"* ]]; then
+        verdict="approve-with-suggestions"
+    fi
+    local marker="<!-- egg-automated-review bot=${bot_name} commit=${commit_sha} verdict=${verdict} -->"
+    if [ -n "$body" ]; then
+        body="${body}
+
+${marker}"
+    else
+        body="${marker}"
+    fi
+
+    # Build args array for gateway execute with properly escaped content
+    local escaped_args
+    escaped_args=$(python3 -c "
+import json
+import sys
+
+pr_number = sys.argv[2]
+body = sys.argv[3]
+review_type = sys.argv[4]
+
+args = ['pr', 'review', pr_number, '--repo', sys.argv[1], '--body', body]
+
+if review_type == 'approve':
+    args.append('--approve')
+elif review_type == 'request-changes':
+    args.append('--request-changes')
+elif review_type == 'comment':
+    args.append('--comment')
+
+print(json.dumps({'args': args}))
+" "$repo" "$pr_number" "$body" "$review_type")
+
+    # Capture stderr to check for self-review error.
+    # Use a RETURN trap for cleanup so the temp file is removed on all exit
+    # paths, including unexpected exits (signals, set -e). This mirrors the
+    # cleanup pattern in call_gateway() (which uses trap ... EXIT).
+    local review_stderr
+    review_stderr=$(mktemp)
+    trap 'rm -f "$review_stderr"' RETURN
+    if ! call_gateway "/api/v1/gh/execute" "$escaped_args" 2>"$review_stderr"; then
+        local error_msg
+        error_msg=$(cat "$review_stderr")
+
+        # Check if this is a self-review error (GitHub blocks bots from reviewing their own PRs)
+        # GitHub's exact error messages: "You can't review your own pull request" or
+        # "cannot review your own pull request" (the latter is from older API versions)
+        if echo "$error_msg" | grep -qiE "(cannot review your own|can't review your own)"; then
+            echo "WARNING: Self-review detected. Falling back to issue comment." >&2
+            echo "  The review verdict (${verdict}) is recorded in the marker comment," >&2
+            echo "  but the PR approval state will NOT be updated (approve/request-changes" >&2
+            echo "  have no effect via issue comments — only the Reviews API can change PR state)." >&2
+            local comment_payload
+            comment_payload=$(python3 -c "
+import json
+import sys
+print(json.dumps({
+    'repo': sys.argv[1],
+    'pr_number': int(sys.argv[2]),
+    'body': sys.argv[3]
+}))
+" "$repo" "$pr_number" "$body")
+
+            if ! call_gateway "/api/v1/gh/pr/comment" "$comment_payload"; then
+                echo "ERROR: Failed to post review as comment" >&2
+                return 1
+            fi
+            echo "Review submitted successfully on PR #${pr_number} (verdict: ${verdict}, posted as comment due to self-review)"
+            return 0
+        else
+            # Not a self-review error — propagate the original failure
+            echo "$error_msg" >&2
+            return 1
+        fi
+    fi
+    echo "Review submitted successfully on PR #${pr_number} (verdict: ${verdict})"
+    return 0
+}
+
+# Function to handle issue create - uses proper JSON escaping
+handle_issue_create() {
+    local repo
+    repo=$(get_repo)
+
+    if [ -z "$repo" ]; then
+        echo "ERROR: Could not determine repository" >&2
+        return 1
+    fi
+
+    # Parse args for title, body, labels, assignees
+    local title="" body="" body_file="" labels="" assignees=""
+
+    local i=0
+    while [ $i -lt ${#ARGS[@]} ]; do
+        case "${ARGS[$i]}" in
+            --title|-t)
+                ((i++))
+                title="${ARGS[$i]}"
+                ;;
+            --body|-b)
+                ((i++))
+                body="${ARGS[$i]}"
+                ;;
+            --body-file|-F)
+                ((i++))
+                body_file="${ARGS[$i]}"
+                ;;
+            --label|-l)
+                ((i++))
+                if [ -n "$labels" ]; then
+                    labels="$labels,${ARGS[$i]}"
+                else
+                    labels="${ARGS[$i]}"
+                fi
+                ;;
+            --assignee|-a)
+                ((i++))
+                if [ -n "$assignees" ]; then
+                    assignees="$assignees,${ARGS[$i]}"
+                else
+                    assignees="${ARGS[$i]}"
+                fi
+                ;;
+        esac
+        ((i++))
+    done
+
+    if [ -z "$title" ]; then
+        echo "ERROR: Missing --title for issue create" >&2
+        return 1
+    fi
+
+    # Resolve body: --body and --body-file are mutually exclusive
+    if [ -n "$body" ] && [ -n "$body_file" ]; then
+        echo "ERROR: Cannot use both --body and --body-file" >&2
+        return 1
+    fi
+
+    if [ -n "$body_file" ]; then
+        if [ ! -f "$body_file" ]; then
+            echo "ERROR: File not found: $body_file" >&2
+            return 1
+        fi
+        body=$(cat "$body_file") || { echo "ERROR: Failed to read $body_file" >&2; return 1; }
+    fi
+
+    # Build args array for gateway execute with properly escaped content
+    # We use execute endpoint but with properly escaped args
+    local escaped_args
+    escaped_args=$(python3 -c "
+import json
+import sys
+
+args = ['issue', 'create', '--repo', sys.argv[1], '--title', sys.argv[2]]
+if sys.argv[3]:
+    args.extend(['--body', sys.argv[3]])
+if sys.argv[4]:
+    for label in sys.argv[4].split(','):
+        args.extend(['--label', label])
+if sys.argv[5]:
+    for assignee in sys.argv[5].split(','):
+        args.extend(['--assignee', assignee])
+
+print(json.dumps({'args': args}))
+" "$repo" "$title" "$body" "$labels" "$assignees")
+
+    call_gateway "/api/v1/gh/execute" "$escaped_args"
+}
+
+# Function to handle issue comment - uses proper JSON escaping
+handle_issue_comment() {
+    local repo
+    repo=$(get_repo)
+
+    if [ -z "$repo" ]; then
+        echo "ERROR: Could not determine repository" >&2
+        return 1
+    fi
+
+    # Parse args for issue number and body
+    local issue_number="" body="" body_file=""
+
+    local i=0
+    while [ $i -lt ${#ARGS[@]} ]; do
+        case "${ARGS[$i]}" in
+            --body|-b)
+                ((i++))
+                body="${ARGS[$i]}"
+                ;;
+            --body-file|-F)
+                ((i++))
+                body_file="${ARGS[$i]}"
+                ;;
+            [0-9]*)
+                if [ -z "$issue_number" ]; then
+                    issue_number="${ARGS[$i]}"
+                fi
+                ;;
+        esac
+        ((i++))
+    done
+
+    if [ -z "$issue_number" ]; then
+        echo "ERROR: Missing issue number" >&2
+        return 1
+    fi
+
+    # Resolve body: --body and --body-file are mutually exclusive
+    if [ -n "$body" ] && [ -n "$body_file" ]; then
+        echo "ERROR: Cannot use both --body and --body-file" >&2
+        return 1
+    fi
+
+    if [ -n "$body_file" ]; then
+        if [ ! -f "$body_file" ]; then
+            echo "ERROR: File not found: $body_file" >&2
+            return 1
+        fi
+        body=$(cat "$body_file") || { echo "ERROR: Failed to read $body_file" >&2; return 1; }
+    fi
+
+    if [ -z "$body" ]; then
+        echo "ERROR: Missing --body or --body-file for issue comment" >&2
+        return 1
+    fi
+
+    # Build args array for gateway execute with properly escaped content
+    local escaped_args
+    escaped_args=$(python3 -c "
+import json
+import sys
+
+args = ['issue', 'comment', sys.argv[2], '--repo', sys.argv[1], '--body', sys.argv[3]]
+print(json.dumps({'args': args}))
+" "$repo" "$issue_number" "$body")
+
+    call_gateway "/api/v1/gh/execute" "$escaped_args"
+}
+
+# Function to handle issue edit - uses proper JSON escaping
+# This is the key fix for issue #180 - prevents body wipe due to shell escaping issues
+handle_issue_edit() {
+    local repo
+    repo=$(get_repo)
+
+    if [ -z "$repo" ]; then
+        echo "ERROR: Could not determine repository" >&2
+        return 1
+    fi
+
+    # Parse args for issue number, title, body
+    local issue_number="" title="" body="" body_file="" add_label="" remove_label="" add_assignee="" remove_assignee=""
+
+    local i=0
+    while [ $i -lt ${#ARGS[@]} ]; do
+        case "${ARGS[$i]}" in
+            --title|-t)
+                ((i++))
+                title="${ARGS[$i]}"
+                ;;
+            --body|-b)
+                ((i++))
+                body="${ARGS[$i]}"
+                ;;
+            --body-file|-F)
+                ((i++))
+                body_file="${ARGS[$i]}"
+                ;;
+            --add-label)
+                ((i++))
+                if [ -n "$add_label" ]; then
+                    add_label="$add_label,${ARGS[$i]}"
+                else
+                    add_label="${ARGS[$i]}"
+                fi
+                ;;
+            --remove-label)
+                ((i++))
+                if [ -n "$remove_label" ]; then
+                    remove_label="$remove_label,${ARGS[$i]}"
+                else
+                    remove_label="${ARGS[$i]}"
+                fi
+                ;;
+            --add-assignee)
+                ((i++))
+                if [ -n "$add_assignee" ]; then
+                    add_assignee="$add_assignee,${ARGS[$i]}"
+                else
+                    add_assignee="${ARGS[$i]}"
+                fi
+                ;;
+            --remove-assignee)
+                ((i++))
+                if [ -n "$remove_assignee" ]; then
+                    remove_assignee="$remove_assignee,${ARGS[$i]}"
+                else
+                    remove_assignee="${ARGS[$i]}"
+                fi
+                ;;
+            [0-9]*)
+                if [ -z "$issue_number" ]; then
+                    issue_number="${ARGS[$i]}"
+                fi
+                ;;
+        esac
+        ((i++))
+    done
+
+    if [ -z "$issue_number" ]; then
+        echo "ERROR: Missing issue number" >&2
+        return 1
+    fi
+
+    # Resolve body: --body and --body-file are mutually exclusive
+    if [ -n "$body" ] && [ -n "$body_file" ]; then
+        echo "ERROR: Cannot use both --body and --body-file" >&2
+        return 1
+    fi
+
+    if [ -n "$body_file" ]; then
+        if [ ! -f "$body_file" ]; then
+            echo "ERROR: File not found: $body_file" >&2
+            return 1
+        fi
+        body=$(cat "$body_file") || { echo "ERROR: Failed to read $body_file" >&2; return 1; }
+    fi
+
+    # Build args array for gateway execute with properly escaped content
+    local escaped_args
+    escaped_args=$(python3 -c "
+import json
+import sys
+
+issue_number = sys.argv[2]
+title = sys.argv[3]
+body = sys.argv[4]
+add_labels = sys.argv[5]
+remove_labels = sys.argv[6]
+add_assignees = sys.argv[7]
+remove_assignees = sys.argv[8]
+
+args = ['issue', 'edit', issue_number, '--repo', sys.argv[1]]
+
+if title:
+    args.extend(['--title', title])
+if body:
+    args.extend(['--body', body])
+if add_labels:
+    for label in add_labels.split(','):
+        args.extend(['--add-label', label])
+if remove_labels:
+    for label in remove_labels.split(','):
+        args.extend(['--remove-label', label])
+if add_assignees:
+    for assignee in add_assignees.split(','):
+        args.extend(['--add-assignee', assignee])
+if remove_assignees:
+    for assignee in remove_assignees.split(','):
+        args.extend(['--remove-assignee', assignee])
+
+print(json.dumps({'args': args}))
+" "$repo" "$issue_number" "$title" "$body" "$add_label" "$remove_label" "$add_assignee" "$remove_assignee")
+
+    call_gateway "/api/v1/gh/execute" "$escaped_args"
+}
+
+# Function to handle issue close - uses proper JSON escaping
+handle_issue_close() {
+    local repo
+    repo=$(get_repo)
+
+    if [ -z "$repo" ]; then
+        echo "ERROR: Could not determine repository" >&2
+        return 1
+    fi
+
+    # Parse args for issue number and reason
+    local issue_number="" reason=""
+
+    local i=0
+    while [ $i -lt ${#ARGS[@]} ]; do
+        case "${ARGS[$i]}" in
+            --reason|-r)
+                ((i++))
+                reason="${ARGS[$i]}"
+                ;;
+            [0-9]*)
+                if [ -z "$issue_number" ]; then
+                    issue_number="${ARGS[$i]}"
+                fi
+                ;;
+        esac
+        ((i++))
+    done
+
+    if [ -z "$issue_number" ]; then
+        echo "ERROR: Missing issue number" >&2
+        return 1
+    fi
+
+    # Build args array for gateway execute with properly escaped content
+    local escaped_args
+    escaped_args=$(python3 -c "
+import json
+import sys
+
+issue_number = sys.argv[2]
+reason = sys.argv[3]
+
+args = ['issue', 'close', issue_number, '--repo', sys.argv[1]]
+
+if reason:
+    args.extend(['--reason', reason])
+
+print(json.dumps({'args': args}))
+" "$repo" "$issue_number" "$reason")
+
+    call_gateway "/api/v1/gh/execute" "$escaped_args"
+}
+
+# Function to execute via gateway passthrough - uses proper JSON escaping
+execute_via_gateway() {
+    local container_cwd
+    local cwd
+    container_cwd=$(pwd)
+    # Translate container path to host path for gateway
+    cwd=$(translate_path_for_gateway "$container_cwd")
+
+    # Detect repo from container context (the gateway can't auto-detect it)
+    # This runs git in the container where the worktree structure is available
+    local repo
+    repo=$(get_repo)
+
+    # Build JSON payload using Python for proper escaping
+    # Include repo so gateway can inject --repo if needed
+    local payload
+    payload=$(python3 -c "
+import json
+import sys
+args = sys.argv[3:]
+data = {
+    'args': args,
+    'cwd': sys.argv[1]
+}
+# Include repo if detected (gateway will inject --repo if not in args)
+if sys.argv[2]:
+    data['repo'] = sys.argv[2]
+print(json.dumps(data))
+" "$cwd" "$repo" "${ARGS[@]}")
+
+    call_gateway "/api/v1/gh/execute" "$payload"
+}
+
+# Store original args
+ARGS=("$@")
+
+# Unescape \! → ! in all arguments.
+# Claude Code's Bash tool escapes ! to \! in command strings. Since this script
+# runs as non-interactive bash (#!/bin/bash), the backslash is not consumed as
+# a history-expansion escape — it remains as a literal character. This breaks
+# jq expressions (e.g., != becomes \!=) and other arguments containing !.
+for i in "${!ARGS[@]}"; do
+    ARGS[$i]="${ARGS[$i]//\\!/!}"
+done
+set -- "${ARGS[@]}"
+
+# Parse the main command
+main_cmd=""
+sub_cmd=""
+for arg in "$@"; do
+    if [[ "$arg" != -* ]]; then
+        if [ -z "$main_cmd" ]; then
+            main_cmd="$arg"
+        elif [ -z "$sub_cmd" ]; then
+            sub_cmd="$arg"
+            break
+        fi
+    fi
+done
+
+# Check for merge command - always blocked
+if [ "$main_cmd" = "pr" ] && [ "$sub_cmd" = "merge" ]; then
+    show_merge_blocked_message
+    exit 1
+fi
+
+# Gateway is REQUIRED - fail closed if not available
+if ! check_gateway_available; then
+    show_no_gateway_message
+    exit 1
+fi
+
+# Route commands through gateway
+case "$main_cmd" in
+    pr)
+        case "$sub_cmd" in
+            create)
+                handle_pr_create
+                exit $?
+                ;;
+            comment)
+                handle_pr_comment
+                exit $?
+                ;;
+            edit)
+                handle_pr_edit
+                exit $?
+                ;;
+            close)
+                handle_pr_close
+                exit $?
+                ;;
+            review)
+                handle_pr_review
+                exit $?
+                ;;
+            *)
+                # Other PR commands - pass through via gateway execute
+                execute_via_gateway
+                exit $?
+                ;;
+        esac
+        ;;
+    issue)
+        # Issue commands use dedicated handlers for proper JSON escaping
+        # This prevents body content from being wiped due to shell escaping issues (issue #180)
+        case "$sub_cmd" in
+            create)
+                handle_issue_create
+                exit $?
+                ;;
+            comment)
+                handle_issue_comment
+                exit $?
+                ;;
+            edit)
+                handle_issue_edit
+                exit $?
+                ;;
+            close)
+                handle_issue_close
+                exit $?
+                ;;
+            *)
+                # Other issue commands - pass through via gateway execute
+                execute_via_gateway
+                exit $?
+                ;;
+        esac
+        ;;
+    *)
+        # All other commands - pass through via gateway execute
+        execute_via_gateway
+        exit $?
+        ;;
+esac

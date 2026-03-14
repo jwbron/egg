@@ -1,0 +1,31 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(grep:*)",
+      "Bash(gh pr view:*)",
+      "Bash(gh pr diff:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(find:*)",
+      "Bash(gh run view:*)",
+      "Bash(ruff check:*)",
+      "Bash(git checkout:*)",
+      "Bash(gh pr checks:*)",
+      "Bash(git pull:*)",
+      "Bash(git fetch:*)",
+      "Bash(git reset:*)",
+      "Bash(docker logs:*)",
+      "Bash(git rebase:*)",
+      "Bash(ls:*)",
+      "Bash(git cherry-pick:*)",
+      "Bash(git stash:*)",
+      "Bash(docker ps:*)",
+      "Bash(docker volume inspect:*)",
+      "Bash(cat:*)",
+      "Bash(git ls-tree:*)",
+      "Bash(do ls:*)",
+      "Read(//home/jwies/khan/webapp/**)",
+      "mcp__coordinator__get_status"
+    ]
+  }
+}

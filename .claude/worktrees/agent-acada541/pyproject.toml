@@ -1,0 +1,185 @@
+[project]
+name = "egg"
+version = "0.1.0"
+description = "Sandboxed LLM code execution environment"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.11"
+dependencies = [
+    "flask>=3.0.0,<4.0.0",
+    "waitress>=3.0.0,<4.0.0",
+    "pyyaml>=6.0,<7.0",
+    "requests>=2.31.0,<3.0.0",
+    "PyJWT>=2.8.0,<3.0.0",
+    "cryptography>=41.0.0,<44.0.0",
+    "httpx>=0.27.0,<1.0.0",
+    "pydantic>=2.0.0,<3.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-cov>=4.1.0",
+    "ruff>=0.1.0",
+    "mypy>=1.8.0",
+    "bandit>=1.7.0",
+    "yamllint>=1.32.0",
+    "pre-commit>=3.6.0",
+    "pytest-timeout>=2.2.0",
+    "hypothesis>=6.100.0",
+    "docker>=7.0.0",
+    # Type stubs
+    "types-PyYAML>=6.0",
+    "types-requests>=2.31",
+    "types-waitress>=3.0",
+]
+
+[project.scripts]
+egg = "egg_lib.cli:main"
+
+[tool.uv]
+# Use system Python by default (consistent with egg)
+python-preference = "system"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "C4", "UP"]
+# E402: module level import not at top - intentional in entry points for timing
+# E501: line too long - some error messages need to be readable
+ignore = ["E402", "E501"]
+
+[tool.ruff.lint.per-file-ignores]
+# F403: star import is intentional for CLI backward compatibility
+"sandbox/egg" = ["F403"]
+# UP038: isinstance style is fine as-is in tests
+"tests/*" = ["UP038"]
+"integration_tests/*" = ["UP038"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+warn_return_any = true
+warn_unused_ignores = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+
+[[tool.mypy.overrides]]
+module = ["tests.*"]
+disallow_untyped_defs = false
+
+[[tool.mypy.overrides]]
+module = ["integration_tests.*"]
+disallow_untyped_defs = false
+
+[[tool.mypy.overrides]]
+module = ["gateway.tests.*"]
+disallow_untyped_defs = false
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["orchestrator.tests.*"]
+disallow_untyped_defs = false
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["egg_contracts.tests.*"]
+disallow_untyped_defs = false
+ignore_missing_imports = true
+follow_untyped_imports = true
+
+[[tool.mypy.overrides]]
+module = ["waitress", "waitress.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["egg_logging", "egg_logging.*"]
+ignore_missing_imports = true
+follow_untyped_imports = true
+
+[[tool.mypy.overrides]]
+module = ["egg_contracts", "egg_contracts.*"]
+ignore_missing_imports = true
+follow_untyped_imports = true
+
+[[tool.mypy.overrides]]
+module = [
+    "repo_config",
+    "repo_config.*",
+    "token_refresher",
+    "config_validator",
+    "anthropic_credentials",
+    "error_messages",
+    "repo_visibility",
+    "proxy_monitor",
+    "fork_policy",
+    "private_repo_policy",
+    "config.host_config",
+    "statusbar",
+]
+ignore_missing_imports = true
+
+[tool.bandit]
+# B102: exec - used for dynamically loading test fixtures
+# B104: bind all interfaces - intentional for gateway inside container
+# B108: hardcoded /tmp - intentional for ephemeral session data and test fixtures
+# B201: flask debug=True - only enabled with explicit --debug flag
+# B310: urllib.urlopen - used with hardcoded/controlled URLs for health checks and API calls
+# B602: subprocess shell=True - used for user-provided commands in setup/discovery scripts
+skips = ["B102", "B104", "B108", "B201", "B310", "B602"]
+
+[tool.coverage.run]
+omit = [
+    # CLI entry points — thin wrappers that require full system integration
+    "sandbox/egg_lib/orch_cli.py",
+    "sandbox/egg_lib/sdlc_cli.py",
+    "sandbox/egg_lib/checkpoint_cli.py",
+    "shared/egg_contracts/usage_cli.py",
+    "shared/egg_contracts/checkpoint_cli.py",
+    # Scripts that run outside the test harness
+    "gateway/parse-git-mounts.py",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "if __name__ == .__main__.",
+    "if TYPE_CHECKING:",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests", "gateway/tests", "orchestrator/tests"]
+python_files = "test_*.py"
+python_classes = "Test*"
+python_functions = "test_*"
+addopts = "-v --tb=short"
+filterwarnings = ["ignore::DeprecationWarning"]
+markers = [
+    "integration: marks tests as integration tests (require Docker, may be slow)",
+    "functional: marks tests as functional tests (require Docker, faster than integration)",
+    "e2e: marks tests as end-to-end tests (require real API keys)",
+    "security: marks tests as security/pentesting tests",
+    "agent_flaky: marks tests with non-deterministic agent behavior (non-blocking in CI)",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["gateway", "shared/egg_config", "shared/egg_container", "shared/egg_contracts", "shared/egg_logging", "shared/egg_git", "sandbox/egg_lib"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "gateway",
+    "shared",
+    "sandbox",
+    "scripts",
+    "config",
+    "pyproject.toml",
+    "README.md",
+    "LICENSE",
+]

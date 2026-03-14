@@ -1,0 +1,162 @@
+name: Lint
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  workflow_call:
+    outputs:
+      passed:
+        description: 'Whether all lint checks passed'
+        value: ${{ jobs.aggregate.outputs.passed }}
+  workflow_dispatch:  # Allow manual testing
+
+concurrency:
+  group: lint-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  python:
+    name: Python
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Install dependencies
+        run: uv sync --extra dev
+
+      - name: Lint Python
+        run: make lint-python
+
+  shell:
+    name: Shell
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install shellcheck
+        run: sudo apt-get update && sudo apt-get install -y shellcheck
+
+      - name: Lint Shell
+        run: make lint-shell
+
+  yaml:
+    name: YAML
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Install dependencies
+        run: uv sync --extra dev
+
+      - name: Lint YAML
+        run: make lint-yaml
+
+  docker:
+    name: Docker
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install hadolint
+        run: |
+          ARCH=$(uname -m)
+          case "$ARCH" in
+            x86_64)  HADOLINT_ARCH="x86_64" ;;
+            aarch64) HADOLINT_ARCH="arm64" ;;
+            *) echo "Unsupported architecture: $ARCH" && exit 1 ;;
+          esac
+          wget -qO /usr/local/bin/hadolint \
+            "https://github.com/hadolint/hadolint/releases/download/v2.12.0/hadolint-Linux-${HADOLINT_ARCH}"
+          chmod +x /usr/local/bin/hadolint
+
+      - name: Lint Docker
+        run: make lint-docker
+
+  actions:
+    name: Actions
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install actionlint
+        run: |
+          ACTIONLINT_VERSION=1.7.10
+          ARCH=$(uname -m)
+          case "$ARCH" in
+            x86_64)  ACTIONLINT_ARCH="amd64" ;;
+            aarch64) ACTIONLINT_ARCH="arm64" ;;
+            *) echo "Unsupported architecture: $ARCH" && exit 1 ;;
+          esac
+          wget -qO actionlint.tar.gz \
+            "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_${ACTIONLINT_ARCH}.tar.gz"
+          tar xzf actionlint.tar.gz actionlint
+          mv actionlint /usr/local/bin/
+
+      - name: Lint Actions
+        run: make lint-actions
+
+  custom-checks:
+    name: Custom Checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Install dependencies
+        run: uv sync --extra dev
+
+      - name: Custom Checks
+        run: make lint-custom
+
+  aggregate:
+    name: Aggregate Lint Results
+    runs-on: ubuntu-latest
+    if: always()
+    needs: [python, shell, yaml, docker, actions, custom-checks]
+    outputs:
+      passed: ${{ steps.check.outputs.passed }}
+    steps:
+      - name: Check all jobs passed
+        id: check
+        run: |
+          if [[ "${{ needs.python.result }}" != "success" || \
+                "${{ needs.shell.result }}" != "success" || \
+                "${{ needs.yaml.result }}" != "success" || \
+                "${{ needs.docker.result }}" != "success" || \
+                "${{ needs.actions.result }}" != "success" || \
+                "${{ needs.custom-checks.result }}" != "success" ]]; then
+            echo "passed=false" >> "$GITHUB_OUTPUT"
+            echo "Some lint checks failed"
+            echo "  python: ${{ needs.python.result }}"
+            echo "  shell: ${{ needs.shell.result }}"
+            echo "  yaml: ${{ needs.yaml.result }}"
+            echo "  docker: ${{ needs.docker.result }}"
+            echo "  actions: ${{ needs.actions.result }}"
+            echo "  custom-checks: ${{ needs.custom-checks.result }}"
+          else
+            echo "passed=true" >> "$GITHUB_OUTPUT"
+            echo "All lint checks passed"
+          fi

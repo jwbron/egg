@@ -1,0 +1,787 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/jwbron/egg/schemas/contract.schema.json",
+  "title": "SDLC Contract",
+  "description": "Contract schema for structurally enforced agent checkpoints and verification gates",
+  "type": "object",
+  "required": ["schemaVersion", "phases", "decisions", "audit_log"],
+  "anyOf": [
+    { "required": ["issue"] },
+    { "required": ["pipeline_id"] }
+  ],
+  "properties": {
+    "schemaVersion": {
+      "type": "string",
+      "description": "Schema version for migrations",
+      "pattern": "^[0-9]+\\.[0-9]+$",
+      "default": "1.0"
+    },
+    "issue": {
+      "oneOf": [
+        {
+          "type": "object",
+          "description": "Issue metadata",
+          "required": ["number", "title", "url"],
+          "properties": {
+            "number": {
+              "type": "integer",
+              "description": "GitHub issue number",
+              "minimum": 1
+            },
+            "title": {
+              "type": "string",
+              "description": "Issue title",
+              "minLength": 1
+            },
+            "url": {
+              "type": "string",
+              "description": "Issue URL",
+              "format": "uri"
+            }
+          },
+          "additionalProperties": false
+        },
+        { "type": "null" }
+      ],
+      "description": "Issue metadata (null for local-mode pipelines)",
+      "default": null
+    },
+    "pipeline_id": {
+      "type": ["string", "null"],
+      "description": "Pipeline ID for local-mode pipelines (e.g., local-a1b2c3d4)",
+      "default": null
+    },
+    "current_phase": {
+      "type": "string",
+      "description": "Current pipeline phase",
+      "enum": ["refine", "plan", "implement", "pr"],
+      "default": "refine"
+    },
+    "acceptance_criteria": {
+      "type": "array",
+      "description": "Top-level acceptance criteria",
+      "items": {
+        "$ref": "#/$defs/acceptanceCriterion"
+      },
+      "default": []
+    },
+    "phases": {
+      "type": "array",
+      "description": "Implementation phases with tasks",
+      "items": {
+        "$ref": "#/$defs/phase"
+      },
+      "default": []
+    },
+    "decisions": {
+      "type": "array",
+      "description": "HITL decision points",
+      "items": {
+        "$ref": "#/$defs/decision"
+      },
+      "default": []
+    },
+    "workflow_owner": {
+      "type": ["string", "null"],
+      "description": "GitHub username of the user who initiated the SDLC workflow (added the sdlc:refine label)",
+      "default": null
+    },
+    "audit_log": {
+      "type": "array",
+      "description": "Audit trail of all modifications",
+      "items": {
+        "$ref": "#/$defs/auditEntry"
+      },
+      "default": []
+    },
+    "refine_review_cycles": {
+      "type": "integer",
+      "description": "Number of refine phase review cycles",
+      "minimum": 0,
+      "default": 0
+    },
+    "refine_review_feedback": {
+      "type": "string",
+      "description": "Feedback from last refine review",
+      "default": ""
+    },
+    "plan_review_cycles": {
+      "type": "integer",
+      "description": "Number of plan phase review cycles",
+      "minimum": 0,
+      "default": 0
+    },
+    "plan_review_feedback": {
+      "type": "string",
+      "description": "Feedback from last plan review",
+      "default": ""
+    },
+    "pr": {
+      "oneOf": [
+        { "$ref": "#/$defs/prMetadata" },
+        { "type": "null" }
+      ],
+      "description": "Planner-generated PR metadata for use during PR creation",
+      "default": null
+    },
+    "feedback": {
+      "oneOf": [
+        { "$ref": "#/$defs/feedback" },
+        { "type": "null" }
+      ],
+      "description": "Active feedback request for collecting open-ended questions from humans",
+      "default": null
+    },
+    "phase_configs": {
+      "oneOf": [
+        {
+          "type": "object",
+          "description": "Phase-specific configurations",
+          "propertyNames": {
+            "enum": ["refine", "plan", "implement", "pr"]
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/phaseConfig"
+          }
+        },
+        { "type": "null" }
+      ],
+      "description": "Optional phase-specific configurations (overrides defaults)",
+      "default": null
+    },
+    "agent_executions": {
+      "type": "array",
+      "description": "Execution state for each agent in multi-agent mode",
+      "items": {
+        "$ref": "#/$defs/agentExecution"
+      },
+      "default": []
+    },
+    "multi_agent_config": {
+      "oneOf": [
+        { "$ref": "#/$defs/multiAgentConfig" },
+        { "type": "null" }
+      ],
+      "description": "Configuration for multi-agent orchestration",
+      "default": null
+    },
+    "autofix_attempts": {
+      "type": "integer",
+      "description": "Number of autofix attempts in current implement phase cycle",
+      "minimum": 0,
+      "default": 0
+    },
+    "max_autofix_attempts": {
+      "type": "integer",
+      "description": "Maximum autofix attempts before escalation",
+      "minimum": 1,
+      "default": 3
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "acceptanceCriterion": {
+      "type": "object",
+      "required": ["id", "description", "verified"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier (e.g., ac-1)",
+          "pattern": "^ac-[0-9]+$"
+        },
+        "description": {
+          "type": "string",
+          "description": "Human-readable description",
+          "minLength": 1
+        },
+        "verified": {
+          "type": "boolean",
+          "description": "Whether this criterion has been verified",
+          "default": false,
+          "x-role-owner": "reviewer"
+        }
+      },
+      "additionalProperties": false
+    },
+    "phase": {
+      "type": "object",
+      "required": ["id", "name", "status", "tasks"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique phase identifier (e.g., phase-1)",
+          "pattern": "^phase-[0-9]+$"
+        },
+        "name": {
+          "type": "string",
+          "description": "Human-readable phase name",
+          "minLength": 1
+        },
+        "status": {
+          "type": "string",
+          "description": "Phase status",
+          "enum": ["pending", "in_progress", "complete", "blocked"],
+          "default": "pending",
+          "x-role-owner": "reviewer"
+        },
+        "review_cycles": {
+          "type": "integer",
+          "description": "Number of implement->review cycles",
+          "minimum": 0,
+          "default": 0
+        },
+        "max_cycles": {
+          "type": "integer",
+          "description": "Maximum cycles before escalation",
+          "minimum": 1,
+          "default": 3
+        },
+        "escalated": {
+          "type": "boolean",
+          "description": "Whether this phase has been escalated",
+          "default": false
+        },
+        "escalation_reason": {
+          "type": ["string", "null"],
+          "description": "Reason for escalation",
+          "default": null
+        },
+        "tasks": {
+          "type": "array",
+          "description": "Tasks in this phase",
+          "items": {
+            "$ref": "#/$defs/task"
+          },
+          "default": []
+        },
+        "dependencies": {
+          "type": "array",
+          "description": "Phase IDs this phase depends on (e.g., ['phase-1', 'phase-2'])",
+          "items": {
+            "type": "string",
+            "pattern": "^phase-[0-9]+$"
+          },
+          "default": []
+        },
+        "review_feedback": {
+          "type": "array",
+          "description": "Feedback from reviewer",
+          "items": {
+            "$ref": "#/$defs/reviewFeedback"
+          },
+          "default": [],
+          "x-role-owner": "reviewer"
+        }
+      },
+      "additionalProperties": false
+    },
+    "task": {
+      "type": "object",
+      "required": ["id", "description", "status"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique task identifier (e.g., task-1)",
+          "pattern": "^task-[0-9]+(-[0-9]+)?$"
+        },
+        "description": {
+          "type": "string",
+          "description": "Task description",
+          "minLength": 1
+        },
+        "status": {
+          "type": "string",
+          "description": "Task status",
+          "enum": ["pending", "in_progress", "complete", "incomplete", "blocked"],
+          "default": "pending",
+          "x-role-owner": "reviewer"
+        },
+        "commit": {
+          "type": ["string", "null"],
+          "description": "Git commit SHA linked to this task",
+          "pattern": "^[a-f0-9]{7,40}$",
+          "default": null,
+          "x-role-owner": "implementer"
+        },
+        "checkpoint_id": {
+          "type": ["string", "null"],
+          "description": "Checkpoint ID associated with this task's commit",
+          "pattern": "^ckpt-[a-f0-9]{8,16}$",
+          "default": null,
+          "x-role-owner": "implementer"
+        },
+        "notes": {
+          "type": "string",
+          "description": "Implementation notes",
+          "default": "",
+          "x-role-owner": "implementer"
+        },
+        "acceptance_criteria": {
+          "type": "string",
+          "description": "Acceptance criteria for this task",
+          "default": ""
+        },
+        "files_affected": {
+          "type": "array",
+          "description": "Files affected by this task",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "review_cycles": {
+          "type": "integer",
+          "description": "Number of review cycles for this task",
+          "minimum": 0,
+          "default": 0
+        },
+        "max_cycles": {
+          "type": "integer",
+          "description": "Maximum cycles before escalation",
+          "minimum": 1,
+          "default": 3
+        },
+        "escalated": {
+          "type": "boolean",
+          "description": "Whether this task has been escalated",
+          "default": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "reviewFeedback": {
+      "type": "object",
+      "required": ["timestamp", "task_id", "feedback"],
+      "properties": {
+        "timestamp": {
+          "type": "string",
+          "description": "ISO 8601 timestamp",
+          "format": "date-time"
+        },
+        "task_id": {
+          "type": "string",
+          "description": "Task this feedback applies to"
+        },
+        "feedback": {
+          "type": "string",
+          "description": "Reviewer feedback",
+          "minLength": 1
+        },
+        "status": {
+          "type": "string",
+          "description": "Status assigned by reviewer",
+          "enum": ["complete", "incomplete"]
+        }
+      },
+      "additionalProperties": false
+    },
+    "decision": {
+      "type": "object",
+      "required": ["id", "question", "type", "resolved"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique decision identifier (e.g., decision-1)",
+          "pattern": "^decision-[0-9]+$"
+        },
+        "question": {
+          "type": "string",
+          "description": "The decision question",
+          "minLength": 1
+        },
+        "type": {
+          "type": "string",
+          "description": "Decision type",
+          "enum": ["hitl", "auto"]
+        },
+        "options": {
+          "type": "array",
+          "description": "Available options for the decision",
+          "items": {
+            "type": "object",
+            "required": ["id", "label"],
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "label": {
+                "type": "string"
+              },
+              "description": {
+                "type": "string"
+              }
+            }
+          },
+          "default": []
+        },
+        "resolved": {
+          "type": "boolean",
+          "description": "Whether this decision has been resolved",
+          "default": false,
+          "x-role-owner": "human"
+        },
+        "resolution": {
+          "type": ["string", "null"],
+          "description": "The selected resolution",
+          "default": null,
+          "x-role-owner": "human"
+        },
+        "resolved_by": {
+          "type": ["string", "null"],
+          "description": "Who resolved this decision",
+          "default": null
+        },
+        "resolved_at": {
+          "type": ["string", "null"],
+          "description": "When this decision was resolved",
+          "format": "date-time",
+          "default": null
+        },
+        "debounce_until": {
+          "type": ["string", "null"],
+          "description": "Debounce expiration timestamp",
+          "format": "date-time",
+          "default": null
+        }
+      },
+      "additionalProperties": false
+    },
+    "prMetadata": {
+      "type": "object",
+      "description": "Planner-generated PR title and description",
+      "required": ["title"],
+      "properties": {
+        "title": {
+          "type": "string",
+          "description": "PR title (recommended max 70 characters for readability)",
+          "minLength": 1
+        },
+        "description": {
+          "type": "string",
+          "description": "PR description/body explaining the context and changes",
+          "default": ""
+        }
+      },
+      "additionalProperties": false
+    },
+    "feedbackQuestion": {
+      "type": "object",
+      "description": "A question for human feedback",
+      "required": ["id", "question"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique question identifier (e.g., Q1)",
+          "pattern": "^Q[0-9]+$"
+        },
+        "question": {
+          "type": "string",
+          "description": "The question text",
+          "minLength": 1
+        },
+        "answer": {
+          "type": ["string", "null"],
+          "description": "Human-provided answer (free-form text)",
+          "default": null
+        }
+      },
+      "additionalProperties": false
+    },
+    "feedback": {
+      "type": "object",
+      "description": "Feedback request for collecting open-ended questions from humans",
+      "required": ["id", "questions", "submitted"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique feedback identifier (e.g., feedback-1)",
+          "pattern": "^feedback-[0-9]+$"
+        },
+        "phase": {
+          "type": "string",
+          "description": "Pipeline phase this feedback belongs to",
+          "enum": ["refine", "plan", "implement", "pr"]
+        },
+        "questions": {
+          "type": "array",
+          "description": "List of questions for the human",
+          "items": {
+            "$ref": "#/$defs/feedbackQuestion"
+          },
+          "minItems": 1
+        },
+        "submitted": {
+          "type": "boolean",
+          "description": "Whether the feedback has been submitted",
+          "default": false,
+          "x-role-owner": "human"
+        },
+        "submitted_by": {
+          "type": ["string", "null"],
+          "description": "GitHub username who submitted the feedback",
+          "default": null
+        },
+        "submitted_at": {
+          "type": ["string", "null"],
+          "description": "When the feedback was submitted",
+          "format": "date-time",
+          "default": null
+        },
+        "comment_id": {
+          "type": ["integer", "null"],
+          "description": "GitHub comment ID containing this feedback",
+          "default": null
+        },
+        "debounce_until": {
+          "type": ["string", "null"],
+          "description": "Debounce expiration timestamp",
+          "format": "date-time",
+          "default": null
+        }
+      },
+      "additionalProperties": false
+    },
+    "checkDefinition": {
+      "type": "object",
+      "description": "Definition of a check to run during a phase",
+      "required": ["id", "name", "script"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique check identifier (e.g., check-lint)",
+          "pattern": "^check-[a-z0-9-]+$"
+        },
+        "name": {
+          "type": "string",
+          "description": "Human-readable check name",
+          "minLength": 1
+        },
+        "script": {
+          "type": "string",
+          "description": "Script to run for this check",
+          "minLength": 1
+        },
+        "required": {
+          "type": "boolean",
+          "description": "Whether this check must pass",
+          "default": true
+        },
+        "retry_on_fail": {
+          "type": "boolean",
+          "description": "Whether to retry on failure",
+          "default": false
+        },
+        "max_retries": {
+          "type": "integer",
+          "description": "Maximum number of retries",
+          "minimum": 0,
+          "default": 0
+        }
+      },
+      "additionalProperties": false
+    },
+    "checkResult": {
+      "type": "object",
+      "description": "Result of running a check",
+      "required": ["check_id", "status"],
+      "properties": {
+        "check_id": {
+          "type": "string",
+          "description": "ID of the check that was run",
+          "pattern": "^check-[a-z0-9-]+$"
+        },
+        "status": {
+          "type": "string",
+          "description": "Check result status",
+          "enum": ["pass", "fail", "skip"]
+        },
+        "message": {
+          "type": "string",
+          "description": "Human-readable result message",
+          "default": ""
+        },
+        "details": {
+          "type": "object",
+          "description": "Additional details",
+          "default": {}
+        },
+        "fixable": {
+          "type": "boolean",
+          "description": "Whether this failure can be auto-fixed",
+          "default": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "phaseConfig": {
+      "type": "object",
+      "description": "Configuration for a pipeline phase",
+      "properties": {
+        "checks": {
+          "type": "array",
+          "description": "Checks to run in this phase",
+          "items": {
+            "$ref": "#/$defs/checkDefinition"
+          },
+          "default": []
+        },
+        "max_review_cycles": {
+          "type": "integer",
+          "description": "Max review cycles before escalation",
+          "minimum": 1,
+          "default": 3
+        },
+        "human_review_mechanism": {
+          "type": "string",
+          "description": "Mechanism for human review",
+          "enum": ["ISSUE_CHECKBOX", "PR_REVIEW"],
+          "default": "ISSUE_CHECKBOX"
+        }
+      },
+      "additionalProperties": false
+    },
+    "auditEntry": {
+      "type": "object",
+      "required": ["timestamp", "actor", "role", "action", "field_path"],
+      "properties": {
+        "timestamp": {
+          "type": "string",
+          "description": "ISO 8601 timestamp",
+          "format": "date-time"
+        },
+        "actor": {
+          "type": "string",
+          "description": "Who performed the action"
+        },
+        "role": {
+          "type": "string",
+          "description": "Role of the actor",
+          "enum": ["implementer", "reviewer", "human", "system"]
+        },
+        "action": {
+          "type": "string",
+          "description": "Action performed",
+          "enum": ["create", "update", "delete", "transition"]
+        },
+        "field_path": {
+          "type": "string",
+          "description": "JSON path of the modified field"
+        },
+        "old_value": {
+          "description": "Previous value (if applicable)"
+        },
+        "new_value": {
+          "description": "New value"
+        },
+        "reason": {
+          "type": "string",
+          "description": "Reason for the change"
+        },
+        "checkpoint_id": {
+          "type": ["string", "null"],
+          "description": "Checkpoint ID if this audit entry relates to a commit with a checkpoint",
+          "pattern": "^ckpt-[a-f0-9]{8,16}$",
+          "default": null
+        }
+      },
+      "additionalProperties": false
+    },
+    "agentExecution": {
+      "type": "object",
+      "description": "Execution state for a single agent in multi-agent mode",
+      "required": ["role", "status"],
+      "properties": {
+        "role": {
+          "type": "string",
+          "description": "The agent role",
+          "enum": ["coder", "tester", "documenter", "integrator", "architect", "task_planner", "risk_analyst", "refiner", "reviewer_code", "reviewer_contract", "reviewer_agent_design", "reviewer_refine", "reviewer_plan"]
+        },
+        "phase_id": {
+          "type": ["string", "null"],
+          "description": "Plan phase ID this execution belongs to (e.g., 'phase-1'). Null for Tier 2 (role-only) keying.",
+          "pattern": "^phase-[0-9]+$",
+          "default": null
+        },
+        "status": {
+          "type": "string",
+          "description": "Current execution status",
+          "enum": ["pending", "running", "complete", "failed", "skipped", "blocked"],
+          "default": "pending"
+        },
+        "started_at": {
+          "type": ["string", "null"],
+          "description": "When agent started",
+          "format": "date-time",
+          "default": null
+        },
+        "completed_at": {
+          "type": ["string", "null"],
+          "description": "When agent completed",
+          "format": "date-time",
+          "default": null
+        },
+        "commit": {
+          "type": ["string", "null"],
+          "description": "Git commit SHA if agent made changes",
+          "pattern": "^[a-f0-9]{7,40}$",
+          "default": null
+        },
+        "checkpoint_id": {
+          "type": ["string", "null"],
+          "description": "Checkpoint ID associated with agent's commit",
+          "pattern": "^ckpt-[a-f0-9]{8,16}$",
+          "default": null
+        },
+        "outputs": {
+          "type": "object",
+          "description": "Handoff data produced by agent",
+          "default": {}
+        },
+        "error": {
+          "type": ["string", "null"],
+          "description": "Error message if failed",
+          "default": null
+        },
+        "retry_count": {
+          "type": "integer",
+          "description": "Number of retry attempts",
+          "minimum": 0,
+          "default": 0
+        }
+      },
+      "additionalProperties": false
+    },
+    "multiAgentConfig": {
+      "type": "object",
+      "description": "Configuration for multi-agent orchestration",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Whether multi-agent mode is enabled",
+          "default": true
+        },
+        "max_retries": {
+          "type": "integer",
+          "description": "Max retries per agent",
+          "minimum": 0,
+          "default": 2
+        },
+        "parallel_execution": {
+          "type": "boolean",
+          "description": "Allow parallel execution of independent agents",
+          "default": true
+        },
+        "roles_enabled": {
+          "type": "array",
+          "description": "Which agent roles are enabled",
+          "items": {
+            "type": "string",
+            "enum": ["coder", "tester", "documenter", "integrator", "architect", "task_planner", "risk_analyst", "refiner", "reviewer_code", "reviewer_contract", "reviewer_agent_design", "reviewer_refine", "reviewer_plan"]
+          },
+          "default": ["coder", "tester", "documenter", "integrator"]
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

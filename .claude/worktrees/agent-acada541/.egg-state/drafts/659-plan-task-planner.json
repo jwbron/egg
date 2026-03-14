@@ -1,0 +1,250 @@
+{
+  "issue": 659,
+  "phase": "plan",
+  "agent": "task_planner",
+  "title": "Tune claude.md files and prompts",
+  "summary": "Task breakdown for unifying prompt systems across GHA and orchestrator, trimming CLAUDE.md token waste, and cleaning up dead code. 5 phases, 18 tasks, sequenced to minimize risk and enable parallel work where possible.",
+
+  "phases": [
+    {
+      "id": "phase-1",
+      "name": "Create shared prompt criteria files",
+      "description": "Extract duplicated review criteria from GHA bash scripts and orchestrator Python functions into shared markdown files. Use the more detailed GHA versions as baseline. This is the prerequisite for all other phases.",
+      "dependency": null,
+      "tasks": [
+        {
+          "id": "task-1-1",
+          "description": "Create shared/prompts/code-review-criteria.md by merging content from action/build-review-prompt.sh (lines 30-77, primary) and orchestrator _get_code_review_criteria() (lines 737-759). Use the GHA version as baseline since it includes additional items (insecure cryptography, algorithm complexity, state corruption, missing abstractions) plus the 'How to Review' methodology and 'Skip' sections that the orchestrator lacks.",
+          "acceptance_criteria": "File exists at shared/prompts/code-review-criteria.md; contains all 4 review categories (Security, Correctness, Robustness, Design) with items from both sources; includes 'How to Review' and 'Skip' sections from GHA version; is valid markdown.",
+          "files_affected": ["shared/prompts/code-review-criteria.md"]
+        },
+        {
+          "id": "task-1-2",
+          "description": "Create shared/prompts/agent-design-criteria.md by merging content from action/build-agent-mode-design-review-prompt.sh (lines 55-127, primary) and orchestrator _get_agent_design_criteria() (lines 720-734). The GHA version has all 5 anti-patterns plus 'What to Skip' section and nuance about small metadata being acceptable.",
+          "acceptance_criteria": "File exists at shared/prompts/agent-design-criteria.md; contains all 5 anti-patterns; includes 'What to Skip' section; is valid markdown.",
+          "files_affected": ["shared/prompts/agent-design-criteria.md"]
+        },
+        {
+          "id": "task-1-3",
+          "description": "Create shared/prompts/contract-review-criteria.md by merging content from action/build-contract-verification-prompt.sh (lines 35-64, primary) and orchestrator _get_contract_review_criteria() (lines 762-783). Include the egg-contract CLI verification commands from the GHA version.",
+          "acceptance_criteria": "File exists at shared/prompts/contract-review-criteria.md; contains contract verification checklist with CLI commands; is valid markdown.",
+          "files_affected": ["shared/prompts/contract-review-criteria.md"]
+        },
+        {
+          "id": "task-1-4",
+          "description": "Create shared/prompts/autofixer-rules.md by merging content from action/build-autofixer-prompt.sh (lines 32-46, primary) and orchestrator _build_autofix_prompt() (lines 1977-1986). Use GHA version which has 4 categories each for auto-fixable and report-only items (vs orchestrator's 3 each).",
+          "acceptance_criteria": "File exists at shared/prompts/autofixer-rules.md; contains auto-fixable and report-only categories; includes lock file and build failure categories from GHA version; is valid markdown.",
+          "files_affected": ["shared/prompts/autofixer-rules.md"]
+        }
+      ]
+    },
+    {
+      "id": "phase-2",
+      "name": "Update GHA prompt builders to use shared files",
+      "description": "Replace inline criteria in GHA bash scripts with reads from shared/prompts/ files. Preserve the .egg/*-rules.md user-override mechanism where it already exists (override takes priority over shared default).",
+      "dependency": "phase-1",
+      "tasks": [
+        {
+          "id": "task-2-1",
+          "description": "Update action/build-review-prompt.sh to read default review criteria from shared/prompts/code-review-criteria.md instead of inline heredoc (lines 30-77). Keep .egg/review-rules.md as the user override that takes priority. Add a fallback to the existing inline content if the shared file doesn't exist (rollout safety during the transition before this PR merges to main).",
+          "acceptance_criteria": "Script reads from shared/prompts/code-review-criteria.md when available; .egg/review-rules.md override still takes priority; inline fallback exists for when shared file is missing; script produces equivalent output.",
+          "files_affected": ["action/build-review-prompt.sh"]
+        },
+        {
+          "id": "task-2-2",
+          "description": "Update action/build-autofixer-prompt.sh to read default autofixer rules from shared/prompts/autofixer-rules.md instead of inline content (lines 32-46). Keep .egg/autofixer-rules.md as user override. Add fallback.",
+          "acceptance_criteria": "Script reads from shared/prompts/autofixer-rules.md when available; .egg/autofixer-rules.md override still takes priority; fallback exists; equivalent output.",
+          "files_affected": ["action/build-autofixer-prompt.sh"]
+        },
+        {
+          "id": "task-2-3",
+          "description": "Update action/build-agent-mode-design-review-prompt.sh to read agent-design criteria from shared/prompts/agent-design-criteria.md instead of inline content (lines 55-127). Add fallback.",
+          "acceptance_criteria": "Script reads from shared/prompts/agent-design-criteria.md when available; fallback exists; equivalent output.",
+          "files_affected": ["action/build-agent-mode-design-review-prompt.sh"]
+        },
+        {
+          "id": "task-2-4",
+          "description": "Update action/build-contract-verification-prompt.sh to read contract review criteria from shared/prompts/contract-review-criteria.md instead of inline content (lines 35-64). Keep .egg/contract-rules.md as user override. Add fallback.",
+          "acceptance_criteria": "Script reads from shared/prompts/contract-review-criteria.md when available; .egg/contract-rules.md override still takes priority; fallback exists; equivalent output.",
+          "files_affected": ["action/build-contract-verification-prompt.sh"]
+        }
+      ]
+    },
+    {
+      "id": "phase-3",
+      "name": "Update orchestrator to use shared files",
+      "description": "Replace hardcoded Python string criteria functions in orchestrator/routes/pipelines.py with reads from shared/prompts/ files. Also extend the .egg/*-rules.md user-override mechanism to orchestrator reviews (currently GHA-only). Add fallback to inline defaults for backward compatibility.",
+      "dependency": "phase-1",
+      "tasks": [
+        {
+          "id": "task-3-1",
+          "description": "Update _get_code_review_criteria() (lines 737-759) to read from shared/prompts/code-review-criteria.md via Path(repo_path) / 'shared/prompts/code-review-criteria.md'. Add support for .egg/review-rules.md user override (check repo_path / '.egg/review-rules.md' first, use shared file as default). Add fallback to current inline content if file doesn't exist (log warning).",
+          "acceptance_criteria": "Function reads from shared file; .egg/review-rules.md override takes priority; falls back to inline default with warning log; existing tests still pass.",
+          "files_affected": ["orchestrator/routes/pipelines.py"]
+        },
+        {
+          "id": "task-3-2",
+          "description": "Update _get_agent_design_criteria() (lines 720-734) to read from shared/prompts/agent-design-criteria.md similarly. Add fallback.",
+          "acceptance_criteria": "Function reads from shared file; falls back to inline default with warning; existing tests pass.",
+          "files_affected": ["orchestrator/routes/pipelines.py"]
+        },
+        {
+          "id": "task-3-3",
+          "description": "Update _get_contract_review_criteria() (lines 762-783) to read from shared/prompts/contract-review-criteria.md. Add .egg/contract-rules.md user override support. Add fallback.",
+          "acceptance_criteria": "Function reads from shared file; .egg/contract-rules.md override takes priority; falls back to inline default with warning; existing tests pass.",
+          "files_affected": ["orchestrator/routes/pipelines.py"]
+        },
+        {
+          "id": "task-3-4",
+          "description": "Update _build_autofix_prompt() autofixer rules section (lines 1977-1986) to read from shared/prompts/autofixer-rules.md. Add .egg/autofixer-rules.md user override support. Add fallback.",
+          "acceptance_criteria": "Function reads from shared file; .egg/autofixer-rules.md override takes priority; falls back to inline default with warning; existing tests pass.",
+          "files_affected": ["orchestrator/routes/pipelines.py"]
+        }
+      ]
+    },
+    {
+      "id": "phase-4",
+      "name": "Conditional CLAUDE.md assembly and cleanup",
+      "description": "Modify setup_agent_rules() to conditionally exclude SDLC-specific sections for non-pipeline agents. Remove dead code in orchestrator. This phase is independent of phases 2-3 and can run in parallel.",
+      "dependency": null,
+      "tasks": [
+        {
+          "id": "task-4-1",
+          "description": "Modify setup_agent_rules() in sandbox/entrypoint.py (line 678) to check for EGG_PIPELINE_ID environment variable. When EGG_PIPELINE_ID is not set, exclude contract.md and orchestrator.md from rules_order. Keep mission.md, environment.md, code-standards.md, test-workflow.md, and pr-descriptions.md for all invocations.",
+          "acceptance_criteria": "When EGG_PIPELINE_ID is set, all 7 rule files are included (unchanged behavior). When EGG_PIPELINE_ID is not set, contract.md and orchestrator.md are excluded. Combined CLAUDE.md is ~5.8 KB smaller for non-SDLC invocations.",
+          "files_affected": ["sandbox/entrypoint.py"]
+        },
+        {
+          "id": "task-4-2",
+          "description": "Remove dead code in _build_phase_prompt() at lines 1166-1181 (refine phase) and 1196-1211 (plan phase) where if/else branches on is_local produce identical output. Replace with the common code without the conditional.",
+          "acceptance_criteria": "Redundant is_local branches removed for refine and plan phases. Behavior unchanged (both branches produce identical output). No test regressions.",
+          "files_affected": ["orchestrator/routes/pipelines.py"]
+        }
+      ]
+    },
+    {
+      "id": "phase-5",
+      "name": "Tests",
+      "description": "Update and add tests to verify shared criteria loading, fallback behavior, and conditional CLAUDE.md assembly. Run full test suite to catch regressions.",
+      "dependency": "phase-2, phase-3, phase-4",
+      "tasks": [
+        {
+          "id": "task-5-1",
+          "description": "Update tests/action/test_build_review_prompt.py to verify that shared/prompts/code-review-criteria.md content appears in the review prompt output. Add test case for fallback when shared file is missing. Add test case for .egg/review-rules.md user override taking priority.",
+          "acceptance_criteria": "Tests verify shared file content in output; test fallback path; test user override priority. All tests pass.",
+          "files_affected": ["tests/action/test_build_review_prompt.py"]
+        },
+        {
+          "id": "task-5-2",
+          "description": "Update tests/action/test_build_agent_mode_design_review_prompt.py to verify shared/prompts/agent-design-criteria.md content appears in output. Add fallback test.",
+          "acceptance_criteria": "Tests verify shared file content in output; test fallback path. All tests pass.",
+          "files_affected": ["tests/action/test_build_agent_mode_design_review_prompt.py"]
+        },
+        {
+          "id": "task-5-3",
+          "description": "Update orchestrator/tests/test_pipeline_prompts.py to verify orchestrator criteria functions read from shared files. Add test for fallback when files are missing. Add test for .egg/*-rules.md user override mechanism in orchestrator.",
+          "acceptance_criteria": "Tests verify shared file reads for _get_code_review_criteria, _get_agent_design_criteria, _get_contract_review_criteria, and autofixer rules. Tests verify fallback behavior. Tests verify user override priority. All tests pass.",
+          "files_affected": ["orchestrator/tests/test_pipeline_prompts.py"]
+        },
+        {
+          "id": "task-5-4",
+          "description": "Add test for conditional CLAUDE.md assembly in setup_agent_rules(). Test with EGG_PIPELINE_ID set (all rules included) and without (contract.md and orchestrator.md excluded). May require a new test file or addition to existing sandbox/entrypoint tests.",
+          "acceptance_criteria": "Tests verify conditional inclusion/exclusion based on EGG_PIPELINE_ID. Both paths tested. All tests pass.",
+          "files_affected": ["tests/sandbox/test_entrypoint.py"]
+        }
+      ]
+    }
+  ],
+
+  "acceptance_criteria": [
+    {
+      "id": "ac-1",
+      "description": "Shared prompt criteria files exist in shared/prompts/ with unified content from both GHA and orchestrator sources"
+    },
+    {
+      "id": "ac-2",
+      "description": "GHA prompt scripts read criteria from shared files with fallback to inline defaults"
+    },
+    {
+      "id": "ac-3",
+      "description": "Orchestrator criteria functions read from shared files with fallback to inline defaults"
+    },
+    {
+      "id": "ac-4",
+      "description": ".egg/*-rules.md user-override mechanism works in both GHA and orchestrator"
+    },
+    {
+      "id": "ac-5",
+      "description": "CLAUDE.md excludes contract.md and orchestrator.md for non-SDLC invocations"
+    },
+    {
+      "id": "ac-6",
+      "description": "Dead code (redundant is_local branches) removed from orchestrator"
+    },
+    {
+      "id": "ac-7",
+      "description": "All existing tests pass; new tests added for shared file loading, fallback, and conditional assembly"
+    }
+  ],
+
+  "dependency_graph": {
+    "phase-1": [],
+    "phase-2": ["phase-1"],
+    "phase-3": ["phase-1"],
+    "phase-4": [],
+    "phase-5": ["phase-2", "phase-3", "phase-4"]
+  },
+
+  "parallelism_notes": "Phase 1 and Phase 4 have no dependencies and can start immediately. Phase 2 and Phase 3 can run in parallel after Phase 1 completes. Phase 5 (tests) should run last after all code changes are complete. In a multi-agent setup: coder handles phases 1-4, tester handles phase 5.",
+
+  "test_strategy": {
+    "approach": "Update existing tests and add targeted new tests for changed behavior",
+    "existing_test_files": [
+      "tests/action/test_build_review_prompt.py",
+      "tests/action/test_build_agent_mode_design_review_prompt.py",
+      "orchestrator/tests/test_pipeline_prompts.py"
+    ],
+    "new_test_coverage": [
+      "Shared file loading: verify criteria functions read from shared/prompts/ files",
+      "Fallback behavior: verify inline defaults used when shared files are missing",
+      "User override priority: verify .egg/*-rules.md files take precedence over shared defaults",
+      "Conditional CLAUDE.md: verify contract.md and orchestrator.md excluded when EGG_PIPELINE_ID unset"
+    ],
+    "test_commands": [
+      "PYTHONPATH=shared pytest tests/action/ -v",
+      "PYTHONPATH=shared pytest orchestrator/tests/test_pipeline_prompts.py -v",
+      "make test (full suite via act)"
+    ],
+    "regression_strategy": "Run full test suite before and after changes. Existing tests for GHA prompt builders and orchestrator prompts will catch regressions in output format. New tests verify the shared file mechanism."
+  },
+
+  "risk_mitigations": [
+    {
+      "risk": "GHA trusted checkout won't have shared/prompts/ files during rollout",
+      "mitigation": "All GHA scripts retain inline fallback defaults. Shared files are only used when present. After PR merges to main, shared files become available to all subsequent GHA runs."
+    },
+    {
+      "risk": "Orchestrator can't find shared/prompts/ at runtime",
+      "mitigation": "Use EGG_REPO_PATH / 'shared/prompts/' with fallback to inline defaults. Log warning when falling back."
+    },
+    {
+      "risk": "Breaking existing tests",
+      "mitigation": "Run existing tests as baseline before changes. Update test assertions to account for shared file reads. Phase 5 ensures all tests pass before PR."
+    }
+  ],
+
+  "out_of_scope": [
+    {
+      "item": "Unifying slash commands with orchestrator _build_agent_prompt()",
+      "reason": "Per architect recommendation: slash commands have different format than _build_agent_prompt() output. Unifying requires more design work. Defer to follow-up issue."
+    },
+    {
+      "item": "Removing sandbox/claude-rules/ symlink",
+      "reason": "Low priority, functionally harmless. The symlink and .claude/rules/ reference the same files. Can be addressed in a separate cleanup PR."
+    },
+    {
+      "item": "Extracting unified review criteria (_get_unified_criteria) to shared files",
+      "reason": "Phase-specific unified criteria are orchestrator-only with no GHA equivalent. No duplication to resolve."
+    }
+  ]
+}

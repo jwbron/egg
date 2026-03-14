@@ -1,0 +1,98 @@
+name: "egg: Autofix Check Failures"
+
+# Trigger when check workflows complete on pull requests.
+# workflow_run events contain the context of the original workflow,
+# allowing us to identify the PR and check details.
+on:
+  workflow_run:
+    workflows: ["Lint", "Test", "Integration Tests"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: 'PR number to fix checks for'
+        required: true
+        type: number
+
+jobs:
+  # Validate required configuration for event-triggered runs
+  validate-config:
+    name: Validate configuration
+    runs-on: ubuntu-latest
+    if: github.event_name != 'workflow_dispatch'
+    steps:
+      - name: Validate required repository variables
+        run: |
+          if [[ -z "${{ vars.EGG_BOT_USERNAME }}" ]]; then
+            echo "::error::Required repository variable 'EGG_BOT_USERNAME' is not set"
+            echo "::error::Set it in Settings > Secrets and variables > Actions > Variables"
+            exit 1
+          fi
+          echo "All required repository variables are configured"
+
+  # Gate job to determine if autofix should run
+  should-run:
+    name: Check if autofix should run
+    needs: [validate-config]
+    if: always() && (needs.validate-config.result == 'success' || needs.validate-config.result == 'skipped')
+    runs-on: ubuntu-latest
+    outputs:
+      run: ${{ steps.check.outputs.run }}
+      pr_number: ${{ steps.check.outputs.pr_number }}
+      failed_workflow: ${{ steps.check.outputs.failed_workflow }}
+      failed_run_id: ${{ steps.check.outputs.failed_run_id }}
+    steps:
+      - name: Check trigger conditions
+        id: check
+        env:
+          PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number }}
+          WORKFLOW_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          WORKFLOW_EVENT: ${{ github.event.workflow_run.event }}
+          WORKFLOW_NAME: ${{ github.event.workflow_run.name }}
+          WORKFLOW_RUN_ID: ${{ github.event.workflow_run.id }}
+        run: |
+          set -euo pipefail
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            {
+              echo "run=true"
+              echo "pr_number=${{ github.event.inputs.pr_number }}"
+              echo "failed_workflow=manual"
+              echo "failed_run_id="
+            } >> "$GITHUB_OUTPUT"
+          elif [[ "$WORKFLOW_CONCLUSION" == "failure" && \
+                  "$WORKFLOW_EVENT" == "pull_request" && \
+                  -n "$PR_NUMBER" && "$PR_NUMBER" != "null" && "$PR_NUMBER" != "" ]]; then
+            {
+              echo "run=true"
+              echo "pr_number=${PR_NUMBER}"
+              echo "failed_workflow=${WORKFLOW_NAME}"
+              echo "failed_run_id=${WORKFLOW_RUN_ID}"
+            } >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  autofix:
+    name: Autofix PR Checks
+    needs: should-run
+    if: needs.should-run.outputs.run == 'true'
+    permissions:
+      contents: write
+      pull-requests: write
+      actions: read
+    uses: ./.github/workflows/reusable-check-fixer.yml
+    with:
+      pr_number: ${{ fromJson(needs.should-run.outputs.pr_number) }}
+      failed_workflow: ${{ needs.should-run.outputs.failed_workflow }}
+      failed_run_id: ${{ needs.should-run.outputs.failed_run_id }}
+      bot_username: ${{ vars.EGG_BOT_USERNAME }}
+      branch_prefix: ${{ vars.EGG_BRANCH_PREFIX }}
+      config_file: "shared/check-fixers.yml"
+      prompt_script: "action/build-check-fixer-prompt.sh"
+      # action_ref: jwbron/egg/action@main  # Cannot be passed dynamically; hardcoded in reusable workflow
+      timeout: "15"
+    secrets:
+      BOT_APP_ID: ${{ secrets.BOT_APP_ID }}
+      BOT_APP_PRIVATE_KEY: ${{ secrets.BOT_APP_PRIVATE_KEY }}
+      BOT_APP_INSTALLATION_ID: ${{ secrets.BOT_APP_INSTALLATION_ID }}
+      ANTHROPIC_OAUTH_TOKEN: ${{ secrets.ANTHROPIC_OAUTH_TOKEN }}

@@ -1,0 +1,863 @@
+"""Tests for git_client.py validation functions."""
+
+import sys
+from pathlib import Path
+
+import pytest
+
+# Add parent directory to path for imports
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from git_client import (
+    BLOCKED_GIT_FLAGS,
+    GIT_ALLOWED_COMMANDS,
+    get_changed_files_in_push,
+    is_branch_switching_checkout,
+    is_branch_switching_operation,
+    is_repos_parent_directory,
+    is_ssh_url,
+    is_url_remote,
+    normalize_flag,
+    resolve_remote_url,
+    ssh_url_to_https,
+    validate_git_args,
+    validate_repo_path,
+)
+
+
+class TestValidateRepoPath:
+    """Tests for repo path validation."""
+
+    def test_empty_path_rejected(self):
+        """Empty path should be rejected."""
+        valid, error = validate_repo_path("")
+        assert not valid
+        assert "required" in error.lower()
+
+    def test_none_path_rejected(self):
+        """None path should be rejected."""
+        valid, _error = validate_repo_path(None)
+        assert not valid
+
+    def test_allowed_path_accepted(self):
+        """Paths within allowed directories should be accepted."""
+        # Note: This test assumes the path exists - it validates format only
+        valid, error = validate_repo_path("/home/egg/repos/myrepo")
+        assert valid or "allowed directories" in error
+
+    def test_path_traversal_rejected(self):
+        """Path traversal attempts should be rejected."""
+        valid, error = validate_repo_path("/home/egg/repos/../../../etc/passwd")
+        assert not valid
+        assert "allowed directories" in error.lower()
+
+    def test_outside_allowed_paths_rejected(self):
+        """Paths outside allowed directories should be rejected."""
+        valid, error = validate_repo_path("/tmp/malicious")
+        assert not valid
+        assert "allowed directories" in error.lower()
+
+
+class TestIsReposParentDirectory:
+    """Tests for repos parent directory detection."""
+
+    def test_repos_parent_detected(self):
+        """The /home/egg/repos directory should be detected as a parent."""
+        assert is_repos_parent_directory("/home/egg/repos")
+        assert is_repos_parent_directory("/home/egg/repos/")
+
+    def test_worktrees_parent_detected(self):
+        """The /home/egg/.egg-worktrees directory should be detected as a parent."""
+        assert is_repos_parent_directory("/home/egg/.egg-worktrees")
+        assert is_repos_parent_directory("/home/egg/.egg-worktrees/")
+
+    def test_legacy_repos_parent_detected(self):
+        """The /repos directory should be detected as a parent."""
+        assert is_repos_parent_directory("/repos")
+        assert is_repos_parent_directory("/repos/")
+
+    def test_actual_repo_not_detected(self):
+        """Paths inside repos should NOT be detected as parent directories."""
+        assert not is_repos_parent_directory("/home/egg/repos/myrepo")
+        assert not is_repos_parent_directory("/home/egg/repos/some-project/src")
+        assert not is_repos_parent_directory("/home/egg/.egg-worktrees/container-123/myrepo")
+
+    def test_empty_path(self):
+        """Empty paths should return False."""
+        assert not is_repos_parent_directory("")
+        assert not is_repos_parent_directory(None)
+
+    def test_unrelated_paths(self):
+        """Unrelated paths should return False."""
+        assert not is_repos_parent_directory("/tmp")
+        assert not is_repos_parent_directory("/home/egg")
+        assert not is_repos_parent_directory("/etc/passwd")
+
+
+class TestNormalizeFlag:
+    """Tests for per-subcommand flag normalization."""
+
+    def test_short_flag_normalized_with_operation(self):
+        """Short flags should be normalized to long form for the given operation."""
+        assert normalize_flag("-a", "fetch") == "--all"
+        assert normalize_flag("-v", "fetch") == "--verbose"
+        assert normalize_flag("-f", "push") == "--force"
+
+    def test_long_flag_unchanged(self):
+        """Long flags should remain unchanged."""
+        assert normalize_flag("--all", "fetch") == "--all"
+        assert normalize_flag("--verbose", "push") == "--verbose"
+
+    def test_unknown_flag_unchanged(self):
+        """Unknown flags should remain unchanged."""
+        assert normalize_flag("--unknown", "fetch") == "--unknown"
+        assert normalize_flag("-x", "push") == "-x"
+
+    def test_flag_with_value_normalized(self):
+        """Flags with values should have base normalized."""
+        assert normalize_flag("-n=5", "push") == "--dry-run=5"
+        assert normalize_flag("--depth=5", "fetch") == "--depth=5"
+
+    def test_no_operation_returns_flag_unchanged(self):
+        """When no operation is given, flags are returned as-is."""
+        assert normalize_flag("-a") == "-a"
+        assert normalize_flag("-n") == "-n"
+
+    def test_u_normalizes_differently_per_subcommand(self):
+        """-u normalizes to different long forms depending on the subcommand."""
+        assert normalize_flag("-u", "push") == "--set-upstream"
+        assert normalize_flag("-u", "stash") == "--include-untracked"
+        assert normalize_flag("-u", "add") == "--update"
+        assert normalize_flag("-u", "ls-files") == "--unmerged"
+
+    def test_n_normalizes_differently_per_subcommand(self):
+        """-n normalizes to different long forms depending on the subcommand."""
+        assert normalize_flag("-n", "push") == "--dry-run"
+        assert normalize_flag("-n", "cherry-pick") == "--no-commit"
+        assert normalize_flag("-n", "add") == "--intent-to-add"
+        assert normalize_flag("-n", "blame") == "--show-number"
+        assert normalize_flag("-n", "clean") == "--dry-run"
+
+    def test_c_normalizes_for_switch(self):
+        """-c normalizes to --create for switch."""
+        assert normalize_flag("-c", "switch") == "--create"
+        assert normalize_flag("-c", "ls-files") == "--cached"
+
+    def test_t_normalizes_per_subcommand(self):
+        """-t normalizes differently for fetch vs checkout."""
+        assert normalize_flag("-t", "fetch") == "--tags"
+        assert normalize_flag("-t", "checkout") == "--track"
+        assert normalize_flag("-t", "switch") == "--track"
+
+
+class TestValidateGitArgs:
+    """Tests for git argument validation."""
+
+    def test_empty_args_valid(self):
+        """Empty args should be valid."""
+        valid, error, normalized = validate_git_args("status", [])
+        assert valid
+        assert error == ""
+        assert normalized == []
+
+    def test_allowed_flag_accepted(self):
+        """Allowed flags should be accepted."""
+        valid, _error, normalized = validate_git_args("status", ["--porcelain"])
+        assert valid
+        assert "--porcelain" in normalized
+
+    def test_blocked_flag_rejected(self):
+        """Blocked flags should be rejected."""
+        valid, error, _normalized = validate_git_args("fetch", ["--upload-pack=/bin/sh"])
+        assert not valid
+        assert "not allowed" in error.lower()
+
+    def test_unknown_flag_rejected(self):
+        """Unknown flags should be rejected (allowlist approach)."""
+        valid, error, _normalized = validate_git_args("status", ["--malicious"])
+        assert not valid
+        assert "not allowed" in error.lower()
+
+    def test_config_override_blocked(self):
+        """Config override flags should be blocked."""
+        valid, error, _normalized = validate_git_args("fetch", ["-c", "core.sshCommand=evil"])
+        assert not valid
+        assert "not allowed" in error.lower()
+
+    def test_non_flag_args_passed_through(self):
+        """Non-flag arguments should pass through."""
+        valid, _error, normalized = validate_git_args("log", ["--max-count=5", "main"])
+        assert valid
+        assert "main" in normalized
+
+    def test_unknown_operation_rejected(self):
+        """Unknown operations should be rejected."""
+        valid, error, _normalized = validate_git_args("fake-command", [])
+        assert not valid
+        assert "unknown operation" in error.lower()
+
+    def test_nested_structure_rejected(self):
+        """Nested data structures in args should be rejected."""
+        valid, error, _normalized = validate_git_args("status", [["nested", "list"]])
+        assert not valid
+        assert "invalid argument type" in error.lower()
+
+    def test_numeric_flag_for_log(self):
+        """Numeric flags like -3 should be allowed for git log."""
+        valid, _error, normalized = validate_git_args("log", ["-3", "--oneline"])
+        assert valid
+        assert "--max-count=3" in normalized
+        assert "--oneline" in normalized
+
+    def test_numeric_flag_for_log_larger_number(self):
+        """Larger numeric flags like -10 should work."""
+        valid, _error, normalized = validate_git_args("log", ["-10"])
+        assert valid
+        assert "--max-count=10" in normalized
+
+    def test_numeric_flag_rejected_for_non_log(self):
+        """Numeric flags should be rejected for operations other than log."""
+        valid, error, _normalized = validate_git_args("status", ["-3"])
+        assert not valid
+        assert "numeric flag" in error.lower()
+
+    def test_double_dash_separator_allowed(self):
+        """The -- separator should be allowed for any operation."""
+        valid, _error, normalized = validate_git_args("checkout", ["--", "file.txt"])
+        assert valid
+        assert "--" in normalized
+        assert "file.txt" in normalized
+
+    def test_double_dash_with_log(self):
+        """The -- separator should work with log operation."""
+        valid, _error, normalized = validate_git_args("log", ["--oneline", "--", "path/to/file"])
+        assert valid
+        assert "--" in normalized
+
+    def test_merge_base_flags_accepted(self):
+        """merge-base flags should be accepted (issue #160)."""
+        # Test basic usage with refs
+        valid, _error, normalized = validate_git_args("merge-base", ["origin/main", "HEAD"])
+        assert valid
+        assert "origin/main" in normalized
+        assert "HEAD" in normalized
+
+        # Test --all flag
+        valid, _error, normalized = validate_git_args("merge-base", ["--all", "A", "B"])
+        assert valid
+        assert "--all" in normalized
+
+        # Test --is-ancestor flag
+        valid, _error, normalized = validate_git_args("merge-base", ["--is-ancestor", "A", "B"])
+        assert valid
+        assert "--is-ancestor" in normalized
+
+        # Test --fork-point flag
+        valid, _error, normalized = validate_git_args("merge-base", ["--fork-point", "origin/main"])
+        assert valid
+        assert "--fork-point" in normalized
+
+    def test_merge_base_unknown_flag_rejected(self):
+        """Unknown flags for merge-base should be rejected."""
+        valid, error, _normalized = validate_git_args("merge-base", ["--malicious"])
+        assert not valid
+        assert "not allowed" in error.lower()
+
+    def test_cat_file_allowed(self):
+        """cat-file -p <hash> should pass validation."""
+        valid, _error, normalized = validate_git_args("cat-file", ["-p", "abc123"])
+        assert valid
+        assert "-p" in normalized
+        assert "abc123" in normalized
+
+    def test_cat_file_type_and_size_allowed(self):
+        """cat-file -t and -s flags should pass validation."""
+        valid, _error, normalized = validate_git_args("cat-file", ["-t", "HEAD"])
+        assert valid
+        assert "-t" in normalized
+
+        valid, _error, normalized = validate_git_args("cat-file", ["-s", "HEAD"])
+        assert valid
+        assert "-s" in normalized
+
+    def test_cat_file_batch_allowed(self):
+        """cat-file --batch and --batch-check should pass validation."""
+        valid, _error, normalized = validate_git_args("cat-file", ["--batch"])
+        assert valid
+        assert "--batch" in normalized
+
+        valid, _error, normalized = validate_git_args("cat-file", ["--batch-check"])
+        assert valid
+        assert "--batch-check" in normalized
+
+    def test_cat_file_textconv_rejected(self):
+        """cat-file --textconv should be rejected (enables arbitrary code execution)."""
+        valid, error, _normalized = validate_git_args("cat-file", ["--textconv", "HEAD:file"])
+        assert not valid
+        assert "not allowed" in error.lower()
+
+    def test_cat_file_filters_rejected(self):
+        """cat-file --filters should be rejected (enables arbitrary code execution)."""
+        valid, error, _normalized = validate_git_args("cat-file", ["--filters", "HEAD:file"])
+        assert not valid
+        assert "not allowed" in error.lower()
+
+    def test_cat_file_blocked_flags(self):
+        """Unknown flags for cat-file should be rejected."""
+        valid, error, _normalized = validate_git_args("cat-file", ["--malicious"])
+        assert not valid
+        assert "not allowed" in error.lower()
+
+    def test_fetch_unshallow_allowed(self):
+        """fetch --unshallow should pass validation."""
+        valid, _error, normalized = validate_git_args("fetch", ["--unshallow"])
+        assert valid
+        assert "--unshallow" in normalized
+
+    def test_fetch_deepen_allowed(self):
+        """fetch --deepen=50 should pass validation."""
+        valid, _error, normalized = validate_git_args("fetch", ["--deepen=50"])
+        assert valid
+        assert "--deepen=50" in normalized
+
+    def test_merge_strategy_option_accepted(self):
+        """Merge -X with safe values should be accepted."""
+        # -X theirs (short flag, separate value)
+        valid, _error, normalized = validate_git_args("merge", ["-X", "theirs", "origin/main"])
+        assert valid
+        assert "--strategy-option=theirs" in normalized
+
+        # --strategy-option=ours (long flag, inline value)
+        valid, _error, normalized = validate_git_args(
+            "merge", ["--strategy-option=ours", "origin/main"]
+        )
+        assert valid
+        assert "--strategy-option=ours" in normalized
+
+        # -X patience
+        valid, _error, normalized = validate_git_args("merge", ["-X", "patience", "origin/main"])
+        assert valid
+        assert "--strategy-option=patience" in normalized
+
+        # -X ignore-space-change
+        valid, _error, normalized = validate_git_args("merge", ["-X", "ignore-space-change"])
+        assert valid
+        assert "--strategy-option=ignore-space-change" in normalized
+
+    def test_merge_strategy_option_unsafe_rejected(self):
+        """Merge -X with unsafe or unknown values should be rejected."""
+        # Arbitrary value rejected
+        valid, error, _normalized = validate_git_args("merge", ["-X", "evil-option"])
+        assert not valid
+        assert "not allowed" in error.lower()
+
+        # Inline arbitrary value rejected
+        valid, error, _normalized = validate_git_args("merge", ["--strategy-option=subtree=prefix"])
+        assert not valid
+        assert "not allowed" in error.lower()
+
+        # Missing value rejected
+        valid, error, _normalized = validate_git_args("merge", ["-X"])
+        assert not valid
+        assert "requires a value" in error.lower()
+
+        # Combined form -Xtheirs with unsafe value rejected
+        valid, error, _normalized = validate_git_args("merge", ["-Xevil-option"])
+        assert not valid
+        assert "not allowed" in error.lower()
+
+    def test_merge_strategy_option_combined_form(self):
+        """Merge -Xtheirs (combined, no space) should be accepted."""
+        # -Xtheirs (combined short flag + value)
+        valid, _error, normalized = validate_git_args("merge", ["-Xtheirs", "origin/main"])
+        assert valid
+        assert "--strategy-option=theirs" in normalized
+
+        # -Xours (combined short flag + value)
+        valid, _error, normalized = validate_git_args("merge", ["-Xours", "origin/main"])
+        assert valid
+        assert "--strategy-option=ours" in normalized
+
+    def test_merge_strategy_option_equals_short_form(self):
+        """-X=theirs (short flag with = separator) should be accepted."""
+        valid, _error, normalized = validate_git_args("merge", ["-X=theirs", "origin/main"])
+        assert valid
+        assert "--strategy-option=theirs" in normalized
+
+    def test_merge_multiple_strategy_options(self):
+        """Multiple -X flags should all be validated and accepted."""
+        valid, _error, normalized = validate_git_args(
+            "merge", ["-X", "theirs", "-X", "ignore-space-change", "origin/main"]
+        )
+        assert valid
+        assert "--strategy-option=theirs" in normalized
+        assert "--strategy-option=ignore-space-change" in normalized
+
+    def test_boolean_flag_combined_form_rejected(self):
+        """Boolean flags with appended text (e.g., -fgarbage) should be rejected."""
+        # -fgarbage should NOT become --force=garbage and pass
+        valid, error, _normalized = validate_git_args("push", ["-fgarbage", "origin", "main"])
+        assert not valid
+        assert "not allowed" in error.lower()
+
+        # -qfoo should NOT become --quiet=foo and pass
+        valid, error, _normalized = validate_git_args("merge", ["-qfoo", "origin/main"])
+        assert not valid
+        assert "not allowed" in error.lower()
+
+    def test_diff_tree_flags_accepted(self):
+        """diff-tree flags should be accepted."""
+        valid, _error, normalized = validate_git_args("diff-tree", ["--name-status", "-r", "HEAD"])
+        assert valid
+        assert "--name-status" in normalized
+        assert "-r" in normalized
+
+    def test_diff_tree_unknown_flag_rejected(self):
+        """Unknown flags for diff-tree should be rejected."""
+        valid, error, _normalized = validate_git_args("diff-tree", ["--exec=evil"])
+        assert not valid
+        assert "not allowed" in error.lower()
+
+    # --- Regression tests for per-subcommand flag normalization ---
+
+    def test_stash_u_accepted(self):
+        """git stash -u should work (normalizes to --include-untracked)."""
+        valid, _error, normalized = validate_git_args("stash", ["-u"])
+        assert valid
+        assert "--include-untracked" in normalized
+
+    def test_add_u_accepted(self):
+        """git add -u should work (normalizes to --update)."""
+        valid, _error, normalized = validate_git_args("add", ["-u"])
+        assert valid
+        assert "--update" in normalized
+
+    def test_switch_c_accepted(self):
+        """git switch -c should work (normalizes to --create)."""
+        valid, _error, normalized = validate_git_args("switch", ["-c", "new-branch"])
+        assert valid
+        assert "--create" in normalized
+
+    def test_ls_files_u_accepted(self):
+        """git ls-files -u should work (normalizes to --unmerged)."""
+        valid, _error, normalized = validate_git_args("ls-files", ["-u"])
+        assert valid
+        assert "--unmerged" in normalized
+
+    def test_ls_files_c_accepted(self):
+        """git ls-files -c should work (normalizes to --cached)."""
+        valid, _error, normalized = validate_git_args("ls-files", ["-c"])
+        assert valid
+        assert "--cached" in normalized
+
+    def test_cherry_pick_n_normalizes_to_no_commit(self):
+        """git cherry-pick -n should normalize to --no-commit, not --dry-run."""
+        valid, _error, normalized = validate_git_args("cherry-pick", ["-n", "abc123"])
+        assert valid
+        assert "--no-commit" in normalized
+        assert "--dry-run" not in normalized
+
+    def test_push_u_normalizes_to_set_upstream(self):
+        """git push -u should still normalize to --set-upstream."""
+        valid, _error, normalized = validate_git_args("push", ["-u", "origin", "main"])
+        assert valid
+        assert "--set-upstream" in normalized
+
+    def test_upload_pack_long_form_still_blocked(self):
+        """--upload-pack should still be blocked even though -u is not."""
+        valid, error, _normalized = validate_git_args("fetch", ["--upload-pack=/evil"])
+        assert not valid
+        assert "not allowed" in error.lower()
+
+    def test_config_long_form_still_blocked(self):
+        """--config should still be blocked even though -c is not."""
+        valid, error, _normalized = validate_git_args("fetch", ["--config=evil"])
+        assert not valid
+        assert "not allowed" in error.lower()
+
+    def test_checkout_t_normalizes_to_track(self):
+        """git checkout -t should normalize to --track (not --tags)."""
+        valid, _error, normalized = validate_git_args("checkout", ["-t", "origin/feature"])
+        assert valid
+        assert "--track" in normalized
+
+
+class TestGitAllowedCommands:
+    """Tests for the allowed commands configuration."""
+
+    def test_network_operations_defined(self):
+        """Network operations should be defined."""
+        assert "fetch" in GIT_ALLOWED_COMMANDS
+        assert "push" in GIT_ALLOWED_COMMANDS
+        assert "ls-remote" in GIT_ALLOWED_COMMANDS
+
+    def test_local_read_operations_defined(self):
+        """Local read operations should be defined."""
+        assert "status" in GIT_ALLOWED_COMMANDS
+        assert "log" in GIT_ALLOWED_COMMANDS
+        assert "diff" in GIT_ALLOWED_COMMANDS
+        assert "diff-tree" in GIT_ALLOWED_COMMANDS
+        assert "branch" in GIT_ALLOWED_COMMANDS
+        assert "merge-base" in GIT_ALLOWED_COMMANDS
+        assert "cat-file" in GIT_ALLOWED_COMMANDS
+
+    def test_local_write_operations_defined(self):
+        """Local write operations should be defined."""
+        assert "add" in GIT_ALLOWED_COMMANDS
+        assert "commit" in GIT_ALLOWED_COMMANDS
+        assert "checkout" in GIT_ALLOWED_COMMANDS
+        assert "reset" in GIT_ALLOWED_COMMANDS
+        assert "update-index" in GIT_ALLOWED_COMMANDS
+
+    def test_patch_operations_defined(self):
+        """Patch-related operations should be defined (issue #118)."""
+        assert "apply" in GIT_ALLOWED_COMMANDS
+        assert "format-patch" in GIT_ALLOWED_COMMANDS
+
+    def test_each_operation_has_allowed_flags(self):
+        """Each operation should have allowed_flags defined."""
+        for op, config in GIT_ALLOWED_COMMANDS.items():
+            assert "allowed_flags" in config, f"{op} missing allowed_flags"
+            assert isinstance(config["allowed_flags"], list), f"{op} allowed_flags not a list"
+
+
+class TestBlockedGitFlags:
+    """Tests for blocked flags configuration."""
+
+    def test_dangerous_flags_blocked(self):
+        """Known dangerous long-form flags should be blocked."""
+        assert "--upload-pack" in BLOCKED_GIT_FLAGS
+        assert "--exec" in BLOCKED_GIT_FLAGS
+        assert "--config" in BLOCKED_GIT_FLAGS
+        assert "--receive-pack" in BLOCKED_GIT_FLAGS
+
+    def test_short_u_and_c_not_globally_blocked(self):
+        """-u and -c should NOT be globally blocked (they are safe per-subcommand)."""
+        assert "-u" not in BLOCKED_GIT_FLAGS
+        assert "-c" not in BLOCKED_GIT_FLAGS
+
+
+class TestSshUrlConversion:
+    """Tests for SSH to HTTPS URL conversion."""
+
+    def test_git_at_format_converted(self):
+        """git@github.com:owner/repo.git format should be converted."""
+        result = ssh_url_to_https("git@github.com:owner/repo.git")
+        assert result == "https://github.com/owner/repo.git"
+
+    def test_git_at_without_extension(self):
+        """git@ format without .git should be converted."""
+        result = ssh_url_to_https("git@github.com:owner/repo")
+        assert result == "https://github.com/owner/repo.git"
+
+    def test_ssh_protocol_format_converted(self):
+        """ssh://git@github.com/owner/repo.git format should be converted."""
+        result = ssh_url_to_https("ssh://git@github.com/owner/repo.git")
+        assert result == "https://github.com/owner/repo.git"
+
+    def test_https_unchanged(self):
+        """HTTPS URLs should remain unchanged."""
+        url = "https://github.com/owner/repo.git"
+        assert ssh_url_to_https(url) == url
+
+    def test_unknown_format_unchanged(self):
+        """Unknown formats should remain unchanged."""
+        url = "file:///path/to/repo"
+        assert ssh_url_to_https(url) == url
+
+
+class TestIsSshUrl:
+    """Tests for SSH URL detection."""
+
+    def test_git_at_detected(self):
+        """git@ URLs should be detected as SSH."""
+        assert is_ssh_url("git@github.com:owner/repo.git")
+
+    def test_ssh_protocol_detected(self):
+        """ssh:// URLs should be detected as SSH."""
+        assert is_ssh_url("ssh://git@github.com/owner/repo.git")
+
+    def test_https_not_ssh(self):
+        """HTTPS URLs should not be detected as SSH."""
+        assert not is_ssh_url("https://github.com/owner/repo.git")
+
+    def test_file_not_ssh(self):
+        """file:// URLs should not be detected as SSH."""
+        assert not is_ssh_url("file:///path/to/repo")
+
+
+class TestIsUrlRemote:
+    """Tests for URL remote detection."""
+
+    def test_https_detected(self):
+        """HTTPS URLs should be detected as URL remotes."""
+        assert is_url_remote("https://github.com/owner/repo.git")
+
+    def test_git_at_detected(self):
+        """git@ URLs should be detected as URL remotes."""
+        assert is_url_remote("git@github.com:owner/repo.git")
+
+    def test_ssh_protocol_detected(self):
+        """ssh:// URLs should be detected as URL remotes."""
+        assert is_url_remote("ssh://git@github.com/owner/repo.git")
+
+    def test_http_rejected(self):
+        """Plain http:// should NOT be accepted — gateway uses HTTPS only."""
+        assert not is_url_remote("http://github.com/owner/repo.git")
+
+    def test_named_remote_not_detected(self):
+        """Named remotes like 'origin' should not be detected as URLs."""
+        assert not is_url_remote("origin")
+
+    def test_empty_string_not_detected(self):
+        """Empty string should not be detected as a URL remote."""
+        assert not is_url_remote("")
+
+
+class TestResolveRemoteUrl:
+    """Tests for resolve_remote_url helper."""
+
+    def test_https_url_returned_directly(self):
+        """HTTPS URL remotes should be returned without subprocess call."""
+        url, error = resolve_remote_url("https://github.com/owner/repo.git", "/tmp")
+        assert url == "https://github.com/owner/repo.git"
+        assert error is None
+
+    def test_ssh_url_returned_directly(self):
+        """SSH URL remotes should be returned without subprocess call."""
+        url, error = resolve_remote_url("git@github.com:owner/repo.git", "/tmp")
+        assert url == "git@github.com:owner/repo.git"
+        assert error is None
+
+    def test_http_url_calls_git_remote(self):
+        """http:// should NOT be treated as URL remote (falls through to git)."""
+        from unittest.mock import MagicMock, patch
+
+        with patch("subprocess.run") as mock_run:
+            mock_result = MagicMock()
+            mock_result.returncode = 0
+            mock_result.stdout = "https://github.com/owner/repo.git\n"
+            mock_run.return_value = mock_result
+
+            # http:// is not accepted as a URL remote, so it should call git
+            url, error = resolve_remote_url("http://github.com/owner/repo.git", "/tmp")
+            assert mock_run.called
+            assert url == "https://github.com/owner/repo.git"
+            assert error is None
+
+
+class TestGitHubClientExecuteEnvironment:
+    """Tests for GitHubClient.execute() environment configuration.
+
+    When gh commands run git internally (e.g., gh pr checkout runs git fetch),
+    the environment must include git URL rewrite config to convert SSH URLs
+    to HTTPS, since the gateway uses token auth not SSH keys.
+    """
+
+    def test_execute_env_includes_ssh_url_rewrite(self):
+        """execute() environment should include SSH to HTTPS URL rewrite config."""
+        from unittest.mock import MagicMock, patch
+
+        from github_client import GitHubClient
+
+        client = GitHubClient()
+
+        with (
+            patch.object(client, "get_token_for_mode", return_value="test-token"),
+            patch("github_client.subprocess.run") as mock_run,
+        ):
+            mock_run.return_value = MagicMock(returncode=0, stdout="success", stderr="")
+
+            client.execute(["pr", "view", "123"])
+
+            # Verify subprocess.run was called
+            assert mock_run.called
+            call_kwargs = mock_run.call_args.kwargs
+            env = call_kwargs.get("env", {})
+
+            # Verify SSH URL rewrite config is present
+            assert env.get("GIT_CONFIG_COUNT") == "3"
+
+            # Check for git@github.com: rewrite
+            found_git_at = False
+            found_ssh_protocol = False
+            for i in range(3):
+                key = env.get(f"GIT_CONFIG_KEY_{i}", "")
+                value = env.get(f"GIT_CONFIG_VALUE_{i}", "")
+                if "insteadOf" in key and value == "git@github.com:":
+                    found_git_at = True
+                if "insteadOf" in key and value == "ssh://git@github.com/":
+                    found_ssh_protocol = True
+
+            assert found_git_at, "Missing URL rewrite for git@github.com: format"
+            assert found_ssh_protocol, "Missing URL rewrite for ssh://git@github.com/ format"
+
+
+class TestGetChangedFilesInPush:
+    """Tests for getting changed files in a push."""
+
+    def test_successful_diff(self):
+        """Should return files from git diff output."""
+        from unittest.mock import MagicMock, patch
+
+        with patch("subprocess.run") as mock_run:
+            mock_result = MagicMock()
+            mock_result.returncode = 0
+            mock_result.stdout = "file1.py\nfile2.py\ndir/file3.txt\n"
+            mock_run.return_value = mock_result
+
+            files, error = get_changed_files_in_push("/fake/repo", "origin", "branch")
+
+            assert error is None
+            assert files == ["file1.py", "file2.py", "dir/file3.txt"]
+
+    def test_timeout_returns_error(self):
+        """Should return error on timeout."""
+        from subprocess import TimeoutExpired
+        from unittest.mock import patch
+
+        with patch("subprocess.run") as mock_run:
+            mock_run.side_effect = TimeoutExpired(cmd="git diff", timeout=30)
+
+            files, error = get_changed_files_in_push("/fake/repo", "origin", "branch")
+
+            assert files == []
+            assert "Timeout" in error
+
+    def test_empty_output(self):
+        """Should handle empty diff output."""
+        from unittest.mock import MagicMock, patch
+
+        with patch("subprocess.run") as mock_run:
+            mock_result = MagicMock()
+            mock_result.returncode = 0
+            mock_result.stdout = ""
+            mock_run.return_value = mock_result
+
+            files, error = get_changed_files_in_push("/fake/repo", "origin", "branch")
+
+            assert error is None
+            assert files == []
+
+    def test_all_remotes_fail_returns_error(self):
+        """When all git diff attempts fail, should return error (fail closed)."""
+        from unittest.mock import MagicMock, patch
+
+        with patch("subprocess.run") as mock_run:
+            # All attempts fail
+            mock_result = MagicMock()
+            mock_result.returncode = 128
+            mock_result.stderr = "fatal: ambiguous argument"
+            mock_run.return_value = mock_result
+
+            files, error = get_changed_files_in_push("/fake/repo", "origin", "branch")
+
+            # SECURITY: Should fail closed with error
+            assert files == []
+            assert error is not None
+            assert "blocked for security" in error.lower()
+
+    def test_uses_two_dot_syntax(self):
+        """Should use two-dot syntax (..) not three-dot (...) for accuracy."""
+        from unittest.mock import MagicMock, patch
+
+        with patch("subprocess.run") as mock_run:
+            mock_result = MagicMock()
+            mock_result.returncode = 0
+            mock_result.stdout = "file.py\n"
+            mock_run.return_value = mock_result
+
+            get_changed_files_in_push("/fake/repo", "origin", "feature")
+
+            # Check that the command uses two-dot syntax
+            call_args = mock_run.call_args[0][0]
+            assert any(".." in arg and "..." not in arg for arg in call_args), (
+                f"Expected two-dot syntax (..) in git diff, got: {call_args}"
+            )
+
+
+class TestIsBranchSwitchingCheckout:
+    """Tests for is_branch_switching_checkout()."""
+
+    def test_bare_checkout_is_noop(self):
+        """git checkout with no args is a no-op, not branch switching."""
+        assert not is_branch_switching_checkout([])
+
+    def test_checkout_branch_name_is_switching(self):
+        """git checkout <branch> is branch switching."""
+        assert is_branch_switching_checkout(["main"])
+        assert is_branch_switching_checkout(["origin/main"])
+        assert is_branch_switching_checkout(["egg/feature-branch"])
+
+    def test_checkout_b_is_switching(self):
+        """git checkout -b <branch> is branch creation/switching."""
+        assert is_branch_switching_checkout(["-b", "new-branch"])
+        assert is_branch_switching_checkout(["-b", "egg/fix", "origin/main"])
+
+    def test_checkout_B_is_switching(self):
+        """git checkout -B <branch> is branch creation/switching."""
+        assert is_branch_switching_checkout(["-B", "new-branch"])
+
+    def test_checkout_double_dash_is_file_restore(self):
+        """git checkout -- <file> is a file restore."""
+        assert not is_branch_switching_checkout(["--", "file.txt"])
+        assert not is_branch_switching_checkout(["--", "src/main.py", "README.md"])
+
+    def test_checkout_ours_is_file_restore(self):
+        """git checkout --ours <file> is merge conflict resolution."""
+        assert not is_branch_switching_checkout(["--ours", "file.txt"])
+
+    def test_checkout_theirs_is_file_restore(self):
+        """git checkout --theirs <file> is merge conflict resolution."""
+        assert not is_branch_switching_checkout(["--theirs", "file.txt"])
+
+    def test_checkout_merge_is_file_restore(self):
+        """git checkout --merge <file> is merge conflict resolution."""
+        assert not is_branch_switching_checkout(["--merge", "file.txt"])
+
+    def test_checkout_force_with_branch_is_switching(self):
+        """git checkout --force <branch> is branch switching."""
+        assert is_branch_switching_checkout(["--force", "main"])
+
+    def test_checkout_quiet_no_args_is_noop(self):
+        """git checkout --quiet with no positional args is not switching."""
+        assert not is_branch_switching_checkout(["--quiet"])
+
+    def test_checkout_track_is_switching(self):
+        """git checkout --track <remote-branch> is branch switching."""
+        assert is_branch_switching_checkout(["--track", "origin/feature"])
+        # Note: -t is normalized to --track for checkout (per-subcommand),
+        # so validate_git_args() normalizes it before is_branch_switching_checkout() sees it.
+
+
+class TestIsBranchSwitchingOperation:
+    """Tests for is_branch_switching_operation()."""
+
+    def test_switch_is_switching(self):
+        """git switch with args is branch switching."""
+        assert is_branch_switching_operation("switch", ["main"])
+        assert is_branch_switching_operation("switch", ["--create", "new-branch"])
+
+    def test_bare_switch_is_noop(self):
+        """git switch with no args just prints the current branch — not switching."""
+        assert not is_branch_switching_operation("switch", [])
+
+    def test_checkout_delegates_to_checkout_check(self):
+        """checkout delegates to is_branch_switching_checkout."""
+        # Branch switching
+        assert is_branch_switching_operation("checkout", ["main"])
+        assert is_branch_switching_operation("checkout", ["-b", "new-branch"])
+        # File restore
+        assert not is_branch_switching_operation("checkout", ["--", "file.txt"])
+        assert not is_branch_switching_operation("checkout", ["--ours", "file.txt"])
+
+    def test_other_operations_not_switching(self):
+        """Other git operations are not branch switching."""
+        assert not is_branch_switching_operation("status", [])
+        assert not is_branch_switching_operation("commit", ["-m", "msg"])
+        assert not is_branch_switching_operation("restore", ["--staged", "file.txt"])
+        assert not is_branch_switching_operation("log", ["--oneline"])
+
+
+if __name__ == "__main__":
+    pytest.main([__file__, "-v"])

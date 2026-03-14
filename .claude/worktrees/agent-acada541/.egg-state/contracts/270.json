@@ -1,0 +1,425 @@
+{
+  "schemaVersion": "1.0",
+  "issue": {
+    "number": 270,
+    "title": "Add review cycles to refine and plan phases",
+    "url": "https://github.com/jwbron/egg/issues/270"
+  },
+  "current_phase": "implement",
+  "acceptance_criteria": [
+    {
+      "id": "ac-1",
+      "description": "[TASK-1-1] Script outputs hardcoded reviewer prompt evaluating analysis quality criteria",
+      "verified": false
+    },
+    {
+      "id": "ac-2",
+      "description": "[TASK-1-2] Job runs after refine, invokes reviewer agent, outputs review_passed boolean",
+      "verified": false
+    },
+    {
+      "id": "ac-3",
+      "description": "[TASK-1-3] Reviewer feedback parsed and stored in contract phase.review_feedback field",
+      "verified": false
+    },
+    {
+      "id": "ac-4",
+      "description": "[TASK-1-4] Review failure triggers re-dispatch when cycles < max; escalates when >= max",
+      "verified": false
+    },
+    {
+      "id": "ac-5",
+      "description": "[TASK-2-1] Script outputs hardcoded reviewer prompt evaluating plan quality criteria",
+      "verified": false
+    },
+    {
+      "id": "ac-6",
+      "description": "[TASK-2-2] Job runs after plan, invokes reviewer agent, outputs review_passed boolean",
+      "verified": false
+    },
+    {
+      "id": "ac-7",
+      "description": "[TASK-2-3] Reviewer feedback parsed and stored in contract phase.review_feedback field",
+      "verified": false
+    },
+    {
+      "id": "ac-8",
+      "description": "[TASK-2-4] Review failure triggers re-dispatch when cycles < max; escalates when >= max",
+      "verified": false
+    },
+    {
+      "id": "ac-9",
+      "description": "[TASK-3-1] If phase.review_feedback exists, inject it into refine/plan prompt with instructions",
+      "verified": false
+    },
+    {
+      "id": "ac-10",
+      "description": "[TASK-3-2] Contract phase entry has review_cycles=0 and empty review_feedback on creation",
+      "verified": false
+    },
+    {
+      "id": "ac-11",
+      "description": "[TASK-4-1] refine-review runs after refine; plan-review runs after plan; human gates unchanged",
+      "verified": false
+    },
+    {
+      "id": "ac-12",
+      "description": "[TASK-4-2] If circuit breaker is open, skip review job and proceed to human intervention",
+      "verified": false
+    },
+    {
+      "id": "ac-13",
+      "description": "[TASK-4-3] Phase tracking correctly reflects review cycles across re-dispatches",
+      "verified": false
+    },
+    {
+      "id": "ac-14",
+      "description": "[TASK-5-1] Test verifies refine -> review -> feedback -> re-dispatch flow",
+      "verified": false
+    },
+    {
+      "id": "ac-15",
+      "description": "[TASK-5-2] Test verifies plan -> review -> feedback -> re-dispatch flow",
+      "verified": false
+    },
+    {
+      "id": "ac-16",
+      "description": "[TASK-5-3] Test verifies circuit breaker opens after 3 failed review cycles",
+      "verified": false
+    },
+    {
+      "id": "ac-17",
+      "description": "[TASK-5-4] docs/sdlc/pipeline.md updated to describe review cycles",
+      "verified": false
+    }
+  ],
+  "phases": [
+    {
+      "id": "phase-1",
+      "name": "Create Refine Review Infrastructure",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-1-1",
+          "description": "Create build-refine-review-prompt.sh script",
+          "status": "pending",
+          "acceptance_criteria": "Script outputs hardcoded reviewer prompt evaluating analysis quality criteria",
+          "files_affected": [
+            "action/build-refine-review-prompt.sh"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-1-2",
+          "description": "Add refine-review job to sdlc-pipeline.yml",
+          "status": "pending",
+          "acceptance_criteria": "Job runs after refine, invokes reviewer agent, outputs review_passed boolean",
+          "files_affected": [
+            ".github/workflows/sdlc-pipeline.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-1-3",
+          "description": "Add feedback extraction logic in refine-review",
+          "status": "pending",
+          "acceptance_criteria": "Reviewer feedback parsed and stored in contract phase.review_feedback field",
+          "files_affected": [
+            ".github/workflows/sdlc-pipeline.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-1-4",
+          "description": "Implement re-dispatch logic for refine",
+          "status": "pending",
+          "acceptance_criteria": "Review failure triggers re-dispatch when cycles < max; escalates when >= max",
+          "files_affected": [
+            ".github/workflows/sdlc-pipeline.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-2",
+      "name": "Create Plan Review Infrastructure",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-2-1",
+          "description": "Create build-plan-review-prompt.sh script",
+          "status": "pending",
+          "acceptance_criteria": "Script outputs hardcoded reviewer prompt evaluating plan quality criteria",
+          "files_affected": [
+            "action/build-plan-review-prompt.sh"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-2-2",
+          "description": "Add plan-review job to sdlc-pipeline.yml",
+          "status": "pending",
+          "acceptance_criteria": "Job runs after plan, invokes reviewer agent, outputs review_passed boolean",
+          "files_affected": [
+            ".github/workflows/sdlc-pipeline.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-2-3",
+          "description": "Add feedback extraction logic in plan-review",
+          "status": "pending",
+          "acceptance_criteria": "Reviewer feedback parsed and stored in contract phase.review_feedback field",
+          "files_affected": [
+            ".github/workflows/sdlc-pipeline.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-2-4",
+          "description": "Implement re-dispatch logic for plan",
+          "status": "pending",
+          "acceptance_criteria": "Review failure triggers re-dispatch when cycles < max; escalates when >= max",
+          "files_affected": [
+            ".github/workflows/sdlc-pipeline.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-3",
+      "name": "Integrate Feedback into Producer Prompts",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-3-1",
+          "description": "Modify build-sdlc-prompt.sh to include prior review feedback",
+          "status": "pending",
+          "acceptance_criteria": "If phase.review_feedback exists, inject it into refine/plan prompt with instructions",
+          "files_affected": [
+            "action/build-sdlc-prompt.sh"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-3-2",
+          "description": "Add phase initialization for review tracking",
+          "status": "pending",
+          "acceptance_criteria": "Contract phase entry has review_cycles=0 and empty review_feedback on creation",
+          "files_affected": [
+            ".github/workflows/sdlc-pipeline.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-4",
+      "name": "Update Workflow Dependencies and Human Approval Gates",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-4-1",
+          "description": "Update job dependencies in workflow",
+          "status": "pending",
+          "acceptance_criteria": "refine-review runs after refine; plan-review runs after plan; human gates unchanged",
+          "files_affected": [
+            ".github/workflows/sdlc-pipeline.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-4-2",
+          "description": "Add conditional logic to skip review on escalation",
+          "status": "pending",
+          "acceptance_criteria": "If circuit breaker is open, skip review job and proceed to human intervention",
+          "files_affected": [
+            ".github/workflows/sdlc-pipeline.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-4-3",
+          "description": "Ensure contract phase tracking is consistent",
+          "status": "pending",
+          "acceptance_criteria": "Phase tracking correctly reflects review cycles across re-dispatches",
+          "files_affected": [
+            ".github/workflows/sdlc-pipeline.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-5",
+      "name": "Testing and Documentation",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-5-1",
+          "description": "Add integration test for refine review cycle",
+          "status": "pending",
+          "acceptance_criteria": "Test verifies refine -> review -> feedback -> re-dispatch flow",
+          "files_affected": [
+            "integration_tests/sdlc/test_refine_plan_review_cycles.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-5-2",
+          "description": "Add integration test for plan review cycle",
+          "status": "pending",
+          "acceptance_criteria": "Test verifies plan -> review -> feedback -> re-dispatch flow",
+          "files_affected": [
+            "integration_tests/sdlc/test_refine_plan_review_cycles.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-5-3",
+          "description": "Add integration test for escalation after max cycles",
+          "status": "pending",
+          "acceptance_criteria": "Test verifies circuit breaker opens after 3 failed review cycles",
+          "files_affected": [
+            "integration_tests/sdlc/test_refine_plan_review_cycles.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-5-4",
+          "description": "Update SDLC documentation",
+          "status": "pending",
+          "acceptance_criteria": "docs/sdlc/pipeline.md updated to describe review cycles",
+          "files_affected": [
+            "docs/sdlc/pipeline.md"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    }
+  ],
+  "decisions": [],
+  "circuit_breaker": {
+    "total_cycles": 0,
+    "max_total_cycles": 10,
+    "status": "closed"
+  },
+  "workflow_owner": "jwbron",
+  "audit_log": [
+    {
+      "timestamp": "2026-02-08T09:20:06Z",
+      "actor": "jwbron",
+      "role": "human",
+      "action": "transition",
+      "field_path": "current_phase",
+      "old_value": "refine",
+      "new_value": "plan",
+      "reason": "Phase approved by human"
+    },
+    {
+      "timestamp": "2026-02-08T09:30:25Z",
+      "actor": "jwbron",
+      "role": "human",
+      "action": "transition",
+      "field_path": "current_phase",
+      "old_value": "plan",
+      "new_value": "implement",
+      "reason": "Phase approved by human"
+    }
+  ]
+}

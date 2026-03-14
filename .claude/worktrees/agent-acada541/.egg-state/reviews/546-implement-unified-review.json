@@ -1,0 +1,7 @@
+{
+  "reviewer": "unified",
+  "verdict": "approved",
+  "summary": "Multi-agent wave execution wired into local pipeline runner for implement and plan phases. Plan-phase roles (ARCHITECT, TASK_PLANNER, RISK_ANALYST) with correct dependency graph. Reviewer roles (UNIFIED, CODE, CONTRACT, AGENT_DESIGN) with read-only file access. CLI flags, PhaseAgentConfig, and per-phase overrides added. 14 new integration tests, all 3226 tests pass, lint clean. Conflict resolution is scaffolded (detect_write_overlaps + conflicts field) but the actual git merge-attempt after wave completion is not yet implemented — acceptable as the feature is opt-in and this provides a solid foundation for a follow-up.",
+  "feedback": "",
+  "timestamp": "2026-02-14T03:45:00Z"
+}

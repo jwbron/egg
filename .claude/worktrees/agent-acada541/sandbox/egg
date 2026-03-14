@@ -1,0 +1,43 @@
+#!/usr/bin/env python3
+"""
+egg - Run Claude Code CLI in an isolated Docker container
+
+Prevents AI agents from accessing credentials while allowing full code editing.
+
+Platform Support:
+  - Linux (x86_64, ARM64): Fully supported
+  - macOS (Intel, Apple Silicon): Fully supported
+"""
+
+import sys
+from pathlib import Path
+
+# Add sandbox directory to path for egg_lib imports
+_SCRIPT_DIR = Path(__file__).parent.resolve()
+if str(_SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(_SCRIPT_DIR))
+
+# Add shared modules to path (relative to sandbox directory)
+_SHARED_DIR = _SCRIPT_DIR.parent / "shared"
+if _SHARED_DIR.exists() and str(_SHARED_DIR) not in sys.path:
+    sys.path.insert(0, str(_SHARED_DIR))
+
+# Re-export all public symbols for backward compatibility
+# Tests use SourceFileLoader("egg", ...) and expect egg.Colors, egg.Config, etc.
+from egg_lib import *
+from egg_lib.cli import main
+from egg_lib.output import error, warn
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main())
+    except KeyboardInterrupt:
+        print()
+        warn("Interrupted by user")
+        sys.exit(0)
+    except Exception as e:
+        error(f"Unexpected error: {e}")
+        import traceback
+
+        traceback.print_exc()
+        sys.exit(1)

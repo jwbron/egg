@@ -1,0 +1,286 @@
+{
+  "schemaVersion": "1.0",
+  "issue": {
+    "number": 391,
+    "title": "don't re-run PR checks when a draft PR is marked as ready for review",
+    "url": "https://github.com/jwbron/egg/issues/391"
+  },
+  "current_phase": "pr",
+  "acceptance_criteria": [
+    {
+      "id": "ac-1",
+      "description": "[TASK-1-1] Token is generated and available for API calls",
+      "verified": false
+    },
+    {
+      "id": "ac-2",
+      "description": "[TASK-1-2] Current HEAD SHA is captured in a job output",
+      "verified": false
+    },
+    {
+      "id": "ac-3",
+      "description": "[TASK-1-3] Step searches reviews and comments for automated review marker matching current HEAD",
+      "verified": false
+    },
+    {
+      "id": "ac-4",
+      "description": "[TASK-1-4] Review skipped when marker found; workflow_dispatch bypasses check",
+      "verified": false
+    },
+    {
+      "id": "ac-5",
+      "description": "[TASK-2-1] Logs clearly indicate why review was skipped with bot name and commit SHA",
+      "verified": false
+    },
+    {
+      "id": "ac-6",
+      "description": "[TASK-3-1] Opening new draft PR triggers review workflow",
+      "verified": false
+    },
+    {
+      "id": "ac-7",
+      "description": "[TASK-3-2] Marking draft ready does not re-run review if no new commits",
+      "verified": false
+    },
+    {
+      "id": "ac-8",
+      "description": "[TASK-3-3] Pushing new commits triggers new review",
+      "verified": false
+    },
+    {
+      "id": "ac-9",
+      "description": "[TASK-3-4] Manual dispatch re-runs review regardless of previous reviews",
+      "verified": false
+    },
+    {
+      "id": "ac-10",
+      "description": "[TASK-3-5] Code Review and Design Review track markers independently",
+      "verified": false
+    }
+  ],
+  "phases": [
+    {
+      "id": "phase-1",
+      "name": "Add Already-Reviewed Check",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-1-1",
+          "description": "Add GitHub App token generation to should-run job",
+          "status": "pending",
+          "acceptance_criteria": "Token is generated and available for API calls",
+          "files_affected": [
+            ".github/workflows/reusable-review.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-1-2",
+          "description": "Add PR HEAD SHA retrieval step",
+          "status": "pending",
+          "acceptance_criteria": "Current HEAD SHA is captured in a job output",
+          "files_affected": [
+            ".github/workflows/reusable-review.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-1-3",
+          "description": "Add marker detection step to check for existing review",
+          "status": "pending",
+          "acceptance_criteria": "Step searches reviews and comments for automated review marker matching current HEAD",
+          "files_affected": [
+            ".github/workflows/reusable-review.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-1-4",
+          "description": "Integrate already-reviewed check into decision logic",
+          "status": "pending",
+          "acceptance_criteria": "Review skipped when marker found; workflow_dispatch bypasses check",
+          "files_affected": [
+            ".github/workflows/reusable-review.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-2",
+      "name": "Add Informational Logging",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-2-1",
+          "description": "Add informational output when skipping due to already-reviewed",
+          "status": "pending",
+          "acceptance_criteria": "Logs clearly indicate why review was skipped with bot name and commit SHA",
+          "files_affected": [
+            ".github/workflows/reusable-review.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-3",
+      "name": "Testing and Validation",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-3-1",
+          "description": "Test new draft PR triggers review",
+          "status": "pending",
+          "acceptance_criteria": "Opening new draft PR triggers review workflow",
+          "files_affected": [],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-3-2",
+          "description": "Test ready_for_review skips when same commit reviewed",
+          "status": "pending",
+          "acceptance_criteria": "Marking draft ready does not re-run review if no new commits",
+          "files_affected": [],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-3-3",
+          "description": "Test synchronize event triggers new review",
+          "status": "pending",
+          "acceptance_criteria": "Pushing new commits triggers new review",
+          "files_affected": [],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-3-4",
+          "description": "Test workflow_dispatch always runs",
+          "status": "pending",
+          "acceptance_criteria": "Manual dispatch re-runs review regardless of previous reviews",
+          "files_affected": [],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-3-5",
+          "description": "Test different bots track separately",
+          "status": "pending",
+          "acceptance_criteria": "Code Review and Design Review track markers independently",
+          "files_affected": [],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    }
+  ],
+  "decisions": [],
+  "circuit_breaker": {
+    "total_cycles": 0,
+    "max_total_cycles": 10,
+    "status": "closed"
+  },
+  "workflow_owner": "jwbron",
+  "audit_log": [
+    {
+      "timestamp": "2026-02-08T23:54:25Z",
+      "actor": "system",
+      "role": "reviewer",
+      "action": "update",
+      "field_path": "refine_review_cycles",
+      "old_value": 0,
+      "new_value": 1,
+      "reason": "Refine review cycle 1: approved"
+    },
+    {
+      "timestamp": "2026-02-09T00:04:45Z",
+      "actor": "jwbron",
+      "role": "human",
+      "action": "transition",
+      "field_path": "current_phase",
+      "old_value": "refine",
+      "new_value": "plan",
+      "reason": "Phase approved by human"
+    },
+    {
+      "timestamp": "2026-02-09T00:09:24Z",
+      "actor": "system",
+      "role": "reviewer",
+      "action": "update",
+      "field_path": "plan_review_cycles",
+      "old_value": 0,
+      "new_value": 1,
+      "reason": "Plan review cycle 1: approved"
+    },
+    {
+      "timestamp": "2026-02-09T00:35:21Z",
+      "actor": "jwbron",
+      "role": "human",
+      "action": "transition",
+      "field_path": "current_phase",
+      "old_value": "plan",
+      "new_value": "implement",
+      "reason": "Phase approved by human"
+    }
+  ],
+  "refine_review_cycles": 1,
+  "refine_review_feedback": "",
+  "plan_review_cycles": 1,
+  "plan_review_feedback": "",
+  "pr": {
+    "title": "Skip AI reviews when commit already reviewed",
+    "description": "Prevents redundant AI review runs when a draft PR is marked as ready for\nreview. When the `ready_for_review` event fires, the workflow now checks\nif the current HEAD commit was already reviewed by the same bot and skips\nif so. This saves compute resources and API costs.\n\nCloses #391"
+  }
+}

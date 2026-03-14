@@ -1,0 +1,211 @@
+#!/bin/bash
+set -e
+
+# =============================================================================
+# Gateway Sidecar Entrypoint
+#
+# Starts the gateway API server and Squid proxy for network filtering.
+#
+# The gateway always runs with locked-down Squid (allows only api.anthropic.com).
+# Per-container mode is enforced at the container level:
+# - Private containers: Use isolated network + route through this proxy
+# - Public containers: Use external network + bypass proxy (direct internet)
+#
+# This allows private and public containers to run simultaneously without
+# gateway restarts.
+#
+# PORT CONFIGURATION:
+# The gateway uses hardcoded port values (9848 for API, 3129 for proxy).
+# These are the source of truth - the Python constants in
+# shared/egg_config/constants.py must match these values.
+# Shell scripts cannot import Python modules, so gateway scripts define
+# the ports directly. If ports need to change, update both locations.
+# =============================================================================
+
+echo "=== Gateway Sidecar Starting (Per-Container Mode Architecture) ==="
+echo "  Squid: Locked (api.anthropic.com only)"
+echo "  Private containers: Use proxy on isolated network"
+echo "  Public containers: Bypass proxy on external network"
+echo ""
+
+# Always use locked-down Squid (only private containers route through it)
+# Note: PRIVATE_MODE env var is no longer used - mode is per-container via sessions
+SQUID_CONF="/etc/squid/squid.conf"
+
+# =============================================================================
+# Generate CA Certificate for SSL Bump (Credential Injection)
+# =============================================================================
+
+echo "Checking CA certificate for SSL bump..."
+/usr/local/bin/generate-ca-cert.sh
+
+# Copy CA cert to shared volume for container trust store
+# The sandbox entrypoint will add this to its trust store
+if [[ -d "/shared/certs" ]]; then
+    cp /etc/squid/certs/gateway-ca.crt /shared/certs/
+    chmod 644 /shared/certs/gateway-ca.crt
+    echo "CA certificate copied to shared volume"
+else
+    echo "Note: /shared/certs not mounted - containers will need manual CA setup"
+fi
+
+# Note: GitHub tokens are now managed in-memory by token_refresher.py
+# We only need to verify the launcher secret is mounted
+if [ ! -f "/secrets/launcher-secret" ]; then
+    echo "ERROR: /secrets/launcher-secret not mounted"
+    exit 1
+fi
+
+# Export launcher secret for authentication
+EGG_LAUNCHER_SECRET=$(cat /secrets/launcher-secret)
+export EGG_LAUNCHER_SECRET
+
+# github_client.py reads directly from /secrets/.github-token
+# No symlinks needed since we mount the directory
+
+# =============================================================================
+# Start Squid Proxy for Network Filtering
+# =============================================================================
+
+echo "Starting Squid proxy for network filtering..."
+echo "Using config: $SQUID_CONF"
+
+# Ensure log and spool directories exist and are writable
+# Note: We may not have permission to chown (running as non-root), so we
+# check writability directly and configure Squid to run with current user.
+mkdir -p /var/log/squid /var/spool/squid
+
+# Try to set ownership for squid's preferred user, but don't fail if we can't
+if chown -R proxy:proxy /var/log/squid /var/spool/squid 2>/dev/null; then
+    echo "  Log directories owned by proxy:proxy"
+else
+    # Running as non-root - verify directories are writable
+    if [ -w /var/log/squid ] && [ -w /var/spool/squid ]; then
+        echo "  Log directories writable by current user ($(id -un))"
+    else
+        echo "WARNING: Log directories may not be writable - Squid logging may fail"
+    fi
+fi
+
+# Initialize cache directories if needed
+if [ ! -d "/var/spool/squid/00" ]; then
+    /usr/sbin/squid -z -N 2>/dev/null || true
+fi
+
+# Verify Squid configuration exists
+if [ ! -f "$SQUID_CONF" ]; then
+    echo "ERROR: Squid configuration not found: $SQUID_CONF"
+    exit 1
+fi
+# Only check allowed_domains.txt in lockdown mode (not used in allow-all mode)
+if [ "$SQUID_CONF" = "/etc/squid/squid.conf" ] && [ ! -f "/etc/squid/allowed_domains.txt" ]; then
+    echo "ERROR: Allowed domains file not found: /etc/squid/allowed_domains.txt"
+    exit 1
+fi
+
+# Start Squid in daemon mode
+/usr/sbin/squid -f "$SQUID_CONF"
+
+# Wait for Squid to start
+elapsed=0
+max_wait=30
+while [ $elapsed -lt $max_wait ]; do
+    if /usr/sbin/squid -k check 2>/dev/null; then
+        echo "Squid proxy started successfully on port 3129"
+        break
+    fi
+    sleep 1
+    elapsed=$((elapsed + 1))
+    echo "Waiting for Squid to start... ($elapsed/$max_wait)"
+done
+
+if [ $elapsed -ge $max_wait ]; then
+    echo "ERROR: Squid failed to start within $max_wait seconds"
+    cat /var/log/squid/cache.log 2>/dev/null || true
+    exit 1
+fi
+
+# =============================================================================
+# Run Configuration Validation
+# =============================================================================
+
+echo "Validating configuration..."
+if ! python3 config_validator.py 2>/dev/null; then
+    echo "WARNING: Configuration validation had warnings (continuing anyway)"
+fi
+
+# =============================================================================
+# Start Gateway API Server
+# =============================================================================
+
+echo "Starting gateway API server on port 9848..."
+
+# Run gateway on all interfaces (for container networking)
+# Use exec to replace shell process with Python for proper signal handling
+#
+# If HOST_UID/HOST_GID are set, drop privileges using gosu before starting
+# the Python gateway. This is required because:
+# - Container starts as root so Squid can read its certificate
+# - Gateway Python code must run as host user to avoid root-owned git files
+# Determine git identity - prefer user mode config if set, otherwise use bot defaults
+GIT_NAME="${EGG_USER_GIT_NAME:-egg}"
+GIT_EMAIL="${EGG_USER_GIT_EMAIL:-egg@example.com}"
+
+if [ -n "${HOST_UID:-}" ] && [ -n "${HOST_GID:-}" ] && [ "$(id -u)" = "0" ]; then
+    echo "Dropping privileges to UID=$HOST_UID GID=$HOST_GID"
+    # Defense-in-depth fallback: the passwd entry created below is the primary
+    # mechanism that makes gosu resolve HOME=/home/egg, but we export it here
+    # too in case the useradd/passwd lookup fails for any reason.
+    export HOME=/home/egg
+
+    # Ensure the target UID has a passwd entry pointing to /home/egg.
+    # Without this, gosu defaults HOME="/" for unknown UIDs, causing
+    # git config and Path.home() to fail with Permission denied on /.gitconfig.
+    if ! getent passwd "$HOST_UID" > /dev/null 2>&1; then
+        getent group "$HOST_GID" > /dev/null 2>&1 || groupadd -g "$HOST_GID" egghost 2>/dev/null || true
+        useradd -u "$HOST_UID" -g "$HOST_GID" -d /home/egg -s /bin/bash -M -N egghost 2>/dev/null || true
+    fi
+    chown "$HOST_UID:$HOST_GID" /home/egg
+    # Also chown Docker volume mount points - these are separate filesystems
+    # from /home/egg and are root-owned by default. The gateway process needs
+    # write access after gosu drops privileges.
+    for vol_dir in /home/egg/.egg-state /home/egg/.egg-worktrees; do
+        if [ -d "$vol_dir" ]; then
+            chown -R "$HOST_UID:$HOST_GID" "$vol_dir"
+        fi
+    done
+    # Chown repo bind-mount points — Docker bind mounts preserve host
+    # ownership, so these directories may be root-owned inside the
+    # container. Only chown the top-level directories (not recursive) —
+    # repo file contents are managed by git/gateway worktree operations.
+    # Also chown .git/worktrees/ in each repo so the gateway can create
+    # worktree admin dirs even if a previous root-privileged session left
+    # them root-owned (e.g., sessions before HOST_UID privilege drop was
+    # introduced).
+    if [ -d /home/egg/repos ]; then
+        chown "$HOST_UID:$HOST_GID" /home/egg/repos
+        for repo_dir in /home/egg/repos/*/; do
+            if [ -d "$repo_dir" ]; then
+                chown "$HOST_UID:$HOST_GID" "$repo_dir"
+                if [ -d "$repo_dir/.git/worktrees" ]; then
+                    chown -R "$HOST_UID:$HOST_GID" "$repo_dir/.git/worktrees"
+                fi
+            fi
+        done
+    fi
+
+    # Configure global git identity for gateway operations (commits, etc.)
+    # Repos can override this with local config if needed
+    echo "Configuring git identity for gateway: $GIT_NAME <$GIT_EMAIL>"
+    gosu "$HOST_UID:$HOST_GID" git config --global user.name "$GIT_NAME"
+    gosu "$HOST_UID:$HOST_GID" git config --global user.email "$GIT_EMAIL"
+
+    exec gosu "$HOST_UID:$HOST_GID" python3 gateway.py --host 0.0.0.0 --port 9848
+else
+    # Configure global git identity for gateway operations (commits, etc.)
+    echo "Configuring git identity for gateway: $GIT_NAME <$GIT_EMAIL>"
+    git config --global user.name "$GIT_NAME"
+    git config --global user.email "$GIT_EMAIL"
+
+    exec python3 gateway.py --host 0.0.0.0 --port 9848
+fi

@@ -1,0 +1,45 @@
+# Exclude workspace directories that shouldn't be copied into Docker image
+
+# Git directories (avoid permission issues and unnecessary context)
+.git
+**/.git/
+
+# Mobile app dependencies and build artifacts
+**/mobile/app/ios/Pods/
+**/mobile/app/ios/build/
+**/mobile/app/android/build/
+**/mobile/node_modules/
+
+# Terraform vendored modules (contain nested .git directories)
+**/.terraform/
+
+# Node modules (can be reinstalled if needed)
+**/node_modules/
+
+# Python virtual environments
+**/__pycache__/
+**/*.pyc
+**/.venv/
+**/.virtualenv/
+
+# Build artifacts
+**/dist/
+**/build/
+**/*.egg-info/
+
+# IDE and editor files
+**/.vscode/
+**/.idea/
+**/*.swp
+**/*.swo
+
+# OS files
+**/.DS_Store
+**/Thumbs.db
+
+# Logs
+**/*.log
+
+# Temporary files
+**/tmp/
+**/temp/

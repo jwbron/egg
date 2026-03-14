@@ -1,0 +1,182 @@
+#!/usr/bin/env python3
+"""
+egg-orchestrator REST API.
+
+Provides REST endpoints for SDLC pipeline orchestration, including:
+- Pipeline CRUD operations
+- Container lifecycle management
+- HITL decision queue
+- Health checks
+"""
+
+import os
+import sys
+import time
+from pathlib import Path
+
+from flask import Flask, Response, g, jsonify, request
+
+# Add shared directory to path for egg_logging
+_shared_path = Path(__file__).parent.parent / "shared"
+if _shared_path.exists():
+    sys.path.insert(0, str(_shared_path))
+
+try:
+    from egg_logging import get_logger
+except ImportError:
+    import logging
+
+    def get_logger(name: str, **kwargs) -> logging.Logger:  # type: ignore[misc]
+        return logging.getLogger(name)
+
+
+logger = get_logger("orchestrator.api")
+
+app = Flask(__name__)
+
+
+# Register blueprints
+try:
+    from routes.checks import checks_bp
+    from routes.containers import containers_bp
+    from routes.coordinator import coordinator_bp
+    from routes.decisions import decisions_bp
+    from routes.health import health_bp
+    from routes.messages import messages_bp
+    from routes.metrics import metrics_bp
+    from routes.phases import phases_bp
+    from routes.pipelines import pipelines_bp
+    from routes.signals import signals_bp
+    from webhooks import webhooks_bp
+
+    app.register_blueprint(checks_bp)
+    app.register_blueprint(health_bp)
+    app.register_blueprint(pipelines_bp)
+    app.register_blueprint(containers_bp)
+    app.register_blueprint(phases_bp)
+    app.register_blueprint(signals_bp)
+    app.register_blueprint(decisions_bp)
+    app.register_blueprint(messages_bp)
+    app.register_blueprint(metrics_bp)
+    app.register_blueprint(coordinator_bp)
+    app.register_blueprint(webhooks_bp)
+except ImportError:
+    from .routes.checks import checks_bp  # type: ignore[no-redef]
+    from .routes.containers import containers_bp  # type: ignore[no-redef]
+    from .routes.coordinator import coordinator_bp  # type: ignore[no-redef]
+    from .routes.decisions import decisions_bp  # type: ignore[no-redef]
+    from .routes.health import health_bp  # type: ignore[no-redef]
+    from .routes.messages import messages_bp  # type: ignore[no-redef]
+    from .routes.metrics import metrics_bp  # type: ignore[no-redef]
+    from .routes.phases import phases_bp  # type: ignore[no-redef]
+    from .routes.pipelines import pipelines_bp  # type: ignore[no-redef]
+    from .routes.signals import signals_bp  # type: ignore[no-redef]
+    from .webhooks import webhooks_bp  # type: ignore[no-redef]
+
+    app.register_blueprint(checks_bp)
+    app.register_blueprint(health_bp)
+    app.register_blueprint(pipelines_bp)
+    app.register_blueprint(containers_bp)
+    app.register_blueprint(phases_bp)
+    app.register_blueprint(signals_bp)
+    app.register_blueprint(decisions_bp)
+    app.register_blueprint(messages_bp)
+    app.register_blueprint(metrics_bp)
+    app.register_blueprint(coordinator_bp)
+    app.register_blueprint(webhooks_bp)
+
+
+@app.before_request
+def log_request_start() -> None:
+    """Record request start time for duration logging."""
+    g.start_time = time.monotonic()
+
+
+@app.after_request
+def log_request_end(response: Response) -> Response:
+    """Log every request with method, path, status, and duration."""
+    duration_ms = round((time.monotonic() - getattr(g, "start_time", time.monotonic())) * 1000)
+    logger.info(
+        "Request",
+        method=request.method,
+        path=request.path,
+        status=response.status_code,
+        duration_ms=duration_ms,
+    )
+    return response
+
+
+@app.errorhandler(Exception)
+def handle_unhandled_exception(e: Exception) -> tuple[Response, int]:
+    """Return JSON for all unhandled exceptions."""
+    from werkzeug.exceptions import HTTPException
+
+    if isinstance(e, HTTPException):
+        return jsonify(
+            {
+                "success": False,
+                "message": e.description or str(e),
+            }
+        ), e.code
+
+    # Log unexpected errors
+    logger.error("Unhandled exception", error=str(e), exc_info=True)
+
+    return jsonify(
+        {
+            "success": False,
+            "message": "Internal server error",
+        }
+    ), 500
+
+
+@app.route("/")
+def index() -> tuple[Response, int]:
+    """Root endpoint with service info."""
+    return jsonify(
+        {
+            "service": "egg-orchestrator",
+            "version": "0.1.0",
+            "endpoints": {
+                "health": "/api/v1/health",
+                "pipelines": "/api/v1/pipelines",
+                "metrics": "/api/v1/metrics",
+                "webhooks": "/api/v1/webhooks",
+                "mcp": "/mcp/health",
+            },
+        }
+    ), 200
+
+
+# Start MCP server sidecar when coordinator support is enabled.
+# The MCP server runs in a background daemon thread and proxies tool calls
+# to the orchestrator's coordinator API endpoints.
+def _maybe_start_mcp_server() -> None:
+    """Start the MCP server if enabled via environment variable."""
+    if os.environ.get("EGG_MCP_SERVER_ENABLED", "").lower() in ("1", "true", "yes"):
+        try:
+            from mcp_server import start_mcp_server
+
+            mcp_port = int(os.environ.get("EGG_MCP_SERVER_PORT", "9850"))
+            mcp_rate_limit = int(os.environ.get("EGG_MCP_RATE_LIMIT", "30"))
+            try:
+                from egg_config import GATEWAY_PORT
+            except ImportError:
+                GATEWAY_PORT = 9848  # noqa: EGG002
+
+            gateway_url = os.environ.get("GATEWAY_URL", f"http://egg-gateway:{GATEWAY_PORT}")
+            launcher_secret = os.environ.get("EGG_LAUNCHER_SECRET", "")
+            start_mcp_server(
+                port=mcp_port,
+                rate_limit=mcp_rate_limit,
+                gateway_url=gateway_url,
+                launcher_secret=launcher_secret,
+            )
+            logger.info("MCP server started", port=mcp_port)
+        except ImportError:
+            logger.warning("MCP server module not available, skipping startup")
+        except Exception as e:
+            logger.error("Failed to start MCP server", error=str(e))
+
+
+_maybe_start_mcp_server()

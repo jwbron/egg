@@ -1,0 +1,504 @@
+"""
+Pydantic models for orchestrator pipeline state.
+
+These models represent the orchestrator's view of pipeline execution,
+including container state, HITL decisions, and agent coordination.
+"""
+
+from datetime import datetime
+from enum import StrEnum
+from typing import Any, Literal, NamedTuple
+
+from pydantic import BaseModel, Field
+
+
+class PipelinePhase(StrEnum):
+    """Current phase in the SDLC pipeline."""
+
+    REFINE = "refine"
+    PLAN = "plan"
+    IMPLEMENT = "implement"
+    PR = "pr"
+    COORDINATOR = "coordinator"
+
+
+class PipelineStatus(StrEnum):
+    """Overall status of a pipeline."""
+
+    PENDING = "pending"
+    RUNNING = "running"
+    AWAITING_HUMAN = "awaiting_human"
+    COMPLETE = "complete"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+
+
+class AgentExecutionStatus(StrEnum):
+    """Status of an individual agent execution."""
+
+    PENDING = "pending"
+    RUNNING = "running"
+    COMPLETE = "complete"
+    FAILED = "failed"
+
+
+class ContainerStatus(StrEnum):
+    """Status of a sandbox container."""
+
+    PENDING = "pending"
+    CREATING = "creating"
+    RUNNING = "running"
+    EXITED = "exited"
+    FAILED = "failed"
+    REMOVED = "removed"
+
+
+class DecisionStatus(StrEnum):
+    """Status of a HITL decision."""
+
+    PENDING = "pending"
+    RESOLVED = "resolved"
+    TIMEOUT = "timeout"  # Vestigial: kept for backwards compatibility with persisted pipeline state
+    CANCELLED = "cancelled"
+
+
+class AgentRole(StrEnum):
+    """Agent roles in multi-agent execution."""
+
+    CODER = "coder"
+    REVIEWER = "reviewer"
+    CHECKER = "checker"
+    TESTER = "tester"
+    DOCUMENTER = "documenter"
+    INTEGRATOR = "integrator"
+    # Plan-phase roles
+    ARCHITECT = "architect"
+    TASK_PLANNER = "task_planner"
+    RISK_ANALYST = "risk_analyst"
+    # Refine-phase roles
+    REFINER = "refiner"
+    # Health check roles
+    INSPECTOR = "inspector"
+    # Coordinator role
+    COORDINATOR = "coordinator"
+    # Reviewer roles (specific subtypes)
+    REVIEWER_CODE = "reviewer_code"
+    REVIEWER_CONTRACT = "reviewer_contract"
+    REVIEWER_AGENT_DESIGN = "reviewer_agent_design"
+    REVIEWER_REFINE = "reviewer_refine"
+    REVIEWER_PLAN = "reviewer_plan"
+    REVIEWER_UNIFIED = "reviewer_unified"  # Vestigial: kept for backwards compatibility with persisted pipeline state
+
+
+class ReviewerType(StrEnum):
+    """Reviewer specialization types matching GHA reviewer matrix."""
+
+    AGENT_DESIGN = "agent-design"
+    CODE = "code"
+    CONTRACT = "contract"
+
+
+class ReviewVerdict(BaseModel):
+    """Verdict from an agentic review cycle."""
+
+    verdict: str = Field(..., description="'approved' or 'needs_revision'")
+    summary: str = Field(default="", description="Brief summary of review findings")
+    analysis: str = Field(
+        default="",
+        description="Detailed analysis of the reviewed work, populated regardless of verdict",
+    )
+    suggestions: str = Field(
+        default="",
+        description="Non-blocking suggestions for improvement, even when approving",
+    )
+    feedback: str = Field(default="", description="Blocking feedback requiring revision")
+    timestamp: str = Field(default="", description="ISO 8601 timestamp")
+
+
+class AggregatedReviewResult(NamedTuple):
+    """Result of aggregating multiple review verdicts.
+
+    Attributes:
+        verdict: Overall verdict — 'approved' or 'needs_revision'.
+        blocking_feedback: Combined feedback from needs_revision verdicts only.
+        advisory_content: Combined analysis and suggestions from ALL verdicts
+            (including approved), for observability and logging.
+    """
+
+    verdict: str
+    blocking_feedback: str
+    advisory_content: str
+
+
+class ContainerInfo(BaseModel):
+    """Information about a sandbox container."""
+
+    container_id: str = Field(..., description="Docker container ID")
+    container_name: str = Field(..., description="Container name")
+    status: ContainerStatus = Field(default=ContainerStatus.PENDING, description="Container status")
+    started_at: datetime | None = Field(default=None, description="When container started")
+    exited_at: datetime | None = Field(default=None, description="When container exited")
+    exit_code: int | None = Field(default=None, description="Container exit code")
+    agent_role: AgentRole | None = Field(
+        default=None, description="Agent role if multi-agent execution"
+    )
+    session_token: str | None = Field(default=None, description="Session token for gateway auth")
+
+
+class AgentExecution(BaseModel):
+    """State of a single agent execution."""
+
+    role: AgentRole = Field(..., description="Agent role")
+    status: AgentExecutionStatus = Field(
+        default=AgentExecutionStatus.PENDING, description="Execution status"
+    )
+    container_id: str | None = Field(default=None, description="Container ID if running")
+    started_at: datetime | None = Field(default=None, description="When started")
+    completed_at: datetime | None = Field(default=None, description="When completed")
+    commit: str | None = Field(default=None, description="Commit SHA if changes made")
+    outputs: dict[str, Any] = Field(
+        default_factory=dict, description="Handoff data for dependent agents"
+    )
+    error: str | None = Field(default=None, description="Error message if failed")
+    retry_count: int = Field(default=0, ge=0, description="Number of retries")
+    conflicts: list[str] = Field(
+        default_factory=list, description="Files with unresolved merge conflicts"
+    )
+    plan_phase_id: str | None = Field(
+        default=None,
+        description="Plan sub-phase ID for Tier 3 pipelines (e.g. 'phase-1')",
+    )
+
+
+class HITLDecision(BaseModel):
+    """A human-in-the-loop decision request."""
+
+    id: str = Field(..., description="Unique decision ID")
+    question: str = Field(..., min_length=1, description="Question for human")
+    context: str = Field(default="", description="Additional context")
+    options: list[str] = Field(
+        default_factory=list, description="Available options (empty for free-form)"
+    )
+    decision_type: Literal["phase_gate", "choice", "feedback"] = Field(
+        default="choice",
+        description="Type of decision: 'phase_gate', 'choice', or 'feedback'",
+    )
+    questions: list[dict[str, str]] = Field(
+        default_factory=list,
+        description="Structured feedback questions with keys: id, question, answer",
+    )
+    status: DecisionStatus = Field(default=DecisionStatus.PENDING, description="Decision status")
+    created_at: datetime = Field(default_factory=datetime.utcnow, description="When created")
+    resolved_at: datetime | None = Field(default=None, description="When resolved")
+    resolution: str | None = Field(default=None, description="Human's response")
+    phase: PipelinePhase | None = Field(
+        default=None, description="Pipeline phase when decision was created"
+    )
+
+
+class CycleTiming(BaseModel):
+    """Timing for a single review cycle within a phase."""
+
+    cycle: int = Field(..., description="Cycle number (0-indexed)")
+    started_at: datetime = Field(..., description="When this cycle's work began")
+    completed_at: datetime | None = Field(default=None, description="When this cycle ended")
+    commit_sha: str | None = Field(
+        default=None,
+        description="HEAD commit SHA at cycle start, used for delta reviews",
+    )
+
+
+class PhaseExecution(BaseModel):
+    """State of a single phase execution."""
+
+    phase: PipelinePhase = Field(..., description="Phase being executed")
+    status: PipelineStatus = Field(default=PipelineStatus.PENDING, description="Phase status")
+    started_at: datetime | None = Field(default=None, description="When started")
+    work_started_at: datetime | None = Field(default=None, description="When first agent spawned")
+    completed_at: datetime | None = Field(default=None, description="When completed")
+    containers: list[ContainerInfo] = Field(
+        default_factory=list, description="Containers spawned for this phase"
+    )
+    agents: list[AgentExecution] = Field(
+        default_factory=list, description="Agent executions (implement phase)"
+    )
+    review_cycles: int = Field(default=0, ge=0, description="Agentic review cycles completed")
+    hitl_review_cycles: int = Field(default=0, ge=0, description="HITL revision cycles completed")
+    cycle_timings: list[CycleTiming] = Field(
+        default_factory=list, description="Per-cycle timing records"
+    )
+    artifacts: dict[str, str] = Field(
+        default_factory=dict, description="Produced artifacts (file paths)"
+    )
+    error: str | None = Field(default=None, description="Error if failed")
+    hitl_feedback: str | None = Field(
+        default=None,
+        description="HITL revision feedback preserved across recovery restarts",
+    )
+    phase_start_sha: str | None = Field(
+        default=None,
+        description="Branch tip SHA at phase start, for completion signal verification",
+    )
+
+
+class ComplexityTier(StrEnum):
+    """Complexity tier for pipeline tasks."""
+
+    LOW = "low"
+    MID = "mid"
+    HIGH = "high"
+
+
+class AgentSpawnRecord(BaseModel):
+    """Record of a coordinator-spawned agent."""
+
+    role: AgentRole = Field(..., description="Agent role that was spawned")
+    spawned_at: datetime = Field(default_factory=datetime.utcnow, description="When spawned")
+    completed_at: datetime | None = Field(default=None, description="When completed")
+    status: str = Field(
+        default="running", description="Status: running, complete, failed, cancelled"
+    )
+    container_id: str | None = Field(default=None, description="Container ID")
+    task_context: str = Field(default="", description="Task description given to the agent")
+    retry_number: int = Field(default=0, ge=0, description="Retry attempt number")
+
+
+class PhaseDecision(BaseModel):
+    """Record of a coordinator phase decision."""
+
+    phase: str = Field(..., description="Phase that was decided on")
+    action: str = Field(..., description="Action taken: advance, skip, loopback")
+    reason: str = Field(default="", description="Reason for the decision")
+    decided_at: datetime = Field(default_factory=datetime.utcnow, description="When decided")
+
+
+class Escalation(BaseModel):
+    """Record of a coordinator escalation to human."""
+
+    question: str = Field(..., description="Question posed to human")
+    escalation_type: str = Field(default="choice", description="Type: choice or feedback")
+    created_at: datetime = Field(default_factory=datetime.utcnow, description="When created")
+    resolved_at: datetime | None = Field(default=None, description="When resolved")
+    resolution: str | None = Field(default=None, description="Human's response")
+
+
+class GuardrailCounters(BaseModel):
+    """Counters for coordinator guardrail enforcement."""
+
+    total_agents_spawned: int = Field(default=0, ge=0, description="Total agents spawned")
+    retries_by_role: dict[str, int] = Field(
+        default_factory=dict, description="Retry count per role"
+    )
+    coordinator_respawns: int = Field(default=0, ge=0, description="Coordinator respawn count")
+    started_at: datetime = Field(
+        default_factory=datetime.utcnow, description="When coordinator started"
+    )
+
+
+class CoordinatorState(BaseModel):
+    """Persistent state for coordinator-driven pipelines.
+
+    Stores workflow decisions, agent spawn history, phase transitions,
+    escalation history, and guardrail counters. Persisted in the Pipeline
+    model so a crashed coordinator can re-assess from current state.
+    """
+
+    workflow_type: str = Field(
+        default="", description="Detected workflow type (e.g., bug_fix, feature)"
+    )
+    agents_spawned: list[AgentSpawnRecord] = Field(
+        default_factory=list, description="History of spawned agents"
+    )
+    phase_decisions: list[PhaseDecision] = Field(
+        default_factory=list, description="Phase transition decisions"
+    )
+    escalations: list[Escalation] = Field(default_factory=list, description="Escalation history")
+    guardrail_counters: GuardrailCounters = Field(
+        default_factory=GuardrailCounters, description="Guardrail enforcement counters"
+    )
+
+
+class PipelineConfig(BaseModel):
+    """Configuration for pipeline execution."""
+
+    auto_create_pr: bool = Field(
+        default=True,
+        description="Deprecated: PR creation is now always handled by the orchestrator. "
+        "This field is retained for backwards compatibility with existing pipeline configs.",
+    )
+    multi_agent: bool = Field(
+        default=True,
+        description="Use multi-agent execution in implement and plan phases",
+    )
+    parallel_agents: bool = Field(default=True, description="Run independent agents in parallel")
+    max_parallel_agents: int = Field(
+        default=10, ge=1, description="Maximum parallel agents per wave"
+    )
+    max_review_cycles: int = Field(default=3, ge=1, description="Max review cycles per phase")
+    max_hitl_review_cycles: int = Field(
+        default=3,
+        ge=1,
+        description="Max HITL revision cycles per phase (independent of agentic review budget)",
+    )
+    hitl_gates: bool = Field(
+        default=True,
+        description="Pause for human approval after refine and plan phases",
+    )
+    allow_short_circuit: bool = Field(
+        default=True,
+        description="Allow refine agent to skip plan phase for low-complexity tasks",
+    )
+    enable_parallel_phases: bool = Field(
+        default=True,
+        description="Enable parallel phase execution for independent plan phases (Tier 3 only)",
+    )
+    concurrent_execution: bool = Field(
+        default=False,
+        description="Enable concurrent agent execution within a phase (all agents start simultaneously)",
+    )
+    max_concurrent_agents: int = Field(
+        default=6, ge=1, description="Maximum concurrent agents per phase"
+    )
+    message_poll_hint_seconds: int = Field(
+        default=30, ge=1, description="Suggested message polling interval for agents"
+    )
+    consensus_timeout_minutes: int = Field(
+        default=30, ge=1, description="Timeout for consensus before HITL escalation"
+    )
+    agent_idle_timeout_minutes: int = Field(
+        default=60, ge=1, description="Timeout for idle agents before termination"
+    )
+    coordinator_enabled: bool = Field(
+        default=False,
+        description="Enable coordinator-driven dynamic orchestration instead of fixed-phase dispatch",
+    )
+    coordinator_max_agents: int = Field(
+        default=10, ge=1, description="Maximum total agents the coordinator can spawn"
+    )
+    coordinator_max_retries_per_role: int = Field(
+        default=2,
+        ge=0,
+        description="Maximum retries per agent role in coordinator mode",
+    )
+    coordinator_max_respawns: int = Field(
+        default=2, ge=0, description="Maximum coordinator respawns after crash"
+    )
+
+
+class Pipeline(BaseModel):
+    """Complete state of an SDLC pipeline execution.
+
+    This is the root model stored in .egg-state/pipelines/{id}.json.
+    It tracks all state needed to orchestrate a pipeline from issue to PR.
+    """
+
+    id: str = Field(..., description="Unique pipeline ID (e.g., 'issue-496' or 'local-a1b2c3d4')")
+    issue_number: int | None = Field(default=None, ge=1, description="GitHub issue number")
+    repo: str | None = Field(default=None, description="Repository in owner/name format")
+    branch: str | None = Field(default=None, description="Work branch name")
+    mode: str = Field(default="issue", description="Pipeline mode: 'issue' or 'local'")
+    prompt: str | None = Field(default=None, description="User prompt for local-mode pipelines")
+    status: PipelineStatus = Field(
+        default=PipelineStatus.PENDING, description="Overall pipeline status"
+    )
+    current_phase: PipelinePhase = Field(default=PipelinePhase.REFINE, description="Current phase")
+    config: PipelineConfig = Field(
+        default_factory=PipelineConfig, description="Pipeline configuration"
+    )
+    phases: dict[str, PhaseExecution] = Field(
+        default_factory=dict, description="Phase execution state by phase name"
+    )
+    decisions: list[HITLDecision] = Field(default_factory=list, description="HITL decisions")
+    created_at: datetime = Field(
+        default_factory=datetime.utcnow, description="When pipeline was created"
+    )
+    updated_at: datetime = Field(default_factory=datetime.utcnow, description="Last update time")
+    contract_synced: bool = Field(default=True, description="Whether state is synced with contract")
+    network_mode: str | None = Field(
+        default=None,
+        description="Network mode for spawned containers: 'public', 'private', or None (auto from pipeline mode)",
+    )
+    short_circuit: bool = Field(
+        default=False,
+        description="Skip plan phase (refine → implement) for low-complexity tasks",
+    )
+    complexity_tier: ComplexityTier = Field(
+        default=ComplexityTier.MID,
+        description="Complexity tier: low (short-circuit), mid (standard), high (phase-level dispatch)",
+    )
+    error: str | None = Field(default=None, description="Error if failed")
+    coordinator_state: CoordinatorState | None = Field(
+        default=None,
+        description="Coordinator workflow state for coordinator-driven pipelines",
+    )
+    plan_phase_waves: list[list[str]] | None = Field(
+        default=None,
+        description="Tier 3 plan phase waves for DAG visualization. "
+        "Each inner list is a wave of phase IDs that can run in parallel. "
+        "Populated by _run_tier3_implement() at implement start.",
+    )
+    plan_phase_names: dict[str, str] | None = Field(
+        default=None,
+        description="Mapping of plan phase ID to human-readable name for DAG visualization. "
+        "Populated alongside plan_phase_waves by _run_tier3_implement().",
+    )
+    version: int = Field(
+        default=1,
+        ge=1,
+        description="Optimistic locking version (incremented on each save)",
+    )
+
+    def get_phase_execution(self, phase: PipelinePhase) -> PhaseExecution:
+        """Get or create phase execution state."""
+        if phase.value not in self.phases:
+            self.phases[phase.value] = PhaseExecution(phase=phase)
+        return self.phases[phase.value]
+
+    def get_pending_decisions(self) -> list[HITLDecision]:
+        """Get all pending HITL decisions."""
+        return [d for d in self.decisions if d.status == DecisionStatus.PENDING]
+
+    def add_decision(
+        self,
+        question: str,
+        options: list[str] | None = None,
+        decision_type: Literal["phase_gate", "choice", "feedback"] = "choice",
+        questions: list[dict[str, str]] | None = None,
+        phase: PipelinePhase | None = None,
+    ) -> HITLDecision:
+        """Add a new HITL decision request."""
+        decision_id = f"decision-{len(self.decisions) + 1}"
+        decision = HITLDecision(
+            id=decision_id,
+            question=question,
+            options=options or [],
+            decision_type=decision_type,
+            questions=questions or [],
+            phase=phase,
+        )
+        self.decisions.append(decision)
+        self.updated_at = datetime.utcnow()
+        return decision
+
+    def resolve_decision(self, decision_id: str, resolution: str) -> HITLDecision | None:
+        """Resolve a HITL decision."""
+        for decision in self.decisions:
+            if decision.id == decision_id and decision.status == DecisionStatus.PENDING:
+                decision.status = DecisionStatus.RESOLVED
+                decision.resolution = resolution
+                decision.resolved_at = datetime.utcnow()
+                self.updated_at = datetime.utcnow()
+                return decision
+        return None
+
+
+class PipelineEvent(BaseModel):
+    """Event emitted during pipeline execution."""
+
+    pipeline_id: str = Field(..., description="Pipeline ID")
+    event_type: str = Field(..., description="Event type")
+    timestamp: datetime = Field(default_factory=datetime.utcnow, description="When event occurred")
+    phase: PipelinePhase | None = Field(default=None, description="Phase if applicable")
+    agent_role: AgentRole | None = Field(default=None, description="Agent if applicable")
+    container_id: str | None = Field(default=None, description="Container if applicable")
+    data: dict[str, Any] = Field(default_factory=dict, description="Event data")

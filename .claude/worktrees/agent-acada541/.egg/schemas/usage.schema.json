@@ -1,0 +1,377 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/jwbron/egg/schemas/usage.schema.json",
+  "title": "Token Usage Aggregate",
+  "description": "Schema for token usage aggregates across sessions, issues, workflows, and PRs",
+  "type": "object",
+  "$defs": {
+    "tokenCounts": {
+      "type": "object",
+      "description": "Token counts across different categories",
+      "properties": {
+        "input_tokens": {
+          "type": "integer",
+          "description": "Total input tokens",
+          "minimum": 0,
+          "default": 0
+        },
+        "output_tokens": {
+          "type": "integer",
+          "description": "Total output tokens",
+          "minimum": 0,
+          "default": 0
+        },
+        "cache_read_tokens": {
+          "type": "integer",
+          "description": "Tokens read from cache",
+          "minimum": 0,
+          "default": 0
+        },
+        "cache_creation_tokens": {
+          "type": "integer",
+          "description": "Tokens written to cache",
+          "minimum": 0,
+          "default": 0
+        }
+      },
+      "additionalProperties": false
+    },
+    "checkpointReference": {
+      "type": "object",
+      "description": "Reference to a checkpoint that contributed to usage",
+      "required": ["checkpoint_id", "commit_sha", "created_at"],
+      "properties": {
+        "checkpoint_id": {
+          "type": "string",
+          "description": "Checkpoint ID (ckpt-...)",
+          "pattern": "^ckpt-[a-f0-9]{8,16}$"
+        },
+        "commit_sha": {
+          "type": "string",
+          "description": "Associated commit SHA",
+          "pattern": "^[a-f0-9]{7,40}$"
+        },
+        "created_at": {
+          "type": "string",
+          "description": "When checkpoint was created",
+          "format": "date-time"
+        }
+      },
+      "additionalProperties": false
+    },
+    "usageAggregateBase": {
+      "type": "object",
+      "description": "Base properties for all usage aggregates",
+      "required": ["schemaVersion", "last_updated"],
+      "properties": {
+        "schemaVersion": {
+          "type": "string",
+          "description": "Schema version for migrations",
+          "pattern": "^[0-9]+\\.[0-9]+$",
+          "default": "1.0"
+        },
+        "tokens": {
+          "$ref": "#/$defs/tokenCounts"
+        },
+        "estimated_cost_usd": {
+          "type": "number",
+          "description": "Estimated cost in USD",
+          "minimum": 0,
+          "default": 0.0
+        },
+        "checkpoint_count": {
+          "type": "integer",
+          "description": "Number of checkpoints included",
+          "minimum": 0,
+          "default": 0
+        },
+        "first_checkpoint_at": {
+          "type": ["string", "null"],
+          "description": "Timestamp of first checkpoint",
+          "format": "date-time",
+          "default": null
+        },
+        "last_checkpoint_at": {
+          "type": ["string", "null"],
+          "description": "Timestamp of most recent checkpoint",
+          "format": "date-time",
+          "default": null
+        },
+        "last_updated": {
+          "type": "string",
+          "description": "When this aggregate was last updated",
+          "format": "date-time"
+        }
+      }
+    },
+    "sessionUsage": {
+      "allOf": [
+        { "$ref": "#/$defs/usageAggregateBase" },
+        {
+          "type": "object",
+          "required": ["session_id"],
+          "properties": {
+            "session_id": {
+              "type": "string",
+              "description": "Session identifier"
+            },
+            "container_id": {
+              "type": ["string", "null"],
+              "description": "Container ID if in sandbox",
+              "default": null
+            },
+            "agent_role": {
+              "type": ["string", "null"],
+              "description": "Agent role (coder, tester, etc.)",
+              "enum": ["coder", "tester", "documenter", "integrator", null],
+              "default": null
+            },
+            "model": {
+              "type": ["string", "null"],
+              "description": "Model used",
+              "default": null
+            },
+            "issue_number": {
+              "type": ["integer", "null"],
+              "description": "Associated issue number",
+              "minimum": 1,
+              "default": null
+            },
+            "pr_number": {
+              "type": ["integer", "null"],
+              "description": "Associated PR number",
+              "minimum": 1,
+              "default": null
+            },
+            "checkpoints": {
+              "type": "array",
+              "description": "Checkpoints in this session",
+              "items": { "$ref": "#/$defs/checkpointReference" },
+              "default": []
+            }
+          }
+        }
+      ]
+    },
+    "issueUsage": {
+      "allOf": [
+        { "$ref": "#/$defs/usageAggregateBase" },
+        {
+          "type": "object",
+          "required": ["issue_number"],
+          "properties": {
+            "issue_number": {
+              "type": "integer",
+              "description": "GitHub issue number",
+              "minimum": 1
+            },
+            "pr_number": {
+              "type": ["integer", "null"],
+              "description": "Associated PR number if any",
+              "minimum": 1,
+              "default": null
+            },
+            "session_ids": {
+              "type": "array",
+              "description": "Session IDs that contributed",
+              "items": { "type": "string" },
+              "default": []
+            },
+            "branch": {
+              "type": ["string", "null"],
+              "description": "Primary branch for this issue",
+              "default": null
+            },
+            "pipeline_phases": {
+              "type": "array",
+              "description": "Pipeline phases seen",
+              "items": {
+                "type": "string",
+                "enum": ["refine", "plan", "implement", "pr"]
+              },
+              "default": []
+            }
+          }
+        }
+      ]
+    },
+    "workflowUsage": {
+      "allOf": [
+        { "$ref": "#/$defs/usageAggregateBase" },
+        {
+          "type": "object",
+          "required": ["workflow_id"],
+          "properties": {
+            "workflow_id": {
+              "type": "string",
+              "description": "Workflow run identifier"
+            },
+            "workflow_name": {
+              "type": ["string", "null"],
+              "description": "Workflow name",
+              "default": null
+            },
+            "job_name": {
+              "type": ["string", "null"],
+              "description": "Job name within workflow",
+              "default": null
+            },
+            "issue_number": {
+              "type": ["integer", "null"],
+              "description": "Associated issue number",
+              "minimum": 1,
+              "default": null
+            },
+            "pr_number": {
+              "type": ["integer", "null"],
+              "description": "Associated PR number",
+              "minimum": 1,
+              "default": null
+            },
+            "trigger_event": {
+              "type": ["string", "null"],
+              "description": "Event that triggered the workflow",
+              "default": null
+            },
+            "session_ids": {
+              "type": "array",
+              "description": "Session IDs in this workflow",
+              "items": { "type": "string" },
+              "default": []
+            }
+          }
+        }
+      ]
+    },
+    "prUsage": {
+      "allOf": [
+        { "$ref": "#/$defs/usageAggregateBase" },
+        {
+          "type": "object",
+          "required": ["pr_number"],
+          "properties": {
+            "pr_number": {
+              "type": "integer",
+              "description": "GitHub PR number",
+              "minimum": 1
+            },
+            "issue_number": {
+              "type": ["integer", "null"],
+              "description": "Associated issue number",
+              "minimum": 1,
+              "default": null
+            },
+            "branch": {
+              "type": ["string", "null"],
+              "description": "PR head branch",
+              "default": null
+            },
+            "base_branch": {
+              "type": ["string", "null"],
+              "description": "PR base branch",
+              "default": null
+            },
+            "session_ids": {
+              "type": "array",
+              "description": "Session IDs that contributed",
+              "items": { "type": "string" },
+              "default": []
+            },
+            "pipeline_phases": {
+              "type": "array",
+              "description": "Pipeline phases seen",
+              "items": {
+                "type": "string",
+                "enum": ["refine", "plan", "implement", "pr"]
+              },
+              "default": []
+            }
+          }
+        }
+      ]
+    },
+    "usageIndex": {
+      "type": "object",
+      "description": "Index of all usage aggregates",
+      "required": ["schemaVersion", "last_updated"],
+      "properties": {
+        "schemaVersion": {
+          "type": "string",
+          "description": "Schema version",
+          "pattern": "^[0-9]+\\.[0-9]+$",
+          "default": "1.0"
+        },
+        "last_updated": {
+          "type": "string",
+          "description": "When the index was last updated",
+          "format": "date-time"
+        },
+        "total_sessions": {
+          "type": "integer",
+          "description": "Total sessions tracked",
+          "minimum": 0,
+          "default": 0
+        },
+        "total_issues": {
+          "type": "integer",
+          "description": "Total issues tracked",
+          "minimum": 0,
+          "default": 0
+        },
+        "total_prs": {
+          "type": "integer",
+          "description": "Total PRs tracked",
+          "minimum": 0,
+          "default": 0
+        },
+        "total_workflows": {
+          "type": "integer",
+          "description": "Total workflows tracked",
+          "minimum": 0,
+          "default": 0
+        },
+        "total_tokens": {
+          "$ref": "#/$defs/tokenCounts"
+        },
+        "total_cost_usd": {
+          "type": "number",
+          "description": "Total estimated cost",
+          "minimum": 0,
+          "default": 0.0
+        },
+        "session_ids": {
+          "type": "array",
+          "description": "All session IDs",
+          "items": { "type": "string" },
+          "default": []
+        },
+        "issue_numbers": {
+          "type": "array",
+          "description": "All issue numbers",
+          "items": { "type": "integer", "minimum": 1 },
+          "default": []
+        },
+        "pr_numbers": {
+          "type": "array",
+          "description": "All PR numbers",
+          "items": { "type": "integer", "minimum": 1 },
+          "default": []
+        },
+        "workflow_ids": {
+          "type": "array",
+          "description": "All workflow IDs",
+          "items": { "type": "string" },
+          "default": []
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "oneOf": [
+    { "$ref": "#/$defs/sessionUsage" },
+    { "$ref": "#/$defs/issueUsage" },
+    { "$ref": "#/$defs/workflowUsage" },
+    { "$ref": "#/$defs/prUsage" },
+    { "$ref": "#/$defs/usageIndex" }
+  ]
+}

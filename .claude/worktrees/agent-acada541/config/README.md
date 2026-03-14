@@ -1,0 +1,206 @@
+# Configuration
+
+Configuration for egg. There are two types of config:
+
+1. **In-repo configs** (this directory) - Version-controlled templates and non-secret settings
+2. **Host configs** - User-specific settings, secrets, cache, and runtime data
+
+## Directory Structure Overview
+
+Egg uses several directories under `~/`, each with a specific purpose:
+
+| Directory | Purpose | XDG Compliance |
+|-----------|---------|----------------|
+| `~/.config/egg/` | User configuration and secrets | `$XDG_CONFIG_HOME` |
+| `~/.cache/egg/` | Docker build staging and cache | `$XDG_CACHE_HOME` |
+| `~/.egg-sharing/` | Runtime data shared with containers | Kept at `~/` for visibility |
+| `~/.egg-worktrees/` | Git worktrees for isolated development | Kept at `~/` for visibility |
+
+### Why `~/.egg-sharing/` and `~/.egg-worktrees/` are at `~/`
+
+While XDG spec suggests `~/.local/share/` for runtime data, we keep these at `~/` for:
+- **Visibility**: Users frequently inspect these for debugging
+- **Docker simplicity**: Shorter paths are easier to mount
+- **Discoverability**: New users can see egg directories with `ls ~`
+
+## Host Configuration (`~/.config/egg/`)
+
+All persistent user configuration is consolidated under `~/.config/egg/`:
+
+```
+~/.config/egg/
+├── config.yaml        # Non-secret settings (Slack channel, sync intervals, etc.)
+├── secrets.env        # All secrets (Slack, GitHub, Confluence, JIRA tokens)
+├── github-token       # GitHub token (dedicated file)
+├── github-app-id      # GitHub App ID (if using App auth)
+├── github-app-installation-id  # GitHub App Installation ID
+├── github-app.pem     # GitHub App private key (bot identity)
+├── reviewer-app.pem   # Reviewer GitHub App private key (optional, for separate reviewer bot)
+└── repositories.yaml  # Repository access configuration (created by setup.py)
+```
+
+## Cache Directory (`~/.cache/egg/`)
+
+Docker build staging and cache files (auto-managed, safe to delete):
+
+```
+~/.cache/egg/
+├── Dockerfile         # Generated Dockerfile for egg image
+├── docker-setup.py    # Container setup script
+├── entrypoint.py      # Container entrypoint
+├── shared/            # Shared modules for container build
+├── claude-commands/   # Claude command definitions
+├── claude-rules/      # Claude rules/instructions
+└── .claude/hooks/     # Claude hooks configuration
+```
+
+This directory respects `$XDG_CACHE_HOME` if set.
+
+**Note**: Previously this was `~/.egg/`. The egg script auto-migrates on first run.
+
+**Templates:**
+- `config/secrets.template.env` - Secrets template
+
+**In-repo modules:**
+- `config/repo_config.py` - Repository access configuration loader
+- `config/repositories.yaml.example` - Example repository configuration
+
+### GitHub Tokens
+
+Egg supports separate tokens for writable and readable repositories:
+
+| Variable | Purpose |
+|----------|---------|
+| `GITHUB_TOKEN` | Token for writable repos (or use GitHub App for auto-refresh) |
+| `GITHUB_READONLY_TOKEN` | Separate PAT for read-only repos (optional, falls back to `GITHUB_TOKEN`) |
+
+Using a separate read-only token provides security benefits. GitHub App setup is covered in `./setup.py` and the ADRs.
+
+### Reviewer GitHub App (Optional)
+
+For workflows that post code reviews, a separate reviewer GitHub App can be configured to enable approve/request-changes capabilities on bot-authored PRs (GitHub blocks self-reviews). Reviewer credentials are stored separately from the bot credentials:
+
+| File | Purpose |
+|------|---------|
+| `secrets.env` | Contains `REVIEWER_APP_ID` and `REVIEWER_APP_INSTALLATION_ID` |
+| `reviewer-app.pem` | Reviewer GitHub App private key (PEM format, multiline) |
+
+The gateway's token refresher reads reviewer credentials from these files, following the same pattern as bot credentials. See the [GitHub Automation Guide](../docs/guides/github-automation.md#separate-reviewer-bot-recommended) for setup details.
+
+## repositories.yaml (Source of Truth for Repo Access)
+
+**Single source of truth** for which GitHub repositories egg has read/write access to.
+
+**Location:** `~/.config/egg/repositories.yaml` (created by `./setup.py`)
+
+This file is **not checked into the repo** because it contains user-specific configuration.
+See `config/repositories.yaml.example` for the template with all available options.
+
+This file controls:
+- Which repos egg can respond to comments on
+- Which repos egg can push changes to
+- Which repos egg can create PRs in
+- Default reviewer for PRs
+- GitHub sync configuration
+- Docker container extra packages
+- Per-repo check commands for SDLC pipeline
+- Per-repo build commands for dependency caching in Docker images
+
+**Usage:**
+- Python: `from config.repo_config import get_writable_repos, is_writable_repo`
+- CLI: `python config/repo_config.py --list-writable`
+
+**To add a new repo with write access:**
+1. Edit `~/.config/egg/repositories.yaml` and add to `writable_repos` list
+2. Reload github-sync service: `systemctl --user daemon-reload && systemctl --user restart github-sync.timer`
+
+### Per-Repo Check Commands
+
+The `repo_settings` section supports configuring explicit check commands for the SDLC pipeline implement phase. When configured, the checker agent runs these commands instead of auto-discovering test/lint commands.
+
+**Example:**
+```yaml
+repo_settings:
+  your-org/web-app:
+    checks:
+      - name: lint
+        command: npm run lint
+      - name: test
+        command: npm test
+      - name: build
+        command: npm run build
+```
+
+Each check has:
+- `name`: Display label (e.g., "lint", "test", "integration")
+- `command`: Shell command to execute
+
+Checks run sequentially during the implement phase checker step. If not configured, the checker falls back to auto-discovery (scanning for Makefile, package.json, pyproject.toml, etc.).
+
+**Configuration:**
+- Setup flow: Run `egg --setup` and answer "yes" to "Configure SDLC check commands?"
+- Manual: Edit `~/.config/egg/repositories.yaml` and add `checks` under `repo_settings.{repo}`
+- Runtime: The gateway injects repo checks via the `EGG_REPO_CHECKS` environment variable (JSON-encoded)
+
+### Per-Repo Build Commands (Dependency Caching)
+
+The `repo_settings` section supports configuring build-time dependency installation commands. When configured, these commands run during the Docker image build phase, baking project-specific dependencies (Python venvs, node_modules, Go modules, etc.) into the image. This is critical for private mode where runtime network access is restricted.
+
+**Example:**
+```yaml
+repo_settings:
+  your-org/web-app:
+    build_commands:
+      watch_files:
+        - package-lock.json
+        - requirements.txt
+      commands:
+        - npm ci
+        - pip install -r requirements.txt
+```
+
+Each `build_commands` entry has:
+- `watch_files`: Files that trigger a rebuild when changed. These are copied into the Docker build context so Docker layer caching invalidates correctly — only a change to these files triggers a dependency rebuild.
+- `commands`: Shell commands to run during the image build (e.g., `npm ci`, `pip install`, `make deps`). Commands run as root in a directory seeded with the watch files.
+
+**How it works:**
+1. `create_dockerfile()` copies each repo's watch files from `local_repos.paths` into the build context at `~/.config/egg/repo-deps/<repo-name>/`
+2. `compute_build_hash()` includes watch file contents, so the image rebuilds automatically when dependency files change
+3. During `docker build`, the `docker-setup.py` script reads both `build_commands` and `extra_packages` from `manifest.json` (since `repositories.yaml` is unavailable in the build context) and executes them in order
+4. All repos' dependencies are installed into the **same image** — no per-repo images
+
+**Key properties:**
+- Repos without `build_commands` are unaffected (backwards compatible)
+- Docker layer caching means no rebuild when dependencies are unchanged
+- The existing `docker_setup.extra_packages` (apt/dnf) remains for OS-level packages; `build_commands` is for project-level dependencies
+- Both `build_commands` and `extra_packages` are included in `manifest.json` for the Docker build context
+
+### Checkpoint Repository Configuration
+
+By default, checkpoints (session transcripts and tool call data) are stored in the same repository on the `egg/checkpoints/v2` branch. To keep checkpoint data separate or private, configure a different destination repository:
+
+**Example:**
+```yaml
+repo_settings:
+  your-org/web-app:
+    checkpoint_repo: your-org/web-app-checkpoints
+```
+
+The value must be in `owner/repo` format. The GitHub token must have write access to both the source repository and the checkpoint repository. This is useful for:
+- **Privacy**: Keep session transcripts and tool call data out of the source repo's history
+- **Separation of concerns**: Isolate checkpoint data from source code
+- **Access control**: Limit who can view checkpoint data
+
+**Configuration:**
+- Manual: Edit `~/.config/egg/repositories.yaml` and add `checkpoint_repo` under `repo_settings.{repo}`
+- GitHub Actions: Use the `checkpoint-repo` input (see `action/README.md`)
+- Runtime: The gateway looks up checkpoint configuration via `get_checkpoint_repo()` from `config/repo_config.py`
+
+## context-filters.yaml
+
+Controls which Confluence spaces, JIRA projects, and repositories are synced.
+
+**Phase 1 (Current)**: MEDIUM risk - Human review + filtering
+**Phase 3 (Target)**: LOW risk - DLP scanning + output monitoring
+
+See file for detailed allowlists and blocked patterns.

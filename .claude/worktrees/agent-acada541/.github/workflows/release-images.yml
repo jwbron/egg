@@ -1,0 +1,134 @@
+name: Release Images
+
+on:
+  push:
+    branches: [main]
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Image tag (defaults to latest)
+        required: false
+        default: latest
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  build-and-push:
+    name: Build and Push (${{ matrix.component }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - component: gateway
+            dockerfile: gateway/Dockerfile
+            image: ghcr.io/jwbron/egg-gateway
+          - component: sandbox
+            dockerfile: sandbox/Dockerfile
+            image: ghcr.io/jwbron/egg-sandbox
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Validate and parse version tag
+        id: version
+        run: |
+          TAG=""
+          IS_RELEASE="false"
+          IS_PRERELEASE="false"
+
+          if [[ "${{ github.event_name }}" == "release" ]]; then
+            TAG="${{ github.event.release.tag_name }}"
+            IS_RELEASE="true"
+          elif [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            TAG="${{ inputs.tag }}"
+            if [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+ ]]; then
+              IS_RELEASE="true"
+            fi
+          else
+            TAG="latest"
+          fi
+
+          # Validate and parse semver for releases
+          if [[ "$IS_RELEASE" == "true" ]]; then
+            if [[ ! "$TAG" =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)(-[a-zA-Z0-9.]+)?$ ]]; then
+              echo "::error::Invalid version tag '$TAG'. Must match semver format: vX.Y.Z or vX.Y.Z-prerelease"
+              exit 1
+            fi
+
+            # Extract version components from the validated regex
+            MAJOR="${BASH_REMATCH[1]}"
+            MINOR="${BASH_REMATCH[2]}"
+            PRERELEASE="${BASH_REMATCH[4]}"
+
+            if [[ -n "$PRERELEASE" ]]; then
+              IS_PRERELEASE="true"
+            fi
+          fi
+
+          {
+            if [[ "${IS_RELEASE}" == "true" && -n "${MAJOR:-}" ]]; then
+              echo "major_tag=v${MAJOR}"
+              echo "minor_tag=v${MAJOR}.${MINOR}"
+            fi
+            echo "tag=$TAG"
+            echo "is_release=$IS_RELEASE"
+            echo "is_prerelease=$IS_PRERELEASE"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Generate image tags
+        id: tags
+        run: |
+          IMAGE="${{ matrix.image }}"
+          TAG="${{ steps.version.outputs.tag }}"
+          IS_RELEASE="${{ steps.version.outputs.is_release }}"
+          IS_PRERELEASE="${{ steps.version.outputs.is_prerelease }}"
+          MAJOR_TAG="${{ steps.version.outputs.major_tag }}"
+          MINOR_TAG="${{ steps.version.outputs.minor_tag }}"
+
+          TAGS="${IMAGE}:${TAG}"
+
+          if [[ "$IS_RELEASE" == "true" ]]; then
+            if [[ "$IS_PRERELEASE" == "false" ]]; then
+              # Stable release: add floating tags and latest
+              TAGS="${TAGS},${IMAGE}:${MINOR_TAG},${IMAGE}:${MAJOR_TAG}"
+              TAGS="${TAGS},${IMAGE}:latest"
+            fi
+            # Pre-releases only get the exact version tag (e.g., v1.0.0-alpha)
+          else
+            # Non-release (push to main or workflow_dispatch without semver):
+            # TAG is already set (e.g., "latest"), no additional tags needed
+            :
+          fi
+
+          echo "tags=$TAGS" >> "$GITHUB_OUTPUT"
+          echo "Generated tags: $TAGS"
+
+      - name: Prepare build context
+        if: matrix.component == 'sandbox'
+        run: mkdir -p repo-deps
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          push: true
+          platforms: linux/amd64
+          tags: ${{ steps.tags.outputs.tags }}

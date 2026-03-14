@@ -1,0 +1,54 @@
+{
+  "status": "success",
+  "tests": {
+    "total": 6692,
+    "passed": 6692,
+    "failed": 0,
+    "skipped": 85
+  },
+  "lint": {
+    "status": "pass",
+    "issues_found": 3,
+    "issues_fixed": 3,
+    "details": "Removed unused pytest imports from test_handoffs_namespaced.py and test_orchestrator.py; fixed import sort order in test_handoffs_namespaced.py; reformatted 5 files via ruff format"
+  },
+  "integration_issues": {
+    "found": 2,
+    "fixed": 2,
+    "details": [
+      {
+        "file": "orchestrator/routes/pipelines.py",
+        "line": 2213,
+        "issue": "Hardcoded tester-output.json in _build_phase_prompt revision instructions not updated to use namespaced path",
+        "fix": "Updated to use f-string with {issue_number if issue_number is not None else pipeline_id}-tester-output.json"
+      },
+      {
+        "file": "orchestrator/routes/pipelines.py",
+        "line": 2810,
+        "issue": "Hardcoded tester-output.json in _build_phase_scoped_prompt revision checklist not updated to use namespaced path",
+        "fix": "Updated to use f-string with {pipeline.issue_number if pipeline.issue_number is not None else pipeline_id}-tester-output.json"
+      }
+    ]
+  },
+  "regressions": {
+    "found": false,
+    "details": "All 6692 existing tests pass. No regressions detected."
+  },
+  "summary": "Integration verified successfully. The coder's implementation correctly namespaces .egg-state files per-pipeline to prevent merge conflicts. Two hardcoded tester-output.json references in prompt-building functions were missed by the coder and have been fixed by the integrator. All tests pass and lint is clean after fixes.",
+  "changes_reviewed": {
+    "core_library": "shared/egg_contracts/orchestrator.py - load_agent_output, save_agent_output, collect_handoff_data now accept identifier parameter with backward-compat fallback",
+    "orchestrator_handoffs": "orchestrator/handoffs.py - wrapper functions forward identifier to core library",
+    "pipeline_routes": "orchestrator/routes/pipelines.py - all callers pass identifier derived from issue_number or pipeline_id; prompt builders reference namespaced filenames",
+    "signals": "orchestrator/routes/signals.py - complete signal handler passes identifier when saving agent output",
+    "docs": "docs/architecture/orchestrator.md, docs/guides/agent-development.md, docs/guides/sdlc-pipeline.md - updated to reference namespaced filenames",
+    "agent_modes": "sandbox/.claude/commands/{coder,tester,documenter,integrator}-mode.md - updated output filename instructions",
+    "tests": "orchestrator/tests/test_handoffs_namespaced.py (new), shared/egg_contracts/tests/test_orchestrator.py (new), orchestrator/tests/test_pipeline_prompts.py (extended) - comprehensive coverage of namespaced paths, backward compat, edge cases"
+  },
+  "commit": "fbf79998f",
+  "acceptance_criteria": {
+    "all_egg_state_files_namespaced": true,
+    "no_globally_named_files_remain": true,
+    "backward_compatible_reader": true,
+    "documentation_updated": true
+  }
+}
