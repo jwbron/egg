@@ -107,7 +107,7 @@
   },
   "decisions": [],
   "created_at": "2026-03-14T08:25:52.790941",
-  "updated_at": "2026-03-14T08:30:24.820444",
+  "updated_at": "2026-03-14T08:35:06.561142",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
@@ -133,14 +133,24 @@
         "container_id": "ce5befcde7ca1b79e83dbdfca7b30c3257beac0781d327ec3c63697f0495438d",
         "task_context": "Refine issue #1059: Implement overseer agent for pipeline health monitoring.\n\nIMPORTANT: You have limited time. Focus on producing the refinement output efficiently. Do NOT spend time reading every file in detail — use targeted searches.\n\nThe issue is extremely detailed already (see gh issue view 1059). Your job is to:\n\n1. QUICKLY verify key code locations exist (don't read them in full):\n   - shared/egg_contracts/agent_roles.py (AgentRole enum, AgentRoleDefinition)\n   - orchestrator/models.py (PipelineConfig)\n   - orchestrator/routes/pipelines.py (coordinator spawn path)\n   - orchestrator/routes/coordinator.py (coordinator_max_agents guardrail)\n   - orchestrator/container_spawner.py (container spawning)\n   - shared/egg_agent/ (Agent SDK from #1088 — check if it exists yet)\n\n2. Write the refinement output to .egg-state/drafts/ with:\n   - Task breakdown: ~8-12 implementation tasks with acceptance criteria\n   - Dependency order between tasks\n   - Key code locations for each task\n   - Any gaps or risks identified\n   - Note whether #1088 (egg_agent) is merged yet — if not, that's a blocker\n\n3. Signal completion when done. Do NOT over-research — the issue specification is comprehensive.\n\nKey architectural points from the issue:\n- New OVERSEER role in AgentRole enum + AgentRoleDefinition\n- Auto-spawn in orchestrator pipeline creation (alongside coordinator)\n- Exclude from coordinator_max_agents count\n- No repo mount (same as coordinator container pattern)\n- Tiered Haiku/Opus via shared/egg_agent/ (run_agent_async)\n- Adaptive stall detection, corrective action ladder, HITL-only restarts\n- Self-monitoring, autonomous issue filing\n- CLAUDE.md overseer section",
         "retry_number": 1
+      },
+      {
+        "role": "reviewer_refine",
+        "spawned_at": "2026-03-14T08:35:06.560795",
+        "completed_at": null,
+        "status": "running",
+        "container_id": "2392e97b2526f77a8d3af2de6dad49148d7775c84f351bf779ed724186c1ea35",
+        "task_context": "Review the requirements for issue #1059 (overseer agent for pipeline health monitoring). The issue (gh issue view 1059) contains very detailed requirements. The refiner was unable to produce a separate refinement doc, so review the issue specification directly. Validate: 1) Requirements completeness and consistency, 2) Identify any gaps or ambiguities, 3) Verify the design decisions are sound, 4) Check that the overseer vs mediator boundary is clear, 5) Verify the tiered Haiku/Opus architecture makes sense, 6) Check that the spawn policy (always-on, no repo mount) is consistent with coordinator pattern, 7) Flag any risks. Write your review to .egg-state/agent-outputs/. Signal completion when done.",
+        "retry_number": 0
       }
     ],
     "phase_decisions": [],
     "escalations": [],
     "guardrail_counters": {
-      "total_agents_spawned": 2,
+      "total_agents_spawned": 3,
       "retries_by_role": {
-        "refiner": 2
+        "refiner": 2,
+        "reviewer_refine": 1
       },
       "coordinator_respawns": 1,
       "started_at": "2026-03-14T08:26:01.113156"
@@ -148,5 +158,5 @@
   },
   "plan_phase_waves": null,
   "plan_phase_names": null,
-  "version": 17
+  "version": 18
 }
