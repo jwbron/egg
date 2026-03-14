@@ -393,6 +393,10 @@ class ContainerSpawner:
                 spawner_env["EGG_ISSUE_NUMBER"] = str(issue_number)
             if phase:
                 spawner_env["EGG_PHASE"] = phase
+            if branch:
+                spawner_env["EGG_BRANCH"] = branch
+            elif pipeline_id:
+                spawner_env["EGG_BRANCH"] = f"egg/{pipeline_id}/work"
             # Caller's extra_env overrides spawner defaults
             if extra_env:
                 spawner_env.update(extra_env)

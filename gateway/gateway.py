@@ -3609,7 +3609,6 @@ def session_create() -> tuple[Response, int] | Response:
     worktree_errors = []
     first_worktree_path: str | None = None  # Gateway-side path for checkpoint context
     first_repo: str | None = None  # First filtered repo in "owner/repo" format
-    worktree_branch: str | None = None  # Worktree branch name for branch lock
 
     # Only initialise the worktree manager when there are repos to process.
     # Local-mode sessions (no repos) skip worktree creation entirely, so
@@ -3656,7 +3655,6 @@ def session_create() -> tuple[Response, int] | Response:
             if first_worktree_path is None:
                 first_worktree_path = str(info.worktree_path)
                 first_repo = repo
-                worktree_branch = info.branch
             # Translate container path to host path for egg launcher mount sources
             worktrees[repo_name] = translate_to_host_path(str(info.worktree_path))
         except ValueError as e:
@@ -3704,9 +3702,12 @@ def session_create() -> tuple[Response, int] | Response:
         # checkpoints.
         _session.checkpoint_repo = get_checkpoint_repo(first_repo)
 
-    # Lock pipeline sessions to their assigned worktree branch
-    if worktree_branch and pipeline_id:
-        _session.assigned_branch = worktree_branch
+    # Use the shared pipeline branch for push enforcement.
+    # session_manager already sets assigned_branch from the `branch`
+    # request parameter (session_manager.py:560-564). If that wasn't
+    # provided, fall back to the canonical pipeline branch name.
+    if pipeline_id and not _session.assigned_branch:
+        _session.assigned_branch = f"egg/{pipeline_id}/work"
 
     audit_log(
         "session_created",

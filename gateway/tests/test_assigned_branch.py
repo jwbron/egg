@@ -28,6 +28,8 @@ from session_manager import (
 
 import gateway
 
+TEST_LAUNCHER_SECRET = os.environ.get("EGG_LAUNCHER_SECRET", "test-launcher-secret-12345")
+
 
 class TestSessionAssignedBranchField:
     """Tests for the assigned_branch field on Session."""
@@ -618,3 +620,158 @@ class TestPushTargetEnforcement:
             # Push to checkpoint branch (egg/checkpoints/v2) — different from assigned
             response = _do_push(push_client, headers, refspec="egg/checkpoints/v2")
             assert response.status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# Session creation: shared pipeline branch (not per-agent worktree branch)
+# ---------------------------------------------------------------------------
+
+
+class TestSessionCreateSharedPipelineBranch:
+    """Verify that session_create assigns the shared pipeline branch, not the
+    per-agent worktree branch, to assigned_branch."""
+
+    @pytest.fixture
+    def client(self):
+        gateway.app.config["TESTING"] = True
+        with gateway.app.test_client() as c:
+            yield c
+
+    @pytest.fixture
+    def launcher_headers(self):
+        return {"Authorization": f"Bearer {TEST_LAUNCHER_SECRET}"}
+
+    def test_pipeline_session_uses_shared_branch_not_worktree_branch(
+        self, client, launcher_headers, tmp_path
+    ):
+        """When a pipeline session is created with branch=shared, assigned_branch
+        should be the shared pipeline branch, NOT the per-agent worktree branch."""
+        manager = SessionManager(persistence_file=tmp_path / "sessions.json")
+
+        with (
+            patch.object(gateway, "get_session_manager", return_value=manager),
+            patch.object(gateway, "get_repo_visibility", return_value="private"),
+            patch.object(gateway, "get_worktree_manager") as mock_worktree,
+            patch.object(gateway, "_branch_exists_on_remote", return_value=False),
+        ):
+            mock_wt_manager = mock_worktree.return_value
+            mock_wt_manager.resolve_default_branch.return_value = "origin/main"
+            mock_worktree_info = MagicMock()
+            mock_worktree_info.worktree_path = "/path/to/worktree"
+            # The worktree gets a per-agent branch name
+            mock_worktree_info.branch = "egg/egg-issue-42-coder/work"
+            mock_wt_manager.create_worktree.return_value = mock_worktree_info
+
+            response = client.post(
+                "/api/v1/sessions/create",
+                headers=launcher_headers,
+                data=json.dumps(
+                    {
+                        "container_id": "egg-issue-42-coder",
+                        "container_ip": "172.18.0.5",
+                        "mode": "private",
+                        "repos": ["owner/repo"],
+                        "pipeline_id": "issue-42",
+                        "branch": "egg/issue-42/work",
+                        "agent_role": "coder",
+                    }
+                ),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 200
+            data = json.loads(response.data)
+            assert data["success"] is True
+            token = data["data"]["session_token"]
+
+            # Verify assigned_branch is the shared pipeline branch
+            result = manager.validate_session(token, source_ip="172.18.0.5")
+            assert result.session is not None
+            assert result.session.assigned_branch == "egg/issue-42/work"
+            # NOT the per-agent worktree branch
+            assert result.session.assigned_branch != "egg/egg-issue-42-coder/work"
+
+    def test_pipeline_session_without_branch_gets_canonical_fallback(
+        self, client, launcher_headers, tmp_path
+    ):
+        """When no branch is provided, assigned_branch falls back to the
+        canonical pipeline branch name egg/{pipeline_id}/work."""
+        manager = SessionManager(persistence_file=tmp_path / "sessions.json")
+
+        with (
+            patch.object(gateway, "get_session_manager", return_value=manager),
+            patch.object(gateway, "get_repo_visibility", return_value="private"),
+            patch.object(gateway, "get_worktree_manager") as mock_worktree,
+            patch.object(gateway, "_branch_exists_on_remote", return_value=False),
+        ):
+            mock_wt_manager = mock_worktree.return_value
+            mock_wt_manager.resolve_default_branch.return_value = "origin/main"
+            mock_worktree_info = MagicMock()
+            mock_worktree_info.worktree_path = "/path/to/worktree"
+            mock_worktree_info.branch = "egg/egg-issue-42-coder/work"
+            mock_wt_manager.create_worktree.return_value = mock_worktree_info
+
+            response = client.post(
+                "/api/v1/sessions/create",
+                headers=launcher_headers,
+                data=json.dumps(
+                    {
+                        "container_id": "egg-issue-42-coder",
+                        "container_ip": "172.18.0.5",
+                        "mode": "private",
+                        "repos": ["owner/repo"],
+                        "pipeline_id": "issue-42",
+                        # No branch parameter — should fall back
+                        "agent_role": "coder",
+                    }
+                ),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 200
+            data = json.loads(response.data)
+            assert data["success"] is True
+            token = data["data"]["session_token"]
+
+            result = manager.validate_session(token, source_ip="172.18.0.5")
+            assert result.session is not None
+            assert result.session.assigned_branch == "egg/issue-42/work"
+
+    def test_non_pipeline_session_no_assigned_branch(self, client, launcher_headers, tmp_path):
+        """Non-pipeline sessions should NOT get an assigned_branch from the
+        fallback logic."""
+        manager = SessionManager(persistence_file=tmp_path / "sessions.json")
+
+        with (
+            patch.object(gateway, "get_session_manager", return_value=manager),
+            patch.object(gateway, "get_repo_visibility", return_value="public"),
+            patch.object(gateway, "get_worktree_manager") as mock_worktree,
+        ):
+            mock_wt_manager = mock_worktree.return_value
+            mock_worktree_info = MagicMock()
+            mock_worktree_info.worktree_path = "/path/to/worktree"
+            mock_worktree_info.branch = "egg/some-container/work"
+            mock_wt_manager.create_worktree.return_value = mock_worktree_info
+
+            response = client.post(
+                "/api/v1/sessions/create",
+                headers=launcher_headers,
+                data=json.dumps(
+                    {
+                        "container_id": "some-container",
+                        "container_ip": "172.18.0.5",
+                        "mode": "public",
+                        "repos": ["owner/repo"],
+                    }
+                ),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 200
+            data = json.loads(response.data)
+            assert data["success"] is True
+            token = data["data"]["session_token"]
+
+            result = manager.validate_session(token, source_ip="172.18.0.5")
+            assert result.session is not None
+            assert result.session.assigned_branch is None
