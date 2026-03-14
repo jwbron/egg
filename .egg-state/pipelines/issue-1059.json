@@ -95,7 +95,7 @@
     }
   ],
   "created_at": "2026-03-14T06:02:13.851895",
-  "updated_at": "2026-03-14T06:17:44.213597",
+  "updated_at": "2026-03-14T06:17:57.053117",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
@@ -175,6 +175,15 @@
         "container_id": "69d904174372a926e0e6ebaf5c713295e94d88d584831bf3bd68a80d95197abb",
         "task_context": "Implement issue #1059: Overseer agent for pipeline health monitoring.\n\nARCHITECTURE PLAN (from .egg-state/drafts/1059-plan.md and .egg-state/agent-outputs/1059-plan.md):\n\nThe overseer is an always-on, read-only monitoring agent that watches pipeline health. It mirrors the coordinator's isolation pattern (no repo mount, API-only).\n\nIMPLEMENTATION ORDER (Phase 1 MVP - implement all of these):\n\n1. **Add OVERSEER to AgentRole enums** (3 locations):\n   - orchestrator/models.py: Add OVERSEER = 'overseer' to AgentRole enum\n   - shared/egg_contracts/agent_roles.py: Add OVERSEER role with AgentRoleDefinition (responsibilities: monitor health, detect stalls/loops, escalate), FileAccessPattern (no file access - read-only API monitor), dependencies=[], can_run_in_parallel=True\n   - gateway/agent_restrictions.py: Mirror OVERSEER role in gateway AgentRole (block all git ops, repo access, merges, phase control, coordinator spawning)\n\n2. **Add PipelineConfig fields** in orchestrator/models.py:\n   - overseer_enabled: bool = True\n   - overseer_poll_interval_seconds: int = 30\n   - overseer_stall_base_threshold_seconds: int = 120\n   - overseer_max_redirects_before_escalation: int = 2\n\n3. **Container spawning support** in orchestrator/container_spawner.py:\n   - Support OVERSEER role with same isolation as coordinator: repo_volumes={}, tmpfs over ~/repos\n   - Set env vars: EGG_AGENT_ROLE=overseer, EGG_OVERSEER_MODE=true\n   - Use --model haiku for cost-effectiveness\n\n4. **Auto-spawn overseer alongside coordinator** in orchestrator/routes/pipelines.py:\n   - In the coordinator spawn path (around line 6137), after spawning coordinator, also spawn overseer if overseer_enabled\n   - Spawn in background thread (overseer is fire-and-forget, like coordinator)\n   - Overseer lifecycle: runs until pipeline completes\n\n5. **Exclude overseer from coordinator_max_agents** in orchestrator/routes/coordinator.py:\n   - When counting spawned agents against guardrail, skip role=overseer\n   - Overseer is infrastructure, not a task agent\n\n6. **Core monitoring loop** - Add CLAUDE.md section for overseer agent instructions:\n   - Poll cycle: check container status, heartbeats, message bus, pipeline status\n   - Heuristic stall detection: flag agents with no heartbeat/progress within threshold\n   - Send nudge messages (OVERSEER_REDIRECT type) to stalled agents\n   - Escalate via HITL after max_redirects_before_escalation attempts\n   - Self-monitoring: track own cycle timing, message volume\n   - Exit when pipeline status is COMPLETED or FAILED\n\n7. **Add OVERSEER_REDIRECT message handling** to existing agent CLAUDE.md instructions:\n   - When agents receive an OVERSEER_REDIRECT message, they should acknowledge and take corrective action\n\nIMPORTANT PATTERNS TO FOLLOW:\n- Look at how COORDINATOR role is defined and spawned as the template\n- coordinator container: repo_volumes={}, tmpfs mount, specific env vars\n- Container naming: egg-{pipeline_id}-overseer\n- Follow existing StrEnum pattern for AgentRole\n- Follow existing AgentRoleDefinition pattern with all required fields\n\nCommit frequently with descriptive messages. Run tests if available (make test or pytest).",
         "retry_number": 0
+      },
+      {
+        "role": "reviewer_code",
+        "spawned_at": "2026-03-14T06:17:57.053001",
+        "completed_at": null,
+        "status": "running",
+        "container_id": "745925faaca1cde905bb2f31468650160e59a75f19556f1a503c154f9c5375a9",
+        "task_context": "Review code changes for issue #1059: Implement overseer agent for pipeline health monitoring. The coder is adding a new OVERSEER agent role across multiple files. Review for: 1) Correctness of role definitions following existing patterns (AgentRole enum, AgentRoleDefinition, FileAccessPattern). 2) Container isolation matches coordinator pattern (no repo mount). 3) Auto-spawn logic is robust (background thread, error handling). 4) Guardrail exclusion is correct. 5) CLAUDE.md instructions are clear and complete for an autonomous monitoring agent. 6) Security: overseer should be read-only, cannot modify repos, cannot restart agents directly. 7) No regressions to existing coordinator/agent spawning logic.",
+        "retry_number": 0
       }
     ],
     "phase_decisions": [
@@ -193,7 +202,7 @@
     ],
     "escalations": [],
     "guardrail_counters": {
-      "total_agents_spawned": 8,
+      "total_agents_spawned": 9,
       "retries_by_role": {
         "refiner": 1,
         "reviewer_refine": 1,
@@ -202,7 +211,8 @@
         "task_planner": 1,
         "risk_analyst": 1,
         "reviewer_plan": 1,
-        "coder": 1
+        "coder": 1,
+        "reviewer_code": 1
       },
       "coordinator_respawns": 0,
       "started_at": "2026-03-14T06:02:20.210209"
@@ -210,5 +220,5 @@
   },
   "plan_phase_waves": null,
   "plan_phase_names": null,
-  "version": 26
+  "version": 27
 }
