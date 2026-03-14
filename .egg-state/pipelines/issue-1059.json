@@ -87,15 +87,15 @@
       ],
       "decision_type": "phase_gate",
       "questions": [],
-      "status": "pending",
+      "status": "cancelled",
       "created_at": "2026-03-14T20:14:59.670805",
-      "resolved_at": null,
+      "resolved_at": "2026-03-14T22:50:33.918745",
       "resolution": null,
       "phase": "refine"
     }
   ],
   "created_at": "2026-03-14T19:17:37.901759",
-  "updated_at": "2026-03-14T22:50:33.868844",
+  "updated_at": "2026-03-14T22:50:33.920268",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
@@ -251,5 +251,5 @@
   },
   "plan_phase_waves": null,
   "plan_phase_names": null,
-  "version": 39
+  "version": 40
 }
