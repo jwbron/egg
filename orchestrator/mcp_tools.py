@@ -43,6 +43,10 @@ COORDINATOR_TOOLS = [
                     "type": "integer",
                     "description": "GitHub issue number (optional)",
                 },
+                "branch": {
+                    "type": "string",
+                    "description": "Branch name override (optional). Auto-generated as 'egg/issue-<N>' when issue_number is provided.",
+                },
                 "repo": {
                     "type": "string",
                     "description": "Repository to work on, in owner/name format (e.g. 'myorg/myrepo')",

@@ -145,6 +145,10 @@ RUN mkdir -p /usr/local/share/claude-commands
 COPY sandbox/claude-commands/*.md /usr/local/share/claude-commands/
 RUN chmod 644 /usr/local/share/claude-commands/*.md
 
+# Copy Claude skills
+COPY skills/ /usr/local/share/claude-skills/
+RUN find /usr/local/share/claude-skills -type f -exec chmod 644 {} \;
+
 # Copy Claude agent rules directory
 RUN mkdir -p /opt/claude-rules
 COPY sandbox/claude-rules/*.md /opt/claude-rules/

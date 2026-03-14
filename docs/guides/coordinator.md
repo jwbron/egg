@@ -79,7 +79,7 @@ The `/run-workflow` slash command provides a guided end-to-end workflow for subm
 /run-workflow --repo owner/name "Fix the auth bug"
 ```
 
-It walks through five phases automatically: seed (gather parameters), submit (`submit_task`), monitor (`get_status` polling every 60 seconds), HITL (present decisions inline via `AskUserQuestion`), and complete (summarize results and show PR link). See `sandbox/.claude/commands/run-workflow.md` for the full workflow definition.
+It walks through five phases automatically: seed (gather parameters), submit (`submit_task`), monitor (`get_status` polling every 60 seconds), HITL (present decisions inline via `AskUserQuestion`), and complete (summarize results and show PR link). See `skills/run-workflow/SKILL.md` for the full workflow definition.
 
 ### Available Tools
 

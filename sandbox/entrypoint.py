@@ -897,6 +897,22 @@ def setup_claude(config: Config, logger: Logger) -> None:
             for cmd in (config.claude_dir / "commands").glob("*.md"):
                 print(f"    @{cmd.stem}")
 
+    # Copy skills (directory-based, each skill is a subdirectory with SKILL.md)
+    skills_src = Path("/usr/local/share/claude-skills")
+    if skills_src.exists():
+        skills_dest = config.claude_dir / "skills"
+        skills_dest.mkdir(parents=True, exist_ok=True)
+        installed = []
+        for skill_dir in skills_src.iterdir():
+            if skill_dir.is_dir() and (skill_dir / "SKILL.md").exists():
+                target = skills_dest / skill_dir.name
+                if target.exists():
+                    shutil.rmtree(target)
+                shutil.copytree(skill_dir, target)
+                installed.append(skill_dir.name)
+        if installed:
+            logger.success(f"Skills installed: {', '.join(installed)}")
+
     # Create settings.json
     settings = {
         "defaultPermissionMode": "bypassPermissions",
