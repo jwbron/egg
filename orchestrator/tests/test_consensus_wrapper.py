@@ -71,3 +71,24 @@ class TestBuildConsensusWrappedCommand:
         cmd = build_consensus_wrapped_command("Prompt")
         script = cmd[2]
         assert "TIMEOUT" in script
+
+    def test_nonzero_exit_does_not_signal_ready(self):
+        """On non-zero Claude exit, wrapper must NOT signal READY."""
+        cmd = build_consensus_wrapped_command("Prompt")
+        script = cmd[2]
+        # The script should check CLAUDE_EXIT != 0 and exit early
+        assert 'if [ "$CLAUDE_EXIT" -ne 0 ]' in script
+        assert "NOT signaling READY" in script
+
+    def test_clean_exit_signals_ready(self):
+        """On zero Claude exit, wrapper should signal READY."""
+        cmd = build_consensus_wrapped_command("Prompt")
+        script = cmd[2]
+        assert "Agent exited cleanly" in script
+        assert "auto-signaling READY" in script
+
+    def test_timeout_configurable_via_env_var(self):
+        """Wrapper timeout should be configurable via EGG_CONSENSUS_WRAPPER_TIMEOUT."""
+        cmd = build_consensus_wrapped_command("Prompt")
+        script = cmd[2]
+        assert "EGG_CONSENSUS_WRAPPER_TIMEOUT" in script

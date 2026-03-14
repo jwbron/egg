@@ -10,8 +10,9 @@ stay-alive protocol.
 import shlex
 
 # Shell script that wraps the Claude CLI invocation. After Claude exits,
-# if EGG_CONCURRENT_MODE is set, it auto-signals READY (if the agent
-# didn't) and polls until consensus is reached or a timeout expires.
+# if EGG_CONCURRENT_MODE is set and exit was clean (code 0), it auto-signals
+# READY (if the agent didn't) and polls until consensus is reached or a
+# timeout expires. Non-zero exits are treated as failures — no READY signal.
 _CONSENSUS_WRAPPER_TEMPLATE = r"""
 #!/bin/bash
 set -uo pipefail
@@ -25,16 +26,23 @@ if [ "${{EGG_CONCURRENT_MODE:-}}" != "true" ]; then
     exit $CLAUDE_EXIT
 fi
 
-# Agent exited — auto-signal READY as a safety net.
+# Only signal READY on clean exit. A non-zero exit means the agent crashed
+# or errored — its work may be incomplete, so we must NOT claim readiness.
+if [ "$CLAUDE_EXIT" -ne 0 ]; then
+    echo "[consensus-wrapper] Agent failed (code $CLAUDE_EXIT). NOT signaling READY."
+    exit $CLAUDE_EXIT
+fi
+
+# Clean exit — auto-signal READY as a safety net.
 # If the agent already signaled READY, this is a no-op update.
-echo "[consensus-wrapper] Agent exited (code $CLAUDE_EXIT). Auto-signaling READY..."
+echo "[consensus-wrapper] Agent exited cleanly. Auto-signaling READY..."
 egg-orch signal readiness --state READY \
-    --reason "Agent process exited (code $CLAUDE_EXIT), auto-signaling READY" \
+    --reason "Agent process exited cleanly, auto-signaling READY" \
     2>/dev/null || true
 
-# Stay alive polling for consensus until reached or timeout (5 min).
+# Stay alive polling for consensus until reached or timeout.
 POLL_INTERVAL="${{EGG_MESSAGE_POLL_INTERVAL:-30}}"
-TIMEOUT=300
+TIMEOUT="${{EGG_CONSENSUS_WRAPPER_TIMEOUT:-300}}"
 ELAPSED=0
 
 echo "[consensus-wrapper] Entering consensus wait loop (timeout=${{TIMEOUT}}s)..."
