@@ -140,7 +140,10 @@ Common error codes:
 - **400** — Invalid request (missing fields, invalid role/phase)
 - **403** — Coordinator mode not enabled on the pipeline
 - **404** — Pipeline or agent not found
-- **409** — Phase advancement blocked (no contract before implement/pr); or agent spawn rejected because the pipeline has no contract in implement/pr phase; or role's dependencies have not yet completed (e.g., spawning `tester` before `coder` is done)
+- **409** — Conflict. Possible causes:
+  - Phase advancement blocked because no contract exists before implement/pr phase
+  - Agent spawn rejected because the pipeline has no contract in implement/pr phase
+  - Role's dependencies have not yet completed (e.g., spawning `tester` before `coder` is done)
 - **429** — Guardrail limit exceeded (max agents or max retries per role)
 - **500** — Internal error (container spawn failure, etc.)
 
