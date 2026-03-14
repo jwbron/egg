@@ -22,7 +22,7 @@ class TestReadPhaseDraft:
         drafts.mkdir(parents=True)
         (drafts / "42-analysis.md").write_text("short content", encoding="utf-8")
 
-        result = _read_phase_draft(tmp_path, "refine", "issue", issue_number=42)
+        result = _read_phase_draft(tmp_path, "refine", issue_number=42)
         assert result == "short content"
 
     def test_truncates_content_exceeding_limit(self, tmp_path: Path):
@@ -32,36 +32,36 @@ class TestReadPhaseDraft:
         content = "x" * 200
         (drafts / "42-analysis.md").write_text(content, encoding="utf-8")
 
-        result = _read_phase_draft(tmp_path, "refine", "issue", issue_number=42, max_chars=100)
+        result = _read_phase_draft(tmp_path, "refine", issue_number=42, max_chars=100)
         assert result.startswith("x" * 100)
         assert "... (truncated, 200 chars total)" in result
 
     def test_no_draft_for_implement_phase(self, tmp_path: Path):
         """Implement phase has no draft file; returns None."""
-        result = _read_phase_draft(tmp_path, "implement", "issue", issue_number=42)
+        result = _read_phase_draft(tmp_path, "implement", issue_number=42)
         assert result is None
 
     def test_missing_draft_file(self, tmp_path: Path):
         """Returns None when draft file does not exist on disk."""
-        result = _read_phase_draft(tmp_path, "refine", "issue", issue_number=42)
+        result = _read_phase_draft(tmp_path, "refine", issue_number=42)
         assert result is None
 
-    def test_local_mode_uses_pipeline_id(self, tmp_path: Path):
-        """Local mode constructs path with pipeline_id prefix."""
+    def test_pipeline_id_used_when_no_issue(self, tmp_path: Path):
+        """Pipeline ID is used as prefix when no issue_number is provided."""
         drafts = tmp_path / ".egg-state" / "drafts"
         drafts.mkdir(parents=True)
-        (drafts / "pid123-plan.md").write_text("local plan", encoding="utf-8")
+        (drafts / "pid123-plan.md").write_text("prompt plan", encoding="utf-8")
 
-        result = _read_phase_draft(tmp_path, "plan", "local", pipeline_id="pid123")
-        assert result == "local plan"
+        result = _read_phase_draft(tmp_path, "plan", pipeline_id="pid123")
+        assert result == "prompt plan"
 
-    def test_local_mode_fallback_prefix(self, tmp_path: Path):
-        """Local mode without pipeline_id falls back to 'local' prefix."""
+    def test_fallback_prefix_without_identifiers(self, tmp_path: Path):
+        """Without issue_number or pipeline_id, falls back to 'unknown' prefix."""
         drafts = tmp_path / ".egg-state" / "drafts"
         drafts.mkdir(parents=True)
-        (drafts / "local-analysis.md").write_text("fallback", encoding="utf-8")
+        (drafts / "unknown-analysis.md").write_text("fallback", encoding="utf-8")
 
-        result = _read_phase_draft(tmp_path, "refine", "local")
+        result = _read_phase_draft(tmp_path, "refine")
         assert result == "fallback"
 
     def test_truncation_suffix_format(self, tmp_path: Path):
@@ -71,5 +71,5 @@ class TestReadPhaseDraft:
         content = "a" * 500
         (drafts / "7-plan.md").write_text(content, encoding="utf-8")
 
-        result = _read_phase_draft(tmp_path, "plan", "issue", issue_number=7, max_chars=10)
+        result = _read_phase_draft(tmp_path, "plan", issue_number=7, max_chars=10)
         assert result == "a" * 10 + "\n\n... (truncated, 500 chars total)"
