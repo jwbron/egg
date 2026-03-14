@@ -38,8 +38,8 @@ async def run_agent_async(
         timeout: Override config timeout (seconds)
         cwd: Working directory for the agent
         on_output: Optional callback for streaming output line-by-line
-        model: Model to use (default: opus[1m]). Can be an alias ('opus', 'sonnet')
-               or full model ID ('claude-opus-4-6-20250313')
+        model: Model to use (default: opus[1m]). Can be a model alias ('opus', 'sonnet')
+               or a full model identifier.
 
     Returns:
         AgentResult with response and status.

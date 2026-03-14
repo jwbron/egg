@@ -7,6 +7,8 @@ from types import ModuleType
 from typing import Any
 from unittest.mock import patch
 
+from egg_agent.client import run_agent, run_agent_async
+
 
 # ── Mock SDK types ──────────────────────────────────────────────────────────
 #
@@ -74,8 +76,6 @@ except ImportError:
     _mock_sdk.ClaudeAgentOptions = ClaudeAgentOptions  # type: ignore[attr-defined]
     _mock_sdk.query = None  # type: ignore[attr-defined]  # Patched in tests
     sys.modules["claude_agent_sdk"] = _mock_sdk
-
-from egg_agent.client import run_agent, run_agent_async
 
 
 def _run_async(coro):
