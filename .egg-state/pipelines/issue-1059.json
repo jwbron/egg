@@ -78,7 +78,7 @@
   },
   "decisions": [],
   "created_at": "2026-03-14T22:50:42.745933",
-  "updated_at": "2026-03-14T22:51:32.298794",
+  "updated_at": "2026-03-14T22:51:33.085708",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
@@ -104,15 +104,25 @@
         "container_id": "5f2aee1affd14899d4eba70a061115dbf0b1672abdba832cdecd95ad4d613ce8",
         "task_context": "Review the refinement of issue #1059: Implement overseer agent for pipeline health monitoring. This is a large feature adding a new agent type to the egg SDLC pipeline. Wait for the refiner to produce output in .egg-state/drafts/, then review for: 1) Are all dependencies correctly identified and their status verified? 2) Are there gaps in the requirements that could block implementation? 3) Is the scope appropriate or does it need to be broken down? 4) Are the infrastructure changes (new AgentRole, auto-spawn logic, container config) well-understood? 5) Are there security concerns with the overseer's access pattern? Write your review to .egg-state/agent-outputs/reviewer_refine.md.",
         "retry_number": 0
+      },
+      {
+        "role": "reviewer_agent_design",
+        "spawned_at": "2026-03-14T22:51:33.085558",
+        "completed_at": null,
+        "status": "running",
+        "container_id": "90380435f0f1da34d785bc64fd60a10ce4f3935ff3f607087f9b5c2fcffd47de",
+        "task_context": "Review the agent design aspects of issue #1059: Implement overseer agent for pipeline health monitoring. Focus on: 1) The tiered Haiku/Opus architecture — is this the right split? Are the escalation boundaries clear? 2) The overseer's relationship to coordinator and mediator — are the boundaries well-defined? 3) The adaptive stall detection approach — is the Haiku classification step adding value or unnecessary complexity? 4) Self-monitoring requirements — can the overseer reliably detect its own issues? 5) The always-on spawn model — resource implications? 6) Container isolation (no repo mount) — is this sufficient? Write your review to .egg-state/agent-outputs/reviewer_agent_design.md.",
+        "retry_number": 0
       }
     ],
     "phase_decisions": [],
     "escalations": [],
     "guardrail_counters": {
-      "total_agents_spawned": 2,
+      "total_agents_spawned": 3,
       "retries_by_role": {
         "refiner": 1,
-        "reviewer_refine": 1
+        "reviewer_refine": 1,
+        "reviewer_agent_design": 1
       },
       "coordinator_respawns": 0,
       "started_at": "2026-03-14T22:50:51.362537"
@@ -120,5 +130,5 @@
   },
   "plan_phase_waves": null,
   "plan_phase_names": null,
-  "version": 10
+  "version": 11
 }
