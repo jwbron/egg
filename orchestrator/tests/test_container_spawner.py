@@ -286,6 +286,27 @@ class TestSpawnBranchPropagation:
         call_kwargs = mock_gateway_client.register_session.call_args.kwargs
         assert call_kwargs.get("branch") is None
 
+    def test_egg_branch_env_set_when_branch_provided(self, spawner):
+        """EGG_BRANCH env var is set to the explicit branch value."""
+        result = spawner.spawn_agent_container(
+            pipeline_id="issue-123",
+            agent_role=AgentRole.CODER,
+            issue_number=123,
+            branch="egg/issue-123/work",
+        )
+
+        assert result.environment.get("EGG_BRANCH") == "egg/issue-123/work"
+
+    def test_egg_branch_env_falls_back_to_canonical(self, spawner):
+        """EGG_BRANCH falls back to egg/{pipeline_id}/work when no branch provided."""
+        result = spawner.spawn_agent_container(
+            pipeline_id="issue-123",
+            agent_role=AgentRole.CODER,
+            issue_number=123,
+        )
+
+        assert result.environment.get("EGG_BRANCH") == "egg/issue-123/work"
+
 
 class TestStopAgentContainer:
     """Tests for stopping agent containers."""

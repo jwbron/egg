@@ -6109,6 +6109,8 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
             }
             if pipeline.branch:
                 sandbox_env["EGG_BRANCH"] = pipeline.branch
+            else:
+                sandbox_env["EGG_BRANCH"] = f"egg/{pipeline_id}/work"
             if pipeline.prompt:
                 sandbox_env["EGG_PIPELINE_PROMPT"] = pipeline.prompt
 
