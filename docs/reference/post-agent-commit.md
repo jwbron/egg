@@ -64,6 +64,16 @@ Authorization: Bearer <session_token>
 
 This routes the push through the gateway so that branch ownership policies and phase restrictions are enforced. If the push fails, the commit remains local-only and a warning is logged. Push failure does not cause the auto-commit itself to fail.
 
+### Protected Branch Safeguard
+
+Auto-commits are never pushed to `main` or `master`. If the worktree's current branch is one of these protected branches (which can happen if worktree setup failed to create an `egg/` branch), the auto-commit is moved to a salvage branch first:
+
+1. A new branch `egg/salvage-<container_id>` is created from the current HEAD.
+2. The push proceeds on the salvage branch instead.
+3. If creating the salvage branch fails, the push is skipped and the commit remains local-only.
+
+This ensures WIP work is never lost but also can never inadvertently land on main.
+
 ## Error Handling
 
 | Error | Behavior |
@@ -75,6 +85,8 @@ This routes the push through the gateway so that branch ownership policies and p
 | `git add` fails | Skip (logged at WARNING) |
 | `git commit` fails | Skip (logged at WARNING) |
 | Push fails | Log warning; commit stays local |
+| Branch is `main` or `master` | Create `egg/salvage-<container_id>` branch and push there instead |
+| Salvage branch creation fails | Skip push; commit stays local |
 | Subprocess timeout (30s for git, 30s for push) | Skip (logged at WARNING) |
 | Unexpected exception | Skip (logged at WARNING) |
 
@@ -95,6 +107,7 @@ The auto-commit creates a standard git commit in the worktree. The checkpoint sy
 | `post_agent_symlink_filter` | INFO | `symlink_files`, `container_id` |
 | `post_agent_auto_commit_skipped` | INFO | `container_id`, `phase`, `blocked_files`, `symlink_files` |
 | `post_agent_auto_push` | INFO | `commit_sha`, `branch`, `container_id` |
+| `post_agent_salvage_branch` | INFO | `original_branch`, `salvage_branch`, `container_id` |
 | Push via gateway failed | WARNING | `worktree_path`, `error` |
 | `git add` failed | WARNING | `worktree_path`, `stderr` |
 | Auto-commit failed | WARNING | `worktree_path`, `stderr` |
