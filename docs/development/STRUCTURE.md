@@ -194,6 +194,12 @@ sandbox/
 
 ```
 shared/
+├── egg_agent/              # Claude Agent SDK wrapper (in-sandbox agent calls + command builder)
+│   ├── __init__.py         # Public API: AgentResult, build_agent_command
+│   ├── __main__.py         # CLI entry point (python3 -m egg_agent)
+│   ├── client.py           # run_agent(), run_agent_async() via claude-agent-sdk
+│   ├── command.py          # build_agent_command() for orchestrator-spawned containers
+│   └── result.py           # AgentResult dataclass
 ├── egg_config/             # Configuration utilities
 │   ├── constants.py        # Centralized constants (ports, networks, container names, devserver resource limits, infrastructure branch names)
 │   ├── compose_config.py   # Bridges config.yaml settings to docker-compose environment variables
