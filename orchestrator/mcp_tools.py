@@ -192,9 +192,7 @@ class CoordinatorToolHandler:
         }
         if args.get("issue_number"):
             data["issue_number"] = args["issue_number"]
-            data["mode"] = "issue"
         else:
-            data["mode"] = "local"
             data["prompt"] = args["description"]
         if args.get("repo"):
             data["repo"] = args["repo"]

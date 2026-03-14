@@ -470,7 +470,6 @@ class TestCoordinatorToolHandler:
                         "repo": "owner/repo",
                         "issue_number": 42,
                         "created_at": "2026-03-13T00:00:00Z",
-                        "mode": "local",
                     }
                 }
             },

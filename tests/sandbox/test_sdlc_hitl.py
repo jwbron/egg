@@ -82,29 +82,29 @@ class TestDetectPhase:
 
 class TestGetDraftPath:
     def test_refine_issue_mode(self):
-        path = _get_draft_path("refine", "issue", issue_number=42)
+        path = _get_draft_path("refine", issue_number=42)
         assert path == ".egg-state/drafts/42-analysis.md"
 
-    def test_refine_local_mode(self):
-        path = _get_draft_path("refine", "local", pipeline_id="local-abc")
+    def test_refine_with_pipeline_id(self):
+        path = _get_draft_path("refine", pipeline_id="local-abc")
         assert path == ".egg-state/drafts/local-abc-analysis.md"
 
     def test_implement_returns_none(self):
-        path = _get_draft_path("implement", "issue", issue_number=1)
+        path = _get_draft_path("implement", issue_number=1)
         assert path is None
 
     def test_plan_phase(self):
-        path = _get_draft_path("plan", "issue", issue_number=10)
+        path = _get_draft_path("plan", issue_number=10)
         assert path == ".egg-state/drafts/10-plan.md"
 
     def test_pr_phase(self):
-        path = _get_draft_path("pr", "issue", issue_number=5)
+        path = _get_draft_path("pr", issue_number=5)
         assert path == ".egg-state/drafts/5-pr.md"
 
-    def test_local_mode_fallback_prefix(self):
-        """When no pipeline_id given in local mode, prefix is 'local'."""
-        path = _get_draft_path("refine", "local")
-        assert path == ".egg-state/drafts/local-analysis.md"
+    def test_fallback_prefix(self):
+        """When neither issue_number nor pipeline_id given, prefix is 'unknown'."""
+        path = _get_draft_path("refine")
+        assert path == ".egg-state/drafts/unknown-analysis.md"
 
 
 # ---------------------------------------------------------------------------
@@ -597,7 +597,7 @@ class TestDecisionPhaseField:
         handle_hitl_checkpoint(client, "issue-1", decision, pipeline_mode="issue", issue_number=1)
 
         # _get_draft_path should have been called with "plan", not "refine"
-        mock_draft_path.assert_called_once_with("plan", "issue", 1, "issue-1")
+        mock_draft_path.assert_called_once_with("plan", issue_number=1, pipeline_id="issue-1")
 
     @patch("egg_lib.sdlc_hitl._find_repo_path")
     @patch("egg_lib.sdlc_hitl._get_draft_path")
@@ -620,7 +620,7 @@ class TestDecisionPhaseField:
         handle_hitl_checkpoint(client, "issue-1", decision, pipeline_mode="issue", issue_number=1)
 
         # _detect_phase should resolve "refine" from the question text
-        mock_draft_path.assert_called_once_with("refine", "issue", 1, "issue-1")
+        mock_draft_path.assert_called_once_with("refine", issue_number=1, pipeline_id="issue-1")
 
     @patch("egg_lib.sdlc_hitl._find_repo_path")
     @patch("egg_lib.sdlc_hitl._get_draft_path")
@@ -644,7 +644,7 @@ class TestDecisionPhaseField:
         handle_hitl_checkpoint(client, "issue-1", decision, pipeline_mode="issue", issue_number=1)
 
         # _detect_phase should resolve "implement" from the question text
-        mock_draft_path.assert_called_once_with("implement", "issue", 1, "issue-1")
+        mock_draft_path.assert_called_once_with("implement", issue_number=1, pipeline_id="issue-1")
 
     @patch("egg_lib.sdlc_hitl._find_repo_path")
     @patch("egg_lib.sdlc_hitl._get_draft_path")
@@ -671,7 +671,7 @@ class TestDecisionPhaseField:
         handle_hitl_checkpoint(client, "issue-1", decision, pipeline_mode="issue", issue_number=1)
 
         client.get_pipeline.assert_called_once_with("issue-1")
-        mock_draft_path.assert_called_once_with("plan", "issue", 1, "issue-1")
+        mock_draft_path.assert_called_once_with("plan", issue_number=1, pipeline_id="issue-1")
 
     @patch("egg_lib.sdlc_hitl._find_repo_path")
     @patch("egg_lib.sdlc_hitl._get_draft_path")
@@ -698,7 +698,7 @@ class TestDecisionPhaseField:
 
         client.get_pipeline.assert_called_once_with("issue-1")
         # Phase stays "unknown" since API failed
-        mock_draft_path.assert_called_once_with("unknown", "issue", 1, "issue-1")
+        mock_draft_path.assert_called_once_with("unknown", issue_number=1, pipeline_id="issue-1")
 
 
 # ---------------------------------------------------------------------------
@@ -2187,7 +2187,7 @@ class TestDefaultDecisionType:
 
 
 class TestContractDecisionBridge:
-    """Tests for the contract decision bridge (local-mode HITL)."""
+    """Tests for the contract decision bridge (HITL)."""
 
     def _write_contract(self, tmp_path, key, decisions):
         """Helper: write a contract JSON with the given decisions list."""
@@ -2204,21 +2204,21 @@ class TestContractDecisionBridge:
 
     # -- _get_contract_key --
 
-    def test_get_contract_key_issue_mode(self):
-        """Issue mode returns str(issue_number)."""
-        assert _get_contract_key("issue", issue_number=42) == "42"
+    def test_get_contract_key_with_issue_number(self):
+        """Returns str(issue_number) when provided."""
+        assert _get_contract_key(issue_number=42) == "42"
 
-    def test_get_contract_key_issue_mode_no_number(self):
-        """Issue mode with no issue_number returns None."""
-        assert _get_contract_key("issue") is None
+    def test_get_contract_key_no_identifiers(self):
+        """Returns None when no identifiers provided."""
+        assert _get_contract_key() is None
 
-    def test_get_contract_key_local_mode(self):
-        """Local mode returns pipeline_id."""
-        assert _get_contract_key("local", pipeline_id="my-pipeline") == "my-pipeline"
+    def test_get_contract_key_with_pipeline_id(self):
+        """Returns pipeline_id when provided."""
+        assert _get_contract_key(pipeline_id="my-pipeline") == "my-pipeline"
 
-    def test_get_contract_key_local_mode_no_pipeline(self):
-        """Local mode with no pipeline_id returns None."""
-        assert _get_contract_key("local") is None
+    def test_get_contract_key_pipeline_id_no_value(self):
+        """Returns None when pipeline_id is empty."""
+        assert _get_contract_key(pipeline_id="") is None
 
     # -- _load_pending_contract_decisions --
 

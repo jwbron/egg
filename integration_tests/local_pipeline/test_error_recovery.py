@@ -276,7 +276,7 @@ class TestOrphanedContainerCleanup:
 
             # Filter to containers related to this pipeline
             pipeline_containers = [
-                c for c in after_containers if pipeline_id.replace("local-", "") in c
+                c for c in after_containers if pipeline_id.replace("pipeline-", "") in c
             ]
 
             assert len(pipeline_containers) == 0, (
@@ -337,7 +337,7 @@ class TestPipelineDeletionDuringRunning:
                 time.sleep(3)
                 containers = get_orphaned_sandbox_containers()
                 pipeline_containers = [
-                    c for c in containers if pipeline_id.replace("local-", "") in c
+                    c for c in containers if pipeline_id.replace("pipeline-", "") in c
                 ]
                 assert len(pipeline_containers) == 0, (
                     f"Found orphaned containers: {pipeline_containers}"

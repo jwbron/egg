@@ -1076,7 +1076,7 @@ class TestSyncPipelineDecisionsToContract:
             _sync_pipeline_decisions_to_contract(
                 repo_path=Path("/fake/repo"),
                 pipeline_id="test-pipeline",
-                pipeline_mode="local",
+                pipeline_mode="issue",
             )
 
         # --- Verify ---

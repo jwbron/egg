@@ -179,7 +179,7 @@ class TestCreatePipeline:
         client, set_resp = stub_server
         pipeline = {"id": "issue-42", "status": "created"}
         set_resp({"/api/v1/pipelines": (200, {"data": {"pipeline": pipeline}})})
-        result = client.create_pipeline(issue_number=42, repo="org/repo", mode="issue")
+        result = client.create_pipeline(issue_number=42, repo="org/repo")
         assert result["id"] == "issue-42"
 
     def test_conflict_409(self, stub_server):
@@ -198,7 +198,6 @@ class TestCreatePipeline:
             issue_number=1,
             repo="o/r",
             branch="egg/test",
-            mode="issue",
             prompt="do stuff",
             config={"key": "val"},
         )

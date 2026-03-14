@@ -46,28 +46,13 @@ logger = get_logger("orchestrator.phases")
 phases_bp = Blueprint("phases", __name__, url_prefix="/api/v1/pipelines")
 
 
-# Valid phase transitions for issue-driven pipelines
+# Valid phase transitions
 PHASE_TRANSITIONS = {
     PipelinePhase.REFINE: [PipelinePhase.PLAN, PipelinePhase.IMPLEMENT],
     PipelinePhase.PLAN: [PipelinePhase.IMPLEMENT],
     PipelinePhase.IMPLEMENT: [PipelinePhase.PR],
     PipelinePhase.PR: [],  # Terminal phase
 }
-
-# Valid phase transitions for local pipelines
-LOCAL_PHASE_TRANSITIONS = {
-    PipelinePhase.REFINE: [PipelinePhase.PLAN, PipelinePhase.IMPLEMENT],
-    PipelinePhase.PLAN: [PipelinePhase.IMPLEMENT],
-    PipelinePhase.IMPLEMENT: [PipelinePhase.PR],
-    PipelinePhase.PR: [],  # Terminal phase
-}
-
-
-def get_phase_transitions(pipeline_mode: str = "issue") -> dict:
-    """Get the phase transition map for a pipeline mode."""
-    if pipeline_mode == "local":
-        return LOCAL_PHASE_TRANSITIONS
-    return PHASE_TRANSITIONS
 
 
 def make_error_response(
@@ -122,19 +107,17 @@ def _clear_concurrent_state(pipeline_id: str) -> None:
 def validate_phase_transition(
     current_phase: PipelinePhase,
     target_phase: PipelinePhase,
-    pipeline_mode: str = "issue",
 ) -> tuple[bool, str]:
     """Validate a phase transition.
 
     Args:
         current_phase: Current pipeline phase
         target_phase: Target phase to transition to
-        pipeline_mode: Pipeline mode ("issue" or "local")
 
     Returns:
         Tuple of (is_valid, error_message)
     """
-    transitions = get_phase_transitions(pipeline_mode)
+    transitions = PHASE_TRANSITIONS
     if target_phase not in transitions.get(current_phase, []):
         valid_targets = transitions.get(current_phase, [])
         if not valid_targets:
@@ -255,9 +238,8 @@ def advance_phase(pipeline_id: str) -> tuple[Response, int]:
 
         # Validate transition unless forced
         if not force:
-            pipeline_mode = getattr(pipeline, "mode", "issue")
             is_valid, error = validate_phase_transition(
-                previous_phase, target_phase, pipeline_mode=pipeline_mode
+                previous_phase, target_phase
             )
             if not is_valid:
                 return make_error_response(error, status_code=400)
@@ -481,10 +463,8 @@ def complete_phase(pipeline_id: str) -> tuple[Response, int]:
         if data.get("artifacts"):
             phase_execution.artifacts = data["artifacts"]
 
-        # Determine next phase (respects pipeline mode)
-        pipeline_mode = getattr(pipeline, "mode", "issue")
-        transitions = get_phase_transitions(pipeline_mode)
-        next_phases = transitions.get(pipeline.current_phase, [])
+        # Determine next phase
+        next_phases = PHASE_TRANSITIONS.get(pipeline.current_phase, [])
         next_phase = next_phases[0] if next_phases else None
 
         store.save_pipeline(pipeline, expected_version=original_version)

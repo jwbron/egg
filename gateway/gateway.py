@@ -1253,9 +1253,7 @@ def git_execute() -> tuple[Response, int] | Response:
     # Pipeline agents in worktrees must stay on their assigned branch.
     # Interactive sessions are unrestricted even if they use worktrees.
     # We detect pipeline sessions by the presence of pipeline_id on the
-    # session (set for both "issue" and "local" pipeline modes), rather
-    # than checking session_mode, because issue-mode pipelines use
-    # session_mode="public" while local-mode pipelines use "local".
+    # session, rather than checking session_mode.
     # See issue #773.
     session = getattr(g, "session", None)
     is_pipeline = session is not None and getattr(session, "pipeline_id", None) is not None
@@ -2147,21 +2145,6 @@ def gh_pr_create() -> tuple[Response, int] | Response:
     # Get session phase from request context (set by @require_session_auth decorator)
     session_phase = getattr(g, "session_phase", None)
 
-    # Block PR creation in local SDLC mode (except during PR phase, where
-    # phase-permissions grant it and the gateway provides push access).
-    if session_mode == "local" and session_phase != "pr":
-        audit_log(
-            "pr_create_blocked_local_mode",
-            "gh_pr_create",
-            success=False,
-            details={"repo": repo, "reason": "PR creation blocked in local SDLC mode"},
-        )
-        return make_error(
-            "Operation blocked in local SDLC mode. Create PR manually when the pipeline completes.",
-            status_code=403,
-            details={"session_mode": "local"},
-        )
-
     # Check phase restrictions (if session has a phase set)
     if session_phase:
         try:
@@ -2355,21 +2338,6 @@ def gh_pr_comment() -> tuple[Response, int] | Response:
     # Get session mode from request context (set by @require_session_auth decorator)
     session_mode = getattr(g, "session_mode", None)
 
-    # Block PR comment in local SDLC mode (except during PR phase)
-    session_phase = getattr(g, "session_phase", None)
-    if session_mode == "local" and session_phase != "pr":
-        audit_log(
-            "pr_comment_blocked_local_mode",
-            "gh_pr_comment",
-            success=False,
-            details={"repo": repo, "reason": "PR comment blocked in local SDLC mode"},
-        )
-        return make_error(
-            "Operation blocked in local SDLC mode. Interact with PRs manually when the pipeline completes.",
-            status_code=403,
-            details={"session_mode": "local"},
-        )
-
     # Check Private Repo Mode policy (if enabled)
     repo_info = parse_owner_repo(repo)
     if repo_info:
@@ -2495,21 +2463,6 @@ def gh_pr_edit() -> tuple[Response, int] | Response:
     # Get session mode from request context (set by @require_session_auth decorator)
     session_mode = getattr(g, "session_mode", None)
 
-    # Block PR edit in local SDLC mode (except during PR phase)
-    session_phase = getattr(g, "session_phase", None)
-    if session_mode == "local" and session_phase != "pr":
-        audit_log(
-            "pr_edit_blocked_local_mode",
-            "gh_pr_edit",
-            success=False,
-            details={"repo": repo, "reason": "PR edit blocked in local SDLC mode"},
-        )
-        return make_error(
-            "Operation blocked in local SDLC mode. Edit PRs manually when the pipeline completes.",
-            status_code=403,
-            details={"session_mode": "local"},
-        )
-
     # Check Private Repo Mode policy (if enabled)
     priv_result = check_private_repo_access(
         operation="pr_edit",
@@ -2616,21 +2569,6 @@ def gh_pr_close() -> tuple[Response, int] | Response:
     # Get session mode from request context (set by @require_session_auth decorator)
     session_mode = getattr(g, "session_mode", None)
 
-    # Block PR close in local SDLC mode (except during PR phase)
-    session_phase = getattr(g, "session_phase", None)
-    if session_mode == "local" and session_phase != "pr":
-        audit_log(
-            "pr_close_blocked_local_mode",
-            "gh_pr_close",
-            success=False,
-            details={"repo": repo, "reason": "PR close blocked in local SDLC mode"},
-        )
-        return make_error(
-            "Operation blocked in local SDLC mode. Close PRs manually when the pipeline completes.",
-            status_code=403,
-            details={"session_mode": "local"},
-        )
-
     # Check Private Repo Mode policy (if enabled)
     repo_info = parse_owner_repo(repo)
     if repo_info:
@@ -2733,40 +2671,6 @@ def gh_execute() -> tuple[Response, int] | Response:
 
     # Get session mode from request context (set by @require_session_auth decorator)
     session_mode = getattr(g, "session_mode", None)
-
-    # Block gh commands in local SDLC mode.
-    # During PR phase, only allow PR-scoped operations through.
-    # All other gh commands remain blocked.
-    session_phase = getattr(g, "session_phase", None)
-    if session_mode == "local":
-        allowed = False
-        if session_phase == "pr":
-            cmd_prefix = " ".join(args[:2]) if len(args) >= 2 else args[0] if args else ""
-            allowed_pr_phase_prefixes = (
-                "pr create",
-                "pr edit",
-                "pr view",
-                "pr list",
-                "pr comment",
-                "pr close",
-                "pr diff",
-                "pr checks",
-                "pr status",
-            )
-            allowed = any(cmd_prefix.startswith(p) for p in allowed_pr_phase_prefixes)
-
-        if not allowed:
-            audit_log(
-                "gh_command_blocked_local_mode",
-                "gh_execute",
-                success=False,
-                details={"command_args": args, "reason": "gh commands blocked in local SDLC mode"},
-            )
-            return make_error(
-                "Operation blocked in local SDLC mode. Run gh commands manually when the pipeline completes.",
-                status_code=403,
-                details={"session_mode": "local"},
-            )
 
     # Check for commands blocked entirely in private mode (too broad to filter by repo)
     if session_mode == "private" and args and args[0] in GH_COMMANDS_BLOCKED_IN_PRIVATE_MODE:
@@ -3467,11 +3371,10 @@ def session_create() -> tuple[Response, int] | Response:
         return make_error("Missing container_id")
     if not container_ip:
         return make_error("Missing container_ip")
-    if mode not in ("private", "public", "local"):
-        return make_error("Invalid mode: must be 'private', 'public', or 'local'")
-    # repos is required for private/public modes unless local_only_repos are provided.
-    # local mode (orchestrator-internal temp sessions) needs no repos at all.
-    if not repos and not local_only_repos and mode != "local":
+    if mode not in ("private", "public"):
+        return make_error("Invalid mode: must be 'private' or 'public'")
+    # repos can be omitted for orchestrator-internal sessions that have a pipeline_id
+    if not repos and not local_only_repos and not pipeline_id:
         return make_error("Missing repos list")
 
     # Validate uid/gid if provided

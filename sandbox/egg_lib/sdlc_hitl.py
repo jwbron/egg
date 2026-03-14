@@ -33,19 +33,18 @@ CYAN = "\033[36m"
 
 def _get_draft_path(
     phase: str,
-    pipeline_mode: str,
     issue_number: int | None = None,
     pipeline_id: str | None = None,
 ) -> str | None:
     """Return relative path to the draft file for a phase.
 
     Mirrors the logic in orchestrator/routes/pipelines.py:_get_draft_path.
+    Uses issue_number as prefix when available, otherwise pipeline_id.
     """
-    is_local = pipeline_mode == "local"
-    if is_local:
-        prefix = pipeline_id if pipeline_id else "local"
+    if issue_number is not None:
+        prefix = str(issue_number)
     else:
-        prefix = str(issue_number) if issue_number else "unknown"
+        prefix = pipeline_id if pipeline_id else "unknown"
 
     if phase == "refine":
         return f".egg-state/drafts/{prefix}-analysis.md"
@@ -127,19 +126,17 @@ def _read_draft(repo_path: Path, draft_rel: str | None) -> str | None:
 
 
 def _get_contract_key(
-    pipeline_mode: str,
     issue_number: int | None = None,
     pipeline_id: str | None = None,
 ) -> str | None:
     """Return the contract file key for the current pipeline.
 
-    Issue mode uses the issue number as key; local mode uses the pipeline ID.
-    Returns None if the required identifier is missing.
+    Uses issue_number when available, otherwise pipeline_id.
+    Returns None if neither identifier is available.
     """
-    if pipeline_mode == "local":
-        return pipeline_id if pipeline_id else None
-    # issue mode (default)
-    return str(issue_number) if issue_number else None
+    if issue_number is not None:
+        return str(issue_number)
+    return pipeline_id if pipeline_id else None
 
 
 def _load_pending_contract_decisions(
@@ -574,7 +571,7 @@ def _handle_phase_gate(
     while True:
         # Load pending contract decisions each iteration (may change after answering).
         # pipeline_id doubles as contract key in local mode (e.g., "local-a1b2c3d4").
-        contract_key = _get_contract_key(pipeline_mode, issue_number, pipeline_id)
+        contract_key = _get_contract_key(issue_number=issue_number, pipeline_id=pipeline_id)
         pending_contract = (
             _load_pending_contract_decisions(repo_path, contract_key) if contract_key else []
         )
@@ -1014,7 +1011,7 @@ def resolve_phase_draft(
             logger.debug("Failed to fetch pipeline phase for decision display", exc_info=True)
 
     repo_path = _find_repo_path()
-    draft_rel = _get_draft_path(phase, pipeline_mode, issue_number, pipeline_id)
+    draft_rel = _get_draft_path(phase, issue_number=issue_number, pipeline_id=pipeline_id)
     draft_content = _read_draft(repo_path, draft_rel)
 
     # Fall back to decision context if local draft file not found.

@@ -143,61 +143,32 @@ def contract_exists(identifier: int | str, repo_root: Path | None = None) -> boo
 
 
 def create_contract(
-    issue_number: int,
-    title: str,
-    url: str,
+    issue_number: int | None = None,
+    title: str = "",
+    url: str | None = None,
+    pipeline_id: str | None = None,
     repo_root: Path | None = None,
     initial_phase: PipelinePhase = PipelinePhase.REFINE,
 ) -> Contract:
     """
-    Create a new contract for an issue.
+    Create a new contract for a pipeline.
 
     Args:
-        issue_number: The GitHub issue number
-        title: Issue title
-        url: Issue URL
+        issue_number: Optional GitHub issue number
+        title: Issue/task title
+        url: Optional issue URL
+        pipeline_id: Optional pipeline ID (used when no issue_number)
         repo_root: Optional repository root path
         initial_phase: Initial pipeline phase
 
     Returns:
         The newly created Contract
     """
+    issue = IssueInfo(number=issue_number, title=title, url=url or "") if issue_number else None
     contract = Contract(
-        issue=IssueInfo(
-            number=issue_number,
-            title=title,
-            url=url,
-        ),
+        issue=issue,
+        pipeline_id=pipeline_id if not issue_number else None,
         current_phase=initial_phase,
-    )
-
-    save_contract(contract, repo_root)
-    return contract
-
-
-def create_local_contract(
-    pipeline_id: str,
-    title: str,
-    repo_root: Path | None = None,
-    initial_phase: PipelinePhase = PipelinePhase.REFINE,
-) -> Contract:
-    """
-    Create a new contract for a local-mode pipeline.
-
-    Args:
-        pipeline_id: Pipeline ID (e.g., "local-a1b2c3d4")
-        title: Task description (typically first 100 chars of prompt)
-        repo_root: Optional repository root path
-        initial_phase: Initial pipeline phase
-
-    Returns:
-        The newly created Contract
-    """
-    contract = Contract(
-        pipeline_id=pipeline_id,
-        current_phase=initial_phase,
-        # Use a minimal IssueInfo stand-in for compatibility — no real issue
-        issue=None,
     )
 
     save_contract(contract, repo_root)

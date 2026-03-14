@@ -401,7 +401,6 @@ def cmd_pipeline_create(args: argparse.Namespace) -> int:
     """Create a new pipeline."""
     data: dict[str, Any] = {
         "repo": args.repo,
-        "mode": args.mode,
     }
     if args.issue:
         data["issue_number"] = args.issue
@@ -1295,15 +1294,9 @@ def create_parser() -> argparse.ArgumentParser:
     # pipeline create
     pl_create = pipeline_sub.add_parser("create", help="Create a pipeline")
     pl_create.add_argument("--repo", required=True, help="Repository (owner/name)")
-    pl_create.add_argument(
-        "--mode",
-        default="local",
-        choices=["issue", "local"],
-        help="Pipeline mode (default: local)",
-    )
     pl_create.add_argument("--issue", type=int, help="Issue number")
     pl_create.add_argument("--branch", help="Branch name")
-    pl_create.add_argument("--prompt", help="Prompt (required for local mode)")
+    pl_create.add_argument("--prompt", help="Prompt (for prompt-driven pipelines)")
     pl_create.add_argument(
         "--network-mode",
         choices=["public", "private"],
