@@ -256,8 +256,8 @@ integration_tests/
 ├── deployment_validation/         # Deployment validation integration tests
 │   ├── __init__.py
 │   └── test_deployment_check_e2e.py  # End-to-end devserver lifecycle tests
-├── local_pipeline/                # Local orchestrator integration tests
-│   ├── conftest.py                # Local pipeline test fixtures
+├── local_pipeline/                # Orchestrator pipeline integration tests
+│   ├── conftest.py                # Pipeline test fixtures
 │   ├── docker-compose.yml         # Orchestrator test environment
 │   ├── helpers.py                 # Shared API helper functions for tests
 │   ├── mock-sandbox/              # Mock sandbox for testing
@@ -267,7 +267,7 @@ integration_tests/
 │   ├── test_hitl_edge_cases.py    # HITL decision edge case tests
 │   ├── test_local_pipeline.py     # Orchestrator pipeline tests
 │   ├── test_signals.py            # Signal handling tests
-│   ├── test_unified_pipeline_behavior.py  # Unified local/issue mode behavior tests
+│   ├── test_unified_pipeline_behavior.py  # Unified pipeline behavior tests
 │   └── test_worktree_integration.py  # Worktree lifecycle and pipeline isolation tests
 └── sdlc/                          # SDLC pipeline integration tests
     ├── conftest.py                # SDLC test fixtures

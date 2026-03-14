@@ -88,9 +88,9 @@ See `orchestrator/health_checks/README.md` for the full framework reference, inc
 
 Pipelines can specify an explicit network mode that controls internet access for spawned containers:
 
-- **`public`**: Full internet access (default for issue-mode pipelines)
+- **`public`**: Full internet access (default)
 - **`private`**: Network lockdown - Anthropic API + private GitHub repos only (enforced by gateway proxy)
-- **`None`** (auto): Falls back based on pipeline mode — `issue` → `public`, `local` → `local`
+- **`None`** (auto): Defaults to `public`
 
 **Setting network mode:**
 
@@ -125,7 +125,7 @@ The orchestrator reads pipeline artifacts (verdict files, draft documents, check
 - Worktree paths are resolved dynamically based on pipeline ID and repository
 
 **Key artifact files in worktrees:**
-- `.egg-state/contracts/{identifier}.json` — Contract state (issue number for issue-mode, pipeline ID for local-mode)
+- `.egg-state/contracts/{identifier}.json` — Contract state (issue number for issue-driven pipelines, pipeline ID for prompt-driven pipelines)
 - `.egg-state/drafts/{identifier}-analysis.md` — Draft for `refine` phase (special-cased to `analysis`)
 - `.egg-state/drafts/{identifier}-{phase}.md` — Draft for other phases (e.g., `plan`). No draft for `implement` phase.
 - `.egg-state/reviews/{identifier}-{phase}-{reviewer_type}-review.json` — Review verdict files

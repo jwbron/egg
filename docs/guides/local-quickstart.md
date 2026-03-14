@@ -76,7 +76,7 @@ On subsequent runs, `egg` starts the gateway and orchestrator automatically. The
 
 ## 4. Using the SDLC pipeline
 
-### Option A: Local pipeline (prompt-driven, no GitHub interaction)
+### Option A: Prompt-driven pipeline (no GitHub interaction)
 
 Inside the sandbox, run:
 
@@ -84,16 +84,16 @@ Inside the sandbox, run:
 /sdlc
 ```
 
-With no arguments, this starts a **local pipeline**. The agent will:
+With no arguments, this starts a **prompt-driven pipeline**. The agent will:
 
 1. Ask what you want to build
 2. Ask 1-2 clarifying questions
-3. Create a local pipeline in the orchestrator
-4. Run through refine → plan → implement → PR phases entirely locally
+3. Create a pipeline in the orchestrator
+4. Run through refine → plan → implement → PR phases
 
 During refine and plan phases, the gateway restricts pushes to state files and blocks PR operations. During the PR phase, the orchestrator auto-creates the PR using metadata from the plan, commit log, and diff stats — no agent is spawned.
 
-**Local pipeline phases:**
+**Pipeline phases:**
 
 | Phase | What happens |
 |-------|-------------|
@@ -157,7 +157,7 @@ Here's what the issue pipeline creates and when:
 
 **Nothing is merged automatically.** The gateway enforces merge blocking — only humans can merge PRs via the GitHub UI.
 
-Local pipelines create PRs during the PR phase but do not interact with GitHub issues. The orchestrator auto-creates the PR via `GatewayClient.create_pr()` — no agent is spawned during the PR phase.
+Prompt-driven pipelines create PRs during the PR phase but do not interact with GitHub issues. The orchestrator auto-creates the PR via `GatewayClient.create_pr()` — no agent is spawned during the PR phase.
 
 The pipeline stores its internal state in `.egg-state/` on the feature branch (not on main). This includes the contract JSON, draft documents, and review verdicts.
 
