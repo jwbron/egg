@@ -561,7 +561,7 @@ class StateStore:
             client = get_gateway_client()
             return client.push_worktree_branch(
                 pipeline_id="state-sync",
-                repo_path=str(self.repo_path),
+                repo_path=str(self.worktree),
                 branch=STATE_BRANCH,
             )
         except Exception as e:

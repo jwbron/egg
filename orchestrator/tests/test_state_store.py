@@ -1008,7 +1008,7 @@ class TestRemoteSync:
         assert result is True
         mock_client.push_worktree_branch.assert_called_once_with(
             pipeline_id="state-sync",
-            repo_path=str(state_store.repo_path),
+            repo_path=str(state_store.worktree),
             branch="egg/pipeline-state",
         )
 
