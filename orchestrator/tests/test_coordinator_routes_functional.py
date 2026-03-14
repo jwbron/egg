@@ -950,6 +950,31 @@ class TestContractEnforcement:
         assert response.status_code == 200
         assert response.get_json()["data"]["current_phase"] == "plan"
 
+    @patch("routes.coordinator.get_state_store")
+    @patch("routes.coordinator.get_pipeline_state_lock")
+    @patch("routes.coordinator.get_repo_path")
+    def test_loopback_to_implement_blocked_without_contract(
+        self, mock_repo, mock_lock, mock_store_fn, client
+    ):
+        """Looping back from PR to implement must fail if contract_synced is False."""
+        mock_repo.return_value = Path("/tmp/repo")
+        mock_lock.return_value.__enter__ = MagicMock()
+        mock_lock.return_value.__exit__ = MagicMock(return_value=False)
+
+        pipeline = _make_pipeline(phase=PipelinePhase.PR)
+        pipeline.contract_synced = False
+        store = MagicMock()
+        store.load_pipeline.return_value = pipeline
+        mock_store_fn.return_value = store
+
+        response = client.post(
+            "/api/v1/pipelines/test-pipeline/coordinator/phase",
+            json={"target_phase": "implement", "reason": "Need more implementation"},
+        )
+
+        assert response.status_code == 409
+        assert "contract" in response.get_json()["message"].lower()
+
 
 # ── Escalation endpoint tests ───────────────────────────────────────
 
