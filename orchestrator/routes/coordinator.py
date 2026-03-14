@@ -49,7 +49,7 @@ from models import (
     PipelinePhase,
     PipelineStatus,
 )
-from routes.pipelines import _parse_resolution
+from routes.pipelines import _HITL_GATE_PHASES, _parse_resolution
 from state_store import (
     InvalidPipelineIdError,
     PipelineNotFoundError,
@@ -60,9 +60,6 @@ from state_store import (
 logger = get_logger("orchestrator.coordinator")
 
 coordinator_bp = Blueprint("coordinator", __name__, url_prefix="/api/v1/pipelines")
-
-# Phases that require human approval when hitl_gates is enabled.
-_HITL_GATE_PHASES = {"refine", "plan"}
 
 
 def _is_gate_approved(resolution: str | None) -> bool:

@@ -1202,6 +1202,9 @@ class TestContractEnforcement:
         pipeline.config.hitl_gates = True
         # First pass: approved. Second pass (after loopback): rejected.
         # The latest decision (rejected) should take precedence.
+        # Note: reversed() is position-based, not timestamp-based. This
+        # test relies on decisions being appended in chronological order,
+        # which matches runtime behavior (decisions are always appended).
         pipeline.decisions = [
             HITLDecision(
                 id="gate-old-approved",
