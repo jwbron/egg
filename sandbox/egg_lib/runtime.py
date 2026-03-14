@@ -15,6 +15,7 @@ Per-container session mode:
 - Gateway enforces mode on all git/gh operations
 """
 
+import fcntl
 import ipaddress
 import json
 import os
@@ -174,14 +175,21 @@ def _get_repo_owner_name(repo_path: Path) -> str | None:
         return None
 
 
-def _allocate_container_ip(network: str | None = None) -> str | None:
+def _allocate_container_ip(
+    network: str | None = None, exclude_ips: set[str] | None = None
+) -> str | None:
     """Allocate an available IP address from the specified network.
 
     Pre-allocates an IP before container start for session-container binding.
     The IP is used to verify requests come from the expected container.
 
+    Uses a file lock to serialize concurrent allocations, preventing race
+    conditions where two processes inspect the network simultaneously and
+    both pick the same "next available" IP.
+
     Args:
         network: Docker network name (defaults to ctx.isolated_network)
+        exclude_ips: Additional IPs to skip (e.g., previously failed allocations)
 
     Returns:
         Available IP address string, or None if allocation fails
@@ -198,7 +206,15 @@ def _allocate_container_ip(network: str | None = None) -> str | None:
         subnet_str = ctx.isolated_subnet
         reserved_ips = _get_reserved_ips(ctx.isolated_subnet, ctx.gateway_isolated_ip)
 
+    # Use a file lock to serialize concurrent IP allocations.
+    # This prevents two egg processes from inspecting the network at the
+    # same time and picking the same "next available" IP.
+    lock_path = Path(f"/tmp/egg-ip-alloc-{network}.lock")
+    lock_fd = None
     try:
+        lock_fd = open(lock_path, "w")
+        fcntl.flock(lock_fd, fcntl.LOCK_EX)
+
         # Get network info to find assigned IPs
         result = subprocess.run(
             ["docker", "network", "inspect", network, "--format", "{{json .Containers}}"],
@@ -210,6 +226,8 @@ def _allocate_container_ip(network: str | None = None) -> str | None:
 
         # Parse assigned IPs from running containers
         assigned_ips = set(reserved_ips)
+        if exclude_ips:
+            assigned_ips.update(exclude_ips)
         if containers_json and containers_json != "null":
             containers = json.loads(containers_json)
             for container_info in containers.values():
@@ -237,6 +255,13 @@ def _allocate_container_ip(network: str | None = None) -> str | None:
     except Exception as e:
         warn(f"IP allocation failed: {e}")
         return None
+    finally:
+        if lock_fd is not None:
+            try:
+                fcntl.flock(lock_fd, fcntl.LOCK_UN)
+                lock_fd.close()
+            except OSError:
+                pass
 
 
 def _cleanup_worktrees(container_id: str, force: bool = True) -> None:
@@ -678,16 +703,99 @@ def run_claude(
         cmd.insert(-1, "-e")
         cmd.insert(-1, f"EGG_HOST_LAUNCH_TIME={launch_time}")
 
-    # Run container
+    # Run container with retry on IP address conflicts.
+    # When multiple egg processes start concurrently, they may race to claim
+    # the same IP address, causing Docker to fail with "Address already in use".
+    max_ip_retries = 3
+    failed_ips: set[str] = set()
     try:
-        subprocess.run(cmd, check=False)
-        return True
-    except KeyboardInterrupt:
-        print()
-        warn("Interrupted by user")
-        return False
-    except Exception as e:
-        error(f"Failed to run container: {e}")
+        for ip_attempt in range(max_ip_retries):
+            try:
+                result = subprocess.run(
+                    cmd, check=False, capture_output=(ip_attempt > 0)
+                )
+                if result.returncode == 0:
+                    return True
+                # Check if this is an IP conflict error
+                is_ip_conflict = False
+                if ip_attempt > 0 and result.stderr:
+                    stderr_text = result.stderr.decode("utf-8", errors="replace")
+                    if "Address already in use" in stderr_text:
+                        is_ip_conflict = True
+                    else:
+                        # Different error on retry — print stderr and give up
+                        sys.stderr.write(stderr_text)
+                        return False
+                elif result.returncode == 125 and container_ip and ip_attempt == 0:
+                    # First attempt: stderr went to terminal. Docker returns
+                    # 125 for daemon errors including networking conflicts.
+                    is_ip_conflict = True
+
+                if not is_ip_conflict:
+                    return False
+                warn("Container start failed (IP address conflict), retrying...")
+            except KeyboardInterrupt:
+                print()
+                warn("Interrupted by user")
+                return False
+            except Exception as e:
+                error(f"Failed to run container: {e}")
+                return False
+
+            # Re-allocate IP and rebuild command for retry
+            if container_ip:
+                failed_ips.add(container_ip)
+            # Clean up the old session before creating a new one
+            if repos:
+                _cleanup_session(session_token, container_id)
+            # Remove failed container
+            subprocess.run(
+                ["docker", "rm", "-f", container_id],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=False,
+            )
+            # Re-allocate a different IP
+            container_ip = _allocate_container_ip(
+                network=net_config.network_name, exclude_ips=failed_ips
+            )
+            if not container_ip:
+                error("Failed to allocate a new container IP after conflict")
+                return False
+            info(f"Retrying with new IP: {container_ip}")
+            # Re-create session with new IP
+            mount_args_retry: list[str] = []
+            session_token, repos, _filtered_repos = _setup_session_repos(
+                container_id=container_id,
+                container_ip=container_ip,
+                mode=repo_mode,
+                mount_args=mount_args_retry,
+                quiet=True,
+                phase=os.environ.get("EGG_PIPELINE_PHASE"),
+                issue_number=int(os.environ.get("EGG_ISSUE_NUMBER", "0")) or None,
+                pr_number=int(os.environ.get("EGG_PR_NUMBER", "0")) or None,
+                pipeline_id=os.environ.get("EGG_PIPELINE_ID"),
+                agent_role=os.environ.get("EGG_AGENT_ROLE"),
+            )
+            if not session_token:
+                error("Failed to re-create session for retry")
+                return False
+            # Rebuild docker command with new IP and session token
+            cmd = build_sandbox_docker_cmd(
+                container_name=container_id,
+                image=ctx.sandbox_image,
+                network=net_config,
+                container_ip=container_ip,
+                session_token=session_token,
+                runtime_uid=os.getuid(),
+                runtime_gid=os.getgid(),
+                extra_env=caller_env,
+            )
+            cmd[LIFECYCLE_FLAGS_INDEX:LIFECYCLE_FLAGS_INDEX] = ["--rm", "-it"]
+            cmd[-1:-1] = mount_args_retry
+            time.sleep(0.5)  # Brief pause before retry
+
+        error("Failed to start container after IP conflict retries")
         return False
     finally:
         # Clean up session and worktrees when container exits
@@ -938,9 +1046,11 @@ def exec_in_new_container(
     if quiet:
         status_finish(f"Launching {command[0]}...")
 
-    # Run container with configurable timeout
+    # Run container with configurable timeout and IP conflict retry.
     timeout_seconds = timeout_minutes * 60
     run_success = False
+    max_ip_retries = 3
+    failed_ips: set[str] = set()
 
     def cleanup_container() -> None:
         """Save logs, remove container, and clean up session/worktrees."""
@@ -976,33 +1086,109 @@ def exec_in_new_container(
                 except Exception as e:
                     error(f"Ephemeral gateway cleanup failed: {e}")
 
-    try:
-        result = subprocess.run(cmd, timeout=timeout_seconds, check=False)
-        run_success = result.returncode == 0
-    except subprocess.TimeoutExpired:
-        print()
-        error(f"Container execution timed out after {timeout_minutes} minutes")
-        # Kill the container if it's still running
+    for ip_attempt in range(max_ip_retries):
+        try:
+            result = subprocess.run(
+                cmd, timeout=timeout_seconds, check=False,
+                capture_output=(ip_attempt > 0),
+            )
+            run_success = result.returncode == 0
+            if run_success:
+                break
+
+            # Check for IP conflict error
+            is_ip_conflict = False
+            if ip_attempt > 0 and result.stderr:
+                stderr_text = result.stderr.decode("utf-8", errors="replace")
+                if "Address already in use" in stderr_text:
+                    is_ip_conflict = True
+                else:
+                    sys.stderr.write(stderr_text)
+            elif result.returncode == 125 and container_ip and ip_attempt == 0:
+                is_ip_conflict = True
+
+            if not is_ip_conflict:
+                break
+            warn("Container start failed (IP address conflict), retrying...")
+        except subprocess.TimeoutExpired:
+            print()
+            error(f"Container execution timed out after {timeout_minutes} minutes")
+            subprocess.run(
+                ["docker", "kill", container_id],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=False,
+            )
+            break
+        except KeyboardInterrupt:
+            print()
+            warn("Interrupted by user")
+            subprocess.run(
+                ["docker", "kill", container_id],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=False,
+            )
+            break
+        except Exception as e:
+            error(f"Failed to run container: {e}")
+            break
+
+        # Re-allocate IP and rebuild command for retry
+        if container_ip:
+            failed_ips.add(container_ip)
+        # Clean up old session
+        if repos:
+            _cleanup_session(session_token, container_id)
         subprocess.run(
-            ["docker", "kill", container_id],
+            ["docker", "rm", "-f", container_id],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             check=False,
         )
-    except KeyboardInterrupt:
-        print()
-        warn("Interrupted by user")
-        # Kill container on interrupt
-        subprocess.run(
-            ["docker", "kill", container_id],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            check=False,
+        container_ip = _allocate_container_ip(
+            network=net_config.network_name, exclude_ips=failed_ips
         )
-    except Exception as e:
-        error(f"Failed to run container: {e}")
-    finally:
-        # Always save logs and cleanup container
-        cleanup_container()
+        if not container_ip:
+            error("Failed to allocate a new container IP after conflict")
+            break
+        info(f"Retrying with new IP: {container_ip}")
+        mount_args_retry: list[str] = []
+        session_token, repos, _filtered_repos = _setup_session_repos(
+            container_id=container_id,
+            container_ip=container_ip,
+            mode=repo_mode,
+            mount_args=mount_args_retry,
+            quiet=True,
+            phase=pipeline_phase,
+            issue_number=issue_number,
+            pr_number=pr_number,
+            pipeline_id=pipeline_id,
+            agent_role=agent_role,
+        )
+        if not session_token:
+            error("Failed to re-create session for retry")
+            break
+        cmd = build_sandbox_docker_cmd(
+            container_name=container_id,
+            image=ctx.sandbox_image,
+            network=net_config,
+            container_ip=container_ip,
+            session_token=session_token,
+            runtime_uid=os.getuid(),
+            runtime_gid=os.getgid(),
+            extra_env=caller_env,
+            extra_args=log_config,
+        )
+        lifecycle_flags = ["-i"]
+        if sys.stdin.isatty():
+            lifecycle_flags.append("-t")
+        cmd[LIFECYCLE_FLAGS_INDEX:LIFECYCLE_FLAGS_INDEX] = lifecycle_flags
+        cmd[-1:-1] = mount_args_retry
+        cmd.extend(command)
+        time.sleep(0.5)
+
+    # Always save logs and cleanup container
+    cleanup_container()
 
     return run_success
