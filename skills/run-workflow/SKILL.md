@@ -11,7 +11,7 @@ You are guiding the user through a complete egg pipeline lifecycle using MCP too
 
 ## Phase 1 — Seed
 
-Collect the **repository**, **task description**, and optionally a **GitHub issue number**. Your goal is **zero questions** on the happy path and **at most one** otherwise.
+Collect the **repository**, **task description**, and optionally a **GitHub issue number**. Your goal is **zero questions** on the happy path and **at most one question to get started** otherwise (the "Browse recent" flow may need a second to present the issue list).
 
 ### Step 1: Auto-detect the repository (NEVER ask if detectable)
 
@@ -33,27 +33,28 @@ If the user provided arguments after `/run-workflow`, parse them:
 | `/run-workflow #1059` | Issue number (with hash) |
 | `/run-workflow Add retry logic for API calls` | Free-text task description |
 | `/run-workflow --repo jwbron/egg 1059` | Repo override + issue number |
+| `/run-workflow --issue 1059` | Issue number (legacy flag, same as bare integer) |
 
 When an issue number is provided, fetch it immediately with `gh issue view <N> --repo <repo> --json title,body` and use the title+body as the task description. Proceed directly to Phase 2 — no questions needed.
 
 When a free-text description is provided and the repo was auto-detected, proceed directly to Phase 2.
 
-### Step 3: Ask only what's missing (one question, max)
+### Step 3: Ask only what's missing
 
 If the user ran `/run-workflow` with no arguments, ask a **single** `AskUserQuestion`:
 
-- **Question**: "What should the pipeline work on?"
+- **Question**: "What should the pipeline work on? Type an issue number or task description below, or browse recent issues."
 - **Header**: "Task"
 - **Options**:
-  - **"Issue number"** — description: "Enter a GitHub issue number (e.g. 1059)"
-  - **"Describe task"** — description: "Type a free-text task description"
-  - **"Browse recent"** — description: "List recent open issues to pick from"
+  - **"Browse recent issues"** — description: "List recent open issues to pick from"
+
+The user will either select "Browse recent issues" or type in the auto-added "Other" field.
 
 Handle each response:
 
-- **Issue number** → The user types a number in the "Other" text field. Fetch the issue with `gh issue view` and proceed to Phase 2.
-- **Describe task** → The user types a description. Proceed to Phase 2.
-- **Browse recent** → Run `gh issue list --repo <repo> --state open --limit 10 --json number,title` and present the results as a second `AskUserQuestion` with each issue as an option. Then proceed to Phase 2.
+- **Other (integer)** → Treat as an issue number. Fetch with `gh issue view` and proceed to Phase 2.
+- **Other (text)** → Treat as a free-text task description. Proceed to Phase 2.
+- **Browse recent issues** → Run `gh issue list --repo <repo> --state open --limit 10 --json number,title` and present the results as a second `AskUserQuestion` with each issue as an option. Then proceed to Phase 2.
 
 **Never ask for the repo and the task in separate questions.** If the repo could not be auto-detected, include a repo question in the same `AskUserQuestion` call (multi-question mode).
 
