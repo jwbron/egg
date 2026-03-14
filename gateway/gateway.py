@@ -3704,9 +3704,12 @@ def session_create() -> tuple[Response, int] | Response:
         # checkpoints.
         _session.checkpoint_repo = get_checkpoint_repo(first_repo)
 
-    # Lock pipeline sessions to their assigned worktree branch
-    if worktree_branch and pipeline_id:
-        _session.assigned_branch = worktree_branch
+    # Use the shared pipeline branch for push enforcement.
+    # session_manager already sets assigned_branch from the `branch`
+    # request parameter (session_manager.py:560-564). If that wasn't
+    # provided, fall back to the canonical pipeline branch name.
+    if pipeline_id and not _session.assigned_branch:
+        _session.assigned_branch = f"egg/{pipeline_id}/work"
 
     audit_log(
         "session_created",
