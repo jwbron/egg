@@ -78,7 +78,7 @@
   },
   "decisions": [],
   "created_at": "2026-03-14T07:10:52.511911",
-  "updated_at": "2026-03-14T07:11:02.509583",
+  "updated_at": "2026-03-14T07:11:27.229906",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
@@ -86,17 +86,29 @@
   "error": null,
   "coordinator_state": {
     "workflow_type": "",
-    "agents_spawned": [],
+    "agents_spawned": [
+      {
+        "role": "refiner",
+        "spawned_at": "2026-03-14T07:11:27.229768",
+        "completed_at": null,
+        "status": "running",
+        "container_id": "2423af1f73bdeea64806c91f9f5c82e98d30e87d809db52695eb998638dd5b34",
+        "task_context": "Refine issue #1059: Implement overseer agent for pipeline health monitoring. This is a large feature that adds a new always-on agent role (overseer) with tiered Haiku/Opus architecture for monitoring pipeline health. Key areas to refine: 1) Verify dependencies (#1027 message bus, #1028 coordinator, #1088 Agent SDK) exist and understand their current state. 2) Break down the implementation into manageable phases - the issue lists 8+ infrastructure changes. 3) Identify any gaps or conflicts in the requirements (e.g., overseer container config, role enum additions, auto-spawn logic). 4) Assess the shared/egg_agent/ package readiness for the tiered Haiku/Opus pattern. 5) Clarify the overseer CLAUDE.md prompt structure and monitoring loop design. 6) Evaluate the PipelineConfig additions and their impact on existing pipelines. Write the refined specification to .egg-state/drafts/.",
+        "retry_number": 0
+      }
+    ],
     "phase_decisions": [],
     "escalations": [],
     "guardrail_counters": {
-      "total_agents_spawned": 0,
-      "retries_by_role": {},
+      "total_agents_spawned": 1,
+      "retries_by_role": {
+        "refiner": 1
+      },
       "coordinator_respawns": 0,
       "started_at": "2026-03-14T07:10:58.011737"
     }
   },
   "plan_phase_waves": null,
   "plan_phase_names": null,
-  "version": 8
+  "version": 9
 }
