@@ -72,6 +72,7 @@ class CoordinatorExecutor:
         Raises ValueError if coordinator is not enabled for the pipeline.
         """
         store = get_state_store(self.repo_path)
+        is_new = False
 
         with get_pipeline_state_lock(pipeline_id):
             pipeline = store.load_pipeline(pipeline_id)
@@ -81,15 +82,19 @@ class CoordinatorExecutor:
 
             if pipeline.coordinator_state is None:
                 pipeline.coordinator_state = CoordinatorState()
+                is_new = True
 
             pipeline.status = PipelineStatus.RUNNING
             store.save_pipeline(pipeline)
 
-        emit_event(
-            EventType.COORDINATOR_SPAWN,
-            pipeline_id,
-            data={"role": "coordinator", "action": "start"},
-        )
+        # Only emit the start event on initial creation, not on review cycle
+        # re-iterations where coordinator_state already exists.
+        if is_new:
+            emit_event(
+                EventType.COORDINATOR_SPAWN,
+                pipeline_id,
+                data={"role": "coordinator", "action": "start"},
+            )
 
     def _drain_running_agents(self, pipeline_id: str) -> int:
         """Stop any agents still running from a coordinator session.
@@ -267,5 +272,3 @@ class CoordinatorExecutor:
                 return "drained"
 
             return "complete"
-
-        return "failed"

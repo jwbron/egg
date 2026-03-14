@@ -6349,11 +6349,18 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                                     phase=current_phase,
                                     review_cycle=review_cycle + 1,
                                 )
+                                with get_pipeline_state_lock(pipeline_id):
+                                    pipeline = store.load_pipeline(pipeline_id)
+                                    phase_execution = pipeline.get_phase_execution(current_phase)
+                                    if phase_execution.cycle_timings:
+                                        phase_execution.cycle_timings[
+                                            -1
+                                        ].completed_at = datetime.utcnow()
+                                        store.save_pipeline(pipeline)
                                 break  # Advance to next phase
 
-                            # needs_revision — check circuit breaker (max 2 cycles
-                            # for coordinator mode)
-                            coord_max_review_cycles = 2
+                            # needs_revision — check circuit breaker
+                            coord_max_review_cycles = pipeline.config.max_review_cycles
                             if review_cycle + 1 >= coord_max_review_cycles:
                                 logger.warning(
                                     "Coordinator review circuit breaker — advancing",
@@ -6362,6 +6369,14 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                                     review_cycles=review_cycle + 1,
                                     max_review_cycles=coord_max_review_cycles,
                                 )
+                                with get_pipeline_state_lock(pipeline_id):
+                                    pipeline = store.load_pipeline(pipeline_id)
+                                    phase_execution = pipeline.get_phase_execution(current_phase)
+                                    if phase_execution.cycle_timings:
+                                        phase_execution.cycle_timings[
+                                            -1
+                                        ].completed_at = datetime.utcnow()
+                                        store.save_pipeline(pipeline)
                                 break
 
                             # Store feedback and loop — respawn coordinator with
@@ -6370,6 +6385,10 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                             with get_pipeline_state_lock(pipeline_id):
                                 pipeline = store.load_pipeline(pipeline_id)
                                 phase_execution = pipeline.get_phase_execution(current_phase)
+                                if phase_execution.cycle_timings:
+                                    phase_execution.cycle_timings[
+                                        -1
+                                    ].completed_at = datetime.utcnow()
                                 phase_execution.review_cycles = review_cycle + 1
                                 store.save_pipeline(pipeline)
 
