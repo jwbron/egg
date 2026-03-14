@@ -78,7 +78,7 @@
   },
   "decisions": [],
   "created_at": "2026-03-14T19:17:37.901759",
-  "updated_at": "2026-03-14T19:40:20.986195",
+  "updated_at": "2026-03-14T20:00:50.969719",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
@@ -153,8 +153,8 @@
       {
         "role": "coder",
         "spawned_at": "2026-03-14T19:40:20.324981",
-        "completed_at": null,
-        "status": "running",
+        "completed_at": "2026-03-14T20:00:43.731305Z",
+        "status": "complete",
         "container_id": "ce99dd4acdea427682628c5a9afdc23e51e04043e1e81eee73271311a1ef4f66",
         "task_context": "Implement issue #1059: Overseer agent for pipeline health monitoring. Read the architecture plan and task breakdown in .egg-state/drafts/ and the issue (gh issue view 1059). Implementation tasks in priority order:\n\n1. Add OVERSEER to AgentRole enum in orchestrator/models.py\n2. Add OVERSEER role definition with AgentRoleDefinition and FileAccessPattern in shared/egg_contracts/agent_roles.py — no repo access (same as coordinator pattern)\n3. Add overseer config fields to PipelineConfig in orchestrator/models.py (overseer_enabled, overseer_poll_interval_seconds, overseer_stall_base_threshold_seconds, overseer_max_redirects_before_escalation)\n4. Modify orchestrator/routes/pipelines.py to auto-spawn overseer alongside coordinator\n5. Modify orchestrator/routes/coordinator.py to exclude overseer from coordinator_max_agents guardrail\n6. Update container_spawner.py to support overseer with appropriate env vars (EGG_AGENT_ROLE=overseer, EGG_OVERSEER_MODE=true, no repo mount)\n7. Create the overseer module (e.g., overseer/ directory) with:\n   - Core monitoring loop (poll cycle, container status, heartbeats, message bus)\n   - Haiku monitor agents using shared/egg_agent/ (stall classification, loop detection, error triage, off-track detection)\n   - Opus decision-maker using shared/egg_agent/ (corrective action decisions)\n   - Adaptive stall detection with configurable thresholds\n   - Corrective action ladder (nudge → redirect → HITL → issue filing → Slack)\n   - Self-monitoring (own cycle timing, message volume, LLM call budget)\n   - Oversight logging to .egg-state/oversight/\n   - Pipeline health summary at completion\n   - Autonomous issue filing with structured diagnostic template and overseer-alert label\n8. Add CLAUDE.md overseer agent prompt section (similar to Coordinator Agent section)\n\nUse shared/egg_agent/ (run_agent_async) for ALL LLM calls. No direct Claude API calls. Check prior agent outputs in .egg-state/agent-outputs/ and .egg-state/drafts/ for architecture decisions.",
         "retry_number": 0
@@ -213,5 +213,5 @@
   },
   "plan_phase_waves": null,
   "plan_phase_names": null,
-  "version": 27
+  "version": 28
 }
