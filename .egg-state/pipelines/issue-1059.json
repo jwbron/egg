@@ -105,9 +105,27 @@
       "phase_start_sha": null
     }
   },
-  "decisions": [],
+  "decisions": [
+    {
+      "id": "decision-1",
+      "question": "All spawned agents (8 total across refine and plan phases) fail immediately due to container environment issue: 'Orchestrator mode enabled but missing URL or pipeline_id'. Containers start, initialize networking, but exit with code 124 (timeout) or immediately cleanup. This appears to be a spawn configuration bug - EGG_ORCHESTRATOR_URL and EGG_PIPELINE_ID environment variables are not being passed to spawned containers. Should I: (A) Continue trying to spawn agents, (B) Create a detailed plan document myself and advance to implement, or (C) Pause the pipeline for infrastructure investigation?",
+      "context": "",
+      "options": [
+        "A: Retry spawning",
+        "B: Coordinator produces plan and advances",
+        "C: Pause for investigation"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-03-14T08:42:02.081961",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "plan"
+    }
+  ],
   "created_at": "2026-03-14T08:25:52.790941",
-  "updated_at": "2026-03-14T08:41:05.145796",
+  "updated_at": "2026-03-14T08:42:02.083334",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
@@ -215,5 +233,5 @@
   },
   "plan_phase_waves": null,
   "plan_phase_names": null,
-  "version": 31
+  "version": 32
 }
