@@ -28,6 +28,12 @@ except ImportError:
         return logging.getLogger(name)
 
 
+from sandbox_template import (
+    ORCHESTRATOR_CONTAINER_NAME,
+    ORCHESTRATOR_ISOLATED_IP,
+    ORCHESTRATOR_PORT,
+)
+
 try:
     from egg_config import (
         EGG_CONTAINER_IP,
@@ -371,11 +377,16 @@ class ContainerSpawner:
             # CONTAINER_ID must match the worktree container_id so the gateway
             # git proxy can map /home/egg/repos/<name> to the correct worktree
             # at /home/egg/.egg-worktrees/<id>/<name>.
+            orchestrator_host = (
+                ORCHESTRATOR_ISOLATED_IP if mode == "private" else ORCHESTRATOR_CONTAINER_NAME
+            )
+            orchestrator_url = f"http://{orchestrator_host}:{ORCHESTRATOR_PORT}"
             spawner_env: dict[str, str] = {
                 "CONTAINER_ID": pipeline_id,
                 "EGG_REPO_PATH": "/home/egg/repos",
                 "EGG_AGENT_ROLE": agent_role.value,
                 "EGG_PIPELINE_ID": pipeline_id,
+                "EGG_ORCHESTRATOR_URL": orchestrator_url,
             }
             if issue_number is not None:
                 spawner_env["EGG_ISSUE_NUMBER"] = str(issue_number)
