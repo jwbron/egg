@@ -36,6 +36,16 @@ class TestRepoPathValidation:
             assert valid is True
             assert error == ""
 
+    def test_valid_egg_state_path(self):
+        """Valid path under /home/egg/.egg-state/ is accepted."""
+        with patch(
+            "git_client.os.path.realpath",
+            return_value="/home/egg/.egg-state/pipeline-worktree",
+        ):
+            valid, error = git_client.validate_repo_path("/home/egg/.egg-state/pipeline-worktree")
+            assert valid is True
+            assert error == ""
+
     def test_valid_legacy_repos_path(self):
         """Valid path under /repos/ (legacy) is accepted."""
         with patch("git_client.os.path.realpath", return_value="/repos/myrepo"):

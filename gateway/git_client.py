@@ -177,6 +177,7 @@ def get_authenticated_remote_target(remote: str, remote_url: str) -> str:
 ALLOWED_REPO_PATHS = [
     "/home/egg/repos/",
     "/home/egg/.egg-worktrees/",
+    "/home/egg/.egg-state/",  # Pipeline state worktree
     "/repos/",  # Legacy path
 ]
 
