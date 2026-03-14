@@ -703,6 +703,12 @@ def update_pipeline(pipeline_id: str) -> tuple[Response, int]:
                     pipeline_id=pipeline_id,
                     error=str(e),
                 )
+                # Reload pipeline so the response reflects current state
+                # rather than the stale pre-cleanup object.
+                try:
+                    pipeline = store.load_pipeline(pipeline_id)
+                except Exception:
+                    pass  # Use stale pipeline if reload also fails
 
         logger.info("Pipeline updated", pipeline_id=pipeline_id)
 
@@ -4779,33 +4785,15 @@ def _run_concurrent_phase(
                             error=str(e),
                         )
                 else:
-                    # Clean exit (code 0): treat as implicit READY if the
-                    # agent didn't explicitly signal.  This prevents early
-                    # exits from blocking consensus indefinitely.
-                    try:
-                        from consensus import ReadinessState, get_consensus_evaluator
-
-                        evaluator = get_consensus_evaluator()
-                        current = evaluator.evaluate(pipeline_id)
-                        agent_state = current.get("agents", {}).get(exec_info.role.value)
-                        if agent_state is None or agent_state.state != ReadinessState.READY:
-                            evaluator.update_readiness(
-                                pipeline_id,
-                                exec_info.role.value,
-                                ReadinessState.READY,
-                                reason="Container exited cleanly (implicit READY)",
-                            )
-                            logger.info(
-                                "Auto-registered READY for cleanly exited container",
-                                pipeline_id=pipeline_id,
-                                role=exec_info.role.value,
-                            )
-                    except Exception as e:
-                        logger.warning(
-                            "Failed to auto-register READY for exited container",
-                            role=exec_info.role.value,
-                            error=str(e),
-                        )
+                    # Clean exit (code 0): the consensus wrapper inside the
+                    # container handles restarts if the agent didn't signal
+                    # READY. We do NOT auto-register READY here — agents
+                    # must explicitly participate in consensus.
+                    logger.info(
+                        "Container exited cleanly, wrapper handles consensus",
+                        pipeline_id=pipeline_id,
+                        role=exec_info.role.value,
+                    )
 
         # 5. All containers exited — fall back to exit-code-based result
         if len(exited_containers) >= len(active_executions):

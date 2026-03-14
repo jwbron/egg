@@ -601,18 +601,23 @@ class TestSpawnUsesConsensusWrapper:
         assert command[0] == "bash"
         assert command[1] == "-c"
         assert "claude" in command[2]
-        assert "egg-orch signal readiness" in command[2]
+        assert "RESTART_COUNT" in command[2]
+        assert "CONSENSUS RECOVERY" in command[2]
 
 
-class TestImplicitReadyOnCleanExit:
-    """Tests for auto-registering READY when containers exit cleanly."""
+class TestNoImplicitReadyOnCleanExit:
+    """Verify that clean container exits do NOT auto-register READY.
 
-    def test_clean_exit_registers_ready(self):
-        """Container exiting with code 0 should auto-register as READY."""
+    The consensus wrapper restarts the agent instead. The orchestrator
+    must not fake consensus on behalf of agents.
+    """
+
+    def test_clean_exit_does_not_register_ready(self):
+        """Container exiting with code 0 should NOT auto-register as READY."""
         from consensus import ReadinessState, get_consensus_evaluator
 
         evaluator = get_consensus_evaluator()
-        pipeline_id = "test-implicit-ready"
+        pipeline_id = "test-no-implicit-ready"
 
         # Register an agent as WORKING
         evaluator.register_agent(pipeline_id, "tester")
@@ -620,42 +625,33 @@ class TestImplicitReadyOnCleanExit:
         assert not state["is_complete"]
         assert "tester" in state["blocking_agents"]
 
-        # Simulate what the orchestrator does on clean exit:
-        # check state and auto-register READY
-        current = evaluator.evaluate(pipeline_id)
-        agent_state = current.get("agents", {}).get("tester")
-        if agent_state and agent_state.state != ReadinessState.READY:
-            evaluator.update_readiness(
-                pipeline_id,
-                "tester",
-                ReadinessState.READY,
-                reason="Container exited cleanly (implicit READY)",
-            )
+        # The orchestrator should NOT auto-register READY on clean exit.
+        # The agent must remain blocking until it explicitly signals.
+        state = evaluator.evaluate(pipeline_id)
+        assert not state["is_complete"]
+        assert "tester" in state["blocking_agents"]
 
+        # Only explicit READY from the agent should complete consensus
+        evaluator.update_readiness(
+            pipeline_id,
+            "tester",
+            ReadinessState.READY,
+            reason="Agent explicitly signaled READY",
+        )
         state = evaluator.evaluate(pipeline_id)
         assert state["is_complete"]
-        assert "tester" not in state["blocking_agents"]
 
         # Cleanup
         evaluator.clear(pipeline_id)
 
-    def test_already_ready_agent_not_overwritten(self):
-        """If agent already signaled READY, implicit READY is a no-op."""
-        from consensus import ReadinessState, get_consensus_evaluator
+    def test_wrapper_contains_restart_logic(self):
+        """The consensus wrapper should restart agents, not auto-signal READY."""
+        from consensus_wrapper import build_consensus_wrapped_command
 
-        evaluator = get_consensus_evaluator()
-        pipeline_id = "test-implicit-noop"
-
-        evaluator.register_agent(pipeline_id, "coder")
-        evaluator.update_readiness(
-            pipeline_id, "coder", ReadinessState.READY, reason="Explicit READY"
-        )
-
-        # Simulate implicit READY logic
-        current = evaluator.evaluate(pipeline_id)
-        agent_state = current.get("agents", {}).get("coder")
-        # Should skip because already READY
-        assert agent_state.state == ReadinessState.READY
-
-        # Cleanup
-        evaluator.clear(pipeline_id)
+        cmd = build_consensus_wrapped_command("Do work")
+        script = cmd[2]
+        # Must contain restart logic
+        assert "Restarting" in script
+        assert "RESTART_COUNT" in script
+        # Must NOT contain auto-READY
+        assert "Auto-signaling READY" not in script
