@@ -265,7 +265,7 @@ integration_tests/
 │   ├── test_hitl_edge_cases.py    # HITL decision edge case tests
 │   ├── test_local_pipeline.py     # Orchestrator pipeline tests
 │   ├── test_signals.py            # Signal handling tests
-│   ├── test_unified_pipeline_behavior.py  # Unified local/issue mode behavior tests
+│   ├── test_unified_pipeline_behavior.py  # Unified pipeline behavior tests
 │   └── test_worktree_integration.py  # Worktree lifecycle and pipeline isolation tests
 └── sdlc/                          # SDLC pipeline integration tests
     ├── conftest.py                # SDLC test fixtures

@@ -28,7 +28,7 @@ Agents cannot be trusted to self-police via prompts alone. The pipeline enforces
 
 ### 2. Contract-as-Code
 
-All pipeline state is stored in JSON contracts at `.egg-state/contracts/{identifier}.json` and committed to the feature branch (not main), where `{identifier}` is the issue number for issue-mode pipelines or the pipeline ID for local-mode pipelines. This provides:
+All pipeline state is stored in JSON contracts at `.egg-state/contracts/{identifier}.json` and committed to the feature branch (not main), where `{identifier}` is the issue number for issue-driven pipelines or the pipeline ID for prompt-driven pipelines. This provides:
 
 - Auditable history of all state changes
 - Recovery from failures without losing progress
@@ -48,7 +48,7 @@ Code reviews are performed by the existing PR review workflow (`reusable-review.
 
 ### 4. Human-in-the-Loop at Critical Points
 
-The pipeline pauses for human approval at phase transitions (refine and plan). The orchestrator's decision queue handles approval in both issue and local modes, and supports requesting changes with a circuit breaker (`max_review_cycles`, default 3) to prevent unbounded revision loops.
+The pipeline pauses for human approval at phase transitions (refine and plan). The orchestrator's decision queue handles approval and supports requesting changes with a circuit breaker (`max_review_cycles`, default 3) to prevent unbounded revision loops.
 
 ## Pipeline Architecture
 
@@ -1237,7 +1237,7 @@ The SDLC pipeline can also be triggered via the local orchestrator API:
 # Via orchestrator API
 curl -X POST http://localhost:9849/api/v1/pipelines \
   -H "Content-Type: application/json" \
-  -d '{"issue_number": 123, "mode": "issue"}'
+  -d '{"issue_number": 123, "repo": "owner/repo", "branch": "egg/issue-123"}'
 
 # Via egg-orch CLI
 egg-orch pipeline create --issue 123

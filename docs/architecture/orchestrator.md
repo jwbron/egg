@@ -88,9 +88,9 @@ See `orchestrator/health_checks/README.md` for the full framework reference, inc
 
 Pipelines can specify an explicit network mode that controls internet access for spawned containers:
 
-- **`public`**: Full internet access (default for issue-mode pipelines)
+- **`public`**: Full internet access (default)
 - **`private`**: Network lockdown - Anthropic API + private GitHub repos only (enforced by gateway proxy)
-- **`None`** (auto): Falls back based on pipeline mode — `issue` → `public`, `local` → `local`
+- **`None`** (auto): Defaults to `public`
 
 **Setting network mode:**
 
