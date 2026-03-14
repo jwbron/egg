@@ -4,7 +4,7 @@
   "repo": "jwbron/egg",
   "branch": "egg/issue-1059",
   "prompt": null,
-  "status": "running",
+  "status": "pending",
   "current_phase": "refine",
   "config": {
     "auto_create_pr": true,
@@ -26,138 +26,17 @@
     "coordinator_max_retries_per_role": 2,
     "coordinator_max_respawns": 2
   },
-  "phases": {
-    "refine": {
-      "phase": "refine",
-      "status": "running",
-      "started_at": "2026-03-14T07:10:57.983973",
-      "work_started_at": "2026-03-14T07:14:54.441626",
-      "completed_at": null,
-      "containers": [
-        {
-          "container_id": "4a2d9c290487a9c8e11ee2a7715cd465736a1042bebeecba91055c89ac0d3547",
-          "container_name": "egg-sandbox-egg-issue-1059-coordinator",
-          "status": "exited",
-          "started_at": "2026-03-14T07:11:02.509495",
-          "exited_at": "2026-03-14T07:14:54.411050",
-          "exit_code": 137,
-          "agent_role": "coordinator",
-          "session_token": null
-        },
-        {
-          "container_id": "34236856b19b871a1ff40ef47ca5dc00768f9d6c91888a125c89d27ce5e8400f",
-          "container_name": "egg-sandbox-egg-issue-1059-coordinator",
-          "status": "running",
-          "started_at": "2026-03-14T07:14:54.856548",
-          "exited_at": null,
-          "exit_code": null,
-          "agent_role": "coordinator",
-          "session_token": null
-        }
-      ],
-      "agents": [
-        {
-          "role": "coordinator",
-          "status": "failed",
-          "container_id": "4a2d9c290487a9c8e11ee2a7715cd465736a1042bebeecba91055c89ac0d3547",
-          "started_at": "2026-03-14T07:11:02.509508",
-          "completed_at": "2026-03-14T07:14:54.415530",
-          "commit": null,
-          "outputs": {},
-          "error": "Container exited with code 137",
-          "retry_count": 0,
-          "conflicts": [],
-          "plan_phase_id": null
-        },
-        {
-          "role": "coordinator",
-          "status": "running",
-          "container_id": "34236856b19b871a1ff40ef47ca5dc00768f9d6c91888a125c89d27ce5e8400f",
-          "started_at": "2026-03-14T07:14:54.856564",
-          "completed_at": null,
-          "commit": null,
-          "outputs": {},
-          "error": null,
-          "retry_count": 0,
-          "conflicts": [],
-          "plan_phase_id": null
-        }
-      ],
-      "review_cycles": 0,
-      "hitl_review_cycles": 0,
-      "cycle_timings": [
-        {
-          "cycle": 0,
-          "started_at": "2026-03-14T07:10:57.993543",
-          "completed_at": null,
-          "commit_sha": "bab3c980fd01378ad676d06481e2a889c6635c9d"
-        },
-        {
-          "cycle": 0,
-          "started_at": "2026-03-14T07:14:54.441626",
-          "completed_at": null,
-          "commit_sha": "bab3c980fd01378ad676d06481e2a889c6635c9d"
-        }
-      ],
-      "artifacts": {},
-      "error": null,
-      "hitl_feedback": null,
-      "phase_start_sha": null
-    }
-  },
+  "phases": {},
   "decisions": [],
-  "created_at": "2026-03-14T07:10:52.511911",
-  "updated_at": "2026-03-14T07:14:54.856746",
-  "contract_synced": true,
+  "created_at": "2026-03-14T08:25:52.790941",
+  "updated_at": "2026-03-14T08:25:52.791027",
+  "contract_synced": false,
   "network_mode": null,
   "short_circuit": false,
   "complexity_tier": "mid",
   "error": null,
-  "coordinator_state": {
-    "workflow_type": "",
-    "agents_spawned": [
-      {
-        "role": "refiner",
-        "spawned_at": "2026-03-14T07:11:27.229768",
-        "completed_at": null,
-        "status": "running",
-        "container_id": "2423af1f73bdeea64806c91f9f5c82e98d30e87d809db52695eb998638dd5b34",
-        "task_context": "Refine issue #1059: Implement overseer agent for pipeline health monitoring. This is a large feature that adds a new always-on agent role (overseer) with tiered Haiku/Opus architecture for monitoring pipeline health. Key areas to refine: 1) Verify dependencies (#1027 message bus, #1028 coordinator, #1088 Agent SDK) exist and understand their current state. 2) Break down the implementation into manageable phases - the issue lists 8+ infrastructure changes. 3) Identify any gaps or conflicts in the requirements (e.g., overseer container config, role enum additions, auto-spawn logic). 4) Assess the shared/egg_agent/ package readiness for the tiered Haiku/Opus pattern. 5) Clarify the overseer CLAUDE.md prompt structure and monitoring loop design. 6) Evaluate the PipelineConfig additions and their impact on existing pipelines. Write the refined specification to .egg-state/drafts/.",
-        "retry_number": 0
-      },
-      {
-        "role": "reviewer_refine",
-        "spawned_at": "2026-03-14T07:11:37.797185",
-        "completed_at": null,
-        "status": "running",
-        "container_id": "765853db3d2cb80a9e54cdf3b6e024d41e4f560857d19a7d02a5c94137d402bb",
-        "task_context": "Review the refiner output for issue #1059: Implement overseer agent for pipeline health monitoring. This is a new always-on monitoring agent with tiered Haiku/Opus LLM architecture. Review the refined specification for: 1) Completeness - are all requirements from the issue captured? 2) Feasibility - are the dependency assumptions (#1027, #1028, #1088) realistic? 3) Scope - is the feature appropriately scoped for implementation? 4) Risk - are there any architectural risks or conflicts with existing systems (coordinator, mediator, gateway)? 5) Clarity - is the specification clear enough for a coder to implement? Check .egg-state/drafts/ for the refiner output.",
-        "retry_number": 0
-      },
-      {
-        "role": "reviewer_agent_design",
-        "spawned_at": "2026-03-14T07:11:38.149146",
-        "completed_at": null,
-        "status": "running",
-        "container_id": "ec14d8076138a38893c99de457b27b06a38282ce57a49a092b0cc2c62c1c3f00",
-        "task_context": "Review agent design for issue #1059: Implement overseer agent for pipeline health monitoring. Focus on: 1) Tiered architecture design (Haiku monitors + Opus decision-maker) - is the escalation flow sound? 2) Agent interaction patterns - how the overseer interacts with coordinator, mediator, and task agents. 3) Self-monitoring design - is the self-reporting mechanism robust enough? 4) Container and access model - does the no-repo-access pattern work for all overseer responsibilities? 5) Corrective action ladder (nudge -> redirect -> HITL -> issue -> Slack) - are there edge cases? 6) Always-on lifecycle management - spawn, run, and shutdown semantics. Check .egg-state/drafts/ for the refiner output.",
-        "retry_number": 0
-      }
-    ],
-    "phase_decisions": [],
-    "escalations": [],
-    "guardrail_counters": {
-      "total_agents_spawned": 3,
-      "retries_by_role": {
-        "refiner": 1,
-        "reviewer_refine": 1,
-        "reviewer_agent_design": 1
-      },
-      "coordinator_respawns": 1,
-      "started_at": "2026-03-14T07:10:58.011737"
-    }
-  },
+  "coordinator_state": null,
   "plan_phase_waves": null,
   "plan_phase_names": null,
-  "version": 17
+  "version": 2
 }
