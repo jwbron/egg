@@ -43,7 +43,6 @@ class TestOverseerGuardrailExclusion:
     def test_guardrail_with_overseer_in_agents_spawned(self):
         """Overseer in agents_spawned should not count toward max_agents."""
         from models import (
-            AgentRole,
             AgentSpawnRecord,
             CoordinatorState,
             GuardrailCounters,
@@ -74,9 +73,7 @@ class TestOverseerGuardrailExclusion:
 
         # With overseer excluded, only 1 task agent (coder) — should allow spawning
         allowed, reason = _check_spawn_guardrails(pipeline, "tester")
-        assert allowed, (
-            f"Should allow spawn when overseer is excluded from count. Reason: {reason}"
-        )
+        assert allowed, f"Should allow spawn when overseer is excluded from count. Reason: {reason}"
 
     def test_guardrail_without_overseer_still_limits(self):
         """Guardrail should still enforce limits for non-infrastructure agents."""

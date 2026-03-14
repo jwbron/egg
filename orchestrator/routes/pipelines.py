@@ -6339,9 +6339,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                                         OverseerExecutor,  # type: ignore[no-redef]
                                     )
 
-                                overseer_executor = OverseerExecutor(
-                                    repo_path=worktree_repo_path
-                                )
+                                overseer_executor = OverseerExecutor(repo_path=worktree_repo_path)
 
                                 overseer_env = {
                                     **sandbox_env,

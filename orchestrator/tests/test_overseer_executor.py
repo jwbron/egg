@@ -21,9 +21,7 @@ class TestOverseerExecutorExists:
     def test_overseer_executor_module_exists(self):
         """orchestrator/overseer_executor.py must exist."""
         module_path = _project_root / "orchestrator" / "overseer_executor.py"
-        assert module_path.exists(), (
-            "orchestrator/overseer_executor.py does not exist"
-        )
+        assert module_path.exists(), "orchestrator/overseer_executor.py does not exist"
 
     def test_overseer_executor_importable(self):
         """OverseerExecutor class must be importable."""
@@ -103,9 +101,7 @@ class TestOverseerAutoSpawnLogic:
         """pipelines.py should import OverseerExecutor."""
         pipelines_path = _project_root / "orchestrator" / "routes" / "pipelines.py"
         content = pipelines_path.read_text()
-        assert "OverseerExecutor" in content, (
-            "pipelines.py should import OverseerExecutor"
-        )
+        assert "OverseerExecutor" in content, "pipelines.py should import OverseerExecutor"
 
     def test_pipelines_overseer_uses_haiku_model(self):
         """Overseer spawn command should use haiku model for cost efficiency."""
@@ -139,6 +135,4 @@ class TestOverseerAutoSpawnLogic:
             "EGG_OVERSEER_STALL_THRESHOLD",
             "EGG_OVERSEER_MAX_REDIRECTS",
         ]:
-            assert env_var in content, (
-                f"pipelines.py should set {env_var} for overseer container"
-            )
+            assert env_var in content, f"pipelines.py should set {env_var} for overseer container"

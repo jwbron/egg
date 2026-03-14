@@ -5,7 +5,6 @@ Verifies that the overseer.md rules file exists and covers all
 required monitoring behaviors specified in issue #1059.
 """
 
-import sys
 from pathlib import Path
 
 _project_root = Path(__file__).parent.parent.parent
@@ -44,7 +43,11 @@ class TestOverseerRulesFile:
         """Rules file must describe autonomous issue filing."""
         rules_path = _project_root / "sandbox" / ".claude" / "rules" / "overseer.md"
         content = rules_path.read_text()
-        assert "issue" in content.lower() and "filing" in content.lower() or "gh issue create" in content
+        assert (
+            "issue" in content.lower()
+            and "filing" in content.lower()
+            or "gh issue create" in content
+        )
 
     def test_overseer_rules_covers_self_monitoring(self):
         """Rules file must describe self-monitoring."""
@@ -72,9 +75,7 @@ class TestOverseerInEntrypoint:
         """entrypoint.py must include overseer.md in rules_order list."""
         entrypoint_path = _project_root / "sandbox" / "entrypoint.py"
         content = entrypoint_path.read_text()
-        assert "overseer.md" in content, (
-            "entrypoint.py rules_order must include overseer.md"
-        )
+        assert "overseer.md" in content, "entrypoint.py rules_order must include overseer.md"
 
 
 class TestOverseerInMission:

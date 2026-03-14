@@ -7,8 +7,6 @@ from models import (
     AgentRole,
     Pipeline,
     PipelineConfig,
-    PipelinePhase,
-    PipelineStatus,
 )
 
 

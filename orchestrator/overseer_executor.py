@@ -120,9 +120,7 @@ class OverseerExecutor:
                     ContainerStatus.EXITED if exit_code == 0 else ContainerStatus.FAILED
                 )
                 agent_status = (
-                    AgentExecutionStatus.COMPLETE
-                    if exit_code == 0
-                    else AgentExecutionStatus.FAILED
+                    AgentExecutionStatus.COMPLETE if exit_code == 0 else AgentExecutionStatus.FAILED
                 )
 
                 # Mark overseer container/agent entries as exited
