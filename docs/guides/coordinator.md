@@ -47,6 +47,7 @@ These fields in `PipelineConfig` control coordinator behavior:
 | `coordinator_max_agents` | `10` | Maximum total agents the coordinator can spawn |
 | `coordinator_max_retries_per_role` | `2` | Maximum retry attempts per agent role |
 | `coordinator_max_respawns` | `2` | Maximum coordinator container respawns after crash |
+| `hitl_gates` | `true` | Require human approval before advancing past `refine` and `plan` phases |
 
 ## MCP Server
 
@@ -143,6 +144,7 @@ Common error codes:
 - **409** — Conflict. Possible causes:
   - Phase advancement blocked because no contract exists before implement/pr phase
   - Agent spawn rejected because the pipeline has no contract in implement/pr phase
+  - HITL gate active: `refine` or `plan` phase requires human approval before advancing (when `hitl_gates: true`)
 - **429** — Guardrail limit exceeded (max agents or max retries per role)
 - **500** — Internal error (container spawn failure, etc.)
 
@@ -208,6 +210,8 @@ POST /api/v1/pipelines/{id}/coordinator/phase
 Omit `target_phase` to advance to the next phase in sequence. When `target_phase` is provided, the action is recorded as `"skip"`; otherwise it is recorded as `"advance"`. Valid phases: `refine`, `plan`, `implement`, `pr`.
 
 **Contract enforcement**: Advancing or skipping to `implement` or `pr` requires the pipeline to have a contract (`contract_synced: true`). If no contract exists, the endpoint returns HTTP 409. The orchestrator creates contracts automatically during pipeline startup — a 409 here indicates the contract creation step failed. Check pipeline logs for details.
+
+**HITL gate enforcement**: When `hitl_gates: true` (default), the coordinator cannot advance past `refine` or `plan` without an approved `phase_gate` decision. If no approved gate exists, the endpoint automatically queues a `phase_gate` decision, sets the pipeline status to `AWAITING_HUMAN`, and returns HTTP 409. The coordinator must poll `egg-orch decision list` and retry `phase` after the human resolves the decision. Stale approvals from prior passes (e.g., after a loopback from implement back to plan) do not bypass the gate — only the most recent resolved gate counts.
 
 ### Escalate to Human
 
@@ -403,6 +407,8 @@ The coordinator runs with `phase="coordinator"` — a special phase value distin
 **MCP connection failed**: Verify the MCP server is running on port 9850 (`curl http://localhost:9850/health`). The server starts automatically as a background thread alongside the orchestrator. Check the MCP port in `~/.config/egg/config.yaml` (`mcp_server_port`).
 
 **Phase advance blocked (HTTP 409 — no contract)**: Advancing to `implement` or `pr` requires a contract. Run `egg-orch pipeline get <id>` and check `contract_synced`. If false, the contract creation during pipeline startup failed — check orchestrator logs. Contracts are created automatically; manual intervention is rarely needed. If contract creation consistently fails, check orchestrator logs for the root cause (permissions, disk space, git connectivity). Recreate the pipeline with `egg-orch pipeline create --repo <owner/name> --issue <n>` — creating a pipeline whose existing record is in a terminal state (failed, cancelled, or complete) automatically replaces it.
+
+**Phase advance blocked (HTTP 409 — HITL gate)**: When `hitl_gates: true`, advancing past `refine` or `plan` requires human approval. The orchestrator has queued a `phase_gate` decision automatically. Check `egg-orch decision list <id>` for a pending decision and wait for the human to resolve it. After approval, retry the phase advance command. If the human selects "request changes", the coordinator should loopback to re-run the phase before advancing again.
 
 **Coordinator crash loop**: Check the `coordinator_respawns` counter in coordinator state. If it equals `coordinator_max_respawns`, the pipeline has failed. Review container logs for the root cause: `egg-orch container logs <pipeline_id> <container_id>`.
 
