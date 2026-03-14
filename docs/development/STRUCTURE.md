@@ -31,9 +31,9 @@ egg/
 | `integration_tests/` | Integration tests requiring Docker and real containers | CI / local |
 | `orchestrator/` | SDLC pipeline orchestrator: state management, container lifecycle, HITL queue | Orchestrator container |
 | `sandbox/` | Agent environment: Claude Code, tools, entrypoint | Sandbox container |
+| `scripts/` | CI/lint scripts (config validation, import checks, hardcoded port detection, reviewer job name enforcement, LLM API boundary enforcement, model alias enforcement) | CI / local |
 | `shared/` | Shared libraries: logging, config, git utilities, centralized constants | All containers |
 | `skills/` | Claude Code skills (each subdirectory is a skill with `SKILL.md`) | Sandbox container |
-| `scripts/` | CI/lint scripts (config validation, import checks, hardcoded port detection, reviewer job name enforcement, LLM API boundary enforcement, model alias enforcement) | CI / local |
 | `tests/` | Test suite | CI / local |
 
 ## Gateway Structure
