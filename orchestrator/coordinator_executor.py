@@ -130,7 +130,7 @@ class CoordinatorExecutor:
             # If the pipeline was already cancelled or failed (e.g. via
             # cancel_task), do not respawn — just persist the container/agent
             # status updates and exit.
-            if pipeline.status in (PipelineStatus.CANCELLED, PipelineStatus.FAILED):
+            if pipeline.status in (PipelineStatus.CANCELLED, PipelineStatus.FAILED, PipelineStatus.COMPLETE):
                 logger.info(
                     "Coordinator exited but pipeline already terminated, skipping respawn",
                     pipeline_id=pipeline_id,

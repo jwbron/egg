@@ -559,3 +559,4 @@ class TestHandleCompletion:
 
         assert result == "failed"
         assert pipeline.status == PipelineStatus.CANCELLED
+        store.save_pipeline.assert_called_once()
