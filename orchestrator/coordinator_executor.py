@@ -194,6 +194,23 @@ class CoordinatorExecutor:
                         agent.status = agent_status
                         agent.completed_at = now
 
+            # If the pipeline was already cancelled or failed (e.g. via
+            # cancel_task), do not respawn — just persist the container/agent
+            # status updates and exit.
+            if pipeline.status in (
+                PipelineStatus.CANCELLED,
+                PipelineStatus.FAILED,
+                PipelineStatus.COMPLETE,
+            ):
+                logger.info(
+                    "Coordinator exited but pipeline already terminated, skipping respawn",
+                    pipeline_id=pipeline_id,
+                    pipeline_status=pipeline.status.value,
+                    exit_code=exit_code,
+                )
+                store.save_pipeline(pipeline, expected_version=pipeline.version)
+                return "failed"
+
             if exit_code == 0:
                 # Check if any spawned agents are still running
                 has_running = False

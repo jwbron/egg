@@ -489,3 +489,77 @@ class TestHandleCompletion:
         # Agent should be marked COMPLETE (not still RUNNING)
         assert coordinator_agent.status == AgentExecutionStatus.COMPLETE
         assert coordinator_agent.completed_at is not None
+
+    @patch("coordinator_executor.get_pipeline_state_lock")
+    @patch("coordinator_executor.get_state_store")
+    def test_cancelled_pipeline_does_not_respawn(self, mock_store_fn, mock_lock, tmp_path):
+        """Coordinator crash on a cancelled pipeline must not trigger respawn."""
+        mock_lock.return_value.__enter__ = MagicMock()
+        mock_lock.return_value.__exit__ = MagicMock(return_value=False)
+
+        pipeline = _make_pipeline(
+            status=PipelineStatus.CANCELLED,
+            max_respawns=2,
+            coordinator_state=CoordinatorState(
+                guardrail_counters=GuardrailCounters(coordinator_respawns=0),
+            ),
+        )
+        store = MagicMock()
+        store.load_pipeline.return_value = pipeline
+        mock_store_fn.return_value = store
+
+        executor = CoordinatorExecutor(tmp_path)
+        result = executor.handle_coordinator_completion("test-pipeline", exit_code=1)
+
+        assert result == "failed"
+        assert pipeline.status == PipelineStatus.CANCELLED
+        store.save_pipeline.assert_called_once()
+
+    @patch("coordinator_executor.get_pipeline_state_lock")
+    @patch("coordinator_executor.get_state_store")
+    def test_failed_pipeline_does_not_respawn(self, mock_store_fn, mock_lock, tmp_path):
+        """Coordinator crash on a failed pipeline must not trigger respawn."""
+        mock_lock.return_value.__enter__ = MagicMock()
+        mock_lock.return_value.__exit__ = MagicMock(return_value=False)
+
+        pipeline = _make_pipeline(
+            status=PipelineStatus.FAILED,
+            max_respawns=2,
+            coordinator_state=CoordinatorState(
+                guardrail_counters=GuardrailCounters(coordinator_respawns=0),
+            ),
+        )
+        store = MagicMock()
+        store.load_pipeline.return_value = pipeline
+        mock_store_fn.return_value = store
+
+        executor = CoordinatorExecutor(tmp_path)
+        result = executor.handle_coordinator_completion("test-pipeline", exit_code=137)
+
+        assert result == "failed"
+        assert pipeline.status == PipelineStatus.FAILED
+        store.save_pipeline.assert_called_once()
+
+    @patch("coordinator_executor.get_pipeline_state_lock")
+    @patch("coordinator_executor.get_state_store")
+    def test_cancelled_pipeline_success_exit_does_not_complete(
+        self, mock_store_fn, mock_lock, tmp_path
+    ):
+        """Exit code 0 on a cancelled pipeline should not set status to COMPLETE."""
+        mock_lock.return_value.__enter__ = MagicMock()
+        mock_lock.return_value.__exit__ = MagicMock(return_value=False)
+
+        pipeline = _make_pipeline(
+            status=PipelineStatus.CANCELLED,
+            coordinator_state=CoordinatorState(),
+        )
+        store = MagicMock()
+        store.load_pipeline.return_value = pipeline
+        mock_store_fn.return_value = store
+
+        executor = CoordinatorExecutor(tmp_path)
+        result = executor.handle_coordinator_completion("test-pipeline", exit_code=0)
+
+        assert result == "failed"
+        assert pipeline.status == PipelineStatus.CANCELLED
+        store.save_pipeline.assert_called_once()
