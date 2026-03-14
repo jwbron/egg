@@ -122,6 +122,15 @@ class TestBuildConsensusWrappedCommand:
         """Recovery prompt should contain restart number placeholders."""
         assert "{restart_number}" in _RECOVERY_PROMPT
         assert "{max_restarts}" in _RECOVERY_PROMPT
+        # {role} was removed — it is not used in the prompt
+        assert "{role}" not in _RECOVERY_PROMPT
+
+    def test_contains_ready_check_before_restart(self):
+        """Wrapper should check if agent already signaled READY before restarting."""
+        cmd = build_consensus_wrapped_command("Prompt")
+        script = cmd[2]
+        assert "already signaled READY" in script
+        assert "EGG_AGENT_ROLE" in script
 
 
 class TestConsensusWrapperBehavior:
@@ -200,12 +209,65 @@ class TestConsensusWrapperBehavior:
             assert result.returncode == 1
             assert "NOT restarting" in result.stdout
 
+    @staticmethod
+    def _make_mock_tools_with_delayed_consensus(
+        tmpdir: str,
+        log_file: str,
+        claude_log_file: str | None = None,
+        consensus_after: int = 2,
+    ) -> None:
+        """Create mock tools where egg-orch returns is_complete=false initially.
+
+        The mock egg-orch uses a counter file to track calls to 'message status'.
+        It returns is_complete=false until the Nth 'message status' call, then true.
+        This allows testing the restart path without the pre-restart consensus
+        check short-circuiting.
+        """
+        counter_file = os.path.join(tmpdir, "orch_status_count")
+        mock_orch = os.path.join(tmpdir, "egg-orch")
+        with open(mock_orch, "w") as f:
+            f.write("#!/bin/bash\n")
+            f.write(f'echo "$@" >> {shlex.quote(log_file)}\n')
+            # Only track 'message status' calls for consensus gating
+            f.write('if echo "$@" | grep -q "message status"; then\n')
+            f.write("  COUNT=0\n")
+            f.write(f"  if [ -f {shlex.quote(counter_file)} ]; then\n")
+            f.write(f"    COUNT=$(cat {shlex.quote(counter_file)})\n")
+            f.write("  fi\n")
+            f.write("  COUNT=$((COUNT + 1))\n")
+            f.write(f'  echo "$COUNT" > {shlex.quote(counter_file)}\n')
+            f.write(f'  if [ "$COUNT" -ge {consensus_after} ]; then\n')
+            f.write('    echo \'{"data": {"consensus": {"is_complete": true}}}\'\n')
+            f.write("  else\n")
+            f.write('    echo \'{"data": {"consensus": {"is_complete": false}}}\'\n')
+            f.write("  fi\n")
+            f.write("else\n")
+            f.write('  echo \'{"data": {"consensus": {"is_complete": false}}}\'\n')
+            f.write("fi\n")
+        os.chmod(mock_orch, 0o755)  # nosec B103
+
+        # Mock claude (logs delimiter + prompt to file, exits 0)
+        mock_claude = os.path.join(tmpdir, "claude")
+        claude_log = claude_log_file or os.path.join(tmpdir, "claude.log")
+        with open(mock_claude, "w") as f:
+            f.write("#!/bin/bash\n")
+            f.write(f'echo "---CLAUDE_CALL_START---" >> {shlex.quote(claude_log)}\n')
+            f.write(f'echo "${{@: -1}}" >> {shlex.quote(claude_log)}\n')
+            f.write(f'echo "---CLAUDE_CALL_END---" >> {shlex.quote(claude_log)}\n')
+        os.chmod(mock_claude, 0o755)  # nosec B103
+
     def test_clean_exit_triggers_restart(self):
         """A zero Claude exit should trigger a restart, not auto-signal READY."""
         with tempfile.TemporaryDirectory() as tmpdir:
             log_file = os.path.join(tmpdir, "egg-orch.log")
             claude_log = os.path.join(tmpdir, "claude.log")
-            self._make_mock_tools(tmpdir, log_file, claude_log)
+            # Use delayed consensus: false on first status check, true on second
+            self._make_mock_tools_with_delayed_consensus(
+                tmpdir,
+                log_file,
+                claude_log,
+                consensus_after=2,
+            )
 
             cmd = build_consensus_wrapped_command("Do the work", max_restarts=1)
             result = self._run_wrapper_command(cmd, tmpdir)

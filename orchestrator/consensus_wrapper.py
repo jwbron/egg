@@ -19,7 +19,7 @@ import shlex
 MAX_CONSENSUS_RESTARTS = 2
 
 # Recovery prompt given to Claude when it is restarted by the wrapper.
-# Placeholders: {restart_number}, {max_restarts}, {role}
+# Placeholders: {restart_number}, {max_restarts}
 _RECOVERY_PROMPT = (
     "## CONSENSUS RECOVERY — You were restarted by the consensus wrapper\n\n"
     "You exited your previous session without the orchestrator confirming "
@@ -75,6 +75,45 @@ fi
 if [ "$CLAUDE_EXIT" -ne 0 ]; then
     echo "[consensus-wrapper] Agent failed (code $CLAUDE_EXIT). NOT restarting."
     exit $CLAUDE_EXIT
+fi
+
+# --- Check if consensus is already complete or agent already signaled READY ---
+# If the agent signaled READY but then exited (e.g., context exhaustion),
+# restarting is unnecessary. Query consensus state first.
+RESPONSE=$(egg-orch message status --json 2>/dev/null || echo "{{}}")
+IS_COMPLETE=$(echo "$RESPONSE" | python3 -c \
+    "import sys,json; d=json.load(sys.stdin); print(d.get('data',{{}}).get('consensus',{{}}).get('is_complete',False))" \
+    2>/dev/null || echo "False")
+if [ "$IS_COMPLETE" = "True" ]; then
+    echo "[consensus-wrapper] Consensus already reached. Exiting."
+    exit 0
+fi
+
+# Check if this agent already signaled READY (uses EGG_AGENT_ROLE env var)
+AGENT_ROLE="${{EGG_AGENT_ROLE:-}}"
+if [ -n "$AGENT_ROLE" ]; then
+    AGENT_STATE=$(echo "$RESPONSE" | python3 -c \
+        "import sys,json; d=json.load(sys.stdin); agents=d.get('data',{{}}).get('consensus',{{}}).get('agents',{{}}); print(agents.get('$AGENT_ROLE',{{}}).get('state',''))" \
+        2>/dev/null || echo "")
+    if [ "$AGENT_STATE" = "READY" ]; then
+        echo "[consensus-wrapper] Agent already signaled READY. Skipping restart, waiting for consensus..."
+        POLL_INTERVAL="${{EGG_MESSAGE_POLL_INTERVAL:-30}}"
+        WAIT_COUNT=0
+        while [ "$WAIT_COUNT" -lt "$MAX_RESTARTS" ]; do
+            WAIT_COUNT=$((WAIT_COUNT + 1))
+            sleep "$POLL_INTERVAL"
+            RESPONSE=$(egg-orch message status --json 2>/dev/null || echo "{{}}")
+            IS_COMPLETE=$(echo "$RESPONSE" | python3 -c \
+                "import sys,json; d=json.load(sys.stdin); print(d.get('data',{{}}).get('consensus',{{}}).get('is_complete',False))" \
+                2>/dev/null || echo "False")
+            if [ "$IS_COMPLETE" = "True" ]; then
+                echo "[consensus-wrapper] Consensus reached. Exiting."
+                exit 0
+            fi
+        done
+        echo "[consensus-wrapper] Agent was READY but consensus not reached. Exiting cleanly."
+        exit 0
+    fi
 fi
 
 # --- Restart loop for clean exits without consensus ---

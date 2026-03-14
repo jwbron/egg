@@ -303,8 +303,8 @@ def spawn_agent(pipeline_id: str) -> tuple[Response, int]:
             )
 
             # Wrap the Claude invocation in a consensus shell wrapper that
-            # keeps the container alive polling for consensus if Claude exits
-            # before the orchestrator stops the container.
+            # restarts the agent with a recovery prompt if Claude exits
+            # before the orchestrator confirms consensus.
             agent_command = build_consensus_wrapped_command(agent_prompt)
 
             # Spawn the container

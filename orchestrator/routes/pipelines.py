@@ -703,6 +703,12 @@ def update_pipeline(pipeline_id: str) -> tuple[Response, int]:
                     pipeline_id=pipeline_id,
                     error=str(e),
                 )
+                # Reload pipeline so the response reflects current state
+                # rather than the stale pre-cleanup object.
+                try:
+                    pipeline = store.load_pipeline(pipeline_id)
+                except Exception:
+                    pass  # Use stale pipeline if reload also fails
 
         logger.info("Pipeline updated", pipeline_id=pipeline_id)
 
