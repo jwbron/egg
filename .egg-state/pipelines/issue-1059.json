@@ -107,7 +107,7 @@
   },
   "decisions": [],
   "created_at": "2026-03-14T08:25:52.790941",
-  "updated_at": "2026-03-14T08:38:27.812240",
+  "updated_at": "2026-03-14T08:38:28.198883",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
@@ -178,6 +178,15 @@
         "container_id": "b395884fa9b00a366160e02f42879c2cc36865f5b525b2e2b4cdd2fd315b80c5",
         "task_context": "Analyze risks for issue #1059: Overseer agent for pipeline health monitoring. Read the full issue: gh issue view 1059.\n\nAssess risks in these categories:\n1. DEPENDENCY RISKS: #1027 (message bus), #1028 (coordinator), #1088 (Agent SDK) — are they merged? If not, what's the impact?\n2. COST RISKS: Haiku/Opus LLM calls per poll cycle — what's the projected token burn per pipeline? Could it be excessive?\n3. FALSE POSITIVE RISKS: Adaptive stall detection — could Haiku misclassify legitimate slow work?\n4. SECURITY RISKS: Overseer has access to all agent logs and can send redirect messages — what are the abuse scenarios?\n5. RELIABILITY RISKS: Self-monitoring has a recursive problem — who watches the watcher?\n6. INTEGRATION RISKS: How does this interact with existing coordinator guardrails? Could the overseer and coordinator conflict?\n7. SCOPE RISKS: This is a large feature — what's the MVP vs nice-to-have?\n\nWrite risk analysis to .egg-state/drafts/risks.md. Signal completion when done.",
         "retry_number": 0
+      },
+      {
+        "role": "reviewer_plan",
+        "spawned_at": "2026-03-14T08:38:28.198752",
+        "completed_at": null,
+        "status": "running",
+        "container_id": "e5f58a1bd73786e3a191ebfc25a36794c3f992f7a47d2388caa0ac47e6b5b87e",
+        "task_context": "Review the implementation plan produced by architect and task_planner for issue #1059 (overseer agent). The original issue is at: gh issue view 1059. Check .egg-state/drafts/ for architect output (architecture.md) and task_planner output (plan.md). Also check .egg-state/drafts/risks.md for risk analysis.\n\nReview criteria:\n1. Does the plan cover all requirements from the issue?\n2. Are task dependencies correctly ordered?\n3. Are acceptance criteria clear and testable?\n4. Are the file paths and code locations accurate?\n5. Does the architecture align with existing patterns (coordinator, mediator)?\n6. Are the risks adequately mitigated?\n7. Is the scope reasonable for a single PR or should it be split?\n\nWrite your review to .egg-state/agent-outputs/plan-review.md. Signal completion when done.\n\nNOTE: You may need to wait for other agents to produce output. Check .egg-state/drafts/ periodically. If files aren't there yet, wait and retry.",
+        "retry_number": 0
       }
     ],
     "phase_decisions": [
@@ -190,14 +199,15 @@
     ],
     "escalations": [],
     "guardrail_counters": {
-      "total_agents_spawned": 7,
+      "total_agents_spawned": 8,
       "retries_by_role": {
         "refiner": 2,
         "reviewer_refine": 1,
         "reviewer_agent_design": 1,
         "architect": 1,
         "task_planner": 1,
-        "risk_analyst": 1
+        "risk_analyst": 1,
+        "reviewer_plan": 1
       },
       "coordinator_respawns": 1,
       "started_at": "2026-03-14T08:26:01.113156"
@@ -205,5 +215,5 @@
   },
   "plan_phase_waves": null,
   "plan_phase_names": null,
-  "version": 25
+  "version": 26
 }
