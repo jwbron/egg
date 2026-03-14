@@ -105,9 +105,26 @@
       "phase_start_sha": null
     }
   },
-  "decisions": [],
+  "decisions": [
+    {
+      "id": "decision-1",
+      "question": "All 10 agent spawns exhausted (6 refine + 4 plan), all timed out on this large issue. Issue #1059 is already an exceptionally detailed spec with requirements, design decisions, infrastructure changes, and success criteria — it effectively IS the plan. Recommend advancing directly to implement phase using the issue as the plan. Approve?",
+      "context": "",
+      "options": [
+        "Advance to implement (use issue as plan)",
+        "Cancel pipeline"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-03-14T19:04:46.712049",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "plan"
+    }
+  ],
   "created_at": "2026-03-14T18:49:16.888546",
-  "updated_at": "2026-03-14T19:02:38.636072",
+  "updated_at": "2026-03-14T19:04:46.714195",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
@@ -241,5 +258,5 @@
   },
   "plan_phase_waves": null,
   "plan_phase_names": null,
-  "version": 37
+  "version": 38
 }
