@@ -85,7 +85,7 @@ It walks through five phases automatically: seed (gather parameters), submit (`s
 
 | Tool | Description | Required Parameters | Optional Parameters |
 |------|-------------|---------------------|---------------------|
-| `submit_task` | Submit a task for coordinator processing | `description`, `repo` | `issue_number` |
+| `submit_task` | Submit a task for coordinator processing | `description`, `repo` | `issue_number`, `branch` |
 | `get_status` | Check task/pipeline status; returns coordinator state, pipeline details, and recent messages | `task_id` | |
 | `provide_input` | Respond to a coordinator escalation | `task_id`, `decision_id`, `response` | |
 | `list_tasks` | List coordinator-managed pipelines | (none) | `status_filter`, `limit` |
@@ -95,6 +95,7 @@ It walks through five phases automatically: seed (gather parameters), submit (`s
 - `description` (required) — Natural language task description
 - `repo` (required) — Repository to work on, in `owner/name` format (e.g. `myorg/myrepo`)
 - `issue_number` (int) — GitHub issue number
+- `branch` (string) — Branch name override. Only applies when `issue_number` is provided. Defaults to `egg/issue-<N>` if omitted.
 
 **`list_tasks` parameters:**
 - `status_filter` — `"active"` (default), `"completed"`, `"failed"`, or `"all"`
