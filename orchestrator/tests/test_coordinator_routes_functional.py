@@ -7,6 +7,7 @@ state store and container spawner.
 """
 
 import sys
+from datetime import datetime
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -23,7 +24,9 @@ from models import (
     ContainerInfo,
     ContainerStatus,
     CoordinatorState,
+    DecisionStatus,
     GuardrailCounters,
+    HITLDecision,
     Pipeline,
     PipelineConfig,
     PipelinePhase,
@@ -686,6 +689,7 @@ class TestPhaseEndpoint:
         mock_lock.return_value.__exit__ = MagicMock(return_value=False)
 
         pipeline = _make_pipeline(phase=PipelinePhase.PLAN)
+        pipeline.config.hitl_gates = False
         store = MagicMock()
         store.load_pipeline.return_value = pipeline
         mock_store_fn.return_value = store
@@ -712,6 +716,7 @@ class TestPhaseEndpoint:
         mock_lock.return_value.__exit__ = MagicMock(return_value=False)
 
         pipeline = _make_pipeline(phase=PipelinePhase.REFINE)
+        pipeline.config.hitl_gates = False
         store = MagicMock()
         store.load_pipeline.return_value = pipeline
         mock_store_fn.return_value = store
@@ -789,6 +794,7 @@ class TestPhaseEndpoint:
         mock_lock.return_value.__exit__ = MagicMock(return_value=False)
 
         pipeline = _make_pipeline(phase=PipelinePhase.PLAN)
+        pipeline.config.hitl_gates = False
         store = MagicMock()
         store.load_pipeline.return_value = pipeline
         mock_store_fn.return_value = store
@@ -915,6 +921,7 @@ class TestContractEnforcement:
         mock_lock.return_value.__exit__ = MagicMock(return_value=False)
 
         pipeline = _make_pipeline(phase=PipelinePhase.PLAN)
+        pipeline.config.hitl_gates = False
         pipeline.contract_synced = True
         store = MagicMock()
         store.load_pipeline.return_value = pipeline
@@ -941,6 +948,7 @@ class TestContractEnforcement:
         mock_lock.return_value.__exit__ = MagicMock(return_value=False)
 
         pipeline = _make_pipeline(phase=PipelinePhase.REFINE)
+        pipeline.config.hitl_gates = False
         pipeline.contract_synced = False
         store = MagicMock()
         store.load_pipeline.return_value = pipeline
@@ -978,6 +986,261 @@ class TestContractEnforcement:
 
         assert response.status_code == 409
         assert "contract" in response.get_json()["message"].lower()
+
+    # ── HITL gate enforcement tests ─────────────────────────────────
+
+    @patch("routes.coordinator.get_decision_queue")
+    @patch("routes.coordinator.get_state_store")
+    @patch("routes.coordinator.get_pipeline_state_lock")
+    @patch("routes.coordinator.get_repo_path")
+    def test_hitl_gate_blocks_advance_from_refine(
+        self, mock_repo, mock_lock, mock_store_fn, mock_dq_fn, client
+    ):
+        """With hitl_gates=True, advancing from REFINE returns 409 and queues a decision."""
+        mock_repo.return_value = Path("/tmp/repo")
+        mock_lock.return_value.__enter__ = MagicMock()
+        mock_lock.return_value.__exit__ = MagicMock(return_value=False)
+
+        pipeline = _make_pipeline(phase=PipelinePhase.REFINE)
+        pipeline.config.hitl_gates = True
+        pipeline.decisions = []
+        store = MagicMock()
+        store.load_pipeline.return_value = pipeline
+        mock_store_fn.return_value = store
+
+        mock_dq = MagicMock()
+        mock_dq_fn.return_value = mock_dq
+
+        response = client.post(
+            "/api/v1/pipelines/test-pipeline/coordinator/phase",
+            json={"reason": "Refine complete"},
+        )
+
+        assert response.status_code == 409
+        assert "hitl gate" in response.get_json()["message"].lower()
+        mock_dq.queue_decision.assert_called_once()
+        call_kwargs = mock_dq.queue_decision.call_args[1]
+        assert call_kwargs["decision_type"] == "phase_gate"
+        assert call_kwargs["phase"] == PipelinePhase.REFINE
+
+    @patch("routes.coordinator.get_decision_queue")
+    @patch("routes.coordinator.get_state_store")
+    @patch("routes.coordinator.get_pipeline_state_lock")
+    @patch("routes.coordinator.get_repo_path")
+    def test_hitl_gate_blocks_advance_from_plan(
+        self, mock_repo, mock_lock, mock_store_fn, mock_dq_fn, client
+    ):
+        """With hitl_gates=True, advancing from PLAN returns 409 and queues a decision."""
+        mock_repo.return_value = Path("/tmp/repo")
+        mock_lock.return_value.__enter__ = MagicMock()
+        mock_lock.return_value.__exit__ = MagicMock(return_value=False)
+
+        pipeline = _make_pipeline(phase=PipelinePhase.PLAN)
+        pipeline.config.hitl_gates = True
+        pipeline.decisions = []
+        store = MagicMock()
+        store.load_pipeline.return_value = pipeline
+        mock_store_fn.return_value = store
+
+        mock_dq = MagicMock()
+        mock_dq_fn.return_value = mock_dq
+
+        response = client.post(
+            "/api/v1/pipelines/test-pipeline/coordinator/phase",
+            json={"reason": "Plan complete"},
+        )
+
+        assert response.status_code == 409
+        assert "hitl gate" in response.get_json()["message"].lower()
+        mock_dq.queue_decision.assert_called_once()
+        call_kwargs = mock_dq.queue_decision.call_args[1]
+        assert call_kwargs["decision_type"] == "phase_gate"
+        assert call_kwargs["phase"] == PipelinePhase.PLAN
+
+    @patch("routes.coordinator.get_state_store")
+    @patch("routes.coordinator.get_pipeline_state_lock")
+    @patch("routes.coordinator.get_repo_path")
+    def test_hitl_gate_allows_advance_after_approval(
+        self, mock_repo, mock_lock, mock_store_fn, client
+    ):
+        """With an approved phase_gate decision, advancing from REFINE succeeds."""
+        mock_repo.return_value = Path("/tmp/repo")
+        mock_lock.return_value.__enter__ = MagicMock()
+        mock_lock.return_value.__exit__ = MagicMock(return_value=False)
+
+        pipeline = _make_pipeline(phase=PipelinePhase.REFINE)
+        pipeline.config.hitl_gates = True
+        pipeline.decisions = [
+            HITLDecision(
+                id="gate-1",
+                question="Approve refine?",
+                decision_type="phase_gate",
+                phase=PipelinePhase.REFINE,
+                status=DecisionStatus.RESOLVED,
+                resolution="approve",
+                created_at=datetime.utcnow(),
+                resolved_at=datetime.utcnow(),
+            )
+        ]
+        store = MagicMock()
+        store.load_pipeline.return_value = pipeline
+        mock_store_fn.return_value = store
+
+        response = client.post(
+            "/api/v1/pipelines/test-pipeline/coordinator/phase",
+            json={"reason": "Refine approved"},
+        )
+
+        assert response.status_code == 200
+        assert response.get_json()["data"]["current_phase"] == "plan"
+
+    @patch("routes.coordinator.get_state_store")
+    @patch("routes.coordinator.get_pipeline_state_lock")
+    @patch("routes.coordinator.get_repo_path")
+    def test_hitl_gate_skipped_when_disabled(self, mock_repo, mock_lock, mock_store_fn, client):
+        """With hitl_gates=False, advancing from REFINE proceeds without gate check."""
+        mock_repo.return_value = Path("/tmp/repo")
+        mock_lock.return_value.__enter__ = MagicMock()
+        mock_lock.return_value.__exit__ = MagicMock(return_value=False)
+
+        pipeline = _make_pipeline(phase=PipelinePhase.REFINE)
+        pipeline.config.hitl_gates = False
+        pipeline.decisions = []
+        store = MagicMock()
+        store.load_pipeline.return_value = pipeline
+        mock_store_fn.return_value = store
+
+        response = client.post(
+            "/api/v1/pipelines/test-pipeline/coordinator/phase",
+            json={"reason": "Refine complete"},
+        )
+
+        assert response.status_code == 200
+        assert response.get_json()["data"]["current_phase"] == "plan"
+
+    @patch("routes.coordinator.get_state_store")
+    @patch("routes.coordinator.get_pipeline_state_lock")
+    @patch("routes.coordinator.get_repo_path")
+    def test_hitl_gate_does_not_apply_to_implement(
+        self, mock_repo, mock_lock, mock_store_fn, client
+    ):
+        """HITL gates only apply to refine/plan; advancing from IMPLEMENT is not gated."""
+        mock_repo.return_value = Path("/tmp/repo")
+        mock_lock.return_value.__enter__ = MagicMock()
+        mock_lock.return_value.__exit__ = MagicMock(return_value=False)
+
+        pipeline = _make_pipeline(phase=PipelinePhase.IMPLEMENT)
+        pipeline.config.hitl_gates = True
+        pipeline.contract_synced = True
+        pipeline.decisions = []
+        store = MagicMock()
+        store.load_pipeline.return_value = pipeline
+        mock_store_fn.return_value = store
+
+        response = client.post(
+            "/api/v1/pipelines/test-pipeline/coordinator/phase",
+            json={"reason": "Implementation complete"},
+        )
+
+        assert response.status_code == 200
+        assert response.get_json()["data"]["current_phase"] == "pr"
+
+    @patch("routes.coordinator.get_decision_queue")
+    @patch("routes.coordinator.get_state_store")
+    @patch("routes.coordinator.get_pipeline_state_lock")
+    @patch("routes.coordinator.get_repo_path")
+    def test_hitl_gate_blocks_after_rejection(
+        self, mock_repo, mock_lock, mock_store_fn, mock_dq_fn, client
+    ):
+        """A resolved decision with a non-approval resolution still blocks advancement."""
+        mock_repo.return_value = Path("/tmp/repo")
+        mock_lock.return_value.__enter__ = MagicMock()
+        mock_lock.return_value.__exit__ = MagicMock(return_value=False)
+
+        pipeline = _make_pipeline(phase=PipelinePhase.PLAN)
+        pipeline.config.hitl_gates = True
+        pipeline.decisions = [
+            HITLDecision(
+                id="gate-rejected",
+                question="Approve plan?",
+                decision_type="phase_gate",
+                phase=PipelinePhase.PLAN,
+                status=DecisionStatus.RESOLVED,
+                resolution="request changes",
+                created_at=datetime.utcnow(),
+                resolved_at=datetime.utcnow(),
+            )
+        ]
+        store = MagicMock()
+        store.load_pipeline.return_value = pipeline
+        mock_store_fn.return_value = store
+
+        mock_dq = MagicMock()
+        mock_dq_fn.return_value = mock_dq
+
+        response = client.post(
+            "/api/v1/pipelines/test-pipeline/coordinator/phase",
+            json={"reason": "Plan complete"},
+        )
+
+        assert response.status_code == 409
+        assert "hitl gate" in response.get_json()["message"].lower()
+
+    @patch("routes.coordinator.get_decision_queue")
+    @patch("routes.coordinator.get_state_store")
+    @patch("routes.coordinator.get_pipeline_state_lock")
+    @patch("routes.coordinator.get_repo_path")
+    def test_hitl_gate_stale_approval_does_not_bypass_after_loopback(
+        self, mock_repo, mock_lock, mock_store_fn, mock_dq_fn, client
+    ):
+        """After a loopback, a stale approval followed by a rejection blocks advancement."""
+        mock_repo.return_value = Path("/tmp/repo")
+        mock_lock.return_value.__enter__ = MagicMock()
+        mock_lock.return_value.__exit__ = MagicMock(return_value=False)
+
+        pipeline = _make_pipeline(phase=PipelinePhase.PLAN)
+        pipeline.config.hitl_gates = True
+        # First pass: approved. Second pass (after loopback): rejected.
+        # The latest decision (rejected) should take precedence.
+        # Note: reversed() is position-based, not timestamp-based. This
+        # test relies on decisions being appended in chronological order,
+        # which matches runtime behavior (decisions are always appended).
+        pipeline.decisions = [
+            HITLDecision(
+                id="gate-old-approved",
+                question="Approve plan?",
+                decision_type="phase_gate",
+                phase=PipelinePhase.PLAN,
+                status=DecisionStatus.RESOLVED,
+                resolution="approve",
+                created_at=datetime(2026, 1, 1, 0, 0, 0),
+                resolved_at=datetime(2026, 1, 1, 0, 0, 0),
+            ),
+            HITLDecision(
+                id="gate-new-rejected",
+                question="Approve revised plan?",
+                decision_type="phase_gate",
+                phase=PipelinePhase.PLAN,
+                status=DecisionStatus.RESOLVED,
+                resolution='{"action": "request_changes", "feedback": "Needs more detail"}',
+                created_at=datetime(2026, 1, 2, 0, 0, 0),
+                resolved_at=datetime(2026, 1, 2, 0, 0, 0),
+            ),
+        ]
+        store = MagicMock()
+        store.load_pipeline.return_value = pipeline
+        mock_store_fn.return_value = store
+
+        mock_dq = MagicMock()
+        mock_dq_fn.return_value = mock_dq
+
+        response = client.post(
+            "/api/v1/pipelines/test-pipeline/coordinator/phase",
+            json={"reason": "Plan complete"},
+        )
+
+        assert response.status_code == 409
+        assert "hitl gate" in response.get_json()["message"].lower()
 
 
 # ── Escalation endpoint tests ───────────────────────────────────────

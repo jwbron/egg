@@ -42,12 +42,14 @@ from models import (
     AgentRole,
     AgentSpawnRecord,
     CoordinatorState,
+    DecisionStatus,
     Escalation,
     PhaseDecision,
     Pipeline,
     PipelinePhase,
     PipelineStatus,
 )
+from routes.pipelines import _HITL_GATE_PHASES, _parse_resolution
 from state_store import (
     InvalidPipelineIdError,
     PipelineNotFoundError,
@@ -58,6 +60,16 @@ from state_store import (
 logger = get_logger("orchestrator.coordinator")
 
 coordinator_bp = Blueprint("coordinator", __name__, url_prefix="/api/v1/pipelines")
+
+
+def _is_gate_approved(resolution: str | None) -> bool:
+    """Return True if a phase_gate resolution indicates approval.
+
+    Delegates to _parse_resolution from pipelines.py (single source of truth
+    for resolution parsing).
+    """
+    is_approved, _ = _parse_resolution(resolution)
+    return is_approved
 
 
 def make_error_response(
@@ -731,6 +743,56 @@ def advance_phase(pipeline_id: str) -> tuple[Response, int]:
                     "may have failed. Check pipeline logs for details.",
                     status_code=409,
                 )
+
+            # Enforce HITL gates: when enabled, the coordinator cannot
+            # advance past refine/plan without an approved phase_gate decision.
+            if pipeline.config.hitl_gates and previous_phase.value in _HITL_GATE_PHASES:
+                # Use the *latest* resolved gate for this phase (not any()),
+                # so stale approvals from prior passes don't bypass the gate
+                # after a loopback (e.g. implement → plan → re-advance).
+                resolved_gates = [
+                    d
+                    for d in reversed(pipeline.decisions)
+                    if d.decision_type == "phase_gate"
+                    and d.phase == previous_phase
+                    and d.status == DecisionStatus.RESOLVED
+                ]
+                has_approved_gate = bool(resolved_gates) and _is_gate_approved(
+                    resolved_gates[0].resolution
+                )
+                if not has_approved_gate:
+                    # Queue a phase_gate decision if none is already pending
+                    has_pending_gate = any(
+                        d.decision_type == "phase_gate"
+                        and d.phase == previous_phase
+                        and d.status == DecisionStatus.PENDING
+                        for d in pipeline.decisions
+                    )
+                    if not has_pending_gate:
+                        dq = get_decision_queue(pipeline_id, repo_path)
+                        phase_label = (
+                            "analysis" if previous_phase.value == "refine" else previous_phase.value
+                        )
+                        dq.queue_decision(
+                            question=(
+                                f"The {previous_phase.value} phase has completed. "
+                                f"Please review the {phase_label} and approve to "
+                                f"continue, or provide feedback to request changes."
+                            ),
+                            options=["approve", "request changes"],
+                            decision_type="phase_gate",
+                            phase=previous_phase,
+                        )
+                        # Reload to pick up persisted decision, then set AWAITING_HUMAN
+                        pipeline = store.load_pipeline(pipeline_id)
+                        pipeline.status = PipelineStatus.AWAITING_HUMAN
+                        store.save_pipeline(pipeline)
+
+                    return make_error_response(
+                        f"HITL gate active: the '{previous_phase.value}' phase requires human approval before advancing. "
+                        f"A phase_gate decision has been queued. Poll `decision list` and retry after human resolves it.",
+                        status_code=409,
+                    )
 
             # All validations passed — now mutate state
             pipeline.current_phase = target_phase
