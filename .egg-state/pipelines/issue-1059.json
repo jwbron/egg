@@ -92,10 +92,26 @@
       "resolved_at": null,
       "resolution": null,
       "phase": "refine"
+    },
+    {
+      "id": "decision-2",
+      "question": "Implementation is partially complete for issue #1059. The first coder pass implemented the data model layer (role enums, config, gateway restrictions) but the runtime layer is missing (auto-spawn logic, monitoring loop, CLAUDE.md instructions). We've hit the 10-agent guardrail limit. Options: 1) Increase max_agents to allow another coder pass, 2) Accept partial implementation and create follow-up issue for runtime layer.",
+      "context": "",
+      "options": [
+        "Increase limit for another coder pass",
+        "Accept partial, create follow-up issue"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-03-14T06:27:55.445795",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "implement"
     }
   ],
   "created_at": "2026-03-14T06:02:13.851895",
-  "updated_at": "2026-03-14T06:26:50.656738",
+  "updated_at": "2026-03-14T06:27:55.448192",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
@@ -230,5 +246,5 @@
   },
   "plan_phase_waves": null,
   "plan_phase_names": null,
-  "version": 31
+  "version": 32
 }
