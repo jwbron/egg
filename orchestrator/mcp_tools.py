@@ -173,7 +173,11 @@ class CoordinatorToolHandler:
             return {"error": str(e)}
 
     def _make_request(
-        self, endpoint: str, method: str = "GET", data: dict[str, Any] | None = None
+        self,
+        endpoint: str,
+        method: str = "GET",
+        data: dict[str, Any] | None = None,
+        timeout: int = 30,
     ) -> dict[str, Any]:
         """Make HTTP request to orchestrator."""
         import json
@@ -186,7 +190,7 @@ class CoordinatorToolHandler:
         opener = build_opener(ProxyHandler({}))
         req = Request(url, data=body, headers=headers, method=method)
 
-        with opener.open(req, timeout=30) as response:
+        with opener.open(req, timeout=timeout) as response:
             return json.loads(response.read().decode())
 
     def _handle_submit_task(self, args: dict[str, Any]) -> dict[str, Any]:
@@ -322,5 +326,6 @@ class CoordinatorToolHandler:
             f"/api/v1/pipelines/{task_id}",
             method="PATCH",
             data=data,
+            timeout=120,
         )
         return result

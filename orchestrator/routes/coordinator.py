@@ -35,7 +35,7 @@ except ImportError:
 from consensus_wrapper import build_consensus_wrapped_command
 from container_spawner import ContainerSpawnError, get_container_spawner
 from decision_queue import get_decision_queue
-from egg_contracts.agent_roles import get_role_definition, get_roles_for_phase
+from egg_contracts.agent_roles import get_roles_for_phase
 from events import EventType, emit_event
 from gateway_client import GatewayError, get_gateway_client
 from models import (
@@ -225,39 +225,6 @@ def spawn_agent(pipeline_id: str) -> tuple[Response, int]:
                         "phase": pipeline.current_phase.value,
                         "contract_synced": False,
                     },
-                )
-
-            # Check role dependencies — reviewer roles must wait for
-            # their primary agents to complete
-            try:
-                role_def = get_role_definition(role_str)
-                if role_def.dependencies:
-                    coord_state = pipeline.coordinator_state or CoordinatorState()
-                    completed_roles = {
-                        s.role.value for s in coord_state.agents_spawned if s.status == "complete"
-                    }
-                    missing = [
-                        dep.value
-                        for dep in role_def.dependencies
-                        if dep.value not in completed_roles
-                    ]
-                    if missing:
-                        return make_error_response(
-                            f"Cannot spawn '{role_str}': dependencies not yet complete: "
-                            f"{missing}. These roles must finish before '{role_str}' can start.",
-                            status_code=409,
-                            details={
-                                "role": role_str,
-                                "missing_dependencies": missing,
-                                "completed_roles": sorted(completed_roles),
-                            },
-                        )
-            except (ValueError, KeyError):
-                # Role not found in egg_contracts definitions — allow spawn
-                # but warn since this bypasses a safety check
-                logger.warning(
-                    "No role definition found for dependency check, allowing spawn",
-                    role=role_str,
                 )
 
             # Validate role is appropriate for the current phase

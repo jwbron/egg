@@ -37,8 +37,10 @@ try:
     from ..decision_queue import get_decision_queue
     from ..docker_client import ContainerNotFoundError, ContainerOperationError, DockerClientError
     from ..models import (
+        AgentExecutionStatus,
         AgentRole,
         AggregatedReviewResult,
+        ContainerStatus,
         CycleTiming,
         Pipeline,
         PipelinePhase,
@@ -63,9 +65,11 @@ except ImportError:
         DockerClientError,
     )
     from models import (  # type: ignore
+        AgentExecutionStatus,
         AgentRole,
         AggregatedReviewResult,
         ComplexityTier,
+        ContainerStatus,
         CycleTiming,
         DecisionStatus,
         Pipeline,
@@ -554,6 +558,62 @@ def create_pipeline() -> tuple[Response, int]:
         return make_error_response(f"Failed to create pipeline: {e}", status_code=500)
 
 
+def _mark_pipeline_records_terminated(
+    store: "StateStore",
+    pipeline_id: str,
+) -> "Pipeline":
+    """Mark all running containers and agents as stopped after pipeline termination.
+
+    Called when a pipeline transitions to a terminal state (cancelled or failed).
+    After Docker containers are force-removed, the pipeline state still shows
+    them as "running". This reloads the latest state from the store (to avoid
+    overwriting coordinator updates made between the status change and container
+    cleanup), marks running records as stopped, and saves.
+
+    Returns the updated pipeline so the caller can use it in the response.
+    """
+    pipeline = store.load_pipeline(pipeline_id)
+    now = datetime.utcnow()
+    changed = False
+
+    for phase_exec in pipeline.phases.values():
+        for container in phase_exec.containers:
+            if container.status in (
+                ContainerStatus.PENDING,
+                ContainerStatus.CREATING,
+                ContainerStatus.RUNNING,
+            ):
+                container.status = ContainerStatus.REMOVED
+                container.exited_at = now
+                changed = True
+
+        for agent in phase_exec.agents:
+            if agent.status in (
+                AgentExecutionStatus.PENDING,
+                AgentExecutionStatus.RUNNING,
+            ):
+                agent.status = AgentExecutionStatus.FAILED
+                agent.completed_at = now
+                agent.error = f"Pipeline {pipeline.status.value}"
+                changed = True
+
+    if pipeline.coordinator_state:
+        for spawn_record in pipeline.coordinator_state.agents_spawned:
+            if spawn_record.status == "running":
+                spawn_record.status = "cancelled"
+                spawn_record.completed_at = now
+                changed = True
+
+    if changed:
+        store.save_pipeline(pipeline)
+        logger.info(
+            "Synced pipeline state after termination",
+            pipeline_id=pipeline_id,
+        )
+
+    return pipeline
+
+
 @pipelines_bp.route("/<pipeline_id>", methods=["PATCH"])
 def update_pipeline(pipeline_id: str) -> tuple[Response, int]:
     """
@@ -630,6 +690,18 @@ def update_pipeline(pipeline_id: str) -> tuple[Response, int]:
                     pipeline_id=pipeline_id,
                     error=str(e),
                     exc_info=True,
+                )
+
+            # Sync pipeline state: reload latest state (coordinator may have
+            # written updates between status change and container cleanup),
+            # mark all running records as stopped, and re-save.
+            try:
+                pipeline = _mark_pipeline_records_terminated(store, pipeline_id)
+            except Exception as e:
+                logger.warning(
+                    "Failed to sync pipeline state after termination",
+                    pipeline_id=pipeline_id,
+                    error=str(e),
                 )
 
         logger.info("Pipeline updated", pipeline_id=pipeline_id)
