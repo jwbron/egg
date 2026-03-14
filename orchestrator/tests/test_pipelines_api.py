@@ -301,8 +301,8 @@ def _make_cancellable_pipeline(pipeline_id="test-pipeline"):
     return pipeline
 
 
-class TestCancelPipelineSyncsState:
-    """Tests that cancelling a pipeline marks running containers/agents as stopped."""
+class TestTerminatedPipelineSyncsState:
+    """Tests that terminating a pipeline marks running containers/agents as stopped."""
 
     @patch("routes.pipelines.get_decision_queue")
     @patch("routes.pipelines.get_container_spawner")
@@ -340,11 +340,11 @@ class TestCancelPipelineSyncsState:
             assert container.status == ContainerStatus.REMOVED
             assert container.exited_at is not None
 
-        # All running agents should be marked FAILED
+        # All running agents should be marked FAILED with correct error
         for agent in pipeline.phases["refine"].agents:
             assert agent.status == AgentExecutionStatus.FAILED
             assert agent.completed_at is not None
-            assert agent.error == "Pipeline cancelled"
+            assert agent.error == "Pipeline cancelled"  # status-specific message
 
         # Coordinator spawn records should be marked cancelled
         for record in pipeline.coordinator_state.agents_spawned:
@@ -396,3 +396,39 @@ class TestCancelPipelineSyncsState:
         # Still-running agent/container should be updated
         assert pipeline.phases["refine"].agents[1].status == AgentExecutionStatus.FAILED
         assert pipeline.phases["refine"].containers[1].status == ContainerStatus.REMOVED
+
+    @patch("routes.pipelines.get_decision_queue")
+    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines._resolve_pipeline")
+    @patch("routes.pipelines.get_repo_path")
+    def test_failed_pipeline_uses_correct_error_message(
+        self, mock_repo, mock_resolve, mock_spawner_fn, mock_dq_fn, client
+    ):
+        """When a pipeline transitions to FAILED, agent errors say 'Pipeline failed'."""
+        mock_repo.return_value = "/repo"
+        pipeline = _make_cancellable_pipeline()
+
+        mock_store = MagicMock()
+        mock_store.update_pipeline.return_value = pipeline
+        mock_store.load_pipeline.return_value = pipeline
+        pipeline.status = PipelineStatus.FAILED
+        mock_resolve.return_value = (mock_store, pipeline)
+
+        mock_spawner = MagicMock()
+        mock_spawner.cleanup_pipeline.return_value = 2
+        mock_spawner_fn.return_value = mock_spawner
+
+        mock_dq = MagicMock()
+        mock_dq.get_pending_decisions.return_value = []
+        mock_dq_fn.return_value = mock_dq
+
+        response = client.patch(
+            "/api/v1/pipelines/test-pipeline",
+            json={"status": "failed"},
+        )
+        assert response.status_code == 200
+
+        # Agent errors should reflect the actual terminal status
+        for agent in pipeline.phases["refine"].agents:
+            assert agent.status == AgentExecutionStatus.FAILED
+            assert agent.error == "Pipeline failed"  # not "Pipeline cancelled"

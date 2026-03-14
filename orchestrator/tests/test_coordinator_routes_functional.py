@@ -1449,9 +1449,6 @@ class TestPhaseRoleValidation:
         assert response.status_code == 200
 
 
-# ── Dependency validation tests ────────────────────────────────────
-
-
 # ── Spawn contract enforcement tests ──────────────────────────────
 
 

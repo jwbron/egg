@@ -37,8 +37,10 @@ try:
     from ..decision_queue import get_decision_queue
     from ..docker_client import ContainerNotFoundError, ContainerOperationError, DockerClientError
     from ..models import (
+        AgentExecutionStatus,
         AgentRole,
         AggregatedReviewResult,
+        ContainerStatus,
         CycleTiming,
         Pipeline,
         PipelinePhase,
@@ -63,9 +65,11 @@ except ImportError:
         DockerClientError,
     )
     from models import (  # type: ignore
+        AgentExecutionStatus,
         AgentRole,
         AggregatedReviewResult,
         ComplexityTier,
+        ContainerStatus,
         CycleTiming,
         DecisionStatus,
         Pipeline,
@@ -554,12 +558,13 @@ def create_pipeline() -> tuple[Response, int]:
         return make_error_response(f"Failed to create pipeline: {e}", status_code=500)
 
 
-def _mark_pipeline_records_cancelled(
+def _mark_pipeline_records_terminated(
     store: "StateStore",
     pipeline_id: str,
 ) -> "Pipeline":
-    """Mark all running containers and agents as stopped after pipeline cancellation.
+    """Mark all running containers and agents as stopped after pipeline termination.
 
+    Called when a pipeline transitions to a terminal state (cancelled or failed).
     After Docker containers are force-removed, the pipeline state still shows
     them as "running". This reloads the latest state from the store (to avoid
     overwriting coordinator updates made between the status change and container
@@ -567,11 +572,6 @@ def _mark_pipeline_records_cancelled(
 
     Returns the updated pipeline so the caller can use it in the response.
     """
-    try:
-        from models import AgentExecutionStatus, ContainerStatus  # type: ignore
-    except ImportError:
-        from ..models import AgentExecutionStatus, ContainerStatus
-
     pipeline = store.load_pipeline(pipeline_id)
     now = datetime.utcnow()
     changed = False
@@ -594,7 +594,7 @@ def _mark_pipeline_records_cancelled(
             ):
                 agent.status = AgentExecutionStatus.FAILED
                 agent.completed_at = now
-                agent.error = "Pipeline cancelled"
+                agent.error = f"Pipeline {pipeline.status.value}"
                 changed = True
 
     if pipeline.coordinator_state:
@@ -607,7 +607,7 @@ def _mark_pipeline_records_cancelled(
     if changed:
         store.save_pipeline(pipeline)
         logger.info(
-            "Synced pipeline state after cancellation",
+            "Synced pipeline state after termination",
             pipeline_id=pipeline_id,
         )
 
@@ -696,10 +696,10 @@ def update_pipeline(pipeline_id: str) -> tuple[Response, int]:
             # written updates between status change and container cleanup),
             # mark all running records as stopped, and re-save.
             try:
-                pipeline = _mark_pipeline_records_cancelled(store, pipeline_id)
+                pipeline = _mark_pipeline_records_terminated(store, pipeline_id)
             except Exception as e:
                 logger.warning(
-                    "Failed to sync pipeline state after cancellation",
+                    "Failed to sync pipeline state after termination",
                     pipeline_id=pipeline_id,
                     error=str(e),
                 )

@@ -827,6 +827,7 @@ class TestMCPToolHandlerGaps:
                 "/api/v1/pipelines/issue-42",
                 method="PATCH",
                 data={"status": "cancelled", "reason": "No longer needed"},
+                timeout=120,
             )
 
     def test_provide_input_calls_correct_endpoint(self):
