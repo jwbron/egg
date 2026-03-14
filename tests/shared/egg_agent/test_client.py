@@ -9,7 +9,6 @@ from unittest.mock import patch
 
 from egg_agent.client import run_agent, run_agent_async
 
-
 # ── Mock SDK types ──────────────────────────────────────────────────────────
 #
 # claude-agent-sdk is only installed inside sandbox containers, not in CI.
