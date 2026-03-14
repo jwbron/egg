@@ -170,10 +170,10 @@ def main() -> int:
         if file_path.suffix.lower() not in extensions:
             continue
 
-        # Skip files in .git, .venv, node_modules
+        # Skip files in .git, .venv, node_modules, .claude (worktrees)
         rel_parts = file_path.relative_to(repo_root).parts
         if any(
-            part in {".git", ".venv", "node_modules", "__pycache__", ".mypy_cache"}
+            part in {".git", ".venv", "node_modules", "__pycache__", ".mypy_cache", ".claude"}
             for part in rel_parts
         ):
             continue

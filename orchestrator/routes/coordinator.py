@@ -694,7 +694,6 @@ def advance_phase(pipeline_id: str) -> tuple[Response, int]:
                         f"Target phase '{target_phase_str}' is the current phase",
                         status_code=400,
                     )
-                pipeline.current_phase = target_phase
             else:
                 # Advance to next phase in sequence
                 current_idx = phase_order.index(pipeline.current_phase)
@@ -705,7 +704,26 @@ def advance_phase(pipeline_id: str) -> tuple[Response, int]:
                     )
                 target_phase = phase_order[current_idx + 1]
                 action = "advance"
-                pipeline.current_phase = target_phase
+
+            # Enforce contract existence before entering implement phase.
+            # Every pipeline — simple or complex — must have a contract so
+            # reviewers, phase gates, and the reviewer_contract role have a
+            # shared source of truth about what is being built.
+            if (
+                target_phase in (PipelinePhase.IMPLEMENT, PipelinePhase.PR)
+                and not pipeline.contract_synced
+            ):
+                return make_error_response(
+                    f"Cannot advance to '{target_phase.value}' phase: no contract exists for this pipeline. "
+                    "A contract must be created before implementation can begin. "
+                    "The orchestrator creates contracts automatically during pipeline "
+                    "startup — if contract_synced is still false, the contract creation "
+                    "may have failed. Check pipeline logs for details.",
+                    status_code=409,
+                )
+
+            # All validations passed — now mutate state
+            pipeline.current_phase = target_phase
 
             # Record the phase decision in coordinator state
             if pipeline.coordinator_state is None:
