@@ -703,7 +703,7 @@ class StateStore:
                         pipeline_id,
                         existing.status.value,
                     )
-                    self.delete_pipeline(pipeline_id, commit=True)
+                    self.delete_pipeline(pipeline_id, commit=True, cleanup_lock=False)
                 else:
                     raise StateStoreError(f"Pipeline {pipeline_id} already exists")
 
@@ -728,7 +728,11 @@ class StateStore:
             return pipeline
 
     def delete_pipeline(
-        self, pipeline_id: str, commit: bool = True, force_commit: bool = False
+        self,
+        pipeline_id: str,
+        commit: bool = True,
+        force_commit: bool = False,
+        cleanup_lock: bool = True,
     ) -> None:
         """Delete a pipeline.
 
@@ -736,6 +740,10 @@ class StateStore:
             pipeline_id: Pipeline ID to delete
             commit: Whether to commit the deletion (ignored for local unless force_commit)
             force_commit: If True, commit deletion even for local pipelines
+            cleanup_lock: Whether to release the per-pipeline state lock.
+                Set to False when called from within a lock (e.g. create_pipeline
+                replacing a terminal pipeline) to avoid removing the lock while
+                the caller still holds it.
 
         Raises:
             PipelineNotFoundError: If pipeline doesn't exist
@@ -748,7 +756,8 @@ class StateStore:
         path.unlink()
 
         # Clean up the per-pipeline state lock to prevent unbounded growth
-        release_pipeline_state_lock(pipeline_id)
+        if cleanup_lock:
+            release_pipeline_state_lock(pipeline_id)
 
         # For local pipelines, only commit if force_commit is True
         # For issue pipelines, always commit when commit=True

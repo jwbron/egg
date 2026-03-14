@@ -140,6 +140,9 @@ class TestPipelineCreation:
         assert new_pipeline.id == "issue-500"
         assert new_pipeline.status == PipelineStatus.PENDING
         assert new_pipeline.branch == "egg/issue-500-v2"
+        # Fresh pipeline starts at version=1, save_pipeline increments to 2.
+        # If old state leaked, this would be higher (old version + 1).
+        assert new_pipeline.version == 2
 
     @pytest.mark.parametrize(
         "active_status",
