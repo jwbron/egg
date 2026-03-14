@@ -1145,6 +1145,100 @@ class TestContractEnforcement:
         assert response.status_code == 200
         assert response.get_json()["data"]["current_phase"] == "pr"
 
+    @patch("routes.coordinator.get_decision_queue")
+    @patch("routes.coordinator.get_state_store")
+    @patch("routes.coordinator.get_pipeline_state_lock")
+    @patch("routes.coordinator.get_repo_path")
+    def test_hitl_gate_blocks_after_rejection(
+        self, mock_repo, mock_lock, mock_store_fn, mock_dq_fn, client
+    ):
+        """A resolved decision with a non-approval resolution still blocks advancement."""
+        mock_repo.return_value = Path("/tmp/repo")
+        mock_lock.return_value.__enter__ = MagicMock()
+        mock_lock.return_value.__exit__ = MagicMock(return_value=False)
+
+        pipeline = _make_pipeline(phase=PipelinePhase.PLAN)
+        pipeline.config.hitl_gates = True
+        pipeline.decisions = [
+            HITLDecision(
+                id="gate-rejected",
+                question="Approve plan?",
+                decision_type="phase_gate",
+                phase=PipelinePhase.PLAN,
+                status=DecisionStatus.RESOLVED,
+                resolution="request changes",
+                created_at=datetime.utcnow(),
+                resolved_at=datetime.utcnow(),
+            )
+        ]
+        store = MagicMock()
+        store.load_pipeline.return_value = pipeline
+        mock_store_fn.return_value = store
+
+        mock_dq = MagicMock()
+        mock_dq_fn.return_value = mock_dq
+
+        response = client.post(
+            "/api/v1/pipelines/test-pipeline/coordinator/phase",
+            json={"reason": "Plan complete"},
+        )
+
+        assert response.status_code == 409
+        assert "hitl gate" in response.get_json()["message"].lower()
+
+    @patch("routes.coordinator.get_decision_queue")
+    @patch("routes.coordinator.get_state_store")
+    @patch("routes.coordinator.get_pipeline_state_lock")
+    @patch("routes.coordinator.get_repo_path")
+    def test_hitl_gate_stale_approval_does_not_bypass_after_loopback(
+        self, mock_repo, mock_lock, mock_store_fn, mock_dq_fn, client
+    ):
+        """After a loopback, a stale approval followed by a rejection blocks advancement."""
+        mock_repo.return_value = Path("/tmp/repo")
+        mock_lock.return_value.__enter__ = MagicMock()
+        mock_lock.return_value.__exit__ = MagicMock(return_value=False)
+
+        pipeline = _make_pipeline(phase=PipelinePhase.PLAN)
+        pipeline.config.hitl_gates = True
+        # First pass: approved. Second pass (after loopback): rejected.
+        # The latest decision (rejected) should take precedence.
+        pipeline.decisions = [
+            HITLDecision(
+                id="gate-old-approved",
+                question="Approve plan?",
+                decision_type="phase_gate",
+                phase=PipelinePhase.PLAN,
+                status=DecisionStatus.RESOLVED,
+                resolution="approve",
+                created_at=datetime(2026, 1, 1, 0, 0, 0),
+                resolved_at=datetime(2026, 1, 1, 0, 0, 0),
+            ),
+            HITLDecision(
+                id="gate-new-rejected",
+                question="Approve revised plan?",
+                decision_type="phase_gate",
+                phase=PipelinePhase.PLAN,
+                status=DecisionStatus.RESOLVED,
+                resolution='{"action": "request_changes", "feedback": "Needs more detail"}',
+                created_at=datetime(2026, 1, 2, 0, 0, 0),
+                resolved_at=datetime(2026, 1, 2, 0, 0, 0),
+            ),
+        ]
+        store = MagicMock()
+        store.load_pipeline.return_value = pipeline
+        mock_store_fn.return_value = store
+
+        mock_dq = MagicMock()
+        mock_dq_fn.return_value = mock_dq
+
+        response = client.post(
+            "/api/v1/pipelines/test-pipeline/coordinator/phase",
+            json={"reason": "Plan complete"},
+        )
+
+        assert response.status_code == 409
+        assert "hitl gate" in response.get_json()["message"].lower()
+
 
 # ── Escalation endpoint tests ───────────────────────────────────────
 

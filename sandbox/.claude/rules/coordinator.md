@@ -45,7 +45,7 @@ When `hitl_gates: true` (the default), the orchestrator blocks phase advancement
 3. If approved, retry the phase advance
 4. If changes requested, re-run the phase agents with the feedback
 
-Do NOT attempt to skip past a gated phase — the gate applies regardless of whether you advance sequentially or skip.
+The gate applies to the phase you are leaving — if you skip intermediate phases, only the current phase's gate is checked. Skipped phases have no output to review, so their gates are not enforced.
 
 ## Phase-Role Mappings (CRITICAL)
 

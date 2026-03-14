@@ -5,7 +5,6 @@ Provides REST endpoints for coordinator-driven pipelines, including
 agent spawning, cancellation, phase control, and HITL escalation.
 """
 
-import json
 import os
 import sys
 from datetime import datetime
@@ -50,6 +49,7 @@ from models import (
     PipelinePhase,
     PipelineStatus,
 )
+from routes.pipelines import _parse_resolution
 from state_store import (
     InvalidPipelineIdError,
     PipelineNotFoundError,
@@ -64,27 +64,15 @@ coordinator_bp = Blueprint("coordinator", __name__, url_prefix="/api/v1/pipeline
 # Phases that require human approval when hitl_gates is enabled.
 _HITL_GATE_PHASES = {"refine", "plan"}
 
-# Keywords that count as approval in phase_gate resolutions.
-_GATE_APPROVE_KEYWORDS = {"approved", "approve", "lgtm", "yes", ""}
-
 
 def _is_gate_approved(resolution: str | None) -> bool:
-    """Return True if a phase_gate resolution indicates approval."""
-    if not resolution:
-        return True
+    """Return True if a phase_gate resolution indicates approval.
 
-    resolution = resolution.strip()
-
-    # JSON-structured resolution
-    try:
-        payload = json.loads(resolution)
-        if isinstance(payload, dict) and "action" in payload:
-            return payload["action"] in ("approve", "select", "submit_feedback")
-    except (json.JSONDecodeError, TypeError, AttributeError):
-        pass
-
-    # Legacy bare-string resolution
-    return resolution.lower() in _GATE_APPROVE_KEYWORDS
+    Delegates to _parse_resolution from pipelines.py (single source of truth
+    for resolution parsing).
+    """
+    is_approved, _ = _parse_resolution(resolution)
+    return is_approved
 
 
 def make_error_response(
@@ -762,12 +750,18 @@ def advance_phase(pipeline_id: str) -> tuple[Response, int]:
             # Enforce HITL gates: when enabled, the coordinator cannot
             # advance past refine/plan without an approved phase_gate decision.
             if pipeline.config.hitl_gates and previous_phase.value in _HITL_GATE_PHASES:
-                has_approved_gate = any(
-                    d.decision_type == "phase_gate"
+                # Use the *latest* resolved gate for this phase (not any()),
+                # so stale approvals from prior passes don't bypass the gate
+                # after a loopback (e.g. implement → plan → re-advance).
+                resolved_gates = [
+                    d
+                    for d in reversed(pipeline.decisions)
+                    if d.decision_type == "phase_gate"
                     and d.phase == previous_phase
                     and d.status == DecisionStatus.RESOLVED
-                    and _is_gate_approved(d.resolution)
-                    for d in pipeline.decisions
+                ]
+                has_approved_gate = bool(resolved_gates) and _is_gate_approved(
+                    resolved_gates[0].resolution
                 )
                 if not has_approved_gate:
                     # Queue a phase_gate decision if none is already pending
