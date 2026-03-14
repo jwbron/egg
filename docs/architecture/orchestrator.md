@@ -255,7 +255,7 @@ The multi-agent executor enforces a safety cap (`max_waves=5`) on the number of 
 
 egg supports three deployment modes, each suited to different use cases:
 
-### 1. Standalone Mode (Interactive)
+### 1. Local Mode (Interactive)
 
 ```
 ┌─────────────────────────────────────────────────────────┐

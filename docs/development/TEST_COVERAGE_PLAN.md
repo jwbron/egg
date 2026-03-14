@@ -350,7 +350,7 @@ tests/
 gateway/tests/           # Gateway-specific tests (keep separate)
 orchestrator/tests/      # Orchestrator-specific tests (keep separate)
 integration_tests/       # Full E2E tests (existing)
-├── local_pipeline/      # Local orchestrator integration tests
+├── local_pipeline/      # Orchestrator pipeline integration tests
 │   ├── helpers.py       # Shared API helpers
 │   ├── test_api_validation.py
 │   ├── test_concurrent_pipelines.py
