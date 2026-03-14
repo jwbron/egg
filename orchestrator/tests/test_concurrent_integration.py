@@ -517,3 +517,145 @@ class TestGetWorktreeBranch:
         assert branch == "egg/issue-777"
         # Confirm no role suffix
         assert "coder" not in branch
+
+
+class TestConcurrentPromptLifecycle:
+    """Tests for consensus lifecycle preamble in agent prompts."""
+
+    def test_concurrent_prompt_includes_lifecycle_preamble(self):
+        """When concurrent=True, prompt includes consensus protocol section."""
+        from routes.pipelines import _build_agent_prompt
+
+        prompt = _build_agent_prompt(
+            role_value="tester",
+            phase="implement",
+            pipeline_id="issue-123",
+            pipeline_mode="issue",
+            concurrent=True,
+        )
+        assert "Concurrent Consensus Protocol" in prompt
+        assert "BOOTSTRAP" in prompt
+        assert "STAY ALIVE" in prompt
+        assert "WAIT FOR STOP" in prompt
+        assert "FAILED your role" in prompt
+
+    def test_non_concurrent_prompt_omits_lifecycle_preamble(self):
+        """When concurrent=False (default), prompt has no consensus section."""
+        from routes.pipelines import _build_agent_prompt
+
+        prompt = _build_agent_prompt(
+            role_value="tester",
+            phase="implement",
+            pipeline_id="issue-123",
+            pipeline_mode="issue",
+        )
+        assert "Concurrent Consensus Protocol" not in prompt
+
+    def test_concurrent_phase_completion_includes_polling_loop(self):
+        """Concurrent prompts should have stay-alive instructions in Phase Completion."""
+        from routes.pipelines import _build_agent_prompt
+
+        prompt = _build_agent_prompt(
+            role_value="documenter",
+            phase="implement",
+            pipeline_id="issue-123",
+            pipeline_mode="issue",
+            concurrent=True,
+        )
+        assert "egg-orch signal readiness --state READY" in prompt
+        assert "egg-orch message poll" in prompt
+        assert "Do NOT exit" in prompt
+
+    def test_non_concurrent_phase_completion_says_exit(self):
+        """Non-concurrent prompts should tell agents to exit normally."""
+        from routes.pipelines import _build_agent_prompt
+
+        prompt = _build_agent_prompt(
+            role_value="documenter",
+            phase="implement",
+            pipeline_id="issue-123",
+            pipeline_mode="issue",
+            concurrent=False,
+        )
+        assert "exit successfully" in prompt
+
+
+class TestSpawnUsesConsensusWrapper:
+    """Tests that concurrent spawns use the consensus shell wrapper."""
+
+    def test_spawn_agent_uses_wrapped_command(self):
+        """_spawn_agent should produce a bash -c wrapper, not raw claude args."""
+        from concurrent_executor import ConcurrentPhaseExecutor
+        from models import AgentRole
+
+        pipeline = _make_concurrent_pipeline()
+        mock_spawn = MagicMock()
+        mock_spawn.return_value = MagicMock(container_info=MagicMock(container_id="abc123"))
+
+        executor = ConcurrentPhaseExecutor(pipeline=pipeline, spawn_fn=mock_spawn)
+        executor._spawn_agent(AgentRole.CODER, prompt_text="Do the work")
+
+        mock_spawn.assert_called_once()
+        call_kwargs = mock_spawn.call_args
+        command = call_kwargs.kwargs.get("command") or call_kwargs[1].get("command")
+        assert command[0] == "bash"
+        assert command[1] == "-c"
+        assert "claude" in command[2]
+        assert "egg-orch signal readiness" in command[2]
+
+
+class TestImplicitReadyOnCleanExit:
+    """Tests for auto-registering READY when containers exit cleanly."""
+
+    def test_clean_exit_registers_ready(self):
+        """Container exiting with code 0 should auto-register as READY."""
+        from consensus import ReadinessState, get_consensus_evaluator
+
+        evaluator = get_consensus_evaluator()
+        pipeline_id = "test-implicit-ready"
+
+        # Register an agent as WORKING
+        evaluator.register_agent(pipeline_id, "tester")
+        state = evaluator.evaluate(pipeline_id)
+        assert not state["is_complete"]
+        assert "tester" in state["blocking_agents"]
+
+        # Simulate what the orchestrator does on clean exit:
+        # check state and auto-register READY
+        current = evaluator.evaluate(pipeline_id)
+        agent_state = current.get("agents", {}).get("tester")
+        if agent_state and agent_state.state != ReadinessState.READY:
+            evaluator.update_readiness(
+                pipeline_id,
+                "tester",
+                ReadinessState.READY,
+                reason="Container exited cleanly (implicit READY)",
+            )
+
+        state = evaluator.evaluate(pipeline_id)
+        assert state["is_complete"]
+        assert "tester" not in state["blocking_agents"]
+
+        # Cleanup
+        evaluator.clear(pipeline_id)
+
+    def test_already_ready_agent_not_overwritten(self):
+        """If agent already signaled READY, implicit READY is a no-op."""
+        from consensus import ReadinessState, get_consensus_evaluator
+
+        evaluator = get_consensus_evaluator()
+        pipeline_id = "test-implicit-noop"
+
+        evaluator.register_agent(pipeline_id, "coder")
+        evaluator.update_readiness(
+            pipeline_id, "coder", ReadinessState.READY, reason="Explicit READY"
+        )
+
+        # Simulate implicit READY logic
+        current = evaluator.evaluate(pipeline_id)
+        agent_state = current.get("agents", {}).get("coder")
+        # Should skip because already READY
+        assert agent_state.state == ReadinessState.READY
+
+        # Cleanup
+        evaluator.clear(pipeline_id)

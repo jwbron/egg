@@ -28,7 +28,7 @@ except ImportError:
 
 
 from consensus import get_consensus_evaluator
-from egg_agent import build_agent_command
+from consensus_wrapper import build_consensus_wrapped_command
 from events import EventType, emit_event
 from message_store import Message, MessageType, get_message_store
 from models import (
@@ -177,7 +177,7 @@ class ConcurrentPhaseExecutor:
 
         command: list[str] | None = None
         if prompt_text:
-            command = build_agent_command(prompt_text)
+            command = build_consensus_wrapped_command(prompt_text)
 
         result = self.spawn_fn(
             role=role,
