@@ -291,7 +291,7 @@ The orchestrator enforces configurable limits to prevent runaway behavior:
 - **Max coordinator respawns** (`coordinator_max_respawns`): Limits how many times the coordinator itself can be restarted after crashes.
 - **Max review cycles** (`max_review_cycles`): Circuit breaker for reviewer feedback loops — if reviewers request changes this many times for a phase, the pipeline advances anyway. Tracked via `phase_execution.review_cycles`, separate from coordinator crash respawns.
 
-Guardrail counters are tracked in `CoordinatorState.guardrail_counters` and persist across coordinator respawns.
+Guardrail counters are tracked in `CoordinatorState.guardrail_counters` and persist across coordinator respawns, except for review cycles which are tracked per-phase in `phase_execution.review_cycles`.
 
 ## Review Cycles
 
