@@ -1059,3 +1059,178 @@ class TestGuardrailHelper:
         pipeline = _make_pipeline(coordinator_state=None)
         allowed, reason = _check_spawn_guardrails(pipeline, "coder")
         assert allowed is True
+
+
+# ── Phase-role validation tests ────────────────────────────────────
+
+
+class TestPhaseRoleValidation:
+    """Tests for phase-role validation in spawn endpoint."""
+
+    @patch("routes.coordinator.get_state_store")
+    @patch("routes.coordinator.get_pipeline_state_lock")
+    @patch("routes.coordinator.get_repo_path")
+    def test_spawn_wrong_role_for_phase_rejected(self, mock_repo, mock_lock, mock_store_fn, client):
+        """Spawning coder in refine phase should be rejected."""
+        mock_repo.return_value = Path("/tmp/repo")
+        mock_lock.return_value.__enter__ = MagicMock()
+        mock_lock.return_value.__exit__ = MagicMock(return_value=False)
+
+        pipeline = _make_pipeline(phase=PipelinePhase.REFINE)
+        store = MagicMock()
+        store.load_pipeline.return_value = pipeline
+        mock_store_fn.return_value = store
+
+        response = client.post(
+            "/api/v1/pipelines/test-pipeline/coordinator/spawn",
+            json={"role": "coder"},
+        )
+        assert response.status_code == 400
+        body = response.get_json()
+        assert "not valid for phase" in body["message"]
+        assert body["details"]["phase"] == "refine"
+        assert "refiner" in body["details"]["valid_roles"]
+
+    @patch("routes.coordinator.emit_event")
+    @patch("routes.coordinator.get_container_spawner")
+    @patch("routes.coordinator.get_state_store")
+    @patch("routes.coordinator.get_pipeline_state_lock")
+    @patch("routes.coordinator.get_repo_path")
+    def test_spawn_correct_role_for_refine_phase(
+        self, mock_repo, mock_lock, mock_store_fn, mock_spawner_fn, mock_emit, client
+    ):
+        """Spawning refiner in refine phase should succeed."""
+        mock_repo.return_value = Path("/tmp/repo")
+        mock_lock.return_value.__enter__ = MagicMock()
+        mock_lock.return_value.__exit__ = MagicMock(return_value=False)
+
+        pipeline = _make_pipeline(phase=PipelinePhase.REFINE)
+        store = MagicMock()
+        store.load_pipeline.return_value = pipeline
+        mock_store_fn.return_value = store
+
+        spawner = MagicMock()
+        spawned = MagicMock()
+        spawned.container_info = ContainerInfo(
+            container_id="ref123", container_name="egg-test-refiner"
+        )
+        spawner.spawn_agent_container.return_value = spawned
+        mock_spawner_fn.return_value = spawner
+
+        response = client.post(
+            "/api/v1/pipelines/test-pipeline/coordinator/spawn",
+            json={"role": "refiner"},
+        )
+        assert response.status_code == 200
+        assert response.get_json()["data"]["role"] == "refiner"
+
+    @patch("routes.coordinator.emit_event")
+    @patch("routes.coordinator.get_container_spawner")
+    @patch("routes.coordinator.get_state_store")
+    @patch("routes.coordinator.get_pipeline_state_lock")
+    @patch("routes.coordinator.get_repo_path")
+    def test_spawn_reviewer_role_allowed_for_phase(
+        self, mock_repo, mock_lock, mock_store_fn, mock_spawner_fn, mock_emit, client
+    ):
+        """Reviewer roles should be allowed for their corresponding phase."""
+        mock_repo.return_value = Path("/tmp/repo")
+        mock_lock.return_value.__enter__ = MagicMock()
+        mock_lock.return_value.__exit__ = MagicMock(return_value=False)
+
+        pipeline = _make_pipeline(phase=PipelinePhase.IMPLEMENT)
+        store = MagicMock()
+        store.load_pipeline.return_value = pipeline
+        mock_store_fn.return_value = store
+
+        spawner = MagicMock()
+        spawned = MagicMock()
+        spawned.container_info = ContainerInfo(
+            container_id="rev123", container_name="egg-test-reviewer"
+        )
+        spawner.spawn_agent_container.return_value = spawned
+        mock_spawner_fn.return_value = spawner
+
+        response = client.post(
+            "/api/v1/pipelines/test-pipeline/coordinator/spawn",
+            json={"role": "reviewer_code"},
+        )
+        assert response.status_code == 200
+        assert response.get_json()["data"]["role"] == "reviewer_code"
+
+    @patch("routes.coordinator.get_state_store")
+    @patch("routes.coordinator.get_pipeline_state_lock")
+    @patch("routes.coordinator.get_repo_path")
+    def test_spawn_refiner_in_implement_phase_rejected(
+        self, mock_repo, mock_lock, mock_store_fn, client
+    ):
+        """Spawning refiner in implement phase should be rejected."""
+        mock_repo.return_value = Path("/tmp/repo")
+        mock_lock.return_value.__enter__ = MagicMock()
+        mock_lock.return_value.__exit__ = MagicMock(return_value=False)
+
+        pipeline = _make_pipeline(phase=PipelinePhase.IMPLEMENT)
+        store = MagicMock()
+        store.load_pipeline.return_value = pipeline
+        mock_store_fn.return_value = store
+
+        response = client.post(
+            "/api/v1/pipelines/test-pipeline/coordinator/spawn",
+            json={"role": "refiner"},
+        )
+        assert response.status_code == 400
+        assert "not valid for phase" in response.get_json()["message"]
+
+    @patch("routes.coordinator.get_state_store")
+    @patch("routes.coordinator.get_pipeline_state_lock")
+    @patch("routes.coordinator.get_repo_path")
+    def test_spawn_wrong_reviewer_for_phase_rejected(
+        self, mock_repo, mock_lock, mock_store_fn, client
+    ):
+        """Spawning reviewer_plan in implement phase should be rejected."""
+        mock_repo.return_value = Path("/tmp/repo")
+        mock_lock.return_value.__enter__ = MagicMock()
+        mock_lock.return_value.__exit__ = MagicMock(return_value=False)
+
+        pipeline = _make_pipeline(phase=PipelinePhase.IMPLEMENT)
+        store = MagicMock()
+        store.load_pipeline.return_value = pipeline
+        mock_store_fn.return_value = store
+
+        response = client.post(
+            "/api/v1/pipelines/test-pipeline/coordinator/spawn",
+            json={"role": "reviewer_plan"},
+        )
+        assert response.status_code == 400
+        assert "not valid for phase" in response.get_json()["message"]
+
+    @patch("routes.coordinator.emit_event")
+    @patch("routes.coordinator.get_container_spawner")
+    @patch("routes.coordinator.get_state_store")
+    @patch("routes.coordinator.get_pipeline_state_lock")
+    @patch("routes.coordinator.get_repo_path")
+    def test_spawn_in_phase_without_role_mapping_allowed(
+        self, mock_repo, mock_lock, mock_store_fn, mock_spawner_fn, mock_emit, client
+    ):
+        """Spawning in a phase without defined role mappings (e.g., PR) should be allowed."""
+        mock_repo.return_value = Path("/tmp/repo")
+        mock_lock.return_value.__enter__ = MagicMock()
+        mock_lock.return_value.__exit__ = MagicMock(return_value=False)
+
+        pipeline = _make_pipeline(phase=PipelinePhase.PR)
+        store = MagicMock()
+        store.load_pipeline.return_value = pipeline
+        mock_store_fn.return_value = store
+
+        spawner = MagicMock()
+        spawned = MagicMock()
+        spawned.container_info = ContainerInfo(
+            container_id="pr123", container_name="egg-test-coder"
+        )
+        spawner.spawn_agent_container.return_value = spawned
+        mock_spawner_fn.return_value = spawner
+
+        response = client.post(
+            "/api/v1/pipelines/test-pipeline/coordinator/spawn",
+            json={"role": "coder"},
+        )
+        assert response.status_code == 200
