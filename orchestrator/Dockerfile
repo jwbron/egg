@@ -21,6 +21,7 @@ COPY shared/egg_logging/ ./egg_logging/
 COPY shared/egg_config/ ./egg_config/
 COPY shared/egg_contracts/ ./egg_contracts/
 COPY shared/egg_container/ ./egg_container/
+COPY shared/egg_agent/ ./egg_agent/
 
 # Copy shared prompt criteria files
 COPY shared/prompts/ ./prompts/
