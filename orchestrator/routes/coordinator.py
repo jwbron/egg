@@ -5,6 +5,7 @@ Provides REST endpoints for coordinator-driven pipelines, including
 agent spawning, cancellation, phase control, and HITL escalation.
 """
 
+import json
 import os
 import sys
 from datetime import datetime
@@ -42,6 +43,7 @@ from models import (
     AgentRole,
     AgentSpawnRecord,
     CoordinatorState,
+    DecisionStatus,
     Escalation,
     PhaseDecision,
     Pipeline,
@@ -58,6 +60,31 @@ from state_store import (
 logger = get_logger("orchestrator.coordinator")
 
 coordinator_bp = Blueprint("coordinator", __name__, url_prefix="/api/v1/pipelines")
+
+# Phases that require human approval when hitl_gates is enabled.
+_HITL_GATE_PHASES = {"refine", "plan"}
+
+# Keywords that count as approval in phase_gate resolutions.
+_GATE_APPROVE_KEYWORDS = {"approved", "approve", "lgtm", "yes", ""}
+
+
+def _is_gate_approved(resolution: str | None) -> bool:
+    """Return True if a phase_gate resolution indicates approval."""
+    if not resolution:
+        return True
+
+    resolution = resolution.strip()
+
+    # JSON-structured resolution
+    try:
+        payload = json.loads(resolution)
+        if isinstance(payload, dict) and "action" in payload:
+            return payload["action"] in ("approve", "select", "submit_feedback")
+    except (json.JSONDecodeError, TypeError, AttributeError):
+        pass
+
+    # Legacy bare-string resolution
+    return resolution.lower() in _GATE_APPROVE_KEYWORDS
 
 
 def make_error_response(
@@ -731,6 +758,55 @@ def advance_phase(pipeline_id: str) -> tuple[Response, int]:
                     "may have failed. Check pipeline logs for details.",
                     status_code=409,
                 )
+
+            # Enforce HITL gates: when enabled, the coordinator cannot
+            # advance past refine/plan without an approved phase_gate decision.
+            if (
+                pipeline.config.hitl_gates
+                and previous_phase.value in _HITL_GATE_PHASES
+            ):
+                has_approved_gate = any(
+                    d.decision_type == "phase_gate"
+                    and d.phase == previous_phase
+                    and d.status == DecisionStatus.RESOLVED
+                    and _is_gate_approved(d.resolution)
+                    for d in pipeline.decisions
+                )
+                if not has_approved_gate:
+                    # Queue a phase_gate decision if none is already pending
+                    has_pending_gate = any(
+                        d.decision_type == "phase_gate"
+                        and d.phase == previous_phase
+                        and d.status == DecisionStatus.PENDING
+                        for d in pipeline.decisions
+                    )
+                    if not has_pending_gate:
+                        dq = get_decision_queue(pipeline_id, repo_path)
+                        phase_label = (
+                            "analysis"
+                            if previous_phase.value == "refine"
+                            else previous_phase.value
+                        )
+                        dq.queue_decision(
+                            question=(
+                                f"The {previous_phase.value} phase has completed. "
+                                f"Please review the {phase_label} and approve to "
+                                f"continue, or provide feedback to request changes."
+                            ),
+                            options=["approve", "request changes"],
+                            decision_type="phase_gate",
+                            phase=previous_phase,
+                        )
+                        # Reload to pick up persisted decision, then set AWAITING_HUMAN
+                        pipeline = store.load_pipeline(pipeline_id)
+                        pipeline.status = PipelineStatus.AWAITING_HUMAN
+                        store.save_pipeline(pipeline)
+
+                    return make_error_response(
+                        f"HITL gate active: the '{previous_phase.value}' phase requires human approval before advancing. "
+                        f"A phase_gate decision has been queued. Poll `decision list` and retry after human resolves it.",
+                        status_code=409,
+                    )
 
             # All validations passed — now mutate state
             pipeline.current_phase = target_phase

@@ -36,6 +36,17 @@ Contracts are created automatically by the orchestrator during pipeline startup.
 
 If you encounter a contract enforcement error when advancing phases, check `egg-orch coordinator state` to verify `contract_synced` is true. If not, the pipeline setup failed and needs investigation.
 
+## HITL Gates
+
+When `hitl_gates: true` (the default), the orchestrator blocks phase advancement after refine and plan phases until a human approves. If you attempt to advance and receive a 409 "HITL gate active" response:
+
+1. The orchestrator has queued a `phase_gate` decision for human review
+2. Poll `egg-orch decision list` until the decision is resolved
+3. If approved, retry the phase advance
+4. If changes requested, re-run the phase agents with the feedback
+
+Do NOT attempt to skip past a gated phase — the gate applies regardless of whether you advance sequentially or skip.
+
 ## Phase-Role Mappings (CRITICAL)
 
 When spawning agents, you MUST use the correct roles for the current phase. The orchestrator validates role-phase alignment and will reject mismatches. Primary agents and reviewers run in parallel:
