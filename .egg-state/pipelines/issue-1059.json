@@ -78,7 +78,7 @@
   },
   "decisions": [],
   "created_at": "2026-03-14T06:02:13.851895",
-  "updated_at": "2026-03-14T06:03:09.612361",
+  "updated_at": "2026-03-14T06:03:09.998652",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
@@ -104,15 +104,25 @@
         "container_id": "4344f0393cf4600b61318f0f77d60d353f0c95f15491a9e8e8f6343ee0a590ed",
         "task_context": "Review the refinement output for issue #1059: Implement overseer agent for pipeline health monitoring. This is a new always-on agent that monitors pipeline health across all coordinator-spawned pipelines. Review the refiner's output in .egg-state/drafts/ for: 1) Completeness - are all requirements from the issue captured and refined? 2) Feasibility - are the proposed changes realistic given the codebase architecture? 3) Risk - what are the highest-risk aspects? (e.g., auto-spawning on every pipeline, Haiku API dependency, container config changes) 4) Scope - is this properly scoped for a single implementation cycle or should it be broken into multiple issues? 5) Testability - can each requirement be verified? 6) Security - the overseer has broad read access to all agent logs and infrastructure. Any concerns? Review thoroughly and provide actionable feedback.",
         "retry_number": 0
+      },
+      {
+        "role": "reviewer_agent_design",
+        "spawned_at": "2026-03-14T06:03:09.998535",
+        "completed_at": null,
+        "status": "running",
+        "container_id": "bdb5d209066045492fe718add38b4c10907ba964ee945048283a14e36c1ca59d",
+        "task_context": "Review the agent design for issue #1059: Implement overseer agent for pipeline health monitoring. Focus on the agent architecture aspects: 1) Agent role design - does the OVERSEER role definition fit cleanly into the existing AgentRole enum and role definition patterns? Check shared/egg_contracts/agent_roles.py for existing patterns. 2) Container configuration - the overseer has no repo mount (like coordinator) but needs orchestrator/gateway/GitHub API access. Verify this is consistent with how coordinator containers are configured. 3) Spawn lifecycle - auto-spawn with coordinator, run until pipeline completes. How does this interact with existing container lifecycle management? 4) CLAUDE.md instructions - the overseer needs a prompt section similar to the coordinator. Is the proposed instruction set sufficient for an autonomous monitoring agent? 5) Haiku integration - calling Claude API directly from within the agent container. Is this pattern established elsewhere? What about API key management? 6) Message bus interaction - the overseer reads all messages but only sends redirects/nudges. Is this the right access pattern? 7) Coordinator interaction - overseer monitors coordinator but cannot restart it. Is the escalation path clear? Review the design and flag any architectural concerns.",
+        "retry_number": 0
       }
     ],
     "phase_decisions": [],
     "escalations": [],
     "guardrail_counters": {
-      "total_agents_spawned": 2,
+      "total_agents_spawned": 3,
       "retries_by_role": {
         "refiner": 1,
-        "reviewer_refine": 1
+        "reviewer_refine": 1,
+        "reviewer_agent_design": 1
       },
       "coordinator_respawns": 0,
       "started_at": "2026-03-14T06:02:20.210209"
@@ -120,5 +130,5 @@
   },
   "plan_phase_waves": null,
   "plan_phase_names": null,
-  "version": 10
+  "version": 11
 }
