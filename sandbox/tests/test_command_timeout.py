@@ -266,7 +266,7 @@ class TestSetupCommandTimeout:
 class TestRunExecBashBypass:
     """Tests for run_exec bypassing the bash timeout wrapper."""
 
-    def _make_mocks(self):
+    def _make_mocks(self) -> tuple[MagicMock, MagicMock]:
         """Create mock config and logger for run_exec tests."""
         mock_config = MagicMock()
         mock_config.runtime_uid = 1000
@@ -278,7 +278,7 @@ class TestRunExecBashBypass:
     @patch("entrypoint._chdir_to_single_repo")
     @patch("entrypoint._startup_timer")
     def test_bash_replaced_with_bash_real_when_wrapper_installed(
-        self, _timer, _chdir, mock_run, tmp_path: Path
+        self, _timer: MagicMock, _chdir: MagicMock, mock_run: MagicMock, tmp_path: Path
     ) -> None:
         """run_exec substitutes bash -> bash.real when the wrapper is installed."""
         config, logger = self._make_mocks()
@@ -309,7 +309,7 @@ class TestRunExecBashBypass:
     @patch("entrypoint._chdir_to_single_repo")
     @patch("entrypoint._startup_timer")
     def test_bash_unchanged_when_wrapper_not_installed(
-        self, _timer, _chdir, mock_run, tmp_path: Path
+        self, _timer: MagicMock, _chdir: MagicMock, mock_run: MagicMock, tmp_path: Path
     ) -> None:
         """run_exec leaves bash unchanged when no wrapper is installed."""
         config, logger = self._make_mocks()
@@ -336,7 +336,7 @@ class TestRunExecBashBypass:
     @patch("entrypoint._run_with_stderr_capture", return_value=0)
     @patch("entrypoint._chdir_to_single_repo")
     @patch("entrypoint._startup_timer")
-    def test_non_bash_command_unchanged(self, _timer, _chdir, mock_run, tmp_path: Path) -> None:
+    def test_non_bash_command_unchanged(self, _timer: MagicMock, _chdir: MagicMock, mock_run: MagicMock, tmp_path: Path) -> None:
         """run_exec doesn't modify non-bash commands."""
         config, logger = self._make_mocks()
 
