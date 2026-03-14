@@ -141,14 +141,23 @@ class TestPipelineCreation:
         assert new_pipeline.status == PipelineStatus.PENDING
         assert new_pipeline.branch == "egg/issue-500-v2"
 
-    def test_create_does_not_replace_running_pipeline(self, state_store):
-        """Test creating pipeline does NOT replace an active (running) one."""
+    @pytest.mark.parametrize(
+        "active_status",
+        [
+            PipelineStatus.RUNNING,
+            PipelineStatus.AWAITING_HUMAN,
+            PipelineStatus.PENDING,
+        ],
+    )
+    def test_create_does_not_replace_active_pipeline(self, state_store, active_status):
+        """Test creating pipeline does NOT replace an active one."""
         pipeline = state_store.create_pipeline(
             issue_number=501,
             repo="owner/repo",
             branch="egg/issue-501",
         )
-        state_store.update_pipeline(pipeline.id, {"status": "running"})
+        if active_status != PipelineStatus.PENDING:
+            state_store.update_pipeline(pipeline.id, {"status": active_status.value})
 
         with pytest.raises(StateStoreError, match="already exists"):
             state_store.create_pipeline(

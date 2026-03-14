@@ -711,8 +711,8 @@ def delete_pipeline(pipeline_id: str) -> tuple[Response, int]:
         store, _pipeline = _resolve_pipeline(pipeline_id, repo_path)
 
         # Clean up any running containers for this pipeline
-        spawner = get_container_spawner()
         try:
+            spawner = get_container_spawner()
             removed = spawner.cleanup_pipeline(pipeline_id, force=True)
             if removed > 0:
                 logger.info(
@@ -725,6 +725,13 @@ def delete_pipeline(pipeline_id: str) -> tuple[Response, int]:
                 "Failed to clean up pipeline containers",
                 pipeline_id=pipeline_id,
                 error=str(e),
+            )
+        except Exception as e:
+            logger.error(
+                "Unexpected error during pipeline container cleanup",
+                pipeline_id=pipeline_id,
+                error=str(e),
+                exc_info=True,
             )
 
         # Clean up remote worktree branches (best-effort)

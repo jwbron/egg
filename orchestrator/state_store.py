@@ -681,7 +681,7 @@ class StateStore:
             Created pipeline
 
         Raises:
-            StateStoreError: If pipeline already exists
+            StateStoreError: If an active pipeline with the same ID already exists
         """
         if not pipeline_id:
             if issue_number:
@@ -689,42 +689,43 @@ class StateStore:
             else:
                 pipeline_id = f"pipeline-{os.urandom(4).hex()}"
 
-        if self.pipeline_exists(pipeline_id):
-            existing = self.load_pipeline(pipeline_id)
-            terminal = {
-                PipelineStatus.CANCELLED,
-                PipelineStatus.FAILED,
-                PipelineStatus.COMPLETE,
-            }
-            if existing.status in terminal:
-                logger.info(
-                    "Replacing terminal pipeline %s (status=%s)",
-                    pipeline_id,
-                    existing.status.value,
-                )
-                self.delete_pipeline(pipeline_id, commit=True)
-            else:
-                raise StateStoreError(f"Pipeline {pipeline_id} already exists")
+        with get_pipeline_state_lock(pipeline_id):
+            if self.pipeline_exists(pipeline_id):
+                existing = self.load_pipeline(pipeline_id)
+                terminal = {
+                    PipelineStatus.CANCELLED,
+                    PipelineStatus.FAILED,
+                    PipelineStatus.COMPLETE,
+                }
+                if existing.status in terminal:
+                    logger.info(
+                        "Replacing terminal pipeline %s (status=%s)",
+                        pipeline_id,
+                        existing.status.value,
+                    )
+                    self.delete_pipeline(pipeline_id, commit=True)
+                else:
+                    raise StateStoreError(f"Pipeline {pipeline_id} already exists")
 
-        pipeline = Pipeline(
-            id=pipeline_id,
-            issue_number=issue_number,
-            repo=repo,
-            branch=branch,
-            prompt=prompt,
-            network_mode=network_mode,
-            # Contract is created separately — mark as unsynced until verified
-            contract_synced=False,
-        )
+            pipeline = Pipeline(
+                id=pipeline_id,
+                issue_number=issue_number,
+                repo=repo,
+                branch=branch,
+                prompt=prompt,
+                network_mode=network_mode,
+                # Contract is created separately — mark as unsynced until verified
+                contract_synced=False,
+            )
 
-        if config:
-            from models import PipelineConfig
+            if config:
+                from models import PipelineConfig
 
-            pipeline.config = PipelineConfig.model_validate(config)
+                pipeline.config = PipelineConfig.model_validate(config)
 
-        commit_msg = f"Create pipeline {pipeline_id}"
-        self.save_pipeline(pipeline, message=commit_msg)
-        return pipeline
+            commit_msg = f"Create pipeline {pipeline_id}"
+            self.save_pipeline(pipeline, message=commit_msg)
+            return pipeline
 
     def delete_pipeline(
         self, pipeline_id: str, commit: bool = True, force_commit: bool = False
