@@ -9,7 +9,7 @@ If the agent exits without signaling READY, the wrapper restarts Claude with
 a prompt that explains what happened and instructs it to assess state, then
 either signal READY or continue working. Restarts are capped at
 ``MAX_CONSENSUS_RESTARTS`` (default 2). After exhausting restarts the wrapper
-enters a passive consensus wait loop — but does NOT auto-signal READY.
+exits with code 1 so the orchestrator's failure path handles escalation.
 """
 
 import shlex
@@ -47,8 +47,8 @@ _RECOVERY_PROMPT = (
 # - Non-concurrent mode: exit normally.
 # - Non-zero exit: treat as failure, no restart.
 # - Clean exit (code 0): restart Claude with a recovery prompt (up to
-#   MAX_RESTARTS times). After max restarts, enter a passive wait loop
-#   but do NOT auto-signal READY.
+#   MAX_RESTARTS times). After max restarts, exit 1 to trigger the
+#   orchestrator's agent failure path (HITL decision).
 _CONSENSUS_WRAPPER_TEMPLATE = r"""
 #!/bin/bash
 set -uo pipefail
@@ -78,9 +78,6 @@ if [ "$CLAUDE_EXIT" -ne 0 ]; then
 fi
 
 # --- Restart loop for clean exits without consensus ---
-POLL_INTERVAL="${{EGG_MESSAGE_POLL_INTERVAL:-30}}"
-TIMEOUT="${{EGG_CONSENSUS_WRAPPER_TIMEOUT:-300}}"
-
 while [ "$RESTART_COUNT" -lt "$MAX_RESTARTS" ]; do
     RESTART_COUNT=$((RESTART_COUNT + 1))
     echo "[consensus-wrapper] Agent exited without consensus. Restarting ($RESTART_COUNT/$MAX_RESTARTS)..."
@@ -113,18 +110,9 @@ RECOVERY_EOF
     fi
 done
 
-# --- Max restarts exhausted: passive wait (do NOT auto-signal READY) ---
-echo "[consensus-wrapper] Max restarts ($MAX_RESTARTS) exhausted. Entering passive wait..."
-ELAPSED=0
-while [ "$ELAPSED" -lt "$TIMEOUT" ]; do
-    egg-orch message poll 2>/dev/null || true
-
-    sleep "$POLL_INTERVAL"
-    ELAPSED=$((ELAPSED + POLL_INTERVAL))
-done
-
-echo "[consensus-wrapper] Consensus not reached within ${{TIMEOUT}}s after restarts. Exiting."
-exit $CLAUDE_EXIT
+# --- Max restarts exhausted: shut down with failure ---
+echo "[consensus-wrapper] Max restarts ($MAX_RESTARTS) exhausted. Agent never signaled READY. Exiting with failure."
+exit 1
 """
 
 
@@ -144,7 +132,7 @@ def build_consensus_wrapped_command(
         prompt_text: The prompt to pass to the Claude CLI.
         model: Claude model to use.
         max_turns: Maximum number of tool-call turns.
-        max_restarts: Maximum restart attempts before passive wait.
+        max_restarts: Maximum restart attempts before exiting with failure.
 
     Returns:
         Command list suitable for container spawning (bash -c "...").

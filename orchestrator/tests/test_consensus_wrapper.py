@@ -79,11 +79,11 @@ class TestBuildConsensusWrappedCommand:
         assert "is_complete" in script
         assert "python3" in script
 
-    def test_has_timeout(self):
-        """The consensus wait loop should have a timeout."""
+    def test_has_max_restarts(self):
+        """The wrapper should cap restart attempts via MAX_RESTARTS."""
         cmd = build_consensus_wrapped_command("Prompt")
         script = cmd[2]
-        assert "TIMEOUT" in script
+        assert "MAX_RESTARTS" in script
 
     def test_nonzero_exit_does_not_restart(self):
         """On non-zero Claude exit, wrapper must NOT restart."""
@@ -99,11 +99,12 @@ class TestBuildConsensusWrappedCommand:
         assert "CONSENSUS RECOVERY" in script
         assert "You were restarted" in script
 
-    def test_timeout_configurable_via_env_var(self):
-        """Wrapper timeout should be configurable via EGG_CONSENSUS_WRAPPER_TIMEOUT."""
+    def test_exits_with_failure_after_max_restarts(self):
+        """After exhausting restarts, wrapper should exit 1 (not wait passively)."""
         cmd = build_consensus_wrapped_command("Prompt")
         script = cmd[2]
-        assert "EGG_CONSENSUS_WRAPPER_TIMEOUT" in script
+        assert "Exiting with failure" in script
+        assert "exit 1" in script
 
     def test_custom_max_restarts(self):
         """Should support custom max_restarts parameter."""
@@ -278,6 +279,8 @@ class TestConsensusWrapperBehavior:
                 call_count = f.read().count("---CLAUDE_CALL---")
             assert call_count == 3
             assert "Max restarts (2) exhausted" in result.stdout
+            # Should exit with failure code after exhausting restarts
+            assert result.returncode == 1
 
     def test_no_auto_ready_on_clean_exit(self):
         """Wrapper must NOT auto-signal READY — only restarts are allowed."""
