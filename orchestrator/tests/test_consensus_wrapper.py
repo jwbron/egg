@@ -6,8 +6,8 @@ import subprocess
 import tempfile
 
 from consensus_wrapper import (
-    MAX_CONSENSUS_RESTARTS,
     _RECOVERY_PROMPT,
+    MAX_CONSENSUS_RESTARTS,
     build_consensus_wrapped_command,
 )
 
@@ -287,7 +287,7 @@ class TestConsensusWrapperBehavior:
             self._make_mock_tools(tmpdir, log_file, claude_log)
 
             cmd = build_consensus_wrapped_command("Do the work", max_restarts=1)
-            result = self._run_wrapper_command(cmd, tmpdir)
+            self._run_wrapper_command(cmd, tmpdir)
 
             # Check egg-orch calls — should not contain "signal readiness --state READY"
             # from the wrapper itself (only the agent inside Claude should signal READY)
