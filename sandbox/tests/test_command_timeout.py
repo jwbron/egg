@@ -27,7 +27,7 @@ _WRAPPER_TEMPLATE = textwrap.dedent("""\
     #!/bin/bash
     # Test copy of egg command timeout wrapper.
     REAL_BASH="$(command -v bash.real 2>/dev/null || echo /bin/bash)"
-    TIMEOUT="${BASH_COMMAND_TIMEOUT:-120}"
+    TIMEOUT="${BASH_COMMAND_TIMEOUT:-300}"
     GRACE="${BASH_COMMAND_TIMEOUT_GRACE:-10}"
 
     if [ "$TIMEOUT" = "0" ] || [ -z "$TIMEOUT" ]; then
@@ -303,7 +303,7 @@ class TestRunExecBashBypass:
         # Verify the command was rewritten to use bash.real
         call_args = mock_run.call_args[0][0]
         assert str(fake_real) in call_args
-        assert "bash" not in call_args or str(fake_real) in str(call_args)
+        assert call_args[2] == str(fake_real)
 
     @patch("entrypoint._run_with_stderr_capture", return_value=0)
     @patch("entrypoint._chdir_to_single_repo")

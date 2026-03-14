@@ -1093,8 +1093,8 @@ def setup_command_timeout(config: Config, logger: Logger) -> None:
     try:
         int(timeout_secs)
     except ValueError:
-        logger.warn(f"Invalid BASH_COMMAND_TIMEOUT value: {timeout_secs!r}, using 120")
-        timeout_secs = "120"
+        logger.warn(f"Invalid BASH_COMMAND_TIMEOUT value: {timeout_secs!r}, using 300")
+        timeout_secs = "300"
 
     # Move real bash to bash.real
     try:
@@ -1849,7 +1849,7 @@ def run_exec(config: Config, logger: Logger, args: list[str]) -> int:
     #
     # setup_command_timeout() replaces /bin/bash with a wrapper that kills
     # "bash -c ..." invocations after BASH_COMMAND_TIMEOUT seconds (default
-    # 120).  This is correct for individual commands Claude runs via the
+    # 300).  This is correct for individual commands Claude runs via the
     # Bash tool, but the top-level exec command (e.g. the consensus wrapper
     # script) is a long-running process that must not be killed.  Using
     # bash.real here bypasses the per-command timeout for the top-level

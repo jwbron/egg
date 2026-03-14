@@ -174,7 +174,7 @@ A system-level per-command timeout wrapper prevents runaway shell commands (e.g.
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `BASH_COMMAND_TIMEOUT` | Timeout in seconds (0 to disable) | `120` |
+| `BASH_COMMAND_TIMEOUT` | Timeout in seconds (0 to disable) | `300` |
 | `BASH_COMMAND_TIMEOUT_GRACE` | SIGKILL grace period in seconds | `10` |
 
 **Files:** `sandbox/entrypoint.py` (`setup_command_timeout()`), `sandbox/tests/test_command_timeout.py`
