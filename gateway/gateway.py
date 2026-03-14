@@ -2296,6 +2296,7 @@ def gh_pr_create() -> tuple[Response, int] | Response:
     if session_pipeline_id:
         session_agent_role = getattr(session, "agent_role", None) or ""
         session_issue_number = getattr(session, "issue_number", None) or ""
+
         # Sanitize values to prevent breaking the HTML comment structure
         def _safe(v: str) -> str:
             return str(v).replace("--", "").replace(">", "")

@@ -1319,9 +1319,7 @@ class TestGhPrCreate:
 
     def test_pr_create_injects_pipeline_metadata(self, client):
         """Session with pipeline_id/agent_role/issue_number → body contains metadata marker."""
-        mock_result, mock_policy_result, current_session_manager = (
-            self._setup_pipeline_session()
-        )
+        mock_result, mock_policy_result, current_session_manager = self._setup_pipeline_session()
 
         with (
             patch.object(
@@ -1398,9 +1396,7 @@ class TestGhPrCreate:
 
     def test_pr_create_applies_labels_on_success(self, client):
         """After success, verify label create + issue edit calls."""
-        mock_result, mock_policy_result, current_session_manager = (
-            self._setup_pipeline_session()
-        )
+        mock_result, mock_policy_result, current_session_manager = self._setup_pipeline_session()
 
         with (
             patch.object(
@@ -1457,9 +1453,7 @@ class TestGhPrCreate:
 
     def test_pr_create_label_failure_nonfatal(self, client):
         """Label failure doesn't affect PR creation response."""
-        mock_result, mock_policy_result, current_session_manager = (
-            self._setup_pipeline_session()
-        )
+        mock_result, mock_policy_result, current_session_manager = self._setup_pipeline_session()
 
         call_count = 0
 
