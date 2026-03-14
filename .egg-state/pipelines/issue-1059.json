@@ -95,7 +95,7 @@
     }
   ],
   "created_at": "2026-03-14T06:02:13.851895",
-  "updated_at": "2026-03-14T06:09:20.723646",
+  "updated_at": "2026-03-14T06:09:44.707101",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
@@ -139,6 +139,15 @@
         "container_id": "3f8cf275e5a4687bbe02df269b2fe206c436cacb258fa98c596ce75760eab1d6",
         "task_context": "Design the architecture for issue #1059: Implement overseer agent for pipeline health monitoring. \n\nKEY CONTEXT FROM REFINE PHASE:\n- Dependencies #1027 (message bus) and #1028 (coordinator) are both merged\n- Existing patterns to follow: coordinator container config (no repo mount, tmpfs over ~/repos), AgentRole enum in shared/egg_contracts/agent_roles.py, container spawning in orchestrator/container_spawner.py\n- Haiku API patterns already exist in shared/egg_config/configs/llm.py (health checks use claude-haiku-4-5)\n- HITL decision pending on scope: full implementation vs Phase 1 MVP. Plan for full scope but clearly mark Phase 1 MVP boundaries.\n\nGAPS TO RESOLVE IN ARCHITECTURE:\n1. Lifecycle termination: Overseer needs to detect pipeline completion. Recommend polling pipeline status via egg-orch pipeline status.\n2. Crash recovery: If overseer container dies, ContainerMonitor detects it. Recommend auto-respawn logic in reconciliation handler (similar to coordinator respawn).\n3. Log storage: .egg-state/oversight/ is unreachable (no repo mount). Options: (a) store in orchestrator API/memory, (b) write to message bus as STATUS messages, (c) add a new /oversight API endpoint.\n4. Mediator doesn't exist yet: For now, contradictory message loops -> overseer escalates to human.\n5. Overseer must NOT count against coordinator_max_agents guardrail.\n\nINFRASTRUCTURE CHANGES NEEDED (from refiner validation):\n1. orchestrator/models.py - Add OVERSEER to AgentRole enum, add config fields to PipelineConfig\n2. shared/egg_contracts/agent_roles.py - Add OVERSEER role with AgentRoleDefinition and FileAccessPattern\n3. orchestrator/routes/pipelines.py - Auto-spawn overseer alongside coordinator\n4. orchestrator/routes/coordinator.py - Exclude overseer from max_agents count\n5. orchestrator/container_spawner.py - Support overseer container config (no repo mount, like coordinator)\n6. gateway/agent_restrictions.py - Mirror OVERSEER role in gateway's AgentRole class\n7. CLAUDE.md - Add overseer agent prompt instructions section\n8. docs/reference/agent-roles.md - Document new role\n\nDesign the component architecture, define APIs/interfaces, and write the plan to .egg-state/drafts/.",
         "retry_number": 0
+      },
+      {
+        "role": "task_planner",
+        "spawned_at": "2026-03-14T06:09:44.706825",
+        "completed_at": null,
+        "status": "running",
+        "container_id": "c9d6590b528054fc5f0ddbac037039f93d79b8e167938fe097aa5fe3d227d636",
+        "task_context": "Create an implementation task plan for issue #1059: Implement overseer agent for pipeline health monitoring.\n\nKEY CONTEXT:\n- This adds a new always-on agent role (overseer) that monitors pipeline health\n- HITL decision pending on scope: full implementation vs Phase 1 MVP. Create tasks for full scope but clearly mark which are Phase 1 MVP vs Phase 2/3.\n- Dependencies #1027 (message bus) and #1028 (coordinator) are merged\n\nPHASE 1 MVP TASKS (minimum viable):\n- Add OVERSEER to AgentRole enum and role definitions\n- Add overseer config fields to PipelineConfig  \n- Container spawning support (no repo mount, like coordinator)\n- Auto-spawn overseer alongside coordinator in pipelines.py\n- Exclude overseer from coordinator_max_agents guardrail\n- Gateway agent_restrictions.py mirror\n- Core polling loop (heartbeats, progress signals, container status)\n- Heuristic stall detection (fixed threshold, no Haiku yet)\n- Nudge/redirect messages to stalled agents\n- HITL escalation for restart requests\n- CLAUDE.md overseer agent prompt instructions\n- Basic self-monitoring (cycle timing, own message volume)\n\nPHASE 2 TASKS (Haiku integration):\n- Haiku API integration for log analysis\n- Adaptive stall classification\n- Loop detection, error triage, off-track detection via Haiku\n- Caching for Haiku results\n\nPHASE 3 TASKS (issue filing & reporting):\n- Autonomous GitHub issue filing with diagnostic template\n- Structured oversight logging (via orchestrator API or message bus)\n- Pipeline completion health summary\n- docs/reference/agent-roles.md update\n\nBreak each into specific, testable tasks with acceptance criteria and write to .egg-state/drafts/.",
+        "retry_number": 0
       }
     ],
     "phase_decisions": [
@@ -151,12 +160,13 @@
     ],
     "escalations": [],
     "guardrail_counters": {
-      "total_agents_spawned": 4,
+      "total_agents_spawned": 5,
       "retries_by_role": {
         "refiner": 1,
         "reviewer_refine": 1,
         "reviewer_agent_design": 1,
-        "architect": 1
+        "architect": 1,
+        "task_planner": 1
       },
       "coordinator_respawns": 0,
       "started_at": "2026-03-14T06:02:20.210209"
@@ -164,5 +174,5 @@
   },
   "plan_phase_waves": null,
   "plan_phase_names": null,
-  "version": 17
+  "version": 18
 }
