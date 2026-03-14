@@ -140,7 +140,7 @@ Common error codes:
 - **400** — Invalid request (missing fields, invalid role/phase)
 - **403** — Coordinator mode not enabled on the pipeline
 - **404** — Pipeline or agent not found
-- **409** — Phase advancement blocked (e.g., no contract exists before implement/pr)
+- **409** — Phase advancement blocked (no contract before implement/pr); or agent spawn rejected because the pipeline has no contract in implement/pr phase; or role's dependencies have not yet completed (e.g., spawning `tester` before `coder` is done)
 - **429** — Guardrail limit exceeded (max agents or max retries per role)
 - **500** — Internal error (container spawn failure, etc.)
 
@@ -163,6 +163,10 @@ The `role` must be a valid `AgentRole` **and** must be appropriate for the curre
 | `plan` | `architect`, `task_planner`, `risk_analyst`, `reviewer_plan` |
 | `implement` | `coder`, `tester`, `documenter`, `integrator`, `reviewer_code`, `reviewer_contract` |
 | `pr`, `coordinator` | Any role (no phase-role restriction) |
+
+**Dependency enforcement**: The orchestrator checks that the role's declared dependencies are complete before spawning. For example, `tester` depends on `coder` — spawning `tester` before `coder` has a `"complete"` status returns HTTP 409 with a `missing_dependencies` list. Dependencies are defined per-role in `shared/egg_contracts/agent_roles.py`. Spawn dependencies across the coordinator's full agent history are checked (including agents from prior phases).
+
+**Contract enforcement**: Spawning any agent in the `implement` or `pr` phase when the pipeline has no contract (`contract_synced: false`) returns HTTP 409. Contracts are auto-created at pipeline startup; a 409 here indicates that creation failed — check orchestrator logs.
 
 Returns 429 if guardrail limits are exceeded. The response includes the `spawn_record` with the assigned `retry_number` (0 for the first spawn of a given role, incremented for each subsequent spawn of the same role).
 
@@ -389,6 +393,10 @@ The coordinator runs with `phase="coordinator"` — a special phase value distin
 **Coordinator not spawning**: Verify `coordinator_enabled: true` in the pipeline config via `egg-orch pipeline get <id>`.
 
 **Agent spawn rejected (HTTP 400 — invalid phase-role)**: The role is not valid for the current pipeline phase. Check the current phase via `egg-orch coordinator state <id>` and spawn a role that matches. For example, `coder` is only valid in the `implement` phase; `refiner` is only valid in the `refine` phase. Phases `pr` and `coordinator` have no restriction.
+
+**Agent spawn rejected (HTTP 409 — missing dependencies)**: The role's declared dependencies have not yet completed. Check `egg-orch coordinator state <id>` and look at `completed_agents` to see which roles have finished. Spawn the dependency roles first (e.g., spawn `coder` before `tester`). The error response includes a `missing_dependencies` field listing which roles still need to complete.
+
+**Agent spawn rejected (HTTP 409 — no contract)**: The pipeline is in the implement or pr phase but has no contract. Run `egg-orch pipeline get <id>` and check `contract_synced`. If false, contract creation at startup failed — see the troubleshooting entry for "Phase advance blocked (HTTP 409 — no contract)" below.
 
 **Agent spawn rejected (HTTP 429)**: Check guardrail limits via `egg-orch coordinator state <id>`. The `guardrail_counters` section shows current counts vs. configured limits.
 

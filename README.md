@@ -88,7 +88,7 @@ Tier 3 decomposes large features into independent plan phases that run as parall
 
 ### Concurrent Execution Mode
 
-An optional execution mode where all implement-phase agents (coder, tester, documenter, checker, reviewers) start simultaneously, each in their own worktree branch. Agents communicate via the orchestrator message bus and signal readiness via a consensus protocol. Phase completion requires all agents to reach `READY` state. Enable with `concurrent_execution: true` in pipeline config.
+An optional execution mode where all implement-phase agents (coder, tester, documenter, checker, reviewers) start simultaneously, all sharing the pipeline branch. Agents communicate via the orchestrator message bus and signal readiness via a consensus protocol. Phase completion requires all agents to reach `READY` state. Enable with `concurrent_execution: true` in pipeline config.
 
 See [Concurrent Execution Guide](docs/guides/concurrent-execution.md) for the full protocol.
 
