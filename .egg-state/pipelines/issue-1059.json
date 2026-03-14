@@ -76,9 +76,26 @@
       "phase_start_sha": null
     }
   },
-  "decisions": [],
+  "decisions": [
+    {
+      "id": "decision-1",
+      "question": "Issue #1059 is large. The refiner recommends a 3-phase approach: Phase 1 (MVP): Core polling loop, heuristic stall detection, nudge/redirect, HITL escalation. Phase 2: Haiku integration for adaptive stall classification. Phase 3: Autonomous issue filing, oversight logs, completion summaries. Should we implement all phases in this issue, or Phase 1 MVP only with follow-up issues?",
+      "context": "",
+      "options": [
+        "All phases in this issue",
+        "Phase 1 MVP only"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-03-14T06:08:56.288441",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine"
+    }
+  ],
   "created_at": "2026-03-14T06:02:13.851895",
-  "updated_at": "2026-03-14T06:06:51.106170",
+  "updated_at": "2026-03-14T06:08:56.292928",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
@@ -130,5 +147,5 @@
   },
   "plan_phase_waves": null,
   "plan_phase_names": null,
-  "version": 14
+  "version": 15
 }
