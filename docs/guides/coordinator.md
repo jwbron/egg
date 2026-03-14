@@ -394,7 +394,7 @@ The coordinator runs with `phase="coordinator"` — a special phase value distin
 
 **MCP connection failed**: Verify the MCP server is running on port 9850 (`curl http://localhost:9850/health`). The server starts automatically as a background thread alongside the orchestrator. Check the MCP port in `~/.config/egg/config.yaml` (`mcp_server_port`).
 
-**Phase advance blocked (HTTP 409 — no contract)**: Advancing to `implement` or `pr` requires a contract. Run `egg-orch pipeline get <id>` and check `contract_synced`. If false, the contract creation during pipeline startup failed — check orchestrator logs. Contracts are created automatically; manual intervention is rarely needed.
+**Phase advance blocked (HTTP 409 — no contract)**: Advancing to `implement` or `pr` requires a contract. Run `egg-orch pipeline get <id>` and check `contract_synced`. If false, the contract creation during pipeline startup failed — check orchestrator logs. Contracts are created automatically; manual intervention is rarely needed. If contract creation consistently fails, verify the issue has a valid analysis/plan in `.egg-state/` and re-run `egg-orch pipeline create`.
 
 **Coordinator crash loop**: Check the `coordinator_respawns` counter in coordinator state. If it equals `coordinator_max_respawns`, the pipeline has failed. Review container logs for the root cause: `egg-orch container logs <pipeline_id> <container_id>`.
 
