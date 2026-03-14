@@ -1,1 +1,0 @@
-# egg test suite

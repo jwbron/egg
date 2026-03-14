@@ -660,7 +660,6 @@ def advance_phase(pipeline_id: str) -> tuple[Response, int]:
                         f"Target phase '{target_phase_str}' is the current phase",
                         status_code=400,
                     )
-                pipeline.current_phase = target_phase
             else:
                 # Advance to next phase in sequence
                 current_idx = phase_order.index(pipeline.current_phase)
@@ -671,7 +670,6 @@ def advance_phase(pipeline_id: str) -> tuple[Response, int]:
                     )
                 target_phase = phase_order[current_idx + 1]
                 action = "advance"
-                pipeline.current_phase = target_phase
 
             # Enforce contract existence before entering implement phase.
             # Every pipeline — simple or complex — must have a contract so
@@ -689,6 +687,9 @@ def advance_phase(pipeline_id: str) -> tuple[Response, int]:
                     "may have failed. Check pipeline logs for details.",
                     status_code=409,
                 )
+
+            # All validations passed — now mutate state
+            pipeline.current_phase = target_phase
 
             # Record the phase decision in coordinator state
             if pipeline.coordinator_state is None:
