@@ -13,7 +13,7 @@ Three mechanisms exist for gathering human input:
 2. **Feedback comments** — Open-ended questions in an editable comment
 3. **Phase approval** — Single checkbox to approve and advance to the next phase
 
-In local mode, decisions carry a `decision_type` field (`phase_gate`, `choice`, or `feedback`) that drives type-specific terminal rendering. The orchestrator's decision queue supports a "request changes" option at phase gates, with a circuit breaker (`max_hitl_review_cycles`, default 3) to prevent unbounded revision loops. See [Local Mode: Type-Aware Terminal Rendering](#local-mode-type-aware-terminal-rendering) for details.
+In prompt-driven mode, decisions carry a `decision_type` field (`phase_gate`, `choice`, or `feedback`) that drives type-specific terminal rendering. The orchestrator's decision queue supports a "request changes" option at phase gates, with a circuit breaker (`max_hitl_review_cycles`, default 3) to prevent unbounded revision loops. See [Prompt-Driven Mode: Type-Aware Terminal Rendering](#prompt-driven-mode-type-aware-terminal-rendering) for details.
 
 **Decision sync to contract**: Resolved decisions made during refine and plan phases are automatically synced to the contract (`.egg-state/contracts/{identifier}.json`) after each phase completes, so implement-phase agents can see substantive choices (database selection, API style, config handling, etc.) made earlier. Phase gate decisions (approve/reject) are excluded from sync as they are process control, not implementation-relevant context. See [SDLC Pipeline Guide § Decision Sync to Contract](sdlc-pipeline.md#decision-sync-to-contract) for details.
 
@@ -152,7 +152,7 @@ Phase approval is a simpler mechanism for advancing the pipeline at HITL gates.
 3. When the human checks the `[x] Approve` checkbox, the orchestrator detects the change
 4. The contract phase is updated and the next pipeline phase is triggered
 
-In **local mode**, the orchestrator handles phase approval via its decision queue with `decision_type="phase_gate"`. The terminal displays the full document in a pager (default: `less -R`) and offers view, edit, approve, and request-changes options. A circuit breaker (`max_hitl_review_cycles`, default 3) prevents unbounded revision loops.
+In **prompt-driven mode**, the orchestrator handles phase approval via its decision queue with `decision_type="phase_gate"`. The terminal displays the full document in a pager (default: `less -R`) and offers view, edit, approve, and request-changes options. A circuit breaker (`max_hitl_review_cycles`, default 3) prevents unbounded revision loops.
 
 ### Key Differences from Decisions
 
@@ -208,9 +208,9 @@ Check that:
 - The submit checkbox is checked: `- [x] Submit feedback`
 - Answers are in blockquote format: `> Answer text`
 
-## Local Mode: Type-Aware Terminal Rendering
+## Prompt-Driven Mode: Type-Aware Terminal Rendering
 
-In local mode (`egg-sdlc`), the HITL checkpoint handler (`sandbox/egg_lib/sdlc_hitl.py`) dispatches to type-specific terminal UIs based on the `decision_type` field on `HITLDecision`.
+In prompt-driven mode (`egg-sdlc`), the HITL checkpoint handler (`sandbox/egg_lib/sdlc_hitl.py`) dispatches to type-specific terminal UIs based on the `decision_type` field on `HITLDecision`.
 
 ### Decision Types
 
@@ -222,7 +222,7 @@ In local mode (`egg-sdlc`), the HITL checkpoint handler (`sandbox/egg_lib/sdlc_h
 
 ### Contract Decision Bridge
 
-Contract decisions created by agents via `egg-contract add-decision` are automatically bridged to the phase gate menu in local mode. When unanswered decisions exist in the contract JSON, the phase gate displays a `[q] Answer open questions` option that lets humans respond directly from the terminal. Approving a phase gate with unanswered questions triggers a warning prompt.
+Contract decisions created by agents via `egg-contract add-decision` are automatically bridged to the phase gate menu in prompt-driven mode. When unanswered decisions exist in the contract JSON, the phase gate displays a `[q] Answer open questions` option that lets humans respond directly from the terminal. Approving a phase gate with unanswered questions triggers a warning prompt.
 
 ### Draft Document Display
 

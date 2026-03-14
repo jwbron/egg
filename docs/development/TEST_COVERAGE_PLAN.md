@@ -41,7 +41,7 @@ integration_tests/        # Docker-based integration tests (~16 files)
 ├── test_network_isolation.py
 ├── test_credential_security.py
 ├── test_policy_enforcement.py
-├── local_pipeline/       # Local orchestrator integration tests
+├── local_pipeline/       # Orchestrator pipeline integration tests
 │   └── ...               # API validation, concurrency, error recovery, HITL, signals, worktree
 └── ...
 ```

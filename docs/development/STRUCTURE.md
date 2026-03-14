@@ -254,8 +254,8 @@ integration_tests/
 ├── deployment_validation/         # Deployment validation integration tests
 │   ├── __init__.py
 │   └── test_deployment_check_e2e.py  # End-to-end devserver lifecycle tests
-├── local_pipeline/                # Local orchestrator integration tests
-│   ├── conftest.py                # Local pipeline test fixtures
+├── local_pipeline/                # Orchestrator pipeline integration tests
+│   ├── conftest.py                # Pipeline test fixtures
 │   ├── docker-compose.yml         # Orchestrator test environment
 │   ├── helpers.py                 # Shared API helper functions for tests
 │   ├── mock-sandbox/              # Mock sandbox for testing

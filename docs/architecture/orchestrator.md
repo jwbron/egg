@@ -125,7 +125,7 @@ The orchestrator reads pipeline artifacts (verdict files, draft documents, check
 - Worktree paths are resolved dynamically based on pipeline ID and repository
 
 **Key artifact files in worktrees:**
-- `.egg-state/contracts/{identifier}.json` — Contract state (issue number for issue-mode, pipeline ID for local-mode)
+- `.egg-state/contracts/{identifier}.json` — Contract state (issue number for issue-driven pipelines, pipeline ID for prompt-driven pipelines)
 - `.egg-state/drafts/{identifier}-analysis.md` — Draft for `refine` phase (special-cased to `analysis`)
 - `.egg-state/drafts/{identifier}-{phase}.md` — Draft for other phases (e.g., `plan`). No draft for `implement` phase.
 - `.egg-state/reviews/{identifier}-{phase}-{reviewer_type}-review.json` — Review verdict files
@@ -255,7 +255,7 @@ The multi-agent executor enforces a safety cap (`max_waves=5`) on the number of 
 
 egg supports three deployment modes, each suited to different use cases:
 
-### 1. Local Mode (Interactive)
+### 1. Standalone Mode (Interactive)
 
 ```
 ┌─────────────────────────────────────────────────────────┐
