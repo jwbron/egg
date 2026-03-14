@@ -711,9 +711,7 @@ def run_claude(
     try:
         for ip_attempt in range(max_ip_retries):
             try:
-                result = subprocess.run(
-                    cmd, check=False, capture_output=(ip_attempt > 0)
-                )
+                result = subprocess.run(cmd, check=False, capture_output=(ip_attempt > 0))
                 if result.returncode == 0:
                     return True
                 # Check if this is an IP conflict error
@@ -1089,7 +1087,9 @@ def exec_in_new_container(
     for ip_attempt in range(max_ip_retries):
         try:
             result = subprocess.run(
-                cmd, timeout=timeout_seconds, check=False,
+                cmd,
+                timeout=timeout_seconds,
+                check=False,
                 capture_output=(ip_attempt > 0),
             )
             run_success = result.returncode == 0

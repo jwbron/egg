@@ -218,12 +218,12 @@ class TestAllocateContainerIp:
             with patch("egg_lib.runtime.subprocess.run") as mock_run:
                 mock_run.return_value = MagicMock(returncode=0, stdout="{}")
                 # Exclude .3 (which would be first available after .1 and .2)
-                result = _allocate_container_ip(
-                    "egg-isolated", exclude_ips={"172.32.0.3"}
-                )
+                result = _allocate_container_ip("egg-isolated", exclude_ips={"172.32.0.3"})
                 assert result is not None
                 assert result not in {
-                    "172.32.0.1", "172.32.0.2", "172.32.0.3",
+                    "172.32.0.1",
+                    "172.32.0.2",
+                    "172.32.0.3",
                 }
 
     def test_handles_docker_failure(self):
