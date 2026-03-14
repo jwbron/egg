@@ -107,7 +107,7 @@
   },
   "decisions": [],
   "created_at": "2026-03-14T08:25:52.790941",
-  "updated_at": "2026-03-14T08:40:33.338041",
+  "updated_at": "2026-03-14T08:40:33.379024",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
@@ -155,8 +155,8 @@
       {
         "role": "architect",
         "spawned_at": "2026-03-14T08:38:27.086861",
-        "completed_at": null,
-        "status": "running",
+        "completed_at": "2026-03-14T08:40:27.424211Z",
+        "status": "failed",
         "container_id": "beda854bd8cfb6abc4b5ca2dde055e2a2a63d8b4af5565c82b77cb96545859b6",
         "task_context": "Design the architecture for issue #1059: Overseer agent for pipeline health monitoring. Read the full issue: gh issue view 1059.\n\nKey architecture decisions (already made in the issue):\n- OVERSEER role in AgentRole enum + AgentRoleDefinition (same access pattern as coordinator - no repo mount)\n- Auto-spawn alongside coordinator in orchestrator/routes/pipelines.py\n- Exclude from coordinator_max_agents guardrail\n- Tiered Haiku/Opus LLM architecture via shared/egg_agent/ (run_agent_async)\n- Adaptive stall detection with Haiku classification and Opus decision-making\n- Corrective action ladder: nudge → redirect → HITL → issue → Slack\n- HITL-only restart authority\n- Self-monitoring capability\n- Overseer monitors coordinator\n- Hand off contradictory message loops to mediator\n\nYour job: 1) Verify the existing codebase supports these changes (check the files listed in the issue's Infrastructure Changes section), 2) Design the overseer module structure, 3) Define interfaces between overseer and orchestrator/gateway/agents, 4) Document the architecture in .egg-state/drafts/architecture.md. Write output to .egg-state/drafts/.",
         "retry_number": 0
@@ -215,5 +215,5 @@
   },
   "plan_phase_waves": null,
   "plan_phase_names": null,
-  "version": 29
+  "version": 30
 }
