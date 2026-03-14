@@ -113,11 +113,14 @@ class TestPipelineCreation:
                 branch="egg/issue-496",
             )
 
-    @pytest.mark.parametrize("terminal_status", [
-        PipelineStatus.CANCELLED,
-        PipelineStatus.FAILED,
-        PipelineStatus.COMPLETE,
-    ])
+    @pytest.mark.parametrize(
+        "terminal_status",
+        [
+            PipelineStatus.CANCELLED,
+            PipelineStatus.FAILED,
+            PipelineStatus.COMPLETE,
+        ],
+    )
     def test_create_replaces_terminal_pipeline(self, state_store, terminal_status):
         """Test creating pipeline replaces existing one in terminal state."""
         pipeline = state_store.create_pipeline(
