@@ -78,7 +78,7 @@
   },
   "decisions": [],
   "created_at": "2026-03-14T08:25:52.790941",
-  "updated_at": "2026-03-14T08:26:03.258825",
+  "updated_at": "2026-03-14T08:26:34.766061",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
@@ -86,17 +86,29 @@
   "error": null,
   "coordinator_state": {
     "workflow_type": "",
-    "agents_spawned": [],
+    "agents_spawned": [
+      {
+        "role": "refiner",
+        "spawned_at": "2026-03-14T08:26:34.765936",
+        "completed_at": null,
+        "status": "running",
+        "container_id": "3b78e5881880e908720648e9c9f1ffb6375dba6c789f833381535d1000c61bfd",
+        "task_context": "Refine issue #1059: Implement overseer agent for pipeline health monitoring. This is a large feature with tiered Haiku/Opus architecture, adaptive stall detection, HITL-only restarts, and auto-spawning with coordinator pipelines. The issue is very detailed — your job is to: 1) Validate the requirements are complete and consistent, 2) Identify any gaps or ambiguities that need HITL clarification, 3) Break down the work into well-scoped implementation tasks with clear acceptance criteria, 4) Identify dependencies between tasks and suggest ordering, 5) Flag any risks or concerns. Key areas: new OVERSEER role in AgentRole enums, auto-spawn logic in orchestrator, overseer container config (no repo mount), tiered LLM architecture using shared/egg_agent/, adaptive stall detection, corrective action ladder, autonomous issue filing, self-monitoring, CLAUDE.md overseer instructions. Dependencies: #1027 (message bus), #1028 (coordinator), #1088 (Agent SDK). Check if these dependencies are merged/available.",
+        "retry_number": 0
+      }
+    ],
     "phase_decisions": [],
     "escalations": [],
     "guardrail_counters": {
-      "total_agents_spawned": 0,
-      "retries_by_role": {},
+      "total_agents_spawned": 1,
+      "retries_by_role": {
+        "refiner": 1
+      },
       "coordinator_respawns": 0,
       "started_at": "2026-03-14T08:26:01.113156"
     }
   },
   "plan_phase_waves": null,
   "plan_phase_names": null,
-  "version": 8
+  "version": 9
 }
