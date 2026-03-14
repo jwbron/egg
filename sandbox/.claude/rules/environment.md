@@ -81,7 +81,7 @@ commands can consume excessive CPU and memory, increasing costs and causing time
 **Scope all filesystem operations to `~/repos/` or `$EGG_REPO_PATH`.** The root
 filesystem (`/`) includes system directories, package caches, and virtual environments
 that are irrelevant to your task. Searching from `/` scans tens of thousands of files
-and will be killed by the system timeout (default 120 seconds).
+and will be killed by the system timeout (default 300 seconds).
 
 **DO**:
 ```bash
