@@ -27,8 +27,8 @@ except ImportError:
         return logging.getLogger(name)
 
 
-from egg_agent import build_agent_command
 from consensus import get_consensus_evaluator
+from egg_agent import build_agent_command
 from events import EventType, emit_event
 from message_store import Message, MessageType, get_message_store
 from models import (

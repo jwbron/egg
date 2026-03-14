@@ -32,9 +32,9 @@ except ImportError:
         return logging.getLogger(name)
 
 
-from egg_agent import build_agent_command
 from container_spawner import ContainerSpawnError, get_container_spawner
 from decision_queue import get_decision_queue
+from egg_agent import build_agent_command
 from egg_contracts.agent_roles import get_roles_for_phase
 from events import EventType, emit_event
 from gateway_client import GatewayError, get_gateway_client

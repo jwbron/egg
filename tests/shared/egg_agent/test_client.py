@@ -1,13 +1,9 @@
 """Tests for egg_agent.client module."""
 
 import asyncio
-from dataclasses import dataclass
 from unittest.mock import patch
 
-import pytest
-
 from egg_agent.client import run_agent, run_agent_async
-from egg_agent.result import AgentResult
 
 
 def _run_async(coro):
@@ -122,9 +118,7 @@ class TestRunAgentAsync:
 
         mock_query.side_effect = gen
 
-        result = _run_async(
-            run_agent_async("test", on_output=captured.append)
-        )
+        _run_async(run_agent_async("test", on_output=captured.append))
 
         assert "chunk1" in captured
         assert "chunk2" in captured

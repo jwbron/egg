@@ -5,7 +5,7 @@ Verifies the thin wrapper around egg_agent.client delegates correctly.
 """
 
 import asyncio
-from unittest.mock import AsyncMock, patch
+from unittest.mock import patch
 
 from llm.claude.config import ClaudeConfig
 from llm.claude.runner import run_agent, run_agent_async
@@ -21,14 +21,14 @@ def _make_sdk_result(**overrides):
     """Create a mock egg_agent AgentResult."""
     from egg_agent.result import AgentResult as SdkResult
 
-    defaults = dict(
-        success=True,
-        stdout="Hello",
-        stderr="",
-        returncode=0,
-        error=None,
-        metadata={"model": "claude-opus-4-6-20250313"},
-    )
+    defaults = {
+        "success": True,
+        "stdout": "Hello",
+        "stderr": "",
+        "returncode": 0,
+        "error": None,
+        "metadata": {"model": "claude-opus-4-6-20250313"},
+    }
     defaults.update(overrides)
     return SdkResult(**defaults)
 
