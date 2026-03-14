@@ -677,13 +677,16 @@ def advance_phase(pipeline_id: str) -> tuple[Response, int]:
             # Every pipeline — simple or complex — must have a contract so
             # reviewers, phase gates, and the reviewer_contract role have a
             # shared source of truth about what is being built.
-            if target_phase in (PipelinePhase.IMPLEMENT, PipelinePhase.PR) and not pipeline.contract_synced:
+            if (
+                target_phase in (PipelinePhase.IMPLEMENT, PipelinePhase.PR)
+                and not pipeline.contract_synced
+            ):
                 return make_error_response(
-                    "Cannot advance to '{}' phase: no contract exists for this pipeline. "
+                    f"Cannot advance to '{target_phase.value}' phase: no contract exists for this pipeline. "
                     "A contract must be created before implementation can begin. "
                     "The orchestrator creates contracts automatically during pipeline "
                     "startup — if contract_synced is still false, the contract creation "
-                    "may have failed. Check pipeline logs for details.".format(target_phase.value),
+                    "may have failed. Check pipeline logs for details.",
                     status_code=409,
                 )
 

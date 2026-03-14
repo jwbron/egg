@@ -878,9 +878,7 @@ class TestContractEnforcement:
     @patch("routes.coordinator.get_state_store")
     @patch("routes.coordinator.get_pipeline_state_lock")
     @patch("routes.coordinator.get_repo_path")
-    def test_skip_to_pr_blocked_without_contract(
-        self, mock_repo, mock_lock, mock_store_fn, client
-    ):
+    def test_skip_to_pr_blocked_without_contract(self, mock_repo, mock_lock, mock_store_fn, client):
         """Skipping to PR phase must also fail if contract_synced is False."""
         mock_repo.return_value = Path("/tmp/repo")
         mock_lock.return_value.__enter__ = MagicMock()
