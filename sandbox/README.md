@@ -168,6 +168,7 @@ A system-level per-command timeout wrapper prevents runaway shell commands (e.g.
 **How it works:**
 - `entrypoint.py` moves `/bin/bash` to `/bin/bash.real` and installs a wrapper script at `/bin/bash`
 - The wrapper only wraps `bash -c "..."` invocations; interactive shells and script sourcing pass through unchanged
+- The top-level exec command (e.g. the consensus wrapper script launched by `run_exec()`) bypasses the wrapper by invoking `bash.real` directly — only Claude's internal Bash tool commands are subject to the per-command timeout
 - On timeout, `SIGTERM` is sent first, followed by `SIGKILL` after a grace period
 
 **Configuration (environment variables):**
@@ -177,7 +178,7 @@ A system-level per-command timeout wrapper prevents runaway shell commands (e.g.
 | `BASH_COMMAND_TIMEOUT` | Timeout in seconds (0 to disable) | `300` |
 | `BASH_COMMAND_TIMEOUT_GRACE` | SIGKILL grace period in seconds | `10` |
 
-**Files:** `sandbox/entrypoint.py` (`setup_command_timeout()`), `sandbox/tests/test_command_timeout.py`
+**Files:** `sandbox/entrypoint.py` (`setup_command_timeout()`, `run_exec()`), `sandbox/tests/test_command_timeout.py`
 
 ## Configuration
 
