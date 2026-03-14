@@ -78,7 +78,7 @@
   },
   "decisions": [],
   "created_at": "2026-03-14T19:17:37.901759",
-  "updated_at": "2026-03-14T20:00:50.969719",
+  "updated_at": "2026-03-14T20:04:51.311062",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
@@ -171,8 +171,8 @@
       {
         "role": "reviewer_contract",
         "spawned_at": "2026-03-14T19:40:20.986073",
-        "completed_at": null,
-        "status": "running",
+        "completed_at": "2026-03-14T20:04:48.041033Z",
+        "status": "complete",
         "container_id": "bd02b50913bb717a753c907d70157c2947e188095c997fe0dc2b89a0fb13f182",
         "task_context": "Verify implementation completeness for issue #1059: Overseer agent for pipeline health monitoring. Read the issue requirements (gh issue view 1059), the task plan in .egg-state/drafts/, and the contract in .egg-state/contracts/1059.json. Monitor coder progress via message bus. Verify each requirement is implemented: (1) OVERSEER role exists in both enums, (2) Auto-spawn on coordinator pipelines, (3) Excluded from coordinator_max_agents, (4) Tiered Haiku/Opus via shared/egg_agent/, (5) Adaptive stall detection, (6) Corrective action ladder, (7) HITL-only restart, (8) Autonomous issue filing, (9) Self-monitoring, (10) CLAUDE.md section, (11) PipelineConfig fields, (12) No repo access. Flag any missing or incomplete requirements.",
         "retry_number": 0
@@ -213,5 +213,5 @@
   },
   "plan_phase_waves": null,
   "plan_phase_names": null,
-  "version": 28
+  "version": 29
 }
