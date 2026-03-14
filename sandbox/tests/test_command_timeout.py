@@ -198,7 +198,7 @@ _shared_path = str(Path(__file__).parent.parent.parent / "shared")
 if _shared_path not in sys.path:
     sys.path.insert(0, _shared_path)
 
-from entrypoint import setup_command_timeout
+from entrypoint import run_exec, setup_command_timeout
 
 
 class TestSetupCommandTimeout:
@@ -261,3 +261,102 @@ class TestSetupCommandTimeout:
 
         mock_logger.warn.assert_called()
         assert "Cannot install" in mock_logger.warn.call_args[0][0]
+
+
+class TestRunExecBashBypass:
+    """Tests for run_exec bypassing the bash timeout wrapper."""
+
+    def _make_mocks(self):
+        """Create mock config and logger for run_exec tests."""
+        mock_config = MagicMock()
+        mock_config.runtime_uid = 1000
+        mock_config.runtime_gid = 1000
+        mock_logger = MagicMock()
+        return mock_config, mock_logger
+
+    @patch("entrypoint._run_with_stderr_capture", return_value=0)
+    @patch("entrypoint._chdir_to_single_repo")
+    @patch("entrypoint._startup_timer")
+    def test_bash_replaced_with_bash_real_when_wrapper_installed(
+        self, _timer, _chdir, mock_run, tmp_path: Path
+    ) -> None:
+        """run_exec substitutes bash -> bash.real when the wrapper is installed."""
+        config, logger = self._make_mocks()
+
+        # Create a fake /bin/bash.real to simulate wrapper being installed
+        fake_real = tmp_path / "bash.real"
+        fake_real.write_text("#!/bin/bash\n")
+
+        with patch("entrypoint.Path") as mock_path_cls:
+            # Only intercept the Path("/bin/bash.real") call
+            original_path = Path
+
+            def path_side_effect(p):
+                if p == "/bin/bash.real":
+                    return fake_real
+                return original_path(p)
+
+            mock_path_cls.side_effect = path_side_effect
+
+            run_exec(config, logger, ["bash", "-c", "echo hello"])
+
+        # Verify the command was rewritten to use bash.real
+        call_args = mock_run.call_args[0][0]
+        assert str(fake_real) in call_args
+        assert "bash" not in call_args or str(fake_real) in str(call_args)
+
+    @patch("entrypoint._run_with_stderr_capture", return_value=0)
+    @patch("entrypoint._chdir_to_single_repo")
+    @patch("entrypoint._startup_timer")
+    def test_bash_unchanged_when_wrapper_not_installed(
+        self, _timer, _chdir, mock_run, tmp_path: Path
+    ) -> None:
+        """run_exec leaves bash unchanged when no wrapper is installed."""
+        config, logger = self._make_mocks()
+
+        # Point to a non-existent bash.real to simulate no wrapper installed
+        fake_real = tmp_path / "bash.real"  # not created — doesn't exist
+
+        with patch("entrypoint.Path") as mock_path_cls:
+            original_path = Path
+
+            def path_side_effect(p):
+                if p == "/bin/bash.real":
+                    return fake_real
+                return original_path(p)
+
+            mock_path_cls.side_effect = path_side_effect
+
+            run_exec(config, logger, ["bash", "-c", "echo hello"])
+
+        call_args = mock_run.call_args[0][0]
+        # Should contain the original "bash" (via gosu), not bash.real
+        assert call_args[2] == "bash"
+
+    @patch("entrypoint._run_with_stderr_capture", return_value=0)
+    @patch("entrypoint._chdir_to_single_repo")
+    @patch("entrypoint._startup_timer")
+    def test_non_bash_command_unchanged(
+        self, _timer, _chdir, mock_run, tmp_path: Path
+    ) -> None:
+        """run_exec doesn't modify non-bash commands."""
+        config, logger = self._make_mocks()
+
+        fake_real = tmp_path / "bash.real"
+        fake_real.write_text("#!/bin/bash\n")
+
+        with patch("entrypoint.Path") as mock_path_cls:
+            original_path = Path
+
+            def path_side_effect(p):
+                if p == "/bin/bash.real":
+                    return fake_real
+                return original_path(p)
+
+            mock_path_cls.side_effect = path_side_effect
+
+            run_exec(config, logger, ["python3", "-c", "print('hello')"])
+
+        call_args = mock_run.call_args[0][0]
+        assert "python3" in call_args
+        assert "bash.real" not in str(call_args)
