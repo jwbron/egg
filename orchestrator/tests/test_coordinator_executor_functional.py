@@ -218,12 +218,14 @@ class TestHandleCompletion:
         result = executor.handle_coordinator_completion("test-pipeline", exit_code=0)
 
         assert result == "complete"
-        assert pipeline.status == PipelineStatus.COMPLETE
+        # Pipeline status is NOT set to COMPLETE by the executor — the pipeline
+        # loop handles status transitions after reading review verdicts.
+        assert pipeline.status == PipelineStatus.RUNNING
 
     @patch("coordinator_executor.get_pipeline_state_lock")
     @patch("coordinator_executor.get_state_store")
     def test_success_exit_with_running_agents(self, mock_store_fn, mock_lock, tmp_path):
-        """Exit code 0 with running agents should still complete but log warning."""
+        """Exit code 0 with running agents should drain them."""
         mock_lock.return_value.__enter__ = MagicMock()
         mock_lock.return_value.__exit__ = MagicMock(return_value=False)
 
@@ -242,8 +244,7 @@ class TestHandleCompletion:
         executor = CoordinatorExecutor(tmp_path)
         result = executor.handle_coordinator_completion("test-pipeline", exit_code=0)
 
-        assert result == "complete"
-        assert pipeline.status == PipelineStatus.COMPLETE
+        assert result == "drained"
 
     @patch("coordinator_executor.emit_event")
     @patch("coordinator_executor.get_pipeline_state_lock")
@@ -371,7 +372,7 @@ class TestHandleCompletion:
     @patch("coordinator_executor.get_pipeline_state_lock")
     @patch("coordinator_executor.get_state_store")
     def test_success_without_coordinator_state(self, mock_store_fn, mock_lock, tmp_path):
-        """Exit code 0 without coordinator_state should still complete."""
+        """Exit code 0 without coordinator_state leaves pipeline RUNNING for the loop."""
         mock_lock.return_value.__enter__ = MagicMock()
         mock_lock.return_value.__exit__ = MagicMock(return_value=False)
 
@@ -387,7 +388,9 @@ class TestHandleCompletion:
         result = executor.handle_coordinator_completion("test-pipeline", exit_code=0)
 
         assert result == "complete"
-        assert pipeline.status == PipelineStatus.COMPLETE
+        # Pipeline status is NOT set to COMPLETE by the executor — the pipeline
+        # loop handles status transitions after reading review verdicts.
+        assert pipeline.status == PipelineStatus.RUNNING
 
     @patch("coordinator_executor.emit_event")
     @patch("coordinator_executor.get_pipeline_state_lock")
