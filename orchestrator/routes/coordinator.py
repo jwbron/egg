@@ -233,7 +233,7 @@ def spawn_agent(pipeline_id: str) -> tuple[Response, int]:
                         },
                     )
             except ValueError:
-                # Phase has no defined roles (e.g., 'pr', 'complete') —
+                # Phase has no defined roles (e.g., 'pr', 'coordinator') —
                 # allow the spawn and let the agent figure it out
                 logger.debug(
                     "No role mapping for phase, allowing spawn",

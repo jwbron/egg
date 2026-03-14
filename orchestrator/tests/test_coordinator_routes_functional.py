@@ -1234,3 +1234,35 @@ class TestPhaseRoleValidation:
             json={"role": "coder"},
         )
         assert response.status_code == 200
+
+    @patch("routes.coordinator.emit_event")
+    @patch("routes.coordinator.get_container_spawner")
+    @patch("routes.coordinator.get_state_store")
+    @patch("routes.coordinator.get_pipeline_state_lock")
+    @patch("routes.coordinator.get_repo_path")
+    def test_spawn_in_coordinator_phase_without_role_mapping_allowed(
+        self, mock_repo, mock_lock, mock_store_fn, mock_spawner_fn, mock_emit, client
+    ):
+        """Spawning in coordinator phase (no role mappings) should be allowed."""
+        mock_repo.return_value = Path("/tmp/repo")
+        mock_lock.return_value.__enter__ = MagicMock()
+        mock_lock.return_value.__exit__ = MagicMock(return_value=False)
+
+        pipeline = _make_pipeline(phase=PipelinePhase.COORDINATOR)
+        store = MagicMock()
+        store.load_pipeline.return_value = pipeline
+        mock_store_fn.return_value = store
+
+        spawner = MagicMock()
+        spawned = MagicMock()
+        spawned.container_info = ContainerInfo(
+            container_id="coord123", container_name="egg-test-coder"
+        )
+        spawner.spawn_agent_container.return_value = spawned
+        mock_spawner_fn.return_value = spawner
+
+        response = client.post(
+            "/api/v1/pipelines/test-pipeline/coordinator/spawn",
+            json={"role": "coder"},
+        )
+        assert response.status_code == 200
