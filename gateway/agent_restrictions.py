@@ -519,6 +519,36 @@ COORDINATOR_PATTERNS = AgentFilePattern(
 )
 
 
+# Overseer agent patterns
+# Overseer monitors pipeline health — no repo access, agent-outputs only
+OVERSEER_PATTERNS = AgentFilePattern(
+    role=AgentRole.OVERSEER,
+    description="Overseer agent: agent-outputs only (monitors pipeline health)",
+    allowed_patterns=[
+        ".egg-state/agent-outputs/",
+    ],
+    blocked_patterns=[
+        # Source code (overseer must not modify code directly)
+        "src/",
+        "lib/",
+        "shared/",
+        "gateway/",
+        "sandbox/",
+        "action/",
+        "orchestrator/",
+        # Docs and tests
+        "docs/",
+        "tests/",
+        "test/",
+        # Protected state
+        ".egg-state/contracts/",
+        ".egg-state/drafts/",
+        ".egg-state/reviews/",
+        ".github/",
+    ],
+)
+
+
 # Registry of all agent patterns
 AGENT_PATTERNS: dict[str, AgentFilePattern] = {
     AgentRole.CODER: CODER_PATTERNS,
@@ -536,6 +566,7 @@ AGENT_PATTERNS: dict[str, AgentFilePattern] = {
     AgentRole.REVIEWER_PLAN: REVIEWER_PLAN_PATTERNS,
     AgentRole.REVIEWER_UNIFIED: REVIEWER_UNIFIED_PATTERNS,
     AgentRole.COORDINATOR: COORDINATOR_PATTERNS,
+    AgentRole.OVERSEER: OVERSEER_PATTERNS,
 }
 
 
