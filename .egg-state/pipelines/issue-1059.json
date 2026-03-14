@@ -5,7 +5,7 @@
   "branch": "egg/issue-1059",
   "prompt": null,
   "status": "running",
-  "current_phase": "refine",
+  "current_phase": "plan",
   "config": {
     "auto_create_pr": true,
     "multi_agent": true,
@@ -107,7 +107,7 @@
   },
   "decisions": [],
   "created_at": "2026-03-14T08:25:52.790941",
-  "updated_at": "2026-03-14T08:37:14.062724",
+  "updated_at": "2026-03-14T08:37:53.909380",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
@@ -153,7 +153,14 @@
         "retry_number": 0
       }
     ],
-    "phase_decisions": [],
+    "phase_decisions": [
+      {
+        "phase": "plan",
+        "action": "advance",
+        "reason": "Refine phase complete. Issue #1059 contains comprehensive human-authored requirements serving as refinement. All spawned agents failed due to container env issues (missing orchestrator URL/pipeline_id). Issue spec includes detailed requirements, design decisions, task breakdown, success criteria, and code locations — sufficient for planning.",
+        "decided_at": "2026-03-14T08:37:53.909058"
+      }
+    ],
     "escalations": [],
     "guardrail_counters": {
       "total_agents_spawned": 4,
@@ -168,5 +175,5 @@
   },
   "plan_phase_waves": null,
   "plan_phase_names": null,
-  "version": 21
+  "version": 22
 }
