@@ -159,12 +159,36 @@ class TestBuildPrBody:
 
         assert "Authored-by: egg" in body
 
+    def test_includes_pipeline_context_section(self, tmp_path):
+        """Test that pipeline context section is included in body."""
+        pipeline = _make_pipeline()
+
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=1, stdout="", stderr="")
+            title, body = _build_pr_body(pipeline, tmp_path)
+
+        assert "## Pipeline Context" in body
+        assert "Pipeline: `issue-42`" in body
+        assert "Issue: #42" in body
+
+    def test_pipeline_context_before_authored_by(self, tmp_path):
+        """Test that pipeline context appears before the authored-by line."""
+        pipeline = _make_pipeline()
+
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=1, stdout="", stderr="")
+            title, body = _build_pr_body(pipeline, tmp_path)
+
+        context_pos = body.index("## Pipeline Context")
+        authored_pos = body.index("Authored-by: egg")
+        assert context_pos < authored_pos
+
 
 class TestAutoCreatePr:
     """Tests for _auto_create_pr."""
 
     def test_creates_pr_via_gateway(self):
-        """Test that _auto_create_pr calls gateway.create_pr."""
+        """Test that _auto_create_pr calls gateway.create_pr with metadata."""
         pipeline = _make_pipeline()
         spawner = MagicMock()
         spawner.gateway.create_pr.return_value = "https://github.com/owner/repo/pull/1"
@@ -180,6 +204,8 @@ class TestAutoCreatePr:
             title="Fix auth",
             body="Body text",
             head="egg/issue-42",
+            issue_number=42,
+            agent_role="orchestrator",
         )
 
     def test_returns_none_when_no_repo(self):
