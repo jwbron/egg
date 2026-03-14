@@ -95,7 +95,7 @@
     }
   ],
   "created_at": "2026-03-14T19:17:37.901759",
-  "updated_at": "2026-03-14T20:14:59.688632",
+  "updated_at": "2026-03-14T22:46:33.798310",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
@@ -179,8 +179,8 @@
       {
         "role": "reviewer_code",
         "spawned_at": "2026-03-14T19:40:20.662139",
-        "completed_at": null,
-        "status": "running",
+        "completed_at": "2026-03-14T22:46:29.192391Z",
+        "status": "failed",
         "container_id": "6ec24b11ec91a9891aa672cee063f832bb5f6ac14bc2f7a5c3b045c4ff8e7f84",
         "task_context": "Review the code implementation for issue #1059: Overseer agent for pipeline health monitoring. Monitor the coder's progress via message bus. Once code is committed, review for: (1) Code quality — follows existing patterns in orchestrator/, shared/egg_contracts/, (2) Security — no repo access leaks, proper API usage, (3) Correct use of shared/egg_agent/ for all LLM calls, (4) PipelineConfig additions are backwards-compatible, (5) Auto-spawn logic doesn't break existing coordinator flow, (6) Container_spawner changes follow existing patterns, (7) CLAUDE.md section is comprehensive and consistent with other agent sections. Write review findings to .egg-state/agent-outputs/.",
         "retry_number": 0
@@ -251,5 +251,5 @@
   },
   "plan_phase_waves": null,
   "plan_phase_names": null,
-  "version": 37
+  "version": 38
 }
