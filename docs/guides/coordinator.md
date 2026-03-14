@@ -140,6 +140,7 @@ Common error codes:
 - **400** — Invalid request (missing fields, invalid role/phase)
 - **403** — Coordinator mode not enabled on the pipeline
 - **404** — Pipeline or agent not found
+- **409** — Phase advancement blocked (e.g., no contract exists before implement/pr)
 - **429** — Guardrail limit exceeded (max agents or max retries per role)
 - **500** — Internal error (container spawn failure, etc.)
 
@@ -201,6 +202,8 @@ POST /api/v1/pipelines/{id}/coordinator/phase
 ```
 
 Omit `target_phase` to advance to the next phase in sequence. When `target_phase` is provided, the action is recorded as `"skip"`; otherwise it is recorded as `"advance"`. Valid phases: `refine`, `plan`, `implement`, `pr`.
+
+**Contract enforcement**: Advancing or skipping to `implement` or `pr` requires the pipeline to have a contract (`contract_synced: true`). If no contract exists, the endpoint returns HTTP 409. The orchestrator creates contracts automatically during pipeline startup — a 409 here indicates the contract creation step failed. Check pipeline logs for details.
 
 ### Escalate to Human
 
@@ -392,6 +395,8 @@ The coordinator runs with `phase="coordinator"` — a special phase value distin
 **Escalation not resolved**: Check pending decisions via `egg-orch decision list <id>`. Escalations create standard HITL decisions that need human resolution.
 
 **MCP connection failed**: Verify the MCP server is running on port 9850 (`curl http://localhost:9850/health`). The server starts automatically as a background thread alongside the orchestrator. Check the MCP port in `~/.config/egg/config.yaml` (`mcp_server_port`).
+
+**Phase advance blocked (HTTP 409 — no contract)**: Advancing to `implement` or `pr` requires a contract. Run `egg-orch pipeline get <id>` and check `contract_synced`. If false, the contract creation during pipeline startup failed — check orchestrator logs. Contracts are created automatically; manual intervention is rarely needed. If contract creation consistently fails, check orchestrator logs for the root cause (permissions, disk space, git connectivity). Delete the failed pipeline with `egg-orch pipeline delete <id>` and recreate it with `egg-orch pipeline create --repo <owner/name> --issue <n>`.
 
 **Coordinator crash loop**: Check the `coordinator_respawns` counter in coordinator state. If it equals `coordinator_max_respawns`, the pipeline has failed. Review container logs for the root cause: `egg-orch container logs <pipeline_id> <container_id>`.
 
