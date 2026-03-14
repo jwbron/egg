@@ -1,8 +1,11 @@
 """Tests for the consensus wrapper module."""
 
+import os
 import shlex
+import subprocess
+import tempfile
 
-from consensus_wrapper import build_consensus_wrapped_command
+from consensus_wrapper import _CONSENSUS_WRAPPER_TEMPLATE, build_consensus_wrapped_command
 
 
 class TestBuildConsensusWrappedCommand:
@@ -92,3 +95,110 @@ class TestBuildConsensusWrappedCommand:
         cmd = build_consensus_wrapped_command("Prompt")
         script = cmd[2]
         assert "EGG_CONSENSUS_WRAPPER_TIMEOUT" in script
+
+
+class TestConsensusWrapperBehavior:
+    """Behavioral tests that run the wrapper script in a subprocess.
+
+    These exercise the actual bash logic rather than just checking for
+    string patterns in the generated script.
+    """
+
+    @staticmethod
+    def _make_mock_egg_orch(tmpdir: str, log_file: str) -> str:
+        """Create a mock egg-orch script that logs calls and returns consensus JSON."""
+        mock_path = os.path.join(tmpdir, "egg-orch")
+        with open(mock_path, "w") as f:
+            f.write("#!/bin/bash\n")
+            f.write(f'echo "$@" >> {shlex.quote(log_file)}\n')
+            # Return JSON with is_complete=true so the polling loop exits fast
+            f.write('echo \'{"data": {"consensus": {"is_complete": true}}}\'\n')
+        os.chmod(mock_path, 0o755)
+        return mock_path
+
+    @staticmethod
+    def _run_wrapper(
+        claude_command: str, tmpdir: str, timeout: int = 10
+    ) -> subprocess.CompletedProcess:
+        """Run the wrapper script with a substituted claude command."""
+        script = _CONSENSUS_WRAPPER_TEMPLATE.format(claude_command=claude_command)
+        env = os.environ.copy()
+        env["PATH"] = f"{tmpdir}:{env.get('PATH', '')}"
+        env["EGG_CONCURRENT_MODE"] = "true"
+        env["EGG_CONSENSUS_WRAPPER_TIMEOUT"] = "2"
+        env["EGG_MESSAGE_POLL_INTERVAL"] = "1"
+        return subprocess.run(
+            ["bash", "-c", script],
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+
+    def test_nonzero_exit_does_not_call_readiness(self):
+        """A non-zero Claude exit must not invoke egg-orch signal readiness."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            log_file = os.path.join(tmpdir, "egg-orch.log")
+            self._make_mock_egg_orch(tmpdir, log_file)
+
+            # Use 'false' (returns 1) instead of 'exit 1' which would exit the shell
+            result = self._run_wrapper("false", tmpdir)
+
+            assert result.returncode == 1
+            # egg-orch should never have been called at all
+            assert not os.path.exists(log_file), (
+                f"egg-orch was called on non-zero exit: "
+                f"{open(log_file).read() if os.path.exists(log_file) else ''}"
+            )
+            assert "NOT signaling READY" in result.stdout
+
+    def test_clean_exit_calls_readiness(self):
+        """A zero Claude exit must invoke egg-orch signal readiness."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            log_file = os.path.join(tmpdir, "egg-orch.log")
+            self._make_mock_egg_orch(tmpdir, log_file)
+
+            # Use 'true' (returns 0) instead of 'exit 0' which would exit the shell
+            result = self._run_wrapper("true", tmpdir)
+
+            assert result.returncode == 0
+            assert os.path.exists(log_file)
+            with open(log_file) as f:
+                log_content = f.read()
+            assert "signal readiness --state READY" in log_content
+            assert "Auto-signaling READY" in result.stdout
+
+    def test_nonzero_exit_propagates_exit_code(self):
+        """Wrapper must propagate the original non-zero exit code."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            log_file = os.path.join(tmpdir, "egg-orch.log")
+            self._make_mock_egg_orch(tmpdir, log_file)
+
+            # Use a subshell to produce a specific exit code
+            result = self._run_wrapper("(exit 42)", tmpdir)
+
+            assert result.returncode == 42
+
+    def test_non_concurrent_mode_skips_consensus(self):
+        """Without EGG_CONCURRENT_MODE=true, wrapper exits without consensus logic."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            log_file = os.path.join(tmpdir, "egg-orch.log")
+            self._make_mock_egg_orch(tmpdir, log_file)
+
+            # Use 'true' instead of 'exit 0' which would exit the shell
+            script = _CONSENSUS_WRAPPER_TEMPLATE.format(claude_command="true")
+            env = os.environ.copy()
+            env["PATH"] = f"{tmpdir}:{env.get('PATH', '')}"
+            env.pop("EGG_CONCURRENT_MODE", None)
+
+            result = subprocess.run(
+                ["bash", "-c", script],
+                env=env,
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+
+            assert result.returncode == 0
+            # No egg-orch calls should have been made
+            assert not os.path.exists(log_file)
