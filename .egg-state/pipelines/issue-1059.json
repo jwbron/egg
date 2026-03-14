@@ -78,7 +78,7 @@
   },
   "decisions": [],
   "created_at": "2026-03-14T19:17:37.901759",
-  "updated_at": "2026-03-14T19:35:01.729631",
+  "updated_at": "2026-03-14T19:38:09.263768",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
@@ -117,8 +117,8 @@
       {
         "role": "architect",
         "spawned_at": "2026-03-14T19:29:17.895510",
-        "completed_at": null,
-        "status": "running",
+        "completed_at": "2026-03-14T19:38:06.488711Z",
+        "status": "complete",
         "container_id": "205f7413e83bb285aa05965fbbc2c827a3bc595ff22d6142373f233f06344c15",
         "task_context": "Design the architecture for issue #1059: Implement overseer agent for pipeline health monitoring. Read the issue requirements (gh issue view 1059) and the refine outputs in .egg-state/agent-outputs/. Design: (1) Overseer module structure under a new directory (e.g., overseer/ or within orchestrator/), (2) Tiered Haiku/Opus architecture using shared/egg_agent/ for all LLM calls, (3) Monitoring loop with adaptive stall detection, (4) Integration points with orchestrator (auto-spawn, container_spawner.py changes), (5) New AgentRole enum value and FileAccessPattern, (6) CLAUDE.md overseer section, (7) PipelineConfig additions. Write the architecture plan to .egg-state/drafts/. Dependencies #1027 (message bus), #1028 (coordinator), #1088 (Agent SDK) are all merged.",
         "retry_number": 0
@@ -177,5 +177,5 @@
   },
   "plan_phase_waves": null,
   "plan_phase_names": null,
-  "version": 21
+  "version": 22
 }
