@@ -1282,6 +1282,226 @@ class TestGhPrCreate:
             args_list = call_args[0][0]  # First positional arg is the args list
             assert "--draft" in args_list
 
+    @staticmethod
+    def _setup_pipeline_session():
+        """Create a mock pipeline session with auth/session patches.
+
+        Returns (mock_result, mock_policy_result, current_session_manager) for use
+        in patch.object context managers.
+        """
+        import sys
+
+        import auth
+        from private_repo_policy import PrivateRepoPolicyResult
+
+        mock_session = MagicMock()
+        mock_session.mode = "public"
+        mock_session.container_id = "test-container"
+        mock_session.expires_at = None
+        mock_session.pipeline_id = "issue-42"
+        mock_session.agent_role = "coder"
+        mock_session.issue_number = 42
+        mock_session.phase = None
+
+        mock_result = SessionValidationResult(valid=True, session=mock_session)
+        mock_policy_result = PrivateRepoPolicyResult(
+            allowed=True, reason="Test", visibility="public"
+        )
+
+        auth._session_manager = None
+        auth._rate_limiter = None
+        if "gateway.auth" in sys.modules:
+            sys.modules["gateway.auth"]._session_manager = None
+            sys.modules["gateway.auth"]._rate_limiter = None
+
+        current_session_manager = sys.modules.get("session_manager", session_manager)
+        return mock_result, mock_policy_result, current_session_manager
+
+    def test_pr_create_injects_pipeline_metadata(self, client):
+        """Session with pipeline_id/agent_role/issue_number → body contains metadata marker."""
+        mock_result, mock_policy_result, current_session_manager = self._setup_pipeline_session()
+
+        with (
+            patch.object(
+                current_session_manager,
+                "validate_session_for_request",
+                return_value=mock_result,
+            ),
+            patch.object(gateway, "check_private_repo_access", return_value=mock_policy_result),
+            patch.object(gateway, "get_github_client") as mock_gh,
+        ):
+            mock_exec_result = MagicMock()
+            mock_exec_result.success = True
+            mock_exec_result.stdout = "https://github.com/test/repo/pull/42"
+            mock_exec_result.stderr = ""
+            mock_gh.return_value.execute.return_value = mock_exec_result
+
+            response = client.post(
+                "/api/v1/gh/pr/create",
+                headers={"Authorization": "Bearer test-session-token"},
+                data=json.dumps(
+                    {
+                        "repo": "test/repo",
+                        "title": "Add feature",
+                        "body": "Description",
+                        "base": "main",
+                        "head": "feature-branch",
+                    }
+                ),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 200
+            # Verify metadata was injected into the body arg (first execute call is PR create)
+            pr_create_call = mock_gh.return_value.execute.call_args_list[0]
+            args_list = pr_create_call[0][0]
+            body_idx = args_list.index("--body") + 1
+            body_value = args_list[body_idx]
+            assert "<!-- egg-pipeline-context" in body_value
+            assert "pipeline_id=issue-42" in body_value
+            assert "agent_role=coder" in body_value
+            assert "issue=42" in body_value
+
+    def test_pr_create_no_metadata_without_pipeline(self, client, auth_headers):
+        """Session without pipeline_id → body unchanged."""
+        with patch.object(gateway, "get_github_client") as mock_gh:
+            mock_result = MagicMock()
+            mock_result.success = True
+            mock_result.stdout = "https://github.com/test/repo/pull/43"
+            mock_result.stderr = ""
+            mock_gh.return_value.execute.return_value = mock_result
+
+            response = client.post(
+                "/api/v1/gh/pr/create",
+                headers=auth_headers,
+                data=json.dumps(
+                    {
+                        "repo": "test/repo",
+                        "title": "Add feature",
+                        "body": "Original body",
+                        "base": "main",
+                        "head": "feature-branch",
+                    }
+                ),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 200
+            call_args = mock_gh.return_value.execute.call_args
+            args_list = call_args[0][0]
+            body_idx = args_list.index("--body") + 1
+            body_value = args_list[body_idx]
+            assert body_value == "Original body"
+            assert "egg-pipeline-context" not in body_value
+
+    def test_pr_create_applies_labels_on_success(self, client):
+        """After success, verify label create + issue edit calls."""
+        mock_result, mock_policy_result, current_session_manager = self._setup_pipeline_session()
+
+        with (
+            patch.object(
+                current_session_manager,
+                "validate_session_for_request",
+                return_value=mock_result,
+            ),
+            patch.object(gateway, "check_private_repo_access", return_value=mock_policy_result),
+            patch.object(gateway, "get_github_client") as mock_gh,
+        ):
+            mock_exec_result = MagicMock()
+            mock_exec_result.success = True
+            mock_exec_result.stdout = "https://github.com/test/repo/pull/42"
+            mock_exec_result.stderr = ""
+            mock_gh.return_value.execute.return_value = mock_exec_result
+
+            response = client.post(
+                "/api/v1/gh/pr/create",
+                headers={"Authorization": "Bearer test-session-token"},
+                data=json.dumps(
+                    {
+                        "repo": "test/repo",
+                        "title": "Add feature",
+                        "body": "Description",
+                        "base": "main",
+                        "head": "feature-branch",
+                    }
+                ),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 200
+            # Verify label operations were called
+            execute_calls = mock_gh.return_value.execute.call_args_list
+            # First call is pr create, then label create for "egg", label create for "agent:coder",
+            # then issue edit to apply labels
+            assert len(execute_calls) >= 4
+            # Check label create calls
+            label_create_calls = [
+                c for c in execute_calls if c[0][0][0] == "label" and c[0][0][1] == "create"
+            ]
+            assert len(label_create_calls) == 2
+            label_names = [c[0][0][2] for c in label_create_calls]
+            assert "egg" in label_names
+            assert "agent:coder" in label_names
+            # Check issue edit call
+            issue_edit_calls = [
+                c for c in execute_calls if c[0][0][0] == "issue" and c[0][0][1] == "edit"
+            ]
+            assert len(issue_edit_calls) == 1
+            edit_args = issue_edit_calls[0][0][0]
+            assert "42" in edit_args
+            assert "--add-label" in edit_args
+
+    def test_pr_create_label_failure_nonfatal(self, client):
+        """Label failure doesn't affect PR creation response."""
+        mock_result, mock_policy_result, current_session_manager = self._setup_pipeline_session()
+
+        call_count = 0
+
+        def execute_side_effect(args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                # PR create succeeds
+                result = MagicMock()
+                result.success = True
+                result.stdout = "https://github.com/test/repo/pull/42"
+                result.stderr = ""
+                return result
+            else:
+                # All label operations fail
+                raise Exception("Label operation failed")
+
+        with (
+            patch.object(
+                current_session_manager,
+                "validate_session_for_request",
+                return_value=mock_result,
+            ),
+            patch.object(gateway, "check_private_repo_access", return_value=mock_policy_result),
+            patch.object(gateway, "get_github_client") as mock_gh,
+        ):
+            mock_gh.return_value.execute.side_effect = execute_side_effect
+
+            response = client.post(
+                "/api/v1/gh/pr/create",
+                headers={"Authorization": "Bearer test-session-token"},
+                data=json.dumps(
+                    {
+                        "repo": "test/repo",
+                        "title": "Add feature",
+                        "body": "Description",
+                        "base": "main",
+                        "head": "feature-branch",
+                    }
+                ),
+                content_type="application/json",
+            )
+
+            # PR creation should still succeed despite label failure
+            assert response.status_code == 200
+            data = json.loads(response.data)
+            assert data["success"] is True
+
 
 class TestGhPrCreatePhaseRestrictions:
     """Tests for phase-based PR creation restrictions."""

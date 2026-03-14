@@ -2349,6 +2349,15 @@ def _build_pr_body(
     if diff_stats:
         body_parts.append(f"## Changes\n\n```\n{diff_stats}\n```")
 
+    # Add pipeline context section
+    if pipeline.id or pipeline.issue_number:
+        context_parts = ["## Pipeline Context\n"]
+        if pipeline.id:
+            context_parts.append(f"Pipeline: `{pipeline.id}`")
+        if pipeline.issue_number:
+            context_parts.append(f"Issue: #{pipeline.issue_number}")
+        body_parts.append("\n".join(context_parts))
+
     body_parts.append("Authored-by: egg")
 
     body = "\n\n".join(body_parts)
@@ -2390,6 +2399,8 @@ def _auto_create_pr(
             title=title,
             body=body,
             head=pipeline.branch,
+            issue_number=pipeline.issue_number,
+            agent_role="orchestrator",
         )
         return pr_url
     except Exception as e:
