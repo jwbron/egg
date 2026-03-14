@@ -1075,7 +1075,7 @@ def setup_command_timeout(config: Config, logger: Logger) -> None:
     a grace period, then sends SIGKILL.
 
     Configuration:
-        BASH_COMMAND_TIMEOUT  – seconds (default 120, 0 to disable)
+        BASH_COMMAND_TIMEOUT  – seconds (default 300, 0 to disable)
         BASH_COMMAND_TIMEOUT_GRACE – SIGKILL grace period (default 10)
 
     Non-``-c`` invocations (interactive shells, script sourcing) pass
@@ -1089,7 +1089,7 @@ def setup_command_timeout(config: Config, logger: Logger) -> None:
         logger.info("Command timeout wrapper already installed")
         return
 
-    timeout_secs = os.environ.get("BASH_COMMAND_TIMEOUT", "120")
+    timeout_secs = os.environ.get("BASH_COMMAND_TIMEOUT", "300")
     try:
         int(timeout_secs)
     except ValueError:
