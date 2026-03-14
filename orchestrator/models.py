@@ -72,6 +72,8 @@ class AgentRole(StrEnum):
     INSPECTOR = "inspector"
     # Coordinator role
     COORDINATOR = "coordinator"
+    # Overseer role (pipeline health monitoring)
+    OVERSEER = "overseer"
     # Reviewer roles (specific subtypes)
     REVIEWER_CODE = "reviewer_code"
     REVIEWER_CONTRACT = "reviewer_contract"
@@ -373,6 +375,26 @@ class PipelineConfig(BaseModel):
     )
     coordinator_max_respawns: int = Field(
         default=2, ge=0, description="Maximum coordinator respawns after crash"
+    )
+    # Overseer configuration
+    overseer_enabled: bool = Field(
+        default=True,
+        description="Auto-spawn overseer health monitor alongside coordinator",
+    )
+    overseer_poll_interval_seconds: int = Field(
+        default=30,
+        ge=5,
+        description="How often overseer checks pipeline health",
+    )
+    overseer_stall_base_threshold_seconds: int = Field(
+        default=120,
+        ge=30,
+        description="Base threshold before Haiku stall classification",
+    )
+    overseer_max_redirects_before_escalation: int = Field(
+        default=2,
+        ge=1,
+        description="Redirect attempts per agent before HITL escalation",
     )
 
 

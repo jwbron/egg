@@ -55,6 +55,8 @@ class AgentRole(StrEnum):
     REVIEWER_UNIFIED = "reviewer_unified"  # Vestigial: kept for backwards compatibility with persisted pipeline state
     # Coordinator role
     COORDINATOR = "coordinator"
+    # Overseer role (pipeline health monitoring)
+    OVERSEER = "overseer"
 
 
 class AgentStatus(StrEnum):
@@ -633,6 +635,31 @@ COORDINATOR_ROLE = AgentRoleDefinition(
 )
 
 
+# Overseer role definition
+OVERSEER_ROLE = AgentRoleDefinition(
+    role=AgentRole.OVERSEER,
+    description="Continuously monitors pipeline health and takes corrective action on stalled or off-track agents",
+    responsibilities=[
+        "Poll agent heartbeats, progress signals, and message bus traffic",
+        "Detect agent stalls via adaptive threshold with Haiku classification",
+        "Send nudge and redirect messages to stalled or off-track agents",
+        "Escalate to HITL decision queue after max redirects exhausted",
+        "File GitHub issues with structured diagnostics for unresolved problems",
+        "Monitor all agents including the coordinator",
+        "Produce pipeline health summary at completion",
+        "Detect and report own malfunctions",
+    ],
+    dependencies=[],  # Overseer runs independently
+    file_access=FileAccessPattern(
+        allowed_read=[],  # No repo access (no repo mounted)
+        allowed_write=[],  # No repo access (no repo mounted)
+    ),
+    can_run_in_parallel=True,  # Runs alongside all other agents
+    produces_outputs=["health_summary", "oversight_log"],
+    requires_inputs=[],
+)
+
+
 # Registry of all agent roles
 AGENT_ROLES: dict[AgentRole, AgentRoleDefinition] = {
     # Implement-phase roles
@@ -648,6 +675,8 @@ AGENT_ROLES: dict[AgentRole, AgentRoleDefinition] = {
     AgentRole.REFINER: REFINER_ROLE,
     # Coordinator role
     AgentRole.COORDINATOR: COORDINATOR_ROLE,
+    # Overseer role
+    AgentRole.OVERSEER: OVERSEER_ROLE,
     # Reviewer roles
     AgentRole.REVIEWER_CODE: REVIEWER_CODE_ROLE,
     AgentRole.REVIEWER_CONTRACT: REVIEWER_CONTRACT_ROLE,
