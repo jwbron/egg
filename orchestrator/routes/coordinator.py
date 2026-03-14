@@ -761,10 +761,7 @@ def advance_phase(pipeline_id: str) -> tuple[Response, int]:
 
             # Enforce HITL gates: when enabled, the coordinator cannot
             # advance past refine/plan without an approved phase_gate decision.
-            if (
-                pipeline.config.hitl_gates
-                and previous_phase.value in _HITL_GATE_PHASES
-            ):
+            if pipeline.config.hitl_gates and previous_phase.value in _HITL_GATE_PHASES:
                 has_approved_gate = any(
                     d.decision_type == "phase_gate"
                     and d.phase == previous_phase
@@ -783,9 +780,7 @@ def advance_phase(pipeline_id: str) -> tuple[Response, int]:
                     if not has_pending_gate:
                         dq = get_decision_queue(pipeline_id, repo_path)
                         phase_label = (
-                            "analysis"
-                            if previous_phase.value == "refine"
-                            else previous_phase.value
+                            "analysis" if previous_phase.value == "refine" else previous_phase.value
                         )
                         dq.queue_decision(
                             question=(
