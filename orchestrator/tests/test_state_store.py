@@ -100,17 +100,58 @@ class TestPipelineCreation:
         assert pipeline.config.max_review_cycles == 5
 
     def test_create_duplicate_pipeline_fails(self, state_store):
-        """Test creating duplicate pipeline raises error."""
+        """Test creating duplicate running pipeline raises error."""
         state_store.create_pipeline(
             issue_number=496,
             repo="owner/repo",
             branch="egg/issue-496",
         )
-        with pytest.raises(StateStoreError):
+        with pytest.raises(StateStoreError, match="already exists"):
             state_store.create_pipeline(
                 issue_number=496,
                 repo="owner/repo",
                 branch="egg/issue-496",
+            )
+
+    @pytest.mark.parametrize("terminal_status", [
+        PipelineStatus.CANCELLED,
+        PipelineStatus.FAILED,
+        PipelineStatus.COMPLETE,
+    ])
+    def test_create_replaces_terminal_pipeline(self, state_store, terminal_status):
+        """Test creating pipeline replaces existing one in terminal state."""
+        pipeline = state_store.create_pipeline(
+            issue_number=500,
+            repo="owner/repo",
+            branch="egg/issue-500",
+        )
+        # Transition to terminal status
+        state_store.update_pipeline(pipeline.id, {"status": terminal_status.value})
+
+        # Creating again should succeed by replacing the old one
+        new_pipeline = state_store.create_pipeline(
+            issue_number=500,
+            repo="owner/repo",
+            branch="egg/issue-500-v2",
+        )
+        assert new_pipeline.id == "issue-500"
+        assert new_pipeline.status == PipelineStatus.PENDING
+        assert new_pipeline.branch == "egg/issue-500-v2"
+
+    def test_create_does_not_replace_running_pipeline(self, state_store):
+        """Test creating pipeline does NOT replace an active (running) one."""
+        pipeline = state_store.create_pipeline(
+            issue_number=501,
+            repo="owner/repo",
+            branch="egg/issue-501",
+        )
+        state_store.update_pipeline(pipeline.id, {"status": "running"})
+
+        with pytest.raises(StateStoreError, match="already exists"):
+            state_store.create_pipeline(
+                issue_number=501,
+                repo="owner/repo",
+                branch="egg/issue-501",
             )
 
     def test_create_pipeline_with_network_mode(self, state_store):

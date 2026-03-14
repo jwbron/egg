@@ -690,7 +690,21 @@ class StateStore:
                 pipeline_id = f"pipeline-{os.urandom(4).hex()}"
 
         if self.pipeline_exists(pipeline_id):
-            raise StateStoreError(f"Pipeline {pipeline_id} already exists")
+            existing = self.load_pipeline(pipeline_id)
+            terminal = {
+                PipelineStatus.CANCELLED,
+                PipelineStatus.FAILED,
+                PipelineStatus.COMPLETE,
+            }
+            if existing.status in terminal:
+                logger.info(
+                    "Replacing terminal pipeline %s (status=%s)",
+                    pipeline_id,
+                    existing.status.value,
+                )
+                self.delete_pipeline(pipeline_id, commit=True)
+            else:
+                raise StateStoreError(f"Pipeline {pipeline_id} already exists")
 
         pipeline = Pipeline(
             id=pipeline_id,
