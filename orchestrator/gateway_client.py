@@ -620,7 +620,7 @@ class GatewayClient:
             session = self.register_session(
                 container_id=temp_container_id,
                 container_ip=self.self_ip,
-                mode="local",
+                mode="public",
                 pipeline_id=pipeline_id,
             )
             session_token = session.session_token
@@ -686,7 +686,7 @@ class GatewayClient:
             session = self.register_session(
                 container_id=temp_container_id,
                 container_ip=self.self_ip,
-                mode="local",
+                mode="public",
                 pipeline_id=pipeline_id,
             )
             session_token = session.session_token
@@ -763,7 +763,7 @@ class GatewayClient:
             session = self.register_session(
                 container_id=temp_container_id,
                 container_ip=self.self_ip,
-                mode="local",
+                mode="public",
                 pipeline_id=pipeline_id,
                 phase="pr",
                 repos=[repo],
@@ -829,7 +829,7 @@ class GatewayClient:
             session = self.register_session(
                 container_id=temp_container_id,
                 container_ip=self.self_ip,
-                mode="local",
+                mode="public",
                 pipeline_id=pipeline_id,
             )
             session_token = session.session_token
@@ -888,7 +888,7 @@ class GatewayClient:
             session = self.register_session(
                 container_id=temp_container_id,
                 container_ip=self.self_ip,
-                mode="local",
+                mode="public",
                 pipeline_id=pipeline_id,
             )
             session_token = session.session_token
@@ -948,7 +948,7 @@ class GatewayClient:
             session = self.register_session(
                 container_id=temp_container_id,
                 container_ip=self.self_ip,
-                mode="local",
+                mode="public",
                 pipeline_id=pipeline_id,
             )
             session_token = session.session_token

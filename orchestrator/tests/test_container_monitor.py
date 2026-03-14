@@ -273,7 +273,6 @@ def _make_pipeline_with_coordinator_agent(container_id: str = "coord_agent_123")
     pipeline = Pipeline(
         id="local-99",
         repo="owner/repo",
-        mode="local",
         status=PipelineStatus.RUNNING,
         current_phase=PipelinePhase.IMPLEMENT,
         coordinator_state=CoordinatorState(

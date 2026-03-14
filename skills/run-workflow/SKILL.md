@@ -1,3 +1,10 @@
+---
+name: run-workflow
+description: Guide a full egg pipeline lifecycle — seed prompt, submit, monitor, HITL handling, and completion — using MCP tools (submit_task, get_status, provide_input).
+disable-model-invocation: true
+argument-hint: "[description] [--repo owner/name] [--issue N]"
+---
+
 # Run Workflow
 
 You are guiding the user through a complete egg pipeline lifecycle using MCP tools. Walk through 5 phases: Seed, Submit, Monitor, HITL, and Complete.

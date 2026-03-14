@@ -393,7 +393,6 @@ def run_local_mode(
     try:
         config = {"concurrent_execution": True} if concurrent else None
         pipeline = client.create_pipeline(
-            mode="local",
             prompt=prompt,
             repo=repo,
             network_mode=_detect_network_mode(),
@@ -420,7 +419,7 @@ def run_local_mode(
     print(f"  {GREEN}Pipeline started.{RESET}\n")
 
     # Watch pipeline
-    result = watch_pipeline(client, pipeline_id, pipeline_mode="local")
+    result = watch_pipeline(client, pipeline_id, pipeline_mode="prompt")
     return 0 if result == "complete" else 1
 
 
@@ -445,7 +444,6 @@ def _restart_pipeline(
         issue_number=issue_number,
         repo=repo,
         branch=branch,
-        mode="issue",
         network_mode=network_mode,
         config=config,
     )
@@ -486,7 +484,6 @@ def run_issue_mode(
             issue_number=issue_number,
             repo=repo,
             branch=branch,
-            mode="issue",
             network_mode=network_mode,
             config=config,
         )

@@ -453,7 +453,6 @@ class TestRestartPipelineConcurrentConfig:
             issue_number=1,
             repo="owner/repo",
             branch="egg/issue-1",
-            mode="issue",
             network_mode="public",
             config={"concurrent_execution": True},
         )
@@ -472,7 +471,6 @@ class TestRestartPipelineConcurrentConfig:
             issue_number=2,
             repo="owner/repo",
             branch="egg/issue-2",
-            mode="issue",
             network_mode="private",
             config=None,
         )

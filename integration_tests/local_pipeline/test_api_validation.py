@@ -19,32 +19,6 @@ pytestmark = pytest.mark.integration
 # ---------------------------------------------------------------------------
 
 
-class TestInvalidMode:
-    """Test POST /pipelines with invalid mode."""
-
-    def test_invalid_mode_returns_400(self, orchestrator_url: str) -> None:
-        """Returns 400 with clear error message about valid modes."""
-        resp = requests.post(
-            f"{orchestrator_url}/api/v1/pipelines",
-            json={
-                "mode": "invalid_mode_xyz",
-                "prompt": "Test with invalid mode",
-            },
-            timeout=10,
-        )
-
-        assert resp.status_code == 400, (
-            f"Expected 400 for invalid mode, got {resp.status_code}: {resp.text}"
-        )
-
-        data = resp.json()
-        # Error message should indicate the issue
-        error_msg = data.get("message", "") or data.get("error", "") or str(data)
-        assert "mode" in error_msg.lower() or "invalid" in error_msg.lower(), (
-            f"Error should mention invalid mode: {data}"
-        )
-
-
 class TestMissingRequiredFields:
     """Test POST /pipelines with missing required fields."""
 
@@ -53,7 +27,6 @@ class TestMissingRequiredFields:
         resp = requests.post(
             f"{orchestrator_url}/api/v1/pipelines",
             json={
-                "mode": "local",
                 # Missing "prompt" field
             },
             timeout=10,
@@ -84,21 +57,21 @@ class TestMissingRequiredFields:
             f"Expected 400 for empty body, got {resp.status_code}: {resp.text}"
         )
 
-    def test_issue_mode_missing_issue_number_returns_400(self, orchestrator_url: str) -> None:
-        """Returns 400 when issue mode is used without issue_number."""
+    def test_issue_number_requires_repo_returns_400(self, orchestrator_url: str) -> None:
+        """Returns 400 when issue_number is used without repo."""
         resp = requests.post(
             f"{orchestrator_url}/api/v1/pipelines",
             json={
-                "mode": "issue",
-                "prompt": "Test without issue number",
-                # Missing issue_number for issue mode
+                "prompt": "Test with issue but no repo",
+                "issue_number": 123,
+                # Missing repo for issue pipeline
             },
             timeout=10,
         )
 
-        # Should return 400 for missing issue_number in issue mode
+        # Should return 400 for missing repo with issue_number
         assert resp.status_code == 400, (
-            f"Expected 400 for issue mode without issue_number, got {resp.status_code}"
+            f"Expected 400 for issue_number without repo, got {resp.status_code}"
         )
 
 

@@ -469,12 +469,11 @@ class TestWorktreeDeletion:
 def create_pipeline(
     orchestrator_url: str,
     *,
-    mode: str = "local",
     prompt: str = "Test pipeline",
     config: dict | None = None,
 ) -> tuple[dict, int]:
     """Create a pipeline via the orchestrator API."""
-    body: dict = {"mode": mode, "prompt": prompt}
+    body: dict = {"prompt": prompt}
     if config is not None:
         body["config"] = config
     resp = requests.post(
@@ -778,7 +777,7 @@ class TestWorktreeEdgeCases:
             json={
                 "container_id": container_id,
                 "container_ip": source_ip,
-                "mode": "local",
+                "mode": "public",
                 "repos": ["test-owner/test-repo"],
                 "uid": 1000,
                 "gid": 1000,

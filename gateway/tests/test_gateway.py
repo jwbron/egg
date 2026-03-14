@@ -3724,46 +3724,8 @@ class TestSessionCreateWithPhase:
         assert "pipeline_id" in data["message"].lower()
         assert "non-empty" in data["message"].lower()
 
-    def test_session_create_local_mode_without_repos(self, client, launcher_auth_headers, tmp_path):
-        """Local-mode session succeeds without repos.
-
-        Orchestrator-internal temp sessions (push_worktree_branch, fetch_branch,
-        etc.) use mode="local" without repos — they only need a session token for
-        git authentication, not worktree creation or visibility filtering.
-        """
-        from session_manager import SessionManager
-
-        manager = SessionManager(persistence_file=tmp_path / "sessions.json")
-
-        with patch.object(gateway, "get_session_manager", return_value=manager):
-            response = client.post(
-                "/api/v1/sessions/create",
-                headers=launcher_auth_headers,
-                data=json.dumps(
-                    {
-                        "container_id": "test-container",
-                        "container_ip": "172.18.0.5",
-                        "mode": "local",
-                    }
-                ),
-                content_type="application/json",
-            )
-
-            assert response.status_code == 200
-            data = json.loads(response.data)
-            assert data["success"] is True
-            assert "session_token" in data["data"]
-
-            # Verify session was registered and is usable
-            token = data["data"]["session_token"]
-            session = manager.get_session(token)
-            assert session is not None
-            assert session.mode == "local"
-
-    def test_session_create_non_local_mode_still_requires_repos(
-        self, client, launcher_auth_headers
-    ):
-        """Private/public modes still reject missing repos."""
+    def test_session_create_without_repos_rejected(self, client, launcher_auth_headers):
+        """Sessions without repos are rejected."""
         for mode in ("private", "public"):
             response = client.post(
                 "/api/v1/sessions/create",
@@ -4100,472 +4062,6 @@ class TestWorktreeCreateEndpointResolution:
             assert base == "origin/develop"
 
 
-class TestLocalModeBlocking:
-    """Tests for local SDLC mode blocking across PR endpoints and gh_execute.
-
-    Verifies that:
-    - Endpoints return 403 when session_mode='local' and phase is not 'pr'
-    - Endpoints allow requests when session_mode='local' and phase='pr'
-    - gh_execute only allows PR-related commands in local + PR phase
-    """
-
-    @pytest.fixture
-    def local_mode_headers(self):
-        """Return session headers with local mode and configurable phase."""
-        import sys
-
-        import auth
-
-        def _make_headers(phase: str | None):
-            mock_session = MagicMock()
-            mock_session.mode = "local"
-            mock_session.container_id = "test-container"
-            mock_session.expires_at = None
-            mock_session.phase = phase
-
-            mock_result = SessionValidationResult(valid=True, session=mock_session)
-
-            from private_repo_policy import PrivateRepoPolicyResult
-
-            mock_policy_result = PrivateRepoPolicyResult(
-                allowed=True,
-                reason="Test mode - access allowed",
-                visibility="public",
-            )
-
-            auth._session_manager = None
-            auth._rate_limiter = None
-
-            if "gateway.auth" in sys.modules:
-                sys.modules["gateway.auth"]._session_manager = None
-                sys.modules["gateway.auth"]._rate_limiter = None
-
-            current_session_manager = sys.modules.get("session_manager", session_manager)
-
-            return (
-                {"Authorization": "Bearer test-session-token"},
-                mock_result,
-                mock_policy_result,
-                current_session_manager,
-            )
-
-        return _make_headers
-
-    # --- Blocking tests: phase is not 'pr' ---
-
-    def test_pr_create_blocked_local_mode_implement_phase(self, client, local_mode_headers):
-        """PR create returns 403 in local mode when phase is 'implement'."""
-        headers, mock_result, mock_policy_result, current_session_manager = local_mode_headers(
-            "implement"
-        )
-
-        with (
-            patch.object(
-                current_session_manager, "validate_session_for_request", return_value=mock_result
-            ),
-            patch.object(gateway, "check_private_repo_access", return_value=mock_policy_result),
-        ):
-            response = client.post(
-                "/api/v1/gh/pr/create",
-                headers=headers,
-                data=json.dumps({"repo": "test/repo", "title": "Test PR", "head": "feature"}),
-                content_type="application/json",
-            )
-
-            assert response.status_code == 403
-            data = json.loads(response.data)
-            assert "local" in data["message"].lower()
-
-    def test_pr_comment_blocked_local_mode_no_phase(self, client, local_mode_headers):
-        """PR comment returns 403 in local mode when phase is None."""
-        headers, mock_result, mock_policy_result, current_session_manager = local_mode_headers(None)
-
-        with (
-            patch.object(
-                current_session_manager, "validate_session_for_request", return_value=mock_result
-            ),
-            patch.object(gateway, "check_private_repo_access", return_value=mock_policy_result),
-        ):
-            response = client.post(
-                "/api/v1/gh/pr/comment",
-                headers=headers,
-                data=json.dumps({"repo": "test/repo", "pr_number": 1, "body": "comment"}),
-                content_type="application/json",
-            )
-
-            assert response.status_code == 403
-            data = json.loads(response.data)
-            assert "local" in data["message"].lower()
-
-    def test_pr_edit_blocked_local_mode_implement_phase(self, client, local_mode_headers):
-        """PR edit returns 403 in local mode when phase is 'implement'."""
-        headers, mock_result, mock_policy_result, current_session_manager = local_mode_headers(
-            "implement"
-        )
-
-        with (
-            patch.object(
-                current_session_manager, "validate_session_for_request", return_value=mock_result
-            ),
-            patch.object(gateway, "check_private_repo_access", return_value=mock_policy_result),
-        ):
-            response = client.post(
-                "/api/v1/gh/pr/edit",
-                headers=headers,
-                data=json.dumps({"repo": "test/repo", "pr_number": 1, "title": "New Title"}),
-                content_type="application/json",
-            )
-
-            assert response.status_code == 403
-            data = json.loads(response.data)
-            assert "local" in data["message"].lower()
-
-    def test_pr_close_blocked_local_mode_implement_phase(self, client, local_mode_headers):
-        """PR close returns 403 in local mode when phase is 'implement'."""
-        headers, mock_result, mock_policy_result, current_session_manager = local_mode_headers(
-            "implement"
-        )
-
-        with (
-            patch.object(
-                current_session_manager, "validate_session_for_request", return_value=mock_result
-            ),
-            patch.object(gateway, "check_private_repo_access", return_value=mock_policy_result),
-        ):
-            response = client.post(
-                "/api/v1/gh/pr/close",
-                headers=headers,
-                data=json.dumps({"repo": "test/repo", "pr_number": 1}),
-                content_type="application/json",
-            )
-
-            assert response.status_code == 403
-            data = json.loads(response.data)
-            assert "local" in data["message"].lower()
-
-    def test_gh_execute_blocked_local_mode_no_phase(self, client, local_mode_headers):
-        """gh execute returns 403 in local mode when phase is None."""
-        headers, mock_result, mock_policy_result, current_session_manager = local_mode_headers(None)
-
-        with (
-            patch.object(
-                current_session_manager, "validate_session_for_request", return_value=mock_result
-            ),
-            patch.object(gateway, "check_private_repo_access", return_value=mock_policy_result),
-        ):
-            response = client.post(
-                "/api/v1/gh/execute",
-                headers=headers,
-                data=json.dumps({"args": ["pr", "list"]}),
-                content_type="application/json",
-            )
-
-            assert response.status_code == 403
-            data = json.loads(response.data)
-            assert "local" in data["message"].lower()
-
-    def test_gh_execute_blocked_local_mode_implement_phase(self, client, local_mode_headers):
-        """gh execute returns 403 in local mode when phase is 'implement'."""
-        headers, mock_result, mock_policy_result, current_session_manager = local_mode_headers(
-            "implement"
-        )
-
-        with (
-            patch.object(
-                current_session_manager, "validate_session_for_request", return_value=mock_result
-            ),
-            patch.object(gateway, "check_private_repo_access", return_value=mock_policy_result),
-        ):
-            response = client.post(
-                "/api/v1/gh/execute",
-                headers=headers,
-                data=json.dumps({"args": ["issue", "list"]}),
-                content_type="application/json",
-            )
-
-            assert response.status_code == 403
-
-    # --- Allow tests: phase is 'pr' ---
-
-    def test_pr_create_allowed_local_mode_pr_phase(self, client, local_mode_headers):
-        """PR create succeeds in local mode when phase is 'pr'."""
-        headers, mock_result, mock_policy_result, current_session_manager = local_mode_headers("pr")
-
-        with (
-            patch.object(
-                current_session_manager, "validate_session_for_request", return_value=mock_result
-            ),
-            patch.object(gateway, "check_private_repo_access", return_value=mock_policy_result),
-            patch.object(gateway, "get_github_client") as mock_gh,
-        ):
-            mock_gh_result = MagicMock()
-            mock_gh_result.success = True
-            mock_gh_result.stdout = "https://github.com/test/repo/pull/1"
-            mock_gh_result.stderr = ""
-            mock_gh_result.to_dict.return_value = {
-                "success": True,
-                "stdout": "https://github.com/test/repo/pull/1",
-                "stderr": "",
-            }
-            mock_gh.return_value.execute.return_value = mock_gh_result
-
-            response = client.post(
-                "/api/v1/gh/pr/create",
-                headers=headers,
-                data=json.dumps({"repo": "test/repo", "title": "Test PR", "head": "feature"}),
-                content_type="application/json",
-            )
-
-            assert response.status_code == 200
-
-    def test_pr_comment_allowed_local_mode_pr_phase(self, client, local_mode_headers):
-        """PR comment succeeds in local mode when phase is 'pr'."""
-        headers, mock_result, mock_policy_result, current_session_manager = local_mode_headers("pr")
-
-        with (
-            patch.object(
-                current_session_manager, "validate_session_for_request", return_value=mock_result
-            ),
-            patch.object(gateway, "check_private_repo_access", return_value=mock_policy_result),
-            patch.object(gateway, "get_policy_engine") as mock_policy,
-            patch.object(gateway, "get_github_client") as mock_gh,
-        ):
-            mock_engine = MagicMock()
-            mock_engine.check_pr_ownership.return_value = PolicyResult(
-                allowed=True,
-                reason="PR is owned by bot",
-                details={"author": "bot"},
-            )
-            mock_policy.return_value = mock_engine
-
-            mock_gh_result = MagicMock()
-            mock_gh_result.success = True
-            mock_gh_result.stdout = "comment posted"
-            mock_gh_result.stderr = ""
-            mock_gh.return_value.execute.return_value = mock_gh_result
-
-            response = client.post(
-                "/api/v1/gh/pr/comment",
-                headers=headers,
-                data=json.dumps({"repo": "test/repo", "pr_number": 1, "body": "LGTM"}),
-                content_type="application/json",
-            )
-
-            assert response.status_code == 200
-
-    def test_pr_edit_allowed_local_mode_pr_phase(self, client, local_mode_headers):
-        """PR edit succeeds in local mode when phase is 'pr'."""
-        headers, mock_result, mock_policy_result, current_session_manager = local_mode_headers("pr")
-
-        with (
-            patch.object(
-                current_session_manager, "validate_session_for_request", return_value=mock_result
-            ),
-            patch.object(gateway, "check_private_repo_access", return_value=mock_policy_result),
-            patch.object(gateway, "get_policy_engine") as mock_policy,
-            patch.object(gateway, "get_github_client") as mock_gh,
-        ):
-            mock_engine = MagicMock()
-            mock_engine.check_pr_ownership.return_value = PolicyResult(
-                allowed=True,
-                reason="PR is owned by bot",
-                details={"author": "bot"},
-            )
-            mock_policy.return_value = mock_engine
-
-            mock_gh_result = MagicMock()
-            mock_gh_result.success = True
-            mock_gh_result.stdout = "PR updated"
-            mock_gh_result.stderr = ""
-            mock_gh.return_value.execute.return_value = mock_gh_result
-
-            response = client.post(
-                "/api/v1/gh/pr/edit",
-                headers=headers,
-                data=json.dumps({"repo": "test/repo", "pr_number": 1, "title": "Updated"}),
-                content_type="application/json",
-            )
-
-            assert response.status_code == 200
-
-    def test_pr_close_allowed_local_mode_pr_phase(self, client, local_mode_headers):
-        """PR close succeeds in local mode when phase is 'pr'."""
-        headers, mock_result, mock_policy_result, current_session_manager = local_mode_headers("pr")
-
-        with (
-            patch.object(
-                current_session_manager, "validate_session_for_request", return_value=mock_result
-            ),
-            patch.object(gateway, "check_private_repo_access", return_value=mock_policy_result),
-            patch.object(gateway, "get_policy_engine") as mock_policy,
-            patch.object(gateway, "get_github_client") as mock_gh,
-        ):
-            mock_engine = MagicMock()
-            mock_engine.check_pr_ownership.return_value = PolicyResult(
-                allowed=True,
-                reason="PR is owned by bot",
-                details={"author": "bot"},
-            )
-            mock_policy.return_value = mock_engine
-
-            mock_gh_result = MagicMock()
-            mock_gh_result.success = True
-            mock_gh_result.stdout = "PR closed"
-            mock_gh_result.stderr = ""
-            mock_gh.return_value.execute.return_value = mock_gh_result
-
-            response = client.post(
-                "/api/v1/gh/pr/close",
-                headers=headers,
-                data=json.dumps({"repo": "test/repo", "pr_number": 1}),
-                content_type="application/json",
-            )
-
-            assert response.status_code == 200
-
-    # --- gh_execute scope tests: only PR commands allowed in local + PR phase ---
-
-    def test_gh_execute_allows_pr_list_local_pr_phase(self, client, local_mode_headers):
-        """gh execute allows 'pr list' in local mode during PR phase."""
-        headers, mock_result, mock_policy_result, current_session_manager = local_mode_headers("pr")
-
-        with (
-            patch.object(
-                current_session_manager, "validate_session_for_request", return_value=mock_result
-            ),
-            patch.object(gateway, "check_private_repo_access", return_value=mock_policy_result),
-            patch.object(gateway, "get_github_client") as mock_gh,
-        ):
-            mock_gh_result = MagicMock()
-            mock_gh_result.success = True
-            mock_gh_result.stdout = "PR #1: Feature"
-            mock_gh_result.stderr = ""
-            mock_gh_result.to_dict.return_value = {
-                "success": True,
-                "stdout": "PR #1: Feature",
-                "stderr": "",
-            }
-            mock_gh.return_value.execute.return_value = mock_gh_result
-
-            response = client.post(
-                "/api/v1/gh/execute",
-                headers=headers,
-                data=json.dumps({"args": ["pr", "list"]}),
-                content_type="application/json",
-            )
-
-            assert response.status_code == 200
-
-    def test_gh_execute_allows_pr_view_local_pr_phase(self, client, local_mode_headers):
-        """gh execute allows 'pr view' in local mode during PR phase."""
-        headers, mock_result, mock_policy_result, current_session_manager = local_mode_headers("pr")
-
-        with (
-            patch.object(
-                current_session_manager, "validate_session_for_request", return_value=mock_result
-            ),
-            patch.object(gateway, "check_private_repo_access", return_value=mock_policy_result),
-            patch.object(gateway, "get_github_client") as mock_gh,
-        ):
-            mock_gh_result = MagicMock()
-            mock_gh_result.success = True
-            mock_gh_result.stdout = "PR details"
-            mock_gh_result.stderr = ""
-            mock_gh_result.to_dict.return_value = {
-                "success": True,
-                "stdout": "PR details",
-                "stderr": "",
-            }
-            mock_gh.return_value.execute.return_value = mock_gh_result
-
-            response = client.post(
-                "/api/v1/gh/execute",
-                headers=headers,
-                data=json.dumps({"args": ["pr", "view", "123"]}),
-                content_type="application/json",
-            )
-
-            assert response.status_code == 200
-
-    def test_gh_execute_blocks_issue_edit_local_pr_phase(self, client, local_mode_headers):
-        """gh execute blocks 'issue edit' in local mode during PR phase."""
-        headers, mock_result, mock_policy_result, current_session_manager = local_mode_headers("pr")
-
-        with (
-            patch.object(
-                current_session_manager, "validate_session_for_request", return_value=mock_result
-            ),
-            patch.object(gateway, "check_private_repo_access", return_value=mock_policy_result),
-        ):
-            response = client.post(
-                "/api/v1/gh/execute",
-                headers=headers,
-                data=json.dumps({"args": ["issue", "edit", "1", "--title", "new"]}),
-                content_type="application/json",
-            )
-
-            assert response.status_code == 403
-            data = json.loads(response.data)
-            assert "local" in data["message"].lower()
-
-    def test_gh_execute_blocks_release_create_local_pr_phase(self, client, local_mode_headers):
-        """gh execute blocks 'release create' in local mode during PR phase."""
-        headers, mock_result, mock_policy_result, current_session_manager = local_mode_headers("pr")
-
-        with (
-            patch.object(
-                current_session_manager, "validate_session_for_request", return_value=mock_result
-            ),
-            patch.object(gateway, "check_private_repo_access", return_value=mock_policy_result),
-        ):
-            response = client.post(
-                "/api/v1/gh/execute",
-                headers=headers,
-                data=json.dumps({"args": ["release", "create", "v1.0"]}),
-                content_type="application/json",
-            )
-
-            assert response.status_code == 403
-
-    def test_gh_execute_blocks_repo_edit_local_pr_phase(self, client, local_mode_headers):
-        """gh execute blocks 'repo edit' in local mode during PR phase."""
-        headers, mock_result, mock_policy_result, current_session_manager = local_mode_headers("pr")
-
-        with (
-            patch.object(
-                current_session_manager, "validate_session_for_request", return_value=mock_result
-            ),
-            patch.object(gateway, "check_private_repo_access", return_value=mock_policy_result),
-        ):
-            response = client.post(
-                "/api/v1/gh/execute",
-                headers=headers,
-                data=json.dumps({"args": ["repo", "edit", "--description", "new"]}),
-                content_type="application/json",
-            )
-
-            assert response.status_code == 403
-
-    def test_gh_execute_blocks_api_command_local_pr_phase(self, client, local_mode_headers):
-        """gh execute blocks 'api' command in local mode during PR phase."""
-        headers, mock_result, mock_policy_result, current_session_manager = local_mode_headers("pr")
-
-        with (
-            patch.object(
-                current_session_manager, "validate_session_for_request", return_value=mock_result
-            ),
-            patch.object(gateway, "check_private_repo_access", return_value=mock_policy_result),
-        ):
-            response = client.post(
-                "/api/v1/gh/execute",
-                headers=headers,
-                data=json.dumps({"args": ["api", "repos/test/repo/issues"]}),
-                content_type="application/json",
-            )
-
-            assert response.status_code == 403
-
-
 class TestSessionDeleteByContainerWorktreeCleanup:
     """Tests for DELETE /api/v1/sessions/by-container/<container_id> worktree cleanup."""
 
@@ -4728,21 +4224,21 @@ class TestBranchIsolation:
     """Tests for branch isolation enforcement in pipeline worktree sessions.
 
     Branch isolation applies to all pipeline sessions (identified by pipeline_id),
-    regardless of session_mode. Both "local" and "issue" pipeline modes are covered.
+    regardless of session_mode. Pipeline sessions (with pipeline_id) are restricted.
     Interactive sessions (no pipeline_id) are unrestricted even with worktrees.
     File operations (checkout -- <file>, restore) are always allowed.
     See issue #773.
     """
 
     @pytest.fixture
-    def local_mode_headers(self):
-        """Return session headers with local (pipeline) mode for branch isolation tests."""
+    def pipeline_mode_headers(self):
+        """Return session headers with pipeline mode for branch isolation tests."""
         import sys
 
         import auth
 
         mock_session = MagicMock()
-        mock_session.mode = "local"
+        mock_session.mode = "public"
         mock_session.container_id = "test-container"
         mock_session.expires_at = None
         mock_session.phase = "implement"
@@ -4791,21 +4287,21 @@ class TestBranchIsolation:
             content_type="application/json",
         )
 
-    def test_checkout_branch_blocked_in_pipeline_worktree(self, client, local_mode_headers):
-        """git checkout <branch> should be blocked in pipeline (local mode) worktree."""
+    def test_checkout_branch_blocked_in_pipeline_worktree(self, client, pipeline_mode_headers):
+        """git checkout <branch> should be blocked in pipeline worktree."""
         with patch.object(
             gateway,
             "map_container_path_to_worktree",
             return_value="/home/egg/.egg-worktrees/test-container/test",
         ):
-            response = self._git_execute(client, local_mode_headers, "checkout", ["main"])
+            response = self._git_execute(client, pipeline_mode_headers, "checkout", ["main"])
 
             assert response.status_code == 403
             data = json.loads(response.data)
             assert "branch switching" in data["message"].lower()
             assert "pipeline" in data["message"].lower()
 
-    def test_checkout_b_blocked_in_pipeline_worktree(self, client, local_mode_headers):
+    def test_checkout_b_blocked_in_pipeline_worktree(self, client, pipeline_mode_headers):
         """git checkout -b <branch> should be blocked in pipeline worktree."""
         with patch.object(
             gateway,
@@ -4813,12 +4309,12 @@ class TestBranchIsolation:
             return_value="/home/egg/.egg-worktrees/test-container/test",
         ):
             response = self._git_execute(
-                client, local_mode_headers, "checkout", ["-b", "new-branch", "origin/main"]
+                client, pipeline_mode_headers, "checkout", ["-b", "new-branch", "origin/main"]
             )
 
             assert response.status_code == 403
 
-    def test_checkout_file_allowed_in_worktree(self, client, local_mode_headers):
+    def test_checkout_file_allowed_in_worktree(self, client, pipeline_mode_headers):
         """git checkout -- <file> should be allowed even in pipeline worktree."""
         with (
             patch.object(
@@ -4830,7 +4326,9 @@ class TestBranchIsolation:
         ):
             mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
 
-            response = self._git_execute(client, local_mode_headers, "checkout", ["--", "file.txt"])
+            response = self._git_execute(
+                client, pipeline_mode_headers, "checkout", ["--", "file.txt"]
+            )
 
             assert response.status_code == 200
             assert mock_run.called, "Expected subprocess.run to be called for allowed checkout"
@@ -4839,7 +4337,7 @@ class TestBranchIsolation:
             assert "--" in cmd
             assert "file.txt" in cmd
 
-    def test_checkout_ours_allowed_in_worktree(self, client, local_mode_headers):
+    def test_checkout_ours_allowed_in_worktree(self, client, pipeline_mode_headers):
         """git checkout --ours <file> should be allowed even in pipeline worktree."""
         with (
             patch.object(
@@ -4852,7 +4350,7 @@ class TestBranchIsolation:
             mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
 
             response = self._git_execute(
-                client, local_mode_headers, "checkout", ["--ours", "file.txt"]
+                client, pipeline_mode_headers, "checkout", ["--ours", "file.txt"]
             )
 
             assert response.status_code == 200
@@ -4861,20 +4359,20 @@ class TestBranchIsolation:
             assert "checkout" in cmd
             assert "--ours" in cmd
 
-    def test_switch_blocked_in_pipeline_worktree(self, client, local_mode_headers):
+    def test_switch_blocked_in_pipeline_worktree(self, client, pipeline_mode_headers):
         """git switch should be blocked in pipeline worktree."""
         with patch.object(
             gateway,
             "map_container_path_to_worktree",
             return_value="/home/egg/.egg-worktrees/test-container/test",
         ):
-            response = self._git_execute(client, local_mode_headers, "switch", ["main"])
+            response = self._git_execute(client, pipeline_mode_headers, "switch", ["main"])
 
             assert response.status_code == 403
             data = json.loads(response.data)
             assert "branch switching" in data["message"].lower()
 
-    def test_switch_create_blocked_in_pipeline_worktree(self, client, local_mode_headers):
+    def test_switch_create_blocked_in_pipeline_worktree(self, client, pipeline_mode_headers):
         """git switch --create should be blocked in pipeline worktree."""
         with patch.object(
             gateway,
@@ -4882,12 +4380,12 @@ class TestBranchIsolation:
             return_value="/home/egg/.egg-worktrees/test-container/test",
         ):
             response = self._git_execute(
-                client, local_mode_headers, "switch", ["--create", "new-branch"]
+                client, pipeline_mode_headers, "switch", ["--create", "new-branch"]
             )
 
             assert response.status_code == 403
 
-    def test_checkout_allowed_without_worktree(self, client, local_mode_headers):
+    def test_checkout_allowed_without_worktree(self, client, pipeline_mode_headers):
         """git checkout <branch> should be allowed without a worktree even in pipeline mode."""
         with (
             patch.object(
@@ -4900,7 +4398,7 @@ class TestBranchIsolation:
             mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
 
             response = self._git_execute(
-                client, local_mode_headers, "checkout", ["-b", "new-branch"]
+                client, pipeline_mode_headers, "checkout", ["-b", "new-branch"]
             )
 
             assert response.status_code == 200
@@ -5056,7 +4554,7 @@ class TestBranchIsolation:
                 assert "branch switching" in data["message"].lower()
                 assert "pipeline" in data["message"].lower()
 
-    def test_restore_allowed_in_worktree(self, client, local_mode_headers):
+    def test_restore_allowed_in_worktree(self, client, pipeline_mode_headers):
         """git restore should be allowed in pipeline worktree (file-restore alternative)."""
         with (
             patch.object(
@@ -5069,7 +4567,7 @@ class TestBranchIsolation:
             mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
 
             response = self._git_execute(
-                client, local_mode_headers, "restore", ["--staged", "file.txt"]
+                client, pipeline_mode_headers, "restore", ["--staged", "file.txt"]
             )
 
             assert response.status_code == 200
@@ -5078,7 +4576,7 @@ class TestBranchIsolation:
             assert "restore" in cmd
             assert "--staged" in cmd
 
-    def test_status_allowed_in_worktree(self, client, local_mode_headers):
+    def test_status_allowed_in_worktree(self, client, pipeline_mode_headers):
         """Non-branch-switching operations should be allowed in pipeline worktree."""
         with (
             patch.object(
@@ -5090,7 +4588,7 @@ class TestBranchIsolation:
         ):
             mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
 
-            response = self._git_execute(client, local_mode_headers, "status", ["--porcelain"])
+            response = self._git_execute(client, pipeline_mode_headers, "status", ["--porcelain"])
 
             assert response.status_code == 200
             assert mock_run.called, "Expected subprocess.run to be called for allowed status"

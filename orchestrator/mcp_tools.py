@@ -43,6 +43,10 @@ COORDINATOR_TOOLS = [
                     "type": "integer",
                     "description": "GitHub issue number (optional)",
                 },
+                "branch": {
+                    "type": "string",
+                    "description": "Branch name override (optional). Auto-generated as 'egg/issue-<N>' when issue_number is provided.",
+                },
                 "repo": {
                     "type": "string",
                     "description": "Repository to work on, in owner/name format (e.g. 'myorg/myrepo')",
@@ -192,9 +196,8 @@ class CoordinatorToolHandler:
         }
         if args.get("issue_number"):
             data["issue_number"] = args["issue_number"]
-            data["mode"] = "issue"
+            data["branch"] = args.get("branch") or f"egg/issue-{args['issue_number']}"
         else:
-            data["mode"] = "local"
             data["prompt"] = args["description"]
         if args.get("repo"):
             data["repo"] = args["repo"]
