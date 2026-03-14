@@ -78,7 +78,7 @@
   },
   "decisions": [],
   "created_at": "2026-03-14T19:17:37.901759",
-  "updated_at": "2026-03-14T19:29:18.158696",
+  "updated_at": "2026-03-14T19:29:18.440765",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
@@ -131,6 +131,15 @@
         "container_id": "a202cf532dbe2be4e64fb32b678930015c99f400b40811b95b739699cd057637",
         "task_context": "Create a detailed task breakdown for issue #1059: Implement overseer agent for pipeline health monitoring. Read the issue (gh issue view 1059) and refine outputs in .egg-state/agent-outputs/. Break down into ordered implementation tasks with clear acceptance criteria. Key areas: (1) Add OVERSEER role to AgentRole enums and role definitions, (2) Add overseer config to PipelineConfig, (3) Modify container_spawner.py for overseer spawning, (4) Auto-spawn logic in pipelines.py, (5) Exclude from coordinator_max_agents in coordinator.py, (6) Core overseer monitoring loop, (7) Haiku monitor agents (stall, loop, error, off-track detection), (8) Opus decision-maker integration, (9) Corrective action system (nudge/redirect/HITL/issue/Slack), (10) Self-monitoring, (11) CLAUDE.md overseer section, (12) Oversight logging to .egg-state/oversight/. Write tasks to .egg-state/drafts/.",
         "retry_number": 0
+      },
+      {
+        "role": "risk_analyst",
+        "spawned_at": "2026-03-14T19:29:18.440642",
+        "completed_at": null,
+        "status": "running",
+        "container_id": "8008bcb5d93f014759ac42a21011cb133c0b2fdf91441e991657107ac97346c2",
+        "task_context": "Analyze risks for issue #1059: Implement overseer agent for pipeline health monitoring. Read the issue (gh issue view 1059) and refine outputs in .egg-state/agent-outputs/. Key risks to assess: (1) Overseer token cost — Haiku/Opus calls could be expensive if anomaly detection triggers too frequently, (2) Overseer itself becoming a bottleneck or failure point, (3) False positive stall detection disrupting healthy agents, (4) Circular monitoring — overseer watching coordinator watching overseer, (5) Race conditions with auto-spawn alongside coordinator, (6) Impact on container resource limits, (7) Edge cases in overseer vs mediator boundary, (8) Dependency on shared/egg_agent/ package stability. Write risk analysis to .egg-state/drafts/.",
+        "retry_number": 0
       }
     ],
     "phase_decisions": [
@@ -143,13 +152,14 @@
     ],
     "escalations": [],
     "guardrail_counters": {
-      "total_agents_spawned": 5,
+      "total_agents_spawned": 6,
       "retries_by_role": {
         "refiner": 1,
         "reviewer_refine": 1,
         "reviewer_agent_design": 1,
         "architect": 1,
-        "task_planner": 1
+        "task_planner": 1,
+        "risk_analyst": 1
       },
       "coordinator_respawns": 0,
       "started_at": "2026-03-14T19:17:45.016402"
@@ -157,5 +167,5 @@
   },
   "plan_phase_waves": null,
   "plan_phase_names": null,
-  "version": 17
+  "version": 18
 }
