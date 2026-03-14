@@ -107,7 +107,7 @@
   },
   "decisions": [],
   "created_at": "2026-03-14T08:25:52.790941",
-  "updated_at": "2026-03-14T08:40:33.289424",
+  "updated_at": "2026-03-14T08:40:33.338041",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
@@ -164,8 +164,8 @@
       {
         "role": "task_planner",
         "spawned_at": "2026-03-14T08:38:27.458752",
-        "completed_at": null,
-        "status": "running",
+        "completed_at": "2026-03-14T08:40:27.790650Z",
+        "status": "failed",
         "container_id": "ecc5eaaa9b526dd98d5f1cbae69c9d0d81a84417022b637df51a53a9d6a2db49",
         "task_context": "Create a detailed implementation plan for issue #1059: Overseer agent for pipeline health monitoring. Read the full issue: gh issue view 1059.\n\nBreak the work into 8-12 ordered implementation tasks. For each task provide:\n- Task ID and title\n- Description of what to implement\n- Files to create/modify (verify they exist in the repo)\n- Acceptance criteria\n- Dependencies on other tasks\n- Estimated complexity (S/M/L)\n\nGroup tasks logically:\n1. Role definition & config (OVERSEER enum, PipelineConfig fields, agent_roles.py)\n2. Infrastructure (auto-spawn in orchestrator, container config, guardrail exclusion)  \n3. Core overseer logic (monitoring loop, health checks, stall detection)\n4. Tiered LLM (Haiku monitors, Opus decision-maker via shared/egg_agent/)\n5. Corrective actions (nudge, redirect, HITL escalation, issue filing)\n6. Self-monitoring\n7. CLAUDE.md overseer instructions\n8. Integration testing\n\nWrite the plan to .egg-state/drafts/plan.md. Signal completion when done.",
         "retry_number": 0
@@ -215,5 +215,5 @@
   },
   "plan_phase_waves": null,
   "plan_phase_names": null,
-  "version": 28
+  "version": 29
 }
