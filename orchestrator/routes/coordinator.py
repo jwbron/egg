@@ -253,7 +253,8 @@ def spawn_agent(pipeline_id: str) -> tuple[Response, int]:
                         )
             except (ValueError, KeyError):
                 # Role not found in egg_contracts definitions — allow spawn
-                logger.debug(
+                # but warn since this bypasses a safety check
+                logger.warning(
                     "No role definition found for dependency check, allowing spawn",
                     role=role_str,
                 )

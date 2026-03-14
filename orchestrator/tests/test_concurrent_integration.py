@@ -503,16 +503,17 @@ class TestGetWorktreeBranch:
             assert executor.get_worktree_branch(role) == "egg/issue-999"
 
     def test_get_worktree_branch_fallback(self):
-        """When pipeline.branch is empty, falls back to issue-based name."""
+        """When pipeline.branch is None, falls back to issue-based name."""
         from concurrent_executor import ConcurrentPhaseExecutor
         from models import AgentRole
 
         pipeline = _make_concurrent_pipeline()
-        pipeline.branch = ""  # Clear branch
+        pipeline.branch = None  # Clear branch
+        pipeline.issue_number = 777  # Distinct from default to prove fallback computes
 
         executor = ConcurrentPhaseExecutor(pipeline=pipeline, spawn_fn=MagicMock())
 
         branch = executor.get_worktree_branch(AgentRole.CODER)
-        assert branch == "egg/issue-999"
+        assert branch == "egg/issue-777"
         # Confirm no role suffix
         assert "coder" not in branch
