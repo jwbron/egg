@@ -78,7 +78,7 @@
   },
   "decisions": [],
   "created_at": "2026-03-14T19:17:37.901759",
-  "updated_at": "2026-03-14T19:34:20.047895",
+  "updated_at": "2026-03-14T19:35:01.729631",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
@@ -126,8 +126,8 @@
       {
         "role": "task_planner",
         "spawned_at": "2026-03-14T19:29:18.158574",
-        "completed_at": null,
-        "status": "running",
+        "completed_at": "2026-03-14T19:34:53.625369Z",
+        "status": "complete",
         "container_id": "a202cf532dbe2be4e64fb32b678930015c99f400b40811b95b739699cd057637",
         "task_context": "Create a detailed task breakdown for issue #1059: Implement overseer agent for pipeline health monitoring. Read the issue (gh issue view 1059) and refine outputs in .egg-state/agent-outputs/. Break down into ordered implementation tasks with clear acceptance criteria. Key areas: (1) Add OVERSEER role to AgentRole enums and role definitions, (2) Add overseer config to PipelineConfig, (3) Modify container_spawner.py for overseer spawning, (4) Auto-spawn logic in pipelines.py, (5) Exclude from coordinator_max_agents in coordinator.py, (6) Core overseer monitoring loop, (7) Haiku monitor agents (stall, loop, error, off-track detection), (8) Opus decision-maker integration, (9) Corrective action system (nudge/redirect/HITL/issue/Slack), (10) Self-monitoring, (11) CLAUDE.md overseer section, (12) Oversight logging to .egg-state/oversight/. Write tasks to .egg-state/drafts/.",
         "retry_number": 0
@@ -177,5 +177,5 @@
   },
   "plan_phase_waves": null,
   "plan_phase_names": null,
-  "version": 20
+  "version": 21
 }
