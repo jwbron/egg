@@ -9,7 +9,6 @@ All tests require Docker and are marked with @pytest.mark.integration.
 
 import random
 import subprocess
-import time
 
 import pytest
 import requests

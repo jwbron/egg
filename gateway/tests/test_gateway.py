@@ -3724,9 +3724,7 @@ class TestSessionCreateWithPhase:
         assert "pipeline_id" in data["message"].lower()
         assert "non-empty" in data["message"].lower()
 
-    def test_session_create_without_repos_rejected(
-        self, client, launcher_auth_headers
-    ):
+    def test_session_create_without_repos_rejected(self, client, launcher_auth_headers):
         """Sessions without repos are rejected."""
         for mode in ("private", "public"):
             response = client.post(
@@ -4064,7 +4062,6 @@ class TestWorktreeCreateEndpointResolution:
             assert base == "origin/develop"
 
 
-
 class TestSessionDeleteByContainerWorktreeCleanup:
     """Tests for DELETE /api/v1/sessions/by-container/<container_id> worktree cleanup."""
 
@@ -4329,7 +4326,9 @@ class TestBranchIsolation:
         ):
             mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
 
-            response = self._git_execute(client, pipeline_mode_headers, "checkout", ["--", "file.txt"])
+            response = self._git_execute(
+                client, pipeline_mode_headers, "checkout", ["--", "file.txt"]
+            )
 
             assert response.status_code == 200
             assert mock_run.called, "Expected subprocess.run to be called for allowed checkout"

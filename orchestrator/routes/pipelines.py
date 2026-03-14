@@ -3280,7 +3280,9 @@ def _build_phase_scoped_prompt(
             issue_number=pipeline.issue_number,
             pipeline_id=pipeline_id,
         )
-        draft_rel = _get_draft_path("plan", issue_number=pipeline.issue_number, pipeline_id=pipeline_id)
+        draft_rel = _get_draft_path(
+            "plan", issue_number=pipeline.issue_number, pipeline_id=pipeline_id
+        )
         if draft_text:
             overview = _extract_plan_overview(draft_text)
             if overview:
@@ -7440,6 +7442,7 @@ def start_pipeline(pipeline_id: str) -> tuple[Response, int]:
                         phase_execution.completed_at = datetime.utcnow()
 
                     from routes.phases import PHASE_TRANSITIONS
+
                     transitions = PHASE_TRANSITIONS
                     current_phase = pipeline.current_phase
                     next_phases = transitions.get(current_phase, [])

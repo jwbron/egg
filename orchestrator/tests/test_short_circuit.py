@@ -174,9 +174,7 @@ class TestPhaseTransitions:
 
     def test_validate_refine_to_implement(self):
         """validate_phase_transition accepts REFINE → IMPLEMENT."""
-        is_valid, error = validate_phase_transition(
-            PipelinePhase.REFINE, PipelinePhase.IMPLEMENT
-        )
+        is_valid, error = validate_phase_transition(PipelinePhase.REFINE, PipelinePhase.IMPLEMENT)
         assert is_valid is True
         assert error == ""
 

@@ -238,9 +238,7 @@ def advance_phase(pipeline_id: str) -> tuple[Response, int]:
 
         # Validate transition unless forced
         if not force:
-            is_valid, error = validate_phase_transition(
-                previous_phase, target_phase
-            )
+            is_valid, error = validate_phase_transition(previous_phase, target_phase)
             if not is_valid:
                 return make_error_response(error, status_code=400)
 

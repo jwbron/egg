@@ -383,7 +383,9 @@ class Pipeline(BaseModel):
     It tracks all state needed to orchestrate a pipeline from issue to PR.
     """
 
-    id: str = Field(..., description="Unique pipeline ID (e.g., 'issue-496' or 'pipeline-a1b2c3d4')")
+    id: str = Field(
+        ..., description="Unique pipeline ID (e.g., 'issue-496' or 'pipeline-a1b2c3d4')"
+    )
     issue_number: int | None = Field(default=None, ge=1, description="GitHub issue number")
     repo: str | None = Field(default=None, description="Repository in owner/name format")
     branch: str | None = Field(default=None, description="Work branch name")
