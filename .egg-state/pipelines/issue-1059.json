@@ -95,7 +95,7 @@
     }
   ],
   "created_at": "2026-03-14T06:02:13.851895",
-  "updated_at": "2026-03-14T06:17:57.404296",
+  "updated_at": "2026-03-14T06:21:28.141851",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
@@ -188,8 +188,8 @@
       {
         "role": "reviewer_contract",
         "spawned_at": "2026-03-14T06:17:57.404186",
-        "completed_at": null,
-        "status": "running",
+        "completed_at": "2026-03-14T06:21:21.042199Z",
+        "status": "complete",
         "container_id": "c5486945e615dd7c2e7107a33f84317247a0ed1cf8c827481357275289477f9a",
         "task_context": "Verify implementation of issue #1059 against requirements. The issue specifies 16 success criteria. Verify each is addressed: 1) OVERSEER role exists in both AgentRole enums. 2) Gateway enforces restrictions. 3) Auto-spawned on coordinator pipelines. 4) Does not count against coordinator_max_agents. 5) Detects agent stalls. 6) Uses Haiku for log analysis (Phase 2 - may be deferred). 7) Sends redirect messages. 8) Escalates via HITL. 9) Files GitHub issues (Phase 3 - may be deferred). 10) Monitors all infrastructure. 11) Self-monitoring. 12) Mediator handoff (defer if mediator doesn't exist). 13) No git repo access. 14) Configurable thresholds. 15) Completion summary. 16) CLAUDE.md instructions. Flag which criteria are met, partially met, or deferred to future phases.",
         "retry_number": 0
@@ -230,5 +230,5 @@
   },
   "plan_phase_waves": null,
   "plan_phase_names": null,
-  "version": 28
+  "version": 29
 }
