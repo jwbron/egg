@@ -1,0 +1,164 @@
+{
+  "id": "local-4f361e6d",
+  "issue_number": null,
+  "repo": "jwbron/egg",
+  "branch": null,
+  "mode": "local",
+  "prompt": "Do a wholesale rewrite of the bulk of the readme content to reflect the current state of the repo. Focus on correctness and accuracy of the readme compared to the codebase.",
+  "status": "awaiting_human",
+  "current_phase": "pr",
+  "config": {
+    "auto_create_pr": true,
+    "multi_agent": true,
+    "parallel_agents": true,
+    "max_parallel_agents": 10,
+    "max_review_cycles": 3,
+    "max_hitl_review_cycles": 3,
+    "hitl_gates": true,
+    "allow_short_circuit": true,
+    "enable_parallel_phases": false,
+    "concurrent_execution": false,
+    "max_concurrent_agents": 6,
+    "message_poll_hint_seconds": 30,
+    "consensus_timeout_minutes": 30,
+    "agent_idle_timeout_minutes": 60,
+    "coordinator_enabled": true,
+    "coordinator_max_agents": 10,
+    "coordinator_max_retries_per_role": 2,
+    "coordinator_max_respawns": 2
+  },
+  "phases": {
+    "refine": {
+      "phase": "refine",
+      "status": "awaiting_human",
+      "started_at": "2026-03-13T21:55:59.567483",
+      "work_started_at": "2026-03-13T21:55:59.568085",
+      "completed_at": "2026-03-13T22:08:58.401761",
+      "containers": [
+        {
+          "container_id": "6c3f58a2e0d5521e239777d28148cc2c12b6cdd018c01cb529533ac1d953a884",
+          "container_name": "egg-sandbox-egg-local-4f361e6d-coordinator",
+          "status": "exited",
+          "started_at": "2026-03-13T21:56:00.336321",
+          "exited_at": "2026-03-13T22:08:45.573857",
+          "exit_code": 0,
+          "agent_role": "coordinator",
+          "session_token": null
+        }
+      ],
+      "agents": [
+        {
+          "role": "coordinator",
+          "status": "complete",
+          "container_id": "6c3f58a2e0d5521e239777d28148cc2c12b6cdd018c01cb529533ac1d953a884",
+          "started_at": "2026-03-13T21:56:00.336327",
+          "completed_at": "2026-03-13T22:08:45.577862",
+          "commit": null,
+          "outputs": {},
+          "error": null,
+          "retry_count": 0,
+          "conflicts": [],
+          "plan_phase_id": null
+        }
+      ],
+      "review_cycles": 0,
+      "hitl_review_cycles": 0,
+      "cycle_timings": [
+        {
+          "cycle": 0,
+          "started_at": "2026-03-13T21:55:59.568085",
+          "completed_at": null,
+          "commit_sha": "d6652b71c6bbd0fe4da7c1684156d5100fea85e8"
+        }
+      ],
+      "artifacts": {},
+      "error": null,
+      "hitl_feedback": null,
+      "phase_start_sha": null
+    }
+  },
+  "decisions": [
+    {
+      "id": "decision-1",
+      "question": "The refine phase has completed. Please review the analysis and approve to continue, or provide feedback to request changes.",
+      "context": "**Warning**: No analysis draft was found on the work branch. The agent may not have written the output to the expected path.",
+      "options": [
+        "approve",
+        "request changes"
+      ],
+      "decision_type": "phase_gate",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-03-13T22:08:58.465558",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine"
+    }
+  ],
+  "created_at": "2026-03-13T21:55:55.890887",
+  "updated_at": "2026-03-13T22:08:58.475977",
+  "contract_synced": true,
+  "network_mode": null,
+  "short_circuit": false,
+  "complexity_tier": "mid",
+  "error": null,
+  "coordinator_state": {
+    "workflow_type": "",
+    "agents_spawned": [
+      {
+        "role": "documenter",
+        "spawned_at": "2026-03-13T21:56:26.766260",
+        "completed_at": "2026-03-13T21:59:32.550047Z",
+        "status": "complete",
+        "container_id": "87148fd364304a3424d2913ee4c2319542b4ca2d9956f021564377474a1f1de8",
+        "task_context": "You are in the REFINE phase. Your task: Analyze the jwbron/egg repository and produce a comprehensive outline and draft for a README rewrite. The current README may be outdated — your job is to understand what the codebase ACTUALLY does today and produce accurate content.\n\nSteps:\n1. Read the current README.md to understand what it says now\n2. Read docs/index.md for the documentation hub\n3. Explore the top-level directory structure (ls, key directories like gateway/, sandbox/, shared/, config/, bin/, action/, docs/)\n4. Read key component READMEs in subdirectories\n5. Understand the architecture: what is egg? What does it do? How do the pieces fit together?\n6. Read docs/architecture/ files for system design info\n7. Check pyproject.toml or setup files for project metadata\n8. Produce a draft README in .egg-state/drafts/readme-draft.md that:\n   - Accurately describes what egg is and does\n   - Covers installation/setup if applicable\n   - Documents the major components and their purposes\n   - Reflects the current codebase structure\n   - Is well-organized with clear sections\n   - Focuses on correctness over marketing language\n\nWrite the draft to .egg-state/drafts/readme-draft.md, commit it, and push.",
+        "retry_number": 0
+      },
+      {
+        "role": "documenter",
+        "spawned_at": "2026-03-13T22:01:39.300129",
+        "completed_at": "2026-03-13T22:05:14.294290Z",
+        "status": "complete",
+        "container_id": "7592ab17da08be59d27fe52f3b56005ee04544adb11b7b4996746d062ee68225",
+        "task_context": "You are in the IMPLEMENT phase. Your task: Rewrite the README.md for the jwbron/egg repository to accurately reflect the current state of the codebase.\n\nIMPORTANT: Do a thorough analysis of the codebase FIRST before writing. Do NOT rely on any prior drafts — analyze the repo yourself.\n\nSteps:\n1. Read the current README.md\n2. Read docs/index.md for the documentation navigation hub\n3. Explore the full directory structure to understand all components\n4. Read key files: pyproject.toml/setup.cfg, Makefile, Dockerfile, docker-compose files\n5. Read component READMEs in subdirectories (gateway/, sandbox/, shared/, config/, bin/, action/, docs/)\n6. Read docs/architecture/ for system design\n7. Understand what egg actually is: an autonomous software engineering agent platform that runs in sandboxed Docker containers\n8. Write a complete, accurate README.md that covers:\n   - Project description (what egg is, what it does)\n   - Architecture overview (major components and how they interact)\n   - Key features\n   - Getting started / installation / setup\n   - Directory structure with descriptions\n   - Development workflow\n   - Configuration\n   - Testing\n   - Any other sections that are standard for this type of project\n9. Focus on CORRECTNESS — every claim in the README must be verifiable from the codebase\n10. Keep it well-organized, clear, and professional\n11. Commit the new README.md and push\n\nThe goal is a wholesale rewrite that brings the README in line with what the code actually does today.",
+        "retry_number": 1
+      },
+      {
+        "role": "integrator",
+        "spawned_at": "2026-03-13T22:05:46.022848",
+        "completed_at": "2026-03-13T22:07:35.080711Z",
+        "status": "complete",
+        "container_id": "8759e7f278be6362f707440028cfefcec613600d92aca7638ef42e3724b18512",
+        "task_context": "You are in the PR phase. Your task: Review the README.md changes made by the documenter agent, verify they look correct and complete, then create a PR.\n\nSteps:\n1. Check git log to see recent commits from the documenter\n2. Review the diff of README.md changes (git diff origin/main -- README.md)\n3. Do a quick sanity check — does the README accurately describe the repo structure? Cross-reference with ls and key files.\n4. If there are obvious inaccuracies, fix them before creating the PR\n5. Run any available linters (make lint) to ensure no issues\n6. Create a PR with:\n   - Title: Rewrite README to reflect current codebase state\n   - Body: Describe the wholesale rewrite, what sections were updated, and why\n   - Use: gh pr create --head <branch> --title '...' --body-file /tmp/pr-body.md --base main\n7. Make sure to use --head with the correct remote branch name\n\nThe goal is a clean PR with an accurate, comprehensive README rewrite.",
+        "retry_number": 0
+      }
+    ],
+    "phase_decisions": [
+      {
+        "phase": "implement",
+        "action": "skip",
+        "reason": "Refine phase complete. Documenter analyzed codebase and produced README draft. Skipping plan phase - straightforward docs rewrite task. Advancing to implement.",
+        "decided_at": "2026-03-13T22:01:12.614396"
+      },
+      {
+        "phase": "pr",
+        "action": "skip",
+        "reason": "Implement phase complete. Documenter has written the new README.md. Advancing to PR phase.",
+        "decided_at": "2026-03-13T22:05:35.385176"
+      }
+    ],
+    "escalations": [],
+    "guardrail_counters": {
+      "total_agents_spawned": 3,
+      "retries_by_role": {
+        "documenter": 2,
+        "integrator": 1
+      },
+      "coordinator_respawns": 0,
+      "started_at": "2026-03-13T21:55:59.574683"
+    }
+  },
+  "plan_phase_waves": null,
+  "plan_phase_names": null,
+  "version": 21
+}

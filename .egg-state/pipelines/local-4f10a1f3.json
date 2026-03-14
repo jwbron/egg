@@ -1,0 +1,90 @@
+{
+  "id": "local-4f10a1f3",
+  "issue_number": null,
+  "repo": "jwbron/egg",
+  "branch": null,
+  "mode": "local",
+  "prompt": "Simple test: list the files in the current directory and return the result.",
+  "status": "failed",
+  "current_phase": "refine",
+  "config": {
+    "auto_create_pr": true,
+    "multi_agent": true,
+    "parallel_agents": true,
+    "max_parallel_agents": 10,
+    "max_review_cycles": 3,
+    "max_hitl_review_cycles": 3,
+    "hitl_gates": true,
+    "allow_short_circuit": true,
+    "enable_parallel_phases": true,
+    "concurrent_execution": false,
+    "max_concurrent_agents": 6,
+    "message_poll_hint_seconds": 30,
+    "consensus_timeout_minutes": 30,
+    "agent_idle_timeout_minutes": 60,
+    "coordinator_enabled": true,
+    "coordinator_max_agents": 10,
+    "coordinator_max_retries_per_role": 2,
+    "coordinator_max_respawns": 2
+  },
+  "phases": {
+    "refine": {
+      "phase": "refine",
+      "status": "running",
+      "started_at": "2026-03-13T06:37:20.054154",
+      "work_started_at": "2026-03-13T06:37:27.247974",
+      "completed_at": null,
+      "containers": [],
+      "agents": [],
+      "review_cycles": 0,
+      "hitl_review_cycles": 0,
+      "cycle_timings": [
+        {
+          "cycle": 0,
+          "started_at": "2026-03-13T06:37:20.054579",
+          "completed_at": null,
+          "commit_sha": "9a5526c65e7bade47bf92289d2bd01f4582bc720"
+        },
+        {
+          "cycle": 0,
+          "started_at": "2026-03-13T06:37:25.436589",
+          "completed_at": null,
+          "commit_sha": "9a5526c65e7bade47bf92289d2bd01f4582bc720"
+        },
+        {
+          "cycle": 0,
+          "started_at": "2026-03-13T06:37:27.247974",
+          "completed_at": null,
+          "commit_sha": "9a5526c65e7bade47bf92289d2bd01f4582bc720"
+        }
+      ],
+      "artifacts": {},
+      "error": null,
+      "hitl_feedback": null,
+      "phase_start_sha": null
+    }
+  },
+  "decisions": [],
+  "created_at": "2026-03-13T06:37:19.121027",
+  "updated_at": "2026-03-13T06:37:29.052420",
+  "contract_synced": true,
+  "network_mode": null,
+  "short_circuit": false,
+  "complexity_tier": "mid",
+  "error": "Coordinator failed (exit code 1), max respawns reached",
+  "coordinator_state": {
+    "workflow_type": "",
+    "agents_spawned": [],
+    "phase_decisions": [],
+    "escalations": [],
+    "guardrail_counters": {
+      "total_agents_spawned": 0,
+      "retries_by_role": {},
+      "coordinator_respawns": 2,
+      "started_at": "2026-03-13T06:37:20.063515"
+    }
+  },
+  "plan_phase_waves": null,
+  "plan_phase_names": null,
+  "version": 14
+}
