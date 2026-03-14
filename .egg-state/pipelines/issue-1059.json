@@ -78,7 +78,7 @@
   },
   "decisions": [],
   "created_at": "2026-03-14T18:49:16.888546",
-  "updated_at": "2026-03-14T18:56:37.725756",
+  "updated_at": "2026-03-14T18:56:58.228169",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
@@ -135,8 +135,8 @@
       {
         "role": "reviewer_agent_design",
         "spawned_at": "2026-03-14T18:54:48.355445",
-        "completed_at": null,
-        "status": "running",
+        "completed_at": "2026-03-14T18:56:48.667110Z",
+        "status": "failed",
         "container_id": "678ebe508bac3d5891f0e125a4dfb46022ad25bd546d87f23818afdaa013d8d8",
         "task_context": "Review the agent design for issue #1059 (overseer agent). The refiner is producing output in .egg-state/drafts/refinement.md.\n\nIMPORTANT: Work efficiently — you have limited time.\n\n1. Read the issue: gh issue view 1059 (focus on Design Decisions table and Tiered Architecture section)\n2. QUICKLY skim: orchestrator/health_checks/ directory structure, shared/egg_agent/ (if exists)\n3. Wait for .egg-state/drafts/refinement.md to appear (check every 15s)\n4. Review the agent design aspects:\n   - Is the tiered Haiku/Opus architecture via egg_agent well-structured?\n   - Is the monitoring loop feasible (poll cycle, adaptive stall detection)?\n   - Is the escalation ladder complete (nudge → redirect → HITL → issue → Slack)?\n   - Is the overseer-coordinator boundary clear?\n   - Is self-monitoring viable?\n5. Write review to .egg-state/agent-outputs/review_agent_design.md\n6. Commit and push\n\nPrioritize writing your review over exhaustive research.",
         "retry_number": 1
@@ -157,5 +157,5 @@
   },
   "plan_phase_waves": null,
   "plan_phase_names": null,
-  "version": 19
+  "version": 20
 }
