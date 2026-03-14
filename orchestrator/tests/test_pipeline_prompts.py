@@ -418,7 +418,7 @@ class TestBuildPhasePromptPlanEmbedding:
             result = _build_phase_prompt(
                 phase="implement",
                 pipeline_id="test-pid",
-                pipeline_mode="local",
+                pipeline_mode="issue",
                 prompt="Build a widget",
                 repo_path=tmpdir,
             )
@@ -433,7 +433,7 @@ class TestBuildPhasePromptPlanEmbedding:
         result = _build_phase_prompt(
             phase="implement",
             pipeline_id="test-pid",
-            pipeline_mode="local",
+            pipeline_mode="issue",
             prompt="Build a widget",
             repo_path=None,
         )
@@ -465,7 +465,7 @@ class TestBuildPhasePromptPlanEmbedding:
             result = _build_phase_prompt(
                 phase="implement",
                 pipeline_id="test-pid",
-                pipeline_mode="local",
+                pipeline_mode="issue",
                 prompt="Build a widget",
                 repo_path=tmpdir,
             )
@@ -486,7 +486,7 @@ class TestBuildPhasePromptRevisionMode:
             result = _build_phase_prompt(
                 phase="implement",
                 pipeline_id="test-pid",
-                pipeline_mode="local",
+                pipeline_mode="issue",
                 prompt="Build a widget",
                 repo_path=tmpdir,
                 review_cycle=1,
@@ -501,7 +501,7 @@ class TestBuildPhasePromptRevisionMode:
         result = _build_phase_prompt(
             phase="implement",
             pipeline_id="test-pid",
-            pipeline_mode="local",
+            pipeline_mode="issue",
             prompt="Build a widget with many features",
             review_cycle=1,
             review_feedback="Fix naming",
@@ -514,7 +514,7 @@ class TestBuildPhasePromptRevisionMode:
         result = _build_phase_prompt(
             phase="implement",
             pipeline_id="test-pid",
-            pipeline_mode="local",
+            pipeline_mode="issue",
             prompt="Build a widget",
             review_cycle=1,
             review_feedback="Fix the naming convention",
@@ -528,7 +528,7 @@ class TestBuildPhasePromptRevisionMode:
         result = _build_phase_prompt(
             phase="implement",
             pipeline_id="test-pid",
-            pipeline_mode="local",
+            pipeline_mode="issue",
             prompt="Build a widget",
             review_cycle=1,
             review_feedback="Variable naming is inconsistent",
@@ -541,7 +541,7 @@ class TestBuildPhasePromptRevisionMode:
         result = _build_phase_prompt(
             phase="implement",
             pipeline_id="test-pid",
-            pipeline_mode="local",
+            pipeline_mode="issue",
             prompt="Build a widget with many features",
             review_cycle=0,
         )
@@ -553,7 +553,7 @@ class TestBuildPhasePromptRevisionMode:
         result = _build_phase_prompt(
             phase="implement",
             pipeline_id="test-pid",
-            pipeline_mode="local",
+            pipeline_mode="issue",
             prompt="Build a widget with many features",
             review_cycle=1,
             review_feedback=None,
@@ -1619,7 +1619,7 @@ class TestNamespacedOutputFilenames:
             role_value="architect",
             phase="plan",
             pipeline_id="local-abc123",
-            pipeline_mode="local",
+            pipeline_mode="issue",
             prompt="# Feature",
             issue_number=None,
         )
@@ -2062,7 +2062,7 @@ class TestTesterGapFindingPrompts:
         result = _build_phase_prompt(
             phase="implement",
             pipeline_id="test-pid",
-            pipeline_mode="local",
+            pipeline_mode="issue",
             prompt="Build a widget",
             review_cycle=1,
             review_feedback="Fix the naming convention",
@@ -2083,7 +2083,7 @@ class TestTesterGapFindingPrompts:
         result = _build_phase_prompt(
             phase="implement",
             pipeline_id="test-pid",
-            pipeline_mode="local",
+            pipeline_mode="issue",
             prompt="Build a widget",
             review_cycle=1,
             review_feedback=feedback,
@@ -2098,7 +2098,7 @@ class TestTesterGapFindingPrompts:
         result = _build_phase_prompt(
             phase="implement",
             pipeline_id="test-pid",
-            pipeline_mode="local",
+            pipeline_mode="issue",
             prompt="Build a widget",
             review_cycle=1,
             review_feedback=None,
@@ -2113,7 +2113,7 @@ class TestTesterGapFindingPrompts:
         result = _build_phase_prompt(
             phase="implement",
             pipeline_id="test-pid",
-            pipeline_mode="local",
+            pipeline_mode="issue",
             prompt="Build a widget",
             review_cycle=1,
             review_feedback=feedback,
@@ -2194,7 +2194,7 @@ class TestAutofixPromptNamespaced:
         """Falls back to pipeline_id when issue_number is None."""
         result = _build_autofix_prompt(
             pipeline_id="local-abc",
-            pipeline_mode="local",
+            pipeline_mode="issue",
             check_results={"checks": []},
             issue_number=None,
         )
@@ -2312,14 +2312,14 @@ class TestSynthesizePlanDraftNamespaced:
 
         assert draft_path.read_text() == "Existing plan from task_planner"
 
-    def test_local_mode_uses_pipeline_id(self, tmp_path):
-        """In local mode, uses pipeline_id for both draft path and output lookup."""
+    def test_uses_pipeline_id_without_issue_number(self, tmp_path):
+        """Without issue_number, uses pipeline_id for both draft path and output lookup."""
         drafts_dir = tmp_path / ".egg-state" / "drafts"
         drafts_dir.mkdir(parents=True)
 
         outputs_dir = tmp_path / ".egg-state" / "agent-outputs"
         outputs_dir.mkdir(parents=True)
-        long_content = "Local mode architecture analysis with detailed design decisions, component interactions, and implementation strategy"
+        long_content = "Architecture analysis with detailed design decisions, component interactions, and implementation strategy"
         (outputs_dir / "local-abc-architect-output.json").write_text(
             json.dumps({"content": long_content})
         )
@@ -2327,7 +2327,7 @@ class TestSynthesizePlanDraftNamespaced:
         _synthesize_plan_draft(
             repo_path=tmp_path,
             pipeline_id="local-abc",
-            pipeline_mode="local",
+            pipeline_mode="issue",
             issue_number=None,
         )
 
@@ -2568,12 +2568,12 @@ class TestBuildReviewPrompt:
         )
         assert "## Prior Review Feedback" not in prompt
 
-    def test_local_pipeline_mode_verdict_path(self):
-        """Local pipeline mode uses pipeline_id in verdict path instead of issue number."""
+    def test_pipeline_id_in_verdict_path_without_issue(self):
+        """Uses pipeline_id in verdict path when no issue number is provided."""
         prompt = _build_review_prompt(
             phase="implement",
             pipeline_id="local-abc12345",
-            pipeline_mode="local",
+            pipeline_mode="issue",
             reviewer_type="code",
         )
         assert "local-abc12345" in prompt

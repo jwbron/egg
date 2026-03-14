@@ -494,73 +494,32 @@ def create_pipeline() -> tuple[Response, int]:
     if not data:
         return make_error_response("Missing request body")
 
-    mode = data.get("mode", "issue")
-
     network_mode = data.get("network_mode")
     if network_mode is not None and network_mode not in ("public", "private"):
         return make_error_response(
             f"Invalid network_mode: {network_mode!r} (must be 'public' or 'private')"
         )
 
-    if mode == "local":
-        # Local mode: prompt and repo required
-        prompt = data.get("prompt")
-        if not prompt:
-            return make_error_response("Missing prompt (required for local mode)")
-        if not data.get("repo"):
-            return make_error_response("Missing repo (required for local mode)")
-
-        # Local pipelines always use the base EGG_REPO_PATH — not a repo-specific
-        # subdirectory — so that list/get/start resolve to the same path.
-        repo_path = Path(os.environ.get("EGG_REPO_PATH", "."))
-        if not repo_path.is_absolute():
-            repo_path = Path.cwd() / repo_path
-
-        try:
-            store = get_state_store(repo_path)
-            pipeline = store.create_pipeline(
-                issue_number=data.get("issue_number"),
-                repo=data.get("repo"),
-                branch=data.get("branch"),
-                config=data.get("config"),
-                mode="local",
-                prompt=prompt,
-                network_mode=network_mode,
-            )
-
-            # Contract creation is deferred to _run_pipeline so it writes
-            # into the per-pipeline worktree instead of the main repo.
-
-            logger.info(
-                "Local pipeline created",
-                pipeline_id=pipeline.id,
-                prompt=prompt[:100],
-            )
-
-            return make_success_response(
-                "Pipeline created",
-                data={"pipeline": pipeline.model_dump(mode="json")},
-            )
-
-        except StateStoreError as e:
-            if "already exists" in str(e):
-                return make_error_response(str(e), status_code=409)
-            logger.error("Failed to create local pipeline", error=str(e))
-            return make_error_response(f"Failed to create pipeline: {e}", status_code=500)
-
-    # Issue mode: existing behavior
     issue_number = data.get("issue_number")
     repo = data.get("repo")
     branch = data.get("branch")
+    prompt = data.get("prompt")
 
-    if not issue_number:
-        return make_error_response("Missing issue_number")
     if not repo:
         return make_error_response("Missing repo")
-    if not branch:
+
+    # Issue-driven pipelines require a branch; prompt-driven ones do not
+    if issue_number and not branch:
         return make_error_response("Missing branch")
 
-    repo_path = get_repo_path()
+    # Prompt-driven pipelines use the base EGG_REPO_PATH so that
+    # list/get/start resolve to the same path.
+    if not issue_number:
+        repo_path = Path(os.environ.get("EGG_REPO_PATH", "."))
+        if not repo_path.is_absolute():
+            repo_path = Path.cwd() / repo_path
+    else:
+        repo_path = get_repo_path()
 
     try:
         store = get_state_store(repo_path)
@@ -569,7 +528,7 @@ def create_pipeline() -> tuple[Response, int]:
             repo=repo,
             branch=branch,
             config=data.get("config"),
-            mode="issue",
+            prompt=prompt,
             network_mode=network_mode,
         )
 
@@ -1263,61 +1222,44 @@ def _get_reviewer_scope_preamble(reviewer_type: str, phase: str) -> str:
 def _verdict_path_for_type(
     phase: str,
     reviewer_type: str,
-    pipeline_mode: str,
     issue_number: int | None = None,
     pipeline_id: str | None = None,
     plan_phase_id: str | None = None,
 ) -> str:
     """Return the relative verdict file path for a given reviewer type.
 
-    For issue mode, uses issue number as prefix (e.g., 123-implement-code-review.json).
-    For local mode, uses pipeline_id as prefix (e.g., local-abc12345-refine-refine-review.json).
+    Uses issue_number as prefix when available, otherwise pipeline_id.
 
     When plan_phase_id is provided (Tier 3 phase-level dispatch), it is included
     in the path to avoid race conditions between parallel phase reviewers:
     e.g., 123-implement-phase-1-code-review.json.
     """
     phase_segment = f"{phase}-{plan_phase_id}" if plan_phase_id else phase
-    if pipeline_mode == "local":
-        prefix = pipeline_id if pipeline_id else "local"
-        return f".egg-state/reviews/{prefix}-{phase_segment}-{reviewer_type}-review.json"
-    else:
-        return f".egg-state/reviews/{issue_number}-{phase_segment}-{reviewer_type}-review.json"
+    prefix = _pipeline_identifier(issue_number, pipeline_id or "unknown")
+    return f".egg-state/reviews/{prefix}-{phase_segment}-{reviewer_type}-review.json"
 
 
 def _get_draft_path(
     phase: str,
-    pipeline_mode: str,
     issue_number: int | None = None,
     pipeline_id: str | None = None,
 ) -> str | None:
     """Return relative path to the draft file for a phase.
 
-    For issue mode, uses issue number as prefix (e.g., 123-analysis.md).
-    For local mode, uses pipeline_id as prefix (e.g., local-abc12345-analysis.md).
+    Uses issue_number as prefix when available, otherwise pipeline_id.
     """
-    is_local = pipeline_mode == "local"
-    if is_local:
-        prefix = pipeline_id if pipeline_id else "local"
-        if phase == "refine":
-            return f".egg-state/drafts/{prefix}-analysis.md"
-        elif phase == "implement":
-            return None
-        else:
-            return f".egg-state/drafts/{prefix}-{phase}.md"
+    prefix = _pipeline_identifier(issue_number, pipeline_id or "unknown")
+    if phase == "refine":
+        return f".egg-state/drafts/{prefix}-analysis.md"
+    elif phase == "implement":
+        return None
     else:
-        if phase == "refine":
-            return f".egg-state/drafts/{issue_number}-analysis.md"
-        elif phase == "implement":
-            return None
-        else:
-            return f".egg-state/drafts/{issue_number}-{phase}.md"
+        return f".egg-state/drafts/{prefix}-{phase}.md"
 
 
 def _read_phase_draft(
     repo_path: Path,
     phase: str,
-    pipeline_mode: str,
     issue_number: int | None = None,
     pipeline_id: str | None = None,
     max_chars: int = 32000,
@@ -1327,7 +1269,7 @@ def _read_phase_draft(
     Returns None when the draft cannot be found (no path configured or
     file missing on disk).
     """
-    draft_rel = _get_draft_path(phase, pipeline_mode, issue_number, pipeline_id)
+    draft_rel = _get_draft_path(phase, issue_number=issue_number, pipeline_id=pipeline_id)
     if not draft_rel:
         return None
     draft_path = repo_path / draft_rel
@@ -1542,10 +1484,8 @@ def _render_contract_tasks(
     except ImportError:
         return None
 
-    # Mirror _populate_contract_from_plan logic for contract identifier
-    contract_id: int | str = pipeline_id
-    if pipeline_mode != "local" and issue_number:
-        contract_id = issue_number
+    # Use issue_number as contract identifier when available
+    contract_id: int | str = _pipeline_identifier(issue_number, pipeline_id)
 
     try:
         contract = load_contract(contract_id, Path(repo_path))
@@ -1583,7 +1523,7 @@ def _check_short_circuit_signal(
     Looks for the *last* fenced YAML block containing ``short_circuit: true``
     in the analysis.  Returns True if found.
     """
-    draft_rel = _get_draft_path("refine", pipeline_mode, issue_number, pipeline_id)
+    draft_rel = _get_draft_path("refine", issue_number=issue_number, pipeline_id=pipeline_id)
     if not draft_rel:
         return False
     draft_path = repo_path / draft_rel
@@ -1623,7 +1563,7 @@ def _check_high_complexity_signal(
         complexity_tier is one of "low", "mid", "high".
         Defaults to ("mid", False) if no signal is found.
     """
-    draft_rel = _get_draft_path("refine", pipeline_mode, issue_number, pipeline_id)
+    draft_rel = _get_draft_path("refine", issue_number=issue_number, pipeline_id=pipeline_id)
     if not draft_rel:
         return "mid", False
     draft_path = repo_path / draft_rel
@@ -1682,14 +1622,13 @@ def _build_review_prompt(
     Tells the reviewer to evaluate the draft for the given phase and write
     a typed verdict JSON file to .egg-state/reviews/.
     """
-    draft_path = _get_draft_path(phase, pipeline_mode, issue_number, pipeline_id)
+    draft_path = _get_draft_path(phase, issue_number=issue_number, pipeline_id=pipeline_id)
 
     verdict_path = _verdict_path_for_type(
         phase,
         reviewer_type,
-        pipeline_mode,
-        issue_number,
-        pipeline_id,
+        issue_number=issue_number,
+        pipeline_id=pipeline_id,
         plan_phase_id=plan_phase_id,
     )
 
@@ -1914,9 +1853,8 @@ def _read_review_verdict(
     verdict_rel = _verdict_path_for_type(
         phase,
         reviewer_type,
-        pipeline_mode,
-        issue_number,
-        pipeline_id,
+        issue_number=issue_number,
+        pipeline_id=pipeline_id,
         plan_phase_id=plan_phase_id,
     )
     verdict_file = repo_path / verdict_rel
@@ -2479,17 +2417,13 @@ def _build_phase_prompt(
     """Build a phase-specific prompt for the sandbox Claude invocation.
 
     Follows a structured prompt format:
-    Context → Task → Restrictions → Completion.  Adapted for the
-    orchestrator (local mode has no GitHub issue, contract, or PR).
+    Context → Task → Restrictions → Completion.
     """
-    is_local = pipeline_mode == "local"
-
     # --- Context header ---
     lines = [f"You are in the **{phase}** phase of the SDLC pipeline.\n"]
     lines.append("## Context\n")
     lines.append(f"Pipeline ID: {pipeline_id}")
     lines.append(f"Phase: {phase}")
-    lines.append(f"Mode: {pipeline_mode}")
     if repo:
         lines.append(f"Repository: {repo}")
     if branch:
@@ -2529,8 +2463,8 @@ def _build_phase_prompt(
     lines.append("## Your Task\n")
 
     # Get the correct draft path based on mode
-    analysis_path = _get_draft_path("refine", pipeline_mode, issue_number, pipeline_id)
-    plan_path = _get_draft_path("plan", pipeline_mode, issue_number, pipeline_id)
+    analysis_path = _get_draft_path("refine", issue_number=issue_number, pipeline_id=pipeline_id)
+    plan_path = _get_draft_path("plan", issue_number=issue_number, pipeline_id=pipeline_id)
 
     if phase == "refine":
         lines.extend(
@@ -2730,7 +2664,6 @@ def _build_phase_prompt(
             draft_text = _read_phase_draft(
                 Path(repo_path),
                 draft_phase,
-                pipeline_mode,
                 issue_number=issue_number,
                 pipeline_id=pipeline_id,
             )
@@ -2844,7 +2777,7 @@ def _build_phase_prompt(
 
     # --- Phase restrictions ---
     lines.append("## Phase Restrictions\n")
-    if is_local and phase in ("refine", "plan"):
+    if issue_number is None and phase in ("refine", "plan"):
         lines.extend(
             [
                 "In this phase:",
@@ -2860,7 +2793,7 @@ def _build_phase_prompt(
                 "",
             ]
         )
-    elif is_local and phase == "implement":
+    elif issue_number is None and phase == "implement":
         lines.extend(
             [
                 "In this phase:",
@@ -3115,7 +3048,7 @@ def _build_agent_prompt(
             ]
         )
     elif role_value == "task_planner":
-        draft_path = _get_draft_path("plan", pipeline_mode, issue_number, pipeline_id)
+        draft_path = _get_draft_path("plan", issue_number=issue_number, pipeline_id=pipeline_id)
         lines.extend(
             [
                 "Decompose the architecture analysis into a single-PR implementation plan.",
@@ -3344,11 +3277,12 @@ def _build_phase_scoped_prompt(
         draft_text = _read_phase_draft(
             worktree_repo_path,
             "plan",
-            pipeline_mode,
             issue_number=pipeline.issue_number,
             pipeline_id=pipeline_id,
         )
-        draft_rel = _get_draft_path("plan", pipeline_mode, pipeline.issue_number, pipeline_id)
+        draft_rel = _get_draft_path(
+            "plan", issue_number=pipeline.issue_number, pipeline_id=pipeline_id
+        )
         if draft_text:
             overview = _extract_plan_overview(draft_text)
             if overview:
@@ -3474,7 +3408,7 @@ def _run_tier3_implement(
         save_contract,
     )
 
-    pipeline_mode = pipeline.mode or "issue"
+    pipeline_mode = "issue" if pipeline.issue_number is not None else "prompt"
     contract_key = _pipeline_identifier(pipeline.issue_number, pipeline_id)
 
     # Ensure contract exists in the worktree.  Agent git checkout in a
@@ -4260,7 +4194,7 @@ def _run_multi_agent_phase(
     from egg_contracts.orchestration import initialize_orchestration
 
     # Get pipeline mode
-    pipeline_mode = pipeline.mode or "issue"
+    pipeline_mode = "issue" if pipeline.issue_number is not None else "prompt"
 
     # Build agent-specific prompts for all roles in this phase.
     # Note: phase_obj / all_phases are not passed here because Tier 2
@@ -4346,7 +4280,7 @@ def _run_multi_agent_phase(
     # because orchestration state is re-initialized below via
     # initialize_orchestration(), and phase handoff data is persisted
     # separately via save_agent_output().
-    from egg_contracts.loader import contract_exists, create_contract, create_local_contract
+    from egg_contracts.loader import contract_exists, create_contract
 
     contract_key = _pipeline_identifier(pipeline.issue_number, pipeline_id)
     if not contract_exists(contract_key, worktree_repo_path):
@@ -4356,28 +4290,20 @@ def _run_multi_agent_phase(
             phase=phase,
             contract_key=contract_key,
         )
-        if pipeline_mode == "local":
-            create_local_contract(
+        if pipeline.issue_number is not None:
+            issue_url = f"https://github.com/{pipeline.repo}/issues/{pipeline.issue_number}"
+            create_contract(
+                issue_number=pipeline.issue_number,
+                title=f"Issue #{pipeline.issue_number}",
+                url=issue_url,
+                repo_root=worktree_repo_path,
+            )
+        else:
+            create_contract(
                 pipeline_id=str(contract_key),
                 title=(pipeline.prompt or "")[:100],
                 repo_root=worktree_repo_path,
             )
-        else:
-            if pipeline.issue_number is None:
-                logger.error(
-                    "Cannot recreate contract: issue-mode pipeline has no issue_number",
-                    pipeline_id=pipeline_id,
-                )
-                # Fall through — dispatcher will raise ContractNotFoundError
-                # which is handled by the existing catch in the completion handler
-            else:
-                issue_url = f"https://github.com/{pipeline.repo}/issues/{pipeline.issue_number}"
-                create_contract(
-                    issue_number=pipeline.issue_number,
-                    title=f"Issue #{pipeline.issue_number}",
-                    url=issue_url,
-                    repo_root=worktree_repo_path,
-                )
 
     # Create dispatcher and executor.
     # The contract's orchestration state defaults to implement-phase roles
@@ -4480,7 +4406,7 @@ def _run_concurrent_phase(
         from ..concurrent_executor import ConcurrentPhaseExecutor  # type: ignore
 
     phase_str = phase if isinstance(phase, str) else phase.value
-    pipeline_mode = pipeline.mode or "issue"
+    pipeline_mode = "issue" if pipeline.issue_number is not None else "prompt"
 
     # Build per-role prompts (matches _run_multi_agent_phase pattern).
     roles = [AgentRole.CODER, AgentRole.TESTER, AgentRole.DOCUMENTER]
@@ -5424,12 +5350,11 @@ def _synthesize_plan_draft(
     has not already written one) so that _populate_contract_from_plan()
     and the HITL gate can find it.
     """
-    draft_rel = _get_draft_path("plan", pipeline_mode, issue_number, pipeline_id)
+    draft_rel = _get_draft_path("plan", issue_number=issue_number, pipeline_id=pipeline_id)
     if not draft_rel:
         logger.debug(
             "No draft path for plan phase, skipping synthesis",
             pipeline_id=pipeline_id,
-            pipeline_mode=pipeline_mode,
         )
         return
 
@@ -5541,17 +5466,8 @@ def _populate_contract_from_plan(
         logger.warning("egg_contracts not available, skipping contract population")
         return
 
-    # Guard against issue-mode pipelines missing issue_number — _get_draft_path
-    # would produce a path containing literal "None" (e.g. .egg-state/drafts/None-plan.md).
-    if pipeline_mode != "local" and not issue_number:
-        logger.warning(
-            "Issue-mode pipeline missing issue_number, skipping contract population",
-            pipeline_id=pipeline_id,
-        )
-        return
-
-    # Resolve draft path based on pipeline mode
-    draft_rel = _get_draft_path("plan", pipeline_mode, issue_number, pipeline_id)
+    # Resolve draft path
+    draft_rel = _get_draft_path("plan", issue_number=issue_number, pipeline_id=pipeline_id)
     if not draft_rel:
         logger.warning("No draft path for plan phase", pipeline_id=pipeline_id)
         return
@@ -5561,10 +5477,8 @@ def _populate_contract_from_plan(
         logger.warning("Plan draft not found, skipping contract population", path=str(plan_path))
         return
 
-    # For issue mode, use issue number as the contract identifier
-    contract_id: int | str = pipeline_id
-    if pipeline_mode != "local" and issue_number:
-        contract_id = issue_number
+    # Use issue_number as contract identifier when available
+    contract_id: int | str = _pipeline_identifier(issue_number, pipeline_id)
 
     try:
         contract = load_contract(contract_id, repo_path)
@@ -5640,13 +5554,6 @@ def _sync_pipeline_decisions_to_contract(
         logger.warning("egg_contracts not available, skipping decision sync")
         return
 
-    if pipeline_mode != "local" and not issue_number:
-        logger.warning(
-            "Issue-mode pipeline missing issue_number, skipping decision sync",
-            pipeline_id=pipeline_id,
-        )
-        return
-
     # Load pipeline to get its decisions
     store = get_state_store(repo_path)
     try:
@@ -5669,10 +5576,8 @@ def _sync_pipeline_decisions_to_contract(
         logger.debug("No substantive decisions to sync", pipeline_id=pipeline_id)
         return
 
-    # Load contract
-    contract_id: int | str = pipeline_id
-    if pipeline_mode != "local" and issue_number:
-        contract_id = issue_number
+    # Use issue_number as contract identifier when available
+    contract_id: int | str = _pipeline_identifier(issue_number, pipeline_id)
 
     try:
         contract = load_contract(contract_id, repo_path)
@@ -5750,7 +5655,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
         pipeline_id: Pipeline ID
         repo_path: Path to repository
     """
-    from routes.phases import get_phase_transitions
+    from routes.phases import PHASE_TRANSITIONS
 
     # Track which run of the pipeline this thread owns.  If the pipeline
     # is deleted and recreated with the same ID while we're still running,
@@ -5763,8 +5668,8 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
         spawner = get_container_spawner()
         pipeline = store.load_pipeline(pipeline_id)
         run_created_at = pipeline.created_at
-        pipeline_mode = getattr(pipeline, "mode", "issue")
-        transitions = get_phase_transitions(pipeline_mode)
+        pipeline_mode = "issue" if pipeline.issue_number is not None else "prompt"
+        transitions = PHASE_TRANSITIONS
 
         # Apply environment variable overrides for multi-agent config.
         # These come from CLI flags (--multi-agent, --max-parallel) passed
@@ -5782,13 +5687,10 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                     env_max_parallel,
                 )
 
-        # Map pipeline mode to gateway session mode.
+        # Map pipeline to gateway session mode.
         # If the pipeline has an explicit network_mode (e.g. "private"), use it;
-        # otherwise fall back to the default mapping.
-        if pipeline.network_mode:
-            gateway_mode = pipeline.network_mode
-        else:
-            gateway_mode = "local" if pipeline_mode == "local" else "public"
+        # otherwise default to "public".
+        gateway_mode = pipeline.network_mode or "public"
 
         # Parse host repo map for volume mounts.  When the orchestrator
         # runs inside Docker, EGG_REPO_PATH is the *container* path but
@@ -5946,22 +5848,20 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
         # creation so it doesn't pollute the main repo working directory).
         if not pipeline.contract_synced:
             try:
-                if pipeline_mode == "local":
-                    from egg_contracts.loader import create_local_contract
+                from egg_contracts.loader import create_contract
 
-                    create_local_contract(
-                        pipeline_id=pipeline.id,
-                        title=(pipeline.prompt or "")[:100],
-                        repo_root=worktree_repo_path,
-                    )
-                else:
-                    from egg_contracts.loader import create_contract
-
+                if pipeline.issue_number is not None:
                     issue_url = f"https://github.com/{pipeline.repo}/issues/{pipeline.issue_number}"
                     create_contract(
                         issue_number=pipeline.issue_number,
                         title=f"Issue #{pipeline.issue_number}",
                         url=issue_url,
+                        repo_root=worktree_repo_path,
+                    )
+                else:
+                    create_contract(
+                        pipeline_id=pipeline.id,
+                        title=(pipeline.prompt or "")[:100],
                         repo_root=worktree_repo_path,
                     )
                 pipeline.contract_synced = True
@@ -6114,7 +6014,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
             # GATEWAY_URL, RUNTIME_UID/GID, proxy vars, DNS lockdown, and
             # extra_hosts are now handled by the shared build_sandbox_config()
             # inside spawn_agent_container().  Only pipeline-specific vars go here.
-            if gateway_mode in ("private", "local"):
+            if gateway_mode == "private":
                 orchestrator_ip = ORCHESTRATOR_ISOLATED_IP
             else:
                 orchestrator_ip = ORCHESTRATOR_EXTERNAL_IP
@@ -6732,9 +6632,8 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                         verdict_rel = _verdict_path_for_type(
                             current_phase.value,
                             rtype,
-                            pipeline_mode,
-                            pipeline.issue_number,
-                            pipeline_id,
+                            issue_number=pipeline.issue_number,
+                            pipeline_id=pipeline_id,
                         )
                         verdict_path = worktree_repo_path / verdict_rel
                         if verdict_path.exists():
@@ -7071,9 +6970,8 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                 draft_content = _read_phase_draft(
                     worktree_repo_path,
                     current_phase.value,
-                    pipeline_mode,
-                    pipeline.issue_number,
-                    pipeline_id,
+                    issue_number=pipeline.issue_number,
+                    pipeline_id=pipeline_id,
                 )
                 phase_label = "analysis" if current_phase.value == "refine" else current_phase.value
 
@@ -7319,8 +7217,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                 with get_pipeline_state_lock(pipeline_id):
                     pipeline = store.load_pipeline(pipeline_id)
                     pipeline.status = PipelineStatus.COMPLETE
-                    is_local = pipeline_mode == "local"
-                    store.save_pipeline(pipeline, force_commit=is_local)
+                    store.save_pipeline(pipeline, force_commit=(pipeline.issue_number is None))
 
                 # Report pipeline completion to collaborator
                 report_pipeline_status(
@@ -7346,8 +7243,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                     plan_execution.status = PipelineStatus.COMPLETE
                     plan_execution.completed_at = datetime.utcnow()
                     plan_execution.error = "skipped: short-circuit"
-                is_local = pipeline_mode == "local"
-                store.save_pipeline(pipeline, force_commit=is_local)
+                store.save_pipeline(pipeline, force_commit=(pipeline.issue_number is None))
 
             logger.info(
                 "Phase advanced",
@@ -7502,8 +7398,6 @@ def start_pipeline(pipeline_id: str) -> tuple[Response, int]:
             # No pending decisions — the polling thread died (e.g. restart)
             # but the human already resolved everything.  Recover based on
             # the latest phase_gate decision's resolution.
-            from routes.phases import get_phase_transitions
-
             with get_pipeline_state_lock(pipeline_id):
                 pipeline = store.load_pipeline(pipeline_id)
 
@@ -7547,8 +7441,9 @@ def start_pipeline(pipeline_id: str) -> tuple[Response, int]:
                     if phase_execution.completed_at is None:
                         phase_execution.completed_at = datetime.utcnow()
 
-                    pipeline_mode = getattr(pipeline, "mode", "issue")
-                    transitions = get_phase_transitions(pipeline_mode)
+                    from routes.phases import PHASE_TRANSITIONS
+
+                    transitions = PHASE_TRANSITIONS
                     current_phase = pipeline.current_phase
                     next_phases = transitions.get(current_phase, [])
 

@@ -9,7 +9,6 @@ All tests require Docker and are marked with @pytest.mark.integration.
 
 import random
 import subprocess
-import time
 
 import pytest
 import requests
@@ -67,10 +66,9 @@ class TestCreateLocalPipeline:
         assert status == 200, f"Unexpected status {status}: {data}"
         assert data["success"] is True
         pipeline = data["data"]["pipeline"]
-        assert pipeline["mode"] == "local"
         assert pipeline["prompt"] == "Add a logout button to the navbar"
         assert pipeline["status"] == "pending"
-        assert pipeline["id"].startswith("local-")
+        assert pipeline["id"].startswith("pipeline-")
         assert pipeline["current_phase"] == "refine"
 
         # Cleanup
@@ -109,7 +107,6 @@ class TestStartLocalPipelineCompletes:
             assert get_status == 200
             pipeline = get_data["data"]["pipeline"]
             assert pipeline["status"] == "complete"
-            assert pipeline["mode"] == "local"
 
         finally:
             delete_pipeline(orchestrator_url, pipeline_id)
@@ -427,7 +424,6 @@ class TestIssuePipelineIncludesPrPhase:
         issue_num = random.randint(10000, 99999)
         data, status = create_pipeline(
             orchestrator_url,
-            mode="issue",
             prompt="Fix the login bug",
             issue_number=issue_num,
             repo="test-owner/test-repo",
@@ -486,7 +482,6 @@ class TestPipelineCRUD:
             assert get_status == 200
             pipeline = get_data["data"]["pipeline"]
             assert pipeline["id"] == pipeline_id
-            assert pipeline["mode"] == "local"
             assert pipeline["prompt"] == "CRUD test pipeline"
             assert pipeline["status"] == "pending"
 
@@ -518,81 +513,6 @@ class TestPipelineCRUD:
             except requests.RequestException:
                 pass
             raise
-
-
-class TestGatewayLocalModeBlocksPush:
-    """Register a local session, attempt push -> 403."""
-
-    def test_gateway_local_mode_blocks_push(self, local_pipeline_stack) -> None:
-        """Create a local-mode gateway session and verify push is blocked.
-
-        The gateway validates sessions by matching request.remote_addr against
-        the session's container_ip. Since we're sending requests from the test
-        host through a mapped port, we first detect what IP the gateway sees
-        for our requests (via the health endpoint), then bind the session to
-        that IP so session validation passes and the local-mode push block
-        (which happens AFTER session auth) can be tested.
-        """
-        gateway_url = local_pipeline_stack.gateway_url
-        launcher_secret = local_pipeline_stack.launcher_secret
-
-        # Detect the source IP the gateway sees for requests from this host
-        health_resp = requests.get(
-            f"{gateway_url}/api/v1/health",
-            timeout=10,
-        )
-        source_ip = health_resp.json().get("client_ip", "")
-        assert source_ip, "Gateway health endpoint did not return client_ip"
-
-        # Create a local-mode session bound to our actual source IP
-        session_resp = requests.post(
-            f"{gateway_url}/api/v1/sessions/create",
-            headers={"Authorization": f"Bearer {launcher_secret}"},
-            json={
-                "container_id": f"test-push-block-{int(time.time())}",
-                "container_ip": source_ip,
-                "mode": "local",
-                "repos": ["test-owner/test-repo"],
-                "uid": 1000,
-                "gid": 1000,
-            },
-            timeout=10,
-        )
-        session_data = session_resp.json()
-        assert session_data.get("success") is True, f"Session creation failed: {session_data}"
-
-        session_token = session_data.get("data", session_data).get("session_token")
-        assert session_token, f"No session token in response: {session_data}"
-
-        try:
-            # Attempt a push — should be blocked with 403
-            push_resp = requests.post(
-                f"{gateway_url}/api/v1/git/push",
-                headers={"Authorization": f"Bearer {session_token}"},
-                json={
-                    "repo_path": "/home/egg/repos",
-                    "refspec": "egg/test-branch",
-                },
-                timeout=10,
-            )
-
-            assert push_resp.status_code == 403, (
-                f"Expected 403 for local mode push, got {push_resp.status_code}: {push_resp.text}"
-            )
-
-            push_data = push_resp.json()
-            assert (
-                "local" in push_data.get("message", "").lower()
-                or "local" in str(push_data.get("details", {})).lower()
-            ), f"Error message should mention local mode: {push_data}"
-
-        finally:
-            # Cleanup session
-            requests.delete(
-                f"{gateway_url}/api/v1/sessions/{session_token}",
-                headers={"Authorization": f"Bearer {launcher_secret}"},
-                timeout=10,
-            )
 
 
 class TestReviewCycleApproved:

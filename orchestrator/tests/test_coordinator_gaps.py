@@ -773,7 +773,7 @@ class TestMCPToolHandlerGaps:
             assert result["total"] == 0
 
     def test_submit_task_with_issue_number(self):
-        """submit_task with issue sets mode='issue' and auto-generates branch."""
+        """submit_task with issue sets issue_number."""
         handler = CoordinatorToolHandler()
         with patch.object(handler, "_make_request") as mock_req:
             mock_req.return_value = {"data": {"pipeline": {"id": "issue-42"}}}
@@ -781,7 +781,7 @@ class TestMCPToolHandlerGaps:
             # First call is the pipeline create; second is /start
             assert mock_req.call_count == 2
             call_data = mock_req.call_args_list[0][1]["data"]
-            assert call_data["mode"] == "issue"
+            assert "mode" not in call_data
             assert call_data["issue_number"] == 42
             assert call_data["branch"] == "egg/issue-42"
             assert result["task_id"] == "issue-42"
@@ -790,7 +790,7 @@ class TestMCPToolHandlerGaps:
             assert start_call[1]["method"] == "POST"
 
     def test_submit_task_with_issue_and_branch_override(self):
-        """submit_task with issue_number and explicit branch uses the override."""
+        """submit_task with issue_number and explicit branch uses provided branch."""
         handler = CoordinatorToolHandler()
         with patch.object(handler, "_make_request") as mock_req:
             mock_req.return_value = {"data": {"pipeline": {"id": "issue-42"}}}
@@ -798,12 +798,12 @@ class TestMCPToolHandlerGaps:
                 {"description": "Fix bug", "issue_number": 42, "branch": "egg/my-branch"}
             )
             call_data = mock_req.call_args_list[0][1]["data"]
-            assert call_data["mode"] == "issue"
+            assert "mode" not in call_data
             assert call_data["issue_number"] == 42
             assert call_data["branch"] == "egg/my-branch"
 
     def test_submit_task_without_issue_number(self):
-        """submit_task without issue sets mode='local' and includes prompt."""
+        """submit_task without issue includes prompt."""
         handler = CoordinatorToolHandler()
         with patch.object(handler, "_make_request") as mock_req:
             mock_req.return_value = {"data": {"pipeline": {"id": "local-abc123"}}}
@@ -811,7 +811,7 @@ class TestMCPToolHandlerGaps:
             # First call is the pipeline create; second is /start
             assert mock_req.call_count == 2
             call_data = mock_req.call_args_list[0][1]["data"]
-            assert call_data["mode"] == "local"
+            assert "mode" not in call_data
             assert call_data["prompt"] == "Refactor auth"
             start_call = mock_req.call_args_list[1]
             assert "/start" in start_call[0][0]

@@ -12,7 +12,6 @@ import requests
 def create_pipeline(
     orchestrator_url: str,
     *,
-    mode: str = "local",
     prompt: str = "Test pipeline",
     issue_number: int | None = None,
     repo: str | None = None,
@@ -20,7 +19,7 @@ def create_pipeline(
     config: dict | None = None,
 ) -> tuple[dict, int]:
     """Create a pipeline via the orchestrator API."""
-    body: dict = {"mode": mode, "prompt": prompt}
+    body: dict = {"prompt": prompt}
     if issue_number is not None:
         body["issue_number"] = issue_number
     if repo is not None:

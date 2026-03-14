@@ -158,7 +158,7 @@ class ContainerSpawner:
         """Build ContainerNetworkConfig for the given gateway mode.
 
         Args:
-            mode: Gateway mode (public, private, or local)
+            mode: Gateway mode (public or private)
 
         Returns:
             ContainerNetworkConfig with correct network, IPs, and repo_mode.
@@ -170,15 +170,6 @@ class ContainerSpawner:
                 gateway_ip=GATEWAY_ISOLATED_IP,
                 gateway_port=GATEWAY_PORT,
                 repo_mode="private",
-            )
-        elif mode == "local":
-            # Local mode: isolated network but no proxy/DNS lockdown
-            return ContainerNetworkConfig(
-                network_name=EGG_ISOLATED_NETWORK,
-                gateway_hostname=GATEWAY_CONTAINER_NAME,
-                gateway_ip=GATEWAY_ISOLATED_IP,
-                gateway_port=GATEWAY_PORT,
-                repo_mode="public",
             )
         else:  # "public"
             return ContainerNetworkConfig(

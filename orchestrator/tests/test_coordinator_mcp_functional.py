@@ -431,7 +431,7 @@ class TestCoordinatorToolHandler:
         assert mock_req.call_count == 2
         call_data = mock_req.call_args_list[0][1]["data"]
         assert call_data["issue_number"] == 42
-        assert call_data["mode"] == "issue"
+        assert "mode" not in call_data
         assert call_data["branch"] == "egg/issue-42"
         start_call = mock_req.call_args_list[1]
         assert "/start" in start_call[0][0]
@@ -452,6 +452,7 @@ class TestCoordinatorToolHandler:
         )
         assert result["task_id"] == "issue-42"
         call_data = mock_req.call_args_list[0][1]["data"]
+        assert call_data["issue_number"] == 42
         assert call_data["branch"] == "egg/custom-branch"
 
     @patch.object(CoordinatorToolHandler, "_make_request")
@@ -466,7 +467,7 @@ class TestCoordinatorToolHandler:
         # First call is the pipeline create; second is /start
         assert mock_req.call_count == 2
         call_data = mock_req.call_args_list[0][1]["data"]
-        assert call_data["mode"] == "local"
+        assert "mode" not in call_data
         assert call_data["prompt"] == "Improve performance"
         start_call = mock_req.call_args_list[1]
         assert "/start" in start_call[0][0]
@@ -490,7 +491,6 @@ class TestCoordinatorToolHandler:
                         "repo": "owner/repo",
                         "issue_number": 42,
                         "created_at": "2026-03-13T00:00:00Z",
-                        "mode": "local",
                     }
                 }
             },

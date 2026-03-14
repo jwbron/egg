@@ -229,7 +229,7 @@ SESSION_PERSISTENCE_DIR = Path("/home/egg/.egg-state/sessions")
 SESSION_PERSISTENCE_FILE = SESSION_PERSISTENCE_DIR / "sessions.json"
 
 # Mode type alias
-ModeType = Literal["private", "public", "local"]
+ModeType = Literal["private", "public"]
 
 
 def _hash_token(token: str) -> str:

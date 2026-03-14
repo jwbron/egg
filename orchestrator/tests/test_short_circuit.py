@@ -12,7 +12,6 @@ sys.modules.setdefault("docker.types", _docker_mock.types)
 
 from models import Pipeline, PipelineConfig, PipelinePhase, PipelineStatus
 from routes.phases import (
-    LOCAL_PHASE_TRANSITIONS,
     PHASE_TRANSITIONS,
     validate_phase_transition,
 )
@@ -58,17 +57,6 @@ class TestShortCircuitSignalParsing:
     def test_no_signal_when_draft_missing(self, tmp_path: Path):
         """Returns False when the draft file doesn't exist."""
         assert _check_short_circuit_signal(tmp_path, "issue", issue_number=42) is False
-
-    def test_local_mode_signal(self, tmp_path: Path):
-        """Detects signal in local-mode draft."""
-        drafts = tmp_path / ".egg-state" / "drafts"
-        drafts.mkdir(parents=True)
-        (drafts / "pid-123-analysis.md").write_text(
-            "# Analysis\n\n```yaml\n# metadata\nshort_circuit: true\ncomplexity_tier: low\n```\n",
-            encoding="utf-8",
-        )
-
-        assert _check_short_circuit_signal(tmp_path, "local", pipeline_id="pid-123") is True
 
     def test_ignores_yaml_without_short_circuit_key(self, tmp_path: Path):
         """Returns False when YAML block exists but has no short_circuit key."""
@@ -180,27 +168,13 @@ class TestPhaseTransitions:
         """REFINE → IMPLEMENT is valid in issue mode transitions."""
         assert PipelinePhase.IMPLEMENT in PHASE_TRANSITIONS[PipelinePhase.REFINE]
 
-    def test_local_mode_refine_to_implement_valid(self):
-        """REFINE → IMPLEMENT is valid in local mode transitions."""
-        assert PipelinePhase.IMPLEMENT in LOCAL_PHASE_TRANSITIONS[PipelinePhase.REFINE]
-
     def test_refine_to_plan_still_valid(self):
         """REFINE → PLAN remains valid (default path)."""
         assert PipelinePhase.PLAN in PHASE_TRANSITIONS[PipelinePhase.REFINE]
 
     def test_validate_refine_to_implement(self):
         """validate_phase_transition accepts REFINE → IMPLEMENT."""
-        is_valid, error = validate_phase_transition(
-            PipelinePhase.REFINE, PipelinePhase.IMPLEMENT, pipeline_mode="issue"
-        )
-        assert is_valid is True
-        assert error == ""
-
-    def test_validate_refine_to_implement_local(self):
-        """validate_phase_transition accepts REFINE → IMPLEMENT in local mode."""
-        is_valid, error = validate_phase_transition(
-            PipelinePhase.REFINE, PipelinePhase.IMPLEMENT, pipeline_mode="local"
-        )
+        is_valid, error = validate_phase_transition(PipelinePhase.REFINE, PipelinePhase.IMPLEMENT)
         assert is_valid is True
         assert error == ""
 

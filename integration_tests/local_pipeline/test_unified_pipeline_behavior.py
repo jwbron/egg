@@ -1,13 +1,12 @@
-"""Integration tests for unified local/issue pipeline behavior (issue #543).
+"""Integration tests for unified pipeline behavior (issue #543).
 
-Tests verify that local and issue mode pipelines now follow the same
-contract/checkpoint/push discipline with the only difference being
-where initial context comes from.
+Tests verify that pipelines follow the same contract/checkpoint/push
+discipline regardless of how they were created.
 
 Key behaviors tested:
-1. Phase-based push restrictions (not blanket mode-based blocking)
+1. Phase-based push restrictions
 2. Contract creation with pipeline_id key
-3. Checkpoint creation on local-mode pushes
+3. Checkpoint creation on pushes
 4. Prefixed file paths for concurrent pipeline support
 5. Container and agent tracking via API
 6. State persistence at phase boundaries
@@ -39,7 +38,7 @@ class TestLocalPipelineContractCreation:
         )
         assert status == 200
         pipeline_id = data["data"]["pipeline"]["id"]
-        assert pipeline_id.startswith("local-")
+        assert pipeline_id.startswith("pipeline-")
 
         try:
             # Verify contract file path uses pipeline_id
@@ -135,14 +134,14 @@ class TestPhaseBasedPushRestrictions:
         health_resp = requests.get(f"{gateway_url}/api/v1/health", timeout=10)
         source_ip = health_resp.json().get("client_ip", "")
 
-        # Create a local-mode session in refine phase
+        # Create a session in refine phase
         session_resp = requests.post(
             f"{gateway_url}/api/v1/sessions/create",
             headers={"Authorization": f"Bearer {launcher_secret}"},
             json={
                 "container_id": f"test-push-{int(time.time())}",
                 "container_ip": source_ip,
-                "mode": "local",
+                "mode": "public",
                 "phase": "refine",  # Key: setting phase enables per-phase restrictions
                 "repos": ["test-owner/test-repo"],
                 "uid": 1000,

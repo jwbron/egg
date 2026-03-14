@@ -141,13 +141,12 @@ class OrchClient:
         issue_number: int | None = None,
         repo: str | None = None,
         branch: str | None = None,
-        mode: str = "issue",
         prompt: str | None = None,
         config: dict[str, Any] | None = None,
         network_mode: str | None = None,
     ) -> dict[str, Any]:
         """Create a new pipeline."""
-        body: dict[str, Any] = {"mode": mode}
+        body: dict[str, Any] = {}
         if issue_number is not None:
             body["issue_number"] = issue_number
         if repo:

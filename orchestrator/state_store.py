@@ -484,10 +484,10 @@ class StateStore:
         with path.open("w") as f:
             f.write(pipeline.model_dump_json(indent=2))
 
-        # For local pipelines, only commit if force_commit is True (phase boundaries)
-        # For issue pipelines, always commit when commit=True
-        is_local = getattr(pipeline, "mode", "issue") == "local"
-        should_commit = commit and (not is_local or force_commit)
+        # For prompt-driven pipelines (no issue_number), only commit if force_commit
+        # is True (phase boundaries). For issue pipelines, always commit when commit=True.
+        is_prompt_driven = pipeline.issue_number is None
+        should_commit = commit and (not is_prompt_driven or force_commit)
         if should_commit:
             self._commit_state(pipeline, message)
 
@@ -662,7 +662,6 @@ class StateStore:
         repo: str | None = None,
         branch: str | None = None,
         config: dict[str, Any] | None = None,
-        mode: str = "issue",
         prompt: str | None = None,
         pipeline_id: str | None = None,
         network_mode: str | None = None,
@@ -670,12 +669,11 @@ class StateStore:
         """Create a new pipeline.
 
         Args:
-            issue_number: GitHub issue number (required for issue mode)
-            repo: Repository in owner/name format (required for issue mode)
-            branch: Work branch name (required for issue mode)
+            issue_number: GitHub issue number (optional)
+            repo: Repository in owner/name format
+            branch: Work branch name
             config: Optional pipeline configuration
-            mode: Pipeline mode - "issue" or "local"
-            prompt: User prompt (required for local mode)
+            prompt: User prompt (for prompt-driven pipelines)
             pipeline_id: Explicit pipeline ID (auto-generated if not provided)
             network_mode: Network mode for spawned containers ("public", "private", or None)
 
@@ -685,13 +683,11 @@ class StateStore:
         Raises:
             StateStoreError: If pipeline already exists
         """
-        if mode == "local":
-            if not pipeline_id:
-                pipeline_id = f"local-{os.urandom(4).hex()}"
-        else:
-            if not issue_number:
-                raise StateStoreError("issue_number is required for issue-mode pipelines")
-            pipeline_id = pipeline_id or f"issue-{issue_number}"
+        if not pipeline_id:
+            if issue_number:
+                pipeline_id = f"issue-{issue_number}"
+            else:
+                pipeline_id = f"pipeline-{os.urandom(4).hex()}"
 
         if self.pipeline_exists(pipeline_id):
             raise StateStoreError(f"Pipeline {pipeline_id} already exists")
@@ -701,7 +697,6 @@ class StateStore:
             issue_number=issue_number,
             repo=repo,
             branch=branch,
-            mode=mode,
             prompt=prompt,
             network_mode=network_mode,
             # Contract is created separately — mark as unsynced until verified
@@ -713,11 +708,7 @@ class StateStore:
 
             pipeline.config = PipelineConfig.model_validate(config)
 
-        commit_msg = (
-            f"Create local pipeline {pipeline_id}"
-            if mode == "local"
-            else f"Create pipeline for issue #{issue_number}"
-        )
+        commit_msg = f"Create pipeline {pipeline_id}"
         self.save_pipeline(pipeline, message=commit_msg)
         return pipeline
 
