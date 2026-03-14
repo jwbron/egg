@@ -18,6 +18,11 @@ import shlex
 # clean exit without consensus being reached.
 MAX_CONSENSUS_RESTARTS = 2
 
+# Default maximum number of poll cycles to wait for consensus when the agent
+# already signaled READY. With a default poll interval of 30s, this gives
+# 10 * 30 = 300 seconds (5 minutes) for other agents to finish.
+MAX_READY_POLL_CYCLES = 10
+
 # Recovery prompt given to Claude when it is restarted by the wrapper.
 # Placeholders: {restart_number}, {max_restarts}
 _RECOVERY_PROMPT = (
@@ -79,10 +84,11 @@ fi
 
 # --- Check if consensus is already complete or agent already signaled READY ---
 # If the agent signaled READY but then exited (e.g., context exhaustion),
-# restarting is unnecessary. Query consensus state first.
-RESPONSE=$(egg-orch message status --json 2>/dev/null || echo "{{}}")
+# restarting is unnecessary. Query pipeline status for consensus state.
+MAX_READY_POLLS={max_ready_polls}
+RESPONSE=$(egg-orch pipeline status --json 2>/dev/null || echo "{{}}")
 IS_COMPLETE=$(echo "$RESPONSE" | python3 -c \
-    "import sys,json; d=json.load(sys.stdin); print(d.get('data',{{}}).get('consensus',{{}}).get('is_complete',False))" \
+    "import sys,json; d=json.load(sys.stdin); print(d.get('data',{{}}).get('concurrent',{{}}).get('consensus',{{}}).get('is_complete',False))" \
     2>/dev/null || echo "False")
 if [ "$IS_COMPLETE" = "True" ]; then
     echo "[consensus-wrapper] Consensus already reached. Exiting."
@@ -93,18 +99,18 @@ fi
 AGENT_ROLE="${{EGG_AGENT_ROLE:-}}"
 if [ -n "$AGENT_ROLE" ]; then
     AGENT_STATE=$(echo "$RESPONSE" | python3 -c \
-        "import sys,json; d=json.load(sys.stdin); agents=d.get('data',{{}}).get('consensus',{{}}).get('agents',{{}}); print(agents.get('$AGENT_ROLE',{{}}).get('state',''))" \
+        "import sys,json; d=json.load(sys.stdin); agents=d.get('data',{{}}).get('concurrent',{{}}).get('consensus',{{}}).get('agents',{{}}); print(agents.get('$AGENT_ROLE',{{}}).get('state',''))" \
         2>/dev/null || echo "")
     if [ "$AGENT_STATE" = "READY" ]; then
         echo "[consensus-wrapper] Agent already signaled READY. Skipping restart, waiting for consensus..."
         POLL_INTERVAL="${{EGG_MESSAGE_POLL_INTERVAL:-30}}"
         WAIT_COUNT=0
-        while [ "$WAIT_COUNT" -lt "$MAX_RESTARTS" ]; do
+        while [ "$WAIT_COUNT" -lt "$MAX_READY_POLLS" ]; do
             WAIT_COUNT=$((WAIT_COUNT + 1))
             sleep "$POLL_INTERVAL"
-            RESPONSE=$(egg-orch message status --json 2>/dev/null || echo "{{}}")
+            RESPONSE=$(egg-orch pipeline status --json 2>/dev/null || echo "{{}}")
             IS_COMPLETE=$(echo "$RESPONSE" | python3 -c \
-                "import sys,json; d=json.load(sys.stdin); print(d.get('data',{{}}).get('consensus',{{}}).get('is_complete',False))" \
+                "import sys,json; d=json.load(sys.stdin); print(d.get('data',{{}}).get('concurrent',{{}}).get('consensus',{{}}).get('is_complete',False))" \
                 2>/dev/null || echo "False")
             if [ "$IS_COMPLETE" = "True" ]; then
                 echo "[consensus-wrapper] Consensus reached. Exiting."
@@ -138,9 +144,9 @@ RECOVERY_EOF
     fi
 
     # Check if consensus was reached during the restart
-    RESPONSE=$(egg-orch message status --json 2>/dev/null || echo "{{}}")
+    RESPONSE=$(egg-orch pipeline status --json 2>/dev/null || echo "{{}}")
     IS_COMPLETE=$(echo "$RESPONSE" | python3 -c \
-        "import sys,json; d=json.load(sys.stdin); print(d.get('data',{{}}).get('consensus',{{}}).get('is_complete',False))" \
+        "import sys,json; d=json.load(sys.stdin); print(d.get('data',{{}}).get('concurrent',{{}}).get('consensus',{{}}).get('is_complete',False))" \
         2>/dev/null || echo "False")
 
     if [ "$IS_COMPLETE" = "True" ]; then
@@ -160,6 +166,7 @@ def build_consensus_wrapped_command(
     model: str = "opus",
     max_turns: int = 200,
     max_restarts: int = MAX_CONSENSUS_RESTARTS,
+    max_ready_polls: int = MAX_READY_POLL_CYCLES,
 ) -> list[str]:
     """Build a shell command that runs Claude with a consensus restart wrapper.
 
@@ -172,6 +179,8 @@ def build_consensus_wrapped_command(
         model: Claude model to use.
         max_turns: Maximum number of tool-call turns.
         max_restarts: Maximum restart attempts before exiting with failure.
+        max_ready_polls: Maximum poll cycles to wait when agent already
+            signaled READY (avoids unnecessary restarts).
 
     Returns:
         Command list suitable for container spawning (bash -c "...").
@@ -196,6 +205,7 @@ def build_consensus_wrapped_command(
         claude_command_prefix=claude_command_prefix,
         initial_prompt=initial_prompt,
         max_restarts=max_restarts,
+        max_ready_polls=max_ready_polls,
         recovery_prompt_template=_RECOVERY_PROMPT,
     )
 

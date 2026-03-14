@@ -8,6 +8,7 @@ import tempfile
 from consensus_wrapper import (
     _RECOVERY_PROMPT,
     MAX_CONSENSUS_RESTARTS,
+    MAX_READY_POLL_CYCLES,
     build_consensus_wrapped_command,
 )
 
@@ -73,11 +74,14 @@ class TestBuildConsensusWrappedCommand:
         assert shlex.quote("50") in script
 
     def test_consensus_check_parses_json(self):
-        """The script should parse JSON response to check is_complete."""
+        """The script should use pipeline status and parse nested consensus JSON."""
         cmd = build_consensus_wrapped_command("Prompt")
         script = cmd[2]
+        assert "egg-orch pipeline status --json" in script
         assert "is_complete" in script
         assert "python3" in script
+        # Must use the correct nested path: data.concurrent.consensus
+        assert "concurrent" in script
 
     def test_has_max_restarts(self):
         """The wrapper should cap restart attempts via MAX_RESTARTS."""
@@ -132,6 +136,40 @@ class TestBuildConsensusWrappedCommand:
         assert "already signaled READY" in script
         assert "EGG_AGENT_ROLE" in script
 
+    def test_ready_polling_uses_separate_constant(self):
+        """READY polling loop should use MAX_READY_POLLS, not MAX_RESTARTS."""
+        cmd = build_consensus_wrapped_command("Prompt", max_ready_polls=15)
+        script = cmd[2]
+        assert "MAX_READY_POLLS=15" in script
+
+    def test_default_max_ready_polls(self):
+        """Default max_ready_polls should match module constant."""
+        cmd = build_consensus_wrapped_command("Prompt")
+        script = cmd[2]
+        assert f"MAX_READY_POLLS={MAX_READY_POLL_CYCLES}" in script
+
+
+def _make_mock_claude(tmpdir: str, claude_log_file: str | None = None, exit_code: int = 0) -> None:
+    """Create a mock claude script.
+
+    Args:
+        tmpdir: Directory to create the mock in (must be on PATH).
+        claude_log_file: File to log calls to. If None, logs to tmpdir/claude.log.
+        exit_code: Exit code for the mock. When 0, logs call details;
+            when non-zero, exits immediately with that code.
+    """
+    mock_claude = os.path.join(tmpdir, "claude")
+    claude_log = claude_log_file or os.path.join(tmpdir, "claude.log")
+    with open(mock_claude, "w") as f:
+        f.write("#!/bin/bash\n")
+        if exit_code != 0:
+            f.write(f"exit {exit_code}\n")
+        else:
+            f.write(f'echo "---CLAUDE_CALL_START---" >> {shlex.quote(claude_log)}\n')
+            f.write(f'echo "${{@: -1}}" >> {shlex.quote(claude_log)}\n')
+            f.write(f'echo "---CLAUDE_CALL_END---" >> {shlex.quote(claude_log)}\n')
+    os.chmod(mock_claude, 0o755)  # nosec B103
+
 
 class TestConsensusWrapperBehavior:
     """Behavioral tests that run the wrapper script in a subprocess.
@@ -145,35 +183,23 @@ class TestConsensusWrapperBehavior:
         """Create mock egg-orch and claude scripts.
 
         The mock claude script logs a delimiter + its prompt arg and exits 0.
-        The mock egg-orch logs calls and returns consensus JSON.
+        The mock egg-orch logs calls and returns consensus-complete JSON
+        matching the real ``egg-orch pipeline status`` response structure.
         """
         # Mock egg-orch
         mock_orch = os.path.join(tmpdir, "egg-orch")
         with open(mock_orch, "w") as f:
             f.write("#!/bin/bash\n")
             f.write(f'echo "$@" >> {shlex.quote(log_file)}\n')
-            f.write('echo \'{"data": {"consensus": {"is_complete": true}}}\'\n')
+            f.write('echo \'{"data": {"concurrent": {"consensus": {"is_complete": true}}}}\'\n')
         os.chmod(mock_orch, 0o755)  # nosec B103
 
-        # Mock claude (logs delimiter + prompt to file, exits 0)
-        mock_claude = os.path.join(tmpdir, "claude")
-        claude_log = claude_log_file or os.path.join(tmpdir, "claude.log")
-        with open(mock_claude, "w") as f:
-            f.write("#!/bin/bash\n")
-            # Log delimiter then prompt (last arg) to the claude log
-            f.write(f'echo "---CLAUDE_CALL_START---" >> {shlex.quote(claude_log)}\n')
-            f.write(f'echo "${{@: -1}}" >> {shlex.quote(claude_log)}\n')
-            f.write(f'echo "---CLAUDE_CALL_END---" >> {shlex.quote(claude_log)}\n')
-        os.chmod(mock_claude, 0o755)  # nosec B103
+        _make_mock_claude(tmpdir, claude_log_file)
 
     @staticmethod
     def _make_failing_claude(tmpdir: str, exit_code: int = 1) -> None:
         """Create a mock claude that exits with a non-zero code."""
-        mock_claude = os.path.join(tmpdir, "claude")
-        with open(mock_claude, "w") as f:
-            f.write("#!/bin/bash\n")
-            f.write(f"exit {exit_code}\n")
-        os.chmod(mock_claude, 0o755)  # nosec B103
+        _make_mock_claude(tmpdir, exit_code=exit_code)
 
     @staticmethod
     def _run_wrapper_command(
@@ -218,18 +244,17 @@ class TestConsensusWrapperBehavior:
     ) -> None:
         """Create mock tools where egg-orch returns is_complete=false initially.
 
-        The mock egg-orch uses a counter file to track calls to 'message status'.
-        It returns is_complete=false until the Nth 'message status' call, then true.
-        This allows testing the restart path without the pre-restart consensus
-        check short-circuiting.
+        The mock egg-orch uses a counter file to track calls to 'pipeline status'.
+        It returns is_complete=false until the Nth 'pipeline status' call, then true.
+        Response structure matches real ``egg-orch pipeline status --json`` output.
         """
         counter_file = os.path.join(tmpdir, "orch_status_count")
         mock_orch = os.path.join(tmpdir, "egg-orch")
         with open(mock_orch, "w") as f:
             f.write("#!/bin/bash\n")
             f.write(f'echo "$@" >> {shlex.quote(log_file)}\n')
-            # Only track 'message status' calls for consensus gating
-            f.write('if echo "$@" | grep -q "message status"; then\n')
+            # Only track 'pipeline status' calls for consensus gating
+            f.write('if echo "$@" | grep -q "pipeline status"; then\n')
             f.write("  COUNT=0\n")
             f.write(f"  if [ -f {shlex.quote(counter_file)} ]; then\n")
             f.write(f"    COUNT=$(cat {shlex.quote(counter_file)})\n")
@@ -237,24 +262,18 @@ class TestConsensusWrapperBehavior:
             f.write("  COUNT=$((COUNT + 1))\n")
             f.write(f'  echo "$COUNT" > {shlex.quote(counter_file)}\n')
             f.write(f'  if [ "$COUNT" -ge {consensus_after} ]; then\n')
-            f.write('    echo \'{"data": {"consensus": {"is_complete": true}}}\'\n')
+            f.write('    echo \'{"data": {"concurrent": {"consensus": {"is_complete": true}}}}\'\n')
             f.write("  else\n")
-            f.write('    echo \'{"data": {"consensus": {"is_complete": false}}}\'\n')
+            f.write(
+                '    echo \'{"data": {"concurrent": {"consensus": {"is_complete": false}}}}\'\n'
+            )
             f.write("  fi\n")
             f.write("else\n")
-            f.write('  echo \'{"data": {"consensus": {"is_complete": false}}}\'\n')
+            f.write('  echo \'{"data": {"concurrent": {"consensus": {"is_complete": false}}}}\'\n')
             f.write("fi\n")
         os.chmod(mock_orch, 0o755)  # nosec B103
 
-        # Mock claude (logs delimiter + prompt to file, exits 0)
-        mock_claude = os.path.join(tmpdir, "claude")
-        claude_log = claude_log_file or os.path.join(tmpdir, "claude.log")
-        with open(mock_claude, "w") as f:
-            f.write("#!/bin/bash\n")
-            f.write(f'echo "---CLAUDE_CALL_START---" >> {shlex.quote(claude_log)}\n')
-            f.write(f'echo "${{@: -1}}" >> {shlex.quote(claude_log)}\n')
-            f.write(f'echo "---CLAUDE_CALL_END---" >> {shlex.quote(claude_log)}\n')
-        os.chmod(mock_claude, 0o755)  # nosec B103
+        _make_mock_claude(tmpdir, claude_log_file)
 
     def test_clean_exit_triggers_restart(self):
         """A zero Claude exit should trigger a restart, not auto-signal READY."""
@@ -323,7 +342,9 @@ class TestConsensusWrapperBehavior:
             with open(mock_orch, "w") as f:
                 f.write("#!/bin/bash\n")
                 f.write(f'echo "$@" >> {shlex.quote(log_file)}\n')
-                f.write('echo \'{"data": {"consensus": {"is_complete": false}}}\'\n')
+                f.write(
+                    'echo \'{"data": {"concurrent": {"consensus": {"is_complete": false}}}}\'\n'
+                )
             os.chmod(mock_orch, 0o755)  # nosec B103
 
             # Mock claude that always exits cleanly — uses a delimiter to count calls
@@ -359,5 +380,5 @@ class TestConsensusWrapperBehavior:
             if os.path.exists(log_file):
                 with open(log_file) as f:
                     log_content = f.read()
-                # The wrapper should only call message poll/status, not signal READY
+                # The wrapper should only call pipeline status, not signal READY
                 assert "signal readiness --state READY" not in log_content
