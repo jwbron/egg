@@ -95,7 +95,7 @@
     }
   ],
   "created_at": "2026-03-14T06:02:13.851895",
-  "updated_at": "2026-03-14T06:17:57.053117",
+  "updated_at": "2026-03-14T06:17:57.404296",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
@@ -184,6 +184,15 @@
         "container_id": "745925faaca1cde905bb2f31468650160e59a75f19556f1a503c154f9c5375a9",
         "task_context": "Review code changes for issue #1059: Implement overseer agent for pipeline health monitoring. The coder is adding a new OVERSEER agent role across multiple files. Review for: 1) Correctness of role definitions following existing patterns (AgentRole enum, AgentRoleDefinition, FileAccessPattern). 2) Container isolation matches coordinator pattern (no repo mount). 3) Auto-spawn logic is robust (background thread, error handling). 4) Guardrail exclusion is correct. 5) CLAUDE.md instructions are clear and complete for an autonomous monitoring agent. 6) Security: overseer should be read-only, cannot modify repos, cannot restart agents directly. 7) No regressions to existing coordinator/agent spawning logic.",
         "retry_number": 0
+      },
+      {
+        "role": "reviewer_contract",
+        "spawned_at": "2026-03-14T06:17:57.404186",
+        "completed_at": null,
+        "status": "running",
+        "container_id": "c5486945e615dd7c2e7107a33f84317247a0ed1cf8c827481357275289477f9a",
+        "task_context": "Verify implementation of issue #1059 against requirements. The issue specifies 16 success criteria. Verify each is addressed: 1) OVERSEER role exists in both AgentRole enums. 2) Gateway enforces restrictions. 3) Auto-spawned on coordinator pipelines. 4) Does not count against coordinator_max_agents. 5) Detects agent stalls. 6) Uses Haiku for log analysis (Phase 2 - may be deferred). 7) Sends redirect messages. 8) Escalates via HITL. 9) Files GitHub issues (Phase 3 - may be deferred). 10) Monitors all infrastructure. 11) Self-monitoring. 12) Mediator handoff (defer if mediator doesn't exist). 13) No git repo access. 14) Configurable thresholds. 15) Completion summary. 16) CLAUDE.md instructions. Flag which criteria are met, partially met, or deferred to future phases.",
+        "retry_number": 0
       }
     ],
     "phase_decisions": [
@@ -202,7 +211,7 @@
     ],
     "escalations": [],
     "guardrail_counters": {
-      "total_agents_spawned": 9,
+      "total_agents_spawned": 10,
       "retries_by_role": {
         "refiner": 1,
         "reviewer_refine": 1,
@@ -212,7 +221,8 @@
         "risk_analyst": 1,
         "reviewer_plan": 1,
         "coder": 1,
-        "reviewer_code": 1
+        "reviewer_code": 1,
+        "reviewer_contract": 1
       },
       "coordinator_respawns": 0,
       "started_at": "2026-03-14T06:02:20.210209"
@@ -220,5 +230,5 @@
   },
   "plan_phase_waves": null,
   "plan_phase_names": null,
-  "version": 27
+  "version": 28
 }
