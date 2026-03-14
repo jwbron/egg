@@ -78,7 +78,7 @@
   },
   "decisions": [],
   "created_at": "2026-03-14T19:17:37.901759",
-  "updated_at": "2026-03-14T19:40:20.662257",
+  "updated_at": "2026-03-14T19:40:20.986195",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
@@ -167,6 +167,15 @@
         "container_id": "6ec24b11ec91a9891aa672cee063f832bb5f6ac14bc2f7a5c3b045c4ff8e7f84",
         "task_context": "Review the code implementation for issue #1059: Overseer agent for pipeline health monitoring. Monitor the coder's progress via message bus. Once code is committed, review for: (1) Code quality — follows existing patterns in orchestrator/, shared/egg_contracts/, (2) Security — no repo access leaks, proper API usage, (3) Correct use of shared/egg_agent/ for all LLM calls, (4) PipelineConfig additions are backwards-compatible, (5) Auto-spawn logic doesn't break existing coordinator flow, (6) Container_spawner changes follow existing patterns, (7) CLAUDE.md section is comprehensive and consistent with other agent sections. Write review findings to .egg-state/agent-outputs/.",
         "retry_number": 0
+      },
+      {
+        "role": "reviewer_contract",
+        "spawned_at": "2026-03-14T19:40:20.986073",
+        "completed_at": null,
+        "status": "running",
+        "container_id": "bd02b50913bb717a753c907d70157c2947e188095c997fe0dc2b89a0fb13f182",
+        "task_context": "Verify implementation completeness for issue #1059: Overseer agent for pipeline health monitoring. Read the issue requirements (gh issue view 1059), the task plan in .egg-state/drafts/, and the contract in .egg-state/contracts/1059.json. Monitor coder progress via message bus. Verify each requirement is implemented: (1) OVERSEER role exists in both enums, (2) Auto-spawn on coordinator pipelines, (3) Excluded from coordinator_max_agents, (4) Tiered Haiku/Opus via shared/egg_agent/, (5) Adaptive stall detection, (6) Corrective action ladder, (7) HITL-only restart, (8) Autonomous issue filing, (9) Self-monitoring, (10) CLAUDE.md section, (11) PipelineConfig fields, (12) No repo access. Flag any missing or incomplete requirements.",
+        "retry_number": 0
       }
     ],
     "phase_decisions": [
@@ -185,7 +194,7 @@
     ],
     "escalations": [],
     "guardrail_counters": {
-      "total_agents_spawned": 9,
+      "total_agents_spawned": 10,
       "retries_by_role": {
         "refiner": 1,
         "reviewer_refine": 1,
@@ -195,7 +204,8 @@
         "risk_analyst": 1,
         "reviewer_plan": 1,
         "coder": 1,
-        "reviewer_code": 1
+        "reviewer_code": 1,
+        "reviewer_contract": 1
       },
       "coordinator_respawns": 0,
       "started_at": "2026-03-14T19:17:45.016402"
@@ -203,5 +213,5 @@
   },
   "plan_phase_waves": null,
   "plan_phase_names": null,
-  "version": 26
+  "version": 27
 }
