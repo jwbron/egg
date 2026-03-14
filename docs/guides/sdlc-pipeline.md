@@ -977,7 +977,7 @@ The orchestrator's pipeline routes (`orchestrator/routes/pipelines.py`):
 
 This happens in the plan phase itself (before human approval) to provide early validation of the plan format. The implement phase also runs task population as a fallback in case the plan phase step failed or was skipped.
 
-The PR metadata (title and description) from the plan is stored in the contract's `pr` field and used by the orchestrator to auto-create the PR when the implement phase completes. The orchestrator builds the PR body from the contract's `pr` metadata, the git commit log, and diff stats — no agent is spawned for PR creation.
+The PR metadata (title and description) from the plan is stored in the contract's `pr` field and used by the orchestrator to auto-create the PR when the implement phase completes. The orchestrator builds the PR body from the contract's `pr` metadata, the git commit log, diff stats, and a Pipeline Context section (pipeline ID and issue number). The gateway injects a machine-parseable `<!-- egg-pipeline-context ... -->` HTML comment and applies `egg` and `agent:orchestrator` labels to the PR — no agent is spawned for PR creation.
 
 ## Phase Checks
 
@@ -1414,22 +1414,18 @@ all changes.
 **Reviewer (code/contract)**: Reviews committed code or contract artifacts. Polls for
 `PROGRESS` from coder. Signals `READY` after review is complete.
 
-### Per-Agent Worktrees
+### Shared Pipeline Branch
 
-Each concurrent agent operates on its own worktree branch to avoid git conflicts:
-
-```
-egg/issue-999/coder             ← coder's work
-egg/issue-999/tester            ← tester's work
-egg/issue-999/documenter        ← documenter's work
-egg/issue-999/checker           ← checker's work
-egg/issue-999/reviewer_code     ← code reviewer's work
-egg/issue-999/reviewer_contract ← contract reviewer's work
-```
+All concurrent agents operate on the pipeline's shared branch (e.g., `egg/issue-999`).
+Rather than each agent having an isolated worktree branch, all agents commit directly
+to a single shared history. Agents coordinate via the message bus to sequence commits
+and avoid conflicts — for example, the coder signals `HANDOFF` when its changes are
+committed so downstream agents (tester, documenter) know it is safe to pull and build
+on top.
 
 After all concurrent agents reach consensus, the integrator runs in a separate
-(non-concurrent) step to merge all per-agent worktree branches, resolve conflicts,
-run the full test suite, and validate integration before the phase completes.
+(non-concurrent) step to validate integration, run the full test suite, and confirm
+the shared branch is ready for merge.
 
 ### Failure Handling
 
@@ -1502,10 +1498,11 @@ identify blocked or stuck agents.
 **Message bus empty**: Verify the pipeline has `concurrent_execution: true` in its
 config. The message bus is only active for concurrent pipelines.
 
-**Merge conflicts at integration**: After all concurrent agents reach consensus, the
-integrator runs in a separate step to merge per-agent worktree branches. If conflicts
-are complex, the integrator signals `BLOCKED` and a HITL decision is created. Consider
-adding role-based file restrictions to minimize overlap.
+**Commit conflicts**: Since all concurrent agents share a single branch, agents
+coordinate commits via the message bus to avoid conflicts. If an agent encounters a
+conflict when pushing, it should pull, rebase, and retry. If conflicts persist, the
+agent signals `BLOCKED` and a HITL decision is created. Consider adding role-based
+file restrictions to minimize overlap.
 
 ---
 

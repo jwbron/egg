@@ -733,6 +733,8 @@ class GatewayClient:
         body: str,
         head: str,
         base: str = "main",
+        issue_number: int | None = None,
+        agent_role: str | None = None,
     ) -> str | None:
         """Create a pull request via the gateway using a temporary session.
 
@@ -746,6 +748,8 @@ class GatewayClient:
             body: PR body/description
             head: Head branch name
             base: Base branch name (default: "main")
+            issue_number: Optional issue number for pipeline metadata
+            agent_role: Optional agent role for pipeline metadata
 
         Returns:
             PR URL if creation succeeded, None otherwise
@@ -767,6 +771,8 @@ class GatewayClient:
                 pipeline_id=pipeline_id,
                 phase="pr",
                 repos=[repo],
+                issue_number=issue_number,
+                agent_role=agent_role,
             )
             session_token = session.session_token
 

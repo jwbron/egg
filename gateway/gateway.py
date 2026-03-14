@@ -82,6 +82,7 @@ try:
         BLOCKED_GH_COMMANDS,
         GH_COMMANDS_BLOCKED_IN_PRIVATE_MODE,
         READONLY_GH_COMMANDS,
+        GitHubClient,
         extract_comment_edit_info,
         extract_issue_label_info,
         extract_pr_review_info,
@@ -147,6 +148,7 @@ except ImportError:
         BLOCKED_GH_COMMANDS,
         GH_COMMANDS_BLOCKED_IN_PRIVATE_MODE,
         READONLY_GH_COMMANDS,
+        GitHubClient,
         extract_comment_edit_info,
         extract_issue_label_info,
         extract_pr_review_info,
@@ -2099,6 +2101,51 @@ def _resolve_repo_path_for_checkpoints() -> str | None:
     return _ensure_checkpoint_scratch_repo()
 
 
+def _apply_pr_labels(
+    github: GitHubClient,
+    repo: str,
+    stdout: str,
+    auth_mode: str,
+    agent_role: str | None,
+    pipeline_id: str | None,
+) -> None:
+    """Apply labels to a newly created PR. Failures are logged but non-fatal."""
+    if not pipeline_id:
+        return
+
+    # Extract PR number from URL like https://github.com/owner/repo/pull/42
+    match = re.search(r"/pull/(\d+)", stdout or "")
+    if not match:
+        return
+
+    pr_number = match.group(1)
+    labels = ["egg"]
+    if agent_role:
+        labels.append(f"agent:{agent_role}")
+
+    try:
+        # Ensure labels exist (idempotent)
+        for label in labels:
+            github.execute(
+                ["label", "create", label, "--force", "--repo", repo],
+                timeout=15,
+                mode=auth_mode,
+            )
+        # Apply labels to the PR
+        label_args = ["issue", "edit", pr_number, "--repo", repo]
+        for label in labels:
+            label_args.extend(["--add-label", label])
+        github.execute(label_args, timeout=15, mode=auth_mode)
+    except Exception:
+        logger.warning(
+            "Failed to apply labels to PR",
+            pr_number=pr_number,
+            repo=repo,
+            labels=labels,
+            exc_info=True,
+        )
+
+
 @app.route("/api/v1/gh/pr/create", methods=["POST"])
 @require_session_auth
 def gh_pr_create() -> tuple[Response, int] | Response:
@@ -2240,6 +2287,29 @@ def gh_pr_create() -> tuple[Response, int] | Response:
     if policy_result.details and policy_result.details.get("force_draft"):
         draft = True
 
+    # Inject machine-parseable pipeline metadata as an HTML comment.
+    # Note: _build_pr_body (in the orchestrator) also adds a human-readable
+    # "## Pipeline Context" section. The two formats are intentionally
+    # complementary — visible for humans, hidden comment for tooling.
+    session = getattr(g, "session", None)
+    session_pipeline_id = getattr(session, "pipeline_id", None) if session else None
+    if session_pipeline_id:
+        session_agent_role = getattr(session, "agent_role", None) or ""
+        session_issue_number = getattr(session, "issue_number", None) or ""
+
+        # Sanitize values to prevent breaking the HTML comment structure
+        def _safe(v: str) -> str:
+            return str(v).replace("--", "").replace(">", "")
+
+        metadata_comment = (
+            f"<!-- egg-pipeline-context"
+            f" pipeline_id={_safe(session_pipeline_id)}"
+            f" agent_role={_safe(session_agent_role)}"
+            f" issue={_safe(str(session_issue_number))}"
+            f" -->"
+        )
+        body = f"{body}\n\n{metadata_comment}" if body else metadata_comment
+
     try:
         github = get_github_client(mode=auth_mode)
         args = [
@@ -2263,6 +2333,16 @@ def gh_pr_create() -> tuple[Response, int] | Response:
         result = github.execute(args, timeout=60, mode=auth_mode)
 
         if result.success:
+            # Apply labels to the newly created PR
+            _apply_pr_labels(
+                github=github,
+                repo=repo,
+                stdout=result.stdout,
+                auth_mode=auth_mode,
+                agent_role=getattr(session, "agent_role", None) if session else None,
+                pipeline_id=session_pipeline_id,
+            )
+
             audit_log(
                 "pr_created",
                 "gh_pr_create",
