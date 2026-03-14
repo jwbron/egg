@@ -196,6 +196,20 @@ When `coordinator_enabled: true` is set on a pipeline, a single **coordinator** 
 
 See the [Coordinator Guide](../guides/coordinator.md) for operational details.
 
+### Overseer Role
+
+When `overseer_enabled: true` (default when coordinator is enabled), an **overseer** agent runs alongside the coordinator as a continuous health monitor.
+
+| Role | Responsibility |
+|------|----------------|
+| **Overseer** | Monitor agent health, detect stalls/failures/loops, send corrective messages, escalate to HITL, file diagnostic issues |
+
+**Execution model**: The overseer runs continuously from pipeline start to completion. It polls orchestrator APIs, container logs, and the message bus to detect anomalies. It uses Claude Haiku for lightweight semantic analysis (stall classification, loop detection, error triage). The overseer has no repo access (same isolation as coordinator), cannot spawn agents or control pipeline phases, and does not count against `coordinator_max_agents`. Overseer crash does not fail the pipeline.
+
+**Monitoring topology**: The overseer monitors all agents including the coordinator. If the coordinator stalls, the overseer files a GitHub issue and notifies humans.
+
+See the [Overseer Guide](../guides/overseer.md) for operational details.
+
 ### Refine Phase Roles
 
 | Role | Responsibility |

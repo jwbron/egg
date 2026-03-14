@@ -289,6 +289,16 @@ message from another agent reveals an issue you need to address).
 - Read all agent handoffs, run full test suite, validate integration
 - Signal `READY` only after successful validation
 
+**Overseer** (concurrent mode):
+- Runs continuously alongside all other agents from pipeline start to completion
+- Monitors heartbeats, progress signals, and message bus for anomalies
+- Uses Haiku-powered log analysis for adaptive stall detection
+- Sends nudge/redirect messages to stalled or off-track agents
+- Escalates to HITL for restart authority (cannot restart agents directly)
+- Files GitHub issues with structured diagnostics for persistent problems
+- Monitors the coordinator like any other agent
+- Signal `READY` only at pipeline completion
+
 ### Handling Agent Failures
 
 If you receive an `AGENT_FAILED` message about another agent:
@@ -297,6 +307,7 @@ If you receive an `AGENT_FAILED` message about another agent:
 - **Documenter fails**: Other agents can continue; integrator handles documentation gap
 - **Checker fails**: Coder can continue; integrator runs checks during merge
 - **Reviewer (code/contract) fails**: Coder can continue; integrator notes review gap in PR
+- **Overseer fails**: Other agents can continue; pipeline health monitoring is degraded but not blocking
 - **Integrator fails**: All agents signal `BLOCKED`; pipeline escalates to HITL
 
 ### Environment Variables (Concurrent Mode)

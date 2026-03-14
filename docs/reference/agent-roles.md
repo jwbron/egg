@@ -22,6 +22,7 @@ All agent roles in egg, their responsibilities, phases, file access permissions,
 | `reviewer_contract` | Implement | Yes (with `reviewer_code`) | integrator |
 | `reviewer_unified` | _(deprecated)_ | — | — |
 | `coordinator` | Coordinator | — | — |
+| `overseer` | Cross-phase | Yes | — (infrastructure) |
 | `inspector` | Any | — | — (health checks) |
 
 Reviewer roles always run as a distinct step after all workers and the integrator complete.
@@ -218,6 +219,32 @@ The Tier 3 expanded access is required because the integrator must merge results
 - `EGG_COORDINATOR_TOOLS=true`
 
 See [Coordinator Guide](../guides/coordinator.md) for complete documentation.
+
+### `overseer`
+
+**Purpose**: Continuous pipeline health monitoring. Detects agent stalls, repeated failures, circular behavior, and off-track work. Takes corrective action via a graduated nudge → redirect → HITL escalation ladder.
+
+**File access**:
+- Allowed writes: None (no repo access)
+- Blocked: All files (no repo volume mounted)
+
+**Runs with**: No specific phase — runs continuously across all phases from pipeline start to completion.
+
+**Environment variables**:
+- `EGG_OVERSEER_MODE=true`
+- `EGG_AGENT_ROLE=overseer`
+- `EGG_OVERSEER_POLL_INTERVAL` — poll interval in seconds
+- `EGG_OVERSEER_STALL_THRESHOLD` — base stall detection threshold in seconds
+- `EGG_OVERSEER_MAX_REDIRECTS` — max redirects before HITL escalation
+
+**Spawn policy**: Auto-spawned alongside the coordinator when `overseer_enabled=true` (default). Does NOT count against `coordinator_max_agents`. One per pipeline. Crash does not fail the pipeline.
+
+**Outputs**:
+- Health summary (via message bus at pipeline completion)
+- Oversight log entries
+- GitHub issues for persistent problems (label: `overseer-alert`)
+
+See [Overseer Guide](../guides/overseer.md) for complete documentation.
 
 ### `inspector`
 

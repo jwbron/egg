@@ -49,7 +49,7 @@ See the [main README](../../README.md) for the architecture diagram.
 | **Shared Libraries** | Config, logging, git utilities, orchestrator types | [Shared README](../../shared/README.md) |
 | **egg_contracts** | SDLC contract models, role-based mutation validation, multi-agent orchestration | `shared/egg_contracts/` |
 | **egg_orchestrator** | Shared orchestrator types and sandbox-to-orchestrator communication | `shared/egg_orchestrator/` |
-| **Multi-Agent Orchestration** | Parallel agent execution (Coder, Tester, Documenter, Integrator) | `orchestrator/multi_agent.py`, `orchestrator/container_spawner.py` |
+| **Multi-Agent Orchestration** | Parallel agent execution (Coder, Tester, Documenter, Integrator, Overseer) | `orchestrator/multi_agent.py`, `orchestrator/container_spawner.py` |
 
 ## SDLC Contracts
 

@@ -56,6 +56,7 @@ This index helps both humans and LLMs navigate the documentation efficiently.
 | [Tier 3 Dispatch](guides/tier3-dispatch.md) | Phase-level parallel dispatch for high-complexity tasks |
 | [Checkpoint Access](guides/checkpoint-access.md) | Querying cross-agent checkpoints in multi-agent pipelines |
 | [Coordinator Agent](guides/coordinator.md) | Dynamic agent orchestration via conversational coordinator with MCP server |
+| [Overseer Agent](guides/overseer.md) | Continuous pipeline health monitoring, stall detection, and corrective action |
 
 ### Reference
 
@@ -116,6 +117,7 @@ Each major component has detailed documentation:
 | **Concurrent execution mode** | [Concurrent Execution Guide](guides/concurrent-execution.md) | [SDLC Pipeline Guide](guides/sdlc-pipeline.md), [Checkpoint Access](guides/checkpoint-access.md), [Orchestrator Architecture](architecture/orchestrator.md) |
 | **Tier 3 / phase-level dispatch** | [Tier 3 Dispatch Guide](guides/tier3-dispatch.md) | [SDLC Pipeline Guide](guides/sdlc-pipeline.md), [Agent Roles Reference](reference/agent-roles.md) |
 | **Coordinator / dynamic orchestration** | [Coordinator Agent Guide](guides/coordinator.md) | [SDLC Pipeline Guide](guides/sdlc-pipeline.md), [Agent-Mode Design](guides/agent-mode-design.md), [Orchestrator Architecture](architecture/orchestrator.md) |
+| **Overseer / pipeline health monitoring** | [Overseer Agent Guide](guides/overseer.md) | [Coordinator Agent Guide](guides/coordinator.md), [Orchestrator Architecture](architecture/orchestrator.md), [Agent Roles Reference](reference/agent-roles.md) |
 | **Agent roles and file permissions** | [Agent Roles Reference](reference/agent-roles.md) | [SDLC Pipeline Guide](guides/sdlc-pipeline.md), [Tier 3 Dispatch Guide](guides/tier3-dispatch.md), [Architecture Overview](architecture/README.md) |
 | **Agent failure recovery** | [Agent Recovery Reference](reference/agent-recovery.md) | [Concurrent Execution Guide](guides/concurrent-execution.md), [Orchestrator Architecture](architecture/orchestrator.md) |
 | **Post-agent auto-commit** | [Post-Agent Commit Reference](reference/post-agent-commit.md) | [Architecture Overview](architecture/README.md) |
@@ -135,4 +137,4 @@ Each major component has detailed documentation:
 
 ---
 
-*Last updated: 2026-03-12*
+*Last updated: 2026-03-14*
