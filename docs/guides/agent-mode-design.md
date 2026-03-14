@@ -87,9 +87,14 @@ If the agent decides something isn't worth commenting on, or needs a different a
 
 These conventions extend the core principle ("the sandbox is the constraint") with enforced boundaries:
 
-### Use Claude Code headless mode, not direct API calls
+### Use the Agent SDK or Claude Code headless mode, not direct API calls
 
-All LLM calls should go through `claude --print` (Claude Code headless mode), not through direct `httpx.post()` or Anthropic SDK calls. This ensures:
+LLM calls must never use direct `httpx.post()` or Anthropic SDK calls. Two approaches are supported:
+
+- **In-sandbox code** (e.g., `egg-health-inspect`, `sandbox/llm/`): use `egg_agent.client.run_agent()`, which wraps `claude-agent-sdk` for in-process execution.
+- **Orchestrator/gateway code spawning containers**: use `egg_agent.build_agent_command()` to build the `claude --print` command passed to `spawn_agent_container()`.
+
+Both approaches ensure:
 - Consistent tool access across all agent invocations
 - The agent can use tools (file reading, shell commands, GitHub CLI) rather than being limited to a single prompt/response
 - Centralized configuration (model selection, permissions, timeouts)
@@ -332,7 +337,7 @@ When designing a new agent workflow, ask:
 - [ ] Would this design work if the agent needs more context than I anticipated?
 - [ ] Am I preserving useful existing functionality while removing unnecessary complexity?
 - [ ] Am I calling the Anthropic API directly from orchestrator/gateway/shared code? (Delegate to sandbox)
-- [ ] Am I using `httpx`/`requests` to call the API instead of `claude --print`?
+- [ ] Am I using `httpx`/`requests` to call the API instead of `egg_agent.client.run_agent()` (in-sandbox) or `build_agent_command()` (orchestrator-spawned containers)?
 - [ ] Am I using pinned model identifiers instead of aliases (`sonnet`, `opus`, `haiku`)?
 
 "Yes" to any of these is a signal to reconsider, but use judgment. Some context is helpful; the question is whether you're constraining vs. informing.

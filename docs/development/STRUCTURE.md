@@ -85,6 +85,7 @@ orchestrator/
 ├── container_monitor.py    # Container health monitoring
 ├── concurrent_executor.py  # Concurrent phase executor (spawns all agents simultaneously)
 ├── consensus.py            # Consensus protocol for concurrent phase completion
+├── consensus_wrapper.py    # Shell wrapper that keeps containers alive polling for consensus after Claude exits
 ├── coordinator_executor.py # Coordinator agent lifecycle management (spawn, crash recovery)
 ├── dag_visualizer.py       # ASCII DAG visualization for pipeline status (incl. Tier 3 sub-phase rendering)
 ├── decision_queue.py       # HITL decision queue
@@ -194,6 +195,12 @@ sandbox/
 
 ```
 shared/
+├── egg_agent/              # Claude Agent SDK wrapper (in-sandbox agent calls + command builder)
+│   ├── __init__.py         # Public API: AgentResult, build_agent_command
+│   ├── __main__.py         # CLI entry point (python3 -m egg_agent)
+│   ├── client.py           # run_agent(), run_agent_async() via claude-agent-sdk
+│   ├── command.py          # build_agent_command() for orchestrator-spawned containers
+│   └── result.py           # AgentResult dataclass
 ├── egg_config/             # Configuration utilities
 │   ├── constants.py        # Centralized constants (ports, networks, container names, devserver resource limits, infrastructure branch names)
 │   ├── compose_config.py   # Bridges config.yaml settings to docker-compose environment variables

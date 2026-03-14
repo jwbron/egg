@@ -241,7 +241,7 @@ handles correctness, security, and style. Design Review focuses exclusively on:
 | Rigid procedures | Micromanaging step-by-step procedures when objectives would suffice |
 | Prompt-level security | Using instructions for constraints that should be sandbox-enforced |
 | Direct LLM API calls outside sandbox | Calling the Anthropic API from orchestrator, gateway, or shared code instead of delegating to sandbox containers (enforced by EGG200 linter) |
-| Direct API calls bypassing Claude Code | Using raw HTTP calls to the Anthropic API instead of `claude --print` (Claude Code headless mode), which provides tool access and consistent configuration |
+| Direct API calls bypassing the Agent SDK | Using raw HTTP calls to the Anthropic API instead of `run_agent()` (in-sandbox) or `build_agent_command()` (orchestrator-spawned containers), which provide tool access and consistent configuration |
 | Hardcoded model identifiers | Using full model IDs like `claude-sonnet-4-20250514` instead of short aliases (`sonnet`, `opus`, `haiku`) which auto-adopt the latest version (enforced by EGG201 linter) |
 
 ### Review Philosophy

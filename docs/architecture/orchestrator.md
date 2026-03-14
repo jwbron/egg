@@ -69,7 +69,7 @@ A two-tier health check framework provides structured, extensible failure detect
 
 **Tier 1 (Programmatic)** checks are fast and deterministic. They run on every lifecycle trigger and cover structural invariants: container liveness, startup state, phase output presence, and state consistency. Container liveness and startup state checks are adapters over existing `ContainerMonitor` and `reconcile_stale_containers` logic. The phase output check detects the issue-835 pattern where agents complete successfully but produce no artifacts (e.g., no commits on the remote branch after an implement phase). The state consistency check cross-references orchestrator state against Docker reality and contract data.
 
-**Tier 2 (Semantic)** checks are LLM-powered and evaluate whether agents made meaningful progress. The `AgentInspectorCheck` sends pipeline context (recent commits, diff stats, agent output files, SDLC contract state) to Claude via Claude Code headless mode (default model: `sonnet`) and interprets a structured JSON verdict. On API failure, the check gracefully degrades to HEALTHY — Tier 2 failures never block the pipeline. Tier 2 checks run conditionally — at `WAVE_COMPLETE` only when Tier 1 reports `DEGRADED`, and always at `PHASE_COMPLETE` and `ON_DEMAND`.
+**Tier 2 (Semantic)** checks are LLM-powered and evaluate whether agents made meaningful progress. The `AgentInspectorCheck` sends pipeline context (recent commits, diff stats, agent output files, SDLC contract state) to Claude via the Agent SDK (default model: `sonnet`) and interprets a structured JSON verdict. On API failure, the check gracefully degrades to HEALTHY — Tier 2 failures never block the pipeline. Tier 2 checks run conditionally — at `WAVE_COMPLETE` only when Tier 1 reports `DEGRADED`, and always at `PHASE_COMPLETE` and `ON_DEMAND`.
 
 **Lifecycle integration:**
 - `STARTUP`: Runs after startup reconciliation on all RUNNING pipelines (non-blocking)
@@ -397,7 +397,7 @@ Fixed IPs:
 
 **Orchestrator (`/api/v1/`)**
 - `GET /health` - Health check
-- `GET/POST /pipelines` - Pipeline CRUD (list, create)
+- `GET/POST /pipelines` - Pipeline CRUD (list, create). Creating a pipeline whose existing record is in a terminal state (failed, cancelled, or complete) automatically replaces it, enabling resubmission without a prior delete
 - `DELETE /pipelines/{id}` - Delete pipeline (stops containers, cleans up remote worktree branches best-effort, removes state)
 - `POST /pipelines/{id}/start` - Start or restart a pipeline (restarts failed pipelines by resetting the failed phase; recovers orphaned AWAITING_HUMAN pipelines by parsing the latest phase_gate resolution and either advancing to next phase or resetting for re-run; worktrees are preserved across restarts)
 - `GET /pipelines/{id}/visualization` - Pipeline status snapshot (JSON, text, or ASCII); for Tier 3 pipelines, the Implement phase is expanded into sub-phase boxes with fan-out/fan-in connectors
