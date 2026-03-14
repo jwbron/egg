@@ -196,6 +196,7 @@ class CoordinatorToolHandler:
         }
         if args.get("issue_number"):
             data["issue_number"] = args["issue_number"]
+            data["branch"] = args.get("branch") or f"egg/issue-{args['issue_number']}"
         else:
             data["prompt"] = args["description"]
         if args.get("repo"):

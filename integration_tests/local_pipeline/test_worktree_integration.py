@@ -777,6 +777,7 @@ class TestWorktreeEdgeCases:
             json={
                 "container_id": container_id,
                 "container_ip": source_ip,
+                "mode": "public",
                 "repos": ["test-owner/test-repo"],
                 "uid": 1000,
                 "gid": 1000,

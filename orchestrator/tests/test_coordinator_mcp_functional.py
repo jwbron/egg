@@ -432,7 +432,7 @@ class TestCoordinatorToolHandler:
         call_data = mock_req.call_args_list[0][1]["data"]
         assert call_data["issue_number"] == 42
         assert "mode" not in call_data
-        assert "branch" not in call_data
+        assert call_data["branch"] == "egg/issue-42"
         start_call = mock_req.call_args_list[1]
         assert "/start" in start_call[0][0]
         assert start_call[1]["method"] == "POST"
@@ -453,7 +453,7 @@ class TestCoordinatorToolHandler:
         assert result["task_id"] == "issue-42"
         call_data = mock_req.call_args_list[0][1]["data"]
         assert call_data["issue_number"] == 42
-        assert "branch" not in call_data
+        assert call_data["branch"] == "egg/custom-branch"
 
     @patch.object(CoordinatorToolHandler, "_make_request")
     def test_submit_task_without_issue(self, mock_req):

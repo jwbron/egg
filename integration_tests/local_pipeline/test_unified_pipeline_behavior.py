@@ -141,6 +141,7 @@ class TestPhaseBasedPushRestrictions:
             json={
                 "container_id": f"test-push-{int(time.time())}",
                 "container_ip": source_ip,
+                "mode": "public",
                 "phase": "refine",  # Key: setting phase enables per-phase restrictions
                 "repos": ["test-owner/test-repo"],
                 "uid": 1000,

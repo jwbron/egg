@@ -783,14 +783,14 @@ class TestMCPToolHandlerGaps:
             call_data = mock_req.call_args_list[0][1]["data"]
             assert "mode" not in call_data
             assert call_data["issue_number"] == 42
-            assert "branch" not in call_data
+            assert call_data["branch"] == "egg/issue-42"
             assert result["task_id"] == "issue-42"
             start_call = mock_req.call_args_list[1]
             assert "/start" in start_call[0][0]
             assert start_call[1]["method"] == "POST"
 
     def test_submit_task_with_issue_and_branch_override(self):
-        """submit_task with issue_number and explicit branch ignores branch (mode eliminated)."""
+        """submit_task with issue_number and explicit branch uses provided branch."""
         handler = CoordinatorToolHandler()
         with patch.object(handler, "_make_request") as mock_req:
             mock_req.return_value = {"data": {"pipeline": {"id": "issue-42"}}}
@@ -800,7 +800,7 @@ class TestMCPToolHandlerGaps:
             call_data = mock_req.call_args_list[0][1]["data"]
             assert "mode" not in call_data
             assert call_data["issue_number"] == 42
-            assert "branch" not in call_data
+            assert call_data["branch"] == "egg/my-branch"
 
     def test_submit_task_without_issue_number(self):
         """submit_task without issue includes prompt."""
