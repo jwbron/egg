@@ -681,7 +681,7 @@ class StateStore:
             Created pipeline
 
         Raises:
-            StateStoreError: If pipeline already exists
+            StateStoreError: If an active pipeline with the same ID already exists
         """
         if not pipeline_id:
             if issue_number:
@@ -689,31 +689,50 @@ class StateStore:
             else:
                 pipeline_id = f"pipeline-{os.urandom(4).hex()}"
 
-        if self.pipeline_exists(pipeline_id):
-            raise StateStoreError(f"Pipeline {pipeline_id} already exists")
+        with get_pipeline_state_lock(pipeline_id):
+            if self.pipeline_exists(pipeline_id):
+                existing = self.load_pipeline(pipeline_id)
+                terminal = {
+                    PipelineStatus.CANCELLED,
+                    PipelineStatus.FAILED,
+                    PipelineStatus.COMPLETE,
+                }
+                if existing.status in terminal:
+                    logger.info(
+                        "Replacing terminal pipeline %s (status=%s)",
+                        pipeline_id,
+                        existing.status.value,
+                    )
+                    self.delete_pipeline(pipeline_id, commit=True, cleanup_lock=False)
+                else:
+                    raise StateStoreError(f"Pipeline {pipeline_id} already exists")
 
-        pipeline = Pipeline(
-            id=pipeline_id,
-            issue_number=issue_number,
-            repo=repo,
-            branch=branch,
-            prompt=prompt,
-            network_mode=network_mode,
-            # Contract is created separately — mark as unsynced until verified
-            contract_synced=False,
-        )
+            pipeline = Pipeline(
+                id=pipeline_id,
+                issue_number=issue_number,
+                repo=repo,
+                branch=branch,
+                prompt=prompt,
+                network_mode=network_mode,
+                # Contract is created separately — mark as unsynced until verified
+                contract_synced=False,
+            )
 
-        if config:
-            from models import PipelineConfig
+            if config:
+                from models import PipelineConfig
 
-            pipeline.config = PipelineConfig.model_validate(config)
+                pipeline.config = PipelineConfig.model_validate(config)
 
-        commit_msg = f"Create pipeline {pipeline_id}"
-        self.save_pipeline(pipeline, message=commit_msg)
-        return pipeline
+            commit_msg = f"Create pipeline {pipeline_id}"
+            self.save_pipeline(pipeline, message=commit_msg)
+            return pipeline
 
     def delete_pipeline(
-        self, pipeline_id: str, commit: bool = True, force_commit: bool = False
+        self,
+        pipeline_id: str,
+        commit: bool = True,
+        force_commit: bool = False,
+        cleanup_lock: bool = True,
     ) -> None:
         """Delete a pipeline.
 
@@ -721,6 +740,10 @@ class StateStore:
             pipeline_id: Pipeline ID to delete
             commit: Whether to commit the deletion (ignored for local unless force_commit)
             force_commit: If True, commit deletion even for local pipelines
+            cleanup_lock: Whether to release the per-pipeline state lock.
+                Set to False when called from within a lock (e.g. create_pipeline
+                replacing a terminal pipeline) to avoid removing the lock while
+                the caller still holds it.
 
         Raises:
             PipelineNotFoundError: If pipeline doesn't exist
@@ -733,7 +756,8 @@ class StateStore:
         path.unlink()
 
         # Clean up the per-pipeline state lock to prevent unbounded growth
-        release_pipeline_state_lock(pipeline_id)
+        if cleanup_lock:
+            release_pipeline_state_lock(pipeline_id)
 
         # For local pipelines, only commit if force_commit is True
         # For issue pipelines, always commit when commit=True
