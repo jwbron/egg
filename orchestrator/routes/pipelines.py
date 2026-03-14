@@ -2868,6 +2868,7 @@ def _build_agent_prompt(
     short_circuit: bool = False,
     phase_obj=None,
     all_phases=None,
+    concurrent: bool = False,
 ) -> str:
     """Build a role-specific prompt for multi-agent execution.
 
@@ -2899,6 +2900,9 @@ def _build_agent_prompt(
         short_circuit: Whether short-circuit mode is enabled
         phase_obj: Current plan phase object (Tier 3 context, optional)
         all_phases: All contract phases (Tier 3 context, optional)
+        concurrent: Whether agent runs in concurrent multi-agent mode.
+            When True, adds consensus lifecycle preamble instructing the
+            agent to stay alive, poll messages, and participate in consensus.
 
     Returns:
         Complete prompt string for the agent
@@ -2934,6 +2938,32 @@ def _build_agent_prompt(
     if issue_number is not None:
         lines.append(f"Issue: #{issue_number}")
     lines.append("")
+
+    # Concurrent mode: add consensus lifecycle preamble so agents understand
+    # they must stay alive and participate in consensus, not just do their task.
+    if concurrent:
+        lines.extend(
+            [
+                "## CRITICAL: Concurrent Consensus Protocol\n",
+                "You are running in CONCURRENT mode alongside other agents. "
+                "Your job is NOT just your task — it is the **full lifecycle**:\n",
+                "1. **BOOTSTRAP**: Check if the agents you depend on have produced work yet. "
+                "If not, signal BLOCKED and poll every 30s until their work appears.",
+                "2. **EXECUTE**: Do your assigned work (see Your Task below).",
+                "3. **SIGNAL READY**: When your work is complete, run: "
+                '`egg-orch signal readiness --state READY --reason "Work complete"`',
+                "4. **STAY ALIVE & REACT**: Continue polling for messages with "
+                "`egg-orch message poll`. If new commits land or another agent sends "
+                "feedback, transition back to WORKING, address it, then signal READY again.",
+                "5. **WAIT FOR STOP**: The orchestrator sends SIGTERM when consensus is "
+                "reached. **You do NOT decide when to exit.** Use your remaining turns "
+                "to poll and react.\n",
+                "**If you exit before the orchestrator stops you, you have FAILED your role.** "
+                "Completing your task is necessary but NOT sufficient — you must remain "
+                "available to react to other agents' work until consensus.\n",
+                "",
+            ]
+        )
 
     # Include role-appropriate context instead of the raw issue body.
     # Analysis roles (architect, task_planner, risk_analyst) receive the full
@@ -3210,9 +3240,29 @@ def _build_agent_prompt(
         )
 
     lines.append("## Phase Completion\n")
-    lines.append(
-        "When you have completed your work, ensure everything is committed and exit successfully."
-    )
+    if concurrent:
+        lines.extend(
+            [
+                "When you have completed your primary work:\n",
+                "1. Commit all changes",
+                '2. Run: `egg-orch signal readiness --state READY --reason "Work complete"`',
+                "3. Enter a stay-alive polling loop:",
+                "```bash",
+                "while true; do",
+                "  egg-orch message poll",
+                '  sleep "${EGG_MESSAGE_POLL_INTERVAL:-30}"',
+                "done",
+                "```",
+                "4. If a message arrives that affects your work, transition back to WORKING, "
+                "address it, then signal READY again.",
+                "5. **Do NOT exit.** The orchestrator will stop your container when consensus "
+                "is reached.",
+            ]
+        )
+    else:
+        lines.append(
+            "When you have completed your work, ensure everything is committed and exit successfully."
+        )
 
     return "\n".join(lines)
 
@@ -4423,6 +4473,7 @@ def _run_concurrent_phase(
             branch=pipeline.branch,
             repo_path=str(worktree_repo_path),
             short_circuit=pipeline.short_circuit,
+            concurrent=True,
         )
         agent_prompts[role] = prompt
 
@@ -4710,6 +4761,34 @@ def _run_concurrent_phase(
                     except Exception as e:
                         logger.warning(
                             "handle_agent_failure error",
+                            role=exec_info.role.value,
+                            error=str(e),
+                        )
+                else:
+                    # Clean exit (code 0): treat as implicit READY if the
+                    # agent didn't explicitly signal.  This prevents early
+                    # exits from blocking consensus indefinitely.
+                    try:
+                        from consensus import ReadinessState, get_consensus_evaluator
+
+                        evaluator = get_consensus_evaluator()
+                        current = evaluator.evaluate(pipeline_id)
+                        agent_state = current.get("agents", {}).get(exec_info.role.value)
+                        if agent_state is None or agent_state.state != ReadinessState.READY:
+                            evaluator.update_readiness(
+                                pipeline_id,
+                                exec_info.role.value,
+                                ReadinessState.READY,
+                                reason="Container exited cleanly (implicit READY)",
+                            )
+                            logger.info(
+                                "Auto-registered READY for cleanly exited container",
+                                pipeline_id=pipeline_id,
+                                role=exec_info.role.value,
+                            )
+                    except Exception as e:
+                        logger.warning(
+                            "Failed to auto-register READY for exited container",
                             role=exec_info.role.value,
                             error=str(e),
                         )
