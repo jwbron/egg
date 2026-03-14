@@ -107,7 +107,7 @@
   },
   "decisions": [],
   "created_at": "2026-03-14T08:25:52.790941",
-  "updated_at": "2026-03-14T08:35:06.561142",
+  "updated_at": "2026-03-14T08:35:06.931954",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
@@ -142,15 +142,25 @@
         "container_id": "2392e97b2526f77a8d3af2de6dad49148d7775c84f351bf779ed724186c1ea35",
         "task_context": "Review the requirements for issue #1059 (overseer agent for pipeline health monitoring). The issue (gh issue view 1059) contains very detailed requirements. The refiner was unable to produce a separate refinement doc, so review the issue specification directly. Validate: 1) Requirements completeness and consistency, 2) Identify any gaps or ambiguities, 3) Verify the design decisions are sound, 4) Check that the overseer vs mediator boundary is clear, 5) Verify the tiered Haiku/Opus architecture makes sense, 6) Check that the spawn policy (always-on, no repo mount) is consistent with coordinator pattern, 7) Flag any risks. Write your review to .egg-state/agent-outputs/. Signal completion when done.",
         "retry_number": 0
+      },
+      {
+        "role": "reviewer_agent_design",
+        "spawned_at": "2026-03-14T08:35:06.931822",
+        "completed_at": null,
+        "status": "running",
+        "container_id": "2c4a262df5b3e997e2cb17140789e163738d6461a85e3a2724e441985caec6ef",
+        "task_context": "Review the agent design for issue #1059 (overseer agent for pipeline health monitoring). The issue (gh issue view 1059) has comprehensive specs. Review specifically: 1) The tiered Haiku/Opus architecture — is the escalation flow between tiers well-defined? 2) The adaptive stall detection approach — are the thresholds reasonable? 3) The self-monitoring requirements — can the overseer reliably detect its own issues? 4) The corrective action ladder (nudge → redirect → HITL → issue → Slack) — are there edge cases? 5) The interaction with coordinator and mediator roles, 6) Container config (no repo mount, same as coordinator), 7) Dependencies (#1027, #1028, #1088) — are they sufficient? Write your review to .egg-state/agent-outputs/. Signal completion when done.",
+        "retry_number": 0
       }
     ],
     "phase_decisions": [],
     "escalations": [],
     "guardrail_counters": {
-      "total_agents_spawned": 3,
+      "total_agents_spawned": 4,
       "retries_by_role": {
         "refiner": 2,
-        "reviewer_refine": 1
+        "reviewer_refine": 1,
+        "reviewer_agent_design": 1
       },
       "coordinator_respawns": 1,
       "started_at": "2026-03-14T08:26:01.113156"
@@ -158,5 +168,5 @@
   },
   "plan_phase_waves": null,
   "plan_phase_names": null,
-  "version": 18
+  "version": 19
 }
