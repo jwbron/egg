@@ -1,0 +1,139 @@
+{
+  "id": "local-491168a3",
+  "issue_number": null,
+  "repo": "jwbron/egg",
+  "branch": null,
+  "mode": "local",
+  "prompt": "Implement GitHub issue https://github.com/jwbron/egg/issues/1059 - Implement overseer agent for pipeline health monitoring. Read the issue for full requirements and implementation details.",
+  "status": "running",
+  "current_phase": "plan",
+  "config": {
+    "auto_create_pr": true,
+    "multi_agent": true,
+    "parallel_agents": true,
+    "max_parallel_agents": 10,
+    "max_review_cycles": 3,
+    "max_hitl_review_cycles": 3,
+    "hitl_gates": true,
+    "allow_short_circuit": true,
+    "enable_parallel_phases": false,
+    "concurrent_execution": false,
+    "max_concurrent_agents": 6,
+    "message_poll_hint_seconds": 30,
+    "consensus_timeout_minutes": 30,
+    "agent_idle_timeout_minutes": 60,
+    "coordinator_enabled": true,
+    "coordinator_max_agents": 10,
+    "coordinator_max_retries_per_role": 2,
+    "coordinator_max_respawns": 2
+  },
+  "phases": {
+    "refine": {
+      "phase": "refine",
+      "status": "complete",
+      "started_at": "2026-03-13T23:53:25.487124",
+      "work_started_at": "2026-03-13T23:53:25.487972",
+      "completed_at": "2026-03-14T00:02:50.897718",
+      "containers": [
+        {
+          "container_id": "f2ee38d5c563d343ddb59cc3d1938478ee7b06ebc5ac7a4cea326788bcd4c05e",
+          "container_name": "egg-sandbox-egg-local-491168a3-coordinator",
+          "status": "exited",
+          "started_at": "2026-03-13T23:53:26.105703",
+          "exited_at": "2026-03-14T00:02:38.001614",
+          "exit_code": 0,
+          "agent_role": "coordinator",
+          "session_token": null
+        }
+      ],
+      "agents": [
+        {
+          "role": "coordinator",
+          "status": "complete",
+          "container_id": "f2ee38d5c563d343ddb59cc3d1938478ee7b06ebc5ac7a4cea326788bcd4c05e",
+          "started_at": "2026-03-13T23:53:26.105711",
+          "completed_at": "2026-03-14T00:02:38.002350",
+          "commit": null,
+          "outputs": {},
+          "error": null,
+          "retry_count": 0,
+          "conflicts": [],
+          "plan_phase_id": null
+        }
+      ],
+      "review_cycles": 0,
+      "hitl_review_cycles": 0,
+      "cycle_timings": [
+        {
+          "cycle": 0,
+          "started_at": "2026-03-13T23:53:25.487972",
+          "completed_at": null,
+          "commit_sha": "99cf6893f248e6056eddeb293ee0cee7ad4a9781"
+        }
+      ],
+      "artifacts": {},
+      "error": null,
+      "hitl_feedback": null,
+      "phase_start_sha": null
+    }
+  },
+  "decisions": [
+    {
+      "id": "decision-1",
+      "question": "The refine phase has completed. Please review the analysis and approve to continue, or provide feedback to request changes.",
+      "context": "**Warning**: No analysis draft was found on the work branch. The agent may not have written the output to the expected path.",
+      "options": [
+        "approve",
+        "request changes"
+      ],
+      "decision_type": "phase_gate",
+      "questions": [],
+      "status": "cancelled",
+      "created_at": "2026-03-14T00:02:50.929459",
+      "resolved_at": "2026-03-14T00:21:12.782118",
+      "resolution": null,
+      "phase": "refine"
+    }
+  ],
+  "created_at": "2026-03-13T23:53:23.412290",
+  "updated_at": "2026-03-14T00:21:17.027921",
+  "contract_synced": true,
+  "network_mode": null,
+  "short_circuit": false,
+  "complexity_tier": "mid",
+  "error": null,
+  "coordinator_state": {
+    "workflow_type": "",
+    "agents_spawned": [
+      {
+        "role": "coder",
+        "spawned_at": "2026-03-13T23:55:51.414823",
+        "completed_at": "2026-03-14T00:00:59.505270Z",
+        "status": "complete",
+        "container_id": "1c9a57dc87fbcf78b4b9af8e5418b01492f827daceccc8b442f9ff086c5f0f1c",
+        "task_context": "REFINE PHASE: You are refining requirements for GitHub issue #1059 - 'Implement overseer agent for pipeline health monitoring'.\n\nYour task:\n1. Read the full issue at https://github.com/jwbron/egg/issues/1059 using 'gh issue view 1059 --repo jwbron/egg'\n2. Read the repository docs at $EGG_REPO_PATH/docs/index.md to understand the architecture\n3. Analyze the existing agent types (coder, tester, documenter, checker, reviewer, integrator, coordinator) to understand the patterns\n4. Look at how agents are spawned, configured, and managed in the orchestrator\n5. Look at the existing health monitoring in the gateway and orchestrator\n6. Write a comprehensive requirements analysis to .egg-state/drafts/issue-1059-refinement.md that includes:\n   - Summary of the issue requirements\n   - Analysis of existing patterns for agent implementation\n   - Key files and components that will need changes\n   - Technical considerations and design decisions needed\n   - Proposed acceptance criteria\n7. Commit and push the draft\n\nFocus on ANALYSIS only - do not implement anything. Write a thorough requirements analysis that will inform the plan phase.",
+        "retry_number": 0
+      }
+    ],
+    "phase_decisions": [
+      {
+        "phase": "plan",
+        "action": "advance",
+        "reason": "Refinement complete. Analysis saved to .egg-state/drafts/1059-analysis.md covering: role registration, container config, auto-spawn logic, API endpoints, and agent instructions. 7 files to modify, 2 new files. Ready for plan phase.",
+        "decided_at": "2026-03-14T00:02:24.767954"
+      }
+    ],
+    "escalations": [],
+    "guardrail_counters": {
+      "total_agents_spawned": 1,
+      "retries_by_role": {
+        "coder": 1
+      },
+      "coordinator_respawns": 0,
+      "started_at": "2026-03-13T23:53:25.504213"
+    }
+  },
+  "plan_phase_waves": null,
+  "plan_phase_names": null,
+  "version": 20
+}
