@@ -5,7 +5,7 @@
   "branch": "egg/issue-1059",
   "prompt": null,
   "status": "running",
-  "current_phase": "refine",
+  "current_phase": "plan",
   "config": {
     "auto_create_pr": true,
     "multi_agent": true,
@@ -95,7 +95,7 @@
     }
   ],
   "created_at": "2026-03-14T06:02:13.851895",
-  "updated_at": "2026-03-14T06:08:56.292928",
+  "updated_at": "2026-03-14T06:09:02.604156",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
@@ -132,7 +132,14 @@
         "retry_number": 0
       }
     ],
-    "phase_decisions": [],
+    "phase_decisions": [
+      {
+        "phase": "plan",
+        "action": "advance",
+        "reason": "Refine phase complete. All 3 agents (refiner, reviewer_refine, reviewer_agent_design) finished. Requirements validated against codebase. Critical gaps documented (lifecycle termination, crash recovery, log storage). Dependencies confirmed merged. HITL decision pending on phasing approach. Advancing to plan phase - architect should plan for full scope but note phasing decision.",
+        "decided_at": "2026-03-14T06:09:02.604086"
+      }
+    ],
     "escalations": [],
     "guardrail_counters": {
       "total_agents_spawned": 3,
@@ -147,5 +154,5 @@
   },
   "plan_phase_waves": null,
   "plan_phase_names": null,
-  "version": 15
+  "version": 16
 }
