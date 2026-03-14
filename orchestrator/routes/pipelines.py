@@ -142,7 +142,7 @@ except ImportError:
 pipelines_bp = Blueprint("pipelines", __name__, url_prefix="/api/v1/pipelines")
 
 
-from egg_agent import build_agent_command
+from egg_agent import build_agent_command  # noqa: E402
 from routes import get_repo_path  # noqa: E402 — shared helper
 
 try:

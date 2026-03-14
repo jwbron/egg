@@ -57,15 +57,7 @@ async def run_agent_async(
         on_output=on_output,
     )
 
-    # Map egg_agent.result.AgentResult → llm.result.AgentResult
-    return AgentResult(
-        success=sdk_result.success,
-        stdout=sdk_result.stdout,
-        stderr=sdk_result.stderr,
-        returncode=sdk_result.returncode,
-        error=sdk_result.error,
-        metadata=sdk_result.metadata,
-    )
+    return sdk_result
 
 
 def run_agent(

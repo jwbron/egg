@@ -81,7 +81,6 @@ async def run_agent_async(
         options.system_prompt = system_prompt
 
     stdout_parts: list[str] = []
-    stderr_parts: list[str] = []
     actual_model: str | None = None
     result_meta: dict[str, Any] = {}
 
@@ -126,7 +125,7 @@ async def run_agent_async(
         return AgentResult(
             success=False,
             stdout="\n".join(stdout_parts),
-            stderr="".join(stderr_parts),
+            stderr="",
             returncode=-1,
             error=f"Timed out after {timeout} seconds",
             metadata={"model": actual_model} if actual_model else None,
@@ -158,7 +157,7 @@ async def run_agent_async(
     return AgentResult(
         success=True,
         stdout="\n".join(stdout_parts),
-        stderr="".join(stderr_parts),
+        stderr="",
         returncode=0,
         metadata={"model": actual_model} if actual_model else None,
         cost_usd=result_meta.get("cost_usd"),
