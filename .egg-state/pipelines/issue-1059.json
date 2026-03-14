@@ -105,27 +105,9 @@
       "phase_start_sha": null
     }
   },
-  "decisions": [
-    {
-      "id": "decision-1",
-      "question": "BLOCKED: Max agent spawn limit (10) exhausted. All 10 spawns were used on refine/plan agents that timed out (issue #1059 is very large). Now in implement phase but cannot spawn coder. Need limit increase to proceed. The 6 refine agents + 4 plan agents all failed with timeouts - none are running. Can the limit be raised to allow spawning implementation agents?",
-      "context": "",
-      "options": [
-        "Raise limit to 20",
-        "Raise limit to 15",
-        "Cancel pipeline"
-      ],
-      "decision_type": "choice",
-      "questions": [],
-      "status": "pending",
-      "created_at": "2026-03-14T19:06:14.310302",
-      "resolved_at": null,
-      "resolution": null,
-      "phase": "implement"
-    }
-  ],
+  "decisions": [],
   "created_at": "2026-03-14T18:49:16.888546",
-  "updated_at": "2026-03-14T19:06:14.312517",
+  "updated_at": "2026-03-14T19:06:14.336262",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
@@ -251,6 +233,13 @@
         "question": "All 10 agent spawns exhausted (6 refine + 4 plan), all timed out on this large issue. Issue #1059 is already an exceptionally detailed spec with requirements, design decisions, infrastructure changes, and success criteria — it effectively IS the plan. Recommend advancing directly to implement phase using the issue as the plan. Approve?",
         "escalation_type": "choice",
         "created_at": "2026-03-14T19:04:46.732567",
+        "resolved_at": null,
+        "resolution": null
+      },
+      {
+        "question": "BLOCKED: Max agent spawn limit (10) exhausted. All 10 spawns were used on refine/plan agents that timed out (issue #1059 is very large). Now in implement phase but cannot spawn coder. Need limit increase to proceed. The 6 refine agents + 4 plan agents all failed with timeouts - none are running. Can the limit be raised to allow spawning implementation agents?",
+        "escalation_type": "choice",
+        "created_at": "2026-03-14T19:06:14.336001",
         "resolved_at": null,
         "resolution": null
       }
