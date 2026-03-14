@@ -107,7 +107,7 @@
   },
   "decisions": [],
   "created_at": "2026-03-14T18:49:16.888546",
-  "updated_at": "2026-03-14T19:00:27.324520",
+  "updated_at": "2026-03-14T19:00:27.613384",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
@@ -178,6 +178,15 @@
         "container_id": "f8cb37a45f835d608d4024e1199902c1978acf0ee7c7af18b323538871c0da55",
         "task_context": "Design the architecture for the Overseer agent (issue #1059). The issue is very detailed - read it with 'gh issue view 1059'. Key areas to plan:\n\n1. Overseer Python package structure under a new directory (similar to coordinator pattern)\n2. Tiered agent architecture: Haiku monitors (continuous polling) + Opus decision-maker (on-demand)\n3. Integration with shared/egg_agent/ (#1088) for all LLM calls\n4. Container configuration: no repo mount (like coordinator), network access to orchestrator/gateway/GitHub\n5. How the monitoring loop works: poll cycle → check heartbeats/progress/messages → classify anomalies (Haiku) → decide action (Opus)\n6. Corrective action ladder: nudge → redirect → HITL → issue filing → Slack\n7. Self-monitoring mechanism\n8. Infrastructure changes needed in orchestrator/models.py, shared/egg_contracts/agent_roles.py, orchestrator/routes/pipelines.py, orchestrator/routes/coordinator.py, orchestrator/container_spawner.py, and CLAUDE.md\n\nRead existing coordinator code as a reference pattern since overseer follows the same no-repo-access model. Write the architecture plan to .egg-state/drafts/.",
         "retry_number": 0
+      },
+      {
+        "role": "task_planner",
+        "spawned_at": "2026-03-14T19:00:27.613259",
+        "completed_at": null,
+        "status": "running",
+        "container_id": "034302c559b423201ab987b3894f30e2aec490ce690dc45b8125793305b488b6",
+        "task_context": "Break down the Overseer agent implementation (issue #1059) into concrete, ordered tasks. Read the issue with 'gh issue view 1059'.\n\nKey implementation areas to decompose:\n1. Add OVERSEER to AgentRole enum in orchestrator/models.py\n2. Add OVERSEER role definition + file access patterns in shared/egg_contracts/agent_roles.py\n3. Add overseer config fields to PipelineConfig (overseer_enabled, poll_interval, stall_threshold, max_redirects)\n4. Auto-spawn overseer in orchestrator/routes/pipelines.py alongside coordinator\n5. Exclude overseer from coordinator_max_agents in orchestrator/routes/coordinator.py\n6. Container spawner support for overseer in orchestrator/container_spawner.py\n7. Core overseer monitoring loop (the main agent logic)\n8. Haiku monitor implementations (loop detection, error triage, stall classification, off-track detection)\n9. Opus decision-maker (corrective action selection, redirect composition, issue filing decisions)\n10. Autonomous issue filing with diagnostic template\n11. CLAUDE.md overseer agent prompt section\n12. Integration with egg_agent for LLM calls\n13. Self-monitoring logic\n\nConsider dependencies between tasks and group into phases. Write task breakdown to .egg-state/drafts/.",
+        "retry_number": 0
       }
     ],
     "phase_decisions": [
@@ -198,12 +207,13 @@
       }
     ],
     "guardrail_counters": {
-      "total_agents_spawned": 7,
+      "total_agents_spawned": 8,
       "retries_by_role": {
         "refiner": 2,
         "reviewer_refine": 2,
         "reviewer_agent_design": 2,
-        "architect": 1
+        "architect": 1,
+        "task_planner": 1
       },
       "coordinator_respawns": 1,
       "started_at": "2026-03-14T18:49:26.569463"
@@ -211,5 +221,5 @@
   },
   "plan_phase_waves": null,
   "plan_phase_names": null,
-  "version": 30
+  "version": 31
 }
