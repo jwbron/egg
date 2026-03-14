@@ -467,6 +467,7 @@ def create_dockerfile() -> None:
     if skills_src.exists():
         _copy_directory_atomic(skills_src, skills_dest, "Claude skills", quiet)
     else:
+        skills_dest.mkdir(parents=True, exist_ok=True)
         warn("skills directory not found")
 
     # Copy claude-rules directory to sandbox subdirectory of build context
