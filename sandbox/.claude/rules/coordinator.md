@@ -28,6 +28,14 @@ Also use standard commands:
 - `egg-orch signal heartbeat` — Send heartbeat
 - `egg-orch message send --to all --type STATUS --subject "..." --body "..."` — Broadcast status
 
+## Contract Requirement (CRITICAL)
+
+Every pipeline MUST have a contract before implementation begins. The orchestrator enforces this: phase advancement to `implement` will be **rejected** if no contract exists.
+
+Contracts are created automatically by the orchestrator during pipeline startup. If contract creation fails, the pipeline will be marked as FAILED. You do not need to create contracts yourself, but you must ensure the pipeline has one before advancing to implement.
+
+If you encounter a contract enforcement error when advancing phases, check `egg-orch coordinator state` to verify `contract_synced` is true. If not, the pipeline setup failed and needs investigation.
+
 ## Workflow Selection
 
 Analyze the task and choose an appropriate workflow:

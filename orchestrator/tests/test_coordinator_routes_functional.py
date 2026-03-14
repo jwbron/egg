@@ -819,6 +819,140 @@ class TestPhaseEndpoint:
         assert response.status_code == 403
 
 
+# ── Contract enforcement tests ─────────────────────────────────────
+
+
+class TestContractEnforcement:
+    """Phase advancement must be blocked when no contract exists."""
+
+    @patch("routes.coordinator.get_state_store")
+    @patch("routes.coordinator.get_pipeline_state_lock")
+    @patch("routes.coordinator.get_repo_path")
+    def test_advance_to_implement_blocked_without_contract(
+        self, mock_repo, mock_lock, mock_store_fn, client
+    ):
+        """Advancing from plan to implement must fail if contract_synced is False."""
+        mock_repo.return_value = Path("/tmp/repo")
+        mock_lock.return_value.__enter__ = MagicMock()
+        mock_lock.return_value.__exit__ = MagicMock(return_value=False)
+
+        pipeline = _make_pipeline(phase=PipelinePhase.PLAN)
+        pipeline.contract_synced = False
+        store = MagicMock()
+        store.load_pipeline.return_value = pipeline
+        mock_store_fn.return_value = store
+
+        response = client.post(
+            "/api/v1/pipelines/test-pipeline/coordinator/phase",
+            json={"reason": "Plan approved"},
+        )
+
+        assert response.status_code == 409
+        assert "contract" in response.get_json()["message"].lower()
+
+    @patch("routes.coordinator.get_state_store")
+    @patch("routes.coordinator.get_pipeline_state_lock")
+    @patch("routes.coordinator.get_repo_path")
+    def test_skip_to_implement_blocked_without_contract(
+        self, mock_repo, mock_lock, mock_store_fn, client
+    ):
+        """Skipping directly to implement must fail if contract_synced is False."""
+        mock_repo.return_value = Path("/tmp/repo")
+        mock_lock.return_value.__enter__ = MagicMock()
+        mock_lock.return_value.__exit__ = MagicMock(return_value=False)
+
+        pipeline = _make_pipeline(phase=PipelinePhase.REFINE)
+        pipeline.contract_synced = False
+        store = MagicMock()
+        store.load_pipeline.return_value = pipeline
+        mock_store_fn.return_value = store
+
+        response = client.post(
+            "/api/v1/pipelines/test-pipeline/coordinator/phase",
+            json={"target_phase": "implement", "reason": "Skip to implement"},
+        )
+
+        assert response.status_code == 409
+        assert "contract" in response.get_json()["message"].lower()
+
+    @patch("routes.coordinator.get_state_store")
+    @patch("routes.coordinator.get_pipeline_state_lock")
+    @patch("routes.coordinator.get_repo_path")
+    def test_skip_to_pr_blocked_without_contract(
+        self, mock_repo, mock_lock, mock_store_fn, client
+    ):
+        """Skipping to PR phase must also fail if contract_synced is False."""
+        mock_repo.return_value = Path("/tmp/repo")
+        mock_lock.return_value.__enter__ = MagicMock()
+        mock_lock.return_value.__exit__ = MagicMock(return_value=False)
+
+        pipeline = _make_pipeline(phase=PipelinePhase.REFINE)
+        pipeline.contract_synced = False
+        store = MagicMock()
+        store.load_pipeline.return_value = pipeline
+        mock_store_fn.return_value = store
+
+        response = client.post(
+            "/api/v1/pipelines/test-pipeline/coordinator/phase",
+            json={"target_phase": "pr", "reason": "Skip everything"},
+        )
+
+        assert response.status_code == 409
+        assert "contract" in response.get_json()["message"].lower()
+
+    @patch("routes.coordinator.emit_event")
+    @patch("routes.coordinator.get_state_store")
+    @patch("routes.coordinator.get_pipeline_state_lock")
+    @patch("routes.coordinator.get_repo_path")
+    def test_advance_to_implement_allowed_with_contract(
+        self, mock_repo, mock_lock, mock_store_fn, mock_emit, client
+    ):
+        """Advancing to implement succeeds when contract_synced is True."""
+        mock_repo.return_value = Path("/tmp/repo")
+        mock_lock.return_value.__enter__ = MagicMock()
+        mock_lock.return_value.__exit__ = MagicMock(return_value=False)
+
+        pipeline = _make_pipeline(phase=PipelinePhase.PLAN)
+        pipeline.contract_synced = True
+        store = MagicMock()
+        store.load_pipeline.return_value = pipeline
+        mock_store_fn.return_value = store
+
+        response = client.post(
+            "/api/v1/pipelines/test-pipeline/coordinator/phase",
+            json={"reason": "Plan approved"},
+        )
+
+        assert response.status_code == 200
+        assert response.get_json()["data"]["current_phase"] == "implement"
+
+    @patch("routes.coordinator.emit_event")
+    @patch("routes.coordinator.get_state_store")
+    @patch("routes.coordinator.get_pipeline_state_lock")
+    @patch("routes.coordinator.get_repo_path")
+    def test_advance_to_plan_allowed_without_contract(
+        self, mock_repo, mock_lock, mock_store_fn, mock_emit, client
+    ):
+        """Advancing to plan (before implement) is allowed without a contract."""
+        mock_repo.return_value = Path("/tmp/repo")
+        mock_lock.return_value.__enter__ = MagicMock()
+        mock_lock.return_value.__exit__ = MagicMock(return_value=False)
+
+        pipeline = _make_pipeline(phase=PipelinePhase.REFINE)
+        pipeline.contract_synced = False
+        store = MagicMock()
+        store.load_pipeline.return_value = pipeline
+        mock_store_fn.return_value = store
+
+        response = client.post(
+            "/api/v1/pipelines/test-pipeline/coordinator/phase",
+            json={"reason": "Refine complete"},
+        )
+
+        assert response.status_code == 200
+        assert response.get_json()["data"]["current_phase"] == "plan"
+
+
 # ── Escalation endpoint tests ───────────────────────────────────────
 
 
