@@ -1,7 +1,79 @@
 """Tests for egg_agent.client module."""
 
 import asyncio
+import sys
+from dataclasses import dataclass, field
+from types import ModuleType
+from typing import Any
 from unittest.mock import patch
+
+
+# ── Mock SDK types ──────────────────────────────────────────────────────────
+#
+# claude-agent-sdk is only installed inside sandbox containers, not in CI.
+# Create compatible mock types so tests run in both environments.
+
+try:
+    from claude_agent_sdk import (
+        AssistantMessage,
+        ResultMessage,
+        TextBlock,
+    )
+except ImportError:
+
+    @dataclass
+    class TextBlock:  # type: ignore[no-redef]
+        text: str
+        type: str = "text"
+
+    @dataclass
+    class AssistantMessage:  # type: ignore[no-redef]
+        content: list[Any] = field(default_factory=list)
+        model: str | None = None
+
+    @dataclass
+    class ResultMessage:  # type: ignore[no-redef]
+        subtype: str = "result"
+        duration_ms: int = 0
+        duration_api_ms: int = 0
+        is_error: bool = False
+        num_turns: int = 0
+        session_id: str = ""
+        stop_reason: str = ""
+        total_cost_usd: float | None = None
+        usage: Any = None
+        result: str | None = None
+        structured_output: Any = None
+
+    class ClaudeSDKError(Exception):
+        pass
+
+    class ProcessError(ClaudeSDKError):  # type: ignore[no-redef]
+        pass
+
+    class CLINotFoundError(ClaudeSDKError):  # type: ignore[no-redef]
+        pass
+
+    @dataclass
+    class ClaudeAgentOptions:  # type: ignore[no-redef]
+        permission_mode: str = ""
+        model: str = ""
+        cwd: str | None = None
+        env: dict = field(default_factory=dict)
+        max_turns: int | None = None
+        system_prompt: str | None = None
+
+    # Install mock module so client.py's lazy import finds it
+    _mock_sdk = ModuleType("claude_agent_sdk")
+    _mock_sdk.TextBlock = TextBlock  # type: ignore[attr-defined]
+    _mock_sdk.AssistantMessage = AssistantMessage  # type: ignore[attr-defined]
+    _mock_sdk.ResultMessage = ResultMessage  # type: ignore[attr-defined]
+    _mock_sdk.ProcessError = ProcessError  # type: ignore[attr-defined]
+    _mock_sdk.CLINotFoundError = CLINotFoundError  # type: ignore[attr-defined]
+    _mock_sdk.ClaudeSDKError = ClaudeSDKError  # type: ignore[attr-defined]
+    _mock_sdk.ClaudeAgentOptions = ClaudeAgentOptions  # type: ignore[attr-defined]
+    _mock_sdk.query = None  # type: ignore[attr-defined]  # Patched in tests
+    sys.modules["claude_agent_sdk"] = _mock_sdk
 
 from egg_agent.client import run_agent, run_agent_async
 
@@ -13,16 +85,6 @@ def _run_async(coro):
         return loop.run_until_complete(coro)
     finally:
         loop.close()
-
-
-# ── Mock SDK types ──────────────────────────────────────────────────────────
-
-# We import the real SDK types since it's installed in this environment.
-from claude_agent_sdk import (
-    AssistantMessage,
-    ResultMessage,
-    TextBlock,
-)
 
 
 def _make_assistant_msg(text: str) -> AssistantMessage:
