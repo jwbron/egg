@@ -6254,7 +6254,10 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                                 CoordinatorExecutor,  # type: ignore[no-redef]
                             )
 
-                        coord_executor = CoordinatorExecutor(repo_path=worktree_repo_path)
+                        coord_executor = CoordinatorExecutor(
+                            repo_path=worktree_repo_path,
+                            docker_client=spawner.docker,
+                        )
                         coord_executor.init_coordinator_state(pipeline_id)
 
                         coordinator_env = {
@@ -6273,6 +6276,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                             repo=pipeline.repo,
                             branch=pipeline.branch,
                             review_cycle=review_cycle,
+                            review_feedback=review_feedback,
                         )
                         coordinator_command = build_agent_command(coordinator_prompt)
 
@@ -6316,9 +6320,88 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                             elif result == "failed":
                                 phase_failed = True
                                 break
-                            else:
-                                # Coordinator completed successfully — skip generic dispatch
+
+                            # Coordinator completed ("complete" or "drained") —
+                            # read review verdicts instead of breaking immediately.
+                            all_verdicts: dict[str, ReviewVerdict | None] = {}
+                            for rtype in ["code", "contract"]:
+                                all_verdicts[rtype] = _read_review_verdict(
+                                    worktree_repo_path,
+                                    current_phase.value,
+                                    reviewer_type=rtype,
+                                    pipeline_mode=pipeline_mode,
+                                    issue_number=pipeline.issue_number,
+                                    pipeline_id=pipeline_id,
+                                )
+
+                            agg_result = _aggregate_review_verdicts(all_verdicts)
+
+                            if agg_result.advisory_content:
+                                logger.info(
+                                    "Coordinator review advisory content (non-blocking)",
+                                    pipeline_id=pipeline_id,
+                                    phase=current_phase,
+                                    advisory_preview=agg_result.advisory_content[:500],
+                                )
+
+                            if agg_result.verdict == "approved":
+                                logger.info(
+                                    "Coordinator: reviewers approved",
+                                    pipeline_id=pipeline_id,
+                                    phase=current_phase,
+                                    review_cycle=review_cycle + 1,
+                                )
+                                with get_pipeline_state_lock(pipeline_id):
+                                    pipeline = store.load_pipeline(pipeline_id)
+                                    phase_execution = pipeline.get_phase_execution(current_phase)
+                                    if phase_execution.cycle_timings:
+                                        phase_execution.cycle_timings[
+                                            -1
+                                        ].completed_at = datetime.utcnow()
+                                        store.save_pipeline(pipeline)
+                                break  # Advance to next phase
+
+                            # needs_revision — check circuit breaker
+                            coord_max_review_cycles = pipeline.config.max_review_cycles
+                            if review_cycle + 1 >= coord_max_review_cycles:
+                                logger.warning(
+                                    "Coordinator review circuit breaker — advancing",
+                                    pipeline_id=pipeline_id,
+                                    phase=current_phase,
+                                    review_cycles=review_cycle + 1,
+                                    max_review_cycles=coord_max_review_cycles,
+                                )
+                                with get_pipeline_state_lock(pipeline_id):
+                                    pipeline = store.load_pipeline(pipeline_id)
+                                    phase_execution = pipeline.get_phase_execution(current_phase)
+                                    if phase_execution.cycle_timings:
+                                        phase_execution.cycle_timings[
+                                            -1
+                                        ].completed_at = datetime.utcnow()
+                                        store.save_pipeline(pipeline)
                                 break
+
+                            # Store feedback and loop — respawn coordinator with
+                            # reviewer feedback
+                            review_feedback = agg_result.blocking_feedback
+                            with get_pipeline_state_lock(pipeline_id):
+                                pipeline = store.load_pipeline(pipeline_id)
+                                phase_execution = pipeline.get_phase_execution(current_phase)
+                                if phase_execution.cycle_timings:
+                                    phase_execution.cycle_timings[
+                                        -1
+                                    ].completed_at = datetime.utcnow()
+                                phase_execution.review_cycles = review_cycle + 1
+                                store.save_pipeline(pipeline)
+
+                            logger.info(
+                                "Coordinator: review needs revision — looping",
+                                pipeline_id=pipeline_id,
+                                phase=current_phase,
+                                review_cycle=review_cycle + 1,
+                                feedback_preview=(review_feedback[:200] if review_feedback else ""),
+                            )
+                            continue  # Re-run while loop with feedback
 
                         except ContainerSpawnError as e:
                             with get_pipeline_state_lock(pipeline_id):

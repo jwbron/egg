@@ -621,7 +621,7 @@ class TestExecutorCrashRecovery:
     @patch("coordinator_executor.get_state_store")
     @patch("coordinator_executor.get_pipeline_state_lock")
     def test_success_exit_without_coordinator_state(self, mock_lock, mock_store_fn, tmp_path):
-        """Exit code 0 without coordinator state sets COMPLETE."""
+        """Exit code 0 without coordinator state leaves pipeline RUNNING for the loop."""
         mock_lock.return_value.__enter__ = MagicMock()
         mock_lock.return_value.__exit__ = MagicMock(return_value=False)
 
@@ -635,7 +635,9 @@ class TestExecutorCrashRecovery:
 
         assert result == "complete"
         saved = store.save_pipeline.call_args[0][0]
-        assert saved.status == PipelineStatus.COMPLETE
+        # Pipeline status is NOT set to COMPLETE by the executor — the pipeline
+        # loop handles status transitions after reading review verdicts.
+        assert saved.status == PipelineStatus.RUNNING
 
     @patch("coordinator_executor.emit_event")
     @patch("coordinator_executor.get_state_store")
