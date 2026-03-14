@@ -85,6 +85,7 @@ orchestrator/
 ├── container_monitor.py    # Container health monitoring
 ├── concurrent_executor.py  # Concurrent phase executor (spawns all agents simultaneously)
 ├── consensus.py            # Consensus protocol for concurrent phase completion
+├── consensus_wrapper.py    # Shell wrapper that keeps containers alive polling for consensus after Claude exits
 ├── coordinator_executor.py # Coordinator agent lifecycle management (spawn, crash recovery)
 ├── dag_visualizer.py       # ASCII DAG visualization for pipeline status (incl. Tier 3 sub-phase rendering)
 ├── decision_queue.py       # HITL decision queue
