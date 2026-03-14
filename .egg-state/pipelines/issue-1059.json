@@ -95,7 +95,7 @@
     }
   ],
   "created_at": "2026-03-14T06:02:13.851895",
-  "updated_at": "2026-03-14T06:09:02.604156",
+  "updated_at": "2026-03-14T06:09:20.723646",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
@@ -130,6 +130,15 @@
         "container_id": "bdb5d209066045492fe718add38b4c10907ba964ee945048283a14e36c1ca59d",
         "task_context": "Review the agent design for issue #1059: Implement overseer agent for pipeline health monitoring. Focus on the agent architecture aspects: 1) Agent role design - does the OVERSEER role definition fit cleanly into the existing AgentRole enum and role definition patterns? Check shared/egg_contracts/agent_roles.py for existing patterns. 2) Container configuration - the overseer has no repo mount (like coordinator) but needs orchestrator/gateway/GitHub API access. Verify this is consistent with how coordinator containers are configured. 3) Spawn lifecycle - auto-spawn with coordinator, run until pipeline completes. How does this interact with existing container lifecycle management? 4) CLAUDE.md instructions - the overseer needs a prompt section similar to the coordinator. Is the proposed instruction set sufficient for an autonomous monitoring agent? 5) Haiku integration - calling Claude API directly from within the agent container. Is this pattern established elsewhere? What about API key management? 6) Message bus interaction - the overseer reads all messages but only sends redirects/nudges. Is this the right access pattern? 7) Coordinator interaction - overseer monitors coordinator but cannot restart it. Is the escalation path clear? Review the design and flag any architectural concerns.",
         "retry_number": 0
+      },
+      {
+        "role": "architect",
+        "spawned_at": "2026-03-14T06:09:20.723352",
+        "completed_at": null,
+        "status": "running",
+        "container_id": "3f8cf275e5a4687bbe02df269b2fe206c436cacb258fa98c596ce75760eab1d6",
+        "task_context": "Design the architecture for issue #1059: Implement overseer agent for pipeline health monitoring. \n\nKEY CONTEXT FROM REFINE PHASE:\n- Dependencies #1027 (message bus) and #1028 (coordinator) are both merged\n- Existing patterns to follow: coordinator container config (no repo mount, tmpfs over ~/repos), AgentRole enum in shared/egg_contracts/agent_roles.py, container spawning in orchestrator/container_spawner.py\n- Haiku API patterns already exist in shared/egg_config/configs/llm.py (health checks use claude-haiku-4-5)\n- HITL decision pending on scope: full implementation vs Phase 1 MVP. Plan for full scope but clearly mark Phase 1 MVP boundaries.\n\nGAPS TO RESOLVE IN ARCHITECTURE:\n1. Lifecycle termination: Overseer needs to detect pipeline completion. Recommend polling pipeline status via egg-orch pipeline status.\n2. Crash recovery: If overseer container dies, ContainerMonitor detects it. Recommend auto-respawn logic in reconciliation handler (similar to coordinator respawn).\n3. Log storage: .egg-state/oversight/ is unreachable (no repo mount). Options: (a) store in orchestrator API/memory, (b) write to message bus as STATUS messages, (c) add a new /oversight API endpoint.\n4. Mediator doesn't exist yet: For now, contradictory message loops -> overseer escalates to human.\n5. Overseer must NOT count against coordinator_max_agents guardrail.\n\nINFRASTRUCTURE CHANGES NEEDED (from refiner validation):\n1. orchestrator/models.py - Add OVERSEER to AgentRole enum, add config fields to PipelineConfig\n2. shared/egg_contracts/agent_roles.py - Add OVERSEER role with AgentRoleDefinition and FileAccessPattern\n3. orchestrator/routes/pipelines.py - Auto-spawn overseer alongside coordinator\n4. orchestrator/routes/coordinator.py - Exclude overseer from max_agents count\n5. orchestrator/container_spawner.py - Support overseer container config (no repo mount, like coordinator)\n6. gateway/agent_restrictions.py - Mirror OVERSEER role in gateway's AgentRole class\n7. CLAUDE.md - Add overseer agent prompt instructions section\n8. docs/reference/agent-roles.md - Document new role\n\nDesign the component architecture, define APIs/interfaces, and write the plan to .egg-state/drafts/.",
+        "retry_number": 0
       }
     ],
     "phase_decisions": [
@@ -142,11 +151,12 @@
     ],
     "escalations": [],
     "guardrail_counters": {
-      "total_agents_spawned": 3,
+      "total_agents_spawned": 4,
       "retries_by_role": {
         "refiner": 1,
         "reviewer_refine": 1,
-        "reviewer_agent_design": 1
+        "reviewer_agent_design": 1,
+        "architect": 1
       },
       "coordinator_respawns": 0,
       "started_at": "2026-03-14T06:02:20.210209"
@@ -154,5 +164,5 @@
   },
   "plan_phase_waves": null,
   "plan_phase_names": null,
-  "version": 16
+  "version": 17
 }
