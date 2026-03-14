@@ -23,8 +23,6 @@ Relevant `PipelineConfig` fields:
 | `consensus_timeout_minutes` | `30` | Timeout before HITL escalation |
 | `agent_idle_timeout_minutes` | `60` | Idle agent timeout before termination |
 
-Agent containers also respect `EGG_CONSENSUS_WRAPPER_TIMEOUT` (default: `300` seconds) — see [Consensus Wrapper](#consensus-wrapper) below.
-
 ## Agent Startup Protocol
 
 When concurrent execution starts for the implement phase, the `ConcurrentPhaseExecutor` (in `orchestrator/concurrent_executor.py`) spawns the following roles simultaneously using a `ThreadPoolExecutor`:
@@ -49,28 +47,24 @@ Each agent is registered in the consensus evaluator before spawning begins.
 
 ## Consensus Wrapper
 
-All concurrent agent containers are wrapped with a shell safety net defined in `orchestrator/consensus_wrapper.py`. The wrapper runs after the Claude process exits and enforces lifecycle compliance for agents that exit before the orchestrator stops them.
+All concurrent agent containers are wrapped with a shell script defined in `orchestrator/consensus_wrapper.py`. The wrapper detects when Claude exits without the orchestrator confirming consensus and restarts the agent with a recovery prompt instead of silently marking it as ready.
 
 **How it works:**
 
-1. Claude runs inside the wrapper script.
-2. When Claude exits cleanly (code 0), the wrapper auto-signals `READY` via `egg-orch signal readiness` (a no-op if the agent already signaled).
-3. The wrapper then polls the consensus endpoint in a loop, sleeping `EGG_MESSAGE_POLL_INTERVAL` seconds between checks, until consensus is reached or `EGG_CONSENSUS_WRAPPER_TIMEOUT` expires.
-4. When consensus is reached (`is_complete: true`), the wrapper exits with Claude's original exit code.
-5. If Claude exits non-zero (crashed), the wrapper does **not** signal `READY` and exits immediately with the same code.
+1. Claude runs inside the wrapper script with the original task prompt.
+2. If Claude exits non-zero (crashed), the wrapper exits immediately with the same code — no restart.
+3. If Claude exits cleanly (code 0), the wrapper restarts Claude with a **recovery prompt** that explains the agent was restarted because it exited without signaling `READY`. The recovery prompt instructs the agent to poll for messages, assess state, and explicitly signal `READY` or continue working.
+4. Restarts are capped at `MAX_CONSENSUS_RESTARTS` (default: 2). After each restart, the wrapper checks if consensus was reached. If so, it exits cleanly.
+5. After exhausting all restarts, the wrapper exits with code 1, triggering the orchestrator's agent failure path (HITL decision with retry/abort/continue options).
 
-**Environment variables:**
+**Key design principle:** Agents must **explicitly** participate in consensus. The wrapper never auto-signals `READY` on behalf of an agent — it restarts the agent so it can assess state and signal for itself.
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `EGG_CONSENSUS_WRAPPER_TIMEOUT` | `300` | Seconds the wrapper polls for consensus before giving up |
-| `EGG_MESSAGE_POLL_INTERVAL` | `30` | Seconds between wrapper poll iterations |
+**Configuration:**
 
-**Implicit READY on clean exit (orchestrator-side):**
-
-In addition to the wrapper, the orchestrator's `_run_concurrent_phase()` monitors container exit codes. When a container exits with code 0 and has not yet signaled `READY`, the orchestrator auto-registers it as `READY` with the reason `"Container exited cleanly (implicit READY)"`. This ensures agents that complete their work and exit without explicitly signaling do not block consensus indefinitely.
-
-**Agents should still follow the protocol.** The wrapper and implicit READY are safety nets for cases where Claude's exit is unavoidable (e.g., max turns reached, context exhausted). Well-behaved agents explicitly signal `READY` and enter a polling loop — this allows them to react to late-arriving messages before the orchestrator stops the container.
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `max_restarts` | `2` | Maximum restart attempts (passed to `build_consensus_wrapped_command()`) |
+| `EGG_MESSAGE_POLL_INTERVAL` | `30` | Seconds between message polls during restarts |
 
 ## Message Bus
 
