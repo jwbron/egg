@@ -493,7 +493,6 @@ class TestGetWorktreeBranch:
     def test_get_worktree_branch_returns_pipeline_branch(self):
         """When pipeline.branch is set, all roles share it."""
         from concurrent_executor import ConcurrentPhaseExecutor
-        from models import AgentRole
 
         pipeline = _make_concurrent_pipeline()
         assert pipeline.branch == "egg/issue-999"

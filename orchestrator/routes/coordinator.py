@@ -233,12 +233,11 @@ def spawn_agent(pipeline_id: str) -> tuple[Response, int]:
                 if role_def.dependencies:
                     coord_state = pipeline.coordinator_state or CoordinatorState()
                     completed_roles = {
-                        s.role.value
-                        for s in coord_state.agents_spawned
-                        if s.status == "complete"
+                        s.role.value for s in coord_state.agents_spawned if s.status == "complete"
                     }
                     missing = [
-                        dep.value for dep in role_def.dependencies
+                        dep.value
+                        for dep in role_def.dependencies
                         if dep.value not in completed_roles
                     ]
                     if missing:
@@ -338,10 +337,10 @@ def spawn_agent(pipeline_id: str) -> tuple[Response, int]:
             # readiness and stay alive for the orchestrator to collect.
             agent_prompt += (
                 "\n\nIMPORTANT: When your work is complete, signal readiness:\n"
-                "  egg-orch signal readiness --state READY --reason \"Work complete\"\n"
+                '  egg-orch signal readiness --state READY --reason "Work complete"\n'
                 "Then stay alive polling for messages. Do NOT exit.\n"
                 "  while true; do egg-orch message poll; "
-                "sleep \"${EGG_MESSAGE_POLL_INTERVAL:-30}\"; done"
+                'sleep "${EGG_MESSAGE_POLL_INTERVAL:-30}"; done'
             )
 
             agent_command = [
