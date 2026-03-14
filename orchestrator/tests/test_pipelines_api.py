@@ -8,7 +8,20 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from flask import Flask
-from models import ContainerInfo, PhaseExecution, Pipeline, PipelinePhase
+from models import (
+    AgentExecution,
+    AgentExecutionStatus,
+    AgentRole,
+    AgentSpawnRecord,
+    ContainerInfo,
+    ContainerStatus,
+    CoordinatorState,
+    GuardrailCounters,
+    PhaseExecution,
+    Pipeline,
+    PipelinePhase,
+    PipelineStatus,
+)
 from routes.pipelines import pipelines_bp
 
 
@@ -230,3 +243,154 @@ class TestDeletePipelineBranchCleanup:
 
         # Pipeline should still be deleted despite branch cleanup exception
         mock_store.delete_pipeline.assert_called_once_with("test-pipeline")
+
+
+def _make_cancellable_pipeline(pipeline_id="test-pipeline"):
+    """Create a pipeline with running containers and agents for cancellation tests."""
+    pipeline = Pipeline(
+        id=pipeline_id,
+        issue_number=42,
+        repo="owner/repo",
+        branch="egg/test",
+        status=PipelineStatus.RUNNING,
+        current_phase=PipelinePhase.REFINE,
+    )
+    pipeline.phases = {
+        "refine": PhaseExecution(
+            phase=PipelinePhase.REFINE,
+            status=PipelineStatus.RUNNING,
+            containers=[
+                ContainerInfo(
+                    container_id="coordinator-aaa",
+                    container_name="egg-test-coordinator",
+                    agent_role=AgentRole.COORDINATOR,
+                    status=ContainerStatus.RUNNING,
+                ),
+                ContainerInfo(
+                    container_id="refiner-bbb",
+                    container_name="egg-test-refiner",
+                    agent_role=AgentRole.REFINER,
+                    status=ContainerStatus.RUNNING,
+                ),
+            ],
+            agents=[
+                AgentExecution(
+                    role=AgentRole.COORDINATOR,
+                    status=AgentExecutionStatus.RUNNING,
+                    container_id="coordinator-aaa",
+                ),
+                AgentExecution(
+                    role=AgentRole.REFINER,
+                    status=AgentExecutionStatus.RUNNING,
+                    container_id="refiner-bbb",
+                ),
+            ],
+        ),
+    }
+    pipeline.coordinator_state = CoordinatorState(
+        agents_spawned=[
+            AgentSpawnRecord(
+                role=AgentRole.REFINER,
+                status="running",
+                container_id="refiner-bbb",
+                task_context="Refine issue",
+            ),
+        ],
+        guardrail_counters=GuardrailCounters(),
+    )
+    return pipeline
+
+
+class TestCancelPipelineSyncsState:
+    """Tests that cancelling a pipeline marks running containers/agents as stopped."""
+
+    @patch("routes.pipelines.get_decision_queue")
+    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines._resolve_pipeline")
+    @patch("routes.pipelines.get_repo_path")
+    def test_cancel_marks_running_containers_as_removed(
+        self, mock_repo, mock_resolve, mock_spawner_fn, mock_dq_fn, client
+    ):
+        mock_repo.return_value = "/repo"
+        pipeline = _make_cancellable_pipeline()
+
+        mock_store = MagicMock()
+        mock_store.update_pipeline.return_value = pipeline
+        # Simulate update_pipeline setting status to cancelled
+        pipeline.status = PipelineStatus.CANCELLED
+        mock_resolve.return_value = (mock_store, pipeline)
+
+        mock_spawner = MagicMock()
+        mock_spawner.cleanup_pipeline.return_value = 2
+        mock_spawner_fn.return_value = mock_spawner
+
+        mock_dq = MagicMock()
+        mock_dq.get_pending_decisions.return_value = []
+        mock_dq_fn.return_value = mock_dq
+
+        response = client.patch(
+            "/api/v1/pipelines/test-pipeline",
+            json={"status": "cancelled"},
+        )
+        assert response.status_code == 200
+
+        # All running containers should be marked REMOVED
+        for container in pipeline.phases["refine"].containers:
+            assert container.status == ContainerStatus.REMOVED
+            assert container.exited_at is not None
+
+        # All running agents should be marked FAILED
+        for agent in pipeline.phases["refine"].agents:
+            assert agent.status == AgentExecutionStatus.FAILED
+            assert agent.completed_at is not None
+            assert agent.error == "Pipeline cancelled"
+
+        # Coordinator spawn records should be marked cancelled
+        for record in pipeline.coordinator_state.agents_spawned:
+            assert record.status == "cancelled"
+            assert record.completed_at is not None
+
+        # Pipeline state should have been saved
+        mock_store.save_pipeline.assert_called_once_with(pipeline)
+
+    @patch("routes.pipelines.get_decision_queue")
+    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines._resolve_pipeline")
+    @patch("routes.pipelines.get_repo_path")
+    def test_cancel_skips_already_completed_agents(
+        self, mock_repo, mock_resolve, mock_spawner_fn, mock_dq_fn, client
+    ):
+        mock_repo.return_value = "/repo"
+        pipeline = _make_cancellable_pipeline()
+        # Mark one agent as already complete
+        pipeline.phases["refine"].agents[0].status = AgentExecutionStatus.COMPLETE
+        pipeline.phases["refine"].containers[0].status = ContainerStatus.EXITED
+        pipeline.coordinator_state.agents_spawned[0].status = "complete"
+
+        mock_store = MagicMock()
+        mock_store.update_pipeline.return_value = pipeline
+        pipeline.status = PipelineStatus.CANCELLED
+        mock_resolve.return_value = (mock_store, pipeline)
+
+        mock_spawner = MagicMock()
+        mock_spawner.cleanup_pipeline.return_value = 1
+        mock_spawner_fn.return_value = mock_spawner
+
+        mock_dq = MagicMock()
+        mock_dq.get_pending_decisions.return_value = []
+        mock_dq_fn.return_value = mock_dq
+
+        response = client.patch(
+            "/api/v1/pipelines/test-pipeline",
+            json={"status": "cancelled"},
+        )
+        assert response.status_code == 200
+
+        # Already-complete agent/container should NOT be overwritten
+        assert pipeline.phases["refine"].agents[0].status == AgentExecutionStatus.COMPLETE
+        assert pipeline.phases["refine"].containers[0].status == ContainerStatus.EXITED
+        assert pipeline.coordinator_state.agents_spawned[0].status == "complete"
+
+        # Still-running agent/container should be updated
+        assert pipeline.phases["refine"].agents[1].status == AgentExecutionStatus.FAILED
+        assert pipeline.phases["refine"].containers[1].status == ContainerStatus.REMOVED
