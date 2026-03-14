@@ -32,6 +32,7 @@ secrets.yaml
 # Note: .env may be generated at runtime by egg --compose
 
 # Claude Code
+CLAUDE.md
 .claude/worktrees/
 .claude/settings.local.json
 .claude/scheduled_tasks.lock

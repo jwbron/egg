@@ -586,6 +586,7 @@ if is_orchestrator_mode():
 | `EGG_ORCHESTRATOR_URL` | Orchestrator API URL | None |
 | `EGG_PIPELINE_ID` | Current pipeline identifier | None |
 | `EGG_AGENT_ROLE` | Agent role for multi-agent mode | None |
+| `EGG_BRANCH` | Target branch for the agent's worktree | `egg/{pipeline_id}/work` |
 | `EGG_PRIVATE_MODE` | Private network mode (set by host wrapper, detected by `egg-sdlc`) | None |
 | `HOST_HOME` | Docker host's home directory (e.g., `/home/jwies`); used to translate host worktree paths to orchestrator-accessible paths | None |
 

@@ -48,6 +48,7 @@ These fields in `PipelineConfig` control coordinator behavior:
 | `coordinator_max_retries_per_role` | `2` | Maximum retry attempts per agent role |
 | `coordinator_max_respawns` | `2` | Maximum coordinator container respawns after crash |
 | `hitl_gates` | `true` | Require human approval before advancing past `refine` and `plan` phases |
+| `max_review_cycles` | `3` | Maximum review cycles per phase before the circuit breaker advances the phase |
 
 ## MCP Server
 
@@ -292,18 +293,32 @@ The orchestrator enforces configurable limits to prevent runaway behavior:
 - **Max agents** (`coordinator_max_agents`): Total agents the coordinator can spawn across the entire pipeline. Spawn requests exceeding this return HTTP 429.
 - **Max retries per role** (`coordinator_max_retries_per_role`): Limits retry attempts for each agent role independently.
 - **Max coordinator respawns** (`coordinator_max_respawns`): Limits how many times the coordinator itself can be restarted after crashes.
+- **Max review cycles** (`max_review_cycles`): Circuit breaker for reviewer feedback loops — if reviewers request changes this many times for a phase, the pipeline advances anyway. Tracked via `phase_execution.review_cycles`, separate from coordinator crash respawns.
 
-Guardrail counters are tracked in `CoordinatorState.guardrail_counters` and persist across coordinator respawns.
+Guardrail counters are tracked in `CoordinatorState.guardrail_counters` and persist across coordinator respawns, except for review cycles which are tracked per-phase in `phase_execution.review_cycles`.
+
+## Review Cycles
+
+After the coordinator container exits successfully, the pipeline reads verdicts from any `reviewer_code` and `reviewer_contract` agents that ran during the phase:
+
+- **Approved**: The phase advances normally.
+- **Needs revision**: The coordinator is respawned with the reviewer feedback included in its prompt context so it can address the requested changes.
+- **Circuit breaker hit**: If the review cycle count for the phase reaches `max_review_cycles` (default 3), the phase advances regardless of reviewer verdict to prevent unbounded loops.
+
+Any agent containers still running when the coordinator exits are stopped before the review verdict is evaluated.
+
+This review cycle is separate from coordinator crash recovery — review loops use `phase_execution.review_cycles` while crash respawns use `CoordinatorState.guardrail_counters.coordinator_respawns`. The pipeline does NOT mark itself `COMPLETE` on coordinator exit; the pipeline loop reads review verdicts first and sets the final status only after phase advancement.
 
 ## Crash Recovery
 
 If the coordinator container crashes:
 
 1. Running agents continue operating and auto-commit their work on exit.
-2. The orchestrator detects the coordinator exit and checks the respawn budget.
-3. If respawns remain, a new coordinator container is spawned automatically.
-4. The new coordinator reads `egg-orch coordinator state` to re-assess the current situation — what agents have run, their results, the current phase, and any pending decisions.
-5. If max respawns are exhausted, the pipeline fails with a notification.
+2. The orchestrator detects the coordinator exit and checks the pipeline status.
+3. If the pipeline is already in a terminal state (cancelled, failed, or complete), respawn is skipped — the coordinator exit is recorded and no new container is launched.
+4. Otherwise, the respawn budget is checked. If respawns remain, a new coordinator container is spawned automatically.
+5. The new coordinator reads `egg-orch coordinator state` to re-assess the current situation — what agents have run, their results, the current phase, and any pending decisions.
+6. If max respawns are exhausted, the pipeline fails with a notification.
 
 ## Coordinator State Model
 

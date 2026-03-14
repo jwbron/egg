@@ -336,6 +336,7 @@ When health checks run at `PHASE_COMPLETE`, a `FAIL_PIPELINE` action blocks the 
 | `EGG_ORCHESTRATOR_URL` | Orchestrator API URL | `http://egg-orchestrator:9849` |
 | `EGG_PIPELINE_ID` | Current pipeline identifier | None |
 | `EGG_AGENT_ROLE` | Agent role for multi-agent mode | None |
+| `EGG_BRANCH` | Target branch for the agent's worktree | `egg/{pipeline_id}/work` |
 | `EGG_PRIVATE_MODE` | Private network mode | None |
 | `HOST_HOME` | Docker host home directory (for worktree path translation) | None |
 | `ORCHESTRATOR_PORT` | API port | `9849` |
