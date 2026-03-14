@@ -6369,9 +6369,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                             review_feedback = agg_result.blocking_feedback
                             with get_pipeline_state_lock(pipeline_id):
                                 pipeline = store.load_pipeline(pipeline_id)
-                                phase_execution = pipeline.get_phase_execution(
-                                    current_phase
-                                )
+                                phase_execution = pipeline.get_phase_execution(current_phase)
                                 phase_execution.review_cycles = review_cycle + 1
                                 store.save_pipeline(pipeline)
 
@@ -6380,9 +6378,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                                 pipeline_id=pipeline_id,
                                 phase=current_phase,
                                 review_cycle=review_cycle + 1,
-                                feedback_preview=(
-                                    review_feedback[:200] if review_feedback else ""
-                                ),
+                                feedback_preview=(review_feedback[:200] if review_feedback else ""),
                             )
                             continue  # Re-run while loop with feedback
 

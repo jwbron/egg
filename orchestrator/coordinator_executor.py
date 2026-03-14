@@ -126,9 +126,7 @@ class CoordinatorExecutor:
                         role=record.role,
                         container_id=record.container_id,
                     )
-                    info = self.docker_client.stop_container(
-                        record.container_id, timeout=30
-                    )
+                    info = self.docker_client.stop_container(record.container_id, timeout=30)
                     exit_code = getattr(info, "exit_code", None)
                     record.status = "complete" if exit_code == 0 else "failed"
                     record.completed_at = datetime.utcnow()
@@ -196,8 +194,7 @@ class CoordinatorExecutor:
                 has_running = False
                 if pipeline.coordinator_state:
                     has_running = any(
-                        a.status == "running"
-                        for a in pipeline.coordinator_state.agents_spawned
+                        a.status == "running" for a in pipeline.coordinator_state.agents_spawned
                     )
 
                 # Do NOT set pipeline.status = COMPLETE here — let the pipeline
@@ -257,8 +254,7 @@ class CoordinatorExecutor:
             has_running = False
             if pipeline.coordinator_state:
                 has_running = any(
-                    a.status == "running"
-                    for a in pipeline.coordinator_state.agents_spawned
+                    a.status == "running" for a in pipeline.coordinator_state.agents_spawned
                 )
 
             if has_running:

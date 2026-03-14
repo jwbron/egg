@@ -11,7 +11,6 @@ Tests coordinator container lifecycle management including:
 
 import sys
 from pathlib import Path
-from datetime import datetime
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -21,17 +20,16 @@ for p in (_project_root / "orchestrator", _project_root / "shared"):
     if p.exists() and str(p) not in sys.path:
         sys.path.insert(0, str(p))
 
+from coordinator_executor import CoordinatorExecutor
 from models import (
     AgentRole,
     AgentSpawnRecord,
-    ContainerInfo,
     CoordinatorState,
     GuardrailCounters,
     Pipeline,
     PipelineConfig,
     PipelineStatus,
 )
-from coordinator_executor import CoordinatorExecutor
 
 
 class TestCoordinatorExecutorModuleExists:
@@ -236,9 +234,7 @@ class TestCoordinatorCompletionDoesNotSetComplete:
     @patch("coordinator_executor.get_state_store")
     @patch("coordinator_executor.get_pipeline_state_lock")
     @patch("coordinator_executor.emit_event")
-    def test_completion_does_not_set_pipeline_complete(
-        self, mock_emit, mock_lock, mock_store_fn
-    ):
+    def test_completion_does_not_set_pipeline_complete(self, mock_emit, mock_lock, mock_store_fn):
         """On exit code 0 with no running agents, pipeline.status must NOT be COMPLETE."""
         pipeline = _make_pipeline_with_coordinator()
         mock_store = MagicMock()
