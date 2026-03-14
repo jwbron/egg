@@ -76,9 +76,26 @@
       "phase_start_sha": null
     }
   },
-  "decisions": [],
+  "decisions": [
+    {
+      "id": "decision-1",
+      "question": "Pipeline issue-1059 has exhausted the 10-agent limit across refine (3), plan (4), and implement (3) phases. The implementation is complete and reviewed. Need to spawn an integrator agent to create the PR. Please approve increasing coordinator_max_agents limit, or alternatively the coordinator can signal completion and the gateway auto-commit will push the changes.",
+      "context": "",
+      "options": [
+        "Raise agent limit to 12",
+        "Skip integrator - coordinator signals complete"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-03-14T20:13:08.728289",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "pr"
+    }
+  ],
   "created_at": "2026-03-14T19:17:37.901759",
-  "updated_at": "2026-03-14T20:12:46.080385",
+  "updated_at": "2026-03-14T20:13:08.731102",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
@@ -219,5 +236,5 @@
   },
   "plan_phase_waves": null,
   "plan_phase_names": null,
-  "version": 30
+  "version": 31
 }
