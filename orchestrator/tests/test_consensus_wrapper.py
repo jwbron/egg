@@ -203,7 +203,11 @@ class TestConsensusWrapperBehavior:
 
     @staticmethod
     def _run_wrapper_command(
-        cmd: list[str], tmpdir: str, timeout: int = 15, concurrent: bool = True
+        cmd: list[str],
+        tmpdir: str,
+        timeout: int = 15,
+        concurrent: bool = True,
+        agent_role: str | None = None,
     ) -> subprocess.CompletedProcess:
         """Run a wrapper command with test environment."""
         env = os.environ.copy()
@@ -212,6 +216,10 @@ class TestConsensusWrapperBehavior:
             env["EGG_CONCURRENT_MODE"] = "true"
         else:
             env.pop("EGG_CONCURRENT_MODE", None)
+        if agent_role:
+            env["EGG_AGENT_ROLE"] = agent_role
+        else:
+            env.pop("EGG_AGENT_ROLE", None)
         env["EGG_CONSENSUS_WRAPPER_TIMEOUT"] = "2"
         env["EGG_MESSAGE_POLL_INTERVAL"] = "1"
         return subprocess.run(
@@ -364,6 +372,85 @@ class TestConsensusWrapperBehavior:
             assert "Max restarts (2) exhausted" in result.stdout
             # Should exit with failure code after exhausting restarts
             assert result.returncode == 1
+
+    @staticmethod
+    def _make_mock_tools_with_agent_ready_state(
+        tmpdir: str,
+        log_file: str,
+        claude_log_file: str | None = None,
+        agent_role: str = "coder",
+        consensus_after: int = 2,
+    ) -> None:
+        """Create mock tools where the agent is already READY but consensus is pending.
+
+        The mock egg-orch returns per-agent state showing the agent as READY
+        with ``is_complete=false`` initially. After ``consensus_after`` calls
+        to ``pipeline status``, it returns ``is_complete=true``. This exercises
+        the READY polling path (skip restart, wait for consensus).
+        """
+        counter_file = os.path.join(tmpdir, "orch_status_count")
+        mock_orch = os.path.join(tmpdir, "egg-orch")
+        # Build JSON strings with agent state — use string concatenation to
+        # avoid f-string brace escaping confusion.
+        json_incomplete = (
+            '{"data": {"concurrent": {"consensus": {"is_complete": false, '
+            '"agents": {"' + agent_role + '": {"state": "READY"}}}}}}'
+        )
+        json_complete = (
+            '{"data": {"concurrent": {"consensus": {"is_complete": true, '
+            '"agents": {"' + agent_role + '": {"state": "READY"}}}}}}'
+        )
+        with open(mock_orch, "w") as f:
+            f.write("#!/bin/bash\n")
+            f.write(f'echo "$@" >> {shlex.quote(log_file)}\n')
+            f.write('if echo "$@" | grep -q "pipeline status"; then\n')
+            f.write("  COUNT=0\n")
+            f.write(f"  if [ -f {shlex.quote(counter_file)} ]; then\n")
+            f.write(f"    COUNT=$(cat {shlex.quote(counter_file)})\n")
+            f.write("  fi\n")
+            f.write("  COUNT=$((COUNT + 1))\n")
+            f.write(f'  echo "$COUNT" > {shlex.quote(counter_file)}\n')
+            f.write(f'  if [ "$COUNT" -ge {consensus_after} ]; then\n')
+            f.write(f"    echo '{json_complete}'\n")
+            f.write("  else\n")
+            f.write(f"    echo '{json_incomplete}'\n")
+            f.write("  fi\n")
+            f.write("else\n")
+            f.write('  echo \'{"data": {"concurrent": {"consensus": {"is_complete": false}}}}\'\n')
+            f.write("fi\n")
+        os.chmod(mock_orch, 0o755)  # nosec B103
+
+        _make_mock_claude(tmpdir, claude_log_file)
+
+    def test_ready_agent_skips_restart_and_polls(self):
+        """Agent already READY should skip restart and poll for consensus."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            log_file = os.path.join(tmpdir, "egg-orch.log")
+            claude_log = os.path.join(tmpdir, "claude.log")
+            # Mock returns agent as READY, consensus false then true on 3rd call
+            self._make_mock_tools_with_agent_ready_state(
+                tmpdir,
+                log_file,
+                claude_log,
+                agent_role="coder",
+                consensus_after=3,
+            )
+
+            cmd = build_consensus_wrapped_command("Do the work", max_restarts=2, max_ready_polls=5)
+            result = self._run_wrapper_command(cmd, tmpdir, timeout=30, agent_role="coder")
+
+            # Should exit cleanly
+            assert result.returncode == 0
+            # Should detect agent is already READY and skip restart
+            assert "already signaled READY" in result.stdout
+            # Should eventually detect consensus
+            assert "Consensus reached" in result.stdout
+            # Claude should only be called once (no restart)
+            with open(claude_log) as f:
+                call_count = f.read().count("---CLAUDE_CALL_START---")
+            assert call_count == 1
+            # Should NOT show any restart messages
+            assert "Restarting" not in result.stdout
 
     def test_no_auto_ready_on_clean_exit(self):
         """Wrapper must NOT auto-signal READY — only restarts are allowed."""
