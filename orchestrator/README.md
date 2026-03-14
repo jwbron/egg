@@ -84,7 +84,7 @@ When `concurrent_execution: true` is set in the pipeline configuration, agents w
 
 - **Message bus** — Agents exchange typed messages (PROGRESS, QUESTION, RESPONSE, STATUS, AGENT_FAILED) via the orchestrator's message API. Messages can target a specific role or broadcast to all agents.
 - **Readiness consensus** — Each agent signals its readiness state (WORKING, READY, BLOCKED, OBJECTING). The phase advances only when all agents reach READY. Any OBJECTING agent blocks phase completion.
-- **Per-agent worktrees** — Each concurrent agent gets an isolated worktree branch (e.g., `egg/issue-999/coder`, `egg/issue-999/tester`). The integrator merges these at the end.
+- **Shared pipeline branch** — All concurrent agents operate on the pipeline's shared branch (e.g., `egg/issue-999`). Agents coordinate commits via the message bus.
 
 The `GET /pipelines/{id}/status` endpoint includes a `concurrent` section when this mode is active, showing message counts, consensus state, and agent lifecycle info. See [SDLC Pipeline Guide — Concurrent Execution](../docs/guides/sdlc-pipeline.md#concurrent-execution-mode) for full details.
 

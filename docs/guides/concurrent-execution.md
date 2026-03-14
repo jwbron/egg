@@ -1,6 +1,6 @@
 # Concurrent Execution Mode
 
-Concurrent execution mode runs all implement-phase agents simultaneously — each in its own worktree branch — rather than sequentially in dependency-ordered waves. Agents communicate via the orchestrator message bus and signal readiness for phase completion via a consensus protocol.
+Concurrent execution mode runs all implement-phase agents simultaneously — all sharing the pipeline branch — rather than sequentially in dependency-ordered waves. Agents communicate via the orchestrator message bus and signal readiness for phase completion via a consensus protocol.
 
 This is distinct from the standard wave-based parallel execution (Tier 2), where agents run in dependency order but multiple independent agents execute in parallel within each wave.
 
@@ -34,7 +34,7 @@ When concurrent execution starts for the implement phase, the `ConcurrentPhaseEx
 - `reviewer_code`
 - `reviewer_contract`
 
-**Worktree isolation**: Each agent is assigned a dedicated branch `egg/issue-{N}/{role}` (e.g., `egg/issue-123/coder`). This gives each agent its own isolated working directory while all agents share visibility into the same remote branch history.
+**Shared branch**: All agents operate on the pipeline's shared branch (e.g., `egg/issue-123`). Agents coordinate commits via the message bus to sequence their work and avoid conflicts.
 
 **Environment injection**: Each concurrent agent receives:
 
@@ -206,15 +206,9 @@ The 60-second window is tracked via the `_failure_times` list, filtered to recen
 | Consensus timeout | Advance anyway, Wait longer, Abort |
 | Agent objection | Resolve then advance, Override, Abort |
 
-## Per-Agent Worktree Isolation
+## Shared Pipeline Branch
 
-Each concurrent agent operates on its own branch `egg/issue-{N}/{role}`, created as a git worktree by the gateway. This provides:
-
-- **File system isolation**: Each agent's workspace is separate; one agent cannot accidentally overwrite another's in-progress changes
-- **Concurrent commits**: Agents can commit independently without coordination
-- **Conflict visibility**: Merge conflicts between agents' branches become explicit at integration time (when the integrator merges results)
-
-After concurrent execution completes, the integrator role is responsible for merging the per-role branches and resolving any conflicts.
+All concurrent agents operate on the pipeline's shared branch (e.g., `egg/issue-{N}`). Rather than each agent having an isolated worktree branch, all agents commit directly to a single shared history. Agents coordinate via the message bus to sequence commits and avoid conflicts — for example, the coder signals `HANDOFF` when its changes are committed so downstream agents (tester, documenter) know it is safe to pull and build on top.
 
 ## Orchestrator API Reference
 
