@@ -34,7 +34,7 @@ except ImportError:
 
 from container_spawner import ContainerSpawnError, get_container_spawner
 from decision_queue import get_decision_queue
-from egg_contracts.agent_roles import get_roles_for_phase
+from egg_contracts.agent_roles import get_role_definition, get_roles_for_phase
 from events import EventType, emit_event
 from gateway_client import GatewayError, get_gateway_client
 from models import (
@@ -209,6 +209,56 @@ def spawn_agent(pipeline_id: str) -> tuple[Response, int]:
                     },
                 )
 
+            # Block spawns in implement/PR phases if no contract exists
+            if (
+                pipeline.current_phase in (PipelinePhase.IMPLEMENT, PipelinePhase.PR)
+                and not pipeline.contract_synced
+            ):
+                return make_error_response(
+                    f"Cannot spawn agent in '{pipeline.current_phase.value}' phase: "
+                    "no contract exists for this pipeline. A contract must be "
+                    "created before implementation can begin.",
+                    status_code=409,
+                    details={
+                        "pipeline_id": pipeline_id,
+                        "phase": pipeline.current_phase.value,
+                        "contract_synced": False,
+                    },
+                )
+
+            # Check role dependencies — reviewer roles must wait for
+            # their primary agents to complete
+            try:
+                role_def = get_role_definition(role_str)
+                if role_def.dependencies:
+                    coord_state = pipeline.coordinator_state or CoordinatorState()
+                    completed_roles = {
+                        s.role.value for s in coord_state.agents_spawned if s.status == "complete"
+                    }
+                    missing = [
+                        dep.value
+                        for dep in role_def.dependencies
+                        if dep.value not in completed_roles
+                    ]
+                    if missing:
+                        return make_error_response(
+                            f"Cannot spawn '{role_str}': dependencies not yet complete: "
+                            f"{missing}. These roles must finish before '{role_str}' can start.",
+                            status_code=409,
+                            details={
+                                "role": role_str,
+                                "missing_dependencies": missing,
+                                "completed_roles": sorted(completed_roles),
+                            },
+                        )
+            except (ValueError, KeyError):
+                # Role not found in egg_contracts definitions — allow spawn
+                # but warn since this bypasses a safety check
+                logger.warning(
+                    "No role definition found for dependency check, allowing spawn",
+                    role=role_str,
+                )
+
             # Validate role is appropriate for the current phase
             current_phase_str = pipeline.current_phase.value
             try:
@@ -283,6 +333,17 @@ def spawn_agent(pipeline_id: str) -> tuple[Response, int]:
                 f"Execute your role for the {pipeline.current_phase.value} phase. "
                 f"Follow the instructions in your CLAUDE.md."
             )
+
+            # Append consensus protocol reminder so agents signal
+            # readiness and stay alive for the orchestrator to collect.
+            agent_prompt += (
+                "\n\nIMPORTANT: When your work is complete, signal readiness:\n"
+                '  egg-orch signal readiness --state READY --reason "Work complete"\n'
+                "Then stay alive polling for messages. Do NOT exit.\n"
+                "  while true; do egg-orch message poll; "
+                'sleep "${EGG_MESSAGE_POLL_INTERVAL:-30}"; done'
+            )
+
             agent_command = [
                 "claude",
                 "--dangerously-skip-permissions",
