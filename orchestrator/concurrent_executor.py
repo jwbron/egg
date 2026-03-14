@@ -27,6 +27,7 @@ except ImportError:
         return logging.getLogger(name)
 
 
+from egg_agent import build_agent_command
 from consensus import get_consensus_evaluator
 from events import EventType, emit_event
 from message_store import Message, MessageType, get_message_store
@@ -169,19 +170,7 @@ class ConcurrentPhaseExecutor:
 
         command: list[str] | None = None
         if prompt_text:
-            command = [
-                "claude",
-                "--dangerously-skip-permissions",
-                "--print",
-                "--verbose",
-                "--output-format",
-                "stream-json",
-                "--model",
-                "opus",
-                "--max-turns",
-                "200",
-                prompt_text,
-            ]
+            command = build_agent_command(prompt_text)
 
         result = self.spawn_fn(
             role=role,

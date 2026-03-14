@@ -142,6 +142,7 @@ except ImportError:
 pipelines_bp = Blueprint("pipelines", __name__, url_prefix="/api/v1/pipelines")
 
 
+from egg_agent import build_agent_command
 from routes import get_repo_path  # noqa: E402 — shared helper
 
 try:
@@ -3587,19 +3588,7 @@ def _run_tier3_implement(
                 repos=repos,
                 phase="implement",
                 sandbox_env=phase_env,
-                sandbox_command=[
-                    "claude",
-                    "--dangerously-skip-permissions",
-                    "--print",
-                    "--verbose",
-                    "--output-format",
-                    "stream-json",
-                    "--model",
-                    "opus",
-                    "--max-turns",
-                    "200",
-                    coder_prompt,
-                ],
+                sandbox_command=build_agent_command(coder_prompt),
                 store=store,
                 certs_volume=certs_volume,
                 branch=pipeline.branch,
@@ -3649,19 +3638,7 @@ def _run_tier3_implement(
                 repos=repos,
                 phase="implement",
                 sandbox_env=phase_env,
-                sandbox_command=[
-                    "claude",
-                    "--dangerously-skip-permissions",
-                    "--print",
-                    "--verbose",
-                    "--output-format",
-                    "stream-json",
-                    "--model",
-                    "opus",
-                    "--max-turns",
-                    "200",
-                    tester_prompt,
-                ],
+                sandbox_command=build_agent_command(tester_prompt),
                 store=store,
                 certs_volume=certs_volume,
                 branch=pipeline.branch,
@@ -3732,19 +3709,7 @@ def _run_tier3_implement(
                 repos=repos,
                 phase="implement",
                 sandbox_env=phase_env,
-                sandbox_command=[
-                    "claude",
-                    "--dangerously-skip-permissions",
-                    "--print",
-                    "--verbose",
-                    "--output-format",
-                    "stream-json",
-                    "--model",
-                    "opus",
-                    "--max-turns",
-                    "200",
-                    documenter_prompt,
-                ],
+                sandbox_command=build_agent_command(documenter_prompt),
                 store=store,
                 certs_volume=certs_volume,
                 branch=pipeline.branch,
@@ -3801,19 +3766,7 @@ def _run_tier3_implement(
                     repos=repos,
                     phase="implement",
                     sandbox_env={**phase_env, "EGG_AGENT_ROLE": "checker"},
-                    sandbox_command=[
-                        "claude",
-                        "--dangerously-skip-permissions",
-                        "--print",
-                        "--verbose",
-                        "--output-format",
-                        "stream-json",
-                        "--model",
-                        "opus",
-                        "--max-turns",
-                        "100",
-                        check_fix_prompt,
-                    ],
+                    sandbox_command=build_agent_command(check_fix_prompt, max_turns=100),
                     timeout=2700,
                     store=store,
                     certs_volume=certs_volume,
@@ -3887,19 +3840,7 @@ def _run_tier3_implement(
                         repos=repos,
                         phase="implement",
                         sandbox_env={**phase_env, "EGG_AGENT_ROLE": f"reviewer_{rtype}"},
-                        sandbox_command=[
-                            "claude",
-                            "--dangerously-skip-permissions",
-                            "--print",
-                            "--verbose",
-                            "--output-format",
-                            "stream-json",
-                            "--model",
-                            "opus",
-                            "--max-turns",
-                            "50",
-                            review_prompt,
-                        ],
+                        sandbox_command=build_agent_command(review_prompt, max_turns=50),
                         timeout=1800,
                         store=store,
                         certs_volume=certs_volume,
@@ -4085,19 +4026,7 @@ def _run_tier3_implement(
     ]
     integrator_prompt += "\n".join(tier3_integrator_lines)
 
-    integrator_command = [
-        "claude",
-        "--dangerously-skip-permissions",
-        "--print",
-        "--verbose",
-        "--output-format",
-        "stream-json",
-        "--model",
-        "opus",
-        "--max-turns",
-        "200",
-        integrator_prompt,
-    ]
+    integrator_command = build_agent_command(integrator_prompt)
 
     integrator_exit, integrator_logs = _spawn_and_wait(
         spawner=spawner,
@@ -4233,19 +4162,7 @@ def _run_multi_agent_phase(
     def spawn_fn(role: AgentRole, prompt_text: str, extra_env: dict[str, str]) -> tuple[int, str]:
         merged_env = {**sandbox_env, **extra_env}
 
-        sandbox_command = [
-            "claude",
-            "--dangerously-skip-permissions",
-            "--print",
-            "--verbose",
-            "--output-format",
-            "stream-json",
-            "--model",
-            "opus",
-            "--max-turns",
-            "200",
-            prompt_text,
-        ]
+        sandbox_command = build_agent_command(prompt_text)
 
         exit_code, container_logs = _spawn_and_wait(
             spawner=spawner,
@@ -6191,19 +6108,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                             branch=pipeline.branch,
                             review_cycle=review_cycle,
                         )
-                        coordinator_command = [
-                            "claude",
-                            "--dangerously-skip-permissions",
-                            "--print",
-                            "--verbose",
-                            "--output-format",
-                            "stream-json",
-                            "--model",
-                            "opus",
-                            "--max-turns",
-                            "200",
-                            coordinator_prompt,
-                        ]
+                        coordinator_command = build_agent_command(coordinator_prompt)
 
                         try:
                             from egg_container import MountSpec
@@ -6429,19 +6334,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                             repo_path=str(worktree_repo_path),
                         )
 
-                        sandbox_command = [
-                            "claude",
-                            "--dangerously-skip-permissions",
-                            "--print",
-                            "--verbose",
-                            "--output-format",
-                            "stream-json",
-                            "--model",
-                            "opus",
-                            "--max-turns",
-                            "200",
-                            phase_prompt,
-                        ]
+                        sandbox_command = build_agent_command(phase_prompt)
 
                         # Use the REFINER role for the refine phase,
                         # CODER for all other single-agent phases.
@@ -6548,19 +6441,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                             repo_path=str(worktree_repo_path),
                             issue_number=pipeline.issue_number,
                         )
-                        check_fix_command = [
-                            "claude",
-                            "--dangerously-skip-permissions",
-                            "--print",
-                            "--verbose",
-                            "--output-format",
-                            "stream-json",
-                            "--model",
-                            "opus",
-                            "--max-turns",
-                            "100",
-                            check_fix_prompt,
-                        ]
+                        check_fix_command = build_agent_command(check_fix_prompt, max_turns=100)
                         checker_env = {**sandbox_env, "EGG_AGENT_ROLE": "checker"}
 
                         try:
@@ -6681,19 +6562,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                             repo_path=str(_repo_path),
                             last_reviewed_commit=_last_commit,
                         )
-                        reviewer_command = [
-                            "claude",
-                            "--dangerously-skip-permissions",
-                            "--print",
-                            "--verbose",
-                            "--output-format",
-                            "stream-json",
-                            "--model",
-                            "opus",
-                            "--max-turns",
-                            "50",
-                            reviewer_prompt,
-                        ]
+                        reviewer_command = build_agent_command(reviewer_prompt, max_turns=50)
                         reviewer_env = {
                             **_sandbox_env,
                             "EGG_AGENT_ROLE": role_str,
