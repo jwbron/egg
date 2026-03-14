@@ -34,6 +34,7 @@ except ImportError:
 
 from container_spawner import ContainerSpawnError, get_container_spawner
 from decision_queue import get_decision_queue
+from egg_contracts.agent_roles import get_roles_for_phase
 from events import EventType, emit_event
 from gateway_client import GatewayError, get_gateway_client
 from models import (
@@ -206,6 +207,39 @@ def spawn_agent(pipeline_id: str) -> tuple[Response, int]:
                         "reason": reason,
                         "pipeline_id": pipeline_id,
                     },
+                )
+
+            # Validate role is appropriate for the current phase
+            current_phase_str = pipeline.current_phase.value
+            try:
+                valid_roles = get_roles_for_phase(current_phase_str, include_reviewers=True)
+                valid_role_names = [r.value for r in valid_roles]
+                if role_str not in valid_role_names:
+                    logger.warning(
+                        "Coordinator attempted to spawn invalid role for phase",
+                        pipeline_id=pipeline_id,
+                        role=role_str,
+                        phase=current_phase_str,
+                        valid_roles=valid_role_names,
+                    )
+                    return make_error_response(
+                        f"Role '{role_str}' is not valid for phase '{current_phase_str}'. "
+                        f"Valid roles: {valid_role_names}",
+                        status_code=400,
+                        details={
+                            "role": role_str,
+                            "phase": current_phase_str,
+                            "valid_roles": valid_role_names,
+                        },
+                    )
+            except ValueError:
+                # Phase has no defined roles (e.g., 'pr', 'coordinator') —
+                # allow the spawn and let the agent figure it out
+                logger.debug(
+                    "No role mapping for phase, allowing spawn",
+                    pipeline_id=pipeline_id,
+                    role=role_str,
+                    phase=current_phase_str,
                 )
 
             # Calculate retry number for this role

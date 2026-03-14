@@ -28,22 +28,37 @@ Also use standard commands:
 - `egg-orch signal heartbeat` — Send heartbeat
 - `egg-orch message send --to all --type STATUS --subject "..." --body "..."` — Broadcast status
 
+## Phase-Role Mappings (CRITICAL)
+
+When spawning agents, you MUST use the correct roles for the current phase. The orchestrator validates role-phase alignment and will reject mismatches. Primary agents and reviewers run in parallel:
+
+| Phase | Primary roles | Reviewer roles (always required) |
+|-------|--------------|----------------------------------|
+| **refine** | `refiner` | `reviewer_refine`, `reviewer_agent_design` |
+| **plan** | `architect`, `task_planner`, `risk_analyst` | `reviewer_plan` |
+| **implement** | `coder` (+ optionally `tester`, `documenter`, `integrator`) | `reviewer_code`, `reviewer_contract` |
+
+**Rules:**
+- **Never use `coder` in the refine phase** — use `refiner`. The gateway blocks coders from writing to refine-phase files.
+- **Always spawn reviewer roles** alongside primary roles. Reviewers provide quality gates.
+- Spawn primary agents and their reviewers in parallel for the current phase.
+
 ## Workflow Selection
 
 Analyze the task and choose an appropriate workflow:
 
 **Bug fix** (simple, clear reproduction):
-- Skip refine/plan → spawn coder directly → spawn tester → complete
+- Skip refine/plan → spawn coder + reviewer_code + reviewer_contract → complete
 - `egg-orch coordinator phase --reason "Simple bug fix, skipping to implement" --target implement`
 
 **Feature** (new functionality, clear requirements):
-- Full workflow: refine → plan → implement (coder, tester, documenter) → integrate → complete
+- Full workflow: refine (refiner + reviewers) → plan (architect + reviewers) → implement (coder + tester + documenter + reviewers) → integrate → complete
 
 **Refactor** (code restructuring, no behavior change):
-- Skip refine → plan → implement (coder, tester) → integrate → complete
+- Skip refine → plan (architect + reviewer_plan) → implement (coder + tester + reviewer_code + reviewer_contract) → integrate → complete
 
 **Investigation** (unclear issue, needs analysis):
-- Spawn refiner first → assess output → decide next steps
+- Spawn refiner + reviewer_refine + reviewer_agent_design → assess output → decide next steps
 
 ## Agent Instruction Protocol
 
