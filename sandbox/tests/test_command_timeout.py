@@ -336,9 +336,7 @@ class TestRunExecBashBypass:
     @patch("entrypoint._run_with_stderr_capture", return_value=0)
     @patch("entrypoint._chdir_to_single_repo")
     @patch("entrypoint._startup_timer")
-    def test_non_bash_command_unchanged(
-        self, _timer, _chdir, mock_run, tmp_path: Path
-    ) -> None:
+    def test_non_bash_command_unchanged(self, _timer, _chdir, mock_run, tmp_path: Path) -> None:
         """run_exec doesn't modify non-bash commands."""
         config, logger = self._make_mocks()
 
