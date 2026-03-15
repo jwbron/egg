@@ -83,7 +83,7 @@
   },
   "decisions": [],
   "created_at": "2026-03-15T22:53:46.316302",
-  "updated_at": "2026-03-15T22:54:49.357928",
+  "updated_at": "2026-03-15T22:55:07.691804",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
@@ -100,14 +100,24 @@
         "container_id": "b5b59d8b12556101bd8179318996cc8151da3dcc093d46f28d584b31bf9b6702",
         "task_context": "Issue #1032: Agent anchor mechanism for post-compaction state recovery. This is a well-specified enhancement issue that defines a persistent anchor mechanism so agents maintain coherent state after context compaction. The issue includes detailed design decisions (JSON format, 2KB/3KB size budget, self-report + orchestrator enrichment, anchor-as-floor recovery, lifecycle-based cleanup, gateway enforcement). Key deliverables: JSON schema at .egg/schemas/agent-anchor.schema.json, Python library at shared/egg_anchor/, egg-orch anchor CLI subcommands, orchestrator API endpoints, gateway phase filter additions, sandbox recovery rules, checkpoint integration. 4 implementation phases defined. Dependencies: soft on #1027 (cross-agent comms) and #1030 (agent roster). 3 open questions on Redis namespace, auto-pruning, and non-pipeline mode. Your job: refine the requirements, validate completeness, identify gaps or ambiguities, and produce a refined specification ready for planning.",
         "retry_number": 0
+      },
+      {
+        "role": "reviewer_refine",
+        "spawned_at": "2026-03-15T22:55:07.691681",
+        "completed_at": null,
+        "status": "running",
+        "container_id": "3ee8785914adc4c096d5aab712ba6bdb2d773c185b447e8fba7745009dbc6d8d",
+        "task_context": "Issue #1032: Agent anchor mechanism for post-compaction state recovery. Review the refiner's output for completeness, correctness, and clarity. The issue defines a persistent anchor mechanism (JSON files at .egg-state/agent-anchors/) for agents to recover working state after context compaction. Key areas to validate: schema design, size budgets (2KB/3KB soft/hard), recovery protocol (pull-based with message catch-up), storage architecture (local files + Redis + orchestrator API), lifecycle management, gateway enforcement (session-scoped writes). Check for gaps in error handling, edge cases (concurrent writes in shared worktree, network partitions), and integration points with existing systems (egg-contract, checkpoints, BRC consensus, cross-agent messaging). 3 open questions need resolution: Redis namespace, auto-pruning, non-pipeline mode.",
+        "retry_number": 0
       }
     ],
     "phase_decisions": [],
     "escalations": [],
     "guardrail_counters": {
-      "total_agents_spawned": 1,
+      "total_agents_spawned": 2,
       "retries_by_role": {
-        "refiner": 1
+        "refiner": 1,
+        "reviewer_refine": 1
       },
       "coordinator_respawns": 0,
       "started_at": "2026-03-15T22:53:51.198914"
@@ -115,5 +125,5 @@
   },
   "plan_phase_waves": null,
   "plan_phase_names": null,
-  "version": 9
+  "version": 10
 }
