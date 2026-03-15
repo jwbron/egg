@@ -76,15 +76,15 @@
       ],
       "decision_type": "phase_gate",
       "questions": [],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-03-15T21:25:25.838403",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-03-15T22:38:25.777416",
+      "resolution": "Re-run the plan phase. The previous run did not produce a draft document at the expected path. Please ensure the plan draft is written to the correct location before completing.",
       "phase": "plan"
     }
   ],
   "created_at": "2026-03-15T21:20:19.275567",
-  "updated_at": "2026-03-15T21:25:25.852854",
+  "updated_at": "2026-03-15T22:38:25.779577",
   "contract_synced": false,
   "network_mode": null,
   "short_circuit": false,
@@ -93,5 +93,5 @@
   "coordinator_state": null,
   "plan_phase_waves": null,
   "plan_phase_names": null,
-  "version": 9
+  "version": 10
 }
