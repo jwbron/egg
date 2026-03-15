@@ -34,15 +34,14 @@ except ImportError:
         return logging.getLogger(name)
 
 
-from egg_orchestrator.types import ConsensusPhase
-
-from approval_matrix import ApprovalMatrix, ApprovalState
+from approval_matrix import ApprovalMatrix
 from attestation_schemas import (
     AttestationStrictness,
     ProposalPayload,
     ReviewPayload,
     validate_attestation,
 )
+from egg_orchestrator.types import ConsensusPhase
 from events import EventType, emit_event
 from review_graph import ReviewGraph
 
@@ -115,44 +114,52 @@ class PeerConsensusTracker:
         in approval matrix.
         """
         with self._lock:
-            if not self.graph.is_producer(agent_role):
-                raise ValueError(f"{agent_role} is not a producer in this review graph")
+            return self._handle_propose_inner(agent_role, payload)
 
-            # Validate payload
-            proposal = ProposalPayload(**payload)
+    def _handle_propose_inner(
+        self,
+        agent_role: str,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Inner propose logic. Caller MUST hold self._lock."""
+        if not self.graph.is_producer(agent_role):
+            raise ValueError(f"{agent_role} is not a producer in this review graph")
 
-            # Validate role-specific attestation
-            if proposal.attestation:
-                validate_attestation(
-                    agent_role,
-                    proposal.attestation,
-                    strictness=self.attestation_strictness,
-                    is_producer=True,
-                )
+        # Validate payload
+        proposal = ProposalPayload(**payload)
 
-            # Record proposal version
-            version = self.matrix.record_proposal(agent_role)
-
-            # Transition to PROPOSED
-            self._producer_phases[agent_role] = ConsensusPhase.PROPOSED
-            self._proposal_timestamps[agent_role] = datetime.now(UTC)
-            self._proposal_artifacts[agent_role] = list(proposal.artifacts)
-
-            emit_event(
-                EventType.CONSENSUS_PROPOSE_RECEIVED,
-                self.pipeline_id,
-                data={
-                    "role": agent_role,
-                    "version": version,
-                    "artifacts": proposal.artifacts,
-                },
+        # Validate role-specific attestation
+        if proposal.attestation:
+            validate_attestation(
+                agent_role,
+                proposal.attestation,
+                strictness=self.attestation_strictness,
+                is_producer=True,
             )
 
-            return {
+        # Record proposal version
+        version = self.matrix.record_proposal(agent_role)
+
+        # Transition to PROPOSED
+        self._producer_phases[agent_role] = ConsensusPhase.PROPOSED
+        self._proposal_timestamps[agent_role] = datetime.now(UTC)
+        self._proposal_artifacts[agent_role] = list(proposal.artifacts)
+
+        emit_event(
+            EventType.CONSENSUS_PROPOSE_RECEIVED,
+            self.pipeline_id,
+            data={
+                "role": agent_role,
                 "version": version,
-                "status": "proposed",
-                "reviewers": self.graph.reviewers_for(agent_role),
-            }
+                "artifacts": proposal.artifacts,
+            },
+        )
+
+        return {
+            "version": version,
+            "status": "proposed",
+            "reviewers": self.graph.reviewers_for(agent_role),
+        }
 
     def handle_ack(
         self,
@@ -322,9 +329,7 @@ class PeerConsensusTracker:
             # Check if agent can confirm
             if self.graph.is_producer(agent_role):
                 if not self.matrix.is_fully_acked(agent_role):
-                    raise ValueError(
-                        f"Producer {agent_role} cannot confirm: not fully ACKed"
-                    )
+                    raise ValueError(f"Producer {agent_role} cannot confirm: not fully ACKed")
                 self._producer_phases[agent_role] = ConsensusPhase.CONFIRMED
 
             if self.graph.is_reviewer(agent_role):
@@ -372,13 +377,15 @@ class PeerConsensusTracker:
         payload: dict[str, Any],
         changed_artifacts: list[str] | None = None,
     ) -> dict[str, Any]:
-        """Handle a re-proposal after NACK. Triggers scoped re-evaluation."""
+        """Handle a re-proposal after NACK. Triggers scoped re-evaluation.
+
+        Holds the lock for the entire operation (invalidation + re-proposal)
+        to prevent race conditions between releasing and re-acquiring.
+        """
         with self._lock:
             # First, do scoped re-evaluation
             if changed_artifacts:
-                invalidated = self.matrix.invalidate_overlapping_acks(
-                    agent_role, changed_artifacts
-                )
+                invalidated = self.matrix.invalidate_overlapping_acks(agent_role, changed_artifacts)
             else:
                 # Conservative: invalidate all ACKs
                 invalidated = []
@@ -389,10 +396,10 @@ class PeerConsensusTracker:
             # The NACKing reviewer(s) always need to re-review
             # (their state is already NACKED in the matrix)
 
-        # Now handle as a normal proposal
-        result = self.handle_propose(agent_role, payload)
-        result["invalidated_reviewers"] = invalidated
-        return result
+            # Handle as a normal proposal while still holding the lock
+            result = self._handle_propose_inner(agent_role, payload)
+            result["invalidated_reviewers"] = invalidated
+            return result
 
     def handle_agent_crash(self, role: str) -> dict[str, Any]:
         """Handle an agent crash mid-protocol."""
@@ -409,8 +416,7 @@ class PeerConsensusTracker:
                 sole_reviewer_for = []
                 for producer in producers:
                     remaining_reviewers = [
-                        r for r in self.graph.reviewers_for(producer)
-                        if r != role
+                        r for r in self.graph.reviewers_for(producer) if r != role
                     ]
                     if not remaining_reviewers:
                         sole_reviewer_for.append(producer)

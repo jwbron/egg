@@ -988,7 +988,9 @@ def _get_concurrent_status(pipeline: "Pipeline") -> dict | None:
                 agents_data[role] = {
                     "state": agent_info.state.value,
                     "reason": agent_info.reason,
-                    "updated_at": agent_info.timestamp.isoformat() if agent_info.timestamp else None,
+                    "updated_at": agent_info.timestamp.isoformat()
+                    if agent_info.timestamp
+                    else None,
                 }
             else:
                 # BRC dict format
@@ -2977,6 +2979,92 @@ def _build_phase_prompt(
 # ---------------------------------------------------------------------------
 
 
+def _build_brc_preamble(role_value: str, phase: str) -> str:
+    """Build the BRC consensus lifecycle preamble for an agent.
+
+    Returns a formatted string block that can be appended to any agent prompt
+    to inject BRC protocol instructions. Used by both the coder/refiner path
+    (which delegates to _build_phase_prompt) and the generic multi-agent path.
+    """
+    try:
+        from review_graph import get_review_graph_for_phase
+
+        graph = get_review_graph_for_phase(phase)
+        is_producer = graph.is_producer(role_value)
+        is_reviewer = graph.is_reviewer(role_value)
+        reviewers = graph.reviewers_for(role_value) if is_producer else []
+        producers = graph.producers_for(role_value) if is_reviewer else []
+    except Exception:
+        is_producer = role_value in ("coder", "tester", "documenter")
+        is_reviewer = role_value in ("reviewer_code", "reviewer_contract", "checker", "tester")
+        reviewers = []
+        producers = []
+
+    lines: list[str] = [
+        "\n\n## CRITICAL: BRC Consensus Protocol\n",
+        "You are running in CONCURRENT mode with the Broadcast-Review-Converge "
+        "(BRC) protocol. Your job is NOT just your task — it is the **full "
+        "BRC lifecycle**.\n",
+    ]
+
+    if is_producer and is_reviewer:
+        role_type_desc = "PRODUCER and REVIEWER (dual role)"
+    elif is_producer:
+        role_type_desc = "PRODUCER"
+    elif is_reviewer:
+        role_type_desc = "REVIEWER"
+    else:
+        role_type_desc = "PARTICIPANT"
+
+    lines.append(f"Your role type: **{role_type_desc}**")
+    if reviewers:
+        lines.append(f"Your reviewers: {', '.join(reviewers)}")
+    if producers:
+        lines.append(f"Your assigned producers: {', '.join(producers)}")
+    lines.append("")
+
+    if is_producer:
+        lines.extend(
+            [
+                "### Producer Lifecycle",
+                "1. **WORK**: Complete your assigned task (see Your Task below).",
+                "2. **PROPOSE**: When done, run: "
+                '`egg-orch consensus propose --summary "..." --artifacts "file1" "file2"`',
+                "3. **RESPOND TO REVIEWS**: Poll for ACK/NACK from reviewers. "
+                "Handle NACKs by fixing issues and re-proposing.",
+                "4. **CONFIRM**: When all reviewers ACK: `egg-orch consensus confirmed`",
+                "5. **STAY ALIVE**: Keep polling `egg-orch message poll --wait 30` "
+                "until the orchestrator stops you.\n",
+            ]
+        )
+
+    if is_reviewer:
+        lines.extend(
+            [
+                "### Reviewer Lifecycle",
+                "1. **OBSERVE**: Detect new commits from assigned producers via git.",
+                "2. **REVIEW**: Form independent judgment from code artifacts.",
+                '3. **ACK/NACK**: `egg-orch consensus ack <role> --files-reviewed "f1" "f2"` or '
+                '`egg-orch consensus nack <role> --reason "..." --files-reviewed "f1" "f2"`',
+                "4. **CONFIRM**: When all assigned producers reviewed: "
+                "`egg-orch consensus confirmed`",
+                "5. **STAY ALIVE**: Keep polling `egg-orch message poll --wait 30` "
+                "until the orchestrator stops you.\n",
+            ]
+        )
+
+    lines.extend(
+        [
+            "**If you exit before the orchestrator stops you, you have FAILED your role.** "
+            "Completing your task is necessary but NOT sufficient — you must reach "
+            "CONFIRMED state and remain alive until consensus.\n",
+            "",
+        ]
+    )
+
+    return "\n".join(lines)
+
+
 def _build_agent_prompt(
     role_value: str,
     phase: str,
@@ -3034,7 +3122,7 @@ def _build_agent_prompt(
     # CODER and REFINER use the existing phase prompt (phase-specific
     # instructions are already tailored for refine vs implement etc.)
     if role_value in ("coder", "refiner"):
-        return _build_phase_prompt(
+        base_prompt = _build_phase_prompt(
             phase=phase,
             pipeline_id=pipeline_id,
             pipeline_mode=pipeline_mode,
@@ -3047,6 +3135,11 @@ def _build_agent_prompt(
             short_circuit=short_circuit,
             repo_path=repo_path,
         )
+        # In concurrent mode, inject BRC consensus preamble so the coder/refiner
+        # knows to propose, respond to reviews, confirm, and stay alive.
+        if concurrent:
+            base_prompt += _build_brc_preamble(role_value, phase)
+        return base_prompt
 
     # Build context header (shared across all roles)
     lines = [f"You are the **{role_value.upper()}** agent in the **{phase}** phase.\n"]
@@ -3066,85 +3159,7 @@ def _build_agent_prompt(
     # Concurrent mode: add BRC consensus lifecycle preamble so agents understand
     # they must stay alive and participate in Broadcast-Review-Converge consensus.
     if concurrent:
-        # Determine role type from review graph
-        try:
-            from review_graph import get_review_graph_for_phase
-
-            graph = get_review_graph_for_phase(phase)
-            is_producer = graph.is_producer(role_value)
-            is_reviewer = graph.is_reviewer(role_value)
-            reviewers = graph.reviewers_for(role_value) if is_producer else []
-            producers = graph.producers_for(role_value) if is_reviewer else []
-        except Exception:
-            # Fallback: infer from role name
-            is_producer = role_value in ("coder", "tester", "documenter")
-            is_reviewer = role_value in ("reviewer_code", "reviewer_contract", "checker", "tester")
-            reviewers = []
-            producers = []
-
-        lines.extend(
-            [
-                "## CRITICAL: BRC Consensus Protocol\n",
-                "You are running in CONCURRENT mode with the Broadcast-Review-Converge "
-                "(BRC) protocol. Your job is NOT just your task — it is the **full "
-                "BRC lifecycle**.\n",
-            ]
-        )
-
-        if is_producer and is_reviewer:
-            role_type_desc = "PRODUCER and REVIEWER (dual role)"
-        elif is_producer:
-            role_type_desc = "PRODUCER"
-        elif is_reviewer:
-            role_type_desc = "REVIEWER"
-        else:
-            role_type_desc = "PARTICIPANT"
-
-        lines.append(f"Your role type: **{role_type_desc}**")
-        if reviewers:
-            lines.append(f"Your reviewers: {', '.join(reviewers)}")
-        if producers:
-            lines.append(f"Your assigned producers: {', '.join(producers)}")
-        lines.append("")
-
-        if is_producer:
-            lines.extend(
-                [
-                    "### Producer Lifecycle",
-                    "1. **WORK**: Complete your assigned task (see Your Task below).",
-                    "2. **PROPOSE**: When done, run: "
-                    '`egg-orch consensus propose --summary "..." --artifacts "file1" "file2"`',
-                    "3. **RESPOND TO REVIEWS**: Poll for ACK/NACK from reviewers. "
-                    "Handle NACKs by fixing issues and re-proposing.",
-                    "4. **CONFIRM**: When all reviewers ACK: `egg-orch consensus confirmed`",
-                    "5. **STAY ALIVE**: Keep polling `egg-orch message poll --wait 30` "
-                    "until the orchestrator stops you.\n",
-                ]
-            )
-
-        if is_reviewer:
-            lines.extend(
-                [
-                    "### Reviewer Lifecycle",
-                    "1. **OBSERVE**: Detect new commits from assigned producers via git.",
-                    "2. **REVIEW**: Form independent judgment from code artifacts.",
-                    "3. **ACK/NACK**: `egg-orch consensus ack <role>` or "
-                    '`egg-orch consensus nack <role> --reason "..."`',
-                    "4. **CONFIRM**: When all assigned producers reviewed: "
-                    "`egg-orch consensus confirmed`",
-                    "5. **STAY ALIVE**: Keep polling `egg-orch message poll --wait 30` "
-                    "until the orchestrator stops you.\n",
-                ]
-            )
-
-        lines.extend(
-            [
-                "**If you exit before the orchestrator stops you, you have FAILED your role.** "
-                "Completing your task is necessary but NOT sufficient — you must reach "
-                "CONFIRMED state and remain alive until consensus.\n",
-                "",
-            ]
-        )
+        lines.append(_build_brc_preamble(role_value, phase))
 
     # Include role-appropriate context instead of the raw issue body.
     # Analysis roles (architect, task_planner, risk_analyst) receive the full

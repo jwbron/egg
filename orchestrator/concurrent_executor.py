@@ -37,7 +37,6 @@ from models import (
     Pipeline,
 )
 from peer_consensus import (
-    PeerConsensusTracker,
     create_peer_consensus_tracker,
     get_peer_consensus_tracker,
 )
@@ -119,7 +118,9 @@ class ConcurrentPhaseExecutor:
             env["EGG_BRC_ROLE_TYPE"] = "producer"
             env["EGG_BRC_REVIEWERS"] = ",".join(graph.reviewers_for(role.value))
         if graph.is_reviewer(role.value):
-            env["EGG_BRC_ROLE_TYPE"] = env.get("EGG_BRC_ROLE_TYPE", "") + (",reviewer" if env.get("EGG_BRC_ROLE_TYPE") else "reviewer")
+            env["EGG_BRC_ROLE_TYPE"] = env.get("EGG_BRC_ROLE_TYPE", "") + (
+                ",reviewer" if env.get("EGG_BRC_ROLE_TYPE") else "reviewer"
+            )
             env["EGG_BRC_PRODUCERS"] = ",".join(graph.producers_for(role.value))
         return env
 
@@ -257,7 +258,9 @@ class ConcurrentPhaseExecutor:
         if tracker:
             result = tracker.handle_agent_crash(role)
             if result.get("action") == "escalate":
-                logger.warning("Agent crash requires escalation", role=role, reason=result.get("reason"))
+                logger.warning(
+                    "Agent crash requires escalation", role=role, reason=result.get("reason")
+                )
 
         emit_event(
             EventType.AGENT_FAILED,

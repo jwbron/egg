@@ -154,9 +154,7 @@ class ApprovalMatrix:
         for reviewer in self._graph.reviewers_for(producer):
             key = (reviewer, producer)
             entry = self._entries.get(key)
-            if entry and (
-                entry.state != ApprovalState.ACKED or entry.version != latest_version
-            ):
+            if entry and (entry.state != ApprovalState.ACKED or entry.version != latest_version):
                 blocking.append(entry)
         return blocking
 
@@ -228,15 +226,9 @@ class ApprovalMatrix:
     def to_dict(self) -> dict[str, Any]:
         """Serialize the matrix."""
         return {
-            "entries": {
-                f"{k[0]}->{k[1]}": v.to_dict()
-                for k, v in self._entries.items()
-            },
+            "entries": {f"{k[0]}->{k[1]}": v.to_dict() for k, v in self._entries.items()},
             "proposal_versions": dict(self._proposal_versions),
-            "revision_counts": {
-                f"{k[0]}->{k[1]}": v
-                for k, v in self._revision_counts.items()
-            },
+            "revision_counts": {f"{k[0]}->{k[1]}": v for k, v in self._revision_counts.items()},
         }
 
     @classmethod

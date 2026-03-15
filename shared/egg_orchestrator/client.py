@@ -7,7 +7,7 @@ orchestrator during managed execution.
 import json
 import os
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, cast
 from urllib.error import HTTPError, URLError
 from urllib.request import ProxyHandler, Request, build_opener
 
@@ -473,11 +473,14 @@ class OrchestratorClient:
         Returns:
             SignalResponse from orchestrator
         """
-        return self._send_signal(pipeline_id, {
-            "signal_type": "consensus_withdraw",
-            "agent_role": agent_role,
-            "reason": reason,
-        })
+        return self._send_signal(
+            pipeline_id,
+            {
+                "signal_type": "consensus_withdraw",
+                "agent_role": agent_role,
+                "reason": reason,
+            },
+        )
 
     def consensus_status(
         self,
@@ -493,7 +496,9 @@ class OrchestratorClient:
         """
         endpoint = f"/api/v1/pipelines/{pipeline_id}/status"
         response = self._make_request(endpoint)
-        return response.get("data", {}).get("concurrent", {}).get("consensus", {})
+        return cast(
+            dict[str, Any], response.get("data", {}).get("concurrent", {}).get("consensus", {})
+        )
 
     def send_message(
         self,

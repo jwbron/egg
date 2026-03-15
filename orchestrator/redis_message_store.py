@@ -25,8 +25,8 @@ except ImportError:
     def get_logger(name: str, **kwargs) -> logging.Logger:  # type: ignore[misc]
         return logging.getLogger(name)
 
-import redis
 
+import redis
 from message_store import Message
 
 logger = get_logger("orchestrator.redis_message_store")
@@ -35,6 +35,11 @@ logger = get_logger("orchestrator.redis_message_store")
 def _stream_key(pipeline_id: str) -> str:
     """Get the Redis Stream key for a pipeline."""
     return f"pipeline:{pipeline_id}:messages"
+
+
+def _counts_key(pipeline_id: str) -> str:
+    """Get the Redis hash key for message type counters."""
+    return f"pipeline:{pipeline_id}:msg_counts"
 
 
 def _message_to_redis(msg: Message) -> dict[str, str]:
@@ -55,6 +60,7 @@ def _message_to_redis(msg: Message) -> dict[str, str]:
 
 def _message_from_redis(stream_id: str, fields: dict[bytes | str, bytes | str]) -> Message:
     """Deserialize a Message from Redis hash fields."""
+
     # Redis returns bytes by default; handle both bytes and str
     def _get(key: str) -> str:
         val = fields.get(key) or fields.get(key.encode(encoding="utf-8"), b"")
@@ -109,10 +115,17 @@ class RedisMessageStore:
     def add_message(self, message: Message) -> Message:
         """Add a message to the Redis Stream."""
         key = _stream_key(message.pipeline_id)
+        counts_key_val = _counts_key(message.pipeline_id)
         fields = _message_to_redis(message)
 
         try:
-            stream_id = self._redis.xadd(key, fields)
+            # Use a Redis pipeline for atomic xadd + hincrby
+            pipe = self._redis.pipeline()
+            pipe.xadd(key, fields)
+            pipe.hincrby(counts_key_val, message.message_type, 1)
+            results = pipe.execute()
+
+            stream_id = results[0]
             if isinstance(stream_id, bytes):
                 stream_id = stream_id.decode("utf-8")
 
@@ -179,7 +192,11 @@ class RedisMessageStore:
                 exclusive_start = self._increment_stream_id(start_id) if since_id else start_id
                 result_entries = self._redis.xrange(key, min=exclusive_start, count=limit * 3)
                 # Normalize to same format as xread
-                result = [(key.encode() if isinstance(key, str) else key, result_entries)] if result_entries else []
+                result = (
+                    [(key.encode() if isinstance(key, str) else key, result_entries)]
+                    if result_entries
+                    else []
+                )
         except redis.RedisError as e:
             logger.error(
                 "Failed to read from Redis Stream",
@@ -190,7 +207,7 @@ class RedisMessageStore:
 
         messages = []
         if result:
-            for stream_key, entries in result:
+            for _sk, entries in result:
                 for stream_id, fields in entries:
                     if isinstance(stream_id, bytes):
                         stream_id = stream_id.decode("utf-8")
@@ -212,20 +229,29 @@ class RedisMessageStore:
         return messages[-limit:] if len(messages) > limit else messages
 
     def get_status(self, pipeline_id: str) -> dict[str, Any]:
-        """Get message statistics for a pipeline."""
+        """Get message statistics for a pipeline.
+
+        Uses a Redis hash counter (pipeline:{id}:msg_counts) for O(1) type
+        aggregation instead of scanning the entire stream.
+
+        Note: The counter is increment-only (no decrement on message deletion
+        or stream trimming). ``total`` comes from XINFO STREAM (authoritative)
+        while ``by_type`` comes from the counter hash, so the two may diverge
+        if the stream is externally trimmed. ``clear()`` resets both.
+        """
         key = _stream_key(pipeline_id)
+        counts_key = _counts_key(pipeline_id)
         try:
             info = self._redis.xinfo_stream(key)
             length = info.get("length", 0) if isinstance(info, dict) else 0
 
-            # Read all messages to compute by_type (expensive for large streams)
-            entries = self._redis.xrange(key)
+            # Read type counts from the hash counter (O(1) per type)
+            raw_counts = self._redis.hgetall(counts_key)
             by_type: dict[str, int] = {}
-            for _, fields in entries:
-                msg_type = fields.get(b"message_type", fields.get("message_type", b""))
-                if isinstance(msg_type, bytes):
-                    msg_type = msg_type.decode("utf-8")
-                by_type[msg_type] = by_type.get(msg_type, 0) + 1
+            for k, v in raw_counts.items():
+                type_name = k.decode("utf-8") if isinstance(k, bytes) else k
+                count_val = v.decode("utf-8") if isinstance(v, bytes) else v
+                by_type[type_name] = int(count_val)
 
             return {"total": length, "by_type": by_type}
         except redis.ResponseError:
@@ -236,11 +262,12 @@ class RedisMessageStore:
             return {"total": 0, "by_type": {}}
 
     def clear(self, pipeline_id: str) -> int:
-        """Delete the Redis Stream for a pipeline."""
+        """Delete the Redis Stream and counters for a pipeline."""
         key = _stream_key(pipeline_id)
+        counts_key_val = _counts_key(pipeline_id)
         try:
             length_before = self._redis.xlen(key)
-            self._redis.delete(key)
+            self._redis.delete(key, counts_key_val)
             with self._lock:
                 self._id_to_stream_id.pop(pipeline_id, None)
             return length_before
@@ -254,23 +281,38 @@ class RedisMessageStore:
             return self._id_to_stream_id.get(pipeline_id, {}).get(message_id)
 
     def _find_stream_id_by_message_id(self, pipeline_id: str, message_id: str) -> str | None:
-        """Scan the stream to find a message by its UUID. Fallback for cache miss."""
+        """Scan the stream to find a message by its UUID. Fallback for cache miss.
+
+        Uses paginated XRANGE with count=500 to avoid unbounded scans on large streams.
+        """
         key = _stream_key(pipeline_id)
+        batch_size = 500
+        cursor = "-"
         try:
-            entries = self._redis.xrange(key)
-            for stream_id, fields in entries:
-                if isinstance(stream_id, bytes):
-                    stream_id = stream_id.decode("utf-8")
-                msg_id = fields.get(b"id", fields.get("id", b""))
-                if isinstance(msg_id, bytes):
-                    msg_id = msg_id.decode("utf-8")
-                if msg_id == message_id:
-                    # Cache it for next time
-                    with self._lock:
-                        if pipeline_id not in self._id_to_stream_id:
-                            self._id_to_stream_id[pipeline_id] = {}
-                        self._id_to_stream_id[pipeline_id][message_id] = stream_id
-                    return stream_id
+            while True:
+                entries = self._redis.xrange(key, min=cursor, count=batch_size)
+                if not entries:
+                    break
+                for stream_id, fields in entries:
+                    if isinstance(stream_id, bytes):
+                        stream_id = stream_id.decode("utf-8")
+                    msg_id = fields.get(b"id", fields.get("id", b""))
+                    if isinstance(msg_id, bytes):
+                        msg_id = msg_id.decode("utf-8")
+                    if msg_id == message_id:
+                        # Cache it for next time
+                        with self._lock:
+                            if pipeline_id not in self._id_to_stream_id:
+                                self._id_to_stream_id[pipeline_id] = {}
+                            self._id_to_stream_id[pipeline_id][message_id] = stream_id
+                        return stream_id
+                # Advance cursor past the last entry in this batch
+                last_id = entries[-1][0]
+                if isinstance(last_id, bytes):
+                    last_id = last_id.decode("utf-8")
+                cursor = self._increment_stream_id(last_id)
+                if len(entries) < batch_size:
+                    break
         except redis.RedisError:
             pass
         return None
@@ -278,8 +320,6 @@ class RedisMessageStore:
     @staticmethod
     def _increment_stream_id(stream_id: str) -> str:
         """Increment a Redis Stream ID for exclusive start in XRANGE."""
-        if stream_id == "0-0":
-            return "0-0"
         parts = stream_id.split("-")
         if len(parts) == 2:
             return f"{parts[0]}-{int(parts[1]) + 1}"

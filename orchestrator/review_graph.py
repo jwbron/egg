@@ -6,7 +6,7 @@ the circular ACK problem where a producer would be incentivized to
 NACK a negative review of their own code.
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any
 
@@ -142,20 +142,22 @@ def get_default_implement_graph() -> ReviewGraph:
     Producers: coder, tester, documenter
     Reviewers: reviewer_code, reviewer_contract, checker, tester (dual-role)
     """
-    return ReviewGraph([
-        # reviewer_code reviews coder (critical)
-        ReviewEdge("reviewer_code", "coder", ReviewCriticality.CRITICAL),
-        # reviewer_code reviews tester (critical)
-        ReviewEdge("reviewer_code", "tester", ReviewCriticality.CRITICAL),
-        # reviewer_contract reviews coder (critical)
-        ReviewEdge("reviewer_contract", "coder", ReviewCriticality.CRITICAL),
-        # checker reviews coder (critical)
-        ReviewEdge("checker", "coder", ReviewCriticality.CRITICAL),
-        # tester reviews coder (critical — via writing and running tests)
-        ReviewEdge("tester", "coder", ReviewCriticality.CRITICAL),
-        # reviewer_code reviews documenter (advisory)
-        ReviewEdge("reviewer_code", "documenter", ReviewCriticality.ADVISORY),
-    ])
+    return ReviewGraph(
+        [
+            # reviewer_code reviews coder (critical)
+            ReviewEdge("reviewer_code", "coder", ReviewCriticality.CRITICAL),
+            # reviewer_code reviews tester (critical)
+            ReviewEdge("reviewer_code", "tester", ReviewCriticality.CRITICAL),
+            # reviewer_contract reviews coder (critical)
+            ReviewEdge("reviewer_contract", "coder", ReviewCriticality.CRITICAL),
+            # checker reviews coder (critical)
+            ReviewEdge("checker", "coder", ReviewCriticality.CRITICAL),
+            # tester reviews coder (critical — via writing and running tests)
+            ReviewEdge("tester", "coder", ReviewCriticality.CRITICAL),
+            # reviewer_code reviews documenter (advisory)
+            ReviewEdge("reviewer_code", "documenter", ReviewCriticality.ADVISORY),
+        ]
+    )
 
 
 # Phase-to-graph mapping for convenient lookup

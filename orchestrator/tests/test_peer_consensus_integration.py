@@ -15,18 +15,22 @@ if str(_orchestrator_path) not in sys.path:
     sys.path.insert(0, str(_orchestrator_path))
 
 from approval_matrix import ApprovalState
-from peer_consensus import PeerConsensusTracker, create_peer_consensus_tracker, remove_peer_consensus_tracker
+from peer_consensus import (
+    PeerConsensusTracker,
+)
 from review_graph import ReviewCriticality, ReviewEdge, ReviewGraph, get_default_implement_graph
 
 
 @pytest.fixture
 def simple_graph():
     """Simple 2-producer, 2-reviewer graph for testing."""
-    return ReviewGraph([
-        ReviewEdge("reviewer_code", "coder", ReviewCriticality.CRITICAL),
-        ReviewEdge("checker", "coder", ReviewCriticality.CRITICAL),
-        ReviewEdge("reviewer_code", "tester", ReviewCriticality.ADVISORY),
-    ])
+    return ReviewGraph(
+        [
+            ReviewEdge("reviewer_code", "coder", ReviewCriticality.CRITICAL),
+            ReviewEdge("checker", "coder", ReviewCriticality.CRITICAL),
+            ReviewEdge("reviewer_code", "tester", ReviewCriticality.ADVISORY),
+        ]
+    )
 
 
 @pytest.fixture
@@ -46,41 +50,86 @@ class TestHappyPath:
     def test_full_lifecycle(self, tracker):
         """All producers propose, all reviewers ACK, all confirm."""
         # Coder proposes
-        result = tracker.handle_propose("coder", {
-            "summary": "Implemented auth",
-            "artifacts": ["src/auth.py"],
-            "attestation": {"commit_shas": ["abc123"], "files_changed": ["src/auth.py"], "test_summary": "All pass", "risk_considered": "None"},
-        })
+        result = tracker.handle_propose(
+            "coder",
+            {
+                "summary": "Implemented auth",
+                "artifacts": ["src/auth.py"],
+                "attestation": {
+                    "commit_shas": ["abc123"],
+                    "files_changed": ["src/auth.py"],
+                    "test_summary": "All pass",
+                    "risk_considered": "None",
+                },
+            },
+        )
         assert result["status"] == "proposed"
         assert result["version"] == 1
 
         # Tester proposes (producer side)
-        result = tracker.handle_propose("tester", {
-            "summary": "Added tests",
-            "artifacts": ["tests/test_auth.py"],
-            "attestation": {"tests_written": 5, "tests_run": 5, "coverage_delta": "+10%", "edge_cases": ["null input"], "concern_considered": "None"},
-        })
+        result = tracker.handle_propose(
+            "tester",
+            {
+                "summary": "Added tests",
+                "artifacts": ["tests/test_auth.py"],
+                "attestation": {
+                    "tests_written": 5,
+                    "tests_run": 5,
+                    "coverage_delta": "+10%",
+                    "edge_cases": ["null input"],
+                    "concern_considered": "None",
+                },
+            },
+        )
         assert result["status"] == "proposed"
 
         # reviewer_code ACKs coder
-        result = tracker.handle_ack("reviewer_code", "coder", {
-            "attestation": {"files_reviewed": ["src/auth.py"], "issues_found": 0, "issues_resolved": 0, "risk_considered": "None"},
-            "artifact_references": ["src/auth.py"],
-        })
+        result = tracker.handle_ack(
+            "reviewer_code",
+            "coder",
+            {
+                "attestation": {
+                    "files_reviewed": ["src/auth.py"],
+                    "issues_found": 0,
+                    "issues_resolved": 0,
+                    "risk_considered": "None",
+                },
+                "artifact_references": ["src/auth.py"],
+            },
+        )
         assert result["status"] == "acked"
 
         # checker ACKs coder
-        result = tracker.handle_ack("checker", "coder", {
-            "attestation": {"lint_results": "clean", "type_results": "pass", "test_results": "20/20 pass", "auto_fixes": [], "remaining_warnings": []},
-            "artifact_references": ["src/auth.py"],
-        })
+        result = tracker.handle_ack(
+            "checker",
+            "coder",
+            {
+                "attestation": {
+                    "lint_results": "clean",
+                    "type_results": "pass",
+                    "test_results": "20/20 pass",
+                    "auto_fixes": [],
+                    "remaining_warnings": [],
+                },
+                "artifact_references": ["src/auth.py"],
+            },
+        )
         assert result["fully_acked"] is True
 
         # reviewer_code ACKs tester
-        tracker.handle_ack("reviewer_code", "tester", {
-            "attestation": {"files_reviewed": ["tests/test_auth.py"], "issues_found": 0, "issues_resolved": 0, "risk_considered": "None"},
-            "artifact_references": ["tests/test_auth.py"],
-        })
+        tracker.handle_ack(
+            "reviewer_code",
+            "tester",
+            {
+                "attestation": {
+                    "files_reviewed": ["tests/test_auth.py"],
+                    "issues_found": 0,
+                    "issues_resolved": 0,
+                    "risk_considered": "None",
+                },
+                "artifact_references": ["tests/test_auth.py"],
+            },
+        )
 
         # All confirm
         tracker.handle_confirmed("coder")
@@ -100,29 +149,44 @@ class TestNackAndRePropose:
 
     def test_nack_re_propose_cycle(self, tracker):
         # Coder proposes
-        tracker.handle_propose("coder", {
-            "summary": "v1",
-            "artifacts": ["src/auth.py", "src/utils.py"],
-        })
+        tracker.handle_propose(
+            "coder",
+            {
+                "summary": "v1",
+                "artifacts": ["src/auth.py", "src/utils.py"],
+            },
+        )
 
         # reviewer_code ACKs
-        tracker.handle_ack("reviewer_code", "coder", {
-            "artifact_references": ["src/utils.py"],
-        })
+        tracker.handle_ack(
+            "reviewer_code",
+            "coder",
+            {
+                "artifact_references": ["src/utils.py"],
+            },
+        )
 
         # checker NACKs
-        result = tracker.handle_nack("checker", "coder", {
-            "artifact_references": ["src/auth.py"],
-            "reason": "SQL injection in auth.py:42",
-        })
+        result = tracker.handle_nack(
+            "checker",
+            "coder",
+            {
+                "artifact_references": ["src/auth.py"],
+                "reason": "SQL injection in auth.py:42",
+            },
+        )
         assert result["status"] == "nacked"
         assert result["revision_count"] == 1
 
         # Coder re-proposes with fix to auth.py only
-        result = tracker.handle_re_propose("coder", {
-            "summary": "Fixed SQL injection",
-            "artifacts": ["src/auth.py"],
-        }, changed_artifacts=["src/auth.py"])
+        result = tracker.handle_re_propose(
+            "coder",
+            {
+                "summary": "Fixed SQL injection",
+                "artifacts": ["src/auth.py"],
+            },
+            changed_artifacts=["src/auth.py"],
+        )
 
         # reviewer_code's ACK on utils.py should stand (no overlap)
         # But we need checker to re-review
@@ -131,10 +195,14 @@ class TestNackAndRePropose:
     def test_nack_reason_required(self, tracker):
         tracker.handle_propose("coder", {"summary": "v1", "artifacts": ["src/a.py"]})
         with pytest.raises(ValueError, match="reason"):
-            tracker.handle_nack("reviewer_code", "coder", {
-                "artifact_references": ["src/a.py"],
-                "reason": "",  # Empty reason should fail
-            })
+            tracker.handle_nack(
+                "reviewer_code",
+                "coder",
+                {
+                    "artifact_references": ["src/a.py"],
+                    "reason": "",  # Empty reason should fail
+                },
+            )
 
 
 class TestCommitmentDevices:
@@ -169,11 +237,15 @@ class TestCommitmentDevices:
 
         # First round
         t.handle_propose("coder", {"summary": "v1", "artifacts": ["a.py"]})
-        t.handle_nack("reviewer_code", "coder", {"artifact_references": ["a.py"], "reason": "bug 1"})
+        t.handle_nack(
+            "reviewer_code", "coder", {"artifact_references": ["a.py"], "reason": "bug 1"}
+        )
 
         # Second round
         t.handle_propose("coder", {"summary": "v2", "artifacts": ["a.py"]})
-        result = t.handle_nack("reviewer_code", "coder", {"artifact_references": ["a.py"], "reason": "bug 2"})
+        result = t.handle_nack(
+            "reviewer_code", "coder", {"artifact_references": ["a.py"], "reason": "bug 2"}
+        )
         assert result["needs_escalation"] is True
 
 
@@ -190,10 +262,12 @@ class TestTimeoutHandling:
         assert "critical_blockers" in result
 
     def test_timeout_advisory_only_proceeds(self):
-        graph = ReviewGraph([
-            ReviewEdge("reviewer_code", "coder", ReviewCriticality.CRITICAL),
-            ReviewEdge("checker", "coder", ReviewCriticality.ADVISORY),
-        ])
+        graph = ReviewGraph(
+            [
+                ReviewEdge("reviewer_code", "coder", ReviewCriticality.CRITICAL),
+                ReviewEdge("checker", "coder", ReviewCriticality.ADVISORY),
+            ]
+        )
         t = PeerConsensusTracker("test", graph, cooldown_seconds=0)
         t.register_agent("coder")
         t.register_agent("reviewer_code")
@@ -265,11 +339,14 @@ class TestApprovalMatrix:
     """Test approval matrix operations."""
 
     def test_scoped_re_evaluation(self):
-        graph = ReviewGraph([
-            ReviewEdge("rev1", "coder", ReviewCriticality.CRITICAL),
-            ReviewEdge("rev2", "coder", ReviewCriticality.CRITICAL),
-        ])
+        graph = ReviewGraph(
+            [
+                ReviewEdge("rev1", "coder", ReviewCriticality.CRITICAL),
+                ReviewEdge("rev2", "coder", ReviewCriticality.CRITICAL),
+            ]
+        )
         from approval_matrix import ApprovalMatrix
+
         matrix = ApprovalMatrix(graph)
 
         matrix.record_proposal("coder")
@@ -291,25 +368,30 @@ class TestAttestationSchemas:
 
     def test_proposal_rejects_empty_artifacts(self):
         from attestation_schemas import ProposalPayload
+
         with pytest.raises(ValueError, match="artifact"):
             ProposalPayload(summary="test", artifacts=[])
 
     def test_review_rejects_empty_references(self):
         from attestation_schemas import ReviewPayload
+
         with pytest.raises(ValueError, match="artifact"):
             ReviewPayload(verdict="ACK", artifact_references=[])
 
     def test_nack_requires_reason(self):
         from attestation_schemas import ReviewPayload
+
         with pytest.raises(ValueError, match="reason"):
             ReviewPayload(verdict="NACK", artifact_references=["a.py"], reason="")
 
     def test_strict_validation(self):
         from attestation_schemas import AttestationStrictness, validate_attestation
+
         with pytest.raises(ValueError, match="commit SHA"):
             validate_attestation("coder", {}, AttestationStrictness.STRICT, is_producer=True)
 
     def test_relaxed_validation(self):
         from attestation_schemas import AttestationStrictness, validate_attestation
+
         # Relaxed should not raise
         validate_attestation("coder", {}, AttestationStrictness.RELAXED, is_producer=True)
