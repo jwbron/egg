@@ -90,7 +90,7 @@ When given an issue number, it auto-detects the repo and fetches the issue — n
 | Tool | Description | Required Parameters | Optional Parameters |
 |------|-------------|---------------------|---------------------|
 | `submit_task` | Submit a task for coordinator processing | `description`, `repo` | `issue_number`, `branch` |
-| `get_status` | Check task/pipeline status; returns coordinator state, pipeline details, and recent messages | `task_id` | |
+| `get_status` | Check task/pipeline status; returns coordinator state, pipeline details, and recent messages. `phase_gate` decisions are enriched with `draft_content` (full draft document text) and `completed_agents_summary` so callers can display the draft without filesystem access. | `task_id` | |
 | `provide_input` | Respond to a coordinator escalation | `task_id`, `decision_id`, `response` | |
 | `list_tasks` | List coordinator-managed pipelines | (none) | `status_filter`, `limit`, `repo`, `issue_number` |
 | `cancel_task` | Cancel a task; use `cleanup=true` to also delete pipeline state so the issue can be resubmitted | `task_id` | `reason`, `cleanup` |
