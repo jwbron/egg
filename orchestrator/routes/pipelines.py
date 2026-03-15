@@ -5096,6 +5096,7 @@ def _run_concurrent_phase(
             try:
                 _final_consensus = executor.check_consensus()
             except Exception:
+                logger.warning("Failed to check consensus at timeout", exc_info=True)
                 _final_consensus = {}
             if _final_consensus.get("has_unresolved_nacks"):
                 nack_details = _final_consensus.get("unresolved_nacks", [])
