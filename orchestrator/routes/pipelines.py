@@ -7327,43 +7327,70 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
 
             # --- HITL gate: pause for human approval ---
             if pipeline.config.hitl_gates and current_phase.value in _HITL_GATE_PHASES:
-                draft_content = _read_phase_draft(
-                    worktree_repo_path,
-                    current_phase.value,
-                    issue_number=pipeline.issue_number,
-                    pipeline_id=pipeline_id,
+                # Check for an existing pending phase_gate decision for this
+                # phase.  The coordinator path or a prior agent-exit event may
+                # have already created one — creating a duplicate confuses the
+                # human reviewer.  See #1152.
+                existing_pending_gate = any(
+                    d.decision_type == "phase_gate"
+                    and d.phase == current_phase
+                    and d.status == DecisionStatus.PENDING
+                    for d in pipeline.decisions
                 )
-                phase_label = "analysis" if current_phase.value == "refine" else current_phase.value
 
-                # Warn if draft is missing — the agent may not have written
-                # it to the expected path.  See #1016.
-                if draft_content is None:
-                    logger.warning(
-                        "HITL gate: draft not found on work branch",
+                if existing_pending_gate:
+                    logger.info(
+                        "HITL gate: reusing existing pending phase_gate decision",
                         pipeline_id=pipeline_id,
                         phase=current_phase.value,
-                        worktree_path=str(worktree_repo_path),
                     )
-                    draft_content = (
-                        f"**Warning**: No {phase_label} draft was found on the "
-                        f"work branch. The agent may not have written the output "
-                        f"to the expected path."
+                    # Find the existing decision to wait on
+                    dq = get_decision_queue(pipeline_id, repo_path)
+                    decision = next(
+                        d
+                        for d in reversed(pipeline.decisions)
+                        if d.decision_type == "phase_gate"
+                        and d.phase == current_phase
+                        and d.status == DecisionStatus.PENDING
+                    )
+                else:
+                    draft_content = _read_phase_draft(
+                        worktree_repo_path,
+                        current_phase.value,
+                        issue_number=pipeline.issue_number,
+                        pipeline_id=pipeline_id,
+                    )
+                    phase_label = "analysis" if current_phase.value == "refine" else current_phase.value
+
+                    # Warn if draft is missing — the agent may not have written
+                    # it to the expected path.  See #1016.
+                    if draft_content is None:
+                        logger.warning(
+                            "HITL gate: draft not found on work branch",
+                            pipeline_id=pipeline_id,
+                            phase=current_phase.value,
+                            worktree_path=str(worktree_repo_path),
+                        )
+                        draft_content = (
+                            f"**Warning**: No {phase_label} draft was found on the "
+                            f"work branch. The agent may not have written the output "
+                            f"to the expected path."
+                        )
+
+                    question = (
+                        f"The {current_phase.value} phase has completed. "
+                        f"Please review the {phase_label} and approve to continue, "
+                        f"or provide feedback to request changes."
                     )
 
-                question = (
-                    f"The {current_phase.value} phase has completed. "
-                    f"Please review the {phase_label} and approve to continue, "
-                    f"or provide feedback to request changes."
-                )
-
-                dq = get_decision_queue(pipeline_id, repo_path)
-                decision = dq.queue_decision(
-                    question=question,
-                    context=draft_content,
-                    options=["approve", "request changes"],
-                    decision_type="phase_gate",
-                    phase=current_phase,
-                )
+                    dq = get_decision_queue(pipeline_id, repo_path)
+                    decision = dq.queue_decision(
+                        question=question,
+                        context=draft_content,
+                        options=["approve", "request changes"],
+                        decision_type="phase_gate",
+                        phase=current_phase,
+                    )
 
                 # Reload pipeline to pick up the decision persisted by queue_decision(),
                 # otherwise the stale local object overwrites it with an empty decisions list.
