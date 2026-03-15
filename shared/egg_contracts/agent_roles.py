@@ -873,7 +873,7 @@ _PHASE_REVIEWERS: dict[str, list[AgentRole]] = {
 
 def get_roles_for_phase(
     phase: str,
-    include_reviewers: bool = False,
+    include_reviewers: bool = True,
 ) -> list[AgentRole]:
     """Return the agent roles for a given pipeline phase.
 
