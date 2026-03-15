@@ -15,7 +15,7 @@
     "max_hitl_review_cycles": 3,
     "hitl_gates": true,
     "allow_short_circuit": true,
-    "enable_parallel_phases": true,
+    "enable_parallel_phases": false,
     "concurrent_execution": false,
     "concurrent_phases": [
       "refine",
@@ -34,10 +34,10 @@
   "phases": {
     "refine": {
       "phase": "refine",
-      "status": "running",
+      "status": "complete",
       "started_at": "2026-03-15T22:53:51.166951",
       "work_started_at": "2026-03-15T22:53:51.181554",
-      "completed_at": null,
+      "completed_at": "2026-03-15T23:07:20.699542",
       "containers": [
         {
           "container_id": "6c8c49215e5111c06ec7bf3c699c25d6178c8a863afe2c23053b1f543531dfcf",
@@ -100,7 +100,7 @@
     }
   ],
   "created_at": "2026-03-15T22:53:46.316302",
-  "updated_at": "2026-03-15T23:07:20.690380",
+  "updated_at": "2026-03-15T23:07:20.700074",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
@@ -152,5 +152,5 @@
   },
   "plan_phase_waves": null,
   "plan_phase_names": null,
-  "version": 19
+  "version": 20
 }
