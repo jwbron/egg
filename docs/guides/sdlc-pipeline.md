@@ -504,7 +504,7 @@ Each phase has a defined set of permitted operations. The gateway blocks all oth
 5. If the operation is not allowed for that phase (per `.egg/phase-permissions.json`), the gateway returns HTTP 403
 
 **Phase restrictions:**
-- **Refine/Plan phases**: Cannot `git push` or `gh pr create`—prevents code changes before plan approval
+- **Refine/Plan phases**: `git push` restricted to `.egg-state/` files; cannot `gh pr create`—prevents source code changes before plan approval
 - **Implement phase**: Can `git push` to the branch; draft PR is created automatically by the pipeline (not by agent)
 - **PR phase**: PR is auto-created by the orchestrator from contract metadata and git log (no agent spawned). Human must merge.
 
