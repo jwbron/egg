@@ -4943,6 +4943,39 @@ def _run_concurrent_phase(
             combined_logs = "\n".join(all_logs)
             if has_failures[0]:
                 return 1, combined_logs
+
+            # Before returning success, check the BRC approval matrix for
+            # unresolved NACKs.  If reviewers NACKed but producers exited
+            # without iterating, we must NOT report success — escalate to
+            # HITL so a human can decide how to proceed.
+            if consensus.get("has_unresolved_nacks"):
+                nack_details = consensus.get("unresolved_nacks", [])
+                nack_summary = "; ".join(
+                    f"{n['reviewer']} NACKed {n['producer']}: {n['reason']}"
+                    for n in nack_details
+                )
+                logger.warning(
+                    "All containers exited with unresolved NACKs",
+                    pipeline_id=pipeline_id,
+                    nack_count=len(nack_details),
+                    nack_summary=nack_summary,
+                )
+                try:
+                    pipeline.add_decision(
+                        question=(
+                            f"All agents exited but {len(nack_details)} NACK(s) remain "
+                            f"unresolved: {nack_summary}. How to proceed?"
+                        ),
+                        options=["Retry phase", "Accept current state", "Abort phase"],
+                        phase=pipeline.current_phase,
+                    )
+                except Exception:
+                    pass
+                combined_logs += (
+                    f"\n--- UNRESOLVED NACKs ({len(nack_details)}) ---\n{nack_summary}"
+                )
+                return 1, combined_logs
+
             return 0, combined_logs
 
         # 6. Consensus timeout
@@ -5053,6 +5086,30 @@ def _run_concurrent_phase(
             combined_logs = "\n".join(all_logs)
             if has_failures[0]:
                 return 1, combined_logs
+
+            # After timeout, check the BRC approval matrix for unresolved
+            # NACKs before declaring success.  Producers that exited without
+            # addressing reviewer feedback should not be treated as passing.
+            try:
+                _final_consensus = executor.check_consensus()
+            except Exception:
+                _final_consensus = {}
+            if _final_consensus.get("has_unresolved_nacks"):
+                nack_details = _final_consensus.get("unresolved_nacks", [])
+                nack_summary = "; ".join(
+                    f"{n['reviewer']} NACKed {n['producer']}: {n['reason']}"
+                    for n in nack_details
+                )
+                logger.warning(
+                    "Timeout with unresolved NACKs — returning failure",
+                    pipeline_id=pipeline_id,
+                    nack_count=len(nack_details),
+                )
+                combined_logs += (
+                    f"\n--- UNRESOLVED NACKs ({len(nack_details)}) ---\n{nack_summary}"
+                )
+                return 1, combined_logs
+
             return 0, combined_logs
 
         # 7. Sleep before next poll
