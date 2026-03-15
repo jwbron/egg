@@ -10,7 +10,7 @@ from enum import StrEnum
 from typing import Any, Literal, NamedTuple
 
 from egg_contracts.models import PipelinePhase
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field
 
 
 class PipelineStatus(StrEnum):
