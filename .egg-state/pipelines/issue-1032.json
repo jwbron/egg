@@ -159,7 +159,7 @@
     }
   ],
   "created_at": "2026-03-15T06:51:43.025288",
-  "updated_at": "2026-03-15T07:50:37.532105",
+  "updated_at": "2026-03-15T07:50:38.776684",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
@@ -203,17 +203,27 @@
         "container_id": "35389833eff83921f0aa1b05ccbe22765ec82e9e102926a2aa479e4e4a20fede",
         "task_context": "Design the agent anchor mechanism for post-compaction state recovery (issue #1032). \n\nKEY REQUIREMENTS:\n1. Each agent maintains a structured YAML state file at .egg-state/agent-anchors/<agent-id>.yaml\n2. Team-level anchor at .egg-state/agent-anchors/team-<team-id>.yaml\n3. Anchors track: task status, progress, decisions made with other agents, files modified, key context, waiting/blocked state\n4. Anchors are injected into context post-compaction (like CLAUDE.md)\n5. Size budget: ~2KB per agent anchor, ~4KB for team anchor\n6. Update triggers: sub-task completion, decisions, status changes, periodic self-checkpoint, message bus summaries\n\nDESIGN DECISIONS TO MAKE:\n- Schema design for agent and team anchor YAML files\n- Update mechanism (self-report vs observed state vs hybrid)\n- Conflict resolution when in-memory state diverges from anchor after compaction\n- Gateway enforcement for anchor file ownership\n- Anchor cleanup lifecycle\n- Integration points with existing systems: egg-contract, message bus (#1027), liaison (#1028), agent roster (#1030)\n- How anchors are injected post-compaction (system prompt injection, file read, etc.)\n\nDEPENDENCIES: #1027 (cross-agent comms), #1028 (conversational coordinator), #1030 (agent roster)\n\nReview the refine phase output in .egg-state/ if available. Write your architecture plan to .egg-state/drafts/architecture-plan.md",
         "retry_number": 0
+      },
+      {
+        "role": "task_planner",
+        "spawned_at": "2026-03-15T07:50:38.776563",
+        "completed_at": null,
+        "status": "running",
+        "container_id": "18838b9b1dfeaf82563caf3da13073d717df7a5b6120a614d4d2bb73a4e8fe82",
+        "task_context": "Break down the agent anchor mechanism (issue #1032) into implementable tasks.\n\nTHE FEATURE: Persistent anchor files that agents maintain for post-compaction state recovery. Each agent writes structured YAML to .egg-state/agent-anchors/<agent-id>.yaml with their current task, progress, decisions, dependencies, and key context. After context compaction, the anchor is injected to restore working state.\n\nCOMPONENTS TO PLAN TASKS FOR:\n1. Anchor schema definition (YAML schema for agent anchors and team anchors)\n2. AnchorManager class - read/write/update anchor files with validation\n3. Anchor update triggers - hooks into agent lifecycle events\n4. Post-compaction injection - mechanism to inject anchor into refreshed context\n5. Team-level anchor management - mediator/orchestrator maintains team view\n6. Gateway enforcement - agents can only write their own anchor files\n7. Anchor cleanup - lifecycle management (when to delete/archive)\n8. Integration with egg-contract, message bus, checkpoint system\n9. Tests for all components\n10. Documentation\n\nWrite task breakdown to .egg-state/drafts/task-plan.md with estimated complexity, dependencies between tasks, and suggested implementation order.",
+        "retry_number": 0
       }
     ],
     "phase_decisions": [],
     "escalations": [],
     "guardrail_counters": {
-      "total_agents_spawned": 4,
+      "total_agents_spawned": 5,
       "retries_by_role": {
         "refiner": 1,
         "reviewer_refine": 1,
         "reviewer_agent_design": 1,
-        "architect": 1
+        "architect": 1,
+        "task_planner": 1
       },
       "coordinator_respawns": 0,
       "started_at": "2026-03-15T06:51:52.769211"
@@ -221,5 +231,5 @@
   },
   "plan_phase_waves": null,
   "plan_phase_names": null,
-  "version": 31
+  "version": 32
 }
