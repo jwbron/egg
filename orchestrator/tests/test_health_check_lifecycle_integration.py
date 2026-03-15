@@ -36,6 +36,7 @@ from health_checks.types import (
 )
 from models import (
     Pipeline,
+    PipelineConfig,
     PipelinePhase,
     PipelineStatus,
 )
@@ -656,3 +657,82 @@ class TestPhaseAdvanceHealthCheck:
                 json={"target_phase": "implement"},
             )
             assert resp.status_code != 409
+
+
+class TestCoordinatorManagedPipelineGuard:
+    """Non-coordinator phase advance must be blocked for coordinator-managed pipelines (#1131)."""
+
+    @patch("routes.phases.get_repo_path", return_value=Path("/tmp/repo"))
+    @patch("routes.phases.get_state_store")
+    def test_coordinator_managed_pipeline_blocked(self, mock_get_store, mock_repo_path, app):
+        """Phase advance via non-coordinator endpoint returns 409 for coordinator-managed pipelines."""
+        from routes.phases import phases_bp
+
+        app.register_blueprint(phases_bp)
+
+        pipeline = _make_pipeline(phase=PipelinePhase.PLAN)
+        pipeline.config = PipelineConfig(coordinator_enabled=True)
+        plan_exec = pipeline.get_phase_execution(PipelinePhase.PLAN)
+        plan_exec.status = PipelineStatus.COMPLETE
+
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = pipeline
+        mock_get_store.return_value = mock_store
+
+        with app.test_client() as client:
+            resp = client.post(
+                "/api/v1/pipelines/issue-99/phase",
+                json={"target_phase": "implement"},
+            )
+            assert resp.status_code == 409
+            data = json.loads(resp.data)
+            assert "coordinator" in data["message"].lower()
+
+    @patch("routes.phases.get_repo_path", return_value=Path("/tmp/repo"))
+    @patch("routes.phases.get_state_store")
+    def test_coordinator_managed_pipeline_allowed_with_force(
+        self, mock_get_store, mock_repo_path, app
+    ):
+        """Force flag bypasses coordinator guard (escape hatch for stuck pipelines)."""
+        from routes.phases import phases_bp
+
+        app.register_blueprint(phases_bp)
+
+        pipeline = _make_pipeline(phase=PipelinePhase.PLAN)
+        pipeline.config = PipelineConfig(coordinator_enabled=True)
+        plan_exec = pipeline.get_phase_execution(PipelinePhase.PLAN)
+        plan_exec.status = PipelineStatus.COMPLETE
+
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = pipeline
+        mock_get_store.return_value = mock_store
+
+        with app.test_client() as client:
+            resp = client.post(
+                "/api/v1/pipelines/issue-99/phase",
+                json={"target_phase": "implement", "force": True},
+            )
+            assert resp.status_code == 200
+
+    @patch("routes.phases.get_repo_path", return_value=Path("/tmp/repo"))
+    @patch("routes.phases.get_state_store")
+    def test_non_coordinator_pipeline_allowed(self, mock_get_store, mock_repo_path, app):
+        """Non-coordinator pipelines can still use the regular phase endpoint."""
+        from routes.phases import phases_bp
+
+        app.register_blueprint(phases_bp)
+
+        pipeline = _make_pipeline(phase=PipelinePhase.PLAN)
+        plan_exec = pipeline.get_phase_execution(PipelinePhase.PLAN)
+        plan_exec.status = PipelineStatus.COMPLETE
+
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = pipeline
+        mock_get_store.return_value = mock_store
+
+        with app.test_client() as client:
+            resp = client.post(
+                "/api/v1/pipelines/issue-99/phase",
+                json={"target_phase": "implement"},
+            )
+            assert resp.status_code == 200
