@@ -270,7 +270,7 @@ Timing starts when actual work begins (`work_started_at`), excluding setup and H
 
 | Phase | Purpose | Allowed Operations | Exit Requires |
 |-------|---------|-------------------|---------------|
-| **Refine** | Analyze issue, produce analysis document | `git push`, `egg-contract` | Auto-review pass + Human approval |
+| **Refine** | Analyze issue, produce analysis document | `git push`, `egg-contract add-decision` | Auto-review pass + Human approval |
 | **Plan** | Create implementation plan with tasks | `git push`, `egg-contract add-decision` | Auto-review pass + Human approval |
 | **Implement** | Execute tasks on draft PR with CI and review feedback | `git push`, `egg-contract add-commit/update-notes` | All checks pass (CI + PR review) |
 | **PR** | Finalize PR for human review and merge | `gh pr edit`, `git push` | Human merge (closes issue automatically) |
