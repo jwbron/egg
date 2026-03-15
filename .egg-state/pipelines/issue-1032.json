@@ -83,7 +83,7 @@
   },
   "decisions": [],
   "created_at": "2026-03-15T22:39:56.812459",
-  "updated_at": "2026-03-15T22:48:38.116574",
+  "updated_at": "2026-03-15T22:48:38.163410",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
@@ -104,8 +104,8 @@
       {
         "role": "reviewer_refine",
         "spawned_at": "2026-03-15T22:44:57.470583",
-        "completed_at": null,
-        "status": "running",
+        "completed_at": "2026-03-15T22:48:36.780911Z",
+        "status": "complete",
         "container_id": "cff098ffa072c3e99bc9d609dd4e31fa314dd6cd9f304cbadc04c325984ff1eb",
         "task_context": "Review the refiner output for issue #1032: Agent anchor mechanism for post-compaction state recovery. Validate that the refinement correctly captures scope, risks, dependencies, and implementation phases. The issue defines: JSON anchor files at .egg-state/agent-anchors/<agent-id>.json, 2KB/3KB size budgets, self-report update model, lifecycle cleanup with Redis TTL, gateway enforcement, CLI (egg-orch anchor), Python library (shared/egg_anchor/), 4 impl phases, soft deps on #1027 and #1030. Check for completeness, feasibility, and any missed risks.",
         "retry_number": 0
@@ -135,5 +135,5 @@
   },
   "plan_phase_waves": null,
   "plan_phase_names": null,
-  "version": 13
+  "version": 14
 }
