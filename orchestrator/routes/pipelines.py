@@ -4952,6 +4952,7 @@ def _run_concurrent_phase(
             # back to the generic CONSENSUS_TIMEOUT event and HITL
             # decision if BRC did not handle it.
             _brc_handled = False
+            _brc_timeout_result = None
             try:
                 from ..peer_consensus import get_peer_consensus_tracker  # type: ignore[import-not-found]  # noqa: I001
 
@@ -4972,7 +4973,11 @@ def _run_concurrent_phase(
                     error=str(e),
                 )
 
-            if _brc_handled and _brc_timeout_result.get("action") == "escalate":
+            if (
+                _brc_handled
+                and _brc_timeout_result is not None
+                and _brc_timeout_result.get("action") == "escalate"
+            ):
                 # BRC handled the timeout but requests escalation —
                 # critical reviewers are unconfirmed.  Still need a HITL
                 # decision so a human can intervene.

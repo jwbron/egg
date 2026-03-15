@@ -762,8 +762,8 @@ class TestAlternatingNackHardCap:
                 },
             )
             if i < 5:
-                # context_change is True for i>=1 (alternating files),
-                # and rev_count < hard_cap, so no escalation
+                # Round 0: context_change=False but rev_count < max_revision_rounds
+                # Rounds 1-4: context_change=True (alternating files) and rev_count < hard_cap
                 assert result["needs_escalation"] is False, (
                     f"Unexpected escalation at round {i + 1}"
                 )
