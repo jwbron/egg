@@ -553,7 +553,21 @@ def create_pipeline() -> tuple[Response, int]:
 
     except StateStoreError as e:
         if "already exists" in str(e):
-            return make_error_response(str(e), status_code=409)
+            # Include existing pipeline details so callers can decide
+            # whether to cancel+resubmit or resume monitoring.
+            details: dict[str, Any] = {}
+            try:
+                # Error message format: "Pipeline {pipeline_id} already exists"
+                pid = str(e).split("Pipeline ", 1)[1].rsplit(" already exists", 1)[0]
+                existing = store.load_pipeline(pid)
+                details = {
+                    "existing_pipeline_id": existing.id,
+                    "existing_status": existing.status.value,
+                    "existing_phase": existing.current_phase.value,
+                }
+            except Exception:
+                pass  # Best-effort enrichment
+            return make_error_response(str(e), status_code=409, details=details)
         logger.error("Failed to create pipeline", error=str(e))
         return make_error_response(f"Failed to create pipeline: {e}", status_code=500)
 

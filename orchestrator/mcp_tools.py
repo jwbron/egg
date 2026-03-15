@@ -109,6 +109,14 @@ COORDINATOR_TOOLS = [
                     "description": "Filter by status",
                     "default": "active",
                 },
+                "repo": {
+                    "type": "string",
+                    "description": "Filter by repository (owner/name format, e.g. 'myorg/myrepo')",
+                },
+                "issue_number": {
+                    "type": "integer",
+                    "description": "Filter by GitHub issue number",
+                },
                 "limit": {
                     "type": "integer",
                     "description": "Maximum number of tasks to return",
@@ -119,7 +127,7 @@ COORDINATOR_TOOLS = [
     },
     {
         "name": "cancel_task",
-        "description": "Cancel a coordinator-managed task.",
+        "description": "Cancel a coordinator-managed task. Use cleanup=true to also delete pipeline state, allowing the same issue to be resubmitted.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -130,6 +138,11 @@ COORDINATOR_TOOLS = [
                 "reason": {
                     "type": "string",
                     "description": "Reason for cancellation",
+                },
+                "cleanup": {
+                    "type": "boolean",
+                    "description": "If true, fully delete pipeline state after cancellation (containers, sessions, worktrees, state files). Allows the same issue to be resubmitted without a 409 conflict.",
+                    "default": False,
                 },
             },
             "required": ["task_id"],
@@ -195,6 +208,9 @@ class CoordinatorToolHandler:
 
     def _handle_submit_task(self, args: dict[str, Any]) -> dict[str, Any]:
         """Create a coordinator-enabled pipeline."""
+        import json
+        from urllib.error import HTTPError
+
         data: dict[str, Any] = {
             "config": {"coordinator_enabled": True},
         }
@@ -206,7 +222,26 @@ class CoordinatorToolHandler:
         if args.get("repo"):
             data["repo"] = args["repo"]
 
-        result = self._make_request("/api/v1/pipelines", method="POST", data=data)
+        try:
+            result = self._make_request("/api/v1/pipelines", method="POST", data=data)
+        except HTTPError as e:
+            if e.code == 409:
+                # Parse enriched 409 body with existing pipeline details
+                error_info: dict[str, Any] = {"error": "Pipeline already exists"}
+                try:
+                    body = json.loads(e.read().decode())
+                    error_info["error"] = body.get("message", error_info["error"])
+                    details = body.get("details", {})
+                    if details:
+                        error_info["existing_pipeline_id"] = details.get(
+                            "existing_pipeline_id", ""
+                        )
+                        error_info["existing_status"] = details.get("existing_status", "")
+                        error_info["existing_phase"] = details.get("existing_phase", "")
+                except Exception:
+                    pass
+                return error_info
+            raise
 
         pipeline_id = result.get("data", {}).get("pipeline", {}).get("id", "")
 
@@ -292,23 +327,37 @@ class CoordinatorToolHandler:
 
         # Filter to coordinator-enabled pipelines
         status_filter = args.get("status_filter", "active")
+        repo_filter = args.get("repo")
+        issue_filter = args.get("issue_number")
+
         coordinator_pipelines = []
         for p in pipelines:
             config = p.get("config", {})
-            if config.get("coordinator_enabled"):
-                p_status = p.get("status", "")
-                if status_filter == "all":
-                    coordinator_pipelines.append(p)
-                elif status_filter == "active" and p_status in (
-                    "pending",
-                    "running",
-                    "awaiting_human",
-                ):
-                    coordinator_pipelines.append(p)
-                elif status_filter == "completed" and p_status == "complete":
-                    coordinator_pipelines.append(p)
-                elif status_filter == "failed" and p_status == "failed":
-                    coordinator_pipelines.append(p)
+            if not config.get("coordinator_enabled"):
+                continue
+
+            # Apply repo filter
+            if repo_filter and p.get("repo") != repo_filter:
+                continue
+
+            # Apply issue_number filter
+            if issue_filter is not None and p.get("issue_number") != issue_filter:
+                continue
+
+            # Apply status filter
+            p_status = p.get("status", "")
+            if status_filter == "all":
+                coordinator_pipelines.append(p)
+            elif status_filter == "active" and p_status in (
+                "pending",
+                "running",
+                "awaiting_human",
+            ):
+                coordinator_pipelines.append(p)
+            elif status_filter == "completed" and p_status == "complete":
+                coordinator_pipelines.append(p)
+            elif status_filter == "failed" and p_status == "failed":
+                coordinator_pipelines.append(p)
 
         limit = args.get("limit", 10)
         return {
@@ -317,9 +366,14 @@ class CoordinatorToolHandler:
         }
 
     def _handle_cancel_task(self, args: dict[str, Any]) -> dict[str, Any]:
-        """Cancel a coordinator pipeline."""
+        """Cancel a coordinator pipeline.
+
+        When cleanup=True, also deletes the pipeline state (containers,
+        sessions, worktrees, state files) so the same issue can be
+        resubmitted without a 409 conflict.
+        """
         task_id = quote(args["task_id"], safe="")
-        data = {"status": "cancelled"}
+        data: dict[str, Any] = {"status": "cancelled"}
         if args.get("reason"):
             data["reason"] = args["reason"]
         result = self._make_request(
@@ -328,4 +382,34 @@ class CoordinatorToolHandler:
             data=data,
             timeout=120,
         )
+
+        cleaned_up: list[str] = []
+        if args.get("cleanup"):
+            # Delete pipeline state so the issue can be resubmitted.
+            # The DELETE endpoint cleans up containers, remote branches,
+            # Redis messages, and the state file.
+            try:
+                self._make_request(
+                    f"/api/v1/pipelines/{task_id}",
+                    method="DELETE",
+                    timeout=120,
+                )
+                cleaned_up = ["pipeline_state", "containers", "worktrees", "messages"]
+            except Exception as e:
+                logger.warning(
+                    "Cleanup after cancel failed",
+                    task_id=task_id,
+                    error=str(e),
+                )
+                cleaned_up = []
+
+        if args.get("cleanup"):
+            return {
+                "cancelled": True,
+                "cleaned_up": cleaned_up,
+                "message": "Pipeline cancelled and cleaned up"
+                if cleaned_up
+                else "Pipeline cancelled but cleanup failed",
+            }
+
         return result
