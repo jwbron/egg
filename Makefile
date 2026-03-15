@@ -228,7 +228,7 @@ lint-custom:
 	fi
 
 test: export PYTHONPATH := shared:gateway:orchestrator
-test:
+test: venv
 	@echo "==> Running unit tests..."
 	$(PYTEST) tests/ gateway/tests/ orchestrator/tests/ -v $(PYTEST_ARGS)
 
