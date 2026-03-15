@@ -1,6 +1,6 @@
 # Agent Teams and Deliberative Consensus
 
-Agent teams are groups of LLM agents that work concurrently on a shared task and must reach agreement before advancing. This guide covers the motivation, architecture, and protocol design for agent team communication and peer consensus in egg.
+Agent teams are groups of LLM agents that work concurrently on a shared task and must reach agreement before advancing. This guide covers the motivation, architecture, and protocol design for agent team communication and Deliberative Consensus in egg.
 
 For operational details on the current concurrent execution mode, see [Concurrent Execution](concurrent-execution.md). This guide focuses on the design principles and **Deliberative Consensus** — the combination of a structured consensus protocol (BRC) and an evidence-backed reasoning layer — that replaces the original orchestrator-centric readiness tallying.
 
