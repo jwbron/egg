@@ -1,6 +1,6 @@
 name: "egg: Contract Verification"
 
-# Trigger on PRs with the sdlc:pr label or a contract file
+# Trigger on PRs with the sdlc:pr label or a new contract file in the diff
 # This workflow verifies that implementation matches the SDLC contract
 on:
   pull_request:
@@ -106,27 +106,16 @@ jobs:
               exit 0
             fi
 
-            # No label — check if a contract file exists on the PR's head branch
-            if [[ -n "${issue_number:-}" ]]; then
-              contract_path=".egg-state/contracts/${issue_number}.json"
-              echo "Checking for contract file: $contract_path on branch $branch_name"
-              set +o pipefail
-              http_code=$(gh api "repos/${{ github.repository }}/contents/${contract_path}?ref=${branch_name}" \
-                --silent -i 2>/dev/null | head -1 | awk '{print $2}')
-              set -o pipefail
-              http_code="${http_code:-000}"
-              if [[ "$http_code" == "200" ]]; then
-                echo "Contract file found, running contract verification"
-                echo "run=true" >> "$GITHUB_OUTPUT"
-                exit 0
-              elif [[ "$http_code" != "404" ]]; then
-                echo "::warning::Unexpected HTTP $http_code checking contract file at $contract_path"
-              else
-                echo "No contract file found at $contract_path"
-              fi
+            # No label — only run if the PR adds a new file to .egg-state/contracts/
+            added_contract=$(gh api "repos/${{ github.repository }}/pulls/${PR_NUMBER}/files?per_page=100" \
+              --jq '[.[] | select(.status == "added" and (.filename | startswith(".egg-state/contracts/")))] | length')
+            if [[ "${added_contract:-0}" -gt 0 ]]; then
+              echo "PR adds a new contract file, running contract verification"
+              echo "run=true" >> "$GITHUB_OUTPUT"
+              exit 0
             fi
 
-            echo "No sdlc:pr label and no contract file, skipping"
+            echo "No sdlc:pr label and no new contract file in diff, skipping"
             echo "run=false" >> "$GITHUB_OUTPUT"
           fi
 

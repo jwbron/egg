@@ -126,6 +126,7 @@ class TestAgentRoles:
 
         assert "coder" in role_names
         assert "tester" in role_names
+        assert "documenter" in role_names
         assert "checker" in role_names
         assert "reviewer_code" in role_names
         assert "reviewer_contract" in role_names
