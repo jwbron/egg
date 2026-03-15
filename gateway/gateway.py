@@ -2829,7 +2829,7 @@ def gh_execute() -> tuple[Response, int] | Response:
     if hasattr(g, "session") and g.session:
         session_role = getattr(g.session, "agent_role", None)
     if session_role:
-        from agent_restrictions import check_agent_gh_operation
+        from agent_restrictions import check_agent_gh_operation  # type: ignore[import-untyped]
 
         non_flag_args = [a for a in args if not a.startswith("-")]
         gh_command_str_for_role = " ".join(non_flag_args[:3])
@@ -2945,7 +2945,7 @@ def gh_execute() -> tuple[Response, int] | Response:
                     pass
             # Role check
             if session_role:
-                from agent_restrictions import check_agent_gh_operation
+                from agent_restrictions import check_agent_gh_operation  # type: ignore[import-untyped]
 
                 api_role_allowed, api_role_reason = check_agent_gh_operation(
                     session_role, synthesized_cmd
