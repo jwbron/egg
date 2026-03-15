@@ -84,7 +84,9 @@ orchestrator/
 ├── container_spawner.py    # Sandbox container lifecycle
 ├── container_monitor.py    # Container health monitoring
 ├── concurrent_executor.py  # Concurrent phase executor (spawns all agents simultaneously)
-├── consensus.py            # Consensus protocol for concurrent phase completion
+├── approval_matrix.py      # Per-reviewer ACK/NACK matrix for BRC consensus
+├── attestation_schemas.py  # Attestation payload validation for BRC proposals
+├── consensus.py            # Legacy READY-tallying consensus (deprecated, kept for transition)
 ├── consensus_wrapper.py    # Shell wrapper that keeps containers alive polling for consensus after Claude exits
 ├── coordinator_executor.py # Coordinator agent lifecycle management (spawn, crash recovery)
 ├── dag_visualizer.py       # ASCII DAG visualization for pipeline status (incl. Tier 3 sub-phase rendering)
@@ -97,11 +99,14 @@ orchestrator/
 ├── handoffs.py             # Agent handoff data management
 ├── mcp_server.py           # MCP server sidecar for coordinator integration with Claude Code (port 9850)
 ├── mcp_tools.py            # MCP tool definitions and handlers for coordinator operations
-├── message_store.py        # In-memory inter-agent message store (concurrent mode)
+├── message_store.py        # Inter-agent message store (Redis Streams when available, in-memory fallback)
+├── peer_consensus.py       # BRC (Broadcast-Review-Converge) peer consensus tracker
 ├── metrics.py              # Pipeline metrics and telemetry
 ├── models.py               # Pydantic models for pipelines
 ├── multi_agent.py          # Multi-agent orchestration
+├── redis_message_store.py  # Redis Streams-backed message store implementation
 ├── resilience.py           # Retry and error recovery
+├── review_graph.py         # Asymmetric review graph topology for BRC consensus
 ├── sandbox_template.py     # Sandbox container template
 ├── sse.py                  # Server-Sent Events streaming for pipeline visualization
 ├── startup_reconciliation.py # Startup reconciliation for orphaned containers
