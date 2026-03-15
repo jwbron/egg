@@ -593,6 +593,29 @@ REVIEWER_PLAN_ROLE = AgentRoleDefinition(
     requires_inputs=["task_breakdown", "risk_assessment"],
 )
 
+CHECKER_ROLE = AgentRoleDefinition(
+    role=AgentRole.CHECKER,
+    description="Runs lint, type-check, and test suites to validate implementation",
+    responsibilities=[
+        "Run linters and auto-fix formatting issues",
+        "Run type checkers and report errors",
+        "Run test suites and report results",
+        "Apply auto-fixes where possible",
+        "Report remaining warnings",
+    ],
+    dependencies=[AgentRole.CODER],
+    file_access=FileAccessPattern(
+        allowed_read=[],
+        allowed_write=[
+            ".egg-state/reviews/",
+            ".egg-state/agent-outputs/",
+        ],
+        blocked_write=_REVIEWER_BLOCKED_WRITE,
+    ),
+    produces_outputs=["check_results"],
+    requires_inputs=["changed_files"],
+)
+
 
 # Coordinator role definition
 COORDINATOR_ROLE = AgentRoleDefinition(
@@ -655,6 +678,7 @@ AGENT_ROLES: dict[AgentRole, AgentRoleDefinition] = {
     AgentRole.REVIEWER_AGENT_DESIGN: REVIEWER_AGENT_DESIGN_ROLE,
     AgentRole.REVIEWER_REFINE: REVIEWER_REFINE_ROLE,
     AgentRole.REVIEWER_PLAN: REVIEWER_PLAN_ROLE,
+    AgentRole.CHECKER: CHECKER_ROLE,
 }
 
 
