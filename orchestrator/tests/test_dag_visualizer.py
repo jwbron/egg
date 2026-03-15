@@ -758,7 +758,7 @@ class TestWaveGrouping:
         assert len(waves[2]) == 1  # integrator
 
     def test_compute_wave_order_implement_with_checker(self):
-        """CHECKER is placed in reviewer wave (after workers) in implement phase."""
+        """CHECKER is placed after CODER in implement phase wave ordering."""
         agents = [
             AgentExecution(role=AgentRole.CODER, status=AgentExecutionStatus.COMPLETE),
             AgentExecution(role=AgentRole.TESTER, status=AgentExecutionStatus.COMPLETE),

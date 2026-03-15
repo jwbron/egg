@@ -30,6 +30,7 @@ class AgentRole(StrEnum):
     The orchestrator uses these roles to parallelize work where dependencies allow.
 
     Implement-phase roles: CODER, TESTER, DOCUMENTER, INTEGRATOR
+    Implement-phase checker: CHECKER (dual-mode: auto-fix in sequential, reviewer in concurrent)
     Plan-phase roles: ARCHITECT, TASK_PLANNER, RISK_ANALYST
     Refine-phase roles: REFINER
     Reviewer roles: REVIEWER_CODE, REVIEWER_CONTRACT,
@@ -614,6 +615,16 @@ CHECKER_ROLE = AgentRoleDefinition(
             "**/*.tsx",
             "**/*.js",
             "**/*.jsx",
+            "**/*.go",
+            "**/*.java",
+            "**/*.rb",
+            "**/*.rs",
+            "**/*.sh",
+            # Configuration
+            "**/*.yml",
+            "**/*.yaml",
+            "**/*.json",
+            "**/*.toml",
             # Review output (BRC concurrent mode)
             ".egg-state/reviews/",
             ".egg-state/agent-outputs/",
