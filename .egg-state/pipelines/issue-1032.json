@@ -84,7 +84,7 @@
       "phase": "plan",
       "status": "running",
       "started_at": "2026-03-15T21:18:34.426278",
-      "work_started_at": "2026-03-15T21:18:34.437909",
+      "work_started_at": "2026-03-15T21:19:17.330546",
       "completed_at": null,
       "containers": [
         {
@@ -119,6 +119,12 @@
         {
           "cycle": 0,
           "started_at": "2026-03-15T21:18:34.437909",
+          "completed_at": null,
+          "commit_sha": "9f5c3c983d819b95d10666ebb35084460af1d589"
+        },
+        {
+          "cycle": 0,
+          "started_at": "2026-03-15T21:19:17.330546",
           "completed_at": null,
           "commit_sha": "9f5c3c983d819b95d10666ebb35084460af1d589"
         }
@@ -164,7 +170,7 @@
     }
   ],
   "created_at": "2026-03-15T20:55:27.920633",
-  "updated_at": "2026-03-15T21:19:17.315268",
+  "updated_at": "2026-03-15T21:19:17.332287",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
@@ -225,5 +231,5 @@
   },
   "plan_phase_waves": null,
   "plan_phase_names": null,
-  "version": 36
+  "version": 37
 }
