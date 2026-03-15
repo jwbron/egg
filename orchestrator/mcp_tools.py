@@ -411,7 +411,7 @@ class CoordinatorToolHandler:
     ) -> list[dict[str, str]]:
         """Read reviewer feedback from .egg-state/reviews/ for a given phase.
 
-        Returns a list of dicts with reviewer, verdict, summary, suggestions,
+        Returns a list of dicts with reviewer, verdict, summary, analysis, suggestions,
         and feedback fields. Caps total content at max_chars.
         """
         if worktree_path is None:
