@@ -179,7 +179,7 @@ Research (CONSENSAGENT, ACL 2025) shows LLM agents exhibit strong sycophancy in 
 
 After BRC converges, the integrator cross-references attestations against actual artifacts and finds discrepancies (cited commit doesn't exist, cited tests didn't run, cited files weren't modified). This is a post-consensus validation step — the integrator operates outside BRC (see [Anti-Sycophancy Measures](#anti-sycophancy-measures) above).
 
-**Recovery:** The integrator reopens consensus by sending `CONSENSUS_NACK` to the offending agent with specific discrepancies. The agent's CONFIRMED status is revoked and it must re-propose with accurate attestations. After repeated attempts with the same false attestations, the integrator escalates to HITL. This makes costly signals actually costly — fabrication is detected.
+**Recovery:** The integrator reopens consensus by sending `CONSENSUS_NACK` to the offending agent with specific discrepancies. The agent's CONFIRMED status is revoked and it must re-propose with accurate attestations. Since the integrator operates outside BRC, its NACK does not follow the standard scoped re-evaluation rules. Instead, the re-proposal goes through a full BRC re-evaluation: all originally assigned reviewers must re-review (their prior ACKs are invalidated because the attestation failure calls into question the quality of the original proposal they approved). After BRC re-converges, the integrator performs attestation verification again. After repeated attempts with the same false attestations, the integrator escalates to HITL. This makes costly signals actually costly — fabrication is detected.
 
 ### Partial Consensus at Timeout
 
