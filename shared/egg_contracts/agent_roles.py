@@ -10,6 +10,7 @@ Agent roles:
 - TESTER: Writes tests for the implemented changes
 - DOCUMENTER: Updates documentation for the changes
 - INTEGRATOR: Runs full test suite and validates integration
+- CHECKER: Runs lint/type-check/tests (auto-fix in sequential, reviewer in concurrent)
 - REFINER: Analyzes tasks and produces structured analysis in the refine phase
 
 The orchestrator uses these definitions to:
@@ -30,6 +31,7 @@ class AgentRole(StrEnum):
     The orchestrator uses these roles to parallelize work where dependencies allow.
 
     Implement-phase roles: CODER, TESTER, DOCUMENTER, INTEGRATOR
+    Implement-phase checker: CHECKER (dual-mode: auto-fix in sequential, reviewer in concurrent)
     Plan-phase roles: ARCHITECT, TASK_PLANNER, RISK_ANALYST
     Refine-phase roles: REFINER
     Reviewer roles: REVIEWER_CODE, REVIEWER_CONTRACT,
@@ -40,6 +42,7 @@ class AgentRole(StrEnum):
     TESTER = "tester"
     DOCUMENTER = "documenter"
     INTEGRATOR = "integrator"
+    CHECKER = "checker"
     # Plan-phase roles
     ARCHITECT = "architect"
     TASK_PLANNER = "task_planner"
@@ -592,6 +595,47 @@ REVIEWER_PLAN_ROLE = AgentRoleDefinition(
     requires_inputs=["task_breakdown", "risk_assessment"],
 )
 
+CHECKER_ROLE = AgentRoleDefinition(
+    role=AgentRole.CHECKER,
+    description="Runs lint, type-check, and test suites to validate implementation",
+    responsibilities=[
+        "Run linters and report errors",
+        "Run type checkers and report errors",
+        "Run test suites and report results",
+        "Apply auto-fixes where possible (sequential mode)",
+        "Report remaining warnings",
+        "Evaluate coder output via BRC protocol (concurrent mode)",
+    ],
+    dependencies=[AgentRole.CODER],
+    file_access=FileAccessPattern(
+        allowed_read=[],
+        allowed_write=[
+            # Source files (sequential check-and-fix mode)
+            "**/*.py",
+            "**/*.ts",
+            "**/*.tsx",
+            "**/*.js",
+            "**/*.jsx",
+            "**/*.go",
+            "**/*.java",
+            "**/*.rb",
+            "**/*.rs",
+            "**/*.sh",
+            # Configuration
+            "**/*.yml",
+            "**/*.yaml",
+            "**/*.json",
+            "**/*.toml",
+            # Review output (BRC concurrent mode)
+            ".egg-state/reviews/",
+            ".egg-state/agent-outputs/",
+        ],
+        blocked_write=["docs/", "**/README.md", "**/*.md", ".egg-state/contracts/"],
+    ),
+    produces_outputs=["check_results"],
+    requires_inputs=["changed_files"],
+)
+
 
 # Coordinator role definition
 COORDINATOR_ROLE = AgentRoleDefinition(
@@ -654,6 +698,7 @@ AGENT_ROLES: dict[AgentRole, AgentRoleDefinition] = {
     AgentRole.REVIEWER_AGENT_DESIGN: REVIEWER_AGENT_DESIGN_ROLE,
     AgentRole.REVIEWER_REFINE: REVIEWER_REFINE_ROLE,
     AgentRole.REVIEWER_PLAN: REVIEWER_PLAN_ROLE,
+    AgentRole.CHECKER: CHECKER_ROLE,
 }
 
 
@@ -805,7 +850,7 @@ class AgentExecution:
 # Phase-to-role mappings for multi-agent execution
 
 _PHASE_ROLES: dict[str, list[AgentRole]] = {
-    "implement": [AgentRole.CODER, AgentRole.TESTER, AgentRole.DOCUMENTER, AgentRole.INTEGRATOR],
+    "implement": [AgentRole.CODER, AgentRole.TESTER, AgentRole.DOCUMENTER],
     "plan": [AgentRole.ARCHITECT, AgentRole.TASK_PLANNER, AgentRole.RISK_ANALYST],
     "refine": [AgentRole.REFINER],
 }
@@ -814,6 +859,7 @@ _PHASE_REVIEWERS: dict[str, list[AgentRole]] = {
     "implement": [
         AgentRole.REVIEWER_CODE,
         AgentRole.REVIEWER_CONTRACT,
+        AgentRole.CHECKER,
     ],
     "plan": [
         AgentRole.REVIEWER_PLAN,

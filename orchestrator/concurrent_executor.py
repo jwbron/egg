@@ -80,17 +80,14 @@ class ConcurrentPhaseExecutor:
     def get_agent_roles(self) -> list[AgentRole]:
         """Get the agent roles for concurrent execution.
 
-        Returns implement-phase roles: coder, tester, documenter,
-        checker, reviewer_code, reviewer_contract.
+        Returns roles appropriate for the pipeline's current phase,
+        including both primary and reviewer roles.
         """
-        return [
-            AgentRole.CODER,
-            AgentRole.TESTER,
-            AgentRole.DOCUMENTER,
-            AgentRole.CHECKER,
-            AgentRole.REVIEWER_CODE,
-            AgentRole.REVIEWER_CONTRACT,
-        ]
+        from egg_contracts.agent_roles import get_roles_for_phase
+
+        phase = self.pipeline.current_phase.value
+        contract_roles = get_roles_for_phase(phase, include_reviewers=True)
+        return [AgentRole(r.value) for r in contract_roles]
 
     def get_worktree_branch(self, role: AgentRole) -> str:
         """Get the worktree branch name for an agent role.

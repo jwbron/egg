@@ -41,6 +41,7 @@ class AgentRole:
     TESTER = "tester"
     DOCUMENTER = "documenter"
     INTEGRATOR = "integrator"
+    CHECKER = "checker"
     # Plan-phase roles
     ARCHITECT = "architect"
     TASK_PLANNER = "task_planner"
@@ -487,6 +488,41 @@ REVIEWER_UNIFIED_PATTERNS = AgentFilePattern(
     blocked_patterns=_REVIEWER_BLOCKED,
 )
 
+CHECKER_PATTERNS = AgentFilePattern(
+    role=AgentRole.CHECKER,
+    description="Checker agent: source code access for auto-fixes (sequential) and reviews (concurrent)",
+    allowed_patterns=[
+        # Source code (needed for sequential check-and-fix mode)
+        "**/*.py",
+        "**/*.ts",
+        "**/*.tsx",
+        "**/*.js",
+        "**/*.jsx",
+        "**/*.go",
+        "**/*.java",
+        "**/*.rb",
+        "**/*.rs",
+        "**/*.sh",
+        # Configuration
+        "**/*.yml",
+        "**/*.yaml",
+        "**/*.json",
+        "**/*.toml",
+        # Review output (BRC concurrent mode)
+        ".egg-state/reviews/",
+        # Handoff output
+        ".egg-state/agent-outputs/",
+    ],
+    blocked_patterns=[
+        # Documentation (Documenter handles)
+        "docs/",
+        "**/README.md",
+        "**/*.md",
+        # Contracts (API only)
+        ".egg-state/contracts/",
+    ],
+)
+
 # Coordinator agent patterns
 # Coordinator can only write to agent-outputs (for state persistence)
 COORDINATOR_PATTERNS = AgentFilePattern(
@@ -533,6 +569,7 @@ AGENT_PATTERNS: dict[str, AgentFilePattern] = {
     AgentRole.REVIEWER_REFINE: REVIEWER_REFINE_PATTERNS,
     AgentRole.REVIEWER_PLAN: REVIEWER_PLAN_PATTERNS,
     AgentRole.REVIEWER_UNIFIED: REVIEWER_UNIFIED_PATTERNS,
+    AgentRole.CHECKER: CHECKER_PATTERNS,
     AgentRole.COORDINATOR: COORDINATOR_PATTERNS,
 }
 

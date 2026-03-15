@@ -3007,8 +3007,24 @@ def _build_brc_preamble(role_value: str, phase: str) -> str:
         reviewers = graph.reviewers_for(role_value) if is_producer else []
         producers = graph.producers_for(role_value) if is_reviewer else []
     except Exception:
-        is_producer = role_value in ("coder", "tester", "documenter")
-        is_reviewer = role_value in ("reviewer_code", "reviewer_contract", "checker", "tester")
+        is_producer = role_value in (
+            "coder",
+            "tester",
+            "documenter",
+            "refiner",
+            "architect",
+            "task_planner",
+            "risk_analyst",
+        )
+        is_reviewer = role_value in (
+            "reviewer_code",
+            "reviewer_contract",
+            "checker",
+            "tester",
+            "reviewer_refine",
+            "reviewer_agent_design",
+            "reviewer_plan",
+        )
         reviewers = []
         producers = []
 
@@ -4583,7 +4599,9 @@ def _run_concurrent_phase(
     pipeline_mode = "issue" if pipeline.issue_number is not None else "prompt"
 
     # Build per-role prompts (matches _run_multi_agent_phase pattern).
-    roles = [AgentRole.CODER, AgentRole.TESTER, AgentRole.DOCUMENTER]
+    from egg_contracts.agent_roles import get_roles_for_phase as _get_roles_for_phase
+
+    roles = [AgentRole(r.value) for r in _get_roles_for_phase(phase_str, include_reviewers=False)]
     agent_prompts: dict[AgentRole, str] = {}
     for role in roles:
         prompt = _build_agent_prompt(
@@ -6339,7 +6357,9 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                         from ..multi_agent import is_concurrent_execution  # type: ignore[no-redef]
 
                     use_concurrent = is_concurrent_execution(pipeline) and current_phase.value in {
-                        "implement"
+                        "refine",
+                        "plan",
+                        "implement",
                     }
 
                     if use_coordinator:

@@ -118,6 +118,7 @@ class TestAgentRoles:
         from concurrent_executor import ConcurrentPhaseExecutor
 
         pipeline = _make_pipeline()
+        pipeline.current_phase = PipelinePhase.IMPLEMENT
         executor = ConcurrentPhaseExecutor(pipeline, spawn_fn=MagicMock())
 
         roles = executor.get_agent_roles()
@@ -125,8 +126,42 @@ class TestAgentRoles:
 
         assert "coder" in role_names
         assert "tester" in role_names
+        assert "documenter" in role_names
+        assert "checker" in role_names
         assert "reviewer_code" in role_names
         assert "reviewer_contract" in role_names
+        assert "integrator" not in role_names
+
+    def test_refine_phase_roles(self):
+        from concurrent_executor import ConcurrentPhaseExecutor
+
+        pipeline = _make_pipeline()
+        pipeline.current_phase = PipelinePhase.REFINE
+        executor = ConcurrentPhaseExecutor(pipeline, spawn_fn=MagicMock())
+
+        roles = executor.get_agent_roles()
+        role_names = [r.value for r in roles]
+
+        assert "refiner" in role_names
+        assert "reviewer_refine" in role_names
+        assert "reviewer_agent_design" in role_names
+        assert "coder" not in role_names
+
+    def test_plan_phase_roles(self):
+        from concurrent_executor import ConcurrentPhaseExecutor
+
+        pipeline = _make_pipeline()
+        pipeline.current_phase = PipelinePhase.PLAN
+        executor = ConcurrentPhaseExecutor(pipeline, spawn_fn=MagicMock())
+
+        roles = executor.get_agent_roles()
+        role_names = [r.value for r in roles]
+
+        assert "architect" in role_names
+        assert "task_planner" in role_names
+        assert "risk_analyst" in role_names
+        assert "reviewer_plan" in role_names
+        assert "coder" not in role_names
 
     def test_worktree_branch_from_pipeline(self):
         from concurrent_executor import ConcurrentPhaseExecutor
@@ -190,3 +225,64 @@ class TestReviewGraphIntegration:
         # Coder should have at least reviewer_code and checker as reviewers
         assert "reviewer_code" in reviewers
         assert "checker" in reviewers
+
+    def test_refine_graph_has_correct_edges(self):
+        from review_graph import get_default_refine_graph, get_review_graph_for_phase
+
+        graph = get_default_refine_graph()
+
+        # refiner is the sole producer
+        assert graph.is_producer("refiner")
+        # Both reviewers review refiner
+        reviewers = graph.reviewers_for("refiner")
+        assert "reviewer_refine" in reviewers
+        assert "reviewer_agent_design" in reviewers
+        # Both are critical
+        assert "reviewer_refine" in graph.critical_reviewers_for("refiner")
+        assert "reviewer_agent_design" in graph.critical_reviewers_for("refiner")
+
+        # Phase lookup returns same structure
+        phase_graph = get_review_graph_for_phase("refine")
+        assert len(phase_graph.edges) == len(graph.edges)
+
+    def test_plan_graph_has_correct_edges(self):
+        from review_graph import get_default_plan_graph, get_review_graph_for_phase
+
+        graph = get_default_plan_graph()
+
+        # Three producers
+        assert graph.is_producer("architect")
+        assert graph.is_producer("task_planner")
+        assert graph.is_producer("risk_analyst")
+        # reviewer_plan reviews all three
+        assert "reviewer_plan" in graph.reviewers_for("architect")
+        assert "reviewer_plan" in graph.reviewers_for("task_planner")
+        assert "reviewer_plan" in graph.reviewers_for("risk_analyst")
+        # architect and task_planner are critical, risk_analyst is advisory
+        assert "reviewer_plan" in graph.critical_reviewers_for("architect")
+        assert "reviewer_plan" in graph.critical_reviewers_for("task_planner")
+        assert "reviewer_plan" in graph.advisory_reviewers_for("risk_analyst")
+
+        # Phase lookup returns same structure
+        phase_graph = get_review_graph_for_phase("plan")
+        assert len(phase_graph.edges) == len(graph.edges)
+
+    def test_review_graph_roles_subset_of_spawned_roles(self):
+        """Review graph all_roles() must be a subset of spawned roles for each phase."""
+        from concurrent_executor import ConcurrentPhaseExecutor
+        from review_graph import get_review_graph_for_phase
+
+        for phase in [PipelinePhase.IMPLEMENT, PipelinePhase.REFINE, PipelinePhase.PLAN]:
+            pipeline = _make_pipeline()
+            pipeline.current_phase = phase
+            executor = ConcurrentPhaseExecutor(pipeline, spawn_fn=MagicMock())
+
+            roles = executor.get_agent_roles()
+            role_names = {r.value for r in roles}
+            graph = get_review_graph_for_phase(phase.value)
+            graph_roles = graph.all_roles()
+
+            assert graph_roles.issubset(role_names), (
+                f"Phase {phase.value}: graph has roles {graph_roles - role_names} "
+                f"not in spawned roles {role_names}"
+            )
