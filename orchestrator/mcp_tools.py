@@ -313,25 +313,32 @@ class CoordinatorToolHandler:
         issue_number = pipeline_data.get("issue_number")
         current_phase = status.get("current_phase", "")
 
+        # Resolve worktree path once (invariant across decisions)
+        worktree_path = None
+        _read_phase_draft = None
+        if repo:
+            try:
+                from orchestrator.routes import resolve_worktree_path
+                from orchestrator.routes.pipelines import _read_phase_draft
+
+                env_path = os.environ.get("EGG_REPO_PATH", "/home/egg/repos")
+                base_path = Path(env_path)
+                repo_name = repo.split("/")[-1]
+                repo_path = (
+                    base_path / repo_name if not (base_path / ".git").exists() else base_path
+                )
+                worktree_path = resolve_worktree_path(pipeline_id, repo_path)
+            except Exception:
+                logger.debug(
+                    "Failed to resolve worktree for phase_gate enrichment",
+                    pipeline_id=pipeline_id,
+                )
+
         # Attach enrichments per-decision
         for decision in phase_gates:
             draft_content = None
-            try:
-                if repo:
-                    from orchestrator.routes import resolve_worktree_path
-                    from orchestrator.routes.pipelines import _read_phase_draft
-
-                    env_path = os.environ.get("EGG_REPO_PATH", "/home/egg/repos")
-                    base_path = Path(env_path)
-                    repo_name = repo.split("/")[-1]
-                    repo_path = (
-                        base_path / repo_name if not (base_path / ".git").exists() else base_path
-                    )
-                    worktree_path = resolve_worktree_path(pipeline_id, repo_path)
-
-                    # phase_gate fires after a phase completes, so the draft
-                    # belongs to the phase recorded in the decision (or the
-                    # current phase as fallback).
+            if worktree_path is not None and _read_phase_draft is not None:
+                try:
                     decision_phase = decision.get("phase") or current_phase
                     draft_content = _read_phase_draft(
                         worktree_path,
@@ -340,11 +347,11 @@ class CoordinatorToolHandler:
                         pipeline_id=pipeline_id,
                         max_chars=16_000,
                     )
-            except Exception:
-                logger.debug(
-                    "Failed to read draft for phase_gate enrichment",
-                    pipeline_id=pipeline_id,
-                )
+                except Exception:
+                    logger.debug(
+                        "Failed to read draft for phase_gate enrichment",
+                        pipeline_id=pipeline_id,
+                    )
 
             if draft_content is not None:
                 decision["draft_content"] = draft_content

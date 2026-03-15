@@ -864,6 +864,8 @@ class TestEnrichPhaseGateDecisions:
             {"data": {"messages": []}},
         ]
 
+        # Use a task_id with characters that quote() transforms:
+        # quote("my pipeline/test", safe="") → "my%20pipeline%2Ftest"
         handler = CoordinatorToolHandler()
         with (
             patch.dict(os.environ, {"EGG_REPO_PATH": str(tmp_path)}),
@@ -872,8 +874,9 @@ class TestEnrichPhaseGateDecisions:
             ) as mock_resolve,
             patch.dict(sys.modules, {"orchestrator.routes.pipelines": mock_mod}),
         ):
-            handler.handle_tool_call("get_status", {"task_id": "my-pipeline"})
+            handler.handle_tool_call("get_status", {"task_id": "my pipeline/test"})
 
-        # resolve_worktree_path should receive the raw pipeline_id
+        # resolve_worktree_path should receive the raw pipeline_id, not
+        # the URL-encoded "my%20pipeline%2Ftest"
         mock_resolve.assert_called_once()
-        assert mock_resolve.call_args[0][0] == "my-pipeline"
+        assert mock_resolve.call_args[0][0] == "my pipeline/test"
