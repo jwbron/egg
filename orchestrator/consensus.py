@@ -5,6 +5,10 @@ agree the phase is complete. Supports objections and HITL escalation
 on timeout.
 """
 
+# DEPRECATED: This module is superseded by peer_consensus.py (BRC protocol).
+# The ConsensusEvaluator READY-tallying logic is kept for backwards compatibility
+# during the transition period. New code should use PeerConsensusTracker.
+
 import threading
 from datetime import UTC, datetime
 from enum import StrEnum

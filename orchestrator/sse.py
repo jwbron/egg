@@ -246,6 +246,16 @@ class SSEClientManager:
                         [e for e in cs.escalations if e.resolved_at is None]
                     ),
                 }
+            # Include BRC consensus data in status events
+            try:
+                from peer_consensus import get_peer_consensus_tracker
+
+                tracker = get_peer_consensus_tracker(pipeline_id)
+                if tracker:
+                    payload["consensus"] = tracker.evaluate()
+            except ImportError:
+                pass
+
         except Exception:
             logger.debug(
                 "Failed to attach pipeline state to SSE event",

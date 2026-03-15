@@ -958,26 +958,46 @@ def _get_concurrent_status(pipeline: "Pipeline") -> dict | None:
     # Consensus evaluator tracks per-agent readiness states and determines
     # whether all agents agree the phase is complete. Implemented in phase-3;
     # blocking_agents lists roles that are not yet READY (WORKING or BLOCKED).
+    # BRC peer consensus (preferred) or legacy readiness-based
     try:
-        from ..consensus import get_consensus_evaluator  # type: ignore[import-not-found]
-    except ImportError:
-        logger.debug("Consensus evaluator not available for status")
-        get_consensus_evaluator = None  # type: ignore[assignment]
+        from ..peer_consensus import get_peer_consensus_tracker  # type: ignore[import-not-found]
 
-    if get_consensus_evaluator is not None:
-        evaluator = get_consensus_evaluator()
-        consensus_state = evaluator.get_state(pipeline.id)
-        result["consensus"] = {
-            "agents": {
-                role: {
-                    "state": readiness.state.value,
-                    "reason": readiness.reason,
-                    "updated_at": readiness.timestamp.isoformat() if readiness.timestamp else None,
+        tracker = get_peer_consensus_tracker(pipeline.id)
+        if tracker:
+            consensus_state = tracker.get_state()
+        else:
+            from ..consensus import get_consensus_evaluator  # type: ignore[import-not-found]
+
+            evaluator = get_consensus_evaluator()
+            consensus_state = evaluator.get_state(pipeline.id)
+    except ImportError:
+        try:
+            from ..consensus import get_consensus_evaluator  # type: ignore[import-not-found]
+
+            evaluator = get_consensus_evaluator()
+            consensus_state = evaluator.get_state(pipeline.id)
+        except ImportError:
+            logger.debug("Consensus evaluator not available for status")
+            consensus_state = None
+
+    if consensus_state is not None:
+        agents_data = {}
+        for role, agent_info in consensus_state.get("agents", {}).items():
+            if hasattr(agent_info, "state"):
+                # Legacy AgentReadiness object
+                agents_data[role] = {
+                    "state": agent_info.state.value,
+                    "reason": agent_info.reason,
+                    "updated_at": agent_info.timestamp.isoformat() if agent_info.timestamp else None,
                 }
-                for role, readiness in consensus_state.get("agents", {}).items()
-            },
+            else:
+                # BRC dict format
+                agents_data[role] = agent_info
+        result["consensus"] = {
+            "agents": agents_data,
             "is_complete": consensus_state.get("is_complete", False),
             "blocking_agents": consensus_state.get("blocking_agents", []),
+            "protocol": consensus_state.get("protocol", "readiness"),
         }
     else:
         result["consensus"] = {
@@ -3043,28 +3063,85 @@ def _build_agent_prompt(
         lines.append(f"Issue: #{issue_number}")
     lines.append("")
 
-    # Concurrent mode: add consensus lifecycle preamble so agents understand
-    # they must stay alive and participate in consensus, not just do their task.
+    # Concurrent mode: add BRC consensus lifecycle preamble so agents understand
+    # they must stay alive and participate in Broadcast-Review-Converge consensus.
     if concurrent:
+        # Determine role type from review graph
+        try:
+            from review_graph import get_review_graph_for_phase
+
+            graph = get_review_graph_for_phase(phase)
+            is_producer = graph.is_producer(role_value)
+            is_reviewer = graph.is_reviewer(role_value)
+            reviewers = graph.reviewers_for(role_value) if is_producer else []
+            producers = graph.producers_for(role_value) if is_reviewer else []
+        except Exception:
+            # Fallback: infer from role name
+            is_producer = role_value in ("coder", "tester", "documenter")
+            is_reviewer = role_value in ("reviewer_code", "reviewer_contract", "checker", "tester")
+            reviewers = []
+            producers = []
+
         lines.extend(
             [
-                "## CRITICAL: Concurrent Consensus Protocol\n",
-                "You are running in CONCURRENT mode alongside other agents. "
-                "Your job is NOT just your task — it is the **full lifecycle**:\n",
-                "1. **BOOTSTRAP**: Check if the agents you depend on have produced work yet. "
-                "If not, signal BLOCKED and poll every 30s until their work appears.",
-                "2. **EXECUTE**: Do your assigned work (see Your Task below).",
-                "3. **SIGNAL READY**: When your work is complete, run: "
-                '`egg-orch signal readiness --state READY --reason "Work complete"`',
-                "4. **STAY ALIVE & REACT**: Continue polling for messages with "
-                "`egg-orch message poll`. If new commits land or another agent sends "
-                "feedback, transition back to WORKING, address it, then signal READY again.",
-                "5. **WAIT FOR STOP**: The orchestrator sends SIGTERM when consensus is "
-                "reached. **You do NOT decide when to exit.** Use your remaining turns "
-                "to poll and react.\n",
+                "## CRITICAL: BRC Consensus Protocol\n",
+                "You are running in CONCURRENT mode with the Broadcast-Review-Converge "
+                "(BRC) protocol. Your job is NOT just your task — it is the **full "
+                "BRC lifecycle**.\n",
+            ]
+        )
+
+        if is_producer and is_reviewer:
+            role_type_desc = "PRODUCER and REVIEWER (dual role)"
+        elif is_producer:
+            role_type_desc = "PRODUCER"
+        elif is_reviewer:
+            role_type_desc = "REVIEWER"
+        else:
+            role_type_desc = "PARTICIPANT"
+
+        lines.append(f"Your role type: **{role_type_desc}**")
+        if reviewers:
+            lines.append(f"Your reviewers: {', '.join(reviewers)}")
+        if producers:
+            lines.append(f"Your assigned producers: {', '.join(producers)}")
+        lines.append("")
+
+        if is_producer:
+            lines.extend(
+                [
+                    "### Producer Lifecycle",
+                    "1. **WORK**: Complete your assigned task (see Your Task below).",
+                    "2. **PROPOSE**: When done, run: "
+                    '`egg-orch consensus propose --summary "..." --artifacts "file1" "file2"`',
+                    "3. **RESPOND TO REVIEWS**: Poll for ACK/NACK from reviewers. "
+                    "Handle NACKs by fixing issues and re-proposing.",
+                    "4. **CONFIRM**: When all reviewers ACK: `egg-orch consensus confirmed`",
+                    "5. **STAY ALIVE**: Keep polling `egg-orch message poll --wait 30` "
+                    "until the orchestrator stops you.\n",
+                ]
+            )
+
+        if is_reviewer:
+            lines.extend(
+                [
+                    "### Reviewer Lifecycle",
+                    "1. **OBSERVE**: Detect new commits from assigned producers via git.",
+                    "2. **REVIEW**: Form independent judgment from code artifacts.",
+                    "3. **ACK/NACK**: `egg-orch consensus ack <role>` or "
+                    '`egg-orch consensus nack <role> --reason "..."`',
+                    "4. **CONFIRM**: When all assigned producers reviewed: "
+                    "`egg-orch consensus confirmed`",
+                    "5. **STAY ALIVE**: Keep polling `egg-orch message poll --wait 30` "
+                    "until the orchestrator stops you.\n",
+                ]
+            )
+
+        lines.extend(
+            [
                 "**If you exit before the orchestrator stops you, you have FAILED your role.** "
-                "Completing your task is necessary but NOT sufficient — you must remain "
-                "available to react to other agents' work until consensus.\n",
+                "Completing your task is necessary but NOT sufficient — you must reach "
+                "CONFIRMED state and remain alive until consensus.\n",
                 "",
             ]
         )

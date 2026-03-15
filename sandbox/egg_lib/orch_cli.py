@@ -39,6 +39,11 @@ Commands:
     egg-orch coordinator phase <pid> --reason .. Request phase transition
     egg-orch coordinator escalate <pid> ...      Escalate to HITL
     egg-orch coordinator cancel <pid> --role ..  Cancel a running agent
+    egg-orch consensus propose <pid> ...         Send BRC consensus proposal
+    egg-orch consensus ack <producer> ...        ACK a producer's proposal
+    egg-orch consensus nack <producer> ...       NACK a producer's proposal
+    egg-orch consensus withdraw <pid> ...        Withdraw proposal
+    egg-orch consensus status <pid>              Show BRC consensus status
 """
 
 import argparse
@@ -1015,12 +1020,17 @@ def cmd_message_poll(args: argparse.Namespace) -> int:
         params["since_id"] = args.since
     if args.limit:
         params["limit"] = str(args.limit)
+    wait = getattr(args, "wait", None)
+    if wait is not None:
+        params["wait"] = str(wait)
 
     endpoint = f"/api/v1/pipelines/{pid}/messages"
     if params:
         endpoint += "?" + urlencode(params)
 
-    result = orch_request(endpoint)
+    # Use a longer timeout when long-polling to avoid client-side timeout
+    timeout = (wait + 5) if wait else 15
+    result = orch_request(endpoint, timeout=timeout)
 
     if args.json:
         print_json(result)
@@ -1094,6 +1104,189 @@ def cmd_signal_readiness(args: argparse.Namespace) -> int:
         return 0
     print(f"Error: {result.get('message')}", file=sys.stderr)
     return 1
+
+
+# ---------------------------------------------------------------------------
+# Consensus commands (BRC protocol)
+# ---------------------------------------------------------------------------
+
+
+def cmd_consensus_propose(args: argparse.Namespace) -> int:
+    """Send CONSENSUS_PROPOSE signal."""
+    pid = require_pipeline_id(args)
+    role = _require_role(args)
+
+    # Read payload from file or construct from args
+    if getattr(args, "file", None):
+        with open(args.file) as f:
+            payload = json.load(f)
+    else:
+        payload: dict[str, Any] = {
+            "summary": getattr(args, "summary", "") or "",
+            "attestation": {},
+            "artifacts": getattr(args, "artifacts", []) or [],
+            "risk_considered": getattr(args, "risk", "") or "",
+        }
+
+    changed_artifacts = getattr(args, "changed_artifacts", None)
+
+    data: dict[str, Any] = {
+        "signal_type": "consensus_propose",
+        "agent_role": role,
+        "payload": payload,
+    }
+    if changed_artifacts:
+        data["changed_artifacts"] = changed_artifacts
+
+    result = orch_request(f"/api/v1/pipelines/{pid}/signal", method="POST", data=data)
+
+    if args.json:
+        print_json(result)
+        return 0
+
+    if result.get("success"):
+        print(f"Proposal sent by {role}")
+        consensus = result.get("data", {}).get("consensus", {})
+        phase = consensus.get("agents", {}).get(role, {}).get("phase", "")
+        if phase:
+            print(f"  BRC phase: {phase}")
+        return 0
+    print(f"Error: {result.get('message')}", file=sys.stderr)
+    return 1
+
+
+def cmd_consensus_ack(args: argparse.Namespace) -> int:
+    """Send CONSENSUS_ACK signal for a producer."""
+    pid = require_pipeline_id(args)
+    role = _require_role(args)
+
+    data: dict[str, Any] = {
+        "signal_type": "consensus_ack",
+        "agent_role": role,
+        "producer_role": args.producer_role,
+        "payload": {},
+    }
+
+    result = orch_request(f"/api/v1/pipelines/{pid}/signal", method="POST", data=data)
+
+    if args.json:
+        print_json(result)
+        return 0
+
+    if result.get("success"):
+        print(f"ACK sent by {role} for {args.producer_role}")
+        return 0
+    print(f"Error: {result.get('message')}", file=sys.stderr)
+    return 1
+
+
+def cmd_consensus_nack(args: argparse.Namespace) -> int:
+    """Send CONSENSUS_NACK signal for a producer."""
+    pid = require_pipeline_id(args)
+    role = _require_role(args)
+
+    data: dict[str, Any] = {
+        "signal_type": "consensus_nack",
+        "agent_role": role,
+        "producer_role": args.producer_role,
+        "payload": {
+            "reason": args.reason,
+        },
+    }
+
+    result = orch_request(f"/api/v1/pipelines/{pid}/signal", method="POST", data=data)
+
+    if args.json:
+        print_json(result)
+        return 0
+
+    if result.get("success"):
+        print(f"NACK sent by {role} for {args.producer_role}: {args.reason}")
+        return 0
+    print(f"Error: {result.get('message')}", file=sys.stderr)
+    return 1
+
+
+def cmd_consensus_withdraw(args: argparse.Namespace) -> int:
+    """Send CONSENSUS_WITHDRAW signal."""
+    pid = require_pipeline_id(args)
+    role = _require_role(args)
+
+    data: dict[str, Any] = {
+        "signal_type": "consensus_withdraw",
+        "agent_role": role,
+        "reason": args.reason,
+    }
+
+    result = orch_request(f"/api/v1/pipelines/{pid}/signal", method="POST", data=data)
+
+    if args.json:
+        print_json(result)
+        return 0
+
+    if result.get("success"):
+        print(f"Proposal withdrawn by {role}: {args.reason}")
+        return 0
+    print(f"Error: {result.get('message')}", file=sys.stderr)
+    return 1
+
+
+def cmd_consensus_status(args: argparse.Namespace) -> int:
+    """Show BRC consensus status (approval matrix and review graph)."""
+    pid = require_pipeline_id(args)
+
+    result = orch_request(f"/api/v1/pipelines/{pid}/status")
+
+    consensus = result.get("data", {}).get("concurrent", {}).get("consensus", {})
+
+    if args.json:
+        print_json(consensus)
+        return 0
+
+    if not consensus:
+        print("No consensus data available.")
+        return 0
+
+    is_complete = consensus.get("is_complete", False)
+    print(f"Consensus complete: {is_complete}")
+
+    agents = consensus.get("agents", {})
+    if agents:
+        print("\nAgent states:")
+        for agent_name, agent_data in agents.items():
+            phase = agent_data.get("phase", "unknown")
+            confirmed = agent_data.get("confirmed", False)
+            state_str = f"  {agent_name}: phase={phase}"
+            if confirmed:
+                state_str += " [CONFIRMED]"
+            print(state_str)
+
+    approval_matrix = consensus.get("approval_matrix", {})
+    if approval_matrix:
+        print("\nApproval matrix:")
+        for producer, reviewers in approval_matrix.items():
+            if isinstance(reviewers, dict):
+                reviews = []
+                for reviewer, verdict in reviewers.items():
+                    reviews.append(f"{reviewer}={verdict}")
+                print(f"  {producer}: {', '.join(reviews) if reviews else 'no reviews'}")
+            else:
+                print(f"  {producer}: {reviewers}")
+
+    review_graph = consensus.get("review_graph", {})
+    if review_graph:
+        print("\nReview graph:")
+        for reviewer, producers in review_graph.items():
+            if isinstance(producers, list):
+                print(f"  {reviewer} reviews: {', '.join(producers)}")
+            else:
+                print(f"  {reviewer}: {producers}")
+
+    blocking = consensus.get("blocking_agents", [])
+    if blocking:
+        print(f"\nBlocking agents: {', '.join(blocking)}")
+
+    return 0
 
 
 # ---------------------------------------------------------------------------
@@ -1395,6 +1588,9 @@ def create_parser() -> argparse.ArgumentParser:
     msg_poll.add_argument("--role", help="Filter for role (default: EGG_AGENT_ROLE)")
     msg_poll.add_argument("--since", help="Return messages after this ID")
     msg_poll.add_argument("--limit", type=int, help="Max messages")
+    msg_poll.add_argument(
+        "--wait", type=int, help="Long-poll timeout in seconds (server holds connection)"
+    )
     _add_json_flag(msg_poll)
     msg_poll.set_defaults(func=cmd_message_poll)
 
@@ -1445,6 +1641,59 @@ def create_parser() -> argparse.ArgumentParser:
     coord_cancel.add_argument("--role", required=True, help="Agent role to cancel")
     _add_json_flag(coord_cancel)
     coord_cancel.set_defaults(func=cmd_coordinator_cancel)
+
+    # -- consensus (BRC protocol) --
+    consensus_parser = subparsers.add_parser(
+        "consensus", help="BRC consensus protocol commands"
+    )
+    consensus_sub = consensus_parser.add_subparsers(dest="consensus_command")
+
+    # consensus propose
+    cons_propose = consensus_sub.add_parser("propose", help="Send consensus proposal")
+    cons_propose.add_argument("pipeline_id", nargs="?", help="Pipeline ID")
+    cons_propose.add_argument("--role", help="Agent role (default: EGG_AGENT_ROLE)")
+    cons_propose.add_argument("--file", help="JSON file with proposal payload")
+    cons_propose.add_argument("--summary", help="Proposal summary")
+    cons_propose.add_argument("--artifacts", nargs="*", help="Artifact paths")
+    cons_propose.add_argument("--risk", help="Risk considerations")
+    cons_propose.add_argument(
+        "--changed-artifacts",
+        nargs="*",
+        help="Changed artifacts (for re-proposals after NACK)",
+    )
+    _add_json_flag(cons_propose)
+    cons_propose.set_defaults(func=cmd_consensus_propose)
+
+    # consensus ack
+    cons_ack = consensus_sub.add_parser("ack", help="ACK a producer's proposal")
+    cons_ack.add_argument("producer_role", help="Producer role to ACK")
+    cons_ack.add_argument("pipeline_id", nargs="?", help="Pipeline ID")
+    cons_ack.add_argument("--role", help="Reviewer role (default: EGG_AGENT_ROLE)")
+    _add_json_flag(cons_ack)
+    cons_ack.set_defaults(func=cmd_consensus_ack)
+
+    # consensus nack
+    cons_nack = consensus_sub.add_parser("nack", help="NACK a producer's proposal")
+    cons_nack.add_argument("producer_role", help="Producer role to NACK")
+    cons_nack.add_argument("pipeline_id", nargs="?", help="Pipeline ID")
+    cons_nack.add_argument("--role", help="Reviewer role (default: EGG_AGENT_ROLE)")
+    cons_nack.add_argument("--reason", required=True, help="Reason for NACK")
+    _add_json_flag(cons_nack)
+    cons_nack.set_defaults(func=cmd_consensus_nack)
+
+    # consensus withdraw
+    cons_withdraw = consensus_sub.add_parser("withdraw", help="Withdraw proposal")
+    cons_withdraw.add_argument("pipeline_id", nargs="?", help="Pipeline ID")
+    cons_withdraw.add_argument("--role", help="Agent role (default: EGG_AGENT_ROLE)")
+    cons_withdraw.add_argument("--reason", required=True, help="Reason for withdrawal")
+    _add_json_flag(cons_withdraw)
+    cons_withdraw.set_defaults(func=cmd_consensus_withdraw)
+
+    # consensus status
+    cons_status = consensus_sub.add_parser("status", help="Show consensus status")
+    cons_status.add_argument("pipeline_id", nargs="?", help="Pipeline ID")
+    _add_json_flag(cons_status)
+    cons_status.set_defaults(func=cmd_consensus_status)
 
     # -- phase --
     phase_parser = subparsers.add_parser("phase", help="Phase operations")

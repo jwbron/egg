@@ -27,7 +27,6 @@ except ImportError:
         return logging.getLogger(name)
 
 
-from consensus import get_consensus_evaluator
 from consensus_wrapper import build_consensus_wrapped_command
 from events import EventType, emit_event
 from message_store import Message, MessageType, get_message_store
@@ -37,6 +36,12 @@ from models import (
     AgentRole,
     Pipeline,
 )
+from peer_consensus import (
+    PeerConsensusTracker,
+    create_peer_consensus_tracker,
+    get_peer_consensus_tracker,
+)
+from review_graph import get_review_graph_for_phase
 
 logger = get_logger("orchestrator.concurrent_executor")
 
@@ -104,10 +109,19 @@ class ConcurrentPhaseExecutor:
         """Get additional environment variables for concurrent mode."""
         config = self.pipeline.config
         poll_interval = getattr(config, "message_poll_hint_seconds", 30)
-        return {
+        env = {
             "EGG_CONCURRENT_MODE": "true",
             "EGG_MESSAGE_POLL_INTERVAL": str(poll_interval),
         }
+        # Add review graph info for BRC protocol
+        graph = get_review_graph_for_phase(self.pipeline.current_phase.value)
+        if graph.is_producer(role.value):
+            env["EGG_BRC_ROLE_TYPE"] = "producer"
+            env["EGG_BRC_REVIEWERS"] = ",".join(graph.reviewers_for(role.value))
+        if graph.is_reviewer(role.value):
+            env["EGG_BRC_ROLE_TYPE"] = env.get("EGG_BRC_ROLE_TYPE", "") + (",reviewer" if env.get("EGG_BRC_ROLE_TYPE") else "reviewer")
+            env["EGG_BRC_PRODUCERS"] = ",".join(graph.producers_for(role.value))
+        return env
 
     def spawn_all(
         self,
@@ -124,14 +138,15 @@ class ConcurrentPhaseExecutor:
             List of AgentExecution records for spawned agents.
         """
         roles = self.get_agent_roles()
-        evaluator = get_consensus_evaluator()
+        graph = get_review_graph_for_phase(self.pipeline.current_phase.value)
+        tracker = create_peer_consensus_tracker(self.pipeline.id, graph)
         executions: list[AgentExecution] = []
 
         with ThreadPoolExecutor(max_workers=self.max_concurrent) as pool:
             futures = {}
             for role in roles:
                 # Register agent for consensus tracking
-                evaluator.register_agent(self.pipeline.id, role.value)
+                tracker.register_agent(role.value)
 
                 prompt_text = (agent_prompts or {}).get(role, "")
                 future = pool.submit(self._spawn_agent, role, prompt_text)
@@ -238,8 +253,11 @@ class ConcurrentPhaseExecutor:
         )
 
         # Remove from consensus
-        evaluator = get_consensus_evaluator()
-        evaluator.remove_agent(self.pipeline.id, role)
+        tracker = get_peer_consensus_tracker(self.pipeline.id)
+        if tracker:
+            result = tracker.handle_agent_crash(role)
+            if result.get("action") == "escalate":
+                logger.warning("Agent crash requires escalation", role=role, reason=result.get("reason"))
 
         emit_event(
             EventType.AGENT_FAILED,
@@ -301,5 +319,7 @@ class ConcurrentPhaseExecutor:
 
     def check_consensus(self) -> dict[str, Any]:
         """Check if consensus has been reached for phase completion."""
-        evaluator = get_consensus_evaluator()
-        return evaluator.evaluate(self.pipeline.id)
+        tracker = get_peer_consensus_tracker(self.pipeline.id)
+        if tracker:
+            return tracker.evaluate()
+        return {"is_complete": False, "blocking_agents": [], "has_objections": False, "agents": {}}
