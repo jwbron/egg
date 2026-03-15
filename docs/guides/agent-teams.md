@@ -76,7 +76,7 @@ This eliminates circular ACK problems. A coder doesn't ACK a reviewer's review o
 
 The tester has a **dual role**: it is both a producer (proposes test artifacts) and a reviewer (evaluates coder's work by running tests against it).
 
-This gives ~7-10 directed review edges instead of ~30 for N=6 agents. The graph is configurable per phase.
+This gives 5 directed review edges for the default implement phase instead of ~30 for full N=6 pairwise review. The edge count varies by phase configuration.
 
 #### BRC Phases
 
@@ -88,7 +88,11 @@ Each producer completes its work and broadcasts a `CONSENSUS_PROPOSE` to all pee
 
 Each reviewer evaluates proposals from its assigned producers and sends `CONSENSUS_ACK` (agree, with artifact references) or `CONSENSUS_NACK` (disagree, with structured reason and artifact references). A NACK drops the producer back to WORKING — the producer addresses the concern and re-proposes.
 
+Producers can also withdraw their own proposal by sending `CONSENSUS_WITHDRAW`, which returns them to WORKING. Withdrawal must cite specific new information justifying the retraction (e.g., discovering a failing test or a design flaw after proposing). This is a commitment device — withdrawal without justification is rejected.
+
 Scoped re-evaluation: a NACK targets a specific proposal version. Re-proposal only triggers re-review from the NACKing reviewer. Other reviewers' prior ACKs stand unless the revision affected artifacts they referenced.
+
+For example: `reviewer_code` NACKs `coder` citing a bug in `auth.py`. The coder fixes the bug and re-proposes. `reviewer_code` must re-review. The tester's prior ACK (which referenced test results, not `auth.py`) stands unless the fix changed test behavior.
 
 Revision rounds are bounded: max K rounds (e.g., K=2) per producer-reviewer pair before HITL escalation.
 
@@ -103,7 +107,8 @@ When a producer has proposed and received ACKs from all assigned reviewers, it b
 ```
 WORKING → PROPOSED → CONFIRMED
     ↑         |
-    └─────────┘  (NACK received → address concern → re-propose)
+    ├─────────┘  (NACK received → address concern → re-propose)
+    └─────────┘  (WITHDRAW sent → cite new information → revise)
 ```
 
 **Reviewer:**
@@ -215,7 +220,7 @@ To prevent flip-flopping that destroys signal value:
 
 ## Cost and Latency
 
-Consensus overhead for a sparse review graph (N=6 agents, ~8 review edges):
+Consensus overhead for a sparse review graph (N=6 agents, 5 review edges in default configuration):
 
 | Item | Estimate |
 |------|----------|
@@ -273,11 +278,11 @@ The protocol design draws on research across three domains.
 
 | Model | Key insight | Protocol implication |
 |-------|------------|---------------------|
-| Habermasian discourse | Consensus requires validity claims that survive challenge — not just assertions | READY signals must include structured claims. Peers challenge claims, not just vote. |
+| Habermasian discourse | Consensus requires validity claims that survive challenge — not just assertions. Note: original Habermas Machine research involved *human* participants; this protocol adapts the framework to agent-to-agent interaction where sycophancy replaces strategic misrepresentation. | READY signals must include structured claims. Peers challenge claims, not just vote. |
 | Delphi method | Iterated anonymous feedback converges better than single-shot voting | Agents assess independently before seeing others' states. Bounded revision rounds before final consensus. |
 | Nominal Group Technique | Separate generation from evaluation to prevent anchoring | Agents assess independently → share in fixed order → discuss → vote. |
-| Social Choice Theory (Arrow's theorem) | No perfect aggregation, but unanimity + structured deliberation avoids the worst pathologies | Unanimity gives every agent veto power → require structured justification to veto. |
-| Groupthink / Sycophancy (CONSENSAGENT) | LLM agents have strong sycophancy in group settings | Embed critical evaluation structurally, not just via role names. |
+| Social Choice Theory (Arrow's theorem) | No perfect aggregation, but unanimity + structured deliberation avoids the worst pathologies. ACL 2025 comparison of 7 decision protocols found unanimity with structured deliberation outperforms majority voting for LLM agents. | Unanimity gives every agent veto power → require structured justification to veto. |
+| Groupthink / Sycophancy (CONSENSAGENT) | LLM agents have strong sycophancy in group settings. ICLR 2025 scaling study found rigid adversarial "Devil's Advocate" roles backfire — this is why the protocol has no dedicated adversarial agent role and instead embeds critical evaluation structurally. | Embed critical evaluation structurally, not just via role names. |
 | Stigmergy | Agents coordinate through artifacts; traces require cognitive infrastructure for interpretation | Make handoffs richer and structured. Ensure agents have context to interpret them. |
 | Shared Mental Models | Teams need shared understanding of "done" | Make acceptance criteria explicit and verifiable per role before the phase starts. |
 
@@ -312,7 +317,7 @@ The protocol design draws on research across three domains.
 
 ### Game Theory
 
-- Crawford & Sobel (1982) — Cheap talk with aligned interests
+- Crawford & Sobel (1982) — Cheap talk equilibria; adapted for unreliable rather than strategic communicators
 - Spence Signaling Model — Costly signals for credible communication
 - [Multi-Agent AI Coordination Survey (2025)](https://arxiv.org/html/2502.14743v2)
 - [Consensus Algorithms for Distributed Agent Systems (2025)](https://notes.muthu.co/2025/11/consensus-algorithms-for-coordinating-agreement-in-distributed-agent-systems/)
