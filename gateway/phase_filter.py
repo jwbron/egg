@@ -410,8 +410,6 @@ class PhaseFilter:
         return {
             PipelinePhase.REFINE: PhasePermissions(
                 allowed_operations=[
-                    Operation(OperationType.GH, "issue comment *", "Comment on issues"),
-                    Operation(OperationType.GH, "issue edit *", "Edit issues"),
                     Operation(OperationType.GIT, "push *", "Push state files to remote"),
                     Operation(
                         OperationType.EGG_CONTRACT,
@@ -426,13 +424,21 @@ class PhaseFilter:
                         "pr create*",
                         "Cannot create PRs during refine",
                     ),
+                    Operation(
+                        OperationType.GH,
+                        "issue comment *",
+                        "Agents cannot post comments to GitHub issues",
+                    ),
+                    Operation(
+                        OperationType.GH,
+                        "issue edit *",
+                        "Agents cannot edit GitHub issues",
+                    ),
                 ],
                 exit_requires="human",
             ),
             PipelinePhase.PLAN: PhasePermissions(
                 allowed_operations=[
-                    Operation(OperationType.GH, "issue comment *", "Comment on issues"),
-                    Operation(OperationType.GH, "issue edit *", "Edit issues"),
                     Operation(OperationType.GIT, "push *", "Push state files to remote"),
                     Operation(
                         OperationType.EGG_CONTRACT,
@@ -443,6 +449,16 @@ class PhaseFilter:
                 ],
                 blocked_operations=[
                     Operation(OperationType.GH, "pr create*", "Cannot create PRs during plan"),
+                    Operation(
+                        OperationType.GH,
+                        "issue comment *",
+                        "Agents cannot post comments to GitHub issues",
+                    ),
+                    Operation(
+                        OperationType.GH,
+                        "issue edit *",
+                        "Agents cannot edit GitHub issues",
+                    ),
                 ],
                 exit_requires="human",
             ),
@@ -458,6 +474,16 @@ class PhaseFilter:
                         OperationType.GH,
                         "pr create*",
                         "Cannot create PRs until complete",
+                    ),
+                    Operation(
+                        OperationType.GH,
+                        "issue comment *",
+                        "Agents cannot post comments to GitHub issues",
+                    ),
+                    Operation(
+                        OperationType.GH,
+                        "issue edit *",
+                        "Agents cannot edit GitHub issues",
                     ),
                 ],
                 exit_requires="reviewer",

@@ -1103,3 +1103,67 @@ class TestPhaseFileRestrictions:
         )
 
         assert result.allowed is True
+
+
+class TestIssueCommentBlocking:
+    """Tests for issue comment/edit blocking across phases.
+
+    Validates that issue comment and issue edit operations are blocked
+    in refine, plan, and implement phases (defense layer 1).
+    See: https://github.com/jwbron/egg/issues/1153
+    """
+
+    @pytest.fixture(autouse=True)
+    def reset_filter(self):
+        """Reset the global filter before each test."""
+        phase_filter._filter = None
+        yield
+        phase_filter._filter = None
+
+    def test_issue_comment_blocked_in_refine(self):
+        """Issue comment is blocked during refine phase."""
+        pf = PhaseFilter(permissions_path=Path("/nonexistent"))
+        result = pf.filter_operation(PipelinePhase.REFINE, OperationType.GH, "issue comment 123")
+        assert result.allowed is False
+
+    def test_issue_comment_blocked_in_plan(self):
+        """Issue comment is blocked during plan phase."""
+        pf = PhaseFilter(permissions_path=Path("/nonexistent"))
+        result = pf.filter_operation(PipelinePhase.PLAN, OperationType.GH, "issue comment 456")
+        assert result.allowed is False
+
+    def test_issue_comment_blocked_in_implement(self):
+        """Issue comment is blocked during implement phase."""
+        pf = PhaseFilter(permissions_path=Path("/nonexistent"))
+        result = pf.filter_operation(PipelinePhase.IMPLEMENT, OperationType.GH, "issue comment 789")
+        assert result.allowed is False
+
+    def test_issue_edit_blocked_in_refine(self):
+        """Issue edit is blocked during refine phase."""
+        pf = PhaseFilter(permissions_path=Path("/nonexistent"))
+        result = pf.filter_operation(PipelinePhase.REFINE, OperationType.GH, "issue edit 123")
+        assert result.allowed is False
+
+    def test_issue_edit_blocked_in_plan(self):
+        """Issue edit is blocked during plan phase."""
+        pf = PhaseFilter(permissions_path=Path("/nonexistent"))
+        result = pf.filter_operation(PipelinePhase.PLAN, OperationType.GH, "issue edit 456")
+        assert result.allowed is False
+
+    def test_issue_edit_blocked_in_implement(self):
+        """Issue edit is blocked during implement phase."""
+        pf = PhaseFilter(permissions_path=Path("/nonexistent"))
+        result = pf.filter_operation(PipelinePhase.IMPLEMENT, OperationType.GH, "issue edit 789")
+        assert result.allowed is False
+
+    def test_issue_comment_allowed_in_pr_phase(self):
+        """Issue comment is not blocked in PR phase (no restriction)."""
+        pf = PhaseFilter(permissions_path=Path("/nonexistent"))
+        result = pf.filter_operation(PipelinePhase.PR, OperationType.GH, "issue comment 123")
+        assert result.allowed is True
+
+    def test_issue_comment_blocked_via_convenience_function(self):
+        """is_operation_blocked correctly reports issue comment as blocked."""
+        assert is_operation_blocked("refine", "gh", "issue comment 123") is True
+        assert is_operation_blocked("plan", "gh", "issue comment 456") is True
+        assert is_operation_blocked("implement", "gh", "issue comment 789") is True

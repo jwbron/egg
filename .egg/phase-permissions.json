@@ -4,16 +4,6 @@
     "refine": {
       "allowed_operations": [
         {
-          "type": "gh",
-          "pattern": "issue comment *",
-          "description": "Comment on issues"
-        },
-        {
-          "type": "gh",
-          "pattern": "issue edit *",
-          "description": "Edit issues"
-        },
-        {
           "type": "git",
           "pattern": "push *",
           "description": "Push state files to remote"
@@ -34,22 +24,22 @@
           "type": "gh",
           "pattern": "pr create*",
           "description": "Cannot create PRs during refine phase"
+        },
+        {
+          "type": "gh",
+          "pattern": "issue comment *",
+          "description": "Agents cannot post comments to GitHub issues"
+        },
+        {
+          "type": "gh",
+          "pattern": "issue edit *",
+          "description": "Agents cannot edit GitHub issues"
         }
       ],
       "exit_requires": "human"
     },
     "plan": {
       "allowed_operations": [
-        {
-          "type": "gh",
-          "pattern": "issue comment *",
-          "description": "Comment on issues"
-        },
-        {
-          "type": "gh",
-          "pattern": "issue edit *",
-          "description": "Edit issues"
-        },
         {
           "type": "git",
           "pattern": "push *",
@@ -71,6 +61,16 @@
           "type": "gh",
           "pattern": "pr create*",
           "description": "Cannot create PRs during plan phase"
+        },
+        {
+          "type": "gh",
+          "pattern": "issue comment *",
+          "description": "Agents cannot post comments to GitHub issues"
+        },
+        {
+          "type": "gh",
+          "pattern": "issue edit *",
+          "description": "Agents cannot edit GitHub issues"
         }
       ],
       "exit_requires": "human"
@@ -103,6 +103,16 @@
           "type": "gh",
           "pattern": "pr create*",
           "description": "Cannot create PRs until implementation is complete"
+        },
+        {
+          "type": "gh",
+          "pattern": "issue comment *",
+          "description": "Agents cannot post comments to GitHub issues"
+        },
+        {
+          "type": "gh",
+          "pattern": "issue edit *",
+          "description": "Agents cannot edit GitHub issues"
         }
       ],
       "exit_requires": "reviewer"

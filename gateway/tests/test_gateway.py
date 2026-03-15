@@ -5863,3 +5863,174 @@ class TestReviewCreationCheck:
 
             assert response.status_code == 200
             mock_policy.return_value.check_pr_review_allowed.assert_not_called()
+
+
+class TestGhExecuteIssueCommentBlocking:
+    """Tests for blocking issue comment/edit in gh_execute.
+
+    Validates defense layers 2 (phase enforcement) and 3 (role-based
+    restriction) in gh_execute. See: issue #1153.
+    """
+
+    def _make_session(self, phase="refine", agent_role="reviewer_refine"):
+        """Create a mock session with phase and agent_role."""
+        import sys
+
+        import auth
+
+        mock_session = MagicMock()
+        mock_session.mode = "public"
+        mock_session.container_id = "test-container"
+        mock_session.expires_at = None
+        mock_session.agent_role = agent_role
+        mock_session.phase = phase
+        mock_session.pipeline_id = "test-pipeline"
+
+        mock_result = SessionValidationResult(valid=True, session=mock_session)
+
+        from private_repo_policy import PrivateRepoPolicyResult
+
+        mock_policy_result = PrivateRepoPolicyResult(
+            allowed=True,
+            reason="Test mode",
+            visibility="public",
+        )
+
+        auth._session_manager = None
+        auth._rate_limiter = None
+        if "gateway.auth" in sys.modules:
+            sys.modules["gateway.auth"]._session_manager = None
+            sys.modules["gateway.auth"]._rate_limiter = None
+
+        current_session_manager = sys.modules.get("session_manager", session_manager)
+
+        return (
+            patch.object(
+                current_session_manager,
+                "validate_session_for_request",
+                return_value=mock_result,
+            ),
+            patch.object(gateway, "check_private_repo_access", return_value=mock_policy_result),
+        )
+
+    def test_issue_comment_blocked_by_phase_refine(self, client):
+        """gh issue comment is blocked during refine phase."""
+        ctx1, ctx2 = self._make_session(phase="refine", agent_role=None)
+        with ctx1, ctx2:
+            response = client.post(
+                "/api/v1/gh/execute",
+                headers={"Authorization": "Bearer test-session-token"},
+                data=json.dumps({"args": ["issue", "comment", "1032", "--body", "test"]}),
+                content_type="application/json",
+            )
+            assert response.status_code == 403
+            data = json.loads(response.data)
+            assert "issue" in data["message"].lower() or "blocked" in data["message"].lower()
+
+    def test_issue_comment_blocked_by_role(self, client):
+        """gh issue comment is blocked for reviewer_refine role."""
+        ctx1, ctx2 = self._make_session(phase=None, agent_role="reviewer_refine")
+        with ctx1, ctx2:
+            response = client.post(
+                "/api/v1/gh/execute",
+                headers={"Authorization": "Bearer test-session-token"},
+                data=json.dumps({"args": ["issue", "comment", "1032", "--body", "test"]}),
+                content_type="application/json",
+            )
+            assert response.status_code == 403
+            data = json.loads(response.data)
+            assert "not allowed" in data["message"].lower()
+
+    def test_issue_edit_blocked_by_phase_plan(self, client):
+        """gh issue edit is blocked during plan phase."""
+        ctx1, ctx2 = self._make_session(phase="plan", agent_role=None)
+        with ctx1, ctx2:
+            response = client.post(
+                "/api/v1/gh/execute",
+                headers={"Authorization": "Bearer test-session-token"},
+                data=json.dumps({"args": ["issue", "edit", "456", "--title", "new"]}),
+                content_type="application/json",
+            )
+            assert response.status_code == 403
+
+    def test_issue_comment_blocked_in_implement_phase(self, client):
+        """gh issue comment is blocked during implement phase."""
+        ctx1, ctx2 = self._make_session(phase="implement", agent_role="coder")
+        with ctx1, ctx2:
+            response = client.post(
+                "/api/v1/gh/execute",
+                headers={"Authorization": "Bearer test-session-token"},
+                data=json.dumps({"args": ["issue", "comment", "789", "--body", "text"]}),
+                content_type="application/json",
+            )
+            assert response.status_code == 403
+
+    def test_gh_api_issue_comment_blocked(self, client):
+        """POST to issues/{id}/comments via gh api is also blocked."""
+        ctx1, ctx2 = self._make_session(phase="refine", agent_role="reviewer_refine")
+        with ctx1, ctx2:
+            response = client.post(
+                "/api/v1/gh/execute",
+                headers={"Authorization": "Bearer test-session-token"},
+                data=json.dumps(
+                    {
+                        "args": [
+                            "api",
+                            "-X",
+                            "POST",
+                            "repos/owner/repo/issues/1032/comments",
+                            "-f",
+                            "body=test comment",
+                        ],
+                    }
+                ),
+                content_type="application/json",
+            )
+            assert response.status_code == 403
+
+    def test_gh_api_issue_edit_blocked(self, client):
+        """PATCH to issues/{id} via gh api is also blocked (issue edit bypass)."""
+        ctx1, ctx2 = self._make_session(phase="refine", agent_role="reviewer_refine")
+        with ctx1, ctx2:
+            response = client.post(
+                "/api/v1/gh/execute",
+                headers={"Authorization": "Bearer test-session-token"},
+                data=json.dumps(
+                    {
+                        "args": [
+                            "api",
+                            "-X",
+                            "PATCH",
+                            "repos/owner/repo/issues/1032",
+                            "-f",
+                            "title=new title",
+                        ],
+                    }
+                ),
+                content_type="application/json",
+            )
+            assert response.status_code == 403
+
+    def test_pr_view_still_allowed(self, client):
+        """Non-blocked operations like pr view should still work."""
+        ctx1, ctx2 = self._make_session(phase="refine", agent_role="reviewer_refine")
+        with ctx1, ctx2:
+            with patch.object(gateway, "get_github_client") as mock_gh:
+                mock_result = MagicMock()
+                mock_result.success = True
+                mock_result.stdout = "PR #1"
+                mock_result.stderr = ""
+                mock_result.to_dict.return_value = {
+                    "success": True,
+                    "stdout": "PR #1",
+                    "stderr": "",
+                }
+                mock_gh.return_value.execute.return_value = mock_result
+
+                response = client.post(
+                    "/api/v1/gh/execute",
+                    headers={"Authorization": "Bearer test-session-token"},
+                    data=json.dumps({"args": ["pr", "view", "123"]}),
+                    content_type="application/json",
+                )
+                assert response.status_code == 200

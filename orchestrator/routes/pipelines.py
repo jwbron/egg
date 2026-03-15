@@ -2945,7 +2945,8 @@ def _build_phase_prompt(
                 "- You CAN create feedback requests (egg-contract add-feedback)",
                 "- You CANNOT push code changes",
                 "- You CANNOT create PRs (gh pr create)",
-                "- You CANNOT post issue comments",
+                "- You CANNOT post comments to the GitHub issue (gh issue comment) — write reviews to `.egg-state/reviews/` instead",
+                "- You CANNOT edit the GitHub issue (gh issue edit)",
                 "- You CAN read and modify local files",
                 "- You CAN run tests",
                 "- You CAN commit locally",
@@ -2959,6 +2960,8 @@ def _build_phase_prompt(
                 "- You CAN push code changes to git",
                 "- You CANNOT push .egg-state/ files (except checkpoints)",
                 "- You CANNOT create PRs (gh pr create)",
+                "- You CANNOT post comments to the GitHub issue (gh issue comment)",
+                "- You CANNOT edit the GitHub issue (gh issue edit)",
                 "- You CAN read and modify local files",
                 "- You CAN run tests",
                 "- You CAN commit locally",
@@ -2973,8 +2976,8 @@ def _build_phase_prompt(
                     "- You CAN push draft files (git push)",
                     "- You CAN create HITL decisions (egg-contract add-decision)",
                     "- You CAN create feedback requests (egg-contract add-feedback)",
-                    "- You CANNOT post analysis/plan directly to the issue "
-                    "(internal review must pass first)",
+                    "- You CANNOT post comments to the GitHub issue (gh issue comment) — write reviews to `.egg-state/reviews/` instead",
+                    "- You CANNOT edit the GitHub issue (gh issue edit)",
                     "- You CANNOT create PRs (gh pr create)",
                     "",
                 ]
@@ -2985,6 +2988,8 @@ def _build_phase_prompt(
                     "- You CAN push code (git push)",
                     "- You CAN link commits to tasks (egg-contract add-commit)",
                     "- You CANNOT create PRs (the pipeline manages the PR)",
+                    "- You CANNOT post comments to the GitHub issue (gh issue comment)",
+                    "- You CANNOT edit the GitHub issue (gh issue edit)",
                     "",
                 ]
             )

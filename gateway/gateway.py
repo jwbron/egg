@@ -56,6 +56,9 @@ from egg_logging import get_logger
 # Import gateway modules - try relative import first (module mode),
 # fall back to absolute import (standalone script mode in container)
 try:
+    from .agent_restrictions import (
+        check_agent_gh_operation,
+    )
     from .anthropic_credentials import get_credentials_manager
     from .checkpoint_handler import (
         _get_checkpoint_repo_for_path,
@@ -122,6 +125,9 @@ try:
     from .transcript_buffer import get_transcript_buffer
     from .worktree_manager import WorktreeManager, get_active_docker_containers, startup_cleanup
 except ImportError:
+    from agent_restrictions import (  # type: ignore[no-redef, import-untyped]
+        check_agent_gh_operation,
+    )
     from anthropic_credentials import get_credentials_manager  # type: ignore[no-redef]
     from checkpoint_handler import (  # type: ignore[no-redef, import-untyped]
         _get_checkpoint_repo_for_path,
@@ -2787,6 +2793,66 @@ def gh_execute() -> tuple[Response, int] | Response:
                 details={"blocked_command": blocked, "command_args": args},
             )
 
+    # --- Phase and role-based operation filtering ---
+    # Block operations like "issue comment" / "issue edit" when phase or role restricts them.
+    # Build a command string from the first 3 non-flag args for matching.
+    non_flag_args = [a for a in args if not a.startswith("-")]
+    gh_command_str = " ".join(non_flag_args[:3])
+
+    session_phase = getattr(g, "session_phase", None)
+    if session_phase:
+        try:
+            phase_result = filter_operation(
+                phase=session_phase,
+                operation_type=OperationType.GH,
+                command=gh_command_str,
+            )
+            if not phase_result.allowed:
+                audit_log(
+                    "gh_execute_blocked_phase",
+                    "gh_execute",
+                    success=False,
+                    details={
+                        "command": gh_command_str,
+                        "phase": session_phase,
+                        "reason": phase_result.blocked_reason,
+                    },
+                )
+                return make_error(
+                    phase_result.message,
+                    status_code=403,
+                    details={
+                        "phase": session_phase,
+                        "blocked_reason": phase_result.blocked_reason,
+                    },
+                )
+        except ValueError:
+            # Invalid phase value - allow for backward compat
+            logger.warning("Invalid session phase in gh_execute", phase=session_phase)
+
+    # Role-based operation filtering — block agents from posting issue comments regardless of phase.
+    session_role = None
+    if hasattr(g, "session") and g.session:
+        session_role = getattr(g.session, "agent_role", None)
+    if session_role:
+        role_allowed, role_reason = check_agent_gh_operation(session_role, gh_command_str)
+        if not role_allowed:
+            audit_log(
+                "gh_execute_blocked_agent_role",
+                "gh_execute",
+                success=False,
+                details={
+                    "command": gh_command_str,
+                    "role": session_role,
+                    "reason": role_reason,
+                },
+            )
+            return make_error(
+                role_reason,
+                status_code=403,
+                details={"role": session_role, "command": gh_command_str},
+            )
+
     # For 'gh api' commands, validate the path against allowlist
     api_path: str | None = None
     method: str = "GET"
@@ -2841,6 +2907,73 @@ def gh_execute() -> tuple[Response, int] | Response:
                 details={"api_path": api_path, "method": method, "reason": path_error},
             )
             return make_error(path_error, status_code=403)
+
+        # Detect issue comment/edit via gh api (bypass prevention).
+        # These API calls are equivalent to "gh issue comment/edit {id}" —
+        # apply the same phase + role checks.
+        synthesized_cmd = None
+
+        # POST to repos/{owner}/{repo}/issues/{id}/comments → issue comment
+        _api_issue_comment_match = re.match(r"^repos/[^/]+/[^/]+/issues/(\d+)/comments$", api_path)
+        if _api_issue_comment_match and method.upper() == "POST":
+            synthesized_cmd = f"issue comment {_api_issue_comment_match.group(1)}"
+
+        # PATCH to repos/{owner}/{repo}/issues/{id} → issue edit
+        _api_issue_edit_match = re.match(r"^repos/[^/]+/[^/]+/issues/(\d+)$", api_path)
+        if _api_issue_edit_match and method.upper() == "PATCH":
+            synthesized_cmd = f"issue edit {_api_issue_edit_match.group(1)}"
+
+        if synthesized_cmd:
+            # Phase check
+            if session_phase:
+                try:
+                    api_phase_result = filter_operation(
+                        phase=session_phase,
+                        operation_type=OperationType.GH,
+                        command=synthesized_cmd,
+                    )
+                    if not api_phase_result.allowed:
+                        audit_log(
+                            "gh_api_issue_op_blocked_phase",
+                            "gh_execute",
+                            success=False,
+                            details={
+                                "api_path": api_path,
+                                "synthesized_command": synthesized_cmd,
+                                "phase": session_phase,
+                            },
+                        )
+                        return make_error(
+                            api_phase_result.message,
+                            status_code=403,
+                            details={
+                                "phase": session_phase,
+                                "blocked_reason": api_phase_result.blocked_reason,
+                            },
+                        )
+                except ValueError:
+                    pass
+            # Role check
+            if session_role:
+                api_role_allowed, api_role_reason = check_agent_gh_operation(
+                    session_role, synthesized_cmd
+                )
+                if not api_role_allowed:
+                    audit_log(
+                        "gh_api_issue_op_blocked_role",
+                        "gh_execute",
+                        success=False,
+                        details={
+                            "api_path": api_path,
+                            "role": session_role,
+                            "reason": api_role_reason,
+                        },
+                    )
+                    return make_error(
+                        api_role_reason,
+                        status_code=403,
+                        details={"role": session_role, "api_path": api_path},
+                    )
 
     # Extract repo using comprehensive extractor (handles --repo, gh repo *, gh api paths)
     repo = extract_repo_from_gh_command(args)
