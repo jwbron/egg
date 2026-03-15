@@ -484,6 +484,15 @@ class TestPlanPhaseRoles:
         assert AgentRole.DOCUMENTER in roles
         assert AgentRole.INTEGRATOR in roles
 
+    def test_default_includes_reviewers(self):
+        """Default include_reviewers=True returns execution and reviewer roles."""
+        from egg_contracts.agent_roles import get_roles_for_phase
+
+        roles = get_roles_for_phase("implement")
+        assert AgentRole.CODER in roles
+        assert AgentRole.REVIEWER_CODE in roles
+        assert AgentRole.REVIEWER_CONTRACT in roles
+
     def test_get_roles_for_unknown_phase_raises(self):
         """Unknown phase raises ValueError."""
         import pytest
