@@ -2,7 +2,26 @@
 
 Agent teams are groups of LLM agents that work concurrently on a shared task and must reach agreement before advancing. This guide covers the motivation, architecture, and protocol design for agent team communication and peer consensus in egg.
 
-For operational details on the current concurrent execution mode, see [Concurrent Execution](concurrent-execution.md). This guide focuses on the design principles and the peer consensus protocol that replaces the original orchestrator-centric readiness tallying.
+For operational details on the current concurrent execution mode, see [Concurrent Execution](concurrent-execution.md). This guide focuses on the design principles and the peer consensus protocol that will replace the original orchestrator-centric readiness tallying.
+
+## Status
+
+This guide documents the **target design** for peer consensus. Most components described here are not yet implemented.
+
+| Component | Status |
+|-----------|--------|
+| In-memory `MessageStore` with role filtering | **Implemented** |
+| Long-polling (`egg-orch message poll --wait`) | **Implemented** |
+| Readiness signaling (WORKING/READY/BLOCKED/OBJECTING) | **Implemented** — current consensus mechanism |
+| Redis Streams transport | Planned — currently uses in-memory `MessageStore` |
+| BRC protocol (propose/ack/nack/confirmed) | Planned — currently uses readiness signaling |
+| `PeerConsensusTracker` | Planned |
+| Per-role attestation schema validation | Planned |
+| Delphi-style proposal visibility ordering | Planned |
+| Asymmetric review graph configuration | Planned |
+| `egg-orch consensus` CLI commands | Planned |
+
+For the currently operational concurrent execution protocol, see [Concurrent Execution](concurrent-execution.md).
 
 ## Why Agent Teams
 
@@ -28,9 +47,9 @@ Agent team coordination spans three distinct layers. Solutions that address only
 
 ### Transport: Redis Streams + Long-Polling
 
-The original implementation used 30-second polling intervals — a message sent at t=0 might not be seen until t=29s later. The replacement uses Redis Streams with long-polling for near-instant delivery (~1s).
+The current implementation uses an in-memory `MessageStore` with polling. The target architecture will replace this with Redis Streams and long-polling for near-instant delivery (~1s).
 
-**Architecture:**
+**Target architecture:**
 
 - Single Redis Stream per pipeline: `pipeline:{id}:messages`
 - Agents interact via the orchestrator API, not directly with Redis
@@ -41,7 +60,7 @@ The original implementation used 30-second polling intervals — a message sent 
 **Why Redis Streams over SSE:**
 
 - Natively bidirectional (agents publish and consume) — SSE is server-to-client only
-- Message persistence — agents that restart replay missed messages from their last-seen ID
+- Message persistence — agents that restart can replay missed messages from their last-seen ID
 - Ordered, append-only log creates a natural audit trail
 - Redis is already running in the environment — zero new infrastructure
 
@@ -103,7 +122,8 @@ When a producer has proposed and received ACKs from all assigned reviewers, it b
 ```
 WORKING → PROPOSED → CONFIRMED
     ↑         |
-    └─────────┘  (NACK received → address concern → re-propose)
+    ├─────────┘  (NACK received → address concern → re-propose)
+    └─────────┘  (WITHDRAW → cite new information → revise → re-propose)
 ```
 
 **Reviewer:**
@@ -210,23 +230,25 @@ An agent crashes after proposing but before the review phase completes.
 To prevent flip-flopping that destroys signal value:
 
 - **Cooldown period** after PROPOSED (prevent rapid state oscillation)
-- **Retraction** requires citing specific new information
+- **Retraction** via `CONSENSUS_WITHDRAW` requires citing specific new information that invalidates the original proposal. This returns the producer to WORKING state.
 - **Lockout** after K flip-flops per producer triggers orchestrator HITL escalation
 
 ## Cost and Latency
 
-Consensus overhead for a sparse review graph (N=6 agents, ~8 review edges):
+Projected consensus overhead for a sparse review graph (N=6 agents, ~8 review edges). These are back-of-envelope estimates — actual costs will be measured once the BRC protocol is implemented.
 
-| Item | Estimate |
+| Item | Projected estimate |
 |------|----------|
 | Messages per consensus round | ~20-25 |
 | Added token cost per run (Sonnet) | ~$0.25-0.50 |
 | Added token cost per run (Opus) | ~$1.25-2.50 |
 | Added latency per consensus round | ~1-3 minutes |
 
-This is reasonable relative to total pipeline cost ($5-50+ per run). The sparse review graph keeps costs ~3-4x lower than full NxN.
+This would be reasonable relative to total pipeline cost ($5-50+ per run). The sparse review graph keeps costs ~3-4x lower than full NxN.
 
 ## Implementation Scope
+
+Tracked in [issue #1110](https://github.com/jwbron/egg/issues/1110).
 
 ### Server-Side
 
