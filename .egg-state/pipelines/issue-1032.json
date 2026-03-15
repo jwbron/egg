@@ -78,7 +78,7 @@
   },
   "decisions": [],
   "created_at": "2026-03-15T06:04:04.531778",
-  "updated_at": "2026-03-15T06:04:50.973038",
+  "updated_at": "2026-03-15T06:04:51.329327",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
@@ -104,15 +104,25 @@
         "container_id": "8f5b3def7f55146887346964658c04eec598f5da1403f5bb55f996b52f7863af",
         "task_context": "Review the refiner's output for issue #1032: Agent anchor mechanism for post-compaction state recovery.\n\nThe issue proposes persistent anchor files that agents maintain for state recovery after context compaction. The refiner is producing a refined spec with design decisions.\n\nYOUR REVIEW FOCUS:\n- Are the design decisions well-justified? Do the recommended approaches handle edge cases?\n- Is the anchor schema complete enough for all agent roles (coder, tester, documenter, reviewer, mediator)?\n- Are size budgets realistic? Will 2KB be enough for complex multi-file tasks?\n- Is the conflict resolution strategy sound? What happens if anchor is stale?\n- Does the cleanup policy balance audit needs with disk/branch pollution?\n- Are dependencies on #1027, #1028, #1030 correctly identified and scoped?\n- Are there missing requirements or unstated assumptions?\n\nRead the issue (gh issue view 1032) and the refiner's draft output in .egg-state/drafts/ when available. Provide specific, actionable feedback.",
         "retry_number": 0
+      },
+      {
+        "role": "reviewer_agent_design",
+        "spawned_at": "2026-03-15T06:04:51.329207",
+        "completed_at": null,
+        "status": "running",
+        "container_id": "3fcdabf299726dd14b6cddef0fecf05d2b8906b792a0eed5d8bef624c2cf4377",
+        "task_context": "Review the refiner's output for issue #1032: Agent anchor mechanism for post-compaction state recovery.\n\nThis issue introduces a new subsystem for agent state persistence. Review from an AGENT DESIGN perspective:\n\nYOUR REVIEW FOCUS:\n- Does the anchor mechanism integrate cleanly with the existing agent lifecycle (spawn → work → signal → complete)?\n- How does this interact with the BRC consensus protocol? Will anchors capture consensus state correctly?\n- Is the injection mechanism post-compaction well-defined? How does it interact with CLAUDE.md and other system prompt components?\n- Are there concerns about anchor staleness causing agents to act on outdated state?\n- Does the team-level anchor create a single point of failure for the mediator?\n- How does this interact with egg-checkpoint? Is there duplication or complementary coverage?\n- Will gateway enforcement of agent-scoped writes be feasible given current gateway architecture?\n\nRead the issue (gh issue view 1032) and review the refiner's draft in .egg-state/drafts/ when available. Provide specific architectural feedback.",
+        "retry_number": 0
       }
     ],
     "phase_decisions": [],
     "escalations": [],
     "guardrail_counters": {
-      "total_agents_spawned": 2,
+      "total_agents_spawned": 3,
       "retries_by_role": {
         "refiner": 1,
-        "reviewer_refine": 1
+        "reviewer_refine": 1,
+        "reviewer_agent_design": 1
       },
       "coordinator_respawns": 0,
       "started_at": "2026-03-15T06:04:12.435560"
@@ -120,5 +130,5 @@
   },
   "plan_phase_waves": null,
   "plan_phase_names": null,
-  "version": 10
+  "version": 11
 }
