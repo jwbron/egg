@@ -95,7 +95,7 @@
     }
   ],
   "created_at": "2026-03-15T06:51:43.025288",
-  "updated_at": "2026-03-15T07:04:02.891709",
+  "updated_at": "2026-03-15T07:04:17.887281",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
@@ -147,5 +147,5 @@
   },
   "plan_phase_waves": null,
   "plan_phase_names": null,
-  "version": 17
+  "version": 18
 }
