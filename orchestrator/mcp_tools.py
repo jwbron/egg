@@ -391,6 +391,97 @@ class CoordinatorToolHandler:
             if agents_summary:
                 decision["completed_agents_summary"] = agents_summary
 
+            # Attach reviewer feedback from .egg-state/reviews/
+            reviewer_feedback = self._read_reviewer_feedback(
+                worktree_path,
+                decision.get("phase") or current_phase,
+                issue_number,
+                pipeline_id,
+            )
+            if reviewer_feedback:
+                decision["reviewer_feedback"] = reviewer_feedback
+
+    def _read_reviewer_feedback(
+        self,
+        worktree_path: Path | None,
+        phase: str,
+        issue_number: int | None,
+        pipeline_id: str,
+        max_chars: int = 16_000,
+    ) -> list[dict[str, str]]:
+        """Read reviewer feedback from .egg-state/reviews/ for a given phase.
+
+        Returns a list of dicts with reviewer, verdict, summary, analysis, suggestions,
+        and feedback fields. Caps total content at max_chars.
+        """
+        if worktree_path is None:
+            return []
+
+        reviews_dir = worktree_path / ".egg-state" / "reviews"
+        if not reviews_dir.is_dir():
+            return []
+
+        try:
+            from orchestrator.routes.pipelines import _pipeline_identifier
+        except ImportError:
+            return []
+
+        identifier = _pipeline_identifier(issue_number, pipeline_id)
+        prefix = f"{identifier}-{phase}-"
+
+        feedback: list[dict[str, str]] = []
+        total_chars = 0
+
+        try:
+            review_files = sorted(reviews_dir.glob(f"{prefix}*-review.json"))
+        except Exception:
+            return []
+
+        import json
+
+        for i, review_file in enumerate(review_files):
+            try:
+                data = json.loads(review_file.read_text(encoding="utf-8"))
+                # Extract reviewer type from filename:
+                # e.g. "42-refine-refiner-review.json" -> "refiner"
+                stem = review_file.stem  # "42-refine-refiner-review"
+                stem = stem.removesuffix("-review")
+                reviewer_type = stem.removeprefix(f"{identifier}-{phase}-")
+
+                entry = {
+                    "reviewer": reviewer_type,
+                    "verdict": data.get("verdict", "unknown"),
+                    "summary": data.get("summary", ""),
+                    "analysis": data.get("analysis", ""),
+                    "suggestions": data.get("suggestions", ""),
+                    "feedback": data.get("feedback", ""),
+                }
+
+                entry_chars = sum(len(v) for v in entry.values())
+                if total_chars + entry_chars > max_chars:
+                    remaining = len(review_files) - i
+                    feedback.append(
+                        {
+                            "reviewer": f"({remaining} more reviewer(s) omitted)",
+                            "verdict": "truncated",
+                            "summary": "Content limit reached. Review files directly.",
+                            "analysis": "",
+                            "suggestions": "",
+                            "feedback": "",
+                        }
+                    )
+                    break
+                total_chars += entry_chars
+                feedback.append(entry)
+            except Exception:
+                logger.debug(
+                    "Failed to read review file",
+                    path=str(review_file),
+                )
+                continue
+
+        return feedback
+
     def _handle_provide_input(self, args: dict[str, Any]) -> dict[str, Any]:
         """Resolve an escalation decision."""
         task_id = quote(args["task_id"], safe="")

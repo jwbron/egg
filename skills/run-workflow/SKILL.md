@@ -104,9 +104,11 @@ Keep the dashboard output concise. Only show changes from the previous poll when
 
 When `get_status` returns `pending_decisions`, handle each decision based on its `decision_type`:
 
+Iterate through `pending_decisions` and handle each one individually before resuming monitoring. For each decision, check its `decision_type`:
+
 ### For `phase_gate` decisions (phase approval gates):
 
-The `get_status` response enriches phase_gate decisions with `draft_content` (the phase's output document) and `completed_agents_summary` (role + status for each completed agent).
+The `get_status` response enriches phase_gate decisions with `draft_content` (the phase's output document), `completed_agents_summary` (role + status for each completed agent), and `reviewer_feedback` (list of reviewer verdicts).
 
 1. **Show the draft document** — Display the `draft_content` field from the decision. If the content is long, show a summary of the key sections (headings and first paragraph of each) followed by the full content in a collapsed format. If `draft_content` is missing, note that no draft was found.
 
@@ -115,7 +117,39 @@ The `get_status` response enriches phase_gate decisions with `draft_content` (th
    Agents: refiner (complete), reviewer_refine (complete), reviewer_agent_design (complete)
    ```
 
-3. **Ask for approval** — Use `AskUserQuestion`:
+3. **Show reviewer feedback** — Display each entry from the `reviewer_feedback` list. For each reviewer:
+   - Show the reviewer role, verdict, and summary
+   - Show analysis if present (this contains the detailed reasoning and is typically the most substantive field)
+   - If verdict is NOT "approved", prominently flag it with a warning prefix
+   - Show suggestions if present
+   - Show blocking feedback if present (verdict "needs_revision")
+
+   Format each reviewer as:
+   ```
+   ### Reviewer Feedback
+
+   **reviewer_refine** — Approved
+   > [summary]
+   Analysis: [analysis]
+   Suggestions: [suggestions]
+
+   **reviewer_agent_design** — Needs Revision
+   > [summary]
+   Analysis: [analysis]
+   Blocking concerns: [feedback]
+   Suggestions: [suggestions]
+   ```
+
+   If `reviewer_feedback` is empty or missing, skip this section.
+
+4. **Highlight key disagreements** — If any reviewer has a verdict other than "approved", present a prominent "Key Concerns" section before asking for approval:
+   ```
+   ### Key Concerns (require attention)
+   - **reviewer_agent_design** (needs_revision): [core blocking concern from feedback field]
+   ```
+   This ensures the human sees blockers before deciding.
+
+5. **Ask for approval** — Use `AskUserQuestion`:
    - **Question**: "Phase '<phase>' is complete. Do you approve the output above to proceed?"
    - **Header**: "Approval"
    - **Options**:
@@ -123,23 +157,25 @@ The `get_status` response enriches phase_gate decisions with `draft_content` (th
      - **"Request changes"** — description: "Send feedback for the agents to address"
    - The user can also type custom feedback in the "Other" field
 
-4. **Submit the response**:
+6. **Submit the response**:
    - If "Approve" → call `provide_input` with `response: "approved"`
    - If "Request changes" or custom text → call `provide_input` with the user's feedback as the `response`
 
+After resolving this decision, move to the next pending decision (if any) before resuming monitoring.
+
 ### For `choice` type decisions:
-Use `AskUserQuestion` to present the options:
+Show the decision's `question` and `context` (if non-empty) prominently, then use `AskUserQuestion` to present the options:
 - Question: the decision's `question` field
 - Options: the decision's `options` array (each as a label with empty description)
 
 ### For `feedback` type decisions:
-Use `AskUserQuestion` with a free-text option:
+Show the decision's `question` and `context` (if non-empty) prominently, then use `AskUserQuestion` with a free-text option:
 - Present the question to the user
 - Collect their response
 
-### After handling `choice` or `feedback` decisions:
+### After handling each `choice` or `feedback` decision:
 
-Call the `provide_input` MCP tool (`phase_gate` decisions already handle this in step 4 above):
+Call the `provide_input` MCP tool (`phase_gate` decisions already handle this in step 6 above):
 
 ```
 Tool: provide_input
@@ -149,7 +185,7 @@ Arguments:
   response: <user's answer>
 ```
 
-Confirm the input was submitted, then resume monitoring (Phase 3).
+Confirm the input was submitted, then proceed to the next pending decision. Once all decisions are resolved, resume monitoring (Phase 3).
 
 ## Phase 5 — Complete
 
