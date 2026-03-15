@@ -4574,6 +4574,14 @@ def _run_multi_agent_phase(
     return 0, combined_logs
 
 
+def _format_nack_summary(nack_details: list[dict]) -> str:
+    """Format unresolved NACK details into a human-readable summary string."""
+    return "; ".join(
+        f"{n['reviewer']} NACKed {n['producer']}: {n.get('reason') or 'no reason given'}"
+        for n in nack_details
+    )
+
+
 def _run_concurrent_phase(
     pipeline_id: str,
     pipeline: Pipeline,
@@ -4950,9 +4958,7 @@ def _run_concurrent_phase(
             # HITL so a human can decide how to proceed.
             if consensus.get("has_unresolved_nacks"):
                 nack_details = consensus.get("unresolved_nacks", [])
-                nack_summary = "; ".join(
-                    f"{n['reviewer']} NACKed {n['producer']}: {n['reason']}" for n in nack_details
-                )
+                nack_summary = _format_nack_summary(nack_details)
                 logger.warning(
                     "All containers exited with unresolved NACKs",
                     pipeline_id=pipeline_id,
@@ -4969,7 +4975,7 @@ def _run_concurrent_phase(
                         phase=pipeline.current_phase,
                     )
                 except Exception:
-                    pass
+                    logger.warning("Failed to create NACK escalation decision", exc_info=True)
                 combined_logs += f"\n--- UNRESOLVED NACKs ({len(nack_details)}) ---\n{nack_summary}"
                 return 1, combined_logs
 
@@ -5093,9 +5099,7 @@ def _run_concurrent_phase(
                 _final_consensus = {}
             if _final_consensus.get("has_unresolved_nacks"):
                 nack_details = _final_consensus.get("unresolved_nacks", [])
-                nack_summary = "; ".join(
-                    f"{n['reviewer']} NACKed {n['producer']}: {n['reason']}" for n in nack_details
-                )
+                nack_summary = _format_nack_summary(nack_details)
                 logger.warning(
                     "Timeout with unresolved NACKs — returning failure",
                     pipeline_id=pipeline_id,

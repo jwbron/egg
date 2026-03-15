@@ -77,16 +77,16 @@ get_brc_state() {{
     local response="$1"
     local role="$2"
     echo "$response" | python3 -c \
-        "import sys,json; d=json.load(sys.stdin); agent=d.get('data',{{}}).get('concurrent',{{}}).get('consensus',{{}}).get('agents',{{}}).get('$role',{{}}); print(json.dumps(agent))" \
-        2>/dev/null || echo "{{}}"
+        "import sys,json; role=sys.argv[1]; d=json.load(sys.stdin); agent=d.get('data',{{}}).get('concurrent',{{}}).get('consensus',{{}}).get('agents',{{}}).get(role,{{}}); print(json.dumps(agent))" \
+        "$role" 2>/dev/null || echo "{{}}"
 }}
 
 get_agent_confirmed() {{
     local response="$1"
     local role="$2"
     echo "$response" | python3 -c \
-        "import sys,json; d=json.load(sys.stdin); agent=d.get('data',{{}}).get('concurrent',{{}}).get('consensus',{{}}).get('agents',{{}}).get('$role',{{}}); print(agent.get('confirmed',False))" \
-        2>/dev/null || echo "False"
+        "import sys,json; role=sys.argv[1]; d=json.load(sys.stdin); agent=d.get('data',{{}}).get('concurrent',{{}}).get('consensus',{{}}).get('agents',{{}}).get(role,{{}}); print(agent.get('confirmed',False))" \
+        "$role" 2>/dev/null || echo "False"
 }}
 
 # Extract unresolved NACK feedback targeting this agent (as a producer)
@@ -95,15 +95,17 @@ get_nack_feedback() {{
     local role="$2"
     echo "$response" | python3 -c "
 import sys, json
+role = sys.argv[1]
 d = json.load(sys.stdin)
 nacks = d.get('data', {{}}).get('concurrent', {{}}).get('consensus', {{}}).get('unresolved_nacks', [])
-my_nacks = [n for n in nacks if n.get('producer') == '$role']
+my_nacks = [n for n in nacks if n.get('producer') == role]
 if my_nacks:
     print('**UNRESOLVED NACKs — You MUST address these before re-proposing:**')
     for n in my_nacks:
-        print(f\"- **{{n.get('reviewer', '?')}}**: {{n.get('reason', 'no reason given')}}\")
+        reason = n.get('reason') or 'no reason given'
+        print(f\"- **{{n.get('reviewer', '?')}}**: {{reason}}\")
     print()
-" 2>/dev/null || echo ""
+" "$role" 2>/dev/null || echo ""
 }}
 
 # --- Initial run ---
@@ -178,10 +180,16 @@ while [ "$RESTART_COUNT" -lt "$MAX_RESTARTS" ]; do
 {recovery_prompt_template}
 RECOVERY_EOF
 )
-    # Substitute restart number, BRC state, and NACK feedback into the prompt
-    RECOVERY_PROMPT=$(echo "$RECOVERY_PROMPT" | sed "s/{{restart_number}}/$RESTART_COUNT/g; s/{{max_restarts}}/$MAX_RESTARTS/g; s/{{brc_state}}/$BRC_STATE/g")
-    # Use awk for nack_feedback substitution to handle multi-line content safely
-    RECOVERY_PROMPT=$(echo "$RECOVERY_PROMPT" | awk -v nack="$NACK_FEEDBACK" '{{gsub(/\{{nack_feedback\}}/, nack); print}}')
+    # Use Python for safe template substitution (avoids sed/awk special character
+    # issues with backslashes, ampersands, and other chars in NACK feedback text)
+    RECOVERY_PROMPT=$(_CW_RESTART="$RESTART_COUNT" _CW_MAX="$MAX_RESTARTS" \
+        _CW_BRC="$BRC_STATE" _CW_NACK="$NACK_FEEDBACK" \
+        python3 -c 'import sys, os
+template = sys.stdin.read()
+for old, key in [("{{restart_number}}", "_CW_RESTART"), ("{{max_restarts}}", "_CW_MAX"),
+                 ("{{brc_state}}", "_CW_BRC"), ("{{nack_feedback}}", "_CW_NACK")]:
+    template = template.replace(old, os.environ[key])
+sys.stdout.write(template)' <<< "$RECOVERY_PROMPT")
 
     run_claude "$RECOVERY_PROMPT"
     CLAUDE_EXIT=$?
