@@ -394,6 +394,29 @@ class TestReviewerRoles:
         assert pattern.can_write(".egg-state/contracts/123.json") is False
 
 
+class TestCheckerRole:
+    """Verify checker agent can write source files and review outputs."""
+
+    @pytest.fixture
+    def pattern(self):
+        return get_agent_pattern(AgentRole.CHECKER)
+
+    def test_can_write_source(self, pattern):
+        assert pattern.can_write("src/app.py") is True
+
+    def test_can_write_reviews(self, pattern):
+        assert pattern.can_write(".egg-state/reviews/check-results.json") is True
+
+    def test_can_write_agent_outputs(self, pattern):
+        assert pattern.can_write(".egg-state/agent-outputs/checker-out.json") is True
+
+    def test_cannot_write_contracts(self, pattern):
+        assert pattern.can_write(".egg-state/contracts/123.json") is False
+
+    def test_cannot_write_docs(self, pattern):
+        assert pattern.can_write("docs/guide.md") is False
+
+
 class TestRefinerRole:
     """Verify refiner agent can only write drafts and agent-outputs."""
 

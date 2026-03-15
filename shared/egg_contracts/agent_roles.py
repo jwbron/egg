@@ -597,20 +597,28 @@ CHECKER_ROLE = AgentRoleDefinition(
     role=AgentRole.CHECKER,
     description="Runs lint, type-check, and test suites to validate implementation",
     responsibilities=[
-        "Run linters and auto-fix formatting issues",
+        "Run linters and report errors",
         "Run type checkers and report errors",
         "Run test suites and report results",
-        "Apply auto-fixes where possible",
+        "Apply auto-fixes where possible (sequential mode)",
         "Report remaining warnings",
+        "Evaluate coder output via BRC protocol (concurrent mode)",
     ],
     dependencies=[AgentRole.CODER],
     file_access=FileAccessPattern(
         allowed_read=[],
         allowed_write=[
+            # Source files (sequential check-and-fix mode)
+            "**/*.py",
+            "**/*.ts",
+            "**/*.tsx",
+            "**/*.js",
+            "**/*.jsx",
+            # Review output (BRC concurrent mode)
             ".egg-state/reviews/",
             ".egg-state/agent-outputs/",
         ],
-        blocked_write=_REVIEWER_BLOCKED_WRITE,
+        blocked_write=["docs/", ".egg-state/contracts/"],
     ),
     produces_outputs=["check_results"],
     requires_inputs=["changed_files"],
