@@ -1,0 +1,73 @@
+{
+  "issue": 1032,
+  "phase": "refine",
+  "reviewer_role": "reviewer_refine",
+  "verdict": "NACK",
+  "spec_reviewed": ".egg-state/drafts/refined-spec.md",
+  "files_reviewed": [
+    ".egg-state/drafts/refined-spec.md",
+    "gateway/phase_filter.py",
+    "orchestrator/consensus_wrapper.py",
+    "orchestrator/container_spawner.py",
+    "orchestrator/handoffs.py"
+  ],
+  "blocking_issues": [
+    {
+      "id": "B1",
+      "title": "Worktree isolation breaks cross-agent anchor reads",
+      "section": "3.6, 4.2",
+      "detail": "Each agent runs in an isolated Docker container with its own worktree. Agent A cannot read Agent B's .egg-state/agent-anchors/ files. The spec assumes filesystem-level cross-agent reads ('Read access is unrestricted'), but this is architecturally impossible. Contracts solve this via gateway/contract_api.py. Anchors need equivalent treatment.",
+      "fix": "Add 'Storage Architecture' section. Recommend: agent writes own anchor locally, orchestrator service syncs to shared state. Cross-agent reads go through egg-orch CLI or gateway API."
+    },
+    {
+      "id": "B2",
+      "title": "Coordinator agent cannot write team anchors",
+      "section": "4.2, 5",
+      "detail": "CLAUDE.md states coordinator has 'no repository access.' The spec proposes coordinator maintains team anchors, but it physically cannot write files.",
+      "fix": "Either (a) add egg-orch anchor team-update command that delegates to orchestrator service, or (b) assign team anchor ownership to integrator role, or (c) orchestrator service auto-generates team anchor from individual agent anchors."
+    },
+    {
+      "id": "B3",
+      "title": "Phase file restrictions missing agent-anchors path",
+      "section": "3.6",
+      "detail": "gateway/phase_filter.py default restrictions don't include .egg-state/agent-anchors/* in any phase's allowed patterns. During implement phase, .egg-state/* is blocked except agent-outputs and checkpoints.",
+      "fix": "Explicitly state that .egg-state/agent-anchors/* must be added to allowed_patterns for all phases."
+    }
+  ],
+  "concerns": [
+    {
+      "id": "C1",
+      "title": "Permanent context cost not acknowledged",
+      "section": "6",
+      "detail": "v1 always-inject means ~1,800 tokens on every API call, not just post-compaction. Should quantify total session cost."
+    },
+    {
+      "id": "C2",
+      "title": "agent_id format undefined",
+      "section": "4.1",
+      "detail": "No generation scheme defined. Role-based collides on retries. Recommend {role}-{container_id_short}."
+    },
+    {
+      "id": "C3",
+      "title": "CLI lacks batch/atomic update mode",
+      "section": "5",
+      "detail": "Common update patterns require multiple sequential read-validate-write cycles. Should support multi-field atomic updates."
+    },
+    {
+      "id": "C4",
+      "title": "Terminology: 'git commit hook' should be 'phase_filter extension'",
+      "section": "3.6",
+      "detail": "Gateway doesn't use git hooks — it intercepts at HTTP proxy layer."
+    }
+  ],
+  "strengths": [
+    "Schema design is concrete with realistic size budgets and per-section breakdown",
+    "Hybrid update mechanism correctly balances self-report and observed state",
+    "All dependencies correctly classified as soft — enables independent implementation",
+    "Acceptance criteria are testable with clear verification methods",
+    "Risk assessment covers key concerns with practical mitigations",
+    "Good precedent analysis of consensus_wrapper.py recovery mechanism"
+  ],
+  "recommendation": "Resolve three blocking issues (worktree isolation, coordinator access, phase filter gaps) and spec is ready for planning. Concerns can be resolved during planning phase.",
+  "timestamp": "2026-03-15T19:40:00Z"
+}
