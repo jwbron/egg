@@ -1285,33 +1285,20 @@ def cmd_consensus_status(args: argparse.Namespace) -> int:
     if agents:
         print("\nAgent states:")
         for agent_name, agent_data in agents.items():
-            phase = agent_data.get("phase", "unknown")
+            producer_phase = agent_data.get("producer_phase")
+            reviewer_phase = agent_data.get("reviewer_phase")
             confirmed = agent_data.get("confirmed", False)
-            state_str = f"  {agent_name}: phase={phase}"
+            parts = [f"  {agent_name}:"]
+            if producer_phase:
+                parts.append(f"producer={producer_phase}")
+            if reviewer_phase:
+                parts.append(f"reviewer={reviewer_phase}")
+            if not producer_phase and not reviewer_phase:
+                parts.append("phase=unknown")
+            state_str = " ".join(parts)
             if confirmed:
                 state_str += " [CONFIRMED]"
             print(state_str)
-
-    approval_matrix = consensus.get("approval_matrix", {})
-    if approval_matrix:
-        print("\nApproval matrix:")
-        for producer, reviewers in approval_matrix.items():
-            if isinstance(reviewers, dict):
-                reviews = []
-                for reviewer, verdict in reviewers.items():
-                    reviews.append(f"{reviewer}={verdict}")
-                print(f"  {producer}: {', '.join(reviews) if reviews else 'no reviews'}")
-            else:
-                print(f"  {producer}: {reviewers}")
-
-    review_graph = consensus.get("review_graph", {})
-    if review_graph:
-        print("\nReview graph:")
-        for reviewer, producers in review_graph.items():
-            if isinstance(producers, list):
-                print(f"  {reviewer} reviews: {', '.join(producers)}")
-            else:
-                print(f"  {reviewer}: {producers}")
 
     blocking = consensus.get("blocking_agents", [])
     if blocking:
