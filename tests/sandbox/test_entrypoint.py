@@ -519,9 +519,15 @@ class TestSetupClaude:
         logger = entrypoint.Logger(quiet=True)
 
         # Make repos_dir.iterdir() raise PermissionError
-        with patch.object(
-            type(repos_dir), "iterdir", side_effect=PermissionError("Permission denied")
-        ):
+        # Use a wrapper that only affects repos_dir, not all PosixPath instances
+        # (patching the class method would break skills_src.iterdir() etc.)
+        original_iterdir = type(repos_dir).iterdir
+        def iterdir_side_effect(self):
+            if self == repos_dir:
+                raise PermissionError("Permission denied")
+            return original_iterdir(self)
+
+        with patch.object(type(repos_dir), "iterdir", iterdir_side_effect):
             entrypoint.setup_claude(config, logger)
 
         import json
