@@ -1,0 +1,354 @@
+{
+  "schemaVersion": "1.0",
+  "issue": {
+    "number": 366,
+    "title": "Improve SDLC PR titles and descriptions",
+    "url": "https://github.com/jwbron/egg/issues/366"
+  },
+  "current_phase": "implement",
+  "acceptance_criteria": [
+    {
+      "id": "ac-1",
+      "description": "[TASK-1-1] JSON schema validates contracts with and without PR metadata, nullable for backward compatibility",
+      "verified": false
+    },
+    {
+      "id": "ac-2",
+      "description": "[TASK-1-2] Models match schema, existing contracts without `pr` field validate successfully",
+      "verified": false
+    },
+    {
+      "id": "ac-3",
+      "description": "[TASK-2-1] ParseResult can store extracted PR metadata",
+      "verified": false
+    },
+    {
+      "id": "ac-4",
+      "description": "[TASK-2-2] Parser correctly extracts PR metadata when present, returns None when absent",
+      "verified": false
+    },
+    {
+      "id": "ac-5",
+      "description": "[TASK-2-3] Tests cover present, absent, and malformed PR metadata cases",
+      "verified": false
+    },
+    {
+      "id": "ac-6",
+      "description": "[TASK-3-1] Contract JSON includes PR metadata when present in plan, omitted when absent",
+      "verified": false
+    },
+    {
+      "id": "ac-7",
+      "description": "[TASK-3-2] Long titles generate a warning in parse output",
+      "verified": false
+    },
+    {
+      "id": "ac-8",
+      "description": "[TASK-4-1] Template shows example PR title and description format",
+      "verified": false
+    },
+    {
+      "id": "ac-9",
+      "description": "[TASK-4-2] Prompt explicitly asks for concise, context-rich PR title and description",
+      "verified": false
+    },
+    {
+      "id": "ac-10",
+      "description": "[TASK-5-1] PR uses contract metadata when present, falls back to current behavior when absent",
+      "verified": false
+    },
+    {
+      "id": "ac-11",
+      "description": "[TASK-5-2] Final PR title matches contract, or falls back to issue title",
+      "verified": false
+    },
+    {
+      "id": "ac-12",
+      "description": "[TASK-5-3] Comment appears with clear formatting, editable by reviewer",
+      "verified": false
+    }
+  ],
+  "phases": [
+    {
+      "id": "phase-1",
+      "name": "Schema and Model Updates",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-1-1",
+          "description": "Add `pr` object to contract JSON schema with `title` and `description` fields",
+          "status": "pending",
+          "acceptance_criteria": "JSON schema validates contracts with and without PR metadata, nullable for backward compatibility",
+          "files_affected": [
+            ".egg/schemas/contract.schema.json"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-1-2",
+          "description": "Add corresponding Pydantic model class `PRMetadata` and field `pr` to `Contract` model",
+          "status": "pending",
+          "acceptance_criteria": "Models match schema, existing contracts without `pr` field validate successfully",
+          "files_affected": [
+            "shared/egg_contracts/models.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-2",
+      "name": "Plan Parser Extension",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-2-1",
+          "description": "Extend `ParseResult` dataclass to include optional `pr_title` and `pr_description` fields",
+          "status": "pending",
+          "acceptance_criteria": "ParseResult can store extracted PR metadata",
+          "files_affected": [
+            "shared/egg_contracts/plan_parser.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-2-2",
+          "description": "Update `parse_phases_from_yaml()` to extract `pr.title` and `pr.description` from YAML data",
+          "status": "pending",
+          "acceptance_criteria": "Parser correctly extracts PR metadata when present, returns None when absent",
+          "files_affected": [
+            "shared/egg_contracts/plan_parser.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-2-3",
+          "description": "Add unit tests for PR metadata extraction",
+          "status": "pending",
+          "acceptance_criteria": "Tests cover present, absent, and malformed PR metadata cases",
+          "files_affected": [
+            "shared/egg_contracts/tests/test_plan_parser.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-3",
+      "name": "Contract Population",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-3-1",
+          "description": "Update `populate-contract-tasks.py` to read PR metadata from ParseResult and write to contract",
+          "status": "pending",
+          "acceptance_criteria": "Contract JSON includes PR metadata when present in plan, omitted when absent",
+          "files_affected": [
+            "action/populate-contract-tasks.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-3-2",
+          "description": "Add validation that PR title is under 70 characters (warning, not error)",
+          "status": "pending",
+          "acceptance_criteria": "Long titles generate a warning in parse output",
+          "files_affected": [
+            "shared/egg_contracts/plan_parser.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-4",
+      "name": "Plan Template Updates",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-4-1",
+          "description": "Add `pr:` section to the yaml-tasks template in `docs/templates/plan.md`",
+          "status": "pending",
+          "acceptance_criteria": "Template shows example PR title and description format",
+          "files_affected": [
+            "docs/templates/plan.md"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-4-2",
+          "description": "Update plan phase prompt in `action/build-sdlc-prompt.sh` to instruct agent to generate PR metadata",
+          "status": "pending",
+          "acceptance_criteria": "Prompt explicitly asks for concise, context-rich PR title and description",
+          "files_affected": [
+            "action/build-sdlc-prompt.sh"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-5",
+      "name": "Workflow Integration",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-5-1",
+          "description": "Update draft PR creation in `sdlc-pipeline.yml` to read `pr.title` and `pr.description` from contract",
+          "status": "pending",
+          "acceptance_criteria": "PR uses contract metadata when present, falls back to current behavior when absent",
+          "files_affected": [
+            ".github/workflows/sdlc-pipeline.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-5-2",
+          "description": "Update PR finalization step to use contract title instead of hardcoded issue title",
+          "status": "pending",
+          "acceptance_criteria": "Final PR title matches contract, or falls back to issue title",
+          "files_affected": [
+            ".github/workflows/sdlc-pipeline.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-5-3",
+          "description": "Post PR metadata as a separate issue comment during plan phase for easy editing",
+          "status": "pending",
+          "acceptance_criteria": "Comment appears with clear formatting, editable by reviewer",
+          "files_affected": [
+            ".github/workflows/sdlc-pipeline.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    }
+  ],
+  "decisions": [],
+  "circuit_breaker": {
+    "total_cycles": 0,
+    "max_total_cycles": 10,
+    "status": "closed"
+  },
+  "workflow_owner": "jwbron",
+  "audit_log": [
+    {
+      "timestamp": "2026-02-08T19:41:22Z",
+      "actor": "system",
+      "role": "reviewer",
+      "action": "update",
+      "field_path": "refine_review_cycles",
+      "old_value": 0,
+      "new_value": 1,
+      "reason": "Refine review cycle 1: approved"
+    },
+    {
+      "timestamp": "2026-02-08T19:46:27Z",
+      "actor": "jwbron",
+      "role": "human",
+      "action": "transition",
+      "field_path": "current_phase",
+      "old_value": "refine",
+      "new_value": "plan",
+      "reason": "Phase approved by human"
+    },
+    {
+      "timestamp": "2026-02-08T19:51:57Z",
+      "actor": "system",
+      "role": "reviewer",
+      "action": "update",
+      "field_path": "plan_review_cycles",
+      "old_value": 0,
+      "new_value": 1,
+      "reason": "Plan review cycle 1: approved"
+    },
+    {
+      "timestamp": "2026-02-08T20:08:42Z",
+      "actor": "jwbron",
+      "role": "human",
+      "action": "transition",
+      "field_path": "current_phase",
+      "old_value": "plan",
+      "new_value": "implement",
+      "reason": "Phase approved by human"
+    }
+  ],
+  "refine_review_cycles": 1,
+  "refine_review_feedback": "",
+  "plan_review_cycles": 1,
+  "plan_review_feedback": ""
+}

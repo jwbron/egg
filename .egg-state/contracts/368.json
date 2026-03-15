@@ -1,0 +1,576 @@
+{
+  "schemaVersion": "1.0",
+  "issue": {
+    "number": 368,
+    "title": "SDLC refine and plan reviews shouldn't be posted to the issue",
+    "url": "https://github.com/jwbron/egg/issues/368"
+  },
+  "current_phase": "implement",
+  "acceptance_criteria": [
+    {
+      "id": "ac-1",
+      "description": "[TASK-1-1] Directory exists on issue branches, naming documented in comments",
+      "verified": false
+    },
+    {
+      "id": "ac-2",
+      "description": "[TASK-1-2] Agent writes to file, commits, does not post to issue",
+      "verified": false
+    },
+    {
+      "id": "ac-3",
+      "description": "[TASK-1-3] Agent writes to file, commits, does not post to issue",
+      "verified": false
+    },
+    {
+      "id": "ac-4",
+      "description": "[TASK-1-4] Validation step reads from .egg-state/drafts/ and confirms file exists",
+      "verified": false
+    },
+    {
+      "id": "ac-5",
+      "description": "[TASK-1-5] Validation step reads from .egg-state/drafts/ and confirms file exists",
+      "verified": false
+    },
+    {
+      "id": "ac-6",
+      "description": "[TASK-2-1] Directory created in workflow or by agent",
+      "verified": false
+    },
+    {
+      "id": "ac-7",
+      "description": "[TASK-2-2] Reviewer reads .egg-state/drafts/{issue}-analysis.md, writes JSON verdict to reviews directory",
+      "verified": false
+    },
+    {
+      "id": "ac-8",
+      "description": "[TASK-2-3] Reviewer reads .egg-state/drafts/{issue}-plan.md, writes JSON verdict to reviews directory",
+      "verified": false
+    },
+    {
+      "id": "ac-9",
+      "description": "[TASK-2-4] Schema documented in prompt, consistent between refine and plan",
+      "verified": false
+    },
+    {
+      "id": "ac-10",
+      "description": "[TASK-3-1] parse-verdict step reads file, extracts passed/feedback, no comment parsing",
+      "verified": false
+    },
+    {
+      "id": "ac-11",
+      "description": "[TASK-3-2] parse-verdict step reads file, extracts passed/feedback, no comment parsing",
+      "verified": false
+    },
+    {
+      "id": "ac-12",
+      "description": "[TASK-3-3] Contract still tracks review cycles and feedback",
+      "verified": false
+    },
+    {
+      "id": "ac-13",
+      "description": "[TASK-4-1] PRIOR_FEEDBACK env var populated from review file",
+      "verified": false
+    },
+    {
+      "id": "ac-14",
+      "description": "[TASK-4-2] PRIOR_FEEDBACK env var populated from review file",
+      "verified": false
+    },
+    {
+      "id": "ac-15",
+      "description": "[TASK-4-3] Agent updates existing draft file rather than creating new issue comment",
+      "verified": false
+    },
+    {
+      "id": "ac-16",
+      "description": "[TASK-5-1] Posts .egg-state/drafts/{issue}-analysis.md content to issue with approval checkbox",
+      "verified": false
+    },
+    {
+      "id": "ac-17",
+      "description": "[TASK-5-2] Posts .egg-state/drafts/{issue}-plan.md content to issue with approval checkbox",
+      "verified": false
+    },
+    {
+      "id": "ac-18",
+      "description": "[TASK-5-3] Only final output with approval checkbox appears on issue",
+      "verified": false
+    },
+    {
+      "id": "ac-19",
+      "description": "[TASK-5-4] If max cycles hit, posts draft with note about unaddressed issues",
+      "verified": false
+    },
+    {
+      "id": "ac-20",
+      "description": "[TASK-6-1] No grep for egg-*-review-verdict markers in workflow",
+      "verified": false
+    },
+    {
+      "id": "ac-21",
+      "description": "[TASK-6-2] test_refine_plan_review_cycles.py passes with file-based mocks",
+      "verified": false
+    },
+    {
+      "id": "ac-22",
+      "description": "[TASK-6-3] New test verifies escalation posts draft with warning",
+      "verified": false
+    },
+    {
+      "id": "ac-23",
+      "description": "[TASK-6-4] Documentation reflects new internal review behavior",
+      "verified": false
+    }
+  ],
+  "phases": [
+    {
+      "id": "phase-1",
+      "name": "File-Based Draft Storage",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-1-1",
+          "description": "Create .egg-state/drafts/ directory structure and document file naming convention",
+          "status": "pending",
+          "acceptance_criteria": "Directory exists on issue branches, naming documented in comments",
+          "files_affected": [
+            ".github/workflows/sdlc-pipeline.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-1-2",
+          "description": "Modify refine phase prompt to instruct agent to write analysis to .egg-state/drafts/{issue}-analysis.md",
+          "status": "pending",
+          "acceptance_criteria": "Agent writes to file, commits, does not post to issue",
+          "files_affected": [
+            "action/build-sdlc-prompt.sh"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-1-3",
+          "description": "Modify plan phase prompt to instruct agent to write plan to .egg-state/drafts/{issue}-plan.md",
+          "status": "pending",
+          "acceptance_criteria": "Agent writes to file, commits, does not post to issue",
+          "files_affected": [
+            "action/build-sdlc-prompt.sh"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-1-4",
+          "description": "Update refine job validation to check for draft file instead of issue comment",
+          "status": "pending",
+          "acceptance_criteria": "Validation step reads from .egg-state/drafts/ and confirms file exists",
+          "files_affected": [
+            ".github/workflows/sdlc-pipeline.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-1-5",
+          "description": "Update plan job validation to check for draft file instead of issue comment",
+          "status": "pending",
+          "acceptance_criteria": "Validation step reads from .egg-state/drafts/ and confirms file exists",
+          "files_affected": [
+            ".github/workflows/sdlc-pipeline.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-2",
+      "name": "File-Based Review Verdicts",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-2-1",
+          "description": "Create .egg-state/reviews/ directory structure",
+          "status": "pending",
+          "acceptance_criteria": "Directory created in workflow or by agent",
+          "files_affected": [
+            ".github/workflows/sdlc-pipeline.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-2-2",
+          "description": "Modify build-refine-review-prompt.sh to instruct reviewer to read draft from file and write verdict to JSON",
+          "status": "pending",
+          "acceptance_criteria": "Reviewer reads .egg-state/drafts/{issue}-analysis.md, writes JSON verdict to reviews directory",
+          "files_affected": [
+            "action/build-refine-review-prompt.sh"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-2-3",
+          "description": "Modify build-plan-review-prompt.sh to instruct reviewer to read draft from file and write verdict to JSON",
+          "status": "pending",
+          "acceptance_criteria": "Reviewer reads .egg-state/drafts/{issue}-plan.md, writes JSON verdict to reviews directory",
+          "files_affected": [
+            "action/build-plan-review-prompt.sh"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-2-4",
+          "description": "Define review verdict JSON schema (approved/needs_revision, feedback text, timestamp)",
+          "status": "pending",
+          "acceptance_criteria": "Schema documented in prompt, consistent between refine and plan",
+          "files_affected": [
+            "action/build-refine-review-prompt.sh",
+            "action/build-plan-review-prompt.sh"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-3",
+      "name": "Workflow Verdict Detection from Files",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-3-1",
+          "description": "Update refine-review job to read verdict from .egg-state/reviews/{issue}-refine-review.json on branch",
+          "status": "pending",
+          "acceptance_criteria": "parse-verdict step reads file, extracts passed/feedback, no comment parsing",
+          "files_affected": [
+            ".github/workflows/sdlc-pipeline.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-3-2",
+          "description": "Update plan-review job to read verdict from .egg-state/reviews/{issue}-plan-review.json on branch",
+          "status": "pending",
+          "acceptance_criteria": "parse-verdict step reads file, extracts passed/feedback, no comment parsing",
+          "files_affected": [
+            ".github/workflows/sdlc-pipeline.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-3-3",
+          "description": "Update contract update steps to continue storing feedback in contract for audit trail",
+          "status": "pending",
+          "acceptance_criteria": "Contract still tracks review cycles and feedback",
+          "files_affected": [
+            ".github/workflows/sdlc-pipeline.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-4",
+      "name": "Re-dispatch with File-Based Feedback",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-4-1",
+          "description": "Update refine-redispatch to read prior feedback from .egg-state/reviews/{issue}-refine-review.json",
+          "status": "pending",
+          "acceptance_criteria": "PRIOR_FEEDBACK env var populated from review file",
+          "files_affected": [
+            ".github/workflows/sdlc-pipeline.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-4-2",
+          "description": "Update plan-redispatch to read prior feedback from .egg-state/reviews/{issue}-plan-review.json",
+          "status": "pending",
+          "acceptance_criteria": "PRIOR_FEEDBACK env var populated from review file",
+          "files_affected": [
+            ".github/workflows/sdlc-pipeline.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-4-3",
+          "description": "Modify producer prompts to read prior draft from file and revise in place",
+          "status": "pending",
+          "acceptance_criteria": "Agent updates existing draft file rather than creating new issue comment",
+          "files_affected": [
+            "action/build-sdlc-prompt.sh"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-5",
+      "name": "Final Output Posting",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-5-1",
+          "description": "Create post final analysis step in refine-review job that runs only when review passes",
+          "status": "pending",
+          "acceptance_criteria": "Posts .egg-state/drafts/{issue}-analysis.md content to issue with approval checkbox",
+          "files_affected": [
+            ".github/workflows/sdlc-pipeline.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-5-2",
+          "description": "Create post final plan step in plan-review job that runs only when review passes",
+          "status": "pending",
+          "acceptance_criteria": "Posts .egg-state/drafts/{issue}-plan.md content to issue with approval checkbox",
+          "files_affected": [
+            ".github/workflows/sdlc-pipeline.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-5-3",
+          "description": "Remove intermediate review passed comments (currently posted separately)",
+          "status": "pending",
+          "acceptance_criteria": "Only final output with approval checkbox appears on issue",
+          "files_affected": [
+            ".github/workflows/sdlc-pipeline.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-5-4",
+          "description": "Update circuit breaker escalation to post draft with warning about max cycles reached",
+          "status": "pending",
+          "acceptance_criteria": "If max cycles hit, posts draft with note about unaddressed issues",
+          "files_affected": [
+            ".github/workflows/sdlc-pipeline.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-6",
+      "name": "Cleanup and Testing",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-6-1",
+          "description": "Remove comment parsing logic from parse-verdict steps (now file-based)",
+          "status": "pending",
+          "acceptance_criteria": "No grep for egg-*-review-verdict markers in workflow",
+          "files_affected": [
+            ".github/workflows/sdlc-pipeline.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-6-2",
+          "description": "Update integration tests for new file-based flow",
+          "status": "pending",
+          "acceptance_criteria": "test_refine_plan_review_cycles.py passes with file-based mocks",
+          "files_affected": [
+            "integration_tests/sdlc/test_refine_plan_review_cycles.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-6-3",
+          "description": "Add integration test for circuit breaker escalation with draft posting",
+          "status": "pending",
+          "acceptance_criteria": "New test verifies escalation posts draft with warning",
+          "files_affected": [
+            "integration_tests/sdlc/test_refine_plan_review_cycles.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-6-4",
+          "description": "Update CLAUDE.md or docs if any agent behavior documentation exists",
+          "status": "pending",
+          "acceptance_criteria": "Documentation reflects new internal review behavior",
+          "files_affected": [
+            "docs/sdlc-pipeline.md"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    }
+  ],
+  "decisions": [],
+  "circuit_breaker": {
+    "total_cycles": 0,
+    "max_total_cycles": 10,
+    "status": "closed"
+  },
+  "workflow_owner": "jwbron",
+  "audit_log": [
+    {
+      "timestamp": "2026-02-08T20:49:18Z",
+      "actor": "system",
+      "role": "reviewer",
+      "action": "update",
+      "field_path": "refine_review_cycles",
+      "old_value": 0,
+      "new_value": 1,
+      "reason": "Refine review cycle 1: approved"
+    },
+    {
+      "timestamp": "2026-02-08T20:53:44Z",
+      "actor": "jwbron",
+      "role": "human",
+      "action": "transition",
+      "field_path": "current_phase",
+      "old_value": "refine",
+      "new_value": "plan",
+      "reason": "Phase approved by human"
+    },
+    {
+      "timestamp": "2026-02-08T20:59:23Z",
+      "actor": "system",
+      "role": "reviewer",
+      "action": "update",
+      "field_path": "plan_review_cycles",
+      "old_value": 0,
+      "new_value": 1,
+      "reason": "Plan review cycle 1: approved"
+    },
+    {
+      "timestamp": "2026-02-08T21:03:23Z",
+      "actor": "jwbron",
+      "role": "human",
+      "action": "transition",
+      "field_path": "current_phase",
+      "old_value": "plan",
+      "new_value": "implement",
+      "reason": "Phase approved by human"
+    }
+  ],
+  "refine_review_cycles": 1,
+  "refine_review_feedback": "",
+  "plan_review_cycles": 1,
+  "plan_review_feedback": ""
+}

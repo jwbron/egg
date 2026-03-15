@@ -1,0 +1,311 @@
+{
+  "issue": 901,
+  "phase": "plan",
+  "agent": "risk_analyst",
+  "revision": 2,
+  "revision_reason": "Address plan review feedback about Option F (Shell Command Timeout Wrapper). Revision 1 correctly identified the shell invocation risk (R-1) but assessed it before the architect added concrete Option F tasks. This revision: (a) confirms the architect's revision 2 adequately addresses the reviewer's concern by adding Phase 3 with 3 tasks for the timeout wrapper, (b) refines risk R-1 with codebase-verified findings about shell invocation paths (BASH_ENV not currently used, .bashrc only has alias/PS1, non-interactive bash is the invocation mode), (c) adds new risks specific to the Option F implementation (process group management, stderr tee interference, gateway timeout conflict), and (d) notes that the plan draft (901-plan.md) still shows the old 4-phase structure and must be updated by the task planner to match the architect's 5-phase revision 2.",
+
+  "title": "Risk assessment (rev 2): Fix refine phase push failures, runaway shell commands, and wrong-branch completion signals",
+
+  "summary": "The architect's revised approach (5 phases: prompt guardrails, gateway push-target enforcement, sandbox timeout wrapper, pre-phase worktree sync, completion signal verification) is sound and now fully addresses the reviewer's feedback about Option F. The overall risk profile remains LOW-MEDIUM. The highest-impact risk is still R-1 (timeout wrapper may not activate in Claude Code's non-interactive shell environment), but the architect's task-timeout-1 (investigation task) directly mitigates this by requiring experimental verification before implementation. Three new risks are identified for the Option F implementation: (R-9) SIGTERM to a command may not kill spawned child processes, (R-10) the timeout wrapper may interfere with the entrypoint's stderr tee mechanism, and (R-11) a system-level timeout may conflict with the gateway's own 60-second timeout on git/gh commands. All previous risk assessments and disagreements from revision 1 remain valid and are carried forward. Two key corrections to the architect's plan remain: completion signal verification should be a hard block when a commit SHA is provided (not warning-only), and the pre-phase sync must detect branch divergence rather than silently proceeding.",
+
+  "review_feedback_assessment": {
+    "reviewer_concern": "The plan claims 'Option B + E + F + I + H' but Option F (Shell Command Timeout Wrapper) has no implementation tasks. Without it, only the soft prompt guardrail protects against runaway commands.",
+    "architect_response_adequate": true,
+    "detail": "The architect's revision 2 adds Phase 3 (Sandbox per-command timeout wrapper) with three concrete tasks: task-timeout-1 (investigate Claude Code's Bash tool invocation path), task-timeout-2 (implement system-level per-command timeout wrapper with 120s default), and task-timeout-3 (add timeout tests). This directly addresses the reviewer's concern. The investigation-first approach (task-timeout-1) is appropriate because — as this risk assessment's R-1 identifies — the implementation path is uncertain and depends on how Claude Code actually spawns bash commands.",
+    "remaining_gap": "The plan document (901-plan.md) still shows the old 4-phase structure without Option F tasks. The task planner must update the plan to include the architect's Phase 3. Until the plan is updated, there is a mismatch between the architect output (5 phases) and the plan (4 phases). This is a process gap, not a technical gap.",
+    "defense_in_depth_assessment": "With Option F implemented, the defense-in-depth stack for runaway commands is: (1) prompt guardrails — soft, reduces frequency, (2) per-command timeout at 120s — hard, kills commands that exceed the limit, (3) container session timeout at 3600s (orchestrator wait_for_container) — hard, kills the entire container as a last resort. This is a sound layered defense. Without Option F, only layers 1 and 3 exist, with a 58-minute gap (3600s - 120s) during which a runaway command consumes resources unchecked. The reviewer was correct to flag this."
+  },
+
+  "architect_approach_assessment": {
+    "recommended_approach": "5-phase: Prompt Guardrails → Gateway Push-Target Enforcement → Sandbox Timeout Wrapper → Pre-Phase Worktree Sync → Completion Signal Branch Verification",
+    "assessment": "The 5-phase approach is architecturally sound. Adding the timeout wrapper as Phase 3 (before the orchestrator and signal changes) is the correct ordering — it addresses the most visible symptom (26-minute hang) with a hard enforcement mechanism early in the rollout. The investigation-first task (task-timeout-1) is a pragmatic acknowledgment that the implementation path is uncertain. The architect has incorporated all three of this risk analyst's revision 1 disagreements: 120s default timeout, hard-block completion signal when commit SHA is provided, and divergence detection in pre-phase sync.",
+    "agreement_with_architect": true,
+    "disagreements_from_revision_1_still_valid": [
+      {
+        "id": "D-1",
+        "topic": "Completion signal verification should be a hard block when commit SHA is provided",
+        "status": "Incorporated by architect in revision 2 (task-9 acceptance criteria). No further action needed.",
+        "severity": "resolved"
+      },
+      {
+        "id": "D-2",
+        "topic": "Default command timeout should be 120 seconds, not 300",
+        "status": "Incorporated by architect in revision 2 (AD-4). No further action needed.",
+        "severity": "resolved"
+      },
+      {
+        "id": "D-3",
+        "topic": "Pre-phase sync must detect branch divergence (ahead AND behind)",
+        "status": "Incorporated by architect in revision 2. The risk analyst's recommendation for fast-forward merge attempt → signal pipeline error on failure is reflected in the architect's approach.",
+        "severity": "resolved"
+      }
+    ],
+    "new_disagreements": [
+      {
+        "id": "D-4",
+        "topic": "Timeout wrapper approach ordering: BASH_ENV should not be first preference",
+        "architect_claim": "task-timeout-2 lists candidate approaches: (1) BASH_ENV, (2) shell binary wrapper, (3) process monitor daemon, (4) Claude Code settings-based timeout + system backup",
+        "correction": "BASH_ENV is sourced by non-interactive bash shells, but only when bash is invoked as bash (not when invoked as sh). Claude Code's Bash tool may use /bin/sh -c 'command' rather than /bin/bash, in which case BASH_ENV is irrelevant. Additionally, BASH_ENV is not currently set anywhere in the sandbox (verified: no BASH_ENV references in sandbox/ directory). The more reliable approach is (2) shell binary wrapper — replacing/wrapping the shell binary that Claude Code actually invokes. However, this requires task-timeout-1's investigation to determine the invocation path first. Recommendation: Do NOT pre-commit to an ordering. Let task-timeout-1's findings determine the approach. The investigation task should output a concrete recommendation, and task-timeout-2 should implement whatever task-timeout-1 recommends.",
+        "severity": "low",
+        "recommendation": "Reframe task-timeout-2's acceptance criteria to: 'Implement the approach recommended by task-timeout-1's investigation findings, with a 120s default timeout and SIGTERM→10s→SIGKILL behavior.' Remove the fixed ordering of candidate approaches."
+      }
+    ]
+  },
+
+  "risks": [
+    {
+      "id": "R-1",
+      "category": "implementation",
+      "title": "Per-command timeout wrapper may not activate depending on shell initialization path",
+      "description": "The architect proposes investigating BASH_ENV, shell binary wrapper, process monitor daemon, and Claude Code settings as candidate timeout mechanisms. Codebase verification confirms: (a) BASH_ENV is not set anywhere in the sandbox, (b) .bashrc only contains an alias and PS1 (sandbox/entrypoint.py:998-1004), (c) the sandbox runs Claude Code via subprocess.Popen() (sandbox/entrypoint.py:1481-1486) which spawns Claude Code as a subprocess, and Claude Code then spawns its own Bash tool subprocesses. The timeout wrapper must operate at the layer where Claude Code's Bash tool invokes commands — which is INSIDE Claude Code's process, not at the entrypoint level. The entrypoint has no visibility into individual Bash tool invocations.",
+      "likelihood": "medium",
+      "impact": "high",
+      "impact_detail": "If the timeout wrapper is not activated for Claude Code's Bash tool invocations, runaway commands remain unbounded. The 3600-second container timeout is the only remaining hard limit, allowing 58 minutes of wasted compute per runaway command. This is the exact problem the fix is meant to solve.",
+      "affected_files": [
+        "sandbox/entrypoint.py:1481-1486 (Claude Code subprocess launch)",
+        "sandbox/llm/runner.py:33 (claude --dangerously-skip-permissions invocation)",
+        "sandbox/llm/claude/runner.py:5 (claude --print headless mode)"
+      ],
+      "mitigation": "The architect's task-timeout-1 (investigation) directly addresses this risk. The investigation MUST experimentally verify: (a) what shell binary Claude Code's Bash tool uses (/bin/bash vs /bin/sh), (b) whether it is interactive or non-interactive, (c) whether BASH_ENV is respected, (d) whether a shell function or /usr/local/bin/ wrapper script is visible to the Bash tool's invocations. The safest approaches (in decreasing reliability): (1) Replace /bin/bash and/or /bin/sh with a wrapper that applies timeout before exec'ing the real shell — this covers all invocation paths. (2) Use Claude Code's settings or configuration to set a default Bash tool timeout (if such a setting exists). (3) Use BASH_ENV to define a command_not_found_handle or DEBUG trap — fragile but covers bash invocations. (4) Process monitor daemon watching for long-running child processes — works regardless of shell path but adds complexity.",
+      "rollback": "Remove the timeout mechanism. Revert to prompt-guardrails-only defense.",
+      "human_review_needed": true,
+      "human_review_reason": "Task-timeout-1's findings determine the entire implementation approach. If the investigation reveals that none of the candidate approaches work (e.g., Claude Code's Bash tool bypasses all shell initialization), the plan needs a fundamental redesign. This is a blocking discovery risk."
+    },
+    {
+      "id": "R-2",
+      "category": "correctness",
+      "title": "Pre-phase sync may push incomplete or broken work from crashed prior agents",
+      "description": "The architect's plan adds push-before-reset to _sync_worktree_with_remote() so that local-ahead commits reach the remote before the new phase starts. However, if the prior agent crashed mid-work, its local commits may be incomplete, broken, or contain debug artifacts. Pushing these to the remote branch makes them permanent and visible to all subsequent agents.",
+      "likelihood": "low-medium",
+      "impact": "medium",
+      "impact_detail": "Broken or incomplete commits from a crashed agent would be pushed to the remote branch, visible in the repository history. Subsequent agents would inherit this broken state. The auto_commit_worktree() already handles uncommitted changes with phase filtering, but committed changes from the crashed agent would bypass this protection.",
+      "affected_files": [
+        "orchestrator/routes/pipelines.py (_sync_worktree_with_remote)"
+      ],
+      "mitigation": "Before pushing local-ahead commits, check whether the prior phase completed successfully (check agent_execution status in the contract). If the prior phase failed or was killed, do NOT push the local-ahead commits — instead, reset to the remote branch tip (discarding the incomplete local work). Only push local-ahead commits when the prior phase completed successfully.",
+      "rollback": "Revert to current behavior (skip push when local is ahead).",
+      "human_review_needed": false
+    },
+    {
+      "id": "R-3",
+      "category": "correctness",
+      "title": "Push-target refspec parsing has diverse edge cases that may cause false rejections",
+      "description": "Git push accepts many syntaxes: 'git push origin branch', 'git push origin local:remote', 'git push origin HEAD:refs/heads/remote', 'git push origin HEAD', 'git push' (uses tracking branch), 'git push origin +branch' (force), 'git push origin :branch' (delete). The gateway must parse ALL of these to extract the target branch and compare to the expected branch.",
+      "likelihood": "medium",
+      "impact": "medium",
+      "impact_detail": "False rejections block the agent from pushing valid work, causing the same frustration pattern as the original incident. False accepts defeat the purpose of the enforcement.",
+      "affected_files": [
+        "gateway/gateway.py (git_push handler)"
+      ],
+      "mitigation": "Use git's own refspec parsing rather than hand-writing regex. The test suite must cover: bare branch name, local:remote, HEAD:remote, HEAD (no remote), bare push (no args), force prefix (+branch), refs/heads/ prefix, and delete refspec (:branch). Also handle 'git push origin local-branch:expected-branch' where the target branch matches even though the local name differs.",
+      "rollback": "Disable push-target enforcement (remove the check or set PUSH_TARGET_ENFORCEMENT=false).",
+      "human_review_needed": false
+    },
+    {
+      "id": "R-4",
+      "category": "operational",
+      "title": "Timeout may kill legitimate long-running test suites and builds",
+      "description": "Large test suites (pytest with many integration tests), npm install, Docker builds, and compilation steps can legitimately take 2-10 minutes. A 120-second per-command timeout would kill these operations.",
+      "likelihood": "medium",
+      "impact": "medium",
+      "impact_detail": "Test runs, builds, and dependency installations being killed by timeout would cause agent confusion, retry loops, and wasted tokens. The agent would see a timeout error, possibly retry the same command, hit the timeout again, and eventually signal an error.",
+      "affected_files": [
+        "sandbox timeout wrapper (to be determined by task-timeout-1)"
+      ],
+      "mitigation": "Claude Code's Bash tool already supports per-call timeout (max 600000ms / 10 minutes). Document this as the override mechanism. The system-level 120s default catches runaway searches; agents that know they're running a long operation should set a longer per-call timeout. Additionally, the error message from timeout kills should clearly explain the timeout and how to override: 'Command killed: exceeded BASH_COMMAND_TIMEOUT=120s. For long-running commands, use Claude Code Bash tool timeout parameter.'",
+      "rollback": "Set BASH_COMMAND_TIMEOUT to a very high value (3600) to effectively disable.",
+      "human_review_needed": false
+    },
+    {
+      "id": "R-5",
+      "category": "compatibility",
+      "title": "Push-target enforcement must handle post-agent auto-commit push path",
+      "description": "The gateway's auto_commit_worktree() (gateway/post_agent_commit.py:286-315) creates a temporary session and pushes via the gateway's /api/v1/git/push endpoint. If push-target enforcement checks the session's expected branch, the auto-commit's temporary session must also have the correct expected branch set. Otherwise, the post-agent auto-commit push could be blocked.",
+      "likelihood": "medium",
+      "impact": "high",
+      "impact_detail": "If post-agent auto-commit pushes are blocked, uncommitted work from exiting containers would be silently lost. The auto-commit mechanism is a critical safety net. This is especially dangerous because the failure would be silent (the container is already exiting).",
+      "affected_files": [
+        "gateway/post_agent_commit.py:286-315 (auto-commit push)",
+        "gateway/gateway.py (push-target enforcement)"
+      ],
+      "mitigation": "When implementing push-target enforcement, explicitly verify that auto_commit_worktree()'s temporary session registration includes the correct pipeline_id and expected branch. Add a test that exercises the auto-commit push path with push-target enforcement enabled. Alternatively, exempt auto-commit pushes from push-target enforcement by checking a session flag (e.g., is_auto_commit=True).",
+      "rollback": "Disable push-target enforcement. Auto-commit push path returns to current behavior.",
+      "human_review_needed": true,
+      "human_review_reason": "The interaction between push-target enforcement and auto-commit pushes is a critical safety concern. The implementer should trace the full auto-commit push path and add integration tests covering this scenario."
+    },
+    {
+      "id": "R-6",
+      "category": "correctness",
+      "title": "Pre-phase sync adds push to a best-effort function that currently only reads",
+      "description": "_sync_worktree_with_remote() currently only performs reads (fetch, rev-list, reset). Adding a push operation changes its side-effect profile from read-only to read-write. This is a behavioral change to a function called during pipeline initialization.",
+      "likelihood": "low",
+      "impact": "low",
+      "impact_detail": "The push goes through the gateway's existing push path. The primary concern is unexpected CI triggers from the sync push.",
+      "affected_files": [
+        "orchestrator/routes/pipelines.py (_sync_worktree_with_remote)"
+      ],
+      "mitigation": "Use push_worktree_branch() from gateway_client.py which already exists for this purpose. Document the behavioral change in the function's docstring.",
+      "rollback": "Remove the push call. Return to skip-when-ahead behavior.",
+      "human_review_needed": false
+    },
+    {
+      "id": "R-7",
+      "category": "security",
+      "title": "Push-target enforcement introduces a denial-of-service vector if implemented incorrectly",
+      "description": "If push-target enforcement has a bug that rejects ALL pushes in pipeline mode (e.g., off-by-one in branch name comparison, missing normalization of refs/heads/ prefix), it would block all pipeline agents from pushing. This is a denial-of-service for the entire pipeline system.",
+      "likelihood": "low",
+      "impact": "high",
+      "impact_detail": "All pipeline agents would be unable to push, causing all pipelines to fail or hang. The auto-commit safety net would also be affected (see R-5). Recovery requires deploying a gateway fix or configuration change.",
+      "affected_files": [
+        "gateway/gateway.py (git_push handler)"
+      ],
+      "mitigation": "Implement a killswitch: PUSH_TARGET_ENFORCEMENT environment variable (default true, set false to disable). Stage the rollout: deploy with enforcement disabled, monitor logs for what WOULD be blocked, then enable. The architect has incorporated the killswitch recommendation.",
+      "rollback": "Set PUSH_TARGET_ENFORCEMENT=false. Instant rollback without code deploy.",
+      "human_review_needed": false
+    },
+    {
+      "id": "R-8",
+      "category": "behavioral",
+      "title": "Prompt guardrails may be ignored or contradicted by other instructions",
+      "description": "The sandbox already has extensive instructions in CLAUDE.md and sandbox/.claude/rules/. Adding more rules increases the chance of instruction conflict or deprioritization. If the filesystem search warning conflicts with a task requiring system file inspection, the agent may either ignore the guardrail or refuse a legitimate operation.",
+      "likelihood": "low",
+      "impact": "low",
+      "impact_detail": "Prompt guardrails are defense-in-depth. If ignored, the per-command timeout (if properly implemented per R-1) catches the runaway command. The risk is wasted time between the guardrail failing and the timeout activating (up to 120s).",
+      "affected_files": [
+        "sandbox/.claude/rules/environment.md",
+        "sandbox/.claude/rules/mission.md"
+      ],
+      "mitigation": "Keep the guardrail concise. Use guidance language with reasoning ('ALWAYS scope searches to ~/repos/; searching from / will scan the entire filesystem and may be killed by timeout') rather than absolute prohibitions.",
+      "rollback": "Remove the added guardrail text. No functional impact.",
+      "human_review_needed": false
+    },
+    {
+      "id": "R-9",
+      "category": "implementation",
+      "title": "SIGTERM to a timed-out command may not kill all spawned child processes",
+      "description": "The architect's task-timeout-2 specifies SIGTERM → 10s wait → SIGKILL behavior. However, if the timed-out command (e.g., grep -rn / or find /) has spawned child processes (e.g., via xargs, parallel, or shell pipelines), SIGTERM to the parent process does not propagate to children. The children become orphaned processes that continue consuming CPU until the container exits. This is a known Unix process management issue. The existing pattern in sandbox/llm/claude/runner.py:321-396 also uses SIGTERM→SIGKILL but only on a single process (the Claude Code binary), not on a process tree.",
+      "likelihood": "medium",
+      "impact": "medium",
+      "impact_detail": "Orphaned child processes from timed-out commands continue running at 100% CPU. While the parent command is killed, the resource waste continues. For the specific incident (grep -rn /), grep does not spawn children, so this risk does not apply to the exact reproducer. But for commands like 'find / -exec grep {} \\;' or pipeline commands, orphaned children would persist.",
+      "affected_files": [
+        "Timeout wrapper implementation (to be determined)"
+      ],
+      "mitigation": "Use process group kill (kill -SIGTERM -$PID or kill -- -$PID) instead of single-process SIGTERM. Run the wrapped command in its own process group using setsid or a new session. Then send SIGTERM to the entire process group. This ensures all child processes are killed along with the parent. The timeout command (coreutils) already handles this correctly: 'timeout --signal=TERM --kill-after=10s 120s <command>' uses process groups. If the timeout wrapper delegates to coreutils timeout, this risk is automatically mitigated.",
+      "rollback": "Not applicable — this is a design consideration for the timeout wrapper implementation.",
+      "human_review_needed": false
+    },
+    {
+      "id": "R-10",
+      "category": "compatibility",
+      "title": "Timeout wrapper may interfere with entrypoint's stderr tee mechanism",
+      "description": "The sandbox entrypoint uses _tee_stderr_to_file() (sandbox/entrypoint.py:1424-1428) to capture subprocess stderr to /tmp/egg-subprocess-stderr.log while passing it through to the container's stderr. This works by reading from subprocess.PIPE. If a timeout wrapper is inserted between Claude Code and its Bash tool's command execution, and the wrapper writes its own timeout error messages to stderr, these messages would be captured by the tee mechanism and potentially confused with the agent's actual error output. The completion signaling logic reads this stderr log to determine error context.",
+      "likelihood": "low",
+      "impact": "low",
+      "impact_detail": "Timeout error messages appearing in the stderr log could confuse error reporting but would not cause data loss or pipeline corruption. The entrypoint's error signal logic would see 'Command killed: exceeded BASH_COMMAND_TIMEOUT' messages in the stderr log, which is actually useful diagnostic information.",
+      "affected_files": [
+        "sandbox/entrypoint.py:1424-1428 (_tee_stderr_to_file)",
+        "Timeout wrapper implementation (to be determined)"
+      ],
+      "mitigation": "This is actually benign — the timeout error message appearing in the stderr log provides useful diagnostic context. No mitigation needed. However, ensure the timeout wrapper's error messages are clearly prefixed (e.g., '[egg-timeout]') so they can be distinguished from the agent's actual errors in log analysis.",
+      "rollback": "Not applicable.",
+      "human_review_needed": false
+    },
+    {
+      "id": "R-11",
+      "category": "compatibility",
+      "title": "System-level timeout may conflict with gateway's own timeout on git/gh commands",
+      "description": "The gateway's github_client.py (lines 837-880) already applies a 60-second timeout to gh CLI commands via subprocess.run(timeout=60). The sandbox also has git and gh wrapper scripts (sandbox/scripts/git, sandbox/scripts/gh) that route commands through the gateway. If a system-level 120s timeout wrapper is applied to ALL commands including git/gh, there could be a double-timeout situation: the gateway's 60s timeout fires first, killing the command, and then the wrapper's 120s timeout never fires. This is not harmful, but if the gateway timeout is increased (e.g., for large repos), the system-level timeout might fire first and kill a legitimate long-running git operation before the gateway timeout.",
+      "likelihood": "low",
+      "impact": "low",
+      "impact_detail": "In practice, the shorter timeout (gateway's 60s for gh commands) wins. The system-level timeout (120s) acts as a backstop only for commands that don't go through the gateway. The risk is minimal unless timeouts are reconfigured independently, creating confusion about which layer is killing commands.",
+      "affected_files": [
+        "gateway/github_client.py:837-880 (gh timeout)",
+        "sandbox/scripts/git (gateway-routed git)",
+        "sandbox/scripts/gh (gateway-routed gh)"
+      ],
+      "mitigation": "Document the timeout hierarchy: (1) Claude Code per-call timeout (model-controlled, max 600s), (2) system-level BASH_COMMAND_TIMEOUT (120s default), (3) gateway git/gh timeout (60s for gh, configurable). When a command is killed, the error message should identify which layer killed it. The system-level timeout wrapper should detect that git/gh commands are gateway-routed and may have their own timeouts, and include this in any timeout error message.",
+      "rollback": "Not applicable — this is a documentation and error messaging concern.",
+      "human_review_needed": false
+    }
+  ],
+
+  "cross_cutting_concerns": [
+    {
+      "id": "CC-1",
+      "title": "Five-component change requires coordinated rollout",
+      "description": "The revised approach touches five areas: prompt rules (sandbox/.claude/rules/), gateway push validation (gateway/gateway.py), sandbox timeout wrapper (new mechanism), orchestrator worktree sync (orchestrator/routes/pipelines.py), and orchestrator signal handling (orchestrator/routes/signals.py). The architect's phase ordering (1→5) is a good rollout order because each phase is independently valuable.",
+      "recommendation": "Deploy in the architect's phase order. Each step is independently valuable and can be rolled back independently. The timeout wrapper (Phase 3) has the most implementation uncertainty (R-1) and should be treated as a spike: if task-timeout-1 reveals that no approach works, the remaining phases still provide value."
+    },
+    {
+      "id": "CC-2",
+      "title": "Integration testing for sync + push-target enforcement + auto-commit lifecycle",
+      "description": "The three gateway/orchestrator changes interact: pre-phase sync pushes through the gateway (subject to push-target enforcement), and auto-commit pushes through the gateway (also subject to push-target enforcement). Integration tests must cover the full lifecycle: phase N completes → auto-commit pushes → orchestrator sync pushes prior commits → phase N+1 agent pushes new work.",
+      "recommendation": "Add an integration test that exercises a two-phase pipeline transition with push-target enforcement enabled. Verify: (a) auto-commit push for phase N succeeds, (b) sync push succeeds, (c) phase N+1 agent push succeeds, (d) phase N+1 agent push to wrong branch is blocked."
+    },
+    {
+      "id": "CC-3",
+      "title": "Backward compatibility with in-flight pipelines",
+      "description": "If the gateway push-target enforcement is deployed while pipelines are running, in-flight agents on existing sessions may be affected. Push-target enforcement should only activate when session.pipeline_id AND session.branch are both set. If either is null (old sessions), skip enforcement.",
+      "recommendation": "Push-target enforcement should only activate when session.pipeline_id is set AND session.branch is set. If either is null (old sessions), skip enforcement."
+    },
+    {
+      "id": "CC-4",
+      "title": "Plan document (901-plan.md) is out of sync with architect revision 2",
+      "description": "The plan document still shows 4 phases without Option F tasks. The architect output (revision 2) shows 5 phases including the timeout wrapper. The task planner must update the plan to match the architect's revision. Until this is done, the contract's task list will not include the timeout wrapper tasks, which means the implement phase will not have them in scope.",
+      "recommendation": "The task planner should regenerate the plan from the architect's revision 2 output. This is a process dependency, not a technical risk."
+    }
+  ],
+
+  "rollback_plan": {
+    "overall": "Each of the five changes can be rolled back independently without affecting the others. The changes have no shared state or database migrations. Rollback order should be reverse of deployment: timeout → signal verification → sync → push-target → guardrails.",
+    "per_change": [
+      {
+        "change": "Prompt guardrails (sandbox/.claude/rules/environment.md, mission.md)",
+        "rollback": "Remove the added text. No code changes needed. Takes effect on next container spawn.",
+        "data_impact": "None."
+      },
+      {
+        "change": "Gateway push-target enforcement",
+        "rollback": "Set PUSH_TARGET_ENFORCEMENT=false in gateway env (killswitch) or revert the code change. Takes effect immediately for new pushes.",
+        "data_impact": "None. Push validation is stateless."
+      },
+      {
+        "change": "Sandbox per-command timeout wrapper",
+        "rollback": "Set BASH_COMMAND_TIMEOUT=0 or a very high value (3600). Or remove the timeout wrapper entirely. Takes effect on next container spawn.",
+        "data_impact": "None. Timeout is stateless."
+      },
+      {
+        "change": "Pre-phase worktree sync (force-reset + push-before-reset)",
+        "rollback": "Revert the change to _sync_worktree_with_remote(). Return to skip-when-ahead behavior. Takes effect on next phase transition.",
+        "data_impact": "None. The sync is idempotent."
+      },
+      {
+        "change": "Completion signal branch verification",
+        "rollback": "Remove the branch tip tracking and verification. Completion signals return to unconditional acceptance. Takes effect immediately.",
+        "data_impact": "None."
+      }
+    ]
+  },
+
+  "human_review_areas": [
+    {
+      "area": "Per-command timeout implementation approach (R-1)",
+      "reason": "Task-timeout-1's investigation determines the entire timeout implementation path. If Claude Code's Bash tool uses /bin/sh -c (non-interactive, non-login), BASH_ENV and .bashrc approaches won't work. The implementer must experimentally verify the shell invocation path in the actual sandbox environment. If no approach works, the plan needs fundamental redesign — potentially involving upstream Claude Code configuration changes or a process monitor daemon.",
+      "urgency": "blocking — task-timeout-1 must complete and be reviewed before task-timeout-2 starts"
+    },
+    {
+      "area": "Auto-commit interaction with push-target enforcement (R-5)",
+      "reason": "Auto-commit is a critical safety net. Push-target enforcement must not break it. The implementer must trace the full auto-commit push path and add integration tests. If auto-commit sessions lack pipeline branch metadata, they must be exempted from enforcement.",
+      "urgency": "blocking — must be addressed during gateway push-target enforcement implementation"
+    },
+    {
+      "area": "Process group management for timeout kills (R-9)",
+      "reason": "Single-process SIGTERM does not kill child processes. The timeout wrapper must use process group kills. This is a design detail that should be specified in the implementation task, not left to the implementer to discover.",
+      "urgency": "non-blocking — design detail for task-timeout-2"
+    }
+  ],
+
+  "overall_risk_rating": "LOW-MEDIUM",
+  "recommendation": "PROCEED with the architect's 5-phase approach. The reviewer's feedback about Option F has been adequately addressed by the architect's revision 2. The risks are manageable with the proposed mitigations. The two blocking human review items (timeout shell invocation path, auto-commit interaction) should be resolved during implementation through the investigation task (task-timeout-1) and explicit integration testing. The plan document must be updated by the task planner to reflect the 5-phase structure before the implement phase begins."
+}

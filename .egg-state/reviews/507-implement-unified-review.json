@@ -1,0 +1,7 @@
+{
+  "reviewer": "unified",
+  "verdict": "approved",
+  "summary": "Implementation faithfully follows the plan. All 5 phases are complete: find_related_docs() expanded to search root-level markdown (Phase 1), detect_high_risk_docs() and build_high_risk_instructions() added with all 6 heuristic rules (Phase 2), prompt expanded with README.md structural checks, conditional step 3b cross-referencing, and deployment guide attention (Phase 3), heuristics wired into build_prompt() with context block visibility (Phase 4), and shellcheck passes cleanly (Phase 5). Only action/build-doc-updater-prompt.sh was modified, matching the plan's single-file scope. The ruff and pytest failures in implement-results.json are pre-existing issues in unrelated files (gateway/tests, shared/egg_contracts) not touched by this change. Code follows existing bash patterns, uses proper quoting and error handling, and the conditional prompt injection is cleanly structured.",
+  "feedback": "",
+  "timestamp": "2026-02-13T18:45:00Z"
+}

@@ -1,0 +1,348 @@
+{
+  "schemaVersion": "1.0",
+  "issue": {
+    "number": 632,
+    "title": "Issue #632",
+    "url": "https://github.com/jwbron/egg/issues/632"
+  },
+  "pipeline_id": null,
+  "current_phase": "refine",
+  "acceptance_criteria": [],
+  "phases": [
+    {
+      "id": "phase-1",
+      "name": "Verify orchestrator tests and fix interactions",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-1-1",
+          "description": "Run orchestrator tests standalone and capture baseline results",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "All collectable orchestrator tests pass; 2 docker-dependent collection errors identified",
+          "files_affected": [
+            "orchestrator/tests/"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-2",
+          "description": "Add docker>=7.0.0 to pyproject.toml dev extras so docker-dependent test files collect",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "After uv sync --extra dev, PYTHONPATH=orchestrator:shared pytest orchestrator/tests/ -v --collect-only shows 0 collection errors",
+          "files_affected": [
+            "pyproject.toml"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-3",
+          "description": "Fix test_cli.py::test_serve_runs_as_non_root logging interaction by mocking cli.logger in the test",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Combined command passes: PYTHONPATH=shared:gateway:orchestrator pytest tests/ gateway/tests/ orchestrator/tests/ -v (test_serve_runs_as_non_root does not fail)",
+          "files_affected": [
+            "orchestrator/tests/test_cli.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-4",
+          "description": "Run full combined suite and fix any remaining interaction failures",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "PYTHONPATH=shared:gateway:orchestrator pytest tests/ gateway/tests/ orchestrator/tests/ -v exits 0 (excluding 2 pre-existing test_session_manager failures)",
+          "files_affected": [
+            "orchestrator/tests/"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        }
+      ],
+      "review_feedback": []
+    },
+    {
+      "id": "phase-2",
+      "name": "Add orchestrator tests to CI (without orchestrator coverage)",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-2-1",
+          "description": "Update test.yml: add orchestrator/tests/ to pytest command, add orchestrator to PYTHONPATH, do NOT add --cov=orchestrator",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "CI pytest command is: PYTHONPATH=shared:gateway:orchestrator pytest tests/ gateway/tests/ orchestrator/tests/ -v --cov=gateway --cov=shared --cov=sandbox --cov-report=term-missing --cov-fail-under=80 (no --cov=orchestrator)",
+          "files_affected": [
+            ".github/workflows/test.yml"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-2-2",
+          "description": "Add orchestrator to Bandit security scan targets in test.yml",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Bandit command becomes: .venv/bin/bandit -r gateway shared sandbox orchestrator -ll -c pyproject.toml",
+          "files_affected": [
+            ".github/workflows/test.yml"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        }
+      ],
+      "review_feedback": []
+    },
+    {
+      "id": "phase-3",
+      "name": "Consolidate pytest configuration",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-3-1",
+          "description": "Migrate all pytest.ini settings into pyproject.toml: markers, filterwarnings, python_files/classes/functions, updated testpaths, merged addopts with --tb=short preserved (no --cov=orchestrator, no --cov-fail-under)",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "pyproject.toml [tool.pytest.ini_options] contains markers, filterwarnings, --tb=short, testpaths=[tests, gateway/tests, orchestrator/tests], and existing --cov flags",
+          "files_affected": [
+            "pyproject.toml"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-3-2",
+          "description": "Delete pytest.ini",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "pytest.ini no longer exists; bare pytest uses pyproject.toml and discovers tests in all three directories",
+          "files_affected": [
+            "pytest.ini"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-3-3",
+          "description": "Add mypy override for orchestrator.tests.* matching gateway.tests.* pattern (disallow_untyped_defs=false, ignore_missing_imports=true)",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "mypy config includes orchestrator.tests.* override with relaxed typing rules",
+          "files_affected": [
+            "pyproject.toml"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        }
+      ],
+      "review_feedback": []
+    },
+    {
+      "id": "phase-4",
+      "name": "Verify end-to-end and document",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-4-1",
+          "description": "Verify make test (or equivalent direct pytest) executes tests from all three directories",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Test run includes tests/, gateway/tests/, and orchestrator/tests/",
+          "files_affected": [
+            "Makefile"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-4-2",
+          "description": "Check if Makefile integration test targets need orchestrator on PYTHONPATH",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "All Makefile test targets work correctly",
+          "files_affected": [
+            "Makefile"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-4-3",
+          "description": "Document in PR: 6 intentionally-skipped tests, ~20 environment-conditional skips, 2 pre-existing test_session_manager failures (out of scope), and --cov=orchestrator omission rationale",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "PR description documents all skipped tests, pre-existing failures, and coverage strategy",
+          "files_affected": [],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        }
+      ],
+      "review_feedback": []
+    }
+  ],
+  "decisions": [],
+  "workflow_owner": null,
+  "audit_log": [],
+  "refine_review_cycles": 0,
+  "refine_review_feedback": "",
+  "plan_review_cycles": 0,
+  "plan_review_feedback": "",
+  "pr": null,
+  "feedback": null,
+  "phase_configs": null,
+  "agent_executions": [
+    {
+      "role": "coder",
+      "status": "complete",
+      "started_at": "2026-02-15T19:33:15.982431Z",
+      "completed_at": "2026-02-15T19:51:13.906815Z",
+      "commit": null,
+      "checkpoint_id": null,
+      "outputs": {},
+      "error": null,
+      "retry_count": 0,
+      "conflicts": []
+    },
+    {
+      "role": "tester",
+      "status": "complete",
+      "started_at": "2026-02-15T19:51:13.908708Z",
+      "completed_at": "2026-02-15T20:11:44.872191Z",
+      "commit": null,
+      "checkpoint_id": null,
+      "outputs": {},
+      "error": null,
+      "retry_count": 0,
+      "conflicts": []
+    },
+    {
+      "role": "documenter",
+      "status": "complete",
+      "started_at": "2026-02-15T19:51:13.909799Z",
+      "completed_at": "2026-02-15T19:53:31.039245Z",
+      "commit": null,
+      "checkpoint_id": null,
+      "outputs": {},
+      "error": null,
+      "retry_count": 0,
+      "conflicts": []
+    },
+    {
+      "role": "integrator",
+      "status": "complete",
+      "started_at": "2026-02-15T20:11:44.875659Z",
+      "completed_at": "2026-02-15T20:18:56.423839Z",
+      "commit": null,
+      "checkpoint_id": null,
+      "outputs": {},
+      "error": null,
+      "retry_count": 0,
+      "conflicts": []
+    },
+    {
+      "role": "reviewer_agent_design",
+      "status": "complete",
+      "started_at": null,
+      "completed_at": "2026-02-15T20:22:31.612377Z",
+      "commit": null,
+      "checkpoint_id": null,
+      "outputs": {},
+      "error": null,
+      "retry_count": 0,
+      "conflicts": []
+    },
+    {
+      "role": "reviewer_unified",
+      "status": "complete",
+      "started_at": null,
+      "completed_at": "2026-02-15T20:22:53.198461Z",
+      "commit": null,
+      "checkpoint_id": null,
+      "outputs": {},
+      "error": null,
+      "retry_count": 0,
+      "conflicts": []
+    },
+    {
+      "role": "reviewer_contract",
+      "status": "complete",
+      "started_at": null,
+      "completed_at": "2026-02-15T20:23:49.827202Z",
+      "commit": null,
+      "checkpoint_id": null,
+      "outputs": {},
+      "error": null,
+      "retry_count": 0,
+      "conflicts": []
+    },
+    {
+      "role": "reviewer_code",
+      "status": "complete",
+      "started_at": null,
+      "completed_at": "2026-02-15T20:28:30.468322Z",
+      "commit": null,
+      "checkpoint_id": null,
+      "outputs": {},
+      "error": null,
+      "retry_count": 0,
+      "conflicts": []
+    }
+  ],
+  "multi_agent_config": null
+}

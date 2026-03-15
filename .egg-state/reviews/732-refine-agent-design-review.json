@@ -1,0 +1,7 @@
+{
+  "reviewer": "agent-design",
+  "verdict": "approved",
+  "summary": "The analysis follows agent-mode design principles. The proposed Tier 3 design preserves agent autonomy through per-phase prompt isolation, scoped handoff data, and objective-driven task descriptions. Constraint enforcement (branch ownership, integrator write access) is correctly delegated to the gateway sidecar rather than prompt-level instructions. No anti-patterns identified.",
+  "feedback": "",
+  "timestamp": "2026-02-17T12:00:00Z"
+}
