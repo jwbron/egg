@@ -4,7 +4,7 @@ Concurrent execution mode runs all agents for the current pipeline phase simulta
 
 This is distinct from the standard wave-based parallel execution (Tier 2), where agents run in dependency order but multiple independent agents execute in parallel within each wave.
 
-## Enabling Concurrent Execution
+## Configuring Concurrent Execution
 
 BRC concurrent execution is **enabled by default** for the refine, plan, and implement phases via the `concurrent_phases` config field. No additional configuration is required for standard pipelines.
 
