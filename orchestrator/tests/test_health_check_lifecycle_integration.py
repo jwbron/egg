@@ -712,7 +712,7 @@ class TestCoordinatorManagedPipelineGuard:
                 "/api/v1/pipelines/issue-99/phase",
                 json={"target_phase": "implement", "force": True},
             )
-            assert resp.status_code != 409
+            assert resp.status_code == 200
 
     @patch("routes.phases.get_repo_path", return_value=Path("/tmp/repo"))
     @patch("routes.phases.get_state_store")
@@ -735,4 +735,4 @@ class TestCoordinatorManagedPipelineGuard:
                 "/api/v1/pipelines/issue-99/phase",
                 json={"target_phase": "implement"},
             )
-            assert resp.status_code != 409
+            assert resp.status_code == 200
