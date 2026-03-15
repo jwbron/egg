@@ -20,7 +20,7 @@ Relevant `PipelineConfig` fields:
 | `concurrent_execution` | `false` | Enable concurrent agent execution |
 | `max_concurrent_agents` | `6` | Maximum agents per phase |
 | `message_poll_hint_seconds` | `30` | Suggested polling interval for agents |
-| `consensus_timeout_minutes` | `30` | Timeout before HITL escalation |
+| `consensus_timeout_minutes` | `30` | Consensus timeout before escalation or auto-advance |
 | `agent_idle_timeout_minutes` | `60` | Idle agent timeout before termination |
 
 ## Agent Startup Protocol
