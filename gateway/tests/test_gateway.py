@@ -5988,6 +5988,29 @@ class TestGhExecuteIssueCommentBlocking:
             )
             assert response.status_code == 403
 
+    def test_gh_api_issue_edit_blocked(self, client):
+        """PATCH to issues/{id} via gh api is also blocked (issue edit bypass)."""
+        ctx1, ctx2 = self._make_session(phase="refine", agent_role="reviewer_refine")
+        with ctx1, ctx2:
+            response = client.post(
+                "/api/v1/gh/execute",
+                headers={"Authorization": "Bearer test-session-token"},
+                data=json.dumps(
+                    {
+                        "args": [
+                            "api",
+                            "-X",
+                            "PATCH",
+                            "repos/owner/repo/issues/1032",
+                            "-f",
+                            "title=new title",
+                        ],
+                    }
+                ),
+                content_type="application/json",
+            )
+            assert response.status_code == 403
+
     def test_pr_view_still_allowed(self, client):
         """Non-blocked operations like pr view should still work."""
         ctx1, ctx2 = self._make_session(phase="refine", agent_role="reviewer_refine")

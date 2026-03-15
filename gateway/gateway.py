@@ -2906,12 +2906,22 @@ def gh_execute() -> tuple[Response, int] | Response:
             )
             return make_error(path_error, status_code=403)
 
-        # Detect issue comment creation via gh api (bypass prevention).
-        # POST to repos/{owner}/{repo}/issues/{id}/comments is equivalent to
-        # "gh issue comment {id}" — apply the same phase + role checks.
+        # Detect issue comment/edit via gh api (bypass prevention).
+        # These API calls are equivalent to "gh issue comment/edit {id}" —
+        # apply the same phase + role checks.
+        synthesized_cmd = None
+
+        # POST to repos/{owner}/{repo}/issues/{id}/comments → issue comment
         _api_issue_comment_match = re.match(r"^repos/[^/]+/[^/]+/issues/(\d+)/comments$", api_path)
         if _api_issue_comment_match and method.upper() == "POST":
             synthesized_cmd = f"issue comment {_api_issue_comment_match.group(1)}"
+
+        # PATCH to repos/{owner}/{repo}/issues/{id} → issue edit
+        _api_issue_edit_match = re.match(r"^repos/[^/]+/[^/]+/issues/(\d+)$", api_path)
+        if _api_issue_edit_match and method.upper() == "PATCH":
+            synthesized_cmd = f"issue edit {_api_issue_edit_match.group(1)}"
+
+        if synthesized_cmd:
             # Phase check
             if session_phase:
                 try:
@@ -2922,7 +2932,7 @@ def gh_execute() -> tuple[Response, int] | Response:
                     )
                     if not api_phase_result.allowed:
                         audit_log(
-                            "gh_api_issue_comment_blocked_phase",
+                            "gh_api_issue_op_blocked_phase",
                             "gh_execute",
                             success=False,
                             details={
@@ -2948,7 +2958,7 @@ def gh_execute() -> tuple[Response, int] | Response:
                 )
                 if not api_role_allowed:
                     audit_log(
-                        "gh_api_issue_comment_blocked_role",
+                        "gh_api_issue_op_blocked_role",
                         "gh_execute",
                         success=False,
                         details={
