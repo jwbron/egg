@@ -11,7 +11,8 @@ This guide documents the **target design** for peer consensus. Most components d
 | Component | Status |
 |-----------|--------|
 | In-memory `MessageStore` with role filtering | **Implemented** |
-| Long-polling (`egg-orch message poll --wait`) | **Implemented** |
+| Message polling (`egg-orch message poll`) | **Implemented** |
+| Long-polling (`--wait` blocking mode) | Planned |
 | Readiness signaling (WORKING/READY/BLOCKED/OBJECTING) | **Implemented** — current consensus mechanism |
 | Redis Streams transport | Planned — currently uses in-memory `MessageStore` |
 | BRC protocol (propose/ack/nack/confirmed) | Planned — currently uses readiness signaling |
@@ -59,9 +60,9 @@ The current implementation uses an in-memory `MessageStore` with polling. The ta
 
 **Why Redis Streams over SSE:**
 
-- Natively bidirectional (agents publish and consume) — SSE is server-to-client only
-- Message persistence — agents that restart can replay missed messages from their last-seen ID
-- Ordered, append-only log creates a natural audit trail
+- Will be natively bidirectional (agents publish and consume) — SSE is server-to-client only
+- Will provide message persistence — agents that restart can replay missed messages from their last-seen ID
+- Ordered, append-only log will create a natural audit trail
 - Redis is already running in the environment — zero new infrastructure
 
 **Agent CLI:**
