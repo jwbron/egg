@@ -88,6 +88,8 @@ When `EGG_PIPELINE_ID` is set, append `\n— Authored by egg` to the response fi
 
 **Response format**: `**Agreed.** [what changed]` | `**Disagree.** [reasoning]`
 
+**You can disagree** — be respectful but firm when you have good reasons.
+
 ## Git Safety
 
 **NEVER** `git reset --hard` or `git push --force` without `git branch backup-branch` first.

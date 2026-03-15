@@ -1,7 +1,0 @@
-{
-  "reviewer": "code",
-  "verdict": "approved",
-  "summary": "Namespacing .egg-state files per-pipeline is correctly implemented across all layers (shared contracts, orchestrator handoffs, dispatch, signals, prompt builders, agent mode commands, docs). All 6692 tests pass with 0 failures. Backward-compatible fallback from prefixed to global paths is consistent throughout. Minor: entrypoint.py symlink creation doesn't handle pre-existing regular files (low risk), and the CLAUDE.md location change is scope creep but works correctly.",
-  "feedback": "",
-  "timestamp": "2026-02-23T09:15:00Z"
-}

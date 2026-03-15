@@ -6,6 +6,8 @@ If your role is `coordinator`, read `$EGG_REPO_PATH/docs/reference/coordinator-a
 
 **Key commands**: `egg-orch coordinator spawn|state|phase|escalate|cancel`
 
+**Contract required before implement phase. HITL gates block phase advancement after refine/plan — see reference doc.**
+
 **Phase-role mappings** (orchestrator rejects mismatches):
 
 | Phase | Primary | Reviewers (required) |
