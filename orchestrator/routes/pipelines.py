@@ -557,14 +557,15 @@ def create_pipeline() -> tuple[Response, int]:
             # whether to cancel+resubmit or resume monitoring.
             details: dict[str, Any] = {}
             try:
-                # Error message format: "Pipeline {pipeline_id} already exists"
-                pid = str(e).split("Pipeline ", 1)[1].rsplit(" already exists", 1)[0]
-                existing = store.load_pipeline(pid)
-                details = {
-                    "existing_pipeline_id": existing.id,
-                    "existing_status": existing.status.value,
-                    "existing_phase": existing.current_phase.value,
-                }
+                # Derive pipeline ID using the same logic as state_store
+                pid = f"issue-{issue_number}" if issue_number else None
+                if pid:
+                    existing = store.load_pipeline(pid)
+                    details = {
+                        "existing_pipeline_id": existing.id,
+                        "existing_status": existing.status.value,
+                        "existing_phase": existing.current_phase.value,
+                    }
             except Exception:
                 pass  # Best-effort enrichment
             return make_error_response(str(e), status_code=409, details=details)

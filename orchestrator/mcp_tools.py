@@ -381,11 +381,11 @@ class CoordinatorToolHandler:
             timeout=120,
         )
 
-        cleaned_up: list[str] = []
         if args.get("cleanup"):
             # Delete pipeline state so the issue can be resubmitted.
             # The DELETE endpoint cleans up containers, remote branches,
             # Redis messages, and the state file.
+            cleaned_up: list[str] = []
             try:
                 self._make_request(
                     f"/api/v1/pipelines/{task_id}",
@@ -399,9 +399,6 @@ class CoordinatorToolHandler:
                     task_id=task_id,
                     error=str(e),
                 )
-                cleaned_up = []
-
-        if args.get("cleanup"):
             return {
                 "cancelled": True,
                 "cleaned_up": cleaned_up,

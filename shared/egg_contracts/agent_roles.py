@@ -506,28 +506,6 @@ _REVIEWER_CONTRACT_BLOCKED_WRITE = [
     ".egg-state/drafts/",
 ]
 
-CHECKER_ROLE = AgentRoleDefinition(
-    role=AgentRole.CHECKER,
-    description="Runs lint, type checking, and tests to validate code quality",
-    responsibilities=[
-        "Run linters (ruff, eslint) and report violations",
-        "Run type checkers (mypy, tsc) and report errors",
-        "Run test suites and report failures",
-        "Apply auto-fixes where possible",
-    ],
-    dependencies=[AgentRole.CODER],
-    file_access=FileAccessPattern(
-        allowed_read=[],
-        allowed_write=[
-            ".egg-state/reviews/",
-            ".egg-state/agent-outputs/",
-        ],
-        blocked_write=_REVIEWER_BLOCKED_WRITE,
-    ),
-    produces_outputs=["check_results"],
-    requires_inputs=["source_code"],
-)
-
 REVIEWER_CONTRACT_ROLE = AgentRoleDefinition(
     role=AgentRole.REVIEWER_CONTRACT,
     description="Verifies implementation matches the contract",
@@ -721,7 +699,6 @@ AGENT_ROLES: dict[AgentRole, AgentRoleDefinition] = {
     AgentRole.REVIEWER_AGENT_DESIGN: REVIEWER_AGENT_DESIGN_ROLE,
     AgentRole.REVIEWER_REFINE: REVIEWER_REFINE_ROLE,
     AgentRole.REVIEWER_PLAN: REVIEWER_PLAN_ROLE,
-    AgentRole.CHECKER: CHECKER_ROLE,
 }
 
 
