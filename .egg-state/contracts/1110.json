@@ -1,0 +1,489 @@
+{
+  "schemaVersion": "1.0",
+  "issue": {
+    "number": 1110,
+    "title": "Agent team communication and peer consensus protocol",
+    "url": "https://github.com/jwbron/egg/issues/1110"
+  },
+  "pipeline_id": null,
+  "current_phase": "plan",
+  "acceptance_criteria": [],
+  "phases": [
+    {
+      "id": "phase-1",
+      "name": "Types and Data Model",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-1-1",
+          "description": "Add ConsensusPhase enum (WORKING, PROPOSED, REVIEWING, CONFIRMED) to shared/egg_orchestrator/types.py. Add consensus message type constants (CONSENSUS_PROPOSE, CONSENSUS_ACK, CONSENSUS_NACK, CONSENSUS_WITHDRAW, CONSENSUS_CONFIRMED) to MessageType in both shared/egg_orchestrator/types.py and orchestrator/message_store.py.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "ConsensusPhase enum exists with 4 values; 5 consensus message types in both MessageType locations; existing types unchanged; unit tests pass",
+          "files_affected": [
+            "shared/egg_orchestrator/types.py",
+            "orchestrator/message_store.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-2",
+          "description": "Create orchestrator/attestation_schemas.py with per-role attestation Pydantic models (CoderAttestation, TesterAttestation, DocumenterAttestation, ReviewerCodeAttestation, ReviewerContractAttestation, CheckerAttestation) plus ProposalPayload and ReviewPayload wrappers that validate non-empty artifact references",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "All 6 attestation models serialize/deserialize; ProposalPayload/ReviewPayload reject empty artifact refs; configurable strictness; unit tests pass",
+          "files_affected": [
+            "orchestrator/attestation_schemas.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-3",
+          "description": "Create orchestrator/review_graph.py with ReviewEdge (reviewer_role, producer_role, criticality), ReviewGraph (edges, reviewers_for, producers_for, is_reviewer, is_producer, critical_reviewers_for). Define default implement-phase review graph per issue spec.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Default graph matches spec (~7-10 edges); lookup methods correct; tester dual-role handled; configurable per phase; unit tests pass",
+          "files_affected": [
+            "orchestrator/review_graph.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-4",
+          "description": "Create orchestrator/approval_matrix.py with ApprovalMatrix class \u2014 record_ack, record_nack, is_fully_acked, is_fully_confirmed, get_blocking_edges, invalidate_ack (scoped re-evaluation), revision_count per edge. Serializable to/from dict.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "ACK/NACK tracking per edge correct; is_fully_acked checks all assigned reviewers; invalidate_ack works; revision_count tracks per-edge; serialization round-trips; unit tests pass",
+          "files_affected": [
+            "orchestrator/approval_matrix.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-5",
+          "description": "Extend consensus event types in orchestrator/events.py. CONSENSUS_REACHED and CONSENSUS_TIMEOUT already exist \u2014 do not re-add. Add new: CONSENSUS_PROPOSE_RECEIVED, CONSENSUS_ACK_RECEIVED, CONSENSUS_NACK_RECEIVED, CONSENSUS_CONFIRMED_RECEIVED, CONSENSUS_WITHDRAW_RECEIVED, CONSENSUS_FAILURE.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "New event types added without duplicating existing ones; events can be created and emitted; existing events unchanged; unit tests pass",
+          "files_affected": [
+            "orchestrator/events.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        }
+      ],
+      "dependencies": [],
+      "review_feedback": []
+    },
+    {
+      "id": "phase-2",
+      "name": "Redis Streams Transport",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-2-1",
+          "description": "Create orchestrator/redis_message_store.py with RedisMessageStore backed by Redis Streams (key pipeline:{id}:messages). XADD for writes, XREAD for reads with since_id cursor, Python-side role filtering. Connection pooling via get_redis_message_store() singleton. Graceful connection failure handling.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Same interface as MessageStore; messages persist across restarts; role filtering correct; connection pool configured; connection failure raises clear error; unit tests with real Redis pass",
+          "files_affected": [
+            "orchestrator/redis_message_store.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-2-2",
+          "description": "Add long-polling to GET /<pipeline_id>/messages in orchestrator/routes/messages.py. New wait query param (seconds, max 60, default 0). When wait > 0, use XREAD BLOCK, apply role filter, return on match or timeout. Check production WSGI server config (gunicorn gevent vs sync workers) \u2014 XREAD BLOCK for 30s will block an entire sync worker.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "wait=0 backwards compatible; wait=30 blocks and returns on message arrival; timeout returns empty list; server responsive during blocking reads; unit/integration tests pass",
+          "files_affected": [
+            "orchestrator/routes/messages.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-2-3",
+          "description": "Wire RedisMessageStore into application. Update get_message_store() to use Redis when available, in-memory fallback for tests. Add Redis config (host, port, db). Clean up Redis Stream key on pipeline deletion.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Redis backend in production; in-memory fallback for tests; pipeline deletion cleans keys; existing message tests pass; no behavior change for non-consensus messages",
+          "files_affected": [
+            "orchestrator/message_store.py",
+            "orchestrator/routes/messages.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        }
+      ],
+      "dependencies": [],
+      "review_feedback": []
+    },
+    {
+      "id": "phase-3",
+      "name": "BRC Protocol Engine",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-3-1",
+          "description": "Create orchestrator/peer_consensus.py with PeerConsensusTracker \u2014 per-agent ConsensusPhase tracking, ReviewGraph, ApprovalMatrix. Handlers for propose/ack/nack/withdraw/confirmed with attestation validation. evaluate() checks all-confirmed \u2192 emit CONSENSUS_REACHED. Tester dual-role: track both producer state (WORKING\u2192PROPOSED\u2192CONFIRMED) and reviewer state (WORKING\u2192REVIEWING\u2192CONFIRMED) simultaneously; tester confirmed only when both reach CONFIRMED. Wire into message handling dispatch.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "State transitions follow spec; tester dual-role both state machines tracked; attestation validation rejects empty refs; events emitted; unit tests pass",
+          "files_affected": [
+            "orchestrator/peer_consensus.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-3-2",
+          "description": "Add scoped re-evaluation to PeerConsensusTracker. On re-proposal, compare changed artifacts against existing ACK artifact refs. Overlap \u2192 invalidate ACK. No overlap \u2192 ACK stands. NACKing reviewer always re-reviews.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Overlapping ACKs invalidated; non-overlapping preserved; NACKing reviewer always re-reviews; example scenario (rev_code NACKs coder auth.py, tester ACK on tests stands) works; unit tests pass",
+          "files_affected": [
+            "orchestrator/peer_consensus.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-3-3",
+          "description": "Add commitment devices \u2014 cooldown after PROPOSED (configurable, default 30s), withdrawal requires reason, lockout after K flip-flops (default 3), bounded revision rounds per edge (default 2) with HITL escalation on limit",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Cooldown rejects early withdrawal; empty reason rejected; lockout triggers after K flips; revision limit triggers HITL; all configurable; unit tests pass",
+          "files_affected": [
+            "orchestrator/peer_consensus.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-3-4",
+          "description": "Add consensus failure handlers \u2014 partial timeout (evaluate blocking edges by criticality, escalate critical, proceed non-critical), agent crash (producer crash preserves proposal, reviewer crash removes from graph and re-evaluates)",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Timeout with critical blocker creates HITL with matrix snapshot; non-critical proceeds; producer crash preserves proposal; reviewer crash removes edge; unit tests pass",
+          "files_affected": [
+            "orchestrator/peer_consensus.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-3-5",
+          "description": "Replace ConsensusEvaluator in orchestrator/concurrent_executor.py with PeerConsensusTracker. Initialize with phase review graph. Register edges on spawn. Listen for CONSENSUS_REACHED/TIMEOUT/FAILURE. Pass review assignments to agents via env vars.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "ConcurrentPhaseExecutor uses PeerConsensusTracker; review graph registered; phase completes on CONSENSUS_REACHED; timeout/failure handled; agents get review assignments in env; existing tests updated and passing",
+          "files_affected": [
+            "orchestrator/concurrent_executor.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-3-6",
+          "description": "Update orchestrator/routes/signals.py with consensus signal handlers (propose, ack, nack, withdraw, confirmed). Validate payloads against attestation schemas. Dispatch to PeerConsensusTracker. Write to Redis Stream. Deprecate readiness signal handler.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Each consensus signal handled correctly; attestation validation rejects invalid payloads; messages written to stream; readiness handler deprecated with clear error; unit tests pass",
+          "files_affected": [
+            "orchestrator/routes/signals.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-3-7",
+          "description": "Add Delphi visibility filtering to message poll endpoint in orchestrator/routes/messages.py. Moved from Phase 2 because it depends on approval matrix populated by PeerConsensusTracker (TASK-3-1). When requester is a reviewer for a proposer and hasn't submitted ACK/NACK yet (checked via approval matrix), withhold CONSENSUS_PROPOSE from that proposer. Release after reviewer submits evaluation.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Reviewer without prior evaluation doesn't see PROPOSE; after ACK/NACK sees it; non-reviewers see PROPOSE immediately; git artifacts unaffected; integration tests pass",
+          "files_affected": [
+            "orchestrator/routes/messages.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-3-8",
+          "description": "Update all remaining ConsensusEvaluator call sites beyond concurrent_executor.py (TASK-3-5): (1) orchestrator/routes/pipelines.py:968 \u2014 pipeline status endpoint must read from PeerConsensusTracker returning BRC phase per agent + approval matrix (critical: consensus_wrapper.py reads this via egg-orch pipeline status --json); (2) orchestrator/routes/phases.py:98 \u2014 clear PeerConsensusTracker state on phase completion; (3) orchestrator/consensus.py \u2014 remove or deprecate old ConsensusEvaluator class.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Pipeline status returns BRC state (per-agent phase, approval matrix, review graph); phase completion clears tracker; old ConsensusEvaluator removed/deprecated; wrapper can read BRC state via API; unit tests pass",
+          "files_affected": [
+            "orchestrator/routes/pipelines.py",
+            "orchestrator/routes/phases.py",
+            "orchestrator/consensus.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        }
+      ],
+      "dependencies": [],
+      "review_feedback": []
+    },
+    {
+      "id": "phase-4",
+      "name": "Consensus CLI and Wrapper",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-4-1",
+          "description": "Add consensus subcommand group to sandbox/egg_lib/orch_cli.py \u2014 propose (with attestations), ack <role>, nack <role>, withdraw, status (approval matrix + review graph). Support --json and structured JSON payloads.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Commands invoke correct endpoints; payload validation catches missing fields; status shows clear matrix; help text documents per-role attestation requirements; unit tests pass",
+          "files_affected": [
+            "sandbox/egg_lib/orch_cli.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-4-2",
+          "description": "Add --wait <seconds> flag to egg-orch message poll in sandbox/egg_lib/orch_cli.py. Makes blocking HTTP request with wait query param. Backwards compatible (--wait 0 = current behavior).",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "--wait 30 blocks until messages arrive; timeout returns cleanly; backwards compatible; unit tests pass",
+          "files_affected": [
+            "sandbox/egg_lib/orch_cli.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-4-3",
+          "description": "Add consensus client methods to shared/egg_orchestrator/client.py (consensus_propose, consensus_ack, consensus_nack, consensus_withdraw, consensus_status) and corresponding types to shared/egg_orchestrator/types.py",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Client methods call correct endpoints; types serialize/deserialize; unit tests pass",
+          "files_affected": [
+            "shared/egg_orchestrator/client.py",
+            "shared/egg_orchestrator/types.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-4-4",
+          "description": "Rework orchestrator/consensus_wrapper.py for BRC. Detect BRC phase on agent exit (WORKING/PROPOSED/REVIEWING/CONFIRMED) via orchestrator API (egg-orch consensus status --json or egg-orch pipeline status --json with BRC data from TASK-3-8), NOT direct Redis access \u2014 the wrapper is a bash script and should not have a Redis dependency. Generate phase-appropriate recovery prompts with missed messages from API. CONFIRMED agents not restarted. Preserve max restart limit.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "BRC phase detected via orchestrator API (not Redis); recovery prompts phase-appropriate with missed messages; CONFIRMED not restarted; max restart limit preserved; unit tests pass",
+          "files_affected": [
+            "orchestrator/consensus_wrapper.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        }
+      ],
+      "dependencies": [],
+      "review_feedback": []
+    },
+    {
+      "id": "phase-5",
+      "name": "Agent Prompts and Integration",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-5-1",
+          "description": "Update concurrent execution instructions in sandbox/.claude/rules/mission.md (the 'Concurrent Execution Mode' section, not the top-level CLAUDE.md). Replace READY/poll-loop with BRC protocol. Separate producer vs reviewer sections. Per-role attestation requirements with examples. Anti-sycophancy measures. Long-polling replaces sleep loops.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Producer/reviewer workflows clearly separated; attestation requirements per role with examples; anti-sycophancy explicit; long-polling replaces sleep; under 4000 tokens for consensus section",
+          "files_affected": [
+            "sandbox/.claude/rules/mission.md"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-5-2",
+          "description": "Add consensus events to SSE streaming in orchestrator/sse.py and orchestrator/unified_sse.py. Include approval matrix state in status events for DAG visualizer.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Consensus events in SSE stream; approval matrix in status payloads; existing consumers not broken; unit tests pass",
+          "files_affected": [
+            "orchestrator/sse.py",
+            "orchestrator/unified_sse.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-5-3",
+          "description": "Create orchestrator/tests/test_peer_consensus_integration.py \u2014 happy path (propose\u2192ACK\u2192confirm\u2192reached), NACK+re-propose with scoped re-eval, Delphi ordering, timeout with critical role, agent crash, commitment devices, Redis Streams persistence/replay/long-polling latency",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "All scenarios pass with real Redis; timing assertions verify <2s delivery; full BRC lifecycle exercised",
+          "files_affected": [
+            "orchestrator/tests/test_peer_consensus_integration.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-5-4",
+          "description": "Update existing test files (test_consensus.py, test_consensus_wrapper.py, test_concurrent_executor.py, test_messages.py) for new protocol. Remove deprecated READY-tallying tests. Add BRC integration points. Ensure make test passes clean.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "All existing test files updated; no READY-tallying references; BRC integration points covered; make test passes",
+          "files_affected": [
+            "orchestrator/tests/test_consensus.py",
+            "orchestrator/tests/test_consensus_wrapper.py",
+            "orchestrator/tests/test_concurrent_executor.py",
+            "orchestrator/tests/test_messages.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-5-5",
+          "description": "Create sandbox/.claude/rules/integrator.md (file does not currently exist \u2014 integrator instructions are inline in mission.md concurrent mode section; extract and expand). Add attestation verification: cross-reference commit SHAs, file modifications, test existence. NACK on discrepancy. Escalate after K false re-proposals.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "integrator.md created with verification steps; failure escalation documented; unit test for verification logic passes",
+          "files_affected": [
+            "sandbox/.claude/rules/integrator.md"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-5-6",
+          "description": "Update _build_agent_prompt() in orchestrator/routes/pipelines.py:3046-3070. This function injects the 'CRITICAL: Concurrent Consensus Protocol' preamble at spawn time (the 5-step BOOTSTRAP/EXECUTE/SIGNAL READY/STAY ALIVE/WAIT FOR STOP lifecycle). Rewrite for BRC: inject whether agent is producer or reviewer (from review graph), which roles it reviews/is reviewed by, BRC lifecycle steps for its role type, and attestation requirements for its specific role.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Agents receive BRC preamble not old READY lifecycle; preamble is role-type-aware (producer vs reviewer); no contradictions with rules files (TASK-5-1); unit tests pass",
+          "files_affected": [
+            "orchestrator/routes/pipelines.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        }
+      ],
+      "dependencies": [],
+      "review_feedback": []
+    }
+  ],
+  "decisions": [],
+  "workflow_owner": null,
+  "audit_log": [],
+  "refine_review_cycles": 0,
+  "refine_review_feedback": "",
+  "plan_review_cycles": 1,
+  "plan_review_feedback": "",
+  "pr": null,
+  "feedback": null,
+  "phase_configs": null,
+  "agent_executions": [],
+  "multi_agent_config": null
+}
