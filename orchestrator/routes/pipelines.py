@@ -4635,7 +4635,13 @@ def _run_concurrent_phase(
     # Build per-role prompts (matches _run_multi_agent_phase pattern).
     from egg_contracts.agent_roles import get_roles_for_phase as _get_roles_for_phase
 
-    roles = [AgentRole(r.value) for r in _get_roles_for_phase(phase_str, include_reviewers=True)]
+    roles: list[AgentRole] = []
+    for r in _get_roles_for_phase(phase_str, include_reviewers=True):
+        try:
+            roles.append(AgentRole(r.value))
+        except ValueError:
+            # New roles not yet in orchestrator AgentRole — skip
+            continue
     agent_prompts: dict[AgentRole, str] = {}
     for role in roles:
         prompt = _build_agent_prompt(
