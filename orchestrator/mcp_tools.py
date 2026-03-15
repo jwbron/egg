@@ -437,10 +437,10 @@ class CoordinatorToolHandler:
         except Exception:
             return []
 
+        import json
+
         for review_file in review_files:
             try:
-                import json
-
                 data = json.loads(review_file.read_text(encoding="utf-8"))
                 # Extract reviewer type from filename:
                 # e.g. "42-refine-refiner-review.json" -> "refiner"
@@ -452,12 +452,24 @@ class CoordinatorToolHandler:
                     "reviewer": reviewer_type,
                     "verdict": data.get("verdict", "unknown"),
                     "summary": data.get("summary", ""),
+                    "analysis": data.get("analysis", ""),
                     "suggestions": data.get("suggestions", ""),
                     "feedback": data.get("feedback", ""),
                 }
 
                 entry_chars = sum(len(v) for v in entry.values())
                 if total_chars + entry_chars > max_chars:
+                    remaining = len(review_files) - len(feedback)
+                    feedback.append(
+                        {
+                            "reviewer": f"({remaining} more reviewer(s) omitted)",
+                            "verdict": "truncated",
+                            "summary": "Content limit reached. Review files directly.",
+                            "analysis": "",
+                            "suggestions": "",
+                            "feedback": "",
+                        }
+                    )
                     break
                 total_chars += entry_chars
                 feedback.append(entry)

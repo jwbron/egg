@@ -1088,3 +1088,211 @@ class TestEnrichPhaseGateDecisions:
         # the URL-encoded "my%20pipeline%2Ftest"
         mock_resolve.assert_called_once()
         assert mock_resolve.call_args[0][0] == "my pipeline/test"
+
+
+def _mock_pipelines_module_with_identifier(read_draft_fn=None, identifier_fn=None):
+    """Create a mock orchestrator.routes.pipelines module with _pipeline_identifier."""
+    mod = types.ModuleType("orchestrator.routes.pipelines")
+    mod._read_phase_draft = read_draft_fn or MagicMock(return_value=None)
+    mod._pipeline_identifier = identifier_fn or (
+        lambda issue_number, pipeline_id: issue_number if issue_number is not None else pipeline_id
+    )
+    return mod
+
+
+class TestReadReviewerFeedback:
+    """Tests for CoordinatorToolHandler._read_reviewer_feedback."""
+
+    def _write_review_json(self, reviews_dir, filename, data):
+        """Helper to write a review JSON file."""
+        reviews_dir.mkdir(parents=True, exist_ok=True)
+        (reviews_dir / filename).write_text(json.dumps(data), encoding="utf-8")
+
+    def test_returns_entries_with_correct_fields(self, tmp_path):
+        """Valid review JSON files produce entries with all expected fields."""
+        reviews_dir = tmp_path / ".egg-state" / "reviews"
+        self._write_review_json(
+            reviews_dir,
+            "42-refine-refiner-review.json",
+            {
+                "verdict": "approved",
+                "summary": "Looks good",
+                "analysis": "Detailed analysis here",
+                "suggestions": "Minor style fix",
+                "feedback": "",
+            },
+        )
+
+        mock_mod = _mock_pipelines_module_with_identifier()
+        handler = CoordinatorToolHandler()
+        with patch.dict(sys.modules, {"orchestrator.routes.pipelines": mock_mod}):
+            result = handler._read_reviewer_feedback(
+                tmp_path, "refine", issue_number=42, pipeline_id="issue-42"
+            )
+
+        assert len(result) == 1
+        entry = result[0]
+        assert entry["reviewer"] == "refiner"
+        assert entry["verdict"] == "approved"
+        assert entry["summary"] == "Looks good"
+        assert entry["analysis"] == "Detailed analysis here"
+        assert entry["suggestions"] == "Minor style fix"
+        assert entry["feedback"] == ""
+
+    def test_no_review_files_returns_empty(self, tmp_path):
+        """Empty reviews directory returns an empty list."""
+        reviews_dir = tmp_path / ".egg-state" / "reviews"
+        reviews_dir.mkdir(parents=True)
+
+        mock_mod = _mock_pipelines_module_with_identifier()
+        handler = CoordinatorToolHandler()
+        with patch.dict(sys.modules, {"orchestrator.routes.pipelines": mock_mod}):
+            result = handler._read_reviewer_feedback(
+                tmp_path, "refine", issue_number=42, pipeline_id="issue-42"
+            )
+
+        assert result == []
+
+    def test_malformed_json_skipped(self, tmp_path):
+        """Malformed JSON files are skipped; valid files still returned."""
+        reviews_dir = tmp_path / ".egg-state" / "reviews"
+        reviews_dir.mkdir(parents=True)
+        # Write a malformed file
+        (reviews_dir / "42-refine-bad_reviewer-review.json").write_text(
+            "not valid json {{{", encoding="utf-8"
+        )
+        # Write a valid file
+        self._write_review_json(
+            reviews_dir,
+            "42-refine-good_reviewer-review.json",
+            {
+                "verdict": "approved",
+                "summary": "All good",
+                "analysis": "",
+                "suggestions": "",
+                "feedback": "",
+            },
+        )
+
+        mock_mod = _mock_pipelines_module_with_identifier()
+        handler = CoordinatorToolHandler()
+        with patch.dict(sys.modules, {"orchestrator.routes.pipelines": mock_mod}):
+            result = handler._read_reviewer_feedback(
+                tmp_path, "refine", issue_number=42, pipeline_id="issue-42"
+            )
+
+        assert len(result) == 1
+        assert result[0]["reviewer"] == "good_reviewer"
+
+    def test_max_chars_truncation_with_indicator(self, tmp_path):
+        """When total content exceeds max_chars, a truncation indicator is appended."""
+        reviews_dir = tmp_path / ".egg-state" / "reviews"
+        # First reviewer has large content that fills the budget
+        self._write_review_json(
+            reviews_dir,
+            "42-refine-alpha-review.json",
+            {
+                "verdict": "approved",
+                "summary": "x" * 500,
+                "analysis": "y" * 500,
+                "suggestions": "",
+                "feedback": "",
+            },
+        )
+        # Second reviewer would exceed the cap
+        self._write_review_json(
+            reviews_dir,
+            "42-refine-beta-review.json",
+            {
+                "verdict": "needs_revision",
+                "summary": "Blocking issue found",
+                "analysis": "z" * 200,
+                "suggestions": "",
+                "feedback": "Must fix this",
+            },
+        )
+
+        mock_mod = _mock_pipelines_module_with_identifier()
+        handler = CoordinatorToolHandler()
+        with patch.dict(sys.modules, {"orchestrator.routes.pipelines": mock_mod}):
+            # Set max_chars low enough that only the first reviewer fits
+            result = handler._read_reviewer_feedback(
+                tmp_path,
+                "refine",
+                issue_number=42,
+                pipeline_id="issue-42",
+                max_chars=1050,
+            )
+
+        assert len(result) == 2
+        assert result[0]["reviewer"] == "alpha"
+        # Last entry is the truncation indicator
+        assert result[1]["verdict"] == "truncated"
+        assert "1 more reviewer(s) omitted" in result[1]["reviewer"]
+        assert "Content limit reached" in result[1]["summary"]
+
+    def test_worktree_path_none_returns_empty(self, tmp_path):
+        """When worktree_path is None, returns an empty list."""
+        handler = CoordinatorToolHandler()
+        result = handler._read_reviewer_feedback(
+            None, "refine", issue_number=42, pipeline_id="issue-42"
+        )
+        assert result == []
+
+    def test_reviewer_type_extracted_from_filename(self, tmp_path):
+        """Reviewer type is correctly extracted from various filename patterns."""
+        reviews_dir = tmp_path / ".egg-state" / "reviews"
+        self._write_review_json(
+            reviews_dir,
+            "42-refine-reviewer_agent_design-review.json",
+            {
+                "verdict": "approved",
+                "summary": "Design looks solid",
+                "analysis": "",
+                "suggestions": "",
+                "feedback": "",
+            },
+        )
+
+        mock_mod = _mock_pipelines_module_with_identifier()
+        handler = CoordinatorToolHandler()
+        with patch.dict(sys.modules, {"orchestrator.routes.pipelines": mock_mod}):
+            result = handler._read_reviewer_feedback(
+                tmp_path, "refine", issue_number=42, pipeline_id="issue-42"
+            )
+
+        assert len(result) == 1
+        assert result[0]["reviewer"] == "reviewer_agent_design"
+
+    def test_missing_reviews_dir_returns_empty(self, tmp_path):
+        """When the reviews directory doesn't exist, returns an empty list."""
+        handler = CoordinatorToolHandler()
+        result = handler._read_reviewer_feedback(
+            tmp_path, "refine", issue_number=42, pipeline_id="issue-42"
+        )
+        assert result == []
+
+    def test_pipeline_id_used_when_no_issue_number(self, tmp_path):
+        """Pipeline ID is used as prefix when issue_number is None."""
+        reviews_dir = tmp_path / ".egg-state" / "reviews"
+        self._write_review_json(
+            reviews_dir,
+            "pid-99-plan-architect-review.json",
+            {
+                "verdict": "approved",
+                "summary": "Plan accepted",
+                "analysis": "",
+                "suggestions": "",
+                "feedback": "",
+            },
+        )
+
+        mock_mod = _mock_pipelines_module_with_identifier()
+        handler = CoordinatorToolHandler()
+        with patch.dict(sys.modules, {"orchestrator.routes.pipelines": mock_mod}):
+            result = handler._read_reviewer_feedback(
+                tmp_path, "plan", issue_number=None, pipeline_id="pid-99"
+            )
+
+        assert len(result) == 1
+        assert result[0]["reviewer"] == "architect"
