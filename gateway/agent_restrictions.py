@@ -488,13 +488,39 @@ REVIEWER_UNIFIED_PATTERNS = AgentFilePattern(
     blocked_patterns=_REVIEWER_BLOCKED,
 )
 
-# Checker agent patterns
-# Checker runs lint, type checking, and tests — same write access as reviewers
 CHECKER_PATTERNS = AgentFilePattern(
     role=AgentRole.CHECKER,
-    description="Checker agent: reviews and agent-outputs only",
-    allowed_patterns=_REVIEWER_ALLOWED,
-    blocked_patterns=_REVIEWER_BLOCKED,
+    description="Checker agent: source code access for auto-fixes (sequential) and reviews (concurrent)",
+    allowed_patterns=[
+        # Source code (needed for sequential check-and-fix mode)
+        "**/*.py",
+        "**/*.ts",
+        "**/*.tsx",
+        "**/*.js",
+        "**/*.jsx",
+        "**/*.go",
+        "**/*.java",
+        "**/*.rb",
+        "**/*.rs",
+        "**/*.sh",
+        # Configuration
+        "**/*.yml",
+        "**/*.yaml",
+        "**/*.json",
+        "**/*.toml",
+        # Review output (BRC concurrent mode)
+        ".egg-state/reviews/",
+        # Handoff output
+        ".egg-state/agent-outputs/",
+    ],
+    blocked_patterns=[
+        # Documentation (Documenter handles)
+        "docs/",
+        "**/README.md",
+        "**/*.md",
+        # Contracts (API only)
+        ".egg-state/contracts/",
+    ],
 )
 
 # Coordinator agent patterns

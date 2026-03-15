@@ -3021,8 +3021,24 @@ def _build_brc_preamble(role_value: str, phase: str) -> str:
         reviewers = graph.reviewers_for(role_value) if is_producer else []
         producers = graph.producers_for(role_value) if is_reviewer else []
     except Exception:
-        is_producer = role_value in ("coder", "tester", "documenter")
-        is_reviewer = role_value in ("reviewer_code", "reviewer_contract", "checker", "tester")
+        is_producer = role_value in (
+            "coder",
+            "tester",
+            "documenter",
+            "refiner",
+            "architect",
+            "task_planner",
+            "risk_analyst",
+        )
+        is_reviewer = role_value in (
+            "reviewer_code",
+            "reviewer_contract",
+            "checker",
+            "tester",
+            "reviewer_refine",
+            "reviewer_agent_design",
+            "reviewer_plan",
+        )
         reviewers = []
         producers = []
 

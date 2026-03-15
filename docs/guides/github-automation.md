@@ -14,7 +14,7 @@ for how to call egg's workflows from your own repositories.
 | [AI Code Review](#ai-code-review) | PR opened/updated | Reviews code changes, posts feedback via `gh pr review` |
 | [Address Review Feedback](#address-review-feedback) | Review posted on bot/authorized-user PR, or human @mention | Automatically addresses review feedback, enabling review loops |
 | [Design Review](#design-review) | PR opened/updated (specialized) | Applies project-specific review rules via the same reusable framework |
-| [Contract Verification](#contract-verification) | PR with sdlc:pr label or contract file | Verifies implementation matches SDLC contract |
+| [Contract Verification](#contract-verification) | PR with sdlc:pr label or new contract file added | Verifies implementation matches SDLC contract |
 | [Check Autofixer](#check-autofixer) | CI check failure on a PR | Diagnoses failures, auto-fixes or reports |
 | [Conflict Resolver](#conflict-resolver) | Push to main / schedule / manual | Resolves merge conflicts via merge commits |
 | [Doc Updater](#doc-updater) | Push to main | Checks if code changes require documentation updates |
@@ -268,17 +268,17 @@ Verifies that PR implementations match their SDLC pipeline contracts. This workf
 The workflow runs on pull requests when **either** of these conditions is met:
 
 1. **Label-based trigger** — PR has the `sdlc:pr` label
-2. **Contract file detection** — PR branch contains `.egg-state/contracts/{issue_number}.json`, where the issue number is extracted from the branch name (`egg/issue-{number}...`)
+2. **Contract file detection** — PR adds a new file to `.egg-state/contracts/` (detected via the PR files diff API)
 
-This dual-trigger approach ensures contract verification runs even when the label is missing but the contract file exists, preventing silently skipped verifications.
+This dual-trigger approach ensures contract verification runs even when the label is missing but a new contract file is being introduced by the PR.
 
 ### How It Works
 
 1. **Trigger check** — Determines if verification should run:
    - Fetches PR metadata (labels and branch name) in a single API call
-   - Extracts issue number from branch name using pattern `egg/issue-{number}...`
+   - Extracts issue number from branch name, PR body, or contract filename (used downstream for contract lookup)
    - For labeled PRs, runs immediately
-   - For unlabeled PRs, checks if contract file exists on the PR's head branch
+   - For unlabeled PRs, queries the PR files API to check if any new file was added under `.egg-state/contracts/`
 2. **Contract verification** — Uses the reusable review framework with a contract-specific prompt:
    - Reads the contract from `.egg-state/contracts/{issue_number}.json`
    - Compares implementation against contract tasks

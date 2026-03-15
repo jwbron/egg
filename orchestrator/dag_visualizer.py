@@ -196,30 +196,87 @@ def _compute_wave_order(
         if group:
             wave_groups.append(group)
 
-    # Place agents not in the dependency graph (e.g. CHECKER) in the
-    # correct visual position.  Non-reviewer agents are inserted before
-    # the first reviewer wave so that the display matches execution order
-    # (workers → checker → reviewers).  Reviewer-type agents that aren't
-    # in the graph are appended at the end.
+    # Separate in-graph reviewers from workers so reviewers always appear
+    # last visually (workers → non-graph agents → reviewers).
+    # First, pull reviewers out of mixed waves into their own trailing wave.
+    non_reviewer_waves: list[list[AgentExecution]] = []
+    reviewer_wave_agents: list[AgentExecution] = []
+    for group in wave_groups:
+        non_rev = [a for a in group if not a.role.value.startswith("reviewer")]
+        rev = [a for a in group if a.role.value.startswith("reviewer")]
+        if non_rev:
+            non_reviewer_waves.append(non_rev)
+        reviewer_wave_agents.extend(rev)
+
+    # Place agents not in the dependency graph in the correct visual
+    # position based on their declared dependencies.
     remaining = [a for a in agents if a.role.value not in assigned]
     if remaining:
-        non_reviewer = [a for a in remaining if not a.role.value.startswith("reviewer")]
+        non_reviewer_rem = [a for a in remaining if not a.role.value.startswith("reviewer")]
         reviewer_rem = [a for a in remaining if a.role.value.startswith("reviewer")]
 
-        if non_reviewer:
-            # Find the first wave that is entirely reviewer agents
-            reviewer_start = None
-            for idx, group in enumerate(wave_groups):
-                if all(a.role.value.startswith("reviewer") for a in group):
-                    reviewer_start = idx
-                    break
-            if reviewer_start is not None:
-                wave_groups.insert(reviewer_start, non_reviewer)
-            else:
-                wave_groups.append(non_reviewer)
+        if non_reviewer_rem:
+            # Build a lookup of role value → wave index for placed agents
+            role_wave_idx: dict[str, int] = {}
+            for idx, group in enumerate(non_reviewer_waves):
+                for a in group:
+                    role_wave_idx[a.role.value] = idx
 
-        if reviewer_rem:
-            wave_groups.append(reviewer_rem)
+            try:
+                from egg_contracts.agent_roles import get_role_definition
+
+                # Compute effective wave for each non-graph agent based
+                # on its declared dependencies.  Agents whose dependencies
+                # are all outside the current phase (max_dep_wave stays -1)
+                # are placed after agents with resolved dependencies so
+                # they don't appear before agents they logically follow.
+                last_worker_wave = len(non_reviewer_waves) - 1
+                has_deps: list[AgentExecution] = []
+                no_deps: list[AgentExecution] = []
+                agent_target: dict[str, int] = {}
+                for a in non_reviewer_rem:
+                    role_def = get_role_definition(a.role)
+                    max_dep_wave = -1
+                    for dep in role_def.dependencies:
+                        if dep.value in role_wave_idx:
+                            max_dep_wave = max(max_dep_wave, role_wave_idx[dep.value])
+                    if max_dep_wave >= 0:
+                        agent_target[a.role.value] = max_dep_wave + 1
+                        has_deps.append(a)
+                    else:
+                        no_deps.append(a)
+
+                # Agents without in-phase dependencies go after all
+                # dependency-resolved agents.
+                max_dep_target = max(
+                    (agent_target[a.role.value] for a in has_deps),
+                    default=last_worker_wave,
+                )
+                no_dep_target = max(max_dep_target + 1, last_worker_wave + 1)
+                for a in no_deps:
+                    agent_target[a.role.value] = no_dep_target
+
+                # Group non-graph agents by target wave, insert each group
+                # at the right position (iterating in reverse to keep indices
+                # stable).
+                target_groups: dict[int, list[AgentExecution]] = {}
+                for a in non_reviewer_rem:
+                    t = agent_target[a.role.value]
+                    target_groups.setdefault(t, []).append(a)
+
+                for target_wave in sorted(target_groups, reverse=True):
+                    insert_at = min(target_wave, len(non_reviewer_waves))
+                    non_reviewer_waves.insert(insert_at, target_groups[target_wave])
+            except (ImportError, KeyError, ValueError):
+                # Fallback: append at the end before reviewers
+                non_reviewer_waves.append(non_reviewer_rem)
+
+        reviewer_wave_agents.extend(reviewer_rem)
+
+    # Re-assemble: worker waves then reviewer wave
+    wave_groups = non_reviewer_waves
+    if reviewer_wave_agents:
+        wave_groups.append(reviewer_wave_agents)
 
     return wave_groups if wave_groups else [agents]
 
