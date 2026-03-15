@@ -137,6 +137,8 @@ Returns total message count and a breakdown by message type.
 
 The message store uses Redis Streams when Redis is available, falling back to an in-memory store for tests or unconfigured environments. The backend is selected via the `EGG_MESSAGE_STORE_BACKEND` environment variable (`"auto"` by default, `"redis"` to require Redis, `"memory"` to force in-memory).
 
+**Note:** Long-poll (`?wait=<s>`) only blocks with the Redis Streams backend. The in-memory store silently falls back to a non-blocking poll, so agents in test environments may see immediate empty responses instead of blocking.
+
 ### Per-Phase Cleanup
 
 The message store is cleared when the phase transitions. Each new phase execution starts with an empty message bus for the pipeline. This prevents stale messages from a prior phase from being delivered to agents in the next phase.
@@ -192,7 +194,7 @@ Use `egg-orch consensus` commands to participate in the BRC protocol:
 
 ```bash
 # Producer: propose work for review
-egg-orch consensus propose --summary "Implemented feature X" --artifacts src/feature.py
+egg-orch consensus propose --summary "Implemented feature X" --artifacts src/feature.py --risk "No retry on transient failures"
 
 # Reviewer: ACK after reviewing
 egg-orch consensus ack coder --files-reviewed src/feature.py tests/test_feature.py
@@ -222,13 +224,10 @@ The consensus block returns:
 {
   "is_complete": false,
   "blocking_agents": ["tester"],
-  "has_objections": false,
+  "protocol": "brc",
   "agents": {
-    "coder": {"phase": "PROPOSED", "confirmed": false},
-    "reviewer_code": {"phase": "REVIEWING", "confirmed": false}
-  },
-  "approval_matrix": {
-    "coder": {"reviewer_code": "ACK", "reviewer_contract": "pending"}
+    "coder": {"producer_phase": "PROPOSED", "confirmed": false},
+    "reviewer_code": {"reviewer_phase": "REVIEWING", "confirmed": false}
   }
 }
 ```

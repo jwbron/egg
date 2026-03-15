@@ -1285,9 +1285,17 @@ def cmd_consensus_status(args: argparse.Namespace) -> int:
     if agents:
         print("\nAgent states:")
         for agent_name, agent_data in agents.items():
-            phase = agent_data.get("phase", "unknown")
+            producer_phase = agent_data.get("producer_phase")
+            reviewer_phase = agent_data.get("reviewer_phase")
             confirmed = agent_data.get("confirmed", False)
-            state_str = f"  {agent_name}: phase={phase}"
+            parts = [f"  {agent_name}:"]
+            if producer_phase:
+                parts.append(f"producer={producer_phase}")
+            if reviewer_phase:
+                parts.append(f"reviewer={reviewer_phase}")
+            if not producer_phase and not reviewer_phase:
+                parts.append("phase=unknown")
+            state_str = " ".join(parts)
             if confirmed:
                 state_str += " [CONFIRMED]"
             print(state_str)
