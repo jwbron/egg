@@ -147,10 +147,21 @@ class TestCheckAgentGHOperation:
     def test_blocks_all_pipeline_roles(self):
         """All pipeline roles are blocked from issue comments."""
         roles = [
-            "coder", "tester", "documenter", "integrator", "checker",
-            "architect", "task_planner", "risk_analyst", "refiner",
-            "reviewer_code", "reviewer_contract", "reviewer_agent_design",
-            "reviewer_refine", "reviewer_plan", "reviewer_unified",
+            "coder",
+            "tester",
+            "documenter",
+            "integrator",
+            "checker",
+            "architect",
+            "task_planner",
+            "risk_analyst",
+            "refiner",
+            "reviewer_code",
+            "reviewer_contract",
+            "reviewer_agent_design",
+            "reviewer_refine",
+            "reviewer_plan",
+            "reviewer_unified",
             "coordinator",
         ]
         for role in roles:

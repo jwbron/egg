@@ -2833,9 +2833,7 @@ def gh_execute() -> tuple[Response, int] | Response:
 
         non_flag_args = [a for a in args if not a.startswith("-")]
         gh_command_str_for_role = " ".join(non_flag_args[:3])
-        role_allowed, role_reason = check_agent_gh_operation(
-            session_role, gh_command_str_for_role
-        )
+        role_allowed, role_reason = check_agent_gh_operation(session_role, gh_command_str_for_role)
         if not role_allowed:
             audit_log(
                 "gh_execute_blocked_agent_role",
@@ -2913,9 +2911,7 @@ def gh_execute() -> tuple[Response, int] | Response:
         # "gh issue comment {id}" — apply the same phase + role checks.
         import re as _re
 
-        _api_issue_comment_match = _re.match(
-            r"^repos/[^/]+/[^/]+/issues/(\d+)/comments$", api_path
-        )
+        _api_issue_comment_match = _re.match(r"^repos/[^/]+/[^/]+/issues/(\d+)/comments$", api_path)
         if _api_issue_comment_match and method.upper() == "POST":
             synthesized_cmd = f"issue comment {_api_issue_comment_match.group(1)}"
             # Phase check

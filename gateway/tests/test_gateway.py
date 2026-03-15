@@ -5972,14 +5972,18 @@ class TestGhExecuteIssueCommentBlocking:
             response = client.post(
                 "/api/v1/gh/execute",
                 headers={"Authorization": "Bearer test-session-token"},
-                data=json.dumps({
-                    "args": [
-                        "api",
-                        "-X", "POST",
-                        "repos/owner/repo/issues/1032/comments",
-                        "-f", "body=test comment",
-                    ],
-                }),
+                data=json.dumps(
+                    {
+                        "args": [
+                            "api",
+                            "-X",
+                            "POST",
+                            "repos/owner/repo/issues/1032/comments",
+                            "-f",
+                            "body=test comment",
+                        ],
+                    }
+                ),
                 content_type="application/json",
             )
             assert response.status_code == 403
