@@ -137,9 +137,9 @@ Use `AskUserQuestion` with a free-text option:
 - Present the question to the user
 - Collect their response
 
-### After handling any decision type:
+### After handling `choice` or `feedback` decisions:
 
-Call the `provide_input` MCP tool:
+Call the `provide_input` MCP tool (`phase_gate` decisions already handle this in step 4 above):
 
 ```
 Tool: provide_input
