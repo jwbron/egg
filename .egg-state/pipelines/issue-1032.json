@@ -83,7 +83,7 @@
   },
   "decisions": [],
   "created_at": "2026-03-15T20:55:27.920633",
-  "updated_at": "2026-03-15T20:55:31.715433",
+  "updated_at": "2026-03-15T20:56:15.185506",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
@@ -91,17 +91,29 @@
   "error": null,
   "coordinator_state": {
     "workflow_type": "",
-    "agents_spawned": [],
+    "agents_spawned": [
+      {
+        "role": "refiner",
+        "spawned_at": "2026-03-15T20:56:15.185376",
+        "completed_at": null,
+        "status": "running",
+        "container_id": "0acb12e24a1c7dcc5e0c3ef95140fa3c9a4075b896927a3b32982e658ddbdc7c",
+        "task_context": "Refine issue #1032: Agent anchor mechanism for post-compaction state recovery. This is a new feature that adds persistent state files (.egg-state/agent-anchors/) so agents can recover coherently after context compaction. The issue has a detailed proposed design with YAML anchor files, update triggers, and post-compaction injection. Key areas to refine: (1) Resolve the 6 design questions in the issue (format, size budget, update mechanism, conflict resolution, cleanup, gateway enforcement). (2) Define the anchor schema precisely - what fields are required vs optional, validation rules. (3) Specify the post-compaction injection mechanism - how anchors get loaded into context, ordering, size limits. (4) Define the team-level anchor schema and how it relates to individual agent anchors. (5) Identify integration points with existing systems (egg-contract, checkpoint, message bus from #1027). (6) Specify acceptance criteria as testable requirements. Read the issue with 'gh issue view 1032' for full context. Check existing code in .egg-state/ and shared/ directories for patterns to follow. Output refined requirements to .egg-state/drafts/.",
+        "retry_number": 0
+      }
+    ],
     "phase_decisions": [],
     "escalations": [],
     "guardrail_counters": {
-      "total_agents_spawned": 0,
-      "retries_by_role": {},
+      "total_agents_spawned": 1,
+      "retries_by_role": {
+        "refiner": 1
+      },
       "coordinator_respawns": 0,
       "started_at": "2026-03-15T20:55:31.238876"
     }
   },
   "plan_phase_waves": null,
   "plan_phase_names": null,
-  "version": 8
+  "version": 9
 }
