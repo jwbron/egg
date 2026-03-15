@@ -38,13 +38,6 @@ The original implementation used 30-second polling intervals — a message sent 
 - **Write pattern:** Agents POST messages via the orchestrator API, which writes to the stream
 - **Long-polling:** The orchestrator uses `XREAD BLOCK` and applies role filters, returning immediately when matching messages arrive or on timeout
 
-**Why Redis Streams over SSE:**
-
-- Natively bidirectional (agents publish and consume) — SSE is server-to-client only
-- Message persistence — agents that restart replay missed messages from their last-seen ID
-- Ordered, append-only log creates a natural audit trail
-- Redis is already running in the environment — zero new infrastructure
-
 **Agent CLI:**
 
 ```bash
