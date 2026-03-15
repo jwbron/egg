@@ -19,7 +19,6 @@ _orchestrator_path = Path(__file__).parent.parent
 if str(_orchestrator_path) not in sys.path:
     sys.path.insert(0, str(_orchestrator_path))
 
-from approval_matrix import ApprovalState
 from models import (
     AgentExecution,
     AgentExecutionStatus,
@@ -34,7 +33,6 @@ from models import (
 )
 from peer_consensus import PeerConsensusTracker
 from review_graph import ReviewCriticality, ReviewEdge, ReviewGraph
-
 
 # ---------- evaluate() tests ----------
 
@@ -70,7 +68,8 @@ class TestEvaluateWithNacks:
     def test_evaluate_reports_nack_after_nack(self, tracker):
         tracker.handle_propose("coder", {"summary": "v1", "artifacts": ["a.py"]})
         tracker.handle_nack(
-            "reviewer_code", "coder",
+            "reviewer_code",
+            "coder",
             {"artifact_references": ["a.py"], "reason": "SQL injection in a.py:42"},
         )
         state = tracker.evaluate()
@@ -89,13 +88,15 @@ class TestEvaluateWithNacks:
 
         # reviewer_code NACKs
         tracker.handle_nack(
-            "reviewer_code", "coder",
+            "reviewer_code",
+            "coder",
             {"artifact_references": ["a.py"], "reason": "bug"},
         )
 
         # checker ACKs
         tracker.handle_ack(
-            "checker", "coder",
+            "checker",
+            "coder",
             {"artifact_references": ["a.py"]},
         )
 
@@ -112,11 +113,13 @@ class TestEvaluateWithNacks:
         """After producer re-proposes and gets ACKed, NACKs should be resolved."""
         tracker.handle_propose("coder", {"summary": "v1", "artifacts": ["a.py"]})
         tracker.handle_nack(
-            "reviewer_code", "coder",
+            "reviewer_code",
+            "coder",
             {"artifact_references": ["a.py"], "reason": "bug"},
         )
         tracker.handle_ack(
-            "checker", "coder",
+            "checker",
+            "coder",
             {"artifact_references": ["a.py"]},
         )
 
@@ -129,11 +132,13 @@ class TestEvaluateWithNacks:
 
         # Both reviewers ACK the new version
         tracker.handle_ack(
-            "reviewer_code", "coder",
+            "reviewer_code",
+            "coder",
             {"artifact_references": ["a.py"]},
         )
         tracker.handle_ack(
-            "checker", "coder",
+            "checker",
+            "coder",
             {"artifact_references": ["a.py"]},
         )
 

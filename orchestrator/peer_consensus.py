@@ -539,9 +539,7 @@ class PeerConsensusTracker:
             # agents are in the confirmed set, blocking edges mean producers
             # still need to iterate.
             blocking_edges = self.matrix.get_all_blocking_edges()
-            has_unresolved_nacks = any(
-                e.state.value == "nacked" for e in blocking_edges
-            )
+            has_unresolved_nacks = any(e.state.value == "nacked" for e in blocking_edges)
 
             is_complete = all_confirmed and not has_unresolved_nacks
 
@@ -566,12 +564,14 @@ class PeerConsensusTracker:
             if has_unresolved_nacks:
                 for entry in blocking_edges:
                     if entry.state.value == "nacked":
-                        unresolved_nack_details.append({
-                            "reviewer": entry.reviewer_role,
-                            "producer": entry.producer_role,
-                            "reason": entry.reason,
-                            "version": entry.version,
-                        })
+                        unresolved_nack_details.append(
+                            {
+                                "reviewer": entry.reviewer_role,
+                                "producer": entry.producer_role,
+                                "reason": entry.reason,
+                                "version": entry.version,
+                            }
+                        )
 
             return {
                 "is_complete": is_complete,
