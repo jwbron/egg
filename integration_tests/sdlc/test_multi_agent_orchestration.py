@@ -46,10 +46,10 @@ class TestDependencyGraph:
         assert AgentRole.REFINER in graph.nodes
 
     def test_build_graph_implement_roles(self):
-        """Build graph with implement-phase roles only."""
+        """Build graph with implement-phase execution roles only."""
         from egg_contracts.agent_roles import get_roles_for_phase
 
-        roles = get_roles_for_phase("implement")
+        roles = get_roles_for_phase("implement", include_reviewers=False)
         graph = build_dependency_graph(roles)
         assert len(graph.nodes) == 4
         assert AgentRole.CODER in graph.nodes
@@ -89,7 +89,7 @@ class TestDependencyGraph:
         """Compute waves groups implement-phase agents correctly."""
         from egg_contracts.agent_roles import get_roles_for_phase
 
-        roles = get_roles_for_phase("implement")
+        roles = get_roles_for_phase("implement", include_reviewers=False)
         graph = build_dependency_graph(roles)
         waves = graph.compute_waves()
 
@@ -108,7 +108,7 @@ class TestDependencyGraph:
         """Execution plan has correct structure for implement phase."""
         from egg_contracts.agent_roles import get_roles_for_phase
 
-        roles = get_roles_for_phase("implement")
+        roles = get_roles_for_phase("implement", include_reviewers=False)
         plan = compute_execution_plan(roles)
 
         assert len(plan) == 3
@@ -464,20 +464,20 @@ class TestPlanPhaseRoles:
     """Tests for plan-phase agent roles."""
 
     def test_get_roles_for_plan_phase(self):
-        """Get roles for plan phase returns architect, task_planner, risk_analyst."""
+        """Get execution roles for plan phase returns architect, task_planner, risk_analyst."""
         from egg_contracts.agent_roles import get_roles_for_phase
 
-        roles = get_roles_for_phase("plan")
+        roles = get_roles_for_phase("plan", include_reviewers=False)
         assert len(roles) == 3
         assert AgentRole.ARCHITECT in roles
         assert AgentRole.TASK_PLANNER in roles
         assert AgentRole.RISK_ANALYST in roles
 
     def test_get_roles_for_implement_phase(self):
-        """Get roles for implement phase returns coder, tester, documenter, integrator."""
+        """Get execution roles for implement phase returns coder, tester, documenter, integrator."""
         from egg_contracts.agent_roles import get_roles_for_phase
 
-        roles = get_roles_for_phase("implement")
+        roles = get_roles_for_phase("implement", include_reviewers=False)
         assert len(roles) == 4
         assert AgentRole.CODER in roles
         assert AgentRole.TESTER in roles
@@ -493,10 +493,10 @@ class TestPlanPhaseRoles:
             get_roles_for_phase("unknown")
 
     def test_plan_phase_dependency_graph(self):
-        """Plan-phase roles have correct dependency structure."""
+        """Plan-phase execution roles have correct dependency structure."""
         from egg_contracts.agent_roles import get_roles_for_phase
 
-        roles = get_roles_for_phase("plan")
+        roles = get_roles_for_phase("plan", include_reviewers=False)
         graph = build_dependency_graph(roles)
 
         assert len(graph.nodes) == 3
@@ -522,7 +522,7 @@ class TestPlanPhaseRoles:
             )
         )
 
-        roles = get_roles_for_phase("plan")
+        roles = get_roles_for_phase("plan", include_reviewers=False)
         state = initialize_orchestration(contract, roles=roles)
 
         assert len(state.executions) == 3
@@ -572,10 +572,10 @@ class TestRefinePhaseRoles:
     """Tests for refine-phase agent roles."""
 
     def test_get_roles_for_refine_phase(self):
-        """Get roles for refine phase returns refiner."""
+        """Get execution roles for refine phase returns refiner."""
         from egg_contracts.agent_roles import get_roles_for_phase
 
-        roles = get_roles_for_phase("refine")
+        roles = get_roles_for_phase("refine", include_reviewers=False)
         assert len(roles) == 1
         assert AgentRole.REFINER in roles
 
@@ -593,7 +593,7 @@ class TestRefinePhaseRoles:
         """Refine-phase has simple single-agent dependency structure."""
         from egg_contracts.agent_roles import get_roles_for_phase
 
-        roles = get_roles_for_phase("refine")
+        roles = get_roles_for_phase("refine", include_reviewers=False)
         graph = build_dependency_graph(roles)
 
         assert len(graph.nodes) == 1
@@ -676,7 +676,7 @@ class TestWriteOverlapDetection:
         """Implement-phase parallel agents share agent-outputs directory."""
         from egg_contracts.agent_roles import detect_write_overlaps, get_roles_for_phase
 
-        roles = get_roles_for_phase("implement")
+        roles = get_roles_for_phase("implement", include_reviewers=False)
         overlaps = detect_write_overlaps(roles)
 
         # Tester and documenter both write to .egg-state/agent-outputs/
@@ -689,7 +689,7 @@ class TestWriteOverlapDetection:
         """Plan-phase parallel agents may share write patterns."""
         from egg_contracts.agent_roles import detect_write_overlaps, get_roles_for_phase
 
-        roles = get_roles_for_phase("plan")
+        roles = get_roles_for_phase("plan", include_reviewers=False)
         overlaps = detect_write_overlaps(roles)
 
         # task_planner and risk_analyst both write to .egg-state/drafts/
