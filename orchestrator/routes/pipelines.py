@@ -4958,14 +4958,38 @@ def _run_concurrent_phase(
             # Fire-and-forget HITL decision: the orchestrator's decision
             # queue handles resolution asynchronously.  This function falls
             # through to wait for remaining containers regardless.
+            # Skip if the BRC tracker already handled the timeout (escalation
+            # or proceed) to avoid duplicate/conflicting HITL decisions.
+            _brc_handled = False
             try:
-                pipeline.add_decision(
-                    question=f"Consensus not reached after {int(consensus_timeout / 60)} minutes. How to proceed?",
-                    options=["Continue waiting", "Accept current state", "Abort phase"],
-                    phase=pipeline.current_phase,
+                from ..peer_consensus import get_peer_consensus_tracker  # type: ignore[import-not-found]  # noqa: I001
+
+                _brc_tracker = get_peer_consensus_tracker(pipeline_id)
+                if _brc_tracker is not None:
+                    _brc_timeout_result = _brc_tracker.handle_timeout()
+                    _brc_handled = _brc_tracker.is_timeout_handled()
+                    logger.info(
+                        "BRC timeout handler result",
+                        pipeline_id=pipeline_id,
+                        action=_brc_timeout_result.get("action"),
+                        brc_handled=_brc_handled,
+                    )
+            except Exception as e:
+                logger.warning(
+                    "BRC timeout check failed, falling back to HITL",
+                    pipeline_id=pipeline_id,
+                    error=str(e),
                 )
-            except Exception:
-                pass
+
+            if not _brc_handled:
+                try:
+                    pipeline.add_decision(
+                        question=f"Consensus not reached after {int(consensus_timeout / 60)} minutes. How to proceed?",
+                        options=["Continue waiting", "Accept current state", "Abort phase"],
+                        phase=pipeline.current_phase,
+                    )
+                except Exception:
+                    pass
 
             # Fall back: wait for remaining containers with ThreadPoolExecutor
             remaining = [e for e in active_executions if e.container_id not in exited_containers]

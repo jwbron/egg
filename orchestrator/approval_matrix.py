@@ -30,6 +30,7 @@ class ApprovalEntry:
     state: ApprovalState = ApprovalState.PENDING
     version: int = 0  # Proposal version this applies to
     artifact_refs: list[str] = field(default_factory=list)  # Artifacts referenced in ACK
+    nack_artifact_refs: list[str] = field(default_factory=list)  # Artifacts cited in most recent NACK
     reason: str = ""  # Reason for NACK
     timestamp: datetime | None = None
 
@@ -40,6 +41,7 @@ class ApprovalEntry:
             "state": self.state.value,
             "version": self.version,
             "artifact_refs": self.artifact_refs,
+            "nack_artifact_refs": self.nack_artifact_refs,
             "reason": self.reason,
             "timestamp": self.timestamp.isoformat() if self.timestamp else None,
         }
@@ -116,7 +118,7 @@ class ApprovalMatrix:
 
         entry.state = ApprovalState.NACKED
         entry.version = version
-        entry.artifact_refs = artifact_refs or []
+        entry.nack_artifact_refs = artifact_refs or []
         entry.reason = reason
         entry.timestamp = datetime.now(UTC)
 
@@ -124,6 +126,28 @@ class ApprovalMatrix:
         self._revision_counts[key] = self._revision_counts.get(key, 0) + 1
 
         return entry
+
+    def is_context_change_nack(
+        self,
+        reviewer: str,
+        producer: str,
+        new_artifact_refs: list[str],
+    ) -> bool:
+        """Check if a NACK references different artifacts than the previous NACK.
+
+        Returns True if the new NACK's artifact refs don't overlap with the
+        previous NACK's artifact refs for that edge, indicating a context change
+        rather than genuine oscillation on the same issue.
+        """
+        key = (reviewer, producer)
+        entry = self._entries.get(key)
+        if entry is None:
+            return False
+        prev_refs = set(entry.nack_artifact_refs)
+        new_refs = set(new_artifact_refs)
+        if not prev_refs or not new_refs:
+            return False
+        return not bool(prev_refs & new_refs)
 
     def is_fully_acked(self, producer: str) -> bool:
         """Check if all assigned reviewers have ACKed the producer's latest proposal."""
@@ -248,6 +272,7 @@ class ApprovalMatrix:
                     state=ApprovalState(entry_data["state"]),
                     version=entry_data.get("version", 0),
                     artifact_refs=entry_data.get("artifact_refs", []),
+                    nack_artifact_refs=entry_data.get("nack_artifact_refs", []),
                     reason=entry_data.get("reason", ""),
                     timestamp=(
                         datetime.fromisoformat(entry_data["timestamp"])
