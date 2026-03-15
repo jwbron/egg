@@ -711,15 +711,17 @@ class TestCoordinatorToolHandler:
         from io import BytesIO
         from urllib.error import HTTPError
 
-        error_body = json.dumps({
-            "success": False,
-            "message": "Pipeline issue-1059 already exists",
-            "details": {
-                "existing_pipeline_id": "issue-1059",
-                "existing_status": "awaiting_human",
-                "existing_phase": "pr",
-            },
-        }).encode()
+        error_body = json.dumps(
+            {
+                "success": False,
+                "message": "Pipeline issue-1059 already exists",
+                "details": {
+                    "existing_pipeline_id": "issue-1059",
+                    "existing_status": "awaiting_human",
+                    "existing_phase": "pr",
+                },
+            }
+        ).encode()
         http_error = HTTPError(
             url="http://localhost:9849/api/v1/pipelines",
             code=409,
@@ -745,10 +747,12 @@ class TestCoordinatorToolHandler:
         from io import BytesIO
         from urllib.error import HTTPError
 
-        error_body = json.dumps({
-            "success": False,
-            "message": "Pipeline issue-42 already exists",
-        }).encode()
+        error_body = json.dumps(
+            {
+                "success": False,
+                "message": "Pipeline issue-42 already exists",
+            }
+        ).encode()
         http_error = HTTPError(
             url="http://localhost:9849/api/v1/pipelines",
             code=409,
