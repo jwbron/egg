@@ -7354,7 +7354,9 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                         issue_number=pipeline.issue_number,
                         pipeline_id=pipeline_id,
                     )
-                    phase_label = "analysis" if current_phase.value == "refine" else current_phase.value
+                    phase_label = (
+                        "analysis" if current_phase.value == "refine" else current_phase.value
+                    )
 
                     # Warn if draft is missing — the agent may not have written
                     # it to the expected path.  See #1016.
