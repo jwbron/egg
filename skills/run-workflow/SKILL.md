@@ -119,6 +119,7 @@ The `get_status` response enriches phase_gate decisions with `draft_content` (th
 
 3. **Show reviewer feedback** — Display each entry from the `reviewer_feedback` list. For each reviewer:
    - Show the reviewer role, verdict, and summary
+   - Show analysis if present (this contains the detailed reasoning and is typically the most substantive field)
    - If verdict is NOT "approved", prominently flag it with a warning prefix
    - Show suggestions if present
    - Show blocking feedback if present (verdict "needs_revision")
@@ -129,10 +130,12 @@ The `get_status` response enriches phase_gate decisions with `draft_content` (th
 
    **reviewer_refine** — Approved
    > [summary]
+   Analysis: [analysis]
    Suggestions: [suggestions]
 
    **reviewer_agent_design** — Needs Revision
    > [summary]
+   Analysis: [analysis]
    Blocking concerns: [feedback]
    Suggestions: [suggestions]
    ```

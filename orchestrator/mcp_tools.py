@@ -439,7 +439,7 @@ class CoordinatorToolHandler:
 
         import json
 
-        for review_file in review_files:
+        for i, review_file in enumerate(review_files):
             try:
                 data = json.loads(review_file.read_text(encoding="utf-8"))
                 # Extract reviewer type from filename:
@@ -459,7 +459,7 @@ class CoordinatorToolHandler:
 
                 entry_chars = sum(len(v) for v in entry.values())
                 if total_chars + entry_chars > max_chars:
-                    remaining = len(review_files) - len(feedback)
+                    remaining = len(review_files) - i
                     feedback.append(
                         {
                             "reviewer": f"({remaining} more reviewer(s) omitted)",
