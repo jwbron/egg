@@ -99,7 +99,9 @@ class TestConcurrentPipelineStatus:
     @patch("routes.pipelines.get_repo_path", return_value="/tmp/test-repo")
     @patch("routes.pipelines._resolve_pipeline")
     def test_status_no_concurrent_when_disabled(self, mock_resolve, mock_repo_path, client):
-        """When concurrent_execution is false, status has no concurrent section."""
+        """When concurrent_execution is false and concurrent_phases is empty, status has no concurrent section."""
+        config = PipelineConfig()
+        config.concurrent_phases = []
         pipeline = Pipeline(
             id="issue-100",
             issue_number=100,
@@ -107,6 +109,7 @@ class TestConcurrentPipelineStatus:
             branch="egg/issue-100",
             status=PipelineStatus.RUNNING,
             current_phase=PipelinePhase.IMPLEMENT,
+            config=config,
         )
         mock_store = MagicMock()
         mock_resolve.return_value = (mock_store, pipeline)
