@@ -208,7 +208,7 @@ def get_default_implement_graph() -> ReviewGraph:
 _PHASE_GRAPHS: dict[str, ReviewGraph] = {}
 
 
-_DEFAULT_PHASE_GRAPH_FACTORIES: dict[str, "Callable[[], ReviewGraph]"] = {
+_DEFAULT_PHASE_GRAPH_FACTORIES: dict[str, Callable[[], ReviewGraph]] = {
     "refine": get_default_refine_graph,
     "plan": get_default_plan_graph,
     "implement": get_default_implement_graph,

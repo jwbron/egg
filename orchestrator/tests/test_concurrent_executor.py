@@ -126,8 +126,10 @@ class TestAgentRoles:
 
         assert "coder" in role_names
         assert "tester" in role_names
+        assert "checker" in role_names
         assert "reviewer_code" in role_names
         assert "reviewer_contract" in role_names
+        assert "integrator" not in role_names
 
     def test_refine_phase_roles(self):
         from concurrent_executor import ConcurrentPhaseExecutor
@@ -263,3 +265,23 @@ class TestReviewGraphIntegration:
         # Phase lookup returns same structure
         phase_graph = get_review_graph_for_phase("plan")
         assert len(phase_graph.edges) == len(graph.edges)
+
+    def test_review_graph_roles_subset_of_spawned_roles(self):
+        """Review graph all_roles() must be a subset of spawned roles for each phase."""
+        from concurrent_executor import ConcurrentPhaseExecutor
+        from review_graph import get_review_graph_for_phase
+
+        for phase in [PipelinePhase.IMPLEMENT, PipelinePhase.REFINE, PipelinePhase.PLAN]:
+            pipeline = _make_pipeline()
+            pipeline.current_phase = phase
+            executor = ConcurrentPhaseExecutor(pipeline, spawn_fn=MagicMock())
+
+            roles = executor.get_agent_roles()
+            role_names = {r.value for r in roles}
+            graph = get_review_graph_for_phase(phase.value)
+            graph_roles = graph.all_roles()
+
+            assert graph_roles.issubset(role_names), (
+                f"Phase {phase.value}: graph has roles {graph_roles - role_names} "
+                f"not in spawned roles {role_names}"
+            )

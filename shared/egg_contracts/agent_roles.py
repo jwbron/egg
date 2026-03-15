@@ -40,6 +40,7 @@ class AgentRole(StrEnum):
     TESTER = "tester"
     DOCUMENTER = "documenter"
     INTEGRATOR = "integrator"
+    CHECKER = "checker"
     # Plan-phase roles
     ARCHITECT = "architect"
     TASK_PLANNER = "task_planner"
@@ -805,7 +806,7 @@ class AgentExecution:
 # Phase-to-role mappings for multi-agent execution
 
 _PHASE_ROLES: dict[str, list[AgentRole]] = {
-    "implement": [AgentRole.CODER, AgentRole.TESTER, AgentRole.DOCUMENTER, AgentRole.INTEGRATOR],
+    "implement": [AgentRole.CODER, AgentRole.TESTER, AgentRole.DOCUMENTER],
     "plan": [AgentRole.ARCHITECT, AgentRole.TASK_PLANNER, AgentRole.RISK_ANALYST],
     "refine": [AgentRole.REFINER],
 }
@@ -814,6 +815,7 @@ _PHASE_REVIEWERS: dict[str, list[AgentRole]] = {
     "implement": [
         AgentRole.REVIEWER_CODE,
         AgentRole.REVIEWER_CONTRACT,
+        AgentRole.CHECKER,
     ],
     "plan": [
         AgentRole.REVIEWER_PLAN,
