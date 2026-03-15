@@ -30,7 +30,9 @@ class ApprovalEntry:
     state: ApprovalState = ApprovalState.PENDING
     version: int = 0  # Proposal version this applies to
     artifact_refs: list[str] = field(default_factory=list)  # Artifacts referenced in ACK
-    nack_artifact_refs: list[str] = field(default_factory=list)  # Artifacts cited in most recent NACK
+    nack_artifact_refs: list[str] = field(
+        default_factory=list
+    )  # Artifacts cited in most recent NACK
     reason: str = ""  # Reason for NACK
     timestamp: datetime | None = None
 

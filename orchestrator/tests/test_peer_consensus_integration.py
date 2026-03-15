@@ -454,12 +454,8 @@ class TestScaledReEvaluation:
 
         # Coder's rev_contract and checker ACKs should still be possible
         # (they weren't affected by rev_code's NACK of coder)
-        t.handle_ack(
-            "rev_contract", "coder", {"artifact_references": ["src/auth.py"]}
-        )
-        t.handle_ack(
-            "checker", "coder", {"artifact_references": ["src/auth.py"]}
-        )
+        t.handle_ack("rev_contract", "coder", {"artifact_references": ["src/auth.py"]})
+        t.handle_ack("checker", "coder", {"artifact_references": ["src/auth.py"]})
 
         # Coder re-proposes — only rev_code needs to re-review
         result = t.handle_re_propose(
@@ -531,9 +527,7 @@ class TestScaledReEvaluation:
         artifacts weren't changed."""
         t = six_agent_tracker
 
-        t.handle_propose(
-            "coder", {"summary": "v1", "artifacts": ["src/auth.py", "src/utils.py"]}
-        )
+        t.handle_propose("coder", {"summary": "v1", "artifacts": ["src/auth.py", "src/utils.py"]})
 
         # rev_code ACKs (referencing utils.py only)
         t.handle_ack("rev_code", "coder", {"artifact_references": ["src/utils.py"]})
@@ -564,9 +558,7 @@ class TestScaledReEvaluation:
         """Reviewer NACKs citing file A, producer fixes, reviewer ACKs,
         new commit changes file B, reviewer NACKs citing file B.
         Despite hitting revision count, needs_escalation should be False."""
-        graph = ReviewGraph(
-            [ReviewEdge("rev_code", "coder", ReviewCriticality.CRITICAL)]
-        )
+        graph = ReviewGraph([ReviewEdge("rev_code", "coder", ReviewCriticality.CRITICAL)])
         t = PeerConsensusTracker("test-ctx", graph, cooldown_seconds=0, max_revision_rounds=2)
         t.register_agent("coder")
         t.register_agent("rev_code")
@@ -642,12 +634,8 @@ class TestScaledReEvaluation:
         t.handle_ack("tester", "coder", {"artifact_references": ["src/main.py"]})
 
         # reviewer_code ACKs tester and documenter
-        t.handle_ack(
-            "reviewer_code", "tester", {"artifact_references": ["tests/test_main.py"]}
-        )
-        t.handle_ack(
-            "reviewer_code", "documenter", {"artifact_references": ["docs/README.md"]}
-        )
+        t.handle_ack("reviewer_code", "tester", {"artifact_references": ["tests/test_main.py"]})
+        t.handle_ack("reviewer_code", "documenter", {"artifact_references": ["docs/README.md"]})
 
         # Verify coder is fully acked
         assert t.matrix.is_fully_acked("coder")
@@ -697,7 +685,14 @@ class TestScaledReEvaluation:
         assert t.matrix.is_fully_acked("coder")
 
         # All confirm
-        for role in ["coder", "tester", "documenter", "reviewer_code", "reviewer_contract", "checker"]:
+        for role in [
+            "coder",
+            "tester",
+            "documenter",
+            "reviewer_code",
+            "reviewer_contract",
+            "checker",
+        ]:
             t.handle_confirmed(role)
 
         state = t.evaluate()
