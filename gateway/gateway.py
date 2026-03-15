@@ -56,6 +56,9 @@ from egg_logging import get_logger
 # Import gateway modules - try relative import first (module mode),
 # fall back to absolute import (standalone script mode in container)
 try:
+    from .agent_restrictions import (
+        check_agent_gh_operation,
+    )
     from .anthropic_credentials import get_credentials_manager
     from .checkpoint_handler import (
         _get_checkpoint_repo_for_path,
@@ -122,6 +125,9 @@ try:
     from .transcript_buffer import get_transcript_buffer
     from .worktree_manager import WorktreeManager, get_active_docker_containers, startup_cleanup
 except ImportError:
+    from agent_restrictions import (  # type: ignore[no-redef, import-untyped]
+        check_agent_gh_operation,
+    )
     from anthropic_credentials import get_credentials_manager  # type: ignore[no-redef]
     from checkpoint_handler import (  # type: ignore[no-redef, import-untyped]
         _get_checkpoint_repo_for_path,
@@ -2787,13 +2793,14 @@ def gh_execute() -> tuple[Response, int] | Response:
                 details={"blocked_command": blocked, "command_args": args},
             )
 
-    # --- Phase-based operation filtering ---
-    # Block operations like "issue comment" / "issue edit" when phase restricts them.
-    # Build a command string from the first 3 non-flag args for phase matching.
+    # --- Phase and role-based operation filtering ---
+    # Block operations like "issue comment" / "issue edit" when phase or role restricts them.
+    # Build a command string from the first 3 non-flag args for matching.
+    non_flag_args = [a for a in args if not a.startswith("-")]
+    gh_command_str = " ".join(non_flag_args[:3])
+
     session_phase = getattr(g, "session_phase", None)
     if session_phase:
-        non_flag_args = [a for a in args if not a.startswith("-")]
-        gh_command_str = " ".join(non_flag_args[:3])
         try:
             phase_result = filter_operation(
                 phase=session_phase,
@@ -2823,24 +2830,19 @@ def gh_execute() -> tuple[Response, int] | Response:
             # Invalid phase value - allow for backward compat
             logger.warning("Invalid session phase in gh_execute", phase=session_phase)
 
-    # --- Role-based operation filtering ---
-    # Block agents from posting issue comments regardless of phase.
+    # Role-based operation filtering — block agents from posting issue comments regardless of phase.
     session_role = None
     if hasattr(g, "session") and g.session:
         session_role = getattr(g.session, "agent_role", None)
     if session_role:
-        from agent_restrictions import check_agent_gh_operation  # type: ignore[import-untyped]
-
-        non_flag_args = [a for a in args if not a.startswith("-")]
-        gh_command_str_for_role = " ".join(non_flag_args[:3])
-        role_allowed, role_reason = check_agent_gh_operation(session_role, gh_command_str_for_role)
+        role_allowed, role_reason = check_agent_gh_operation(session_role, gh_command_str)
         if not role_allowed:
             audit_log(
                 "gh_execute_blocked_agent_role",
                 "gh_execute",
                 success=False,
                 details={
-                    "command": gh_command_str_for_role,
+                    "command": gh_command_str,
                     "role": session_role,
                     "reason": role_reason,
                 },
@@ -2848,7 +2850,7 @@ def gh_execute() -> tuple[Response, int] | Response:
             return make_error(
                 role_reason,
                 status_code=403,
-                details={"role": session_role, "command": gh_command_str_for_role},
+                details={"role": session_role, "command": gh_command_str},
             )
 
     # For 'gh api' commands, validate the path against allowlist
