@@ -8,6 +8,7 @@ NACK a negative review of their own code.
 
 from dataclasses import dataclass
 from enum import StrEnum
+from collections.abc import Callable
 from typing import Any
 
 
@@ -130,6 +131,49 @@ class ReviewGraph:
         return cls(edges)
 
 
+def get_default_refine_graph() -> ReviewGraph:
+    """Get the default review graph for the refine phase.
+
+    Review adjacency per the phase-role mappings:
+    - reviewer_refine reviews refiner (critical)
+    - reviewer_agent_design reviews refiner (critical)
+
+    Producers: refiner
+    Reviewers: reviewer_refine, reviewer_agent_design
+    """
+    return ReviewGraph(
+        [
+            # reviewer_refine reviews refiner (critical)
+            ReviewEdge("reviewer_refine", "refiner", ReviewCriticality.CRITICAL),
+            # reviewer_agent_design reviews refiner (critical)
+            ReviewEdge("reviewer_agent_design", "refiner", ReviewCriticality.CRITICAL),
+        ]
+    )
+
+
+def get_default_plan_graph() -> ReviewGraph:
+    """Get the default review graph for the plan phase.
+
+    Review adjacency per the phase-role mappings:
+    - reviewer_plan reviews architect (critical)
+    - reviewer_plan reviews task_planner (critical)
+    - reviewer_plan reviews risk_analyst (advisory)
+
+    Producers: architect, task_planner, risk_analyst
+    Reviewers: reviewer_plan
+    """
+    return ReviewGraph(
+        [
+            # reviewer_plan reviews architect (critical)
+            ReviewEdge("reviewer_plan", "architect", ReviewCriticality.CRITICAL),
+            # reviewer_plan reviews task_planner (critical)
+            ReviewEdge("reviewer_plan", "task_planner", ReviewCriticality.CRITICAL),
+            # reviewer_plan reviews risk_analyst (advisory)
+            ReviewEdge("reviewer_plan", "risk_analyst", ReviewCriticality.ADVISORY),
+        ]
+    )
+
+
 def get_default_implement_graph() -> ReviewGraph:
     """Get the default review graph for the implement phase.
 
@@ -164,15 +208,25 @@ def get_default_implement_graph() -> ReviewGraph:
 _PHASE_GRAPHS: dict[str, ReviewGraph] = {}
 
 
+_DEFAULT_PHASE_GRAPH_FACTORIES: dict[str, "Callable[[], ReviewGraph]"] = {
+    "refine": get_default_refine_graph,
+    "plan": get_default_plan_graph,
+    "implement": get_default_implement_graph,
+}
+
+
 def get_review_graph_for_phase(phase: str) -> ReviewGraph:
     """Get the review graph for a pipeline phase.
 
-    Currently only the implement phase has a defined review graph.
-    Other phases return an empty graph.
+    Returns the default review graph for refine, plan, and implement phases.
+    Other phases return an empty graph unless a custom graph has been registered.
     """
-    if phase == "implement":
-        return get_default_implement_graph()
-    return _PHASE_GRAPHS.get(phase, ReviewGraph())
+    if phase in _PHASE_GRAPHS:
+        return _PHASE_GRAPHS[phase]
+    factory = _DEFAULT_PHASE_GRAPH_FACTORIES.get(phase)
+    if factory is not None:
+        return factory()
+    return ReviewGraph()
 
 
 def register_phase_graph(phase: str, graph: ReviewGraph) -> None:

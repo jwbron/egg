@@ -4583,7 +4583,9 @@ def _run_concurrent_phase(
     pipeline_mode = "issue" if pipeline.issue_number is not None else "prompt"
 
     # Build per-role prompts (matches _run_multi_agent_phase pattern).
-    roles = [AgentRole.CODER, AgentRole.TESTER, AgentRole.DOCUMENTER]
+    from egg_contracts.agent_roles import get_roles_for_phase as _get_roles_for_phase
+
+    roles = [AgentRole(r.value) for r in _get_roles_for_phase(phase_str, include_reviewers=False)]
     agent_prompts: dict[AgentRole, str] = {}
     for role in roles:
         prompt = _build_agent_prompt(
@@ -6339,7 +6341,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                         from ..multi_agent import is_concurrent_execution  # type: ignore[no-redef]
 
                     use_concurrent = is_concurrent_execution(pipeline) and current_phase.value in {
-                        "implement"
+                        "refine", "plan", "implement"
                     }
 
                     if use_coordinator:

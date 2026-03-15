@@ -469,22 +469,52 @@ class TestConcurrentEndToEnd:
 class TestGetAgentRoles:
     """Tests for ConcurrentPhaseExecutor.get_agent_roles()."""
 
-    def test_returns_six_concurrent_roles(self):
-        """get_agent_roles returns all 6 implement-phase agent roles."""
+    def test_returns_implement_phase_roles(self):
+        """get_agent_roles returns implement-phase roles from get_roles_for_phase."""
         from concurrent_executor import ConcurrentPhaseExecutor
         from models import AgentRole
 
         pipeline = _make_concurrent_pipeline()
+        pipeline.current_phase = PipelinePhase.IMPLEMENT
         executor = ConcurrentPhaseExecutor(pipeline=pipeline, spawn_fn=MagicMock())
         roles = executor.get_agent_roles()
 
-        assert len(roles) == 6
         assert AgentRole.CODER in roles
         assert AgentRole.TESTER in roles
         assert AgentRole.DOCUMENTER in roles
-        assert AgentRole.CHECKER in roles
         assert AgentRole.REVIEWER_CODE in roles
         assert AgentRole.REVIEWER_CONTRACT in roles
+
+    def test_returns_refine_phase_roles(self):
+        """get_agent_roles returns refine-phase roles when phase is refine."""
+        from concurrent_executor import ConcurrentPhaseExecutor
+        from models import AgentRole
+
+        pipeline = _make_concurrent_pipeline()
+        pipeline.current_phase = PipelinePhase.REFINE
+        executor = ConcurrentPhaseExecutor(pipeline=pipeline, spawn_fn=MagicMock())
+        roles = executor.get_agent_roles()
+
+        assert AgentRole.REFINER in roles
+        assert AgentRole.REVIEWER_REFINE in roles
+        assert AgentRole.REVIEWER_AGENT_DESIGN in roles
+        assert AgentRole.CODER not in roles
+
+    def test_returns_plan_phase_roles(self):
+        """get_agent_roles returns plan-phase roles when phase is plan."""
+        from concurrent_executor import ConcurrentPhaseExecutor
+        from models import AgentRole
+
+        pipeline = _make_concurrent_pipeline()
+        pipeline.current_phase = PipelinePhase.PLAN
+        executor = ConcurrentPhaseExecutor(pipeline=pipeline, spawn_fn=MagicMock())
+        roles = executor.get_agent_roles()
+
+        assert AgentRole.ARCHITECT in roles
+        assert AgentRole.TASK_PLANNER in roles
+        assert AgentRole.RISK_ANALYST in roles
+        assert AgentRole.REVIEWER_PLAN in roles
+        assert AgentRole.CODER not in roles
 
 
 class TestGetWorktreeBranch:
