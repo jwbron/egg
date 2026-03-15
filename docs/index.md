@@ -52,7 +52,7 @@ This index helps both humans and LLMs navigate the documentation efficiently.
 | [GitHub Automation](guides/github-automation.md) | Built-in review bots, autofixer, conflict resolver, and doc updater workflows |
 | [Reusable Workflows](guides/reusable-workflows.md) | Using egg's reusable workflows in external repositories |
 | [SDLC Pipeline](guides/sdlc-pipeline.md) | Operational guide for the structurally enforced SDLC pipeline |
-| [Agent Teams](guides/agent-teams.md) | Agent team communication, peer consensus protocol, and evidence-backed deliberation |
+| [Agent Teams](guides/agent-teams.md) | Agent team communication and Deliberative Consensus (BRC protocol + evidence-backed deliberation) |
 | [Concurrent Execution](guides/concurrent-execution.md) | Concurrent agent execution: message bus, readiness signaling, consensus protocol |
 | [Tier 3 Dispatch](guides/tier3-dispatch.md) | Phase-level parallel dispatch for high-complexity tasks |
 | [Checkpoint Access](guides/checkpoint-access.md) | Querying cross-agent checkpoints in multi-agent pipelines |
@@ -114,7 +114,7 @@ Each major component has detailed documentation:
 | **Designing agent workflows** | [Agent-Mode Design](guides/agent-mode-design.md) | [Architecture Overview](architecture/README.md) |
 | **Adding bot workflows** | [Agent-Mode Design](guides/agent-mode-design.md) | [Action README](../action/README.md), existing workflows in `.github/workflows/` |
 | **SDLC pipeline changes** | [SDLC Pipeline Guide](guides/sdlc-pipeline.md) | [The Agentic Feedback Loop](agentic-feedback-loop.md), [ADR: SDLC Pipeline](adr/implemented/ADR-SDLC-Pipeline.md), [Plan Template](templates/plan.md), [Analysis Template](templates/analysis.md), `orchestrator/` package |
-| **Agent teams / peer consensus** | [Agent Teams Guide](guides/agent-teams.md) | [Concurrent Execution Guide](guides/concurrent-execution.md), [SDLC Pipeline Guide](guides/sdlc-pipeline.md) |
+| **Agent teams / Deliberative Consensus** | [Agent Teams Guide](guides/agent-teams.md) | [Concurrent Execution Guide](guides/concurrent-execution.md), [SDLC Pipeline Guide](guides/sdlc-pipeline.md) |
 | **Concurrent execution mode** | [Concurrent Execution Guide](guides/concurrent-execution.md) | [SDLC Pipeline Guide](guides/sdlc-pipeline.md), [Checkpoint Access](guides/checkpoint-access.md), [Orchestrator Architecture](architecture/orchestrator.md) |
 | **Tier 3 / phase-level dispatch** | [Tier 3 Dispatch Guide](guides/tier3-dispatch.md) | [SDLC Pipeline Guide](guides/sdlc-pipeline.md), [Agent Roles Reference](reference/agent-roles.md) |
 | **Coordinator / dynamic orchestration** | [Coordinator Agent Guide](guides/coordinator.md) | [SDLC Pipeline Guide](guides/sdlc-pipeline.md), [Agent-Mode Design](guides/agent-mode-design.md), [Orchestrator Architecture](architecture/orchestrator.md) |

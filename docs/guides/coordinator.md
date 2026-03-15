@@ -92,8 +92,8 @@ When given an issue number, it auto-detects the repo and fetches the issue — n
 | `submit_task` | Submit a task for coordinator processing | `description`, `repo` | `issue_number`, `branch` |
 | `get_status` | Check task/pipeline status; returns coordinator state, pipeline details, and recent messages | `task_id` | |
 | `provide_input` | Respond to a coordinator escalation | `task_id`, `decision_id`, `response` | |
-| `list_tasks` | List coordinator-managed pipelines | (none) | `status_filter`, `limit` |
-| `cancel_task` | Cancel a task | `task_id` | `reason` |
+| `list_tasks` | List coordinator-managed pipelines | (none) | `status_filter`, `limit`, `repo`, `issue_number` |
+| `cancel_task` | Cancel a task; use `cleanup=true` to also delete pipeline state so the issue can be resubmitted | `task_id` | `reason`, `cleanup` |
 
 **`submit_task` parameters:**
 - `description` (required) — Natural language task description
@@ -104,6 +104,13 @@ When given an issue number, it auto-detects the repo and fetches the issue — n
 **`list_tasks` parameters:**
 - `status_filter` — `"active"` (default), `"completed"`, `"failed"`, or `"all"`
 - `limit` (int) — Maximum results to return (default: 10)
+- `repo` (string) — Filter by repository in `owner/name` format (e.g. `myorg/myrepo`)
+- `issue_number` (int) — Filter by GitHub issue number
+
+**`cancel_task` parameters:**
+- `task_id` (required) — Pipeline / task ID to cancel
+- `reason` (string) — Human-readable reason for cancellation
+- `cleanup` (bool) — When `true`, fully deletes pipeline state (containers, worktrees, messages, state files) after cancellation so the same issue can be resubmitted without a 409 conflict. Defaults to `false`.
 
 ### MCP Server Endpoints
 
@@ -166,7 +173,7 @@ The `role` must be a valid `AgentRole` **and** must be appropriate for the curre
 |-------|-------------|
 | `refine` | `refiner`, `reviewer_refine`, `reviewer_agent_design` |
 | `plan` | `architect`, `task_planner`, `risk_analyst`, `reviewer_plan` |
-| `implement` | `coder`, `tester`, `documenter`, `integrator`, `reviewer_code`, `reviewer_contract` |
+| `implement` | `coder`, `tester`, `documenter`, `reviewer_code`, `reviewer_contract`, `checker` |
 | `pr`, `coordinator` | Any role (no phase-role restriction) |
 
 **Contract enforcement**: Spawning any agent in the `implement` or `pr` phase when the pipeline has no contract (`contract_synced: false`) returns HTTP 409. Contracts are auto-created at pipeline startup; a 409 here indicates that creation failed — check orchestrator logs.
@@ -408,6 +415,8 @@ The coordinator container receives these additional environment variables:
 The coordinator runs with `phase="coordinator"` — a special phase value distinct from the standard SDLC phases (`refine`, `plan`, `implement`, `pr`).
 
 ## Troubleshooting
+
+**`submit_task` returns 409 (pipeline already exists)**: A pipeline for this issue already exists. The 409 response includes `existing_pipeline_id`, `existing_status`, and `existing_phase` so you can decide whether to resume monitoring (`get_status`) or cancel and resubmit (`cancel_task` with `cleanup=true`).
 
 **Coordinator not spawning**: Verify `coordinator_enabled: true` in the pipeline config via `egg-orch pipeline get <id>`.
 
