@@ -67,10 +67,10 @@ jobs:
           # 2. PR body: "Issue: https://github.com/.../issues/{number}" or "Issue: #{number}"
           else
             # Try URL form: Issue: https://github.com/owner/repo/issues/1234
-            issue_number=$(echo "$pr_body" | grep -oi 'Issue:.*github\.com/[^/]*/[^/]*/issues/[0-9]*' | grep -o '[0-9]*$' | head -1 || true)
+            issue_number=$(echo "$pr_body" | grep -oi 'Issue:[[:space:]]*https\?://github\.com/[^/]*/[^/]*/issues/[0-9]*' | grep -o '[0-9]*$' | head -1 || true)
             # Try shorthand form: Issue: #1234
             if [[ -z "$issue_number" ]]; then
-              issue_number=$(echo "$pr_body" | grep -oi 'Issue:.*#[0-9]*' | grep -o '[0-9]*$' | head -1 || true)
+              issue_number=$(echo "$pr_body" | grep -oi 'Issue:[[:space:]]*#[0-9]*' | grep -o '[0-9]*$' | head -1 || true)
             fi
             if [[ -n "$issue_number" ]]; then
               echo "Extracted issue number from PR body: $issue_number"
@@ -81,10 +81,8 @@ jobs:
           if [[ -z "$issue_number" ]]; then
             echo "Could not extract issue number from branch name or PR body"
             echo "Scanning .egg-state/contracts/ on branch $branch_name..."
-            set +o pipefail
             contract_files=$(gh api "repos/${{ github.repository }}/contents/.egg-state/contracts?ref=${branch_name}" \
               --jq '.[].name' 2>/dev/null || echo "")
-            set -o pipefail
             if [[ -n "$contract_files" ]]; then
               # Take the first .json file and extract the number from its filename
               first_contract=$(echo "$contract_files" | grep '\.json$' | head -1)

@@ -248,7 +248,10 @@ def cmd_serve(args: argparse.Namespace) -> int:
         # Use Flask's built-in server for development
         app.run(host=host, port=port, debug=True)
     else:
-        # Use waitress for production
+        # Use waitress for production.
+        # 16 threads handles concurrent requests including Redis XREAD BLOCK
+        # long-polling (capped at 60s per request in messages.py). Waitress
+        # thread pool accommodates blocking I/O without requiring async workers.
         from waitress import serve
 
         serve(app, host=host, port=port, threads=16)

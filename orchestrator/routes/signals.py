@@ -742,6 +742,21 @@ def handle_consensus_propose_signal(
             )
         )
 
+        try:
+            from events import EventType, emit_event
+        except ImportError:
+            from ..events import EventType, emit_event  # type: ignore[no-redef]
+
+        emit_event(
+            EventType.CONSENSUS_PROPOSE_RECEIVED,
+            pipeline_id,
+            data={
+                "role": agent_role,
+                "version": result.get("version"),
+                "summary": payload.get("summary", ""),
+            },
+        )
+
         return make_success_response(
             f"Proposal recorded for {agent_role}",
             data=result,
@@ -813,6 +828,22 @@ def handle_consensus_ack_signal(
                 )
             )
 
+        try:
+            from events import EventType, emit_event
+        except ImportError:
+            from ..events import EventType, emit_event  # type: ignore[no-redef]
+
+        emit_event(
+            EventType.CONSENSUS_ACK_RECEIVED,
+            pipeline_id,
+            data={
+                "reviewer": reviewer_role,
+                "producer": producer_role,
+                "fully_acked": result.get("fully_acked", False),
+                "version": result.get("version"),
+            },
+        )
+
         return make_success_response(
             f"ACK recorded: {reviewer_role} -> {producer_role}",
             data=result,
@@ -874,6 +905,22 @@ def handle_consensus_nack_signal(
             )
         )
 
+        try:
+            from events import EventType, emit_event
+        except ImportError:
+            from ..events import EventType, emit_event  # type: ignore[no-redef]
+
+        emit_event(
+            EventType.CONSENSUS_NACK_RECEIVED,
+            pipeline_id,
+            data={
+                "reviewer": reviewer_role,
+                "producer": producer_role,
+                "reason": result.get("reason"),
+                "revision_count": result.get("revision_count"),
+            },
+        )
+
         return make_success_response(
             f"NACK recorded: {reviewer_role} -> {producer_role}",
             data=result,
@@ -921,6 +968,17 @@ def handle_consensus_withdraw_signal(
             )
         )
 
+        try:
+            from events import EventType, emit_event
+        except ImportError:
+            from ..events import EventType, emit_event  # type: ignore[no-redef]
+
+        emit_event(
+            EventType.CONSENSUS_WITHDRAW_RECEIVED,
+            pipeline_id,
+            data={"role": agent_role, "reason": reason},
+        )
+
         return make_success_response(
             f"Withdrawal recorded for {agent_role}",
             data=result,
@@ -965,6 +1023,20 @@ def handle_consensus_confirmed_signal(
                 body="",
                 metadata={"consensus_reached": result.get("consensus_reached", False)},
             )
+        )
+
+        try:
+            from events import EventType, emit_event
+        except ImportError:
+            from ..events import EventType, emit_event  # type: ignore[no-redef]
+
+        emit_event(
+            EventType.CONSENSUS_CONFIRMED_RECEIVED,
+            pipeline_id,
+            data={
+                "role": agent_role,
+                "consensus_reached": result.get("consensus_reached", False),
+            },
         )
 
         return make_success_response(

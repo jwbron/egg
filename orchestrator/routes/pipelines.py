@@ -823,6 +823,18 @@ def delete_pipeline(pipeline_id: str) -> tuple[Response, int]:
                 error=str(e),
             )
 
+        # Clean up Redis message store keys (stream + counters)
+        try:
+            from message_store import get_message_store
+
+            get_message_store().clear(pipeline_id)
+        except Exception as e:
+            logger.warning(
+                "Failed to clear message store for deleted pipeline",
+                pipeline_id=pipeline_id,
+                error=str(e),
+            )
+
         store.delete_pipeline(pipeline_id)
 
         logger.info("Pipeline deleted", pipeline_id=pipeline_id)
