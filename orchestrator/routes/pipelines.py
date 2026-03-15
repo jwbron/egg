@@ -4574,6 +4574,14 @@ def _run_multi_agent_phase(
     return 0, combined_logs
 
 
+def _format_nack_summary(nack_details: list[dict]) -> str:
+    """Format unresolved NACK details into a human-readable summary string."""
+    return "; ".join(
+        f"{n['reviewer']} NACKed {n['producer']}: {n.get('reason') or 'no reason given'}"
+        for n in nack_details
+    )
+
+
 def _run_concurrent_phase(
     pipeline_id: str,
     pipeline: Pipeline,
@@ -4943,6 +4951,34 @@ def _run_concurrent_phase(
             combined_logs = "\n".join(all_logs)
             if has_failures[0]:
                 return 1, combined_logs
+
+            # Before returning success, check the BRC approval matrix for
+            # unresolved NACKs.  If reviewers NACKed but producers exited
+            # without iterating, we must NOT report success — escalate to
+            # HITL so a human can decide how to proceed.
+            if consensus.get("has_unresolved_nacks"):
+                nack_details = consensus.get("unresolved_nacks", [])
+                nack_summary = _format_nack_summary(nack_details)
+                logger.warning(
+                    "All containers exited with unresolved NACKs",
+                    pipeline_id=pipeline_id,
+                    nack_count=len(nack_details),
+                    nack_summary=nack_summary,
+                )
+                try:
+                    pipeline.add_decision(
+                        question=(
+                            f"All agents exited but {len(nack_details)} NACK(s) remain "
+                            f"unresolved: {nack_summary}. How to proceed?"
+                        ),
+                        options=["Retry phase", "Accept current state", "Abort phase"],
+                        phase=pipeline.current_phase,
+                    )
+                except Exception:
+                    logger.warning("Failed to create NACK escalation decision", exc_info=True)
+                combined_logs += f"\n--- UNRESOLVED NACKs ({len(nack_details)}) ---\n{nack_summary}"
+                return 1, combined_logs
+
             return 0, combined_logs
 
         # 6. Consensus timeout
@@ -5053,6 +5089,26 @@ def _run_concurrent_phase(
             combined_logs = "\n".join(all_logs)
             if has_failures[0]:
                 return 1, combined_logs
+
+            # After timeout, check the BRC approval matrix for unresolved
+            # NACKs before declaring success.  Producers that exited without
+            # addressing reviewer feedback should not be treated as passing.
+            try:
+                _final_consensus = executor.check_consensus()
+            except Exception:
+                logger.warning("Failed to check consensus at timeout", exc_info=True)
+                _final_consensus = {}
+            if _final_consensus.get("has_unresolved_nacks"):
+                nack_details = _final_consensus.get("unresolved_nacks", [])
+                nack_summary = _format_nack_summary(nack_details)
+                logger.warning(
+                    "Timeout with unresolved NACKs — returning failure",
+                    pipeline_id=pipeline_id,
+                    nack_count=len(nack_details),
+                )
+                combined_logs += f"\n--- UNRESOLVED NACKs ({len(nack_details)}) ---\n{nack_summary}"
+                return 1, combined_logs
+
             return 0, combined_logs
 
         # 7. Sleep before next poll
@@ -7270,43 +7326,72 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
 
             # --- HITL gate: pause for human approval ---
             if pipeline.config.hitl_gates and current_phase.value in _HITL_GATE_PHASES:
-                draft_content = _read_phase_draft(
-                    worktree_repo_path,
-                    current_phase.value,
-                    issue_number=pipeline.issue_number,
-                    pipeline_id=pipeline_id,
+                # Check for an existing pending phase_gate decision for this
+                # phase.  The coordinator path or a prior agent-exit event may
+                # have already created one — creating a duplicate confuses the
+                # human reviewer.  See #1152.
+                existing_pending_gate = any(
+                    d.decision_type == "phase_gate"
+                    and d.phase == current_phase
+                    and d.status == DecisionStatus.PENDING
+                    for d in pipeline.decisions
                 )
-                phase_label = "analysis" if current_phase.value == "refine" else current_phase.value
 
-                # Warn if draft is missing — the agent may not have written
-                # it to the expected path.  See #1016.
-                if draft_content is None:
-                    logger.warning(
-                        "HITL gate: draft not found on work branch",
+                if existing_pending_gate:
+                    logger.info(
+                        "HITL gate: reusing existing pending phase_gate decision",
                         pipeline_id=pipeline_id,
                         phase=current_phase.value,
-                        worktree_path=str(worktree_repo_path),
                     )
-                    draft_content = (
-                        f"**Warning**: No {phase_label} draft was found on the "
-                        f"work branch. The agent may not have written the output "
-                        f"to the expected path."
+                    # Find the existing decision to wait on
+                    dq = get_decision_queue(pipeline_id, repo_path)
+                    decision = next(
+                        d
+                        for d in reversed(pipeline.decisions)
+                        if d.decision_type == "phase_gate"
+                        and d.phase == current_phase
+                        and d.status == DecisionStatus.PENDING
+                    )
+                else:
+                    draft_content = _read_phase_draft(
+                        worktree_repo_path,
+                        current_phase.value,
+                        issue_number=pipeline.issue_number,
+                        pipeline_id=pipeline_id,
+                    )
+                    phase_label = (
+                        "analysis" if current_phase.value == "refine" else current_phase.value
                     )
 
-                question = (
-                    f"The {current_phase.value} phase has completed. "
-                    f"Please review the {phase_label} and approve to continue, "
-                    f"or provide feedback to request changes."
-                )
+                    # Warn if draft is missing — the agent may not have written
+                    # it to the expected path.  See #1016.
+                    if draft_content is None:
+                        logger.warning(
+                            "HITL gate: draft not found on work branch",
+                            pipeline_id=pipeline_id,
+                            phase=current_phase.value,
+                            worktree_path=str(worktree_repo_path),
+                        )
+                        draft_content = (
+                            f"**Warning**: No {phase_label} draft was found on the "
+                            f"work branch. The agent may not have written the output "
+                            f"to the expected path."
+                        )
 
-                dq = get_decision_queue(pipeline_id, repo_path)
-                decision = dq.queue_decision(
-                    question=question,
-                    context=draft_content,
-                    options=["approve", "request changes"],
-                    decision_type="phase_gate",
-                    phase=current_phase,
-                )
+                    question = (
+                        f"The {current_phase.value} phase has completed. "
+                        f"Please review the {phase_label} and approve to continue, "
+                        f"or provide feedback to request changes."
+                    )
+
+                    dq = get_decision_queue(pipeline_id, repo_path)
+                    decision = dq.queue_decision(
+                        question=question,
+                        context=draft_content,
+                        options=["approve", "request changes"],
+                        decision_type="phase_gate",
+                        phase=current_phase,
+                    )
 
                 # Reload pipeline to pick up the decision persisted by queue_decision(),
                 # otherwise the stale local object overwrites it with an empty decisions list.

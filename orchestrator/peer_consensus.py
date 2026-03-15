@@ -525,10 +525,23 @@ class PeerConsensusTracker:
 
         Returns dict compatible with the old ConsensusEvaluator.evaluate() format
         plus additional BRC-specific data.
+
+        ``is_complete`` is only True when all agents have confirmed AND there
+        are no unresolved NACK edges in the approval matrix.  This prevents
+        the phase from completing when reviewers have NACKed but producers
+        haven't yet iterated.
         """
         with self._lock:
             all_roles = self.graph.all_roles()
-            is_complete = all_roles.issubset(self._confirmed)
+            all_confirmed = all_roles.issubset(self._confirmed)
+
+            # Check the approval matrix for unresolved NACKs — even if all
+            # agents are in the confirmed set, blocking edges mean producers
+            # still need to iterate.
+            blocking_edges = self.matrix.get_all_blocking_edges()
+            has_unresolved_nacks = any(e.state.value == "nacked" for e in blocking_edges)
+
+            is_complete = all_confirmed and not has_unresolved_nacks
 
             blocking_agents = [r for r in all_roles if r not in self._confirmed]
 
@@ -546,10 +559,26 @@ class PeerConsensusTracker:
                 phase_info["confirmed"] = role in self._confirmed
                 agents[role] = phase_info
 
+            # Collect NACK details for callers that need to act on them
+            unresolved_nack_details = []
+            if has_unresolved_nacks:
+                for entry in blocking_edges:
+                    if entry.state.value == "nacked":
+                        unresolved_nack_details.append(
+                            {
+                                "reviewer": entry.reviewer_role,
+                                "producer": entry.producer_role,
+                                "reason": entry.reason,
+                                "version": entry.version,
+                            }
+                        )
+
             return {
                 "is_complete": is_complete,
                 "blocking_agents": blocking_agents,
                 "has_objections": False,  # BRC doesn't use objections
+                "has_unresolved_nacks": has_unresolved_nacks,
+                "unresolved_nacks": unresolved_nack_details,
                 "agents": agents,
                 "approval_matrix": self.matrix.to_dict(),
                 "review_graph": self.graph.to_dict(),

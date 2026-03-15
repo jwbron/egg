@@ -26,7 +26,7 @@ MAX_CONSENSUS_RESTARTS = 2
 MAX_READY_POLL_CYCLES = 10
 
 # Recovery prompt given to Claude when it is restarted by the wrapper.
-# Placeholders: {restart_number}, {max_restarts}, {brc_state}
+# Placeholders: {restart_number}, {max_restarts}, {brc_state}, {nack_feedback}
 _RECOVERY_PROMPT = (
     "## BRC CONSENSUS RECOVERY — You were restarted by the consensus wrapper\n\n"
     "You exited your previous session without completing the BRC consensus protocol. "
@@ -35,11 +35,14 @@ _RECOVERY_PROMPT = (
     "Converge (BRC) protocol requires all agents to reach CONFIRMED state before "
     "the orchestrator stops your container.\n\n"
     "**Your BRC state**: {brc_state}\n\n"
+    "{nack_feedback}"
     "**What you must do now**:\n"
     "1. Check consensus status: `egg-orch consensus status`\n"
     "2. Poll for messages: `egg-orch message poll --wait 30`\n"
     "3. Based on your role type:\n"
-    "   - **Producer**: If WORKING, complete work and propose (`egg-orch consensus propose`). "
+    "   - **Producer**: If you received NACKs, you MUST address the reviewer feedback "
+    "above, revise your work, and re-propose (`egg-orch consensus propose`). "
+    "If WORKING, complete work and propose. "
     "If PROPOSED, check for ACKs/NACKs and respond. If all ACKed, confirm.\n"
     "   - **Reviewer**: Check for proposals from assigned producers. Review artifacts in git, "
     "then ACK (`egg-orch consensus ack <role>`) or NACK (`egg-orch consensus nack <role>`). "
@@ -74,16 +77,35 @@ get_brc_state() {{
     local response="$1"
     local role="$2"
     echo "$response" | python3 -c \
-        "import sys,json; d=json.load(sys.stdin); agent=d.get('data',{{}}).get('concurrent',{{}}).get('consensus',{{}}).get('agents',{{}}).get('$role',{{}}); print(json.dumps(agent))" \
-        2>/dev/null || echo "{{}}"
+        "import sys,json; role=sys.argv[1]; d=json.load(sys.stdin); agent=d.get('data',{{}}).get('concurrent',{{}}).get('consensus',{{}}).get('agents',{{}}).get(role,{{}}); print(json.dumps(agent))" \
+        "$role" 2>/dev/null || echo "{{}}"
 }}
 
 get_agent_confirmed() {{
     local response="$1"
     local role="$2"
     echo "$response" | python3 -c \
-        "import sys,json; d=json.load(sys.stdin); agent=d.get('data',{{}}).get('concurrent',{{}}).get('consensus',{{}}).get('agents',{{}}).get('$role',{{}}); print(agent.get('confirmed',False))" \
-        2>/dev/null || echo "False"
+        "import sys,json; role=sys.argv[1]; d=json.load(sys.stdin); agent=d.get('data',{{}}).get('concurrent',{{}}).get('consensus',{{}}).get('agents',{{}}).get(role,{{}}); print(agent.get('confirmed',False))" \
+        "$role" 2>/dev/null || echo "False"
+}}
+
+# Extract unresolved NACK feedback targeting this agent (as a producer)
+get_nack_feedback() {{
+    local response="$1"
+    local role="$2"
+    echo "$response" | python3 -c "
+import sys, json
+role = sys.argv[1]
+d = json.load(sys.stdin)
+nacks = d.get('data', {{}}).get('concurrent', {{}}).get('consensus', {{}}).get('unresolved_nacks', [])
+my_nacks = [n for n in nacks if n.get('producer') == role]
+if my_nacks:
+    print('**UNRESOLVED NACKs — You MUST address these before re-proposing:**')
+    for n in my_nacks:
+        reason = n.get('reason') or 'no reason given'
+        print(f\"- **{{n.get('reviewer', '?')}}**: {{reason}}\")
+    print()
+" "$role" 2>/dev/null || echo ""
 }}
 
 # --- Initial run ---
@@ -144,10 +166,13 @@ while [ "$RESTART_COUNT" -lt "$MAX_RESTARTS" ]; do
     RESTART_COUNT=$((RESTART_COUNT + 1))
     echo "[consensus-wrapper] Agent exited without BRC consensus. Restarting ($RESTART_COUNT/$MAX_RESTARTS)..."
 
-    # Get current BRC state for the recovery prompt
+    # Get current BRC state and NACK feedback for the recovery prompt
+    RESPONSE=$(egg-orch pipeline status --json 2>/dev/null || echo "{{}}")
     BRC_STATE="unknown"
+    NACK_FEEDBACK=""
     if [ -n "$AGENT_ROLE" ]; then
         BRC_STATE=$(get_brc_state "$RESPONSE" "$AGENT_ROLE")
+        NACK_FEEDBACK=$(get_nack_feedback "$RESPONSE" "$AGENT_ROLE")
     fi
 
     # Build recovery prompt with restart context
@@ -155,8 +180,16 @@ while [ "$RESTART_COUNT" -lt "$MAX_RESTARTS" ]; do
 {recovery_prompt_template}
 RECOVERY_EOF
 )
-    # Substitute restart number and BRC state into the prompt
-    RECOVERY_PROMPT=$(echo "$RECOVERY_PROMPT" | sed "s/{{restart_number}}/$RESTART_COUNT/g; s/{{max_restarts}}/$MAX_RESTARTS/g; s/{{brc_state}}/$BRC_STATE/g")
+    # Use Python for safe template substitution (avoids sed/awk special character
+    # issues with backslashes, ampersands, and other chars in NACK feedback text)
+    RECOVERY_PROMPT=$(_CW_RESTART="$RESTART_COUNT" _CW_MAX="$MAX_RESTARTS" \
+        _CW_BRC="$BRC_STATE" _CW_NACK="$NACK_FEEDBACK" \
+        python3 -c 'import sys, os
+template = sys.stdin.read()
+for old, key in [("{{restart_number}}", "_CW_RESTART"), ("{{max_restarts}}", "_CW_MAX"),
+                 ("{{brc_state}}", "_CW_BRC"), ("{{nack_feedback}}", "_CW_NACK")]:
+    template = template.replace(old, os.environ[key])
+sys.stdout.write(template)' <<< "$RECOVERY_PROMPT")
 
     run_claude "$RECOVERY_PROMPT"
     CLAUDE_EXIT=$?
