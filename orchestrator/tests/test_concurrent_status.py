@@ -66,9 +66,9 @@ class TestGetConcurrentStatusUnit:
     """Unit tests for _get_concurrent_status function."""
 
     def test_returns_none_when_concurrent_not_enabled(self):
-        """Should return None for a pipeline with concurrent_phases=[] and no concurrent flag."""
+        """Should return None for a pipeline with concurrent execution disabled."""
         config = PipelineConfig()
-        config.concurrent_phases = []
+        config.concurrent_execution = False
         pipeline = Pipeline(
             id="issue-100",
             issue_number=100,
@@ -206,7 +206,7 @@ class TestPipelineStatusConcurrentEndpoint:
     ):
         """Verify concurrent section is NOT present for non-concurrent pipelines."""
         config = PipelineConfig()
-        config.concurrent_phases = []
+        config.concurrent_execution = False
         pipeline = Pipeline(
             id="issue-100",
             issue_number=100,
