@@ -1,0 +1,67 @@
+{
+  "issue": 897,
+  "pipeline_id": "issue-897",
+  "phase": "implement",
+  "agent": "integrator",
+  "status": "pass",
+  "summary": "Integration verified. Resolved 2 merge conflicts in test files, fixed 2 lint issues, all 252 relevant tests pass, full suite passes (6765 pass, 2 pre-existing Docker env failures unrelated to this issue).",
+  "integration_checks": {
+    "merge_conflicts_resolved": {
+      "status": "fixed",
+      "details": "Found and resolved merge conflict markers in orchestrator/tests/test_pipeline_prompts.py and tests/workflows/test_multi_reviewer.py. Both conflicts were caused by tester WIP auto-commit colliding with coder's commit; resolution kept all tester tests (HEAD side) and removed empty counterparts."
+    },
+    "lint_issues_fixed": {
+      "status": "fixed",
+      "details": "Fixed B011 (assert False) in test_pipeline_prompts.py by replacing with pytest.raises(). Removed unused import (types.ModuleType) in test_multi_reviewer.py. Ran ruff format on 2 files."
+    },
+    "test_suite": {
+      "status": "pass",
+      "total_tests": 6852,
+      "passed": 6765,
+      "failed": 2,
+      "skipped": 85,
+      "pre_existing_failures": [
+        "orchestrator/tests/test_docker_client.py::TestDockerClientConnection::test_is_connected_false",
+        "orchestrator/tests/test_docker_client.py::TestContainerOperations::test_start_container_not_found"
+      ],
+      "pre_existing_failure_reason": "Docker client tests fail in sandbox environment (Docker is connected when test expects disconnected; mock type mismatch). Not related to issue #897 changes."
+    },
+    "relevant_tests": {
+      "status": "pass",
+      "count": 252,
+      "files": [
+        "orchestrator/tests/test_pipeline_prompts.py",
+        "orchestrator/tests/test_tier3_execute.py",
+        "tests/workflows/test_multi_reviewer.py"
+      ]
+    },
+    "lint": {
+      "status": "pass",
+      "details": "All ruff check and format rules pass. All custom lint checks pass."
+    },
+    "backward_compatibility": {
+      "status": "verified",
+      "details": "ReviewVerdict model uses default empty strings for new fields (analysis, suggestions), so old JSON without these fields parses correctly. AggregatedReviewResult is a NamedTuple supporting both named and positional access. Tests explicitly verify both backward-compat scenarios."
+    }
+  },
+  "changes_summary": {
+    "coder_changes": {
+      "orchestrator/models.py": "Added analysis and suggestions fields to ReviewVerdict. Added AggregatedReviewResult NamedTuple replacing the old (str, str) return type.",
+      "orchestrator/routes/pipelines.py": "Updated _get_reviewer_scope_preamble with analysis format instructions for each reviewer type. Added expanded procedural steps for draft-based reviewers. Added Review Conventions section to all prompts. Updated verdict JSON template with analysis/suggestions fields and guidelines. Refactored _aggregate_review_verdicts to return AggregatedReviewResult with advisory_content. Updated both call sites in _run_tier3_implement and _run_pipeline. Added advisory content logging.",
+      "docs/guides/sdlc-pipeline.md": "Updated verdict schema documentation with new fields, field guidelines, and review conventions.",
+      "orchestrator/README.md": "Updated models.py description to mention ReviewVerdict and AggregatedReviewResult."
+    },
+    "tester_changes": {
+      "orchestrator/tests/test_pipeline_prompts.py": "24 new tests in TestBuildReviewPrompt class covering verdict format, review conventions, preambles, field guidelines, procedural steps, delta review, prior feedback, phase restrictions, and error handling.",
+      "orchestrator/tests/test_tier3_execute.py": "5 new tests: backward compat for old JSON, full-field parsing, ReviewVerdict minimal construction, and feedback-only construction.",
+      "tests/workflows/test_multi_reviewer.py": "16 new tests in TestProductionAggregateReviewVerdicts class covering all approved, needs_revision, None verdicts, advisory content collection, blocking feedback, backward compat, positional access, empty dicts, feedback fallback to summary, multiple needs_revision, mixed verdicts, and suggestions prefix formatting."
+    },
+    "integrator_fixes": {
+      "orchestrator/tests/test_pipeline_prompts.py": "Resolved merge conflict markers, added pytest import, replaced assert False with pytest.raises.",
+      "tests/workflows/test_multi_reviewer.py": "Resolved merge conflict markers, removed unused ModuleType import, ran ruff format."
+    }
+  },
+  "commit": "224a06c29",
+  "regressions": "none",
+  "risk_assessment": "low — changes are additive (new fields with defaults), all existing behavior preserved, comprehensive test coverage added"
+}

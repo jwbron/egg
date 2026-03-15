@@ -1,0 +1,362 @@
+{
+  "schemaVersion": "1.0",
+  "issue": {
+    "number": 887,
+    "title": "Issue #887",
+    "url": "https://github.com/jwbron/egg/issues/887"
+  },
+  "pipeline_id": null,
+  "current_phase": "refine",
+  "acceptance_criteria": [],
+  "phases": [
+    {
+      "id": "phase-1",
+      "name": "Orchestrator prompt injection",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-1-1",
+          "description": "Add checkpoint pointer to _build_role_context() \"For More Context\" section",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "_build_role_context() output includes \"egg-checkpoint context --pipeline\" line for all execution roles",
+          "files_affected": [
+            "orchestrator/routes/pipelines.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-2",
+          "description": "Add checkpoint hint to _build_agent_prompt() tester section",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Tester prompt includes \"egg-checkpoint list --pipeline $EGG_PIPELINE_ID --agent-type coder --phase implement\"",
+          "files_affected": [
+            "orchestrator/routes/pipelines.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-3",
+          "description": "Add checkpoint hint to _build_agent_prompt() documenter section",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Documenter prompt includes \"egg-checkpoint context --pipeline $EGG_PIPELINE_ID --files\"",
+          "files_affected": [
+            "orchestrator/routes/pipelines.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-4",
+          "description": "Add checkpoint hint to _build_agent_prompt() integrator section",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Integrator prompt includes \"egg-checkpoint context\" and \"egg-checkpoint cost\" commands",
+          "files_affected": [
+            "orchestrator/routes/pipelines.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-5",
+          "description": "Add failed-session checkpoint hint to _build_phase_scoped_prompt() revision checklist",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Revision checklist includes \"egg-checkpoint list --issue $EGG_ISSUE_NUMBER --status failed\" when review_cycle > 0",
+          "files_affected": [
+            "orchestrator/routes/pipelines.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        }
+      ],
+      "dependencies": [],
+      "review_feedback": []
+    },
+    {
+      "id": "phase-2",
+      "name": "Agent mode command updates",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-2-1",
+          "description": "Add \"Review Prior Work\" section to tester-mode.md with checkpoint list command",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "tester-mode.md contains \"## Review Prior Work\" section with egg-checkpoint list command",
+          "files_affected": [
+            "sandbox/.claude/commands/tester-mode.md"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-2-2",
+          "description": "Add \"Pipeline Overview\" section to integrator-mode.md with checkpoint context and cost commands",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "integrator-mode.md contains \"## Pipeline Overview\" section with egg-checkpoint context and cost commands",
+          "files_affected": [
+            "sandbox/.claude/commands/integrator-mode.md"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-2-3",
+          "description": "Add \"Find Changed Files\" section to documenter-mode.md with checkpoint context command",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "documenter-mode.md contains \"## Find Changed Files\" section with egg-checkpoint context --files command",
+          "files_affected": [
+            "sandbox/.claude/commands/documenter-mode.md"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-2-4",
+          "description": "Add \"Revision Cycle Context\" section to coder-mode.md with failed-session checkpoint command",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "coder-mode.md contains \"## Revision Cycle Context\" section with egg-checkpoint list --status failed command",
+          "files_affected": [
+            "sandbox/.claude/commands/coder-mode.md"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        }
+      ],
+      "dependencies": [],
+      "review_feedback": []
+    },
+    {
+      "id": "phase-3",
+      "name": "Mission rule and checkpoint rule updates",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-3-1",
+          "description": "Add Checkpoints row to mission.md context sources table",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "mission.md context sources table includes Checkpoints row with egg-checkpoint CLI location",
+          "files_affected": [
+            "sandbox/.claude/rules/mission.md"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-3-2",
+          "description": "Add checkpoint context gathering hint to mission.md workflow section",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "mission.md \"Gather context\" workflow step mentions egg-checkpoint context for multi-agent pipelines",
+          "files_affected": [
+            "sandbox/.claude/rules/mission.md"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-3-3",
+          "description": "Add \"When to Use\" section to checkpoint.md with role-specific guidance",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "checkpoint.md has a \"When to Use\" section listing tester, documenter, integrator, and coder (revision) use cases",
+          "files_affected": [
+            "sandbox/.claude/rules/checkpoint.md"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        }
+      ],
+      "dependencies": [],
+      "review_feedback": []
+    },
+    {
+      "id": "phase-4",
+      "name": "Verification",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-4-1",
+          "description": "Run existing test suite to verify no regressions in prompt-building functions",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "All existing tests pass (pytest / make test)",
+          "files_affected": [],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-4-2",
+          "description": "Verify checkpoint hints appear in prompt outputs for each role",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Manual or scripted check confirms tester, documenter, integrator, and revision prompts contain checkpoint commands",
+          "files_affected": [],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        }
+      ],
+      "dependencies": [],
+      "review_feedback": []
+    }
+  ],
+  "decisions": [],
+  "workflow_owner": null,
+  "audit_log": [],
+  "refine_review_cycles": 0,
+  "refine_review_feedback": "",
+  "plan_review_cycles": 0,
+  "plan_review_feedback": "",
+  "pr": null,
+  "feedback": null,
+  "phase_configs": null,
+  "agent_executions": [
+    {
+      "role": "coder",
+      "phase_id": null,
+      "status": "complete",
+      "started_at": "2026-02-23T07:47:49.273518Z",
+      "completed_at": "2026-02-23T07:55:56.626842Z",
+      "commit": null,
+      "checkpoint_id": null,
+      "outputs": {},
+      "error": null,
+      "retry_count": 0,
+      "conflicts": []
+    },
+    {
+      "role": "tester",
+      "phase_id": null,
+      "status": "complete",
+      "started_at": "2026-02-23T07:55:56.629745Z",
+      "completed_at": "2026-02-23T08:01:29.160819Z",
+      "commit": null,
+      "checkpoint_id": null,
+      "outputs": {},
+      "error": null,
+      "retry_count": 0,
+      "conflicts": []
+    },
+    {
+      "role": "documenter",
+      "phase_id": null,
+      "status": "complete",
+      "started_at": "2026-02-23T07:55:56.630669Z",
+      "completed_at": "2026-02-23T08:00:33.886001Z",
+      "commit": null,
+      "checkpoint_id": null,
+      "outputs": {},
+      "error": null,
+      "retry_count": 0,
+      "conflicts": []
+    },
+    {
+      "role": "integrator",
+      "phase_id": null,
+      "status": "complete",
+      "started_at": "2026-02-23T08:01:29.164928Z",
+      "completed_at": "2026-02-23T08:09:57.202127Z",
+      "commit": null,
+      "checkpoint_id": null,
+      "outputs": {},
+      "error": null,
+      "retry_count": 0,
+      "conflicts": []
+    },
+    {
+      "role": "reviewer_code",
+      "phase_id": null,
+      "status": "complete",
+      "started_at": null,
+      "completed_at": "2026-02-23T08:27:52.007778Z",
+      "commit": null,
+      "checkpoint_id": null,
+      "outputs": {},
+      "error": null,
+      "retry_count": 0,
+      "conflicts": []
+    },
+    {
+      "role": "reviewer_contract",
+      "phase_id": null,
+      "status": "complete",
+      "started_at": null,
+      "completed_at": "2026-02-23T08:28:06.458918Z",
+      "commit": null,
+      "checkpoint_id": null,
+      "outputs": {},
+      "error": null,
+      "retry_count": 0,
+      "conflicts": []
+    }
+  ],
+  "multi_agent_config": null
+}

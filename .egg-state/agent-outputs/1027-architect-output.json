@@ -1,0 +1,542 @@
+{
+  "issue": 1027,
+  "phase": "plan",
+  "agent": "architect",
+  "revision": 2,
+
+  "title": "Architecture analysis: Cross-agent communication and concurrent phase execution",
+
+  "summary": "Enable real-time inter-agent messaging and concurrent phase execution in the SDLC pipeline. The current wave-based sequential model (Coder → Tester+Documenter → Integrator) prevents collaboration during execution. The recommended approach introduces: (1) an orchestrator-hosted message bus with polling-based delivery, (2) a ConcurrentPhaseExecutor replacing the wave-based MultiAgentExecutor, (3) per-agent worktrees for git isolation, (4) consensus-based phase completion, and (5) long-lived agent containers reused across review cycles. This is implemented as an opt-in mode (concurrent execution flag in PipelineConfig) to preserve backward compatibility with existing Tier 1/2/3 pipelines.",
+
+  "problem_statement": {
+    "description": "Agents in the SDLC pipeline operate in strictly sequential, wave-based execution. Within the implement phase, agents execute in dependency-ordered waves managed by MultiAgentExecutor (orchestrator/multi_agent.py). Each wave must fully complete before the next begins. Agents communicate exclusively through file-based handoff data (orchestrator/handoffs.py) written at completion. There is no mechanism for in-flight message exchange. A tester cannot flag a problematic approach until the coder fully completes; a documenter cannot ask the coder for clarification mid-implementation. This creates wasted compute cycles, sequential bottlenecks, and no real-time feedback loops.",
+    "root_causes": [
+      {
+        "id": "RC-1",
+        "title": "Wave-based execution enforces sequential dependency",
+        "description": "MultiAgentExecutor.execute_all_waves() iterates waves sequentially. Each wave spawns containers, waits for all agents in the wave to signal completion, then proceeds to the next wave. Agents in different waves cannot overlap in time.",
+        "location": "orchestrator/multi_agent.py:435-545"
+      },
+      {
+        "id": "RC-2",
+        "title": "Handoff data is completion-time only",
+        "description": "Agent outputs are saved via save_agent_output() only when an agent signals completion. The handoff data system (orchestrator/handoffs.py) has no mechanism for partial/incremental data sharing during execution. Next-wave agents receive predecessor outputs via EGG_HANDOFF_DATA env var at spawn time.",
+        "location": "orchestrator/handoffs.py:152-194, orchestrator/routes/signals.py:335-356"
+      },
+      {
+        "id": "RC-3",
+        "title": "Container lifecycle is per-wave, not per-phase",
+        "description": "Containers are spawned fresh for each wave by ContainerSpawner and torn down on completion. There is no container reuse across waves or review cycles, meaning agent context (conversation history, working state) is lost between waves.",
+        "location": "orchestrator/container_spawner.py:192-461"
+      },
+      {
+        "id": "RC-4",
+        "title": "No inter-agent communication channel exists",
+        "description": "The signal API (orchestrator/routes/signals.py) supports only completion, progress, error, and heartbeat signals — all directed from agent to orchestrator. There is no agent-to-agent message routing capability. The EventBus (orchestrator/events.py) is internal to the orchestrator process and not exposed to sandbox agents.",
+        "location": "orchestrator/routes/signals.py:76-132, shared/egg_orchestrator/client.py:212-380"
+      }
+    ]
+  },
+
+  "current_architecture": {
+    "execution_model": "Wave-based sequential execution via MultiAgentExecutor. Dispatch decisions come from egg_contracts.orchestrator.Orchestrator.get_next_dispatch() which returns DispatchDecision with agents_to_run and wave_number. Standard Tier 2: Wave 1 (Coder) → Wave 2 (Tester + Documenter parallel) → Wave 3 (Integrator). Tier 3 extends this with per-plan-phase implement cycles running independent phases in parallel via ThreadPoolExecutor.",
+    "communication_model": "Completion-time handoff only. Agents signal completion via POST /api/v1/pipelines/{id}/signal with handoff_data dict. Orchestrator persists to .egg-state/agent-outputs/{id}-{role}-output.json. Next-wave agents receive via EGG_HANDOFF_DATA env var at container spawn. No in-flight messaging.",
+    "container_lifecycle": "Per-wave spawn/teardown. ContainerSpawner creates Docker container with gateway session, isolated network, and phase-specific env vars. ContainerMonitor polls container health every 10s. On completion signal or container exit, results are recorded and container removed.",
+    "key_components": [
+      {
+        "name": "MultiAgentExecutor",
+        "file": "orchestrator/multi_agent.py",
+        "lines": "46-651",
+        "description": "Manages wave-based parallel execution. Spawns containers per wave, waits for completion, records results, advances to next wave. Max 5 waves safety cap."
+      },
+      {
+        "name": "Signal handlers",
+        "file": "orchestrator/routes/signals.py",
+        "lines": "76-659",
+        "description": "Flask REST endpoints for agent signals. Routes complete/progress/error/heartbeat to type-specific handlers. Complete handler verifies commit on branch, saves agent output, updates dispatcher state."
+      },
+      {
+        "name": "Handoff system",
+        "file": "orchestrator/handoffs.py",
+        "lines": "1-380",
+        "description": "Collects and passes handoff data between waves. AgentOutput and HandoffData models. collect_handoff_data() resolves dependencies and loads predecessor outputs. get_handoff_env_var() serializes for container injection."
+      },
+      {
+        "name": "EventBus",
+        "file": "orchestrator/events.py",
+        "lines": "35-334",
+        "description": "Internal pub/sub for pipeline lifecycle events. Thread-safe with async delivery worker. Supports wildcard subscriptions. Used by SSE streaming, health checks, and monitoring. NOT exposed to sandbox agents."
+      },
+      {
+        "name": "ContainerSpawner",
+        "file": "orchestrator/container_spawner.py",
+        "lines": "114-628",
+        "description": "Creates Docker containers with gateway sessions, env vars, mounts, and network config. Registers per-container sessions with gateway for auth and policy enforcement."
+      },
+      {
+        "name": "OrchestratorClient",
+        "file": "shared/egg_orchestrator/client.py",
+        "lines": "63-381",
+        "description": "Sandbox-side typed client for orchestrator communication. Methods: signal_complete(), signal_progress(), signal_error(), signal_heartbeat(). No messaging methods exist."
+      },
+      {
+        "name": "egg-orch CLI",
+        "file": "sandbox/egg_lib/orch_cli.py",
+        "lines": "1-1400+",
+        "description": "Agent-facing CLI for orchestrator interaction. Commands: signal, phase, decision, container, pipeline, gateway. No messaging commands exist."
+      },
+      {
+        "name": "SSE streaming",
+        "file": "orchestrator/sse.py",
+        "lines": "111-447",
+        "description": "Real-time event streaming to clients. SSEClientManager subscribes to EventBus and fans out events to per-pipeline client queues. 15s heartbeat, 1s refresh. Could be extended for agent message delivery."
+      },
+      {
+        "name": "Dispatch orchestrator",
+        "file": "shared/egg_contracts/orchestrator.py",
+        "lines": "94-292",
+        "description": "Determines next agents to run via get_next_dispatch(). Returns DispatchDecision with wave_number and is_parallel flag. Supports Tier 2 (role-only) and Tier 3 (phase-scoped) dispatch."
+      }
+    ],
+    "existing_infrastructure_to_leverage": [
+      "EventBus pub/sub pattern (orchestrator/events.py) — extend with MESSAGE event type for inter-agent routing",
+      "SSE streaming (orchestrator/sse.py) — extend for agent message delivery if push model is chosen",
+      "Signal API (orchestrator/routes/signals.py) — add message signal type alongside existing complete/progress/error/heartbeat",
+      "OrchestratorClient (shared/egg_orchestrator/client.py) — add send_message() and poll_messages() methods",
+      "egg-orch CLI (sandbox/egg_lib/orch_cli.py) — add 'message send' and 'message poll' subcommands",
+      "Tier 3 parallel execution (orchestrator/routes/pipelines.py) — ThreadPoolExecutor pattern for concurrent phase management",
+      "Per-phase worktrees (gateway WorktreeManager) — reuse for per-agent worktrees in concurrent mode",
+      "Gateway session management (gateway/session_manager.py) — session-per-container model already supports multiple concurrent agents"
+    ]
+  },
+
+  "approaches_considered": [
+    {
+      "id": "A",
+      "name": "Message Bus via Orchestrator (Polling-Based)",
+      "description": "Add message queue endpoints to the orchestrator. Agents send messages via egg-orch message send and receive via egg-orch message poll. Messages stored in-memory with optional git-backed persistence. All agents start immediately in each phase. Orchestrator routes messages based on pipeline membership and role targeting.",
+      "pros": [
+        "Fits Claude Code's CLI-based tool model — agents poll when ready, no background event loop needed",
+        "Extends existing signal API pattern with minimal new infrastructure",
+        "Centralized audit trail — orchestrator logs all messages for checkpoint capture",
+        "No changes to container networking or sandbox architecture",
+        "Orchestrator can enforce communication policies (who can message whom, rate limits)",
+        "Messages naturally captured in checkpoint transcripts via API proxy buffer"
+      ],
+      "cons": [
+        "Polling introduces latency (configurable interval, but inherently non-zero delay)",
+        "Agents must integrate polling into their workflow (periodic checks between tool calls)",
+        "High-frequency messaging stresses orchestrator's single-process Flask architecture",
+        "No guaranteed delivery order without sequence numbers"
+      ]
+    },
+    {
+      "id": "B",
+      "name": "SSE-Based Push Delivery",
+      "description": "Extend existing SSE infrastructure to push messages directly to agent containers. Each agent opens an SSE connection to orchestrator on startup. Messages delivered in real-time via event stream.",
+      "pros": [
+        "Near-real-time delivery with no polling delay",
+        "Builds on existing SSE infrastructure (orchestrator/sse.py)",
+        "Natural ordering via SSE event IDs",
+        "Lower orchestrator load than polling (persistent connections vs repeated requests)"
+      ],
+      "cons": [
+        "Claude Code agents don't have a background event loop — need sidecar or background thread in sandbox",
+        "Requires new sandbox component to bridge SSE events to agent's CLI interface",
+        "Connection management complexity (reconnection, buffering during disconnection)",
+        "SSE is one-directional; sending still requires HTTP POST",
+        "Significant sandbox architecture changes"
+      ]
+    },
+    {
+      "id": "C",
+      "name": "Shared Workspace with File-Based Signaling",
+      "description": "Agents share a workspace directory and communicate via sentinel files. Agents write status files (e.g., .egg-signals/coder-progress.json) that other agents can read.",
+      "pros": [
+        "No orchestrator changes needed for basic communication",
+        "Files naturally captured in git for audit trail",
+        "Simple mental model — agents read/write files",
+        "Works with Claude Code's existing file read/write tools"
+      ],
+      "cons": [
+        "No guaranteed delivery or ordering",
+        "Race conditions on concurrent file writes",
+        "Doesn't scale beyond simple status sharing",
+        "Not suitable for conversational back-and-forth",
+        "Requires shared filesystem mount between currently-isolated containers",
+        "Pollutes repository with signal files"
+      ]
+    }
+  ],
+
+  "recommended_approach": {
+    "id": "A",
+    "name": "Message Bus via Orchestrator (Polling-Based) with Concurrent Phase Execution",
+    "rationale": [
+      "Fits the agent model: Claude Code agents are request-response systems that use CLI tools. Polling via egg-orch message poll integrates naturally without requiring architectural changes to the sandbox.",
+      "Builds on existing infrastructure: The orchestrator already has signal handling, event bus, per-pipeline state, and SSE streaming. Adding message queue endpoints is a natural extension.",
+      "Maintains security guarantees: Centralized message routing preserves the audit trail, policy enforcement, and checkpoint capture that are core to egg's security model.",
+      "Backward compatible: Implemented as an opt-in concurrent execution mode in PipelineConfig, preserving existing Tier 1/2/3 sequential behavior.",
+      "Separable concerns: The messaging system and concurrent execution are independently valuable. Messaging can be added first, concurrent execution layered on top."
+    ]
+  },
+
+  "architecture_design": {
+    "component_1_message_api": {
+      "description": "New orchestrator REST endpoints for inter-agent messaging, with in-memory message store per pipeline.",
+      "endpoints": [
+        {
+          "method": "POST",
+          "path": "/api/v1/pipelines/{id}/messages",
+          "description": "Send a message to one or all agents in the phase",
+          "body": {
+            "from_role": "string (sender agent role)",
+            "to_role": "string | null (target role, null = broadcast)",
+            "message_type": "string (progress_update | question | response | code_change | test_result | review_comment | coordination)",
+            "subject": "string (short summary)",
+            "body": "string (free-form content)",
+            "metadata": "object | null (structured data, e.g. file paths, test results)"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/pipelines/{id}/messages",
+          "description": "Poll for new messages since last poll",
+          "query_params": {
+            "role": "string (requesting agent's role, for filtering)",
+            "since_id": "integer | null (return messages after this ID)",
+            "limit": "integer (max messages to return, default 50)"
+          }
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/pipelines/{id}/messages/status",
+          "description": "Get message queue status (count, latest ID, agents active)"
+        }
+      ],
+      "message_model": {
+        "id": "integer (auto-incrementing per pipeline)",
+        "pipeline_id": "string",
+        "from_role": "string",
+        "to_role": "string | null",
+        "message_type": "string",
+        "subject": "string",
+        "body": "string",
+        "metadata": "object | null",
+        "timestamp": "ISO 8601 datetime",
+        "phase": "string (phase when sent)"
+      },
+      "storage": "In-memory dict per pipeline (dict[pipeline_id] -> list[Message]). Messages are ephemeral within a phase — cleared on phase transition. Messages included in checkpoint capture at session end for auditability. No git-backed persistence needed given expected volume (tens of messages per phase, not thousands).",
+      "files_affected": [
+        "orchestrator/routes/messages.py (NEW — message API endpoints)",
+        "orchestrator/message_store.py (NEW — in-memory message storage)",
+        "orchestrator/models.py (add Message model)",
+        "orchestrator/events.py (add MESSAGE_SENT, MESSAGE_RECEIVED event types)",
+        "orchestrator/gateway.py or orchestrator/api.py (register message routes)"
+      ]
+    },
+
+    "component_2_agent_sdk": {
+      "description": "CLI and Python client extensions for agents to send and receive messages from within their sandbox.",
+      "cli_commands": [
+        {
+          "command": "egg-orch message send --to <role|all> --type <type> --subject <text> --body <text> [--metadata <json>]",
+          "description": "Send a message to another agent or broadcast to all"
+        },
+        {
+          "command": "egg-orch message poll [--since <id>] [--limit <n>]",
+          "description": "Poll for new messages. Returns JSON array of messages."
+        },
+        {
+          "command": "egg-orch message status",
+          "description": "Show message queue status"
+        }
+      ],
+      "client_methods": [
+        "OrchestratorClient.send_message(pipeline_id, from_role, to_role, message_type, subject, body, metadata)",
+        "OrchestratorClient.poll_messages(pipeline_id, role, since_id, limit)",
+        "OrchestratorClient.get_message_status(pipeline_id)"
+      ],
+      "agent_integration": "Agents poll for messages as part of their natural workflow using egg-orch message poll. The agent prompt instructs agents to poll periodically (e.g., after completing each logical task). Messages appear as CLI output that the agent processes in its next response. No background thread, sidecar, or sandbox modification needed.",
+      "files_affected": [
+        "shared/egg_orchestrator/client.py (add send_message, poll_messages, get_message_status methods)",
+        "shared/egg_orchestrator/types.py (add Message, MessageType dataclasses)",
+        "sandbox/egg_lib/orch_cli.py (add message subcommand group)"
+      ]
+    },
+
+    "component_3_concurrent_executor": {
+      "description": "New ConcurrentPhaseExecutor that replaces wave-based execution when concurrent mode is enabled. All agents start simultaneously and coordinate via messaging.",
+      "execution_flow": [
+        "1. Phase starts → ConcurrentPhaseExecutor spawns all agents (coder, tester, documenter) simultaneously",
+        "2. Each agent gets its own worktree branch (per-agent isolation via gateway WorktreeManager)",
+        "3. Agents work independently but exchange messages via orchestrator message bus",
+        "4. As agents complete work, they signal readiness via egg-orch signal complete",
+        "5. Orchestrator collects readiness signals and evaluates consensus",
+        "6. When all agents signal ready, integrator is spawned (or was already running) to merge results",
+        "7. Phase completes when integrator signals completion"
+      ],
+      "key_design_decisions": {
+        "per_agent_worktrees": "Each concurrent agent gets its own worktree branch (e.g., egg/issue-{N}/coder, egg/issue-{N}/tester). This avoids git merge conflicts during concurrent development. The integrator merges all branches at the end. This leverages the existing Tier 3 per-phase worktree infrastructure in the gateway's WorktreeManager.",
+        "agent_lifecycle": "Agents are spawned at phase start and persist until phase completion or consensus. No per-wave teardown. Container reuse across review cycles means the agent retains conversation history and working state.",
+        "integrator_role": "The integrator agent runs concurrently but monitors progress. When coder and tester both signal readiness, the integrator begins merge work. The integrator can also be spawned on-demand after consensus if resource cost is a concern.",
+        "container_failure_behavior": "When a container fails (crash, timeout, non-zero exit), the ConcurrentPhaseExecutor follows a three-step escalation: (1) LOG — record the failure in the pipeline event log and set the agent's readiness state to BLOCKED with the failure reason; (2) NOTIFY — send a broadcast message to all remaining agents informing them of the failure (e.g., 'tester container exited with code 137: OOM killed') so they can adapt; (3) ESCALATE — create a HITL decision with options 'Retry agent', 'Continue without agent', or 'Abort phase'. The executor does NOT automatically retry or abort. The phase continues with remaining agents while waiting for human resolution. If the human selects 'Retry', the executor respawns the failed agent with its worktree branch intact. If 'Continue without', the failed agent is removed from the consensus quorum. If 'Abort', the executor tears down all containers and fails the phase. This matches the existing MultiAgentExecutor pattern of stopping on wave failure, but adapted for concurrent mode where other agents can continue working while the human decides."
+      },
+      "files_affected": [
+        "orchestrator/concurrent_executor.py (NEW — concurrent phase execution logic)",
+        "orchestrator/multi_agent.py (modify to delegate to concurrent executor when enabled)",
+        "orchestrator/models.py (add ConcurrentPhaseConfig, AgentReadiness models)",
+        "orchestrator/container_spawner.py (support concurrent spawn of multiple agents)",
+        "orchestrator/dispatch.py (add concurrent dispatch mode)"
+      ]
+    },
+
+    "component_4_consensus_protocol": {
+      "description": "Protocol for determining when all agents in a phase agree the work is complete.",
+      "readiness_states": [
+        "WORKING — agent is actively making changes",
+        "READY — agent believes its work is complete (tests pass, docs updated, etc.)",
+        "BLOCKED — agent is waiting for another agent or human input",
+        "OBJECTING — agent believes the phase should NOT complete (e.g., tests failing)"
+      ],
+      "consensus_rules": [
+        "Phase completes when ALL non-integrator agents are in READY state AND integrator has merged and signals READY",
+        "Any agent can move from READY back to WORKING if they discover new issues",
+        "OBJECTING blocks phase completion — the objection message explains why",
+        "If an agent is BLOCKED for longer than configurable timeout, orchestrator creates HITL decision for human resolution",
+        "If an agent container crashes, its readiness is set to BLOCKED and a HITL decision is created"
+      ],
+      "signal_extensions": "Extend the existing signal API with a readiness signal type: egg-orch signal readiness --state ready|working|blocked|objecting [--reason <text>]",
+      "files_affected": [
+        "orchestrator/consensus.py (NEW — consensus evaluation logic)",
+        "orchestrator/routes/signals.py (add readiness signal handler)",
+        "orchestrator/models.py (add ReadinessState enum, AgentReadiness model)",
+        "shared/egg_orchestrator/client.py (add signal_readiness method)",
+        "sandbox/egg_lib/orch_cli.py (add signal readiness subcommand)"
+      ]
+    },
+
+    "component_5_pipeline_config": {
+      "description": "Configuration to enable/disable concurrent execution, preserving backward compatibility.",
+      "config_fields": {
+        "concurrent_execution": "boolean (default false) — enables concurrent phase execution",
+        "max_concurrent_agents": "integer (default 4) — max agents running simultaneously",
+        "message_poll_hint_seconds": "integer (default 30) — suggested polling interval for agents",
+        "consensus_timeout_minutes": "integer (default 30) — timeout for agent readiness before HITL escalation",
+        "agent_idle_timeout_minutes": "integer (default 60) — timeout for idle agents before container teardown"
+      },
+      "backward_compatibility": "When concurrent_execution is false (default), the existing wave-based MultiAgentExecutor is used unchanged. No impact on Tier 1, 2, or 3 pipelines. Concurrent mode is orthogonal to complexity tiers — it could be used with any tier.",
+      "files_affected": [
+        "orchestrator/models.py (add fields to PipelineConfig)",
+        "shared/egg_contracts/models.py (add concurrent config to contract schema)",
+        "orchestrator/routes/pipelines.py (routing based on concurrent_execution flag)"
+      ]
+    }
+  },
+
+  "implementation_phases": [
+    {
+      "id": "phase-1",
+      "name": "Message API and Agent SDK",
+      "description": "Build the orchestrator message bus and agent-facing CLI/client. This is independently valuable even without concurrent execution — agents in the existing wave model could use it for richer handoff data.",
+      "tasks": [
+        "Add Message model to orchestrator/models.py, MESSAGE_SENT/MESSAGE_RECEIVED event types to orchestrator/events.py, and register message routes in orchestrator/api.py (MUST be done first — routes and store depend on models and events)",
+        "Create orchestrator/message_store.py with in-memory per-pipeline message storage (depends on Message model)",
+        "Create orchestrator/routes/messages.py with send/poll/status endpoints (depends on message store and models)",
+        "Add Message/MessageType dataclasses to shared/egg_orchestrator/types.py",
+        "Add send_message/poll_messages/get_message_status to OrchestratorClient",
+        "Add message subcommand group to egg-orch CLI",
+        "Write tests for message store, API endpoints, and client methods"
+      ],
+      "task_ordering_note": "TASK-1-3 (models, events, route registration in api.py) must be implemented before TASK-1-1 (message store) and TASK-1-2 (route handlers), since both depend on the Message model and event types. Recommended order: models+events+registration → message store → route handlers → types → client → CLI → tests.",
+      "dependencies": [],
+      "estimated_files_new": 3,
+      "estimated_files_modified": 6
+    },
+    {
+      "id": "phase-2",
+      "name": "Concurrent Phase Executor",
+      "description": "Build the ConcurrentPhaseExecutor that spawns all agents simultaneously with per-agent worktrees.",
+      "tasks": [
+        "Create orchestrator/concurrent_executor.py with ConcurrentPhaseExecutor class",
+        "Add concurrent_execution config fields to PipelineConfig",
+        "Modify container spawner to support concurrent multi-agent spawn",
+        "Implement per-agent worktree branch creation via gateway WorktreeManager",
+        "Update dispatch.py to support concurrent dispatch mode",
+        "Wire routing in pipelines.py to choose between wave-based and concurrent executor",
+        "Write tests for concurrent executor with mocked containers"
+      ],
+      "dependencies": ["phase-1"],
+      "estimated_files_new": 1,
+      "estimated_files_modified": 5
+    },
+    {
+      "id": "phase-3",
+      "name": "Consensus Protocol",
+      "description": "Build the consensus-based phase completion mechanism with readiness states and HITL escalation.",
+      "tasks": [
+        "Create orchestrator/consensus.py with ConsensusEvaluator class",
+        "Add ReadinessState enum and AgentReadiness model to models.py",
+        "Add readiness signal handler to signals.py",
+        "Add signal_readiness method to OrchestratorClient",
+        "Add signal readiness subcommand to egg-orch CLI",
+        "Implement consensus timeout and HITL escalation",
+        "Wire consensus evaluator into ConcurrentPhaseExecutor",
+        "Write tests for consensus evaluation, timeout, and objection handling"
+      ],
+      "dependencies": ["phase-2"],
+      "estimated_files_new": 1,
+      "estimated_files_modified": 5
+    },
+    {
+      "id": "phase-4",
+      "name": "Agent Prompts and Integration Testing",
+      "description": "Update agent prompts to use messaging and consensus, and run end-to-end integration tests.",
+      "tasks": [
+        "Update CLAUDE.md agent instructions for concurrent mode (message polling, readiness signaling)",
+        "Add agent-specific prompt sections for coder/tester/documenter concurrent collaboration patterns",
+        "Create integration test with concurrent agents on a test pipeline",
+        "Update checkpoint capture to include inter-agent messages",
+        "Add monitoring/observability for concurrent execution (DAG visualization, message counts)",
+        "Document concurrent execution mode in docs/guides/sdlc-pipeline.md"
+      ],
+      "dependencies": ["phase-3"],
+      "estimated_files_new": 0,
+      "estimated_files_modified": 6
+    }
+  ],
+
+  "risks_and_mitigations": [
+    {
+      "risk": "Agent polling latency causes stale collaboration",
+      "likelihood": "medium",
+      "impact": "medium",
+      "mitigation": "Configurable poll interval (default 30s). Agent prompts instruct polling after each logical task. For critical messages (e.g., objections), the orchestrator can also flag urgency in the next signal response, prompting immediate attention."
+    },
+    {
+      "risk": "Concurrent agents increase compute cost 3-4x",
+      "likelihood": "high",
+      "impact": "high",
+      "mitigation": "Configurable max_concurrent_agents cap. On-demand spawning option (only spawn tester/documenter when coder signals progress). Concurrent mode is opt-in, defaulting to existing sequential behavior. Agent idle timeout tears down inactive containers."
+    },
+    {
+      "risk": "Git merge conflicts when integrator merges per-agent branches",
+      "likelihood": "medium",
+      "impact": "medium",
+      "mitigation": "Per-agent worktrees ensure no conflicts during development. Integrator handles merge at end. If merge fails, HITL decision created. Role-based file restrictions (coder writes src/, tester writes tests/, documenter writes docs/) minimize overlap."
+    },
+    {
+      "risk": "Message ordering and consistency issues",
+      "likelihood": "low",
+      "impact": "medium",
+      "mitigation": "Auto-incrementing message IDs per pipeline provide total ordering. Agents track since_id to ensure no missed messages. Messages are ephemeral within a phase — cleared on transition — keeping volume manageable."
+    },
+    {
+      "risk": "Orchestrator overload from message polling by multiple agents",
+      "likelihood": "low",
+      "impact": "medium",
+      "mitigation": "In-memory message store with O(1) lookups by since_id. Expected load: 4 agents × 1 poll/30s = ~8 requests/minute per pipeline. Flask can handle this easily. Rate limiting on message endpoints as defense-in-depth."
+    },
+    {
+      "risk": "Consensus deadlock (agents cycle between READY and WORKING)",
+      "likelihood": "low",
+      "impact": "high",
+      "mitigation": "Consensus timeout (configurable, default 30 min) triggers HITL escalation. Max review cycles cap prevents infinite loops. Orchestrator tracks readiness state transitions and flags oscillation patterns."
+    },
+    {
+      "risk": "Long-lived containers consume resources when idle",
+      "likelihood": "medium",
+      "impact": "medium",
+      "mitigation": "Agent idle timeout (configurable, default 60 min) tears down inactive containers. Claude Code sessions may be paused when no messages pending. Container resource limits (CPU, memory, PIDs) already enforced by container_spawner."
+    },
+    {
+      "risk": "Breaking existing Tier 1/2/3 pipelines",
+      "likelihood": "low",
+      "impact": "high",
+      "mitigation": "Concurrent execution is opt-in via PipelineConfig.concurrent_execution (default false). All new code paths are guarded by this flag. Existing MultiAgentExecutor remains unchanged when flag is false. No changes to contract schema, phase restrictions, or gateway policies."
+    }
+  ],
+
+  "technical_decisions": [
+    {
+      "decision": "Polling-based message delivery over SSE push",
+      "rationale": "Claude Code agents are request-response LLM sessions with no background event loop. Polling via CLI (egg-orch message poll) fits the existing tool-based agent model. SSE push would require a new sandbox sidecar component to bridge events to the agent — significant architectural complexity for marginal latency improvement. The 30s polling delay is acceptable for collaborative development workflows.",
+      "alternatives_rejected": ["SSE push (requires sandbox sidecar)", "File-based signaling (no guaranteed delivery)"]
+    },
+    {
+      "decision": "In-memory message storage over git-backed persistence",
+      "rationale": "Expected message volume is tens of messages per phase (not thousands). Git-backed persistence would stress the state_store's cross-process locking for high-frequency writes. In-memory storage with checkpoint capture at session end preserves auditability without the performance overhead. Messages are ephemeral within a phase — they don't need to survive orchestrator restarts since agent containers would also be lost.",
+      "alternatives_rejected": ["Git-backed persistence (too slow for message frequency)", "Redis-backed (adds infrastructure dependency)"]
+    },
+    {
+      "decision": "Per-agent worktrees over shared worktree",
+      "rationale": "Concurrent agents writing to the same git branch creates merge conflicts that are difficult to resolve automatically. Per-agent worktrees (leveraging existing Tier 3 WorktreeManager infrastructure) give each agent isolated git state. The integrator merges at phase end — a well-understood pattern already used in Tier 3 execution. Role-based file restrictions further minimize overlap.",
+      "alternatives_rejected": ["Shared worktree (merge conflicts)", "File-level locking (complex, breaks agent autonomy)"]
+    },
+    {
+      "decision": "Opt-in concurrent mode over replacing sequential execution",
+      "rationale": "Existing Tier 1/2/3 pipelines rely on sequential guarantees. Some workflows (e.g., coder must complete before tester can meaningfully start) may not benefit from concurrency. Making concurrent execution opt-in via PipelineConfig preserves backward compatibility and allows gradual adoption.",
+      "alternatives_rejected": ["Replace Tier 2/3 with concurrent (breaks existing pipelines)", "New Tier 4 (implies progression, but concurrency is orthogonal to complexity)"]
+    },
+    {
+      "decision": "Hybrid message format (structured envelope with free-form body)",
+      "rationale": "Agents are LLMs that communicate naturally in text. Fully structured messages constrain expressiveness. Fully free-form messages lack routing metadata. A hybrid approach — structured envelope (from, to, type, timestamp) with free-form body — gives the orchestrator enough metadata for routing and filtering while letting agents communicate naturally.",
+      "alternatives_rejected": ["Fully structured JSON (too rigid for LLM agents)", "Free-form text only (no routing metadata)"]
+    },
+    {
+      "decision": "Consensus with HITL escalation over automatic resolution",
+      "rationale": "When agents disagree (e.g., tester says approach won't work, coder disagrees), automatic resolution risks ignoring valid concerns. HITL escalation preserves the human-in-the-loop guarantee that is central to egg's design. The consensus timeout ensures stuck situations don't block indefinitely.",
+      "alternatives_rejected": ["Lead agent authority (ignores tester/documenter expertise)", "Voting (LLM agents voting is unreliable)"]
+    }
+  ],
+
+  "open_questions_from_analysis": {
+    "note": "The refine phase analysis registered 5 decisions and 6 feedback questions in the contract (1027.json). These remain unresolved. The architecture above assumes the recommended defaults for each decision. If human feedback selects different options, the architecture should be adjusted accordingly.",
+    "decisions_assumed": [
+      {"id": "decision-1", "assumed": "Asynchronous polling", "impact_if_different": "SSE push would add sandbox sidecar component and significant complexity"},
+      {"id": "decision-2", "assumed": "Hybrid message format", "impact_if_different": "Structured JSON would require message schema definition; free-form would remove routing metadata"},
+      {"id": "decision-3", "assumed": "Per-agent worktrees", "impact_if_different": "Shared worktree would eliminate merge step but require file-level conflict handling"},
+      {"id": "decision-4", "assumed": "Consensus with HITL escalation", "impact_if_different": "Lead agent authority would simplify consensus but reduce collaboration quality"},
+      {"id": "decision-5", "assumed": "Configurable concurrency cap", "impact_if_different": "No limit simplifies implementation; on-demand adds complexity but reduces cost"}
+    ]
+  },
+
+  "review_feedback_addressed": [
+    {
+      "feedback": "BLOCKING — Wrong file path: TASK-1-3 lists orchestrator/app.py. The Flask application is defined in orchestrator/api.py.",
+      "resolution": "All references to orchestrator/app.py have been corrected to orchestrator/api.py throughout the document, including the files_inventory section and architecture_design component descriptions."
+    },
+    {
+      "feedback": "BLOCKING — TASK-2-2 missing failure behavior: Must specify what ConcurrentPhaseExecutor does when a container fails.",
+      "resolution": "Added container_failure_behavior specification to component_3_concurrent_executor. Three-step escalation: (1) LOG failure and set agent readiness to BLOCKED, (2) NOTIFY remaining agents via broadcast message, (3) ESCALATE via HITL decision with Retry/Continue/Abort options. Phase continues with remaining agents while human decides. No automatic retry or abort."
+    },
+    {
+      "feedback": "BLOCKING — Phase 1 task ordering: TASK-1-3 (Message model, event types, route registration) must come before TASK-1-2 (route implementation).",
+      "resolution": "Reordered Phase 1 tasks so models/events/registration comes first. Added task_ordering_note documenting the dependency chain: models+events+registration → message store → route handlers → types → client → CLI → tests."
+    }
+  ],
+
+  "files_inventory": {
+    "new_files": [
+      "orchestrator/message_store.py — In-memory per-pipeline message storage",
+      "orchestrator/routes/messages.py — Message API endpoints (send/poll/status)",
+      "orchestrator/concurrent_executor.py — ConcurrentPhaseExecutor class",
+      "orchestrator/consensus.py — Consensus evaluation logic",
+      "shared/egg_orchestrator/types.py — Message and MessageType dataclasses (if not already present)"
+    ],
+    "modified_files": [
+      "orchestrator/models.py — Add Message, ReadinessState, AgentReadiness, ConcurrentPhaseConfig models",
+      "orchestrator/events.py — Add MESSAGE_SENT, MESSAGE_RECEIVED event types",
+      "orchestrator/routes/signals.py — Add readiness signal handler",
+      "orchestrator/multi_agent.py — Delegate to concurrent executor when enabled",
+      "orchestrator/container_spawner.py — Support concurrent multi-agent spawn",
+      "orchestrator/dispatch.py — Add concurrent dispatch mode",
+      "orchestrator/routes/pipelines.py — Route to concurrent executor based on config",
+      "shared/egg_orchestrator/client.py — Add send_message, poll_messages, signal_readiness methods",
+      "sandbox/egg_lib/orch_cli.py — Add message and readiness subcommands",
+      "orchestrator/api.py — Register message routes"
+    ],
+    "total_new": 5,
+    "total_modified": 10
+  }
+}

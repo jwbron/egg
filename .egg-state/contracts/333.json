@@ -1,0 +1,318 @@
+{
+  "schemaVersion": "1.0",
+  "issue": {
+    "number": 333,
+    "title": "In the SDLC workflow, include a reviewer on the PR for contract verification",
+    "url": "https://github.com/jwbron/egg/issues/333"
+  },
+  "current_phase": "implement",
+  "acceptance_criteria": [
+    {
+      "id": "ac-1",
+      "description": "[TASK-1-1] Script generates prompt for contract verification, outputs prompt-file and model",
+      "verified": false
+    },
+    {
+      "id": "ac-2",
+      "description": "[TASK-1-2] Workflow triggers on egg-sdlc labeled PRs, uses reusable-review.yml",
+      "verified": false
+    },
+    {
+      "id": "ac-3",
+      "description": "[TASK-1-3] Contains rules for task/phase consistency and acceptance criteria verification",
+      "verified": false
+    },
+    {
+      "id": "ac-4",
+      "description": "[TASK-2-1] SDLC PRs have egg-sdlc label applied",
+      "verified": false
+    },
+    {
+      "id": "ac-5",
+      "description": "[TASK-2-2] Draft PRs remain draft until all participating reviewers approve",
+      "verified": false
+    },
+    {
+      "id": "ac-6",
+      "description": "[TASK-2-3] Contract Verification excluded from check filter to prevent deadlock",
+      "verified": false
+    },
+    {
+      "id": "ac-7",
+      "description": "[TASK-3-1] Prompt includes CLI instructions with REVIEWER role examples",
+      "verified": false
+    },
+    {
+      "id": "ac-8",
+      "description": "[TASK-3-2] New CLI command updates acceptance_criteria.*.verified field",
+      "verified": false
+    },
+    {
+      "id": "ac-9",
+      "description": "[TASK-3-3] Workflow sets EGG_AGENT_ROLE=reviewer for status mutations",
+      "verified": false
+    },
+    {
+      "id": "ac-10",
+      "description": "[TASK-4-1] Reviews include egg-automated-review marker with bot=contract-verification",
+      "verified": false
+    },
+    {
+      "id": "ac-11",
+      "description": "[TASK-4-2] Contract verification reviews trigger feedback loop on request-changes",
+      "verified": false
+    },
+    {
+      "id": "ac-12",
+      "description": "[TASK-4-3] Re-review uses LAST_REVIEW_COMMIT for incremental verification",
+      "verified": false
+    }
+  ],
+  "phases": [
+    {
+      "id": "phase-1",
+      "name": "Core Contract Review Infrastructure",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-1-1",
+          "description": "Create action/build-contract-verification-prompt.sh",
+          "status": "pending",
+          "acceptance_criteria": "Script generates prompt for contract verification, outputs prompt-file and model",
+          "files_affected": [
+            "action/build-contract-verification-prompt.sh"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-1-2",
+          "description": "Create .github/workflows/on-pull-request-contract-verify.yml",
+          "status": "pending",
+          "acceptance_criteria": "Workflow triggers on egg-sdlc labeled PRs, uses reusable-review.yml",
+          "files_affected": [
+            ".github/workflows/on-pull-request-contract-verify.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-1-3",
+          "description": "Create .egg/contract-rules.md for verification rules",
+          "status": "pending",
+          "acceptance_criteria": "Contains rules for task/phase consistency and acceptance criteria verification",
+          "files_affected": [
+            ".egg/contract-rules.md"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-2",
+      "name": "PR Label and Draft-Ready Requirements",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-2-1",
+          "description": "Add egg-sdlc label to PR in finalize-pr job",
+          "status": "pending",
+          "acceptance_criteria": "SDLC PRs have egg-sdlc label applied",
+          "files_affected": [
+            ".github/workflows/sdlc-pipeline.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-2-2",
+          "description": "Update wait-for-checks to require all auto-reviewer approvals",
+          "status": "pending",
+          "acceptance_criteria": "Draft PRs remain draft until all participating reviewers approve",
+          "files_affected": [
+            ".github/workflows/sdlc-pipeline.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-2-3",
+          "description": "Update check filter in reusable-review.yml for Contract Verification",
+          "status": "pending",
+          "acceptance_criteria": "Contract Verification excluded from check filter to prevent deadlock",
+          "files_affected": [
+            ".github/workflows/reusable-review.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-3",
+      "name": "Contract Update Integration",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-3-1",
+          "description": "Extend prompt to instruct agent on egg-contract mark-task usage",
+          "status": "pending",
+          "acceptance_criteria": "Prompt includes CLI instructions with REVIEWER role examples",
+          "files_affected": [
+            "action/build-contract-verification-prompt.sh"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-3-2",
+          "description": "Add egg-contract verify-criterion command for acceptance criteria",
+          "status": "pending",
+          "acceptance_criteria": "New CLI command updates acceptance_criteria.*.verified field",
+          "files_affected": [
+            "sandbox/egg_lib/contract_cli.py",
+            "tests/sandbox/test_contract_cli.py"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-3-3",
+          "description": "Ensure gateway session passes REVIEWER role for contract verification",
+          "status": "pending",
+          "acceptance_criteria": "Workflow sets EGG_AGENT_ROLE=reviewer for status mutations",
+          "files_affected": [
+            ".github/workflows/on-pull-request-contract-verify.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-4",
+      "name": "Re-review and Feedback Loop Integration",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-4-1",
+          "description": "Add automated review marker to contract verification reviews",
+          "status": "pending",
+          "acceptance_criteria": "Reviews include egg-automated-review marker with bot=contract-verification",
+          "files_affected": [
+            "action/build-contract-verification-prompt.sh"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-4-2",
+          "description": "Integrate with on-review-feedback.yml for contract violations",
+          "status": "pending",
+          "acceptance_criteria": "Contract verification reviews trigger feedback loop on request-changes",
+          "files_affected": [
+            ".github/workflows/on-review-feedback.yml"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-4-3",
+          "description": "Update prompt for re-review with delta-focused verification",
+          "status": "pending",
+          "acceptance_criteria": "Re-review uses LAST_REVIEW_COMMIT for incremental verification",
+          "files_affected": [
+            "action/build-contract-verification-prompt.sh"
+          ],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    }
+  ],
+  "decisions": [],
+  "circuit_breaker": {
+    "total_cycles": 0,
+    "max_total_cycles": 10,
+    "status": "closed"
+  },
+  "audit_log": [
+    {
+      "timestamp": "2026-02-08T08:03:18Z",
+      "actor": "jwbron",
+      "role": "human",
+      "action": "transition",
+      "field_path": "current_phase",
+      "old_value": "refine",
+      "new_value": "plan",
+      "reason": "Phase approved by human"
+    },
+    {
+      "timestamp": "2026-02-08T08:09:35Z",
+      "actor": "jwbron",
+      "role": "human",
+      "action": "transition",
+      "field_path": "current_phase",
+      "old_value": "plan",
+      "new_value": "implement",
+      "reason": "Phase approved by human"
+    }
+  ]
+}

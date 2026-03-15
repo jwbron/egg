@@ -1,0 +1,250 @@
+{
+  "issue": 871,
+  "phase": "plan",
+  "agent": "risk_analyst",
+  "revision": 2,
+  "revision_reason": "Updated risk assessment after architect revision 2 addressed R-1 (wrapper layer). Incorporates plan review feedback. Identifies new risks R-8 through R-11 not covered in previous revision or architect output.",
+  "title": "Risk assessment: Namespace .egg-state files per-pipeline (revision 2)",
+  "overall_risk_level": "LOW",
+
+  "summary": "The architect's revision 2 correctly addresses the primary R-1 gap (wrapper layer callsites) by adding Phase 1.5. The core approach — prefix filenames with issue/pipeline identifier — remains well-scoped, follows established convention, and requires no gateway or enforcement layer changes. This revision identifies 4 new risks: (1) the plan draft is out-of-sync with the architect's revision 2, (2) two additional hardcoded prompt references to tester-output.json are not covered by any task, (3) two health check test files listed in the plan do not actually need changes, and (4) one additional test file (test_health_check_tier2.py) that references globally-named files is not listed. Overall risk remains LOW — the change is a file naming convention update with a solid backward-compat strategy.",
+
+  "architect_analysis_review": {
+    "revision_reviewed": 2,
+    "accuracy": "Accurate — revision 2 addresses all findings from revision 1",
+    "improvements_in_revision_2": [
+      "Phase 1.5 added for wrapper layer (handoffs.py, dispatch.py, signals.py) — directly addresses R-1",
+      "TASK-3-5 added for test_signals.py mock update — addresses R-7",
+      "AD-3 updated to keep fallback permanently — aligns with R-6 recommendation",
+      "AD-4 added for wrapper layer threading decision",
+      "Call chain analysis section added with complete 5-layer breakdown",
+      "Risk section now incorporates all R-1 through R-7 findings with mitigation status"
+    ],
+    "remaining_gaps": [
+      {
+        "gap": "Two hardcoded tester-output.json references in coder prompt builder at pipelines.py:2196 and 2790 not covered by any task",
+        "detail": "TASK-2-1 covers architect, integrator, risk_analyst prompt builders. These two references are in the coder prompt builder (revision checklist sections) and tell coder agents to check .egg-state/agent-outputs/tester-output.json directly. After the change, the tester writes to {id}-tester-output.json, so the coder won't find it at the hardcoded path.",
+        "severity": "LOW — tester gap data is injected programmatically into the coder prompt by _read_tester_gaps(), so the agent has the information regardless. The hardcoded path is a convenience reference."
+      },
+      {
+        "gap": "Plan draft (871-plan.md) does not include Phase 1.5 or wrapper layer files",
+        "detail": "The plan draft is still on revision 1. The architect produced a revision 2 JSON with the corrected plan, but 871-plan.md was not regenerated. If the plan draft drives SDLC task creation, the wrapper layer work will be missing.",
+        "severity": "HIGH — this could result in the same silent failure that R-1 described"
+      },
+      {
+        "gap": "Test files test_health_check_tier1_advanced.py and test_health_check_tester_coverage.py listed for changes but don't actually need them",
+        "detail": "Both tests create architect-output.json in .egg-state/drafts/ (not agent-outputs/). The health check _check_plan_outputs() scans drafts/ via iterdir() matching 'plan' or 'architect' in filenames. Since the change only namespaces files in agent-outputs/ and checks/, these tests are unaffected. The architect's plan incorrectly lists them as needing updates.",
+        "severity": "LOW — unnecessary changes, but modifications to the file-creation filename would still pass the health check since 'architect' would still be in the name"
+      }
+    ],
+    "correct_claims_verified": [
+      "Gateway uses directory-level wildcards — no changes needed (verified: gateway/phase_filter.py:495 uses '.egg-state/agent-outputs/*' and '.egg-state/checks/*')",
+      "Readonly mounts don't cover agent-outputs/ or checks/ (verified: _IMPLEMENT_READONLY_DIRS only has drafts, contracts, pipelines, reviews)",
+      "Health check _check_plan_outputs() scans drafts/ via iterdir() — filename-agnostic (verified: phase_output.py:152-155)",
+      "Health context _read_agent_outputs() scans agent-outputs/ via iterdir() — filename-agnostic (verified: context.py:192)",
+      "dispatch.py has self.contract_key property returning pipeline.issue_number or pipeline.id (verified: dispatch.py:118-126)",
+      "signals.py has pipeline object available from store.load_pipeline() at line 162 with issue_number attribute (verified)",
+      "pipelines.py does NOT import load_agent_output/save_agent_output/collect_handoff_data — it constructs paths inline in prompt builders and reader functions (verified: only a comment reference at line 3722)"
+    ]
+  },
+
+  "risks": [
+    {
+      "id": "R-1",
+      "title": "Missed wrapper callsites in orchestrator/handoffs.py, dispatch.py, signals.py",
+      "category": "Completeness",
+      "likelihood": "HIGH (without mitigation)",
+      "impact": "HIGH",
+      "risk_score": "HIGH (MITIGATED in architect revision 2)",
+      "status": "MITIGATED",
+      "description": "The original plan updated shared/egg_contracts/orchestrator.py but not the wrapper layer. Without Phase 1.5, shared functions receive identifier=None from these code paths and fall back to global paths, silently defeating the entire fix.",
+      "mitigation_applied": "Architect revision 2 added Phase 1.5 with TASK-1.5-1 (handoffs.py), TASK-1.5-2 (dispatch.py), TASK-1.5-3 (signals.py). All three files and their specific callsites are now covered.",
+      "residual_risk": "LOW — plan draft (871-plan.md) has not been updated to include Phase 1.5. See R-8."
+    },
+    {
+      "id": "R-2",
+      "title": "In-flight pipeline backward compatibility during rollout",
+      "category": "Compatibility",
+      "likelihood": "MEDIUM",
+      "impact": "MEDIUM",
+      "risk_score": "MEDIUM (MITIGATED)",
+      "status": "MITIGATED",
+      "description": "In-flight pipelines may have already written agent outputs to old global paths. Readers updated to look for prefixed paths without fallback would fail to find dependency outputs.",
+      "mitigation_applied": "Backward-compat fallback in all readers: try new prefixed path first, fall back to old path. AD-3 decides to keep fallback permanently.",
+      "residual_risk": "NEGLIGIBLE"
+    },
+    {
+      "id": "R-3",
+      "title": "Agent sandbox commands reference hardcoded global filenames",
+      "category": "Compatibility",
+      "likelihood": "MEDIUM",
+      "impact": "LOW",
+      "risk_score": "LOW (MITIGATED)",
+      "status": "MITIGATED",
+      "description": "Sandbox agent mode commands (coder-mode.md, tester-mode.md, integrator-mode.md, documenter-mode.md) contain hardcoded file paths. Used only in manual/interactive agent mode.",
+      "mitigation_applied": "Phase 4 tasks update all sandbox commands. Backward-compat fallback covers reads during transition.",
+      "residual_risk": "LOW — sandbox commands may use shell variable interpolation which must be verified to work in the template rendering context"
+    },
+    {
+      "id": "R-4",
+      "title": "Identifier unavailable in local/non-issue pipeline modes",
+      "category": "Edge Case",
+      "likelihood": "LOW",
+      "impact": "LOW",
+      "risk_score": "LOW (MITIGATED)",
+      "status": "MITIGATED",
+      "description": "In local pipeline mode without an issue number, identifier must be derived from pipeline_id. If both are None, a sensible fallback is needed.",
+      "mitigation_applied": "Follow existing _get_draft_path() pattern: issue_number > pipeline_id > 'local'. Already proposed in AD-4.",
+      "residual_risk": "NEGLIGIBLE"
+    },
+    {
+      "id": "R-5",
+      "title": "Integration test hardcoded path in phase-runner.sh",
+      "category": "Test Infrastructure",
+      "likelihood": "HIGH",
+      "impact": "LOW",
+      "risk_score": "LOW (MITIGATED)",
+      "status": "MITIGATED",
+      "description": "phase-runner.sh:143 hardcodes RESULTS_FILE with implement-results.json. After the change, prompts tell agents to write to a prefixed filename, but the mock still uses the old name.",
+      "mitigation_applied": "TASK-3-3 covers updating phase-runner.sh to use ${EGG_ISSUE_NUMBER:-local}-implement-results.json.",
+      "residual_risk": "NEGLIGIBLE"
+    },
+    {
+      "id": "R-6",
+      "title": "Prompt-agent path mismatch if agents ignore prompt instructions",
+      "category": "Robustness",
+      "likelihood": "LOW",
+      "impact": "MEDIUM",
+      "risk_score": "LOW (MITIGATED)",
+      "status": "MITIGATED",
+      "description": "Agent output file paths are communicated via prompt instructions. If an agent writes to a different path, readers won't find the output at the expected prefixed path.",
+      "mitigation_applied": "AD-3 keeps backward-compat fallback permanently. This handles both transition and misbehaving agents.",
+      "residual_risk": "NEGLIGIBLE"
+    },
+    {
+      "id": "R-7",
+      "title": "Test coverage for wrapper module changes (test_signals.py)",
+      "category": "Test Infrastructure",
+      "likelihood": "MEDIUM",
+      "impact": "LOW",
+      "risk_score": "LOW (MITIGATED)",
+      "status": "MITIGATED",
+      "description": "test_signals.py:86 mocks save_agent_output. If the function signature changes, the mock needs updating.",
+      "mitigation_applied": "TASK-3-5 added in architect revision 2 to update test_signals.py.",
+      "residual_risk": "NEGLIGIBLE"
+    },
+    {
+      "id": "R-8",
+      "title": "Plan draft (871-plan.md) does not reflect architect revision 2",
+      "category": "Process / Completeness",
+      "likelihood": "HIGH",
+      "impact": "HIGH",
+      "risk_score": "HIGH",
+      "status": "OPEN",
+      "description": "The plan draft at .egg-state/drafts/871-plan.md is still on revision 1. It does not include Phase 1.5 (wrapper layer) or the wrapper layer files (orchestrator/handoffs.py, orchestrator/dispatch.py, orchestrator/routes/signals.py). It also does not include TASK-3-5 (test_signals.py). If the plan draft is what gets turned into SDLC contract tasks, the wrapper layer work will be omitted — reproducing the exact problem described in R-1.",
+      "affected_artifacts": [
+        ".egg-state/drafts/871-plan.md (Phases section, Files Modified table, yaml-tasks block)"
+      ],
+      "mitigation": "The plan draft must be regenerated or manually updated to include: (1) Phase 1.5 with TASK-1.5-1, TASK-1.5-2, TASK-1.5-3, (2) TASK-3-5 in Phase 3, (3) handoffs.py, dispatch.py, signals.py, test_signals.py in Files Modified table. The architect's revision 2 JSON has the correct content — the plan draft needs to match it.",
+      "rollback_plan": "N/A — this is a process fix, not a code change."
+    },
+    {
+      "id": "R-9",
+      "title": "Two additional hardcoded tester-output.json references in coder prompt builder",
+      "category": "Completeness",
+      "likelihood": "MEDIUM",
+      "impact": "LOW",
+      "risk_score": "LOW",
+      "status": "OPEN",
+      "description": "orchestrator/routes/pipelines.py has two hardcoded references to tester-output.json in the coder prompt builder that are NOT covered by any task: (1) line 2196 in a revision instruction telling coder to 'Check .egg-state/agent-outputs/tester-output.json for test failures and gaps', (2) line 2790 in a revision checklist with the same instruction. TASK-2-1 only covers architect, integrator, and risk_analyst prompt builders. These references are in the coder prompt builder.",
+      "affected_files": [
+        "orchestrator/routes/pipelines.py:2196 (coder revision instruction)",
+        "orchestrator/routes/pipelines.py:2790 (coder revision checklist)"
+      ],
+      "mitigation": "Expand TASK-2-1 scope to include ALL prompt builders that reference agent output filenames, not just architect/integrator/risk_analyst. Or create a dedicated sweep task. Impact is LOW because tester gap data is injected programmatically into the coder prompt by _read_tester_gaps() — the hardcoded path is a convenience reference. With the permanent fallback (AD-3), the agent would get a 'file not found' but the data is already in the prompt.",
+      "rollback_plan": "N/A — low severity."
+    },
+    {
+      "id": "R-10",
+      "title": "Plan incorrectly lists two health check test files as needing updates",
+      "category": "Implementation Accuracy",
+      "likelihood": "LOW",
+      "impact": "LOW",
+      "risk_score": "LOW",
+      "status": "OPEN",
+      "description": "TASK-3-2 lists test_health_check_tester_coverage.py and test_health_check_tier1_advanced.py as needing updates for 'mock file creation'. Both tests create architect-output.json in .egg-state/DRAFTS/ (not agent-outputs/). The health check _check_plan_outputs() scans the drafts/ directory via iterdir() matching files with 'plan' or 'architect' in the name (phase_output.py:155). Since the change only namespaces files in agent-outputs/ and checks/, these test files are NOT affected.",
+      "evidence": [
+        "test_health_check_tier1_advanced.py:434 creates file at Path(tmpdir) / '.egg-state' / 'drafts' / 'architect-output.json'",
+        "test_health_check_tester_coverage.py:235-237 creates file at Path(tmp) / 'repo' / '.egg-state' / 'drafts' / 'architect-output.json'",
+        "phase_output.py:152-156 _check_plan_outputs() scans drafts_dir.iterdir() for files with 'plan' or 'architect' in name"
+      ],
+      "mitigation": "Remove test_health_check_tier1_advanced.py and test_health_check_tester_coverage.py from TASK-3-2 scope. These tests verify health check behavior against the drafts/ directory, which is unrelated to the agent-outputs/ namespacing change. Making unnecessary changes risks introducing errors.",
+      "rollback_plan": "N/A — the tests don't need changing."
+    },
+    {
+      "id": "R-11",
+      "title": "test_health_check_tier2.py references globally-named agent output file",
+      "category": "Test Infrastructure",
+      "likelihood": "LOW",
+      "impact": "LOW",
+      "risk_score": "LOW",
+      "status": "OPEN (no action required)",
+      "description": "orchestrator/tests/test_health_check_tier2.py:239 creates coder-output.json in agent-outputs/ and asserts at line 254 that 'coder-output.json' is a key in ctx.agent_outputs. The health context reads via iterdir() (context.py:192), so it's filename-agnostic and the test will continue to pass regardless of the naming change. This file is not listed in the architect's files_modified table. The test does NOT strictly need updating since it creates its own fixture data with an arbitrary name.",
+      "affected_files": [
+        "orchestrator/tests/test_health_check_tier2.py:239,254-255"
+      ],
+      "mitigation": "No action required. The test creates its own fixture data and verifies that the health context can read from agent-outputs/ — it doesn't test the naming convention. Including it in the plan would be over-scoping.",
+      "rollback_plan": "N/A"
+    }
+  ],
+
+  "security_assessment": {
+    "risk_level": "NONE",
+    "details": "This change is purely a file naming convention update within the .egg-state directory. No new input validation, authentication, authorization, or data handling code is introduced. The identifier used in path construction comes from issue_number (integer) or pipeline_id (server-generated string), both of which are trusted internal values. Gateway and phase filter enforcement layers use directory-level wildcards that are transparent to file renames. No path traversal risk since the identifier is an integer or a controlled string, and paths are constructed via Path() object joining, not string interpolation."
+  },
+
+  "performance_assessment": {
+    "risk_level": "NEGLIGIBLE",
+    "details": "The backward-compat fallback adds one additional file existence check (Path.exists() -> one stat() syscall) per read when the new prefixed file doesn't exist. This is negligible. No new I/O patterns, database queries, or network calls are introduced."
+  },
+
+  "rollback_plan": {
+    "strategy": "Git revert of the PR",
+    "steps": [
+      "Revert the PR on main",
+      "Since all shared functions default to identifier=None (backward compat), reverting writers restores old global paths immediately",
+      "Any in-flight pipelines on the new code that already wrote prefixed files: readers revert to old-path-only behavior and prefixed files are orphaned (harmless)",
+      "Clean approach: revert the entire PR. In-flight pipelines may need manual restart but this is standard pipeline failure recovery"
+    ],
+    "estimated_blast_radius": "Low — only affects .egg-state file I/O within the SDLC pipeline. No production code, gateway enforcement, or user-facing behavior is impacted."
+  },
+
+  "areas_requiring_human_review": [
+    {
+      "area": "Plan draft synchronization with architect revision 2 (R-8)",
+      "priority": "HIGH",
+      "reason": "The plan draft (871-plan.md) must be updated to include Phase 1.5 (wrapper layer) before it becomes SDLC tasks. The architect's JSON output has the correct content, but the markdown plan has not been regenerated. Without this update, the implementation will miss 3 critical files (handoffs.py, dispatch.py, signals.py) and 1 test file (test_signals.py)."
+    },
+    {
+      "area": "Coder prompt tester-output.json references (R-9)",
+      "priority": "LOW",
+      "reason": "Two hardcoded references in coder prompt builder at pipelines.py:2196 and 2790 are not covered by any task. Impact is low because tester gap data is injected programmatically. Reviewer should decide whether to expand TASK-2-1 scope or accept the minor discrepancy."
+    },
+    {
+      "area": "Removal of two test files from TASK-3-2 scope (R-10)",
+      "priority": "LOW",
+      "reason": "test_health_check_tier1_advanced.py and test_health_check_tester_coverage.py create files in drafts/, not agent-outputs/. They don't need updating. Reviewer should confirm the health check only scans drafts/ (verified at phase_output.py:149-155)."
+    }
+  ],
+
+  "recommendation": {
+    "proceed": true,
+    "overall_assessment": "The proposed change is well-designed, follows established conventions, and has a solid backward-compat strategy. The architect's revision 2 successfully addresses all findings from revision 1. The remaining risks are LOW severity with one HIGH process risk (R-8 — plan draft sync) that must be addressed before implementation begins.",
+    "conditions": [
+      "CRITICAL: Update 871-plan.md to include Phase 1.5 (wrapper layer) and TASK-3-5 (test_signals.py) before generating SDLC tasks (R-8)",
+      "Consider expanding TASK-2-1 scope to cover coder prompt builder tester-output.json references at lines 2196 and 2790 (R-9)",
+      "Remove test_health_check_tier1_advanced.py and test_health_check_tester_coverage.py from TASK-3-2 scope — they create files in drafts/, not agent-outputs/ (R-10)",
+      "Verify TASK-2-5 acceptance criterion — pipelines.py doesn't call load_agent_output/save_agent_output/collect_handoff_data directly (verified: no imports found). TASK-2-5 should be reworded to cover hardcoded path strings and inline Path constructions, not function calls"
+    ]
+  }
+}

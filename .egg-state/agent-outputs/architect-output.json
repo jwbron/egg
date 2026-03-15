@@ -1,0 +1,535 @@
+{
+  "issue": 871,
+  "phase": "plan",
+  "agent": "architect",
+  "revision": 2,
+  "revision_reason": "Addressing plan review feedback: missing wrapper layer callsites (R-1), missing test file (R-7), TASK-2-5 scope, and risk section alignment with risk analyst output.",
+  "title": "Revised architecture analysis: Namespace .egg-state files per-pipeline",
+
+  "summary": "Add issue/pipeline identifier prefix to all globally-named files in .egg-state/agent-outputs/ and .egg-state/checks/, matching the convention already used by contracts/, drafts/, and reviews/. This eliminates merge conflicts when concurrent pipelines merge to main (e.g., PR #869 had 4 such conflicts). Revision 2 adds the missing wrapper layer (orchestrator/handoffs.py, dispatch.py, signals.py) identified in plan review feedback and aligns the risk section with the risk analyst's findings.",
+
+  "problem_statement": {
+    "description": "The .egg-state/ directory has inconsistent file namespacing. Contracts, drafts, and reviews use per-issue/pipeline prefixed filenames, so concurrent pipelines never conflict on merge. However, agent-outputs/ handoff files and checks/ results use globally-named files. When multiple pipelines merge to main, these global files produce git merge conflicts (e.g., PR #869 had 4 such conflicts).",
+    "root_cause": "load_agent_output() and save_agent_output() in shared/egg_contracts/orchestrator.py construct paths as {role.value}-output.json with no identifier parameter. Prompt builders embed these same hardcoded filenames. The checks/ directory uses a similar hardcoded implement-results.json.",
+    "affected_files": [
+      "architect-output.json",
+      "integrator-output.json",
+      "risk_analyst-output.json",
+      "coder-output.json",
+      "tester-output.json",
+      "documenter-output.json",
+      "task_planner-output.json",
+      "implement-results.json"
+    ]
+  },
+
+  "call_chain_analysis": {
+    "description": "Complete call chain for agent output I/O, including the wrapper layer identified in review feedback. This section was ADDED in revision 2 to address the plan reviewer's critical finding about missing callsites.",
+    "layers": [
+      {
+        "layer": "Shared library (core)",
+        "file": "shared/egg_contracts/orchestrator.py",
+        "functions": [
+          {"name": "load_agent_output(repo_path, role)", "line": 323, "constructs_path": true},
+          {"name": "save_agent_output(repo_path, role, outputs)", "line": 346, "constructs_path": true},
+          {"name": "collect_handoff_data(repo_path, target_role)", "line": 372, "calls": "load_agent_output"}
+        ]
+      },
+      {
+        "layer": "Orchestrator wrapper (handoffs.py) — MISSED IN ORIGINAL PLAN",
+        "file": "orchestrator/handoffs.py",
+        "functions": [
+          {"name": "save_agent_output(repo_path, output: AgentOutput)", "line": 152, "calls": "contract_save_output (shared save_agent_output)", "note": "Wraps shared function with ORM AgentOutput type. Does NOT currently accept or forward identifier."},
+          {"name": "load_agent_output_data(repo_path, role: AgentRole)", "line": 171, "calls": "load_agent_output (shared)", "note": "Wraps shared function. Returns AgentOutput or None. Does NOT currently accept or forward identifier."},
+          {"name": "collect_handoff_data(repo_path, target_role: AgentRole)", "line": 193, "calls": "load_agent_output_data (internal)", "note": "Wraps via internal load. Does NOT currently accept or forward identifier."},
+          {"name": "get_handoff_env_var(repo_path, target_role: AgentRole)", "line": 227, "calls": "collect_handoff_data (internal)", "note": "JSON-serializes handoff data. Does NOT currently accept or forward identifier."}
+        ]
+      },
+      {
+        "layer": "Dispatch (dispatch.py) — MISSED IN ORIGINAL PLAN",
+        "file": "orchestrator/dispatch.py",
+        "callers": [
+          {"function": "PipelineDispatcher.complete_agent()", "line": 219, "calls": "save_agent_output (from shared directly, line 34)", "identifier_available_via": "self.contract_key (pipeline.issue_number or pipeline.id)"},
+          {"function": "PipelineDispatcher.get_handoff_data()", "line": 264, "calls": "collect_handoff_data (from shared directly, line 31)", "identifier_available_via": "self.contract_key"}
+        ],
+        "note": "dispatch.py imports save_agent_output and collect_handoff_data directly from egg_contracts.orchestrator (lines 29-35), NOT through the handoffs.py wrapper."
+      },
+      {
+        "layer": "Signals (routes/signals.py) — MISSED IN ORIGINAL PLAN",
+        "file": "orchestrator/routes/signals.py",
+        "callers": [
+          {"function": "handle_complete_signal()", "line": 193, "calls": "save_agent_output (from handoffs wrapper, line 36)", "identifier_available_via": "pipeline.issue_number from store.load_pipeline(pipeline_id) at line 162, or pipeline_id URL param"}
+        ]
+      },
+      {
+        "layer": "Pipelines (routes/pipelines.py) — covered in original plan",
+        "file": "orchestrator/routes/pipelines.py",
+        "callers": [
+          {"function": "_synthesize_plan_draft_from_outputs()", "line": "~4335", "reads": "agent output files directly via Path", "note": "Constructs filenames inline, not via shared function"},
+          {"function": "_read_tester_gaps()", "line": "~1619", "reads": "tester-output.json directly via Path", "note": "Hardcoded filename"},
+          {"function": "Various prompt builders", "note": "Hardcoded filenames in prompt strings for agents to write to"}
+        ]
+      }
+    ]
+  },
+
+  "current_architecture": {
+    "correctly_namespaced": {
+      "contracts": {
+        "pattern": "{identifier}.json",
+        "code": "shared/egg_contracts/loader.py:44 — get_contract_path(identifier)",
+        "example": "850.json"
+      },
+      "drafts": {
+        "pattern": "{identifier}-{phase}.md",
+        "code": "orchestrator/routes/pipelines.py:1060 — _get_draft_path()",
+        "example": "850-analysis.md"
+      },
+      "reviews": {
+        "pattern": "{identifier}-{phase}-{type}-review.json",
+        "code": "orchestrator/routes/pipelines.py:1035 — _verdict_path_for_type()",
+        "example": "850-implement-code-review.json"
+      }
+    },
+    "globally_named_problem_files": {
+      "agent_outputs_writers": {
+        "programmatic": {
+          "function": "save_agent_output(repo_path, role, outputs)",
+          "location": "shared/egg_contracts/orchestrator.py:346-369",
+          "path_construction": "repo_path / '.egg-state' / 'agent-outputs' / f'{role.value}-output.json'",
+          "issue": "No identifier parameter — all pipelines write to the same filename per role"
+        },
+        "prompt_embedded": [
+          {"role": "architect", "location": "orchestrator/routes/pipelines.py:2524", "path": ".egg-state/agent-outputs/architect-output.json"},
+          {"role": "integrator", "location": "orchestrator/routes/pipelines.py:2509", "path": ".egg-state/agent-outputs/integrator-output.json"},
+          {"role": "risk_analyst", "location": "orchestrator/routes/pipelines.py:2590", "path": ".egg-state/agent-outputs/risk_analyst-output.json"}
+        ]
+      },
+      "agent_outputs_readers": {
+        "load_agent_output": {
+          "location": "shared/egg_contracts/orchestrator.py:323-343",
+          "path_construction": "repo_path / '.egg-state' / 'agent-outputs' / f'{role.value}-output.json'",
+          "callers": ["collect_handoff_data (line 392)", "orchestrator/handoffs.py:185 (load_agent_output_data)"]
+        },
+        "_synthesize_plan_draft": {
+          "location": "orchestrator/routes/pipelines.py:4335-4350",
+          "reads": ["architect-output.json", "risk_analyst-output.json"],
+          "note": "Already receives pipeline_mode and issue_number parameters"
+        },
+        "_read_tester_gaps": {
+          "location": "orchestrator/routes/pipelines.py:1619-1644",
+          "reads": ["tester-output.json"],
+          "callers": ["line 3139", "line 5173"]
+        }
+      },
+      "checks_writers": {
+        "prompt_embedded": [
+          {"function": "_build_checker_prompt", "location": "orchestrator/routes/pipelines.py:4063"},
+          {"function": "_build_check_and_fix_prompt", "location": "orchestrator/routes/pipelines.py:4275"},
+          {"function": "_build_autofix_prompt", "location": "orchestrator/routes/pipelines.py:4086-4170"}
+        ]
+      }
+    },
+    "gateway_uses_directory_wildcards": {
+      "agent_restrictions": "'.egg-state/agent-outputs/' in allowed_write patterns — directory-level, not file-level",
+      "phase_filter": "'.egg-state/agent-outputs/*' and '.egg-state/checks/*' allowed patterns — wildcards match any filename",
+      "readonly_mounts": "_IMPLEMENT_READONLY_DIRS = ('drafts', 'contracts', 'pipelines', 'reviews') — agent-outputs/ and checks/ NOT included",
+      "conclusion": "No gateway changes needed — file renames within directories are transparent to all enforcement layers"
+    }
+  },
+
+  "approaches": [
+    {
+      "id": "A",
+      "name": "Prefix filenames with issue/pipeline identifier (RECOMMENDED)",
+      "description": "Rename all globally-named files to use {identifier}-{role}-output.json and {identifier}-implement-results.json. Update load_agent_output/save_agent_output to accept identifier parameter. Thread identifier through wrapper layer (handoffs.py) and all callers (dispatch.py, signals.py, pipelines.py). Update all prompt builders. Add backward-compatible fallback reads.",
+      "pros": [
+        "Consistent with existing convention in contracts/, drafts/, reviews/",
+        "Minimal conceptual overhead — developers already understand {identifier}- prefix",
+        "Identifier (issue_number or pipeline_id) already available at all callsites",
+        "No gateway, readonly mount, or phase permission changes needed",
+        "Backward-compat fallback is simple: try new path, fall back to old"
+      ],
+      "cons": [
+        "Requires updating both programmatic code and prompt strings (two code paths)",
+        "Wrapper layer adds 3 more files to the change set (handoffs.py, dispatch.py, signals.py)"
+      ],
+      "risk": "Low"
+    },
+    {
+      "id": "B",
+      "name": "Namespace by subdirectory instead of filename prefix",
+      "description": "Move files into per-issue subdirectories: .egg-state/agent-outputs/{identifier}/architect-output.json",
+      "pros": [
+        "Cleaner directory structure — each pipeline's files grouped together",
+        "Easier to list/cleanup files for a specific pipeline"
+      ],
+      "cons": [
+        "Inconsistent with existing convention (contracts/, drafts/, reviews/ use filename prefixes, not subdirectories)",
+        "Requires gateway pattern changes (.egg-state/agent-outputs/* -> .egg-state/agent-outputs/**/*)",
+        "More complex backward-compat (checking both directory structures)",
+        "git doesn't track empty directories"
+      ],
+      "risk": "Medium"
+    },
+    {
+      "id": "C",
+      "name": "Centralized path builder utility",
+      "description": "Create a single path-building module that all code uses to resolve .egg-state/ paths.",
+      "pros": [
+        "Single source of truth for all path construction",
+        "Future-proof for naming convention changes"
+      ],
+      "cons": [
+        "Over-engineering for 8 filename changes",
+        "Still needs prompt string updates (agents respond to embedded paths)",
+        "_get_draft_path() and _verdict_path_for_type() already serve this role for their directories"
+      ],
+      "risk": "Low (but unnecessary scope)"
+    }
+  ],
+
+  "recommended_approach": {
+    "id": "A",
+    "name": "Prefix filenames with issue/pipeline identifier",
+    "justification": "Directly matches the established convention used by all other .egg-state/ directories. The scope is well-bounded and the identifier is already available at all callsites (verified in revision 2 for the wrapper layer too: dispatch.py has self.contract_key, signals.py has pipeline.issue_number). No infrastructure changes needed."
+  },
+
+  "architecture_decisions": [
+    {
+      "id": "AD-1",
+      "decision": "Namespace ALL agent output files, not just the 3 listed in the issue",
+      "rationale": "load_agent_output()/save_agent_output() generate paths for ALL agent roles using the same global pattern. Fixing only 3 of 7 leaves coder-output.json, tester-output.json, documenter-output.json, and task_planner-output.json vulnerable to the same merge conflict. Since we change the shared functions, all roles benefit at zero additional cost."
+    },
+    {
+      "id": "AD-2",
+      "decision": "Add identifier parameter to load_agent_output/save_agent_output rather than creating a new path builder module",
+      "rationale": "These functions are the single point of path construction for agent outputs. Adding identifier: int | str | None follows the same pattern as get_contract_path(identifier). A new centralized path builder (Option C) would be over-engineering for this fix."
+    },
+    {
+      "id": "AD-3",
+      "decision": "Keep backward-compatible fallback permanently rather than planning removal",
+      "rationale": "Cost is one stat() syscall per read (negligible). Benefits: handles in-flight pipelines, protects against agent misbehavior (risk R-6), eliminates need for planned removal. The risk analyst recommends this approach.",
+      "updated_in": "revision 2"
+    },
+    {
+      "id": "AD-4",
+      "decision": "Thread identifier through wrapper layer (handoffs.py) and all callers (dispatch.py, signals.py)",
+      "rationale": "The original plan only covered the shared library and pipelines.py. The review identified that orchestrator/handoffs.py wraps all three shared functions, dispatch.py calls them directly, and signals.py calls them through the wrapper. Without threading identifier through all layers, the shared functions receive identifier=None and silently fall back to global paths.",
+      "added_in": "revision 2"
+    },
+    {
+      "id": "AD-5",
+      "decision": "No gateway, readonly mount, or phase permission changes needed",
+      "rationale": "Gateway uses directory-level wildcards (.egg-state/agent-outputs/*, .egg-state/checks/*). Readonly mounts only cover drafts/, contracts/, pipelines/, reviews/. Neither agent-outputs/ nor checks/ are affected. File renames within these directories are transparent to all enforcement layers."
+    }
+  ],
+
+  "implementation_plan": {
+    "summary": "5 phases: (1) shared library → (1.5) wrapper layer & callers → (2) pipelines.py prompts & readers → (3) tests → (4) docs. Phase 1.5 was ADDED in revision 2.",
+    "phases": [
+      {
+        "id": "phase-1",
+        "name": "Core path construction (shared library)",
+        "goal": "Update shared utility functions to support identifier-prefixed agent output paths",
+        "tasks": [
+          {
+            "id": "TASK-1-1",
+            "description": "Add optional identifier parameter (int | str | None) to load_agent_output() in shared/egg_contracts/orchestrator.py. When identifier is provided, construct path as {identifier}-{role.value}-output.json. Add fallback: if prefixed path does not exist, try old {role.value}-output.json path. When identifier is None, use old path directly (backward compat).",
+            "acceptance": "load_agent_output(repo, role, identifier=871) reads from 871-{role}-output.json, falling back to {role}-output.json. load_agent_output(repo, role) reads from {role}-output.json (unchanged).",
+            "files": ["shared/egg_contracts/orchestrator.py"]
+          },
+          {
+            "id": "TASK-1-2",
+            "description": "Add optional identifier parameter to save_agent_output() in shared/egg_contracts/orchestrator.py. When identifier is provided, write to {identifier}-{role.value}-output.json. When None, write to {role.value}-output.json (backward compat).",
+            "acceptance": "save_agent_output(repo, role, data, identifier=871) writes to 871-{role}-output.json. save_agent_output(repo, role, data) writes to {role}-output.json.",
+            "files": ["shared/egg_contracts/orchestrator.py"]
+          },
+          {
+            "id": "TASK-1-3",
+            "description": "Add optional identifier parameter to collect_handoff_data() in shared/egg_contracts/orchestrator.py and pass it through to load_agent_output() for each dependency.",
+            "acceptance": "collect_handoff_data(repo, role, identifier=871) reads dependency outputs from prefixed paths with fallback.",
+            "files": ["shared/egg_contracts/orchestrator.py"]
+          }
+        ],
+        "dependencies": []
+      },
+      {
+        "id": "phase-1.5",
+        "name": "Wrapper layer and caller updates (ADDED IN REVISION 2)",
+        "goal": "Thread identifier parameter through orchestrator/handoffs.py wrappers and all callers in dispatch.py and signals.py",
+        "rationale": "Addresses plan review feedback: without this phase, shared functions receive identifier=None from these code paths and fall back to global filenames, silently defeating the entire fix. Risk analyst flagged this as R-1 (HIGH/HIGH).",
+        "tasks": [
+          {
+            "id": "TASK-1.5-1",
+            "description": "Add optional identifier parameter (int | str | None) to all 4 wrapper functions in orchestrator/handoffs.py: save_agent_output(), load_agent_output_data(), collect_handoff_data(), get_handoff_env_var(). Forward identifier to the underlying shared functions. save_agent_output wraps contract_save_output (shared) at line 168. load_agent_output_data calls load_agent_output (shared) at line 185. collect_handoff_data calls load_agent_output_data at line 215. get_handoff_env_var calls collect_handoff_data at line 240.",
+            "acceptance": "All 4 wrapper functions accept and forward identifier. handoffs.save_agent_output(repo, output, identifier=871) writes to 871-{role}-output.json.",
+            "files": ["orchestrator/handoffs.py"]
+          },
+          {
+            "id": "TASK-1.5-2",
+            "description": "Update PipelineDispatcher.complete_agent() in orchestrator/dispatch.py (line 219) to pass self.contract_key as identifier to save_agent_output(). Update PipelineDispatcher.get_handoff_data() (line 264) to pass self.contract_key as identifier to collect_handoff_data(). Note: dispatch.py imports these functions directly from shared (lines 29-35), not through handoffs.py.",
+            "acceptance": "Both callers pass self.contract_key (which returns pipeline.issue_number or pipeline.id) as identifier. No calls to save_agent_output or collect_handoff_data without identifier in dispatch.py.",
+            "files": ["orchestrator/dispatch.py"]
+          },
+          {
+            "id": "TASK-1.5-3",
+            "description": "Update handle_complete_signal() in orchestrator/routes/signals.py (line 193) to pass identifier to handoffs.save_agent_output(). Derive identifier from pipeline object loaded at line 162: use pipeline.issue_number if not None, else pipeline_id (the URL param). Note: signals.py imports save_agent_output from handoffs (line 36), not from shared.",
+            "acceptance": "save_agent_output call at line 193 passes identifier. Agent output from signal handlers is written to prefixed path.",
+            "files": ["orchestrator/routes/signals.py"]
+          }
+        ],
+        "dependencies": ["phase-1"]
+      },
+      {
+        "id": "phase-2",
+        "name": "Prompt builder and reader updates (pipelines.py)",
+        "goal": "Update all prompt builders and reader functions in orchestrator/routes/pipelines.py to use identifier-prefixed paths",
+        "tasks": [
+          {
+            "id": "TASK-2-1",
+            "description": "Update _build_agent_prompt() for architect, integrator, and risk_analyst roles. Replace hardcoded output filenames with dynamically constructed {identifier}-prefixed paths using issue_number/pipeline_id already available in the prompt builder context.",
+            "acceptance": "Prompts contain e.g. '871-architect-output.json' for issue 871.",
+            "files": ["orchestrator/routes/pipelines.py"]
+          },
+          {
+            "id": "TASK-2-2",
+            "description": "Update _build_checker_prompt(), _build_check_and_fix_prompt(), and _build_autofix_prompt() to replace hardcoded 'implement-results.json' with {identifier}-implement-results.json.",
+            "acceptance": "Checker and autofix prompts contain e.g. '871-implement-results.json'.",
+            "files": ["orchestrator/routes/pipelines.py"]
+          },
+          {
+            "id": "TASK-2-3",
+            "description": "Update _synthesize_plan_draft_from_outputs() (~line 4335) to construct prefixed filenames. Derive identifier from existing pipeline_mode/issue_number parameters. Fall back to old filenames if prefixed files don't exist.",
+            "acceptance": "Function reads from {identifier}-architect-output.json first, falls back to architect-output.json.",
+            "files": ["orchestrator/routes/pipelines.py"]
+          },
+          {
+            "id": "TASK-2-4",
+            "description": "Update _read_tester_gaps() (~line 1619) to accept identifier parameter and construct prefixed path with fallback. Update both callers (~line 3139 and ~line 5173) to pass identifier.",
+            "acceptance": "Function reads from {identifier}-tester-output.json first, falls back to tester-output.json.",
+            "files": ["orchestrator/routes/pipelines.py"]
+          },
+          {
+            "id": "TASK-2-5",
+            "description": "Update all remaining callers of load_agent_output(), save_agent_output(), and collect_handoff_data() WITHIN orchestrator/routes/pipelines.py to pass identifier from pipeline context. Scope: pipelines.py only — dispatch.py and signals.py callers are covered in Phase 1.5.",
+            "acceptance": "No calls to these functions without identifier in pipelines.py pipeline code paths.",
+            "files": ["orchestrator/routes/pipelines.py"]
+          }
+        ],
+        "dependencies": ["phase-1.5"]
+      },
+      {
+        "id": "phase-3",
+        "name": "Tests",
+        "goal": "Update all existing tests and add backward-compat fallback tests",
+        "tasks": [
+          {
+            "id": "TASK-3-1",
+            "description": "Update test_pipeline_prompts.py — change all assertions that check for 'implement-results.json' in prompt content to expect prefixed filenames. Update TestReadTesterGaps tests.",
+            "acceptance": "All tests in test_pipeline_prompts.py pass with prefixed filenames.",
+            "files": ["orchestrator/tests/test_pipeline_prompts.py"]
+          },
+          {
+            "id": "TASK-3-2",
+            "description": "Update test_health_check_tester_coverage.py and test_health_check_tier1_advanced.py — update mock file creation to use prefixed filenames.",
+            "acceptance": "Health check tests pass with prefixed filenames.",
+            "files": ["orchestrator/tests/test_health_check_tester_coverage.py", "orchestrator/tests/test_health_check_tier1_advanced.py"]
+          },
+          {
+            "id": "TASK-3-3",
+            "description": "Update integration_tests/local_pipeline/mock-sandbox/phase-runner.sh — update RESULTS_FILE to use prefixed filename from EGG_ISSUE_NUMBER or EGG_PIPELINE_ID.",
+            "acceptance": "Integration test writes to {identifier}-implement-results.json.",
+            "files": ["integration_tests/local_pipeline/mock-sandbox/phase-runner.sh"]
+          },
+          {
+            "id": "TASK-3-4",
+            "description": "Add tests for backward-compat fallback in load_agent_output(). Test cases: (1) prefixed path exists, (2) only old global path exists and fallback reads it, (3) neither exists, (4) both exist and prefixed takes priority.",
+            "acceptance": "All 4 fallback test cases pass.",
+            "files": ["shared/egg_contracts/tests/test_orchestrator.py"]
+          },
+          {
+            "id": "TASK-3-5",
+            "description": "Update orchestrator/tests/test_signals.py — the mock at line 86 patches 'routes.signals.save_agent_output'. After Phase 1.5, handoffs.save_agent_output adds an optional identifier parameter. Update mock setup and assertions to account for the new parameter. ADDED IN REVISION 2 per review feedback (risk analyst R-7).",
+            "acceptance": "test_signals.py tests pass with updated mock.",
+            "files": ["orchestrator/tests/test_signals.py"]
+          }
+        ],
+        "dependencies": ["phase-2"]
+      },
+      {
+        "id": "phase-4",
+        "name": "Documentation and agent mode commands",
+        "goal": "Update all documentation and sandbox commands referencing old globally-named filenames",
+        "tasks": [
+          {
+            "id": "TASK-4-1",
+            "description": "Update docs/guides/sdlc-pipeline.md — change references to {role}-output.json naming convention.",
+            "files": ["docs/guides/sdlc-pipeline.md"]
+          },
+          {
+            "id": "TASK-4-2",
+            "description": "Update docs/guides/agent-development.md — update agent output file naming tree.",
+            "files": ["docs/guides/agent-development.md"]
+          },
+          {
+            "id": "TASK-4-3",
+            "description": "Update docs/architecture/orchestrator.md — update implement-results.json reference.",
+            "files": ["docs/architecture/orchestrator.md"]
+          },
+          {
+            "id": "TASK-4-4",
+            "description": "Update sandbox/.claude/commands/ agent mode files — replace hardcoded {role}-output.json paths.",
+            "files": ["sandbox/.claude/commands/coder-mode.md", "sandbox/.claude/commands/tester-mode.md", "sandbox/.claude/commands/integrator-mode.md", "sandbox/.claude/commands/documenter-mode.md"]
+          },
+          {
+            "id": "TASK-4-5",
+            "description": "Update docstring in orchestrator/health_checks/tier1/phase_output.py.",
+            "files": ["orchestrator/health_checks/tier1/phase_output.py"]
+          }
+        ],
+        "dependencies": ["phase-2"]
+      }
+    ]
+  },
+
+  "files_modified": [
+    {"file": "shared/egg_contracts/orchestrator.py", "phase": "1", "change": "Add identifier param to load_agent_output, save_agent_output, collect_handoff_data; add fallback logic"},
+    {"file": "orchestrator/handoffs.py", "phase": "1.5", "change": "Add identifier param to save_agent_output, load_agent_output_data, collect_handoff_data, get_handoff_env_var wrappers; forward to shared functions", "added_in": "revision 2"},
+    {"file": "orchestrator/dispatch.py", "phase": "1.5", "change": "Pass self.contract_key as identifier at lines 219 and 264", "added_in": "revision 2"},
+    {"file": "orchestrator/routes/signals.py", "phase": "1.5", "change": "Pass identifier (from pipeline.issue_number or pipeline_id) at line 193", "added_in": "revision 2"},
+    {"file": "orchestrator/routes/pipelines.py", "phase": "2", "change": "Update prompt builders, reader functions, and all callers to use prefixed paths"},
+    {"file": "orchestrator/tests/test_pipeline_prompts.py", "phase": "3", "change": "Update prompt assertions and tester gap tests"},
+    {"file": "orchestrator/tests/test_health_check_tester_coverage.py", "phase": "3", "change": "Update mock file creation"},
+    {"file": "orchestrator/tests/test_health_check_tier1_advanced.py", "phase": "3", "change": "Update mock file creation"},
+    {"file": "integration_tests/local_pipeline/mock-sandbox/phase-runner.sh", "phase": "3", "change": "Update RESULTS_FILE to prefixed path"},
+    {"file": "shared/egg_contracts/tests/test_orchestrator.py", "phase": "3", "change": "Add backward-compat fallback tests"},
+    {"file": "orchestrator/tests/test_signals.py", "phase": "3", "change": "Update save_agent_output mock at line 86 for new identifier parameter", "added_in": "revision 2"},
+    {"file": "docs/guides/sdlc-pipeline.md", "phase": "4", "change": "Update naming convention references"},
+    {"file": "docs/guides/agent-development.md", "phase": "4", "change": "Update agent output file naming tree"},
+    {"file": "docs/architecture/orchestrator.md", "phase": "4", "change": "Update implement-results.json reference"},
+    {"file": "sandbox/.claude/commands/coder-mode.md", "phase": "4", "change": "Update output file path"},
+    {"file": "sandbox/.claude/commands/tester-mode.md", "phase": "4", "change": "Update output file paths"},
+    {"file": "sandbox/.claude/commands/integrator-mode.md", "phase": "4", "change": "Update output file paths"},
+    {"file": "sandbox/.claude/commands/documenter-mode.md", "phase": "4", "change": "Update output file paths"},
+    {"file": "orchestrator/health_checks/tier1/phase_output.py", "phase": "4", "change": "Update docstring"}
+  ],
+
+  "no_changes_needed": [
+    {"component": "Gateway phase filter (gateway/phase_filter.py)", "reason": "Uses directory-level wildcards — file renames transparent"},
+    {"component": "Gateway agent restrictions (gateway/agent_restrictions.py)", "reason": "Uses directory-level allowed_write patterns"},
+    {"component": "Readonly mount enforcement (shared/egg_container/__init__.py)", "reason": "agent-outputs/ and checks/ not in _IMPLEMENT_READONLY_DIRS"},
+    {"component": "Phase permissions config (.egg/phase-permissions.json)", "reason": "Uses directory-level patterns"},
+    {"component": "Container spawner (orchestrator/container_spawner.py)", "reason": "Does not reference specific filenames"},
+    {"component": "Health check functional code (phase_output.py:152)", "reason": "Scans directory via iterdir() — works with any filename"}
+  ],
+
+  "risks": [
+    {
+      "id": "R-1",
+      "title": "Missed wrapper callsites in orchestrator/handoffs.py, dispatch.py, signals.py",
+      "source": "Risk analyst R-1 (HIGH/HIGH), plan reviewer critical finding",
+      "likelihood": "HIGH (without mitigation)",
+      "impact": "HIGH",
+      "status": "MITIGATED in revision 2 — Phase 1.5 added",
+      "description": "The original plan updated shared functions but not the wrapper layer. Without updating handoffs.py, dispatch.py, and signals.py, the shared functions receive identifier=None and fall back to global paths, silently defeating the entire fix.",
+      "mitigation": "Phase 1.5 now explicitly covers all 3 files with dedicated tasks (TASK-1.5-1, TASK-1.5-2, TASK-1.5-3)."
+    },
+    {
+      "id": "R-2",
+      "title": "In-flight pipeline backward compatibility during rollout",
+      "source": "Risk analyst R-2 (MEDIUM/MEDIUM)",
+      "likelihood": "MEDIUM",
+      "impact": "MEDIUM",
+      "status": "MITIGATED by fallback strategy",
+      "description": "In-flight pipelines may have already written agent outputs to old global paths.",
+      "mitigation": "Backward-compat fallback in all readers: try new prefixed path first, fall back to old path. Keep permanently (AD-3)."
+    },
+    {
+      "id": "R-3",
+      "title": "Agent sandbox commands reference hardcoded global filenames",
+      "source": "Risk analyst R-3",
+      "likelihood": "MEDIUM",
+      "impact": "LOW",
+      "status": "MITIGATED — Phase 4 updates commands; fallback covers reads in interim"
+    },
+    {
+      "id": "R-4",
+      "title": "Identifier unavailable in local/non-issue pipeline modes",
+      "source": "Risk analyst R-4",
+      "likelihood": "LOW",
+      "impact": "LOW",
+      "status": "MITIGATED — follow existing _get_draft_path() pattern: issue_number > pipeline_id > 'local'"
+    },
+    {
+      "id": "R-5",
+      "title": "Integration test hardcoded path in phase-runner.sh",
+      "source": "Risk analyst R-5",
+      "likelihood": "HIGH",
+      "impact": "LOW",
+      "status": "MITIGATED — TASK-3-3 covers this"
+    },
+    {
+      "id": "R-6",
+      "title": "Prompt-agent path mismatch if agents ignore prompt instructions",
+      "source": "Risk analyst R-6",
+      "likelihood": "LOW",
+      "impact": "MEDIUM",
+      "status": "MITIGATED — keeping fallback permanently (AD-3)"
+    },
+    {
+      "id": "R-7",
+      "title": "Test coverage for wrapper module changes",
+      "source": "Risk analyst R-7, plan reviewer finding",
+      "likelihood": "MEDIUM",
+      "impact": "LOW",
+      "status": "MITIGATED — TASK-3-5 added in revision 2"
+    }
+  ],
+
+  "backward_compatibility": {
+    "strategy": "Readers try new prefixed path first, fall back to old global path",
+    "recommendation": "Keep fallback permanently (AD-3). Cost is one stat() syscall per read. Protects against agent misbehavior and simplifies rollout.",
+    "applies_to": ["load_agent_output (shared)", "load_agent_output_data (handoffs wrapper)", "_synthesize_plan_draft_from_outputs (pipelines.py)", "_read_tester_gaps (pipelines.py)"]
+  },
+
+  "acceptance_criteria": [
+    "All .egg-state/ files include issue or pipeline ID in their filename",
+    "No globally-named files remain that could conflict across concurrent pipelines",
+    "Existing in-flight pipelines not broken (backward-compatible reader fallback)",
+    "Wrapper layer (handoffs.py) threads identifier to shared functions",
+    "All callers in dispatch.py, signals.py, and pipelines.py pass identifier",
+    "Documentation updated to reflect new naming convention",
+    "All existing tests updated and passing (including test_signals.py)",
+    "New tests for backward-compat fallback behavior added",
+    "Gateway and phase permissions continue working without changes"
+  ],
+
+  "scope": {
+    "production_code_files": 5,
+    "test_files": 5,
+    "integration_test_files": 1,
+    "documentation_files": 8,
+    "total_files": 19,
+    "complexity": "mid",
+    "note": "Increased from 14 files in revision 1 to 19 files after adding wrapper layer (3 production files + 1 test file + 1 revision of plan doc)"
+  },
+
+  "revision_changelog": [
+    {
+      "revision": 2,
+      "changes": [
+        "Added call_chain_analysis section documenting complete I/O flow including wrapper layer",
+        "Added Phase 1.5 (wrapper layer and caller updates) with 3 tasks covering handoffs.py, dispatch.py, signals.py",
+        "Added TASK-3-5 for test_signals.py mock update",
+        "Updated TASK-2-5 scope description to clarify it covers pipelines.py only (dispatch.py and signals.py in Phase 1.5)",
+        "Updated AD-3 to recommend keeping fallback permanently",
+        "Added AD-4 for wrapper layer threading decision",
+        "Updated risks section to incorporate risk analyst R-1 through R-7 findings",
+        "Added handoffs.py, dispatch.py, signals.py, test_signals.py to files_modified table",
+        "Updated scope from 14 to 19 files",
+        "Updated acceptance criteria to include wrapper layer and test_signals.py"
+      ]
+    }
+  ]
+}

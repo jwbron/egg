@@ -1,0 +1,496 @@
+{
+  "issue": 897,
+  "phase": "plan",
+  "agent": "architect",
+  "revision": 1,
+  "revision_reason": null,
+  "title": "Architecture analysis: Deepen SDLC review quality via verdict schema expansion and prompt alignment",
+
+  "summary": "SDLC pipeline reviewers produce shallow analysis compared to PR reviewers due to three structural root causes: (1) the verdict JSON schema instructs reviewers to write empty feedback when approving, (2) the SDLC prompt lacks the thoroughness framing and review conventions that PR prompts include, and (3) there is no approve-with-suggestions concept. The recommended approach expands the ReviewVerdict model with always-populated `analysis` and `suggestions` fields, aligns the SDLC review prompt builder with PR reviewer standards, and updates aggregation to surface non-blocking suggestions from approved verdicts.",
+
+  "problem_statement": {
+    "description": "SDLC pipeline reviewers write ~1-3 sentence verdicts with empty feedback even when real issues are present, while PR reviewers on the same code produce detailed multi-section reviews with specific findings. Evidence from PR #895 (issue #871) shows SDLC reviewers approving with empty feedback fields despite scope creep observations, while PR reviewers found 5 specific code issues driving a follow-up commit.",
+    "root_causes": [
+      {
+        "id": "RC-1",
+        "title": "Verdict schema constrains depth",
+        "description": "The verdict format instruction at pipelines.py:1562 says 'Detailed feedback if needs_revision, empty if approved'. This explicitly tells reviewers not to provide feedback when approving. There is no field for detailed analysis or non-blocking suggestions.",
+        "location": "orchestrator/routes/pipelines.py:1554-1570"
+      },
+      {
+        "id": "RC-2",
+        "title": "SDLC prompt is less detailed than PR prompt",
+        "description": "PR code reviewers get 'critical infrastructure — last line of defense' framing, 6 detailed procedural steps, and review conventions (comprehensive, specific, direct, suggest fixes). SDLC code reviewers get briefer steps and no review conventions. Non-code SDLC reviewers (refine, plan, contract) get only 4 generic steps with no thoroughness guidance.",
+        "locations": [
+          "orchestrator/routes/pipelines.py:1509-1526 (SDLC prompt steps)",
+          "orchestrator/routes/pipelines.py:1004-1044 (scope preambles)",
+          "action/build-review-prompt.sh:140-163 (PR prompt)",
+          "action/review-conventions.md (PR conventions, not loaded by SDLC)"
+        ]
+      },
+      {
+        "id": "RC-3",
+        "title": "No approve-with-suggestions concept",
+        "description": "PR reviewers use the <!-- has-suggestions --> marker to trigger the feedback-addressing workflow for non-blocking suggestions on approved PRs. SDLC reviewers have binary approved/needs_revision — observations from an approving reviewer are structurally lost because _aggregate_review_verdicts() only collects feedback from needs_revision verdicts.",
+        "locations": [
+          "action/review-conventions.md:34 (has-suggestions marker)",
+          "orchestrator/routes/pipelines.py:1712-1738 (aggregation ignores approved)"
+        ]
+      }
+    ]
+  },
+
+  "current_architecture": {
+    "review_flow": "Reviewers are spawned in parallel per phase. Each writes a verdict JSON to .egg-state/reviews/. _read_review_verdict() parses the JSON into ReviewVerdict. _aggregate_review_verdicts() combines all verdicts: any needs_revision = overall needs_revision. Combined feedback is passed as prior_feedback to the next review cycle's prompt.",
+    "key_components": [
+      {
+        "name": "ReviewVerdict model",
+        "file": "orchestrator/models.py",
+        "lines": "97-103",
+        "description": "Pydantic model with 4 fields: verdict, summary, feedback, timestamp. All string fields default to empty string except verdict (required)."
+      },
+      {
+        "name": "_build_review_prompt()",
+        "file": "orchestrator/routes/pipelines.py",
+        "lines": "1452-1586",
+        "description": "Constructs the full reviewer prompt including scope preamble, task steps, criteria, delta review instructions, prior feedback, verdict format, and phase restrictions."
+      },
+      {
+        "name": "_get_reviewer_scope_preamble()",
+        "file": "orchestrator/routes/pipelines.py",
+        "lines": "1004-1044",
+        "description": "Returns reviewer-type-specific scope text. Code reviewer gets 'Be thorough' and 'Find ALL issues'. Others get scope boundaries without thoroughness framing."
+      },
+      {
+        "name": "_aggregate_review_verdicts()",
+        "file": "orchestrator/routes/pipelines.py",
+        "lines": "1712-1738",
+        "description": "Combines verdicts: overall = needs_revision if any is needs_revision. Only collects feedback/summary from needs_revision verdicts. Returns tuple[str, str] (verdict, combined_feedback)."
+      },
+      {
+        "name": "_read_review_verdict()",
+        "file": "orchestrator/routes/pipelines.py",
+        "lines": "1589-1632",
+        "description": "Reads JSON from verdict file path, parses into ReviewVerdict. Returns None if file missing or malformed (treated as approved for graceful degradation). Uses Pydantic model validation via ReviewVerdict(**data)."
+      }
+    ],
+    "callers_of_aggregate": [
+      {
+        "location": "orchestrator/routes/pipelines.py:3447",
+        "context": "Tier 3 per-phase review loop in _run_tier3_implement(). Uses combined_feedback as prior_feedback for retry or appended to tester_gap_summary."
+      },
+      {
+        "location": "orchestrator/routes/pipelines.py:5396",
+        "context": "Main phase execution loop in _run_pipeline_phases(). Uses combined_feedback as review_feedback stored for next cycle."
+      }
+    ],
+    "test_coverage": [
+      {
+        "file": "tests/workflows/test_multi_reviewer.py",
+        "description": "Tests aggregation logic (all_approved, any_needs_revision, etc.). Uses simplified string verdicts, not ReviewVerdict objects — may need updating."
+      },
+      {
+        "file": "orchestrator/tests/test_tier3_execute.py",
+        "description": "Integration tests using mock ReviewVerdict objects. Tests verdict reading, aggregation in tier 3 flow. 15+ references to ReviewVerdict."
+      },
+      {
+        "file": "integration_tests/sdlc/test_refine_plan_review_cycles.py",
+        "description": "Integration tests for review verdict file parsing in refine/plan phases."
+      }
+    ]
+  },
+
+  "approaches": [
+    {
+      "id": "A",
+      "title": "Expand Verdict Schema + Align Prompts (Recommended)",
+      "description": "Add `analysis` and `suggestions` fields to ReviewVerdict that are always populated regardless of verdict. Update the prompt builder to include review conventions and thoroughness instructions. Update aggregation to surface suggestions from approved verdicts.",
+      "schema_changes": {
+        "model": "ReviewVerdict in orchestrator/models.py:97-103",
+        "new_fields": [
+          {
+            "name": "analysis",
+            "type": "str",
+            "default": "",
+            "description": "Detailed file-by-file or section-by-section analysis. Always populated regardless of verdict. Free-form markdown."
+          },
+          {
+            "name": "suggestions",
+            "type": "str",
+            "default": "",
+            "description": "Non-blocking suggestions for improvement. Populated even on approved verdicts. Serves the role of has-suggestions from PR reviews."
+          }
+        ],
+        "backward_compatibility": "New fields have empty-string defaults. Old JSON files without these fields will parse into ReviewVerdict with empty analysis and suggestions. No migration needed."
+      },
+      "prompt_changes": {
+        "verdict_format_section": {
+          "location": "orchestrator/routes/pipelines.py:1554-1570",
+          "change": "Update JSON template to include analysis and suggestions fields. Replace 'empty if approved' instruction with 'Always provide detailed analysis regardless of verdict. Include non-blocking suggestions even when approving.'"
+        },
+        "thoroughness_framing": {
+          "location": "orchestrator/routes/pipelines.py:1480-1527",
+          "change": "Add review conventions content after the criteria section. For code reviewers, add 'critical infrastructure' and 'last line of defense' framing. For all reviewers, add the 5 comment quality standards from review-conventions.md (comprehensive, specific, direct, suggest fixes, provide context)."
+        },
+        "scope_preambles": {
+          "location": "orchestrator/routes/pipelines.py:1004-1044",
+          "change": "Add analysis depth expectations to each reviewer type's preamble. For code: file-by-file analysis expected. For contract: criterion-by-criterion verification table. For refine/plan: section-by-section evaluation. For agent-design: exempt from detailed analysis (approve briefly when no concerns)."
+        },
+        "non_code_reviewer_steps": {
+          "location": "orchestrator/routes/pipelines.py:1523-1526",
+          "change": "Expand 4-step instructions for draft-based reviewers (refine, plan, contract) to include more procedural guidance: read thoroughly, cross-reference with criteria, provide specific file/section references in analysis."
+        }
+      },
+      "aggregation_changes": {
+        "location": "orchestrator/routes/pipelines.py:1712-1738",
+        "change": "Collect analysis from all verdicts (not just needs_revision). Collect suggestions from all verdicts. Return an expanded result — either change return type to tuple[str, str, str] (verdict, blocking_feedback, advisory_content) or return a typed NamedTuple/dataclass.",
+        "downstream_callers": [
+          "pipelines.py:3447 — Tier 3 loop: must handle new return value",
+          "pipelines.py:5396 — Main phase loop: must handle new return value"
+        ]
+      },
+      "pros": [
+        "Directly addresses all three root causes",
+        "Clear field semantics: analysis (always), suggestions (non-blocking), feedback (blocking)",
+        "Backward compatible — Pydantic defaults handle old files",
+        "Aligns SDLC reviewer behavior with proven PR reviewer standard",
+        "Structured separation makes it easy for downstream code to distinguish blocking vs advisory"
+      ],
+      "cons": [
+        "Larger scope: model + prompt builder + aggregation + 2 callers + tests",
+        "Increases token consumption per review (always-populate-analysis)",
+        "Adding fields doesn't guarantee quality — prompt framing is the real driver"
+      ]
+    },
+    {
+      "id": "B",
+      "title": "Prompt-Only Fix (Minimal Schema Change)",
+      "description": "Keep the verdict schema mostly as-is. Rewrite prompt instructions to demand thoroughness. Change 'empty if approved' to require detailed content in existing summary and feedback fields. Load review conventions into SDLC prompts.",
+      "schema_changes": {
+        "model": "No changes to ReviewVerdict fields",
+        "note": "Relies on existing summary and feedback fields carrying richer content via better prompting"
+      },
+      "prompt_changes": {
+        "verdict_format_section": "Remove 'empty if approved'. Replace with 'Always provide detailed analysis in the summary field. Provide non-blocking suggestions in the feedback field even when approving.'",
+        "thoroughness_framing": "Same as Approach A — add review conventions and critical infrastructure framing",
+        "scope_preambles": "Same as Approach A — add depth expectations"
+      },
+      "aggregation_changes": {
+        "change": "Update to collect summary and feedback from approved verdicts (currently only needs_revision)"
+      },
+      "pros": [
+        "Smallest scope — no model changes",
+        "Prompt instructions are the primary driver of behavior, so this may be sufficient",
+        "No risk of breaking existing verdict parsing"
+      ],
+      "cons": [
+        "Overloads existing fields — summary becomes analysis, feedback becomes suggestions. Field semantics become ambiguous.",
+        "Downstream code cannot distinguish blocking vs non-blocking feedback",
+        "The model field description ('Detailed feedback if needs_revision') stays in code, creating disconnect with prompt instructions",
+        "If the field semantics are unclear, future agents writing/reading verdicts will be confused"
+      ]
+    },
+    {
+      "id": "C",
+      "title": "Hybrid: New Analysis Field + Third Verdict State",
+      "description": "Add an `analysis` field (always populated) and an `approved_with_suggestions` verdict value. When a reviewer approves but has suggestions, they use this third verdict state. No separate `suggestions` field — suggestions go in `feedback` when verdict is `approved_with_suggestions`.",
+      "schema_changes": {
+        "model": "Add analysis field. Add approved_with_suggestions as valid verdict value.",
+        "note": "Three-way verdict: approved, approved_with_suggestions, needs_revision"
+      },
+      "aggregation_changes": {
+        "change": "approved_with_suggestions treated as approved for overall verdict. Feedback from approved_with_suggestions verdicts is collected and surfaced."
+      },
+      "pros": [
+        "Mirrors PR reviewer's has-suggestions concept directly",
+        "Clear semantic intent per verdict value",
+        "Analysis field addresses the depth problem"
+      ],
+      "cons": [
+        "Three-way verdict adds complexity to all verdict-handling code paths",
+        "Every `if verdict == 'approved'` check must be reviewed and potentially updated",
+        "Doesn't address the case of clean approval with analysis but no suggestions — still no data if the reviewer finds nothing",
+        "More error-prone: agents must choose the right verdict value from 3 options instead of always populating suggestions"
+      ]
+    }
+  ],
+
+  "recommended_approach": {
+    "id": "A",
+    "title": "Expand Verdict Schema + Align Prompts",
+    "justification": "The refine analysis correctly identified that the verdict format structurally discourages thorough analysis. Approach A changes the structure to match the desired behavior by giving reviewers dedicated fields (analysis, suggestions) that are always expected to be populated. This is more robust than Approach B (which overloads existing fields with ambiguous semantics) and simpler than Approach C (which adds a third verdict state affecting all conditional logic). The Pydantic model's default empty strings provide effortless backward compatibility with old verdict files.",
+    "key_insight": "The primary driver of behavior is the prompt, not the schema. But the schema reinforces the prompt. When the prompt says 'always provide detailed analysis' and there's a dedicated `analysis` field for it, the agent has a clear target. When the prompt says 'use the summary field for analysis' but the field is named 'summary' and described as 'Brief summary', the instruction fights the structure."
+  },
+
+  "architecture_decisions": [
+    {
+      "id": "AD-1",
+      "decision": "Use free-form markdown for the analysis field, not structured sub-format",
+      "rationale": "PR reviewers produce effective reviews in free-form markdown. A structured format (per-file JSON objects) would constrain expressiveness and add complexity to the schema. The prompt should suggest structure (e.g., 'provide file-by-file analysis for code reviews') but the field itself should accept free-form markdown."
+    },
+    {
+      "id": "AD-2",
+      "decision": "Exempt agent-design reviewer from always-populate-analysis requirement",
+      "rationale": "The agent-design reviewer is intentionally brief when there are no concerns. Its PR counterpart (build-agent-mode-design-review-prompt.sh:126-127) explicitly says 'approve with a brief note'. The prompt should say 'provide analysis of any agent-mode design concerns found, or state briefly that none were identified' rather than requiring detailed analysis. The refine analysis and agent-design review verdict both flagged this as the right approach."
+    },
+    {
+      "id": "AD-3",
+      "decision": "Return a typed NamedTuple from _aggregate_review_verdicts instead of expanding the tuple",
+      "rationale": "The current return type is tuple[str, str]. Adding a third string makes callers harder to read (what is result[2]?). A NamedTuple with named fields (verdict, blocking_feedback, advisory_content) is clearer and allows future extension without changing the return signature. The 2 callers (pipelines.py:3447, 5396) are straightforward to update."
+    },
+    {
+      "id": "AD-4",
+      "decision": "Load review conventions from shared/prompts/ directory, not from action/review-conventions.md",
+      "rationale": "The action/ directory is for GitHub Actions. The orchestrator should not depend on action/ files. Instead, extract the relevant review conventions into a shared file (e.g., shared/prompts/review-conventions.md) that both systems can consume, or inline the key points (comprehensive, specific, direct, suggest fixes, provide context) into the prompt builder. Since the conventions are short (5 bullet points), inlining in the prompt builder is simpler and avoids file-loading complexity. Keep the shared criteria file approach for the substantive review criteria, which are already shared."
+    },
+    {
+      "id": "AD-5",
+      "decision": "Do not surface approved-verdict suggestions to the implementing agent's retry prompt",
+      "rationale": "When a reviewer approves with suggestions, those suggestions should NOT be injected into the next cycle's prior_feedback (which is for blocking issues). Instead, they should be: (a) included in the phase-completion comment posted to the issue so the human sees them, and (b) available for the integrator to reference. Injecting non-blocking suggestions into the retry loop would cause agents to treat them as blocking requirements, potentially triggering unnecessary revision cycles."
+    },
+    {
+      "id": "AD-6",
+      "decision": "Do not migrate existing verdict files",
+      "rationale": "Old verdict files in .egg-state/reviews/ lack analysis and suggestions fields. The Pydantic model defaults handle this gracefully — missing fields get empty strings. Migration would touch many files for no functional benefit since old verdicts are historical records, not actively consumed."
+    }
+  ],
+
+  "implementation_plan": {
+    "phases": [
+      {
+        "id": "phase-1",
+        "title": "Expand ReviewVerdict model",
+        "tasks": [
+          {
+            "id": "task-1",
+            "description": "Add `analysis` and `suggestions` fields to ReviewVerdict in orchestrator/models.py with empty string defaults and descriptive Field() annotations",
+            "acceptance_criteria": [
+              "ReviewVerdict has analysis: str field with default ''",
+              "ReviewVerdict has suggestions: str field with default ''",
+              "Field descriptions clarify always-populate semantics for analysis and non-blocking semantics for suggestions",
+              "Existing verdict JSON files without new fields parse correctly (backward compat)"
+            ]
+          }
+        ]
+      },
+      {
+        "id": "phase-2",
+        "title": "Create AggregatedReviewResult NamedTuple and update aggregation",
+        "tasks": [
+          {
+            "id": "task-2",
+            "description": "Define AggregatedReviewResult NamedTuple in orchestrator/models.py with fields: verdict, blocking_feedback, advisory_content. Update _aggregate_review_verdicts() to return this type and collect analysis+suggestions from all verdicts.",
+            "acceptance_criteria": [
+              "AggregatedReviewResult NamedTuple defined with verdict, blocking_feedback, advisory_content fields",
+              "_aggregate_review_verdicts() returns AggregatedReviewResult",
+              "blocking_feedback collects feedback from needs_revision verdicts (existing behavior)",
+              "advisory_content collects analysis and suggestions from ALL verdicts including approved",
+              "Return value is backward compatible at callers (named fields accessible)"
+            ]
+          },
+          {
+            "id": "task-3",
+            "description": "Update the 2 callers of _aggregate_review_verdicts() at pipelines.py:3447 and pipelines.py:5396 to destructure AggregatedReviewResult. Only pass blocking_feedback to prior_feedback for retry loops. Log or store advisory_content separately.",
+            "acceptance_criteria": [
+              "Tier 3 caller (pipelines.py:3447) uses result.blocking_feedback for prior_feedback",
+              "Main loop caller (pipelines.py:5396) uses result.blocking_feedback for review_feedback",
+              "Advisory content from approved verdicts is NOT injected into retry prompt",
+              "Advisory content is logged for observability"
+            ]
+          }
+        ]
+      },
+      {
+        "id": "phase-3",
+        "title": "Update prompt builder for thoroughness and new verdict format",
+        "tasks": [
+          {
+            "id": "task-4",
+            "description": "Update the verdict format section in _build_review_prompt() (pipelines.py:1554-1570) to include analysis and suggestions fields. Replace 'empty if approved' with instructions to always populate analysis and provide non-blocking suggestions where applicable.",
+            "acceptance_criteria": [
+              "Verdict JSON template includes analysis and suggestions fields",
+              "Instructions say 'Always provide detailed analysis regardless of verdict'",
+              "Instructions say 'Include non-blocking suggestions for improvement even when approving'",
+              "The 'empty if approved' language for the feedback field is removed",
+              "feedback field instruction clarifies it is for blocking issues only (needs_revision)"
+            ]
+          },
+          {
+            "id": "task-5",
+            "description": "Add review conventions (quality standards) to _build_review_prompt(). Inline the 5 comment quality standards from review-conventions.md: comprehensive, specific, direct, suggest fixes, provide context. Add 'critical infrastructure' framing for code reviewers.",
+            "acceptance_criteria": [
+              "A Review Conventions section is added to the SDLC review prompt",
+              "5 quality standards are included: comprehensive, specific, direct, suggest fixes, provide context",
+              "Code reviewer prompt includes 'critical infrastructure' and 'last line of defense' framing",
+              "Conventions are inlined in the prompt builder, not loaded from action/review-conventions.md"
+            ]
+          },
+          {
+            "id": "task-6",
+            "description": "Update _get_reviewer_scope_preamble() to add analysis depth expectations per reviewer type. Code: file-by-file analysis. Contract: criterion-by-criterion verification. Refine/plan: section-by-section evaluation. Agent-design: exempt from detailed analysis.",
+            "acceptance_criteria": [
+              "Code reviewer preamble mentions file-by-file analysis expectation",
+              "Contract reviewer preamble mentions criterion-by-criterion verification expectation",
+              "Refine reviewer preamble mentions section-by-section evaluation expectation",
+              "Plan reviewer preamble mentions section-by-section evaluation expectation",
+              "Agent-design reviewer preamble explicitly states brief approval is acceptable when no concerns found"
+            ]
+          },
+          {
+            "id": "task-7",
+            "description": "Expand the procedural steps for draft-based (non-code) reviewers from 4 steps to include more thorough review guidance. Add instructions to cross-reference with criteria sections, provide specific references, and evaluate depth.",
+            "acceptance_criteria": [
+              "Draft-based reviewer steps include instruction to read the draft thoroughly (not skim)",
+              "Steps include instruction to cross-reference each criteria section with the draft content",
+              "Steps include instruction to cite specific sections/evidence in the analysis field",
+              "Steps are expanded from 4 to 6-7 without being overly prescriptive"
+            ]
+          }
+        ]
+      },
+      {
+        "id": "phase-4",
+        "title": "Update tests",
+        "tasks": [
+          {
+            "id": "task-8",
+            "description": "Update tests/workflows/test_multi_reviewer.py to test aggregation with new ReviewVerdict fields (analysis, suggestions) and AggregatedReviewResult return type.",
+            "acceptance_criteria": [
+              "Tests verify analysis is collected from approved verdicts",
+              "Tests verify suggestions is collected from approved verdicts",
+              "Tests verify AggregatedReviewResult fields are correctly populated",
+              "Tests verify backward compat: verdicts without analysis/suggestions fields still work"
+            ]
+          },
+          {
+            "id": "task-9",
+            "description": "Update orchestrator/tests/test_tier3_execute.py mock ReviewVerdict objects to include new fields where appropriate. Ensure existing tests still pass.",
+            "acceptance_criteria": [
+              "Existing mock ReviewVerdict() calls still work (new fields have defaults)",
+              "At least one test exercises ReviewVerdict with analysis and suggestions populated",
+              "TestReadReviewVerdict tests backward compatibility with old-format JSON"
+            ]
+          },
+          {
+            "id": "task-10",
+            "description": "Add or update prompt builder tests to verify the new verdict format section, review conventions inclusion, and scope preamble changes.",
+            "acceptance_criteria": [
+              "Test verifies verdict format JSON in prompt includes analysis and suggestions fields",
+              "Test verifies review conventions text appears in generated prompt",
+              "Test verifies 'empty if approved' language is NOT present in generated prompt",
+              "Test verifies agent-design reviewer preamble does NOT require detailed analysis"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+
+  "files_modified": [
+    {
+      "file": "orchestrator/models.py",
+      "lines": "97-103",
+      "change": "Add analysis and suggestions fields to ReviewVerdict. Add AggregatedReviewResult NamedTuple.",
+      "risk": "low"
+    },
+    {
+      "file": "orchestrator/routes/pipelines.py",
+      "lines": "1004-1044",
+      "change": "Update _get_reviewer_scope_preamble() with analysis depth expectations per reviewer type.",
+      "risk": "low"
+    },
+    {
+      "file": "orchestrator/routes/pipelines.py",
+      "lines": "1452-1586",
+      "change": "Update _build_review_prompt() verdict format section, add review conventions, expand draft reviewer steps.",
+      "risk": "low"
+    },
+    {
+      "file": "orchestrator/routes/pipelines.py",
+      "lines": "1712-1738",
+      "change": "Update _aggregate_review_verdicts() to return AggregatedReviewResult and collect from all verdicts.",
+      "risk": "medium — return type change affects 2 callers"
+    },
+    {
+      "file": "orchestrator/routes/pipelines.py",
+      "lines": "3447",
+      "change": "Update Tier 3 caller to destructure AggregatedReviewResult.",
+      "risk": "low"
+    },
+    {
+      "file": "orchestrator/routes/pipelines.py",
+      "lines": "5396",
+      "change": "Update main phase loop caller to destructure AggregatedReviewResult.",
+      "risk": "low"
+    },
+    {
+      "file": "tests/workflows/test_multi_reviewer.py",
+      "change": "Update aggregation tests for new return type and new fields.",
+      "risk": "low"
+    },
+    {
+      "file": "orchestrator/tests/test_tier3_execute.py",
+      "change": "Update mock ReviewVerdict objects and add backward compat test.",
+      "risk": "low"
+    }
+  ],
+
+  "risks": [
+    {
+      "id": "R-1",
+      "title": "Token consumption increase",
+      "likelihood": "certain",
+      "impact": "low-medium",
+      "description": "Requiring always-populated analysis will increase token usage per review. With 3 reviewers x up to 3 cycles, this could increase pipeline review cost by 30-50%. However, the whole point is deeper analysis, so increased tokens are the intended outcome, not a side effect.",
+      "mitigation": "The prompt should include length guidance (e.g., 'thorough but concise analysis, typically 200-500 words') to prevent unbounded growth. The agent-design reviewer exemption limits waste on reviews with no findings."
+    },
+    {
+      "id": "R-2",
+      "title": "Aggregation return type change breaks callers",
+      "likelihood": "low",
+      "impact": "high",
+      "description": "Changing _aggregate_review_verdicts() return from tuple[str, str] to AggregatedReviewResult requires updating 2 callers. If a caller is missed, it will fail at runtime.",
+      "mitigation": "NamedTuple is iterable, so existing `verdict, feedback = _aggregate_review_verdicts(...)` destructuring will still work if the NamedTuple has exactly those as its first 2 fields. However, this is fragile. Better to update all callers explicitly and add a type annotation to catch issues at lint time."
+    },
+    {
+      "id": "R-3",
+      "title": "Prompt changes don't actually improve review quality",
+      "likelihood": "low-medium",
+      "impact": "medium",
+      "description": "The hypothesis is that schema + prompt changes will produce deeper reviews. If the underlying issue is model capability or context length rather than instructions, the changes may not help.",
+      "mitigation": "The PR reviewer evidence shows the same model (Opus) producing thorough reviews with better prompting, so the hypothesis is well-supported. After implementation, compare a few SDLC review verdicts pre/post to validate improvement."
+    },
+    {
+      "id": "R-4",
+      "title": "Test file uses simplified verdict format",
+      "likelihood": "medium",
+      "impact": "low",
+      "description": "tests/workflows/test_multi_reviewer.py uses plain string verdicts in dicts rather than ReviewVerdict objects. The test may need to be rewritten to use ReviewVerdict objects and test the actual _aggregate_review_verdicts function.",
+      "mitigation": "Review the test during implementation and determine if it tests a local helper or the actual production function. Update accordingly."
+    }
+  ],
+
+  "backward_compatibility": {
+    "verdict_files": "Old verdict JSON files (without analysis/suggestions) parse correctly due to Pydantic Field defaults. No migration needed.",
+    "aggregation_callers": "The AggregatedReviewResult NamedTuple change requires updating 2 explicit callers. No external API is affected.",
+    "prompt_output": "Reviewers will write richer JSON with analysis and suggestions fields. Old consumers that only read verdict/summary/feedback will ignore the new fields (standard JSON behavior).",
+    "model_validation": "_read_review_verdict() uses ReviewVerdict(**data) — extra fields in JSON are handled by Pydantic's default behavior (ignored unless model_config forbids extras)."
+  },
+
+  "acceptance_criteria": [
+    "ReviewVerdict model has analysis (str, default='') and suggestions (str, default='') fields",
+    "AggregatedReviewResult NamedTuple defined with verdict, blocking_feedback, advisory_content fields",
+    "_aggregate_review_verdicts() returns AggregatedReviewResult collecting analysis/suggestions from ALL verdicts",
+    "Advisory content from approved verdicts is NOT injected into retry prompt prior_feedback",
+    "Verdict format in _build_review_prompt() includes analysis and suggestions fields with always-populate instructions",
+    "'empty if approved' language is removed from the prompt",
+    "Review conventions (5 quality standards) are included in SDLC review prompts",
+    "Code reviewer prompt includes 'critical infrastructure' framing",
+    "Scope preambles include analysis depth expectations per reviewer type",
+    "Agent-design reviewer is exempt from detailed analysis requirement",
+    "Draft-based reviewer (refine, plan, contract) steps expanded from 4 to 6-7",
+    "Old verdict JSON files without new fields parse correctly (backward compatibility)",
+    "All existing tests pass after changes",
+    "New tests cover aggregation with new fields and backward compatibility"
+  ]
+}

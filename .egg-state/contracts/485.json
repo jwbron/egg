@@ -1,0 +1,469 @@
+{
+  "schemaVersion": "1.0",
+  "issue": {
+    "number": 485,
+    "title": "SDLC pipeline: checks not re-run after autofixer",
+    "url": "https://github.com/jwbron/egg/issues/485"
+  },
+  "current_phase": "implement",
+  "acceptance_criteria": [
+    {
+      "id": "ac-1",
+      "description": "[TASK-1-1] Schema validates contracts with new fields; defaults to 0 and 3",
+      "verified": false
+    },
+    {
+      "id": "ac-2",
+      "description": "[TASK-1-2] New contracts have autofix_attempts 0 and max_autofix_attempts 3",
+      "verified": false
+    },
+    {
+      "id": "ac-3",
+      "description": "[TASK-1-3] When work loop is triggered manually, autofix_attempts resets to 0",
+      "verified": false
+    },
+    {
+      "id": "ac-4",
+      "description": "[TASK-2-1] Uses gh run watch with 30-minute timeout; outputs fixed true or false",
+      "verified": false
+    },
+    {
+      "id": "ac-5",
+      "description": "[TASK-2-2] Outputs fixed false and logs warning on timeout or workflow-not-found",
+      "verified": false
+    },
+    {
+      "id": "ac-6",
+      "description": "[TASK-2-3] Increments autofix_attempts in contract; commits and pushes update",
+      "verified": false
+    },
+    {
+      "id": "ac-7",
+      "description": "[TASK-3-1] All check conditions verify only PASSED status, not fixer status",
+      "verified": false
+    },
+    {
+      "id": "ac-8",
+      "description": "[TASK-3-2] Outputs true if fixer ran and succeeded, false otherwise",
+      "verified": false
+    },
+    {
+      "id": "ac-9",
+      "description": "[TASK-4-1] Input accepts full or checks-only; workflow works normally when full",
+      "verified": false
+    },
+    {
+      "id": "ac-10",
+      "description": "[TASK-4-2] Work job has if condition to skip when mode is checks-only",
+      "verified": false
+    },
+    {
+      "id": "ac-11",
+      "description": "[TASK-4-3] Job runs when autofix_succeeded and attempts below max; re-dispatches with checks-only",
+      "verified": false
+    },
+    {
+      "id": "ac-12",
+      "description": "[TASK-4-4] When autofix_attempts >= max, skip re-dispatch and escalate",
+      "verified": false
+    },
+    {
+      "id": "ac-13",
+      "description": "[TASK-5-1] Posts comment explaining autofix failed after N attempts with failing checks",
+      "verified": false
+    },
+    {
+      "id": "ac-14",
+      "description": "[TASK-5-2] Escalate job triggers on either review or autofix circuit breaker",
+      "verified": false
+    },
+    {
+      "id": "ac-15",
+      "description": "[TASK-6-1] actionlint passes on modified workflows",
+      "verified": false
+    },
+    {
+      "id": "ac-16",
+      "description": "[TASK-6-2] Update docs/guides/sdlc-pipeline.md with autofix retry section",
+      "verified": false
+    }
+  ],
+  "phases": [
+    {
+      "id": "phase-1",
+      "name": "Contract Schema Extension",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-1-1",
+          "description": "Add autofix_attempts and max_autofix_attempts fields to contract schema",
+          "status": "pending",
+          "acceptance_criteria": "Schema validates contracts with new fields; defaults to 0 and 3",
+          "files_affected": [
+            ".egg/schemas/contract.schema.json"
+          ],
+          "commit": "b7183d8",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-1-2",
+          "description": "Update sdlc-pipeline.yml to initialize autofix tracking in new contracts",
+          "status": "pending",
+          "acceptance_criteria": "New contracts have autofix_attempts 0 and max_autofix_attempts 3",
+          "files_affected": [
+            ".github/workflows/sdlc-pipeline.yml"
+          ],
+          "commit": "b7183d8",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-1-3",
+          "description": "Reset autofix_attempts counter on manual workflow re-trigger",
+          "status": "pending",
+          "acceptance_criteria": "When work loop is triggered manually, autofix_attempts resets to 0",
+          "files_affected": [
+            ".github/workflows/sdlc-work-loop.yml"
+          ],
+          "commit": "b7183d8",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-2",
+      "name": "Synchronous Autofix Wait",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-2-1",
+          "description": "Modify check-fixer job to wait for autofix workflow completion",
+          "status": "pending",
+          "acceptance_criteria": "Uses gh run watch with 30-minute timeout; outputs fixed true or false",
+          "files_affected": [
+            ".github/workflows/sdlc-work-loop.yml"
+          ],
+          "commit": "b32675d",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-2-2",
+          "description": "Add error handling for autofix workflow not found or timeout",
+          "status": "pending",
+          "acceptance_criteria": "Outputs fixed false and logs warning on timeout or workflow-not-found",
+          "files_affected": [
+            ".github/workflows/sdlc-work-loop.yml"
+          ],
+          "commit": "b32675d",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-2-3",
+          "description": "Update autofix_attempts counter in contract after autofix completes",
+          "status": "pending",
+          "acceptance_criteria": "Increments autofix_attempts in contract; commits and pushes update",
+          "files_affected": [
+            ".github/workflows/sdlc-work-loop.yml"
+          ],
+          "commit": "b32675d",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-3",
+      "name": "Fix Aggregate Logic",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-3-1",
+          "description": "Remove FIXER_STATUS != pending condition from aggregate-checks",
+          "status": "pending",
+          "acceptance_criteria": "All check conditions verify only PASSED status, not fixer status",
+          "files_affected": [
+            ".github/workflows/sdlc-work-loop.yml"
+          ],
+          "commit": "ac1ca42",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-3-2",
+          "description": "Add autofix_succeeded output to aggregate-checks",
+          "status": "pending",
+          "acceptance_criteria": "Outputs true if fixer ran and succeeded, false otherwise",
+          "files_affected": [
+            ".github/workflows/sdlc-work-loop.yml"
+          ],
+          "commit": "ac1ca42",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-4",
+      "name": "Re-dispatch After Autofix",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-4-1",
+          "description": "Add mode input to work loop workflow (default full)",
+          "status": "pending",
+          "acceptance_criteria": "Input accepts full or checks-only; workflow works normally when full",
+          "files_affected": [
+            ".github/workflows/sdlc-work-loop.yml"
+          ],
+          "commit": "e27807a",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-4-2",
+          "description": "Skip work job when mode is checks-only",
+          "status": "pending",
+          "acceptance_criteria": "Work job has if condition to skip when mode is checks-only",
+          "files_affected": [
+            ".github/workflows/sdlc-work-loop.yml"
+          ],
+          "commit": "e27807a",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-4-3",
+          "description": "Add re-dispatch-checks job after aggregate-checks",
+          "status": "pending",
+          "acceptance_criteria": "Job runs when autofix_succeeded and attempts below max; re-dispatches with checks-only",
+          "files_affected": [
+            ".github/workflows/sdlc-work-loop.yml"
+          ],
+          "commit": "e27807a",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-4-4",
+          "description": "Add circuit breaker for max autofix attempts",
+          "status": "pending",
+          "acceptance_criteria": "When autofix_attempts >= max, skip re-dispatch and escalate",
+          "files_affected": [
+            ".github/workflows/sdlc-work-loop.yml"
+          ],
+          "commit": "e27807a",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-5",
+      "name": "Escalation for Autofix Failures",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-5-1",
+          "description": "Add escalate-autofix-failure job for max attempts exceeded",
+          "status": "pending",
+          "acceptance_criteria": "Posts comment explaining autofix failed after N attempts with failing checks",
+          "files_affected": [
+            ".github/workflows/sdlc-work-loop.yml"
+          ],
+          "commit": "2ba55c7",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-5-2",
+          "description": "Update escalate job condition to include autofix circuit breaker",
+          "status": "pending",
+          "acceptance_criteria": "Escalate job triggers on either review or autofix circuit breaker",
+          "files_affected": [
+            ".github/workflows/sdlc-work-loop.yml"
+          ],
+          "commit": "2ba55c7",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-6",
+      "name": "Testing and Validation",
+      "status": "pending",
+      "tasks": [
+        {
+          "id": "task-6-1",
+          "description": "Add workflow syntax validation",
+          "status": "pending",
+          "acceptance_criteria": "actionlint passes on modified workflows",
+          "files_affected": [
+            ".github/workflows/sdlc-work-loop.yml",
+            ".github/workflows/sdlc-pipeline.yml"
+          ],
+          "commit": "f19ec11",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-6-2",
+          "description": "Document the new autofix retry behavior",
+          "status": "pending",
+          "acceptance_criteria": "Update docs/guides/sdlc-pipeline.md with autofix retry section",
+          "files_affected": [
+            "docs/guides/sdlc-pipeline.md"
+          ],
+          "commit": "f19ec11",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ],
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "review_feedback": []
+    }
+  ],
+  "decisions": [],
+  "circuit_breaker": {
+    "total_cycles": 2,
+    "max_total_cycles": 10,
+    "status": "closed"
+  },
+  "workflow_owner": "jwbron",
+  "audit_log": [
+    {
+      "timestamp": "2026-02-10T20:44:47Z",
+      "actor": "system",
+      "role": "reviewer",
+      "action": "update",
+      "field_path": "refine_review_cycles",
+      "old_value": 0,
+      "new_value": 1,
+      "reason": "Review cycle 1: approved (per-reviewer: {\"unified\":\"missing\",\"agent-design\":\"missing\"})"
+    },
+    {
+      "timestamp": "2026-02-10T22:02:46Z",
+      "actor": "jwbron",
+      "role": "human",
+      "action": "transition",
+      "field_path": "current_phase",
+      "old_value": "refine",
+      "new_value": "plan",
+      "reason": "Phase approved by human"
+    },
+    {
+      "timestamp": "2026-02-10T22:08:56Z",
+      "actor": "system",
+      "role": "reviewer",
+      "action": "update",
+      "field_path": "plan_review_cycles",
+      "old_value": 0,
+      "new_value": 1,
+      "reason": "Review cycle 1: approved (per-reviewer: {\"unified\":\"missing\",\"agent-design\":\"missing\"})"
+    },
+    {
+      "timestamp": "2026-02-10T22:16:25Z",
+      "actor": "jwbron",
+      "role": "human",
+      "action": "transition",
+      "field_path": "current_phase",
+      "old_value": "plan",
+      "new_value": "implement",
+      "reason": "Phase approved by human"
+    }
+  ],
+  "phase_configs": {
+    "refine": {
+      "max_review_cycles": 3,
+      "human_review_mechanism": "ISSUE_CHECKBOX"
+    },
+    "plan": {
+      "max_review_cycles": 3,
+      "human_review_mechanism": "ISSUE_CHECKBOX"
+    },
+    "implement": {
+      "max_review_cycles": 3,
+      "human_review_mechanism": "PR_REVIEW"
+    }
+  },
+  "refine_review_cycles": 1,
+  "refine_review_feedback": "",
+  "refine_reviewer_verdicts": {
+    "unified": "missing",
+    "agent-design": "missing"
+  },
+  "plan_review_cycles": 1,
+  "plan_review_feedback": "",
+  "plan_reviewer_verdicts": {
+    "unified": "missing",
+    "agent-design": "missing"
+  },
+  "pr": {
+    "title": "Fix check re-validation after autofixer runs",
+    "description": "Fixes #485. When lint/test/integration checks fail during implement phase,\nthe autofixer was triggered but checks were never re-run to verify fixes.\n\nThis PR implements synchronous autofix wait with re-dispatch: after autofix\ncompletes, the work loop re-runs in checks-only mode to verify fixes. A circuit\nbreaker prevents infinite loops (max 3 autofix attempts per phase)."
+  }
+}

@@ -1,0 +1,311 @@
+{
+  "issue": 897,
+  "phase": "plan",
+  "agent": "risk_analyst",
+  "revision": 1,
+  "revision_reason": null,
+  "title": "Risk assessment: Verdict schema expansion and prompt alignment for SDLC reviewers",
+
+  "summary": "The architect's recommended approach (Option A: expand ReviewVerdict model + align prompts) is architecturally sound and addresses all three root causes identified in issue #897. The overall risk profile is LOW-MEDIUM. The most significant risks are: (1) the NamedTuple return type change requires atomic updates to all callers — the architect's mitigation claim about NamedTuple iterable unpacking is incorrect and this will cause runtime errors if any caller is missed, (2) the test suite has a critical gap — test_multi_reviewer.py tests a local stub function, not the production _aggregate_review_verdicts(), so aggregation behavior changes may pass tests while being broken, and (3) advisory content from approved verdicts has no defined consumer in the implementation plan, creating dead code. No risks warrant blocking the approach; all are mitigable with the strategies below.",
+
+  "architect_approach_assessment": {
+    "recommended_approach": "A — Expand Verdict Schema + Align Prompts",
+    "assessment": "Sound. The approach correctly identifies that both the schema structure and prompt framing must change together to produce the desired behavioral shift. Adding dedicated `analysis` and `suggestions` fields with always-populate semantics is better than overloading existing fields (Option B) or adding a third verdict state (Option C). The Pydantic default mechanism provides clean backward compatibility.",
+    "agreement_with_architect": true,
+    "disagreements": [
+      {
+        "topic": "NamedTuple unpacking backward compatibility",
+        "architect_claim": "R-2 mitigation says 'NamedTuple is iterable, so existing verdict, feedback = _aggregate_review_verdicts(...) destructuring will still work if the NamedTuple has exactly those as its first 2 fields'",
+        "correction": "This is incorrect. Python raises ValueError('too many values to unpack') when unpacking a 3-element iterable into 2 variables. A 3-field NamedTuple CANNOT be destructured into 2 variables. Both callers MUST be updated atomically with the return type change. This is not a graceful degradation scenario — it is a hard failure.",
+        "severity": "medium",
+        "recommendation": "Update the implementation plan to emphasize that the aggregation return type change and both caller updates (tasks 2 and 3) MUST be in the same commit. Add a test that explicitly validates the return type."
+      },
+      {
+        "topic": "Advisory content has no consumer",
+        "architect_claim": "AD-5 says advisory content should be included in phase-completion comments and available for the integrator",
+        "correction": "The implementation plan (phases 1-4) has no task for surfacing advisory_content to phase-completion comments or the integrator. The aggregation will collect advisory content into advisory_content field, but no code will read or display it. Task-3 only says 'Log or store advisory_content separately' with no specific implementation. This creates dead code that produces the illusion of capturing suggestions without actually surfacing them.",
+        "severity": "medium",
+        "recommendation": "Add a task to surface advisory_content in the phase-completion issue comment. Without this, the approved-verdict suggestions are still structurally lost — just collected into a variable that goes nowhere instead of never being collected at all."
+      }
+    ]
+  },
+
+  "risks": [
+    {
+      "id": "R-1",
+      "category": "correctness",
+      "title": "NamedTuple return type change breaks callers if not updated atomically",
+      "description": "Changing _aggregate_review_verdicts() from tuple[str, str] to a 3-field AggregatedReviewResult NamedTuple will cause ValueError at both call sites (pipelines.py:3447 and pipelines.py:5396) if they still use `a, b = _aggregate_review_verdicts(...)` destructuring. Python does not allow unpacking a 3-element iterable into 2 variables.",
+      "likelihood": "certain_if_not_mitigated",
+      "impact": "high",
+      "impact_detail": "Runtime crash in the review loop for all pipeline phases. Every pipeline run would fail at the verdict aggregation step. This is a P0 breakage since it affects all SDLC pipelines.",
+      "affected_files": [
+        "orchestrator/routes/pipelines.py:3447 (Tier 3 caller)",
+        "orchestrator/routes/pipelines.py:5396 (main phase loop caller)"
+      ],
+      "mitigation": "Ensure tasks 2 and 3 from the architect's plan are implemented in the same commit. Add a unit test for _aggregate_review_verdicts() that validates the return type and field access patterns. Consider using a 2-field NamedTuple (verdict, feedback) plus a separate function to get advisory content, if atomic update proves difficult to guarantee.",
+      "rollback": "Revert the single commit. No data migration needed since old verdict files work with new or old model.",
+      "human_review_needed": false
+    },
+    {
+      "id": "R-2",
+      "category": "test_coverage",
+      "title": "Production aggregation function has no direct unit tests",
+      "description": "tests/workflows/test_multi_reviewer.py defines a local `aggregate_verdicts(verdicts: dict) -> str` function (line 239) that takes plain string verdicts. It does NOT test the production `_aggregate_review_verdicts()` which takes `dict[str, ReviewVerdict | None]`. This means: (a) the production function's current behavior is unverified by unit tests, (b) changes to the production function will not be caught by this test file, and (c) the new AggregatedReviewResult return type will have no coverage from the tests the architect plans to update (task-8).",
+      "likelihood": "certain",
+      "impact": "medium",
+      "impact_detail": "Tests may pass while the production aggregation function is broken. The only coverage for the production function comes from integration mocks in test_tier3_execute.py, which mock the function rather than testing it directly.",
+      "affected_files": [
+        "tests/workflows/test_multi_reviewer.py (tests wrong function)",
+        "orchestrator/tests/test_tier3_execute.py (mocks the function, doesn't test it)"
+      ],
+      "mitigation": "Task-8 should be revised to either: (a) replace the local `aggregate_verdicts()` stub with an import of the production `_aggregate_review_verdicts()`, or (b) add new tests that directly call the production function with ReviewVerdict objects. The existing local function can remain for testing the simplified aggregation logic, but new tests must cover the production function.",
+      "rollback": "N/A — this is a pre-existing gap that should be fixed as part of this change.",
+      "human_review_needed": false
+    },
+    {
+      "id": "R-3",
+      "category": "behavioral",
+      "title": "Advisory content collected but never surfaced (dead code path)",
+      "description": "The architect's plan collects advisory_content in AggregatedReviewResult but the implementation plan has no task to surface it. AD-5 says it should appear in phase-completion comments and be available to the integrator, but no implementation task covers this. The advisory_content field will be populated, logged, and then discarded — meaning approved-verdict suggestions are still effectively lost.",
+      "likelihood": "certain",
+      "impact": "medium",
+      "impact_detail": "The core promise of issue #897 is that reviewer observations on approved work are actionable. If advisory content is collected but not surfaced, the user-visible behavior for 'approve with suggestions' is unchanged. The schema and prompt improvements will still produce deeper analysis in the verdict JSON files (readable by humans), but the pipeline automation doesn't act on them.",
+      "affected_files": [
+        "orchestrator/routes/pipelines.py (phase-completion comment posting, location TBD)"
+      ],
+      "mitigation": "Add a task to the implementation plan that surfaces advisory_content in the phase-completion GitHub issue comment. This is where the human reviews pipeline results. Even a simple 'Advisory suggestions from reviewers:' section appended to the comment would close the loop. The integrator can read raw verdict files, so no additional integration work is needed there.",
+      "rollback": "N/A — gap in plan, not a regression.",
+      "human_review_needed": true,
+      "human_review_reason": "The scope of how/where advisory content is surfaced is a product decision. Options: (a) append to phase-completion comment, (b) write a separate summary file, (c) defer to a follow-up issue. Human should decide which approach to take."
+    },
+    {
+      "id": "R-4",
+      "category": "cost",
+      "title": "Token consumption increase per review cycle",
+      "description": "Requiring always-populated analysis and encouraging non-blocking suggestions will increase output token usage per review verdict. Rough estimate: each reviewer produces ~300-500 additional words of analysis (~400-700 tokens). With 3 reviewers x up to 3 cycles = 9 reviewer invocations per pipeline, this adds ~3,600-6,300 output tokens per pipeline run. At Opus output pricing (~$75/M tokens), this is ~$0.27-$0.47 per pipeline run.",
+      "likelihood": "certain",
+      "impact": "low",
+      "impact_detail": "The increased cost is the intended outcome — deeper analysis requires more tokens. The per-pipeline increase (~$0.50 worst case) is small relative to total pipeline cost (typically $5-15 for a full SDLC run with multiple agents). The prompt input token increase from adding review conventions (~200 tokens) is negligible.",
+      "affected_files": [],
+      "mitigation": "Include length guidance in the prompt (e.g., 'thorough but concise analysis, typically 200-500 words') as the architect suggests. Monitor actual token usage in the first few pipeline runs after deployment. The agent-design reviewer exemption (AD-2) avoids wasted tokens on reviews with no findings.",
+      "rollback": "Revert prompt changes to restore previous token consumption levels.",
+      "human_review_needed": false
+    },
+    {
+      "id": "R-5",
+      "category": "behavioral",
+      "title": "Prompt changes may cause over-reporting: fabricated or low-value findings",
+      "description": "Aggressive thoroughness framing ('critical infrastructure', 'last line of defense', 'find ALL issues', 'always provide detailed analysis') may cause reviewers to over-report. When an agent is pressured to always produce analysis, it may fabricate issues or flag trivial style concerns as substantive findings to fill the analysis field. This is particularly risky for the contract and refine/plan reviewers where clean work genuinely has little to critique.",
+      "likelihood": "low-medium",
+      "impact": "medium",
+      "impact_detail": "If reviewers start producing false positives in their analysis, it degrades trust in the review system. If false positives appear in the feedback field (even non-blocking suggestions), they could trigger unnecessary revision cycles or confuse implementing agents. This counterproductive behavior was observed in LLM reviewer research where forcing detailed output led to hallucinated concerns.",
+      "affected_files": [
+        "orchestrator/routes/pipelines.py:1004-1044 (scope preambles)",
+        "orchestrator/routes/pipelines.py:1452-1586 (review prompt builder)"
+      ],
+      "mitigation": "The prompt should explicitly state: 'If the work genuinely has no issues in your review scope, say so briefly in the analysis field rather than inventing concerns. A short analysis confirming quality is better than a long analysis fabricating problems.' The agent-design reviewer exemption (AD-2) already handles this for that reviewer type. Apply similar guidance to contract and refine/plan reviewers: 'If all criteria are met, confirm each criterion is met with a brief evidence citation rather than searching for problems that don't exist.'",
+      "rollback": "Revert prompt changes to restore current behavior.",
+      "human_review_needed": false
+    },
+    {
+      "id": "R-6",
+      "category": "maintenance",
+      "title": "Review conventions drift between PR and SDLC systems",
+      "description": "AD-4 chooses to inline review conventions into the prompt builder rather than loading from action/review-conventions.md. This creates two copies of the review quality standards: one in action/review-conventions.md (for PR reviewers) and one hard-coded in orchestrator/routes/pipelines.py (for SDLC reviewers). Future updates to conventions will need to be applied in both locations.",
+      "likelihood": "medium",
+      "impact": "low",
+      "impact_detail": "If conventions drift, PR and SDLC reviewers will apply different quality standards. This is the exact class of problem issue #897 is trying to fix — divergent behavior between the two reviewer systems. The drift would be gradual and hard to detect.",
+      "affected_files": [
+        "action/review-conventions.md",
+        "orchestrator/routes/pipelines.py (_build_review_prompt)"
+      ],
+      "mitigation": "Two options: (a) Accept the inlining approach but add a code comment in both locations referencing the other, so editors know to update both. (b) Instead of inlining, create a shared/prompts/review-conventions.md file that both systems load. The architect rejected (b) due to cross-boundary dependency, but shared/prompts/ already contains shared criteria files (code-review-criteria.md, etc.), so this directory is already a shared dependency. Adding review-conventions.md there would be consistent with existing patterns.",
+      "rollback": "N/A — architectural choice, not a regression.",
+      "human_review_needed": true,
+      "human_review_reason": "Should review conventions be shared via shared/prompts/ (consistent with existing criteria sharing pattern) or inlined (as the architect recommends)? This is a maintainability tradeoff the human should decide."
+    },
+    {
+      "id": "R-7",
+      "category": "compatibility",
+      "title": "Pydantic extra field handling is implicitly relied upon",
+      "description": "The verdict JSON template instructs agents to write a 'reviewer' field, but ReviewVerdict has no 'reviewer' field. This works because Pydantic v2 defaults to ignoring extra fields. The model has no explicit model_config. If someone later adds model_config with extra='forbid' (a common Pydantic best practice), _read_review_verdict() will start failing on all verdict files. Adding 2 new fields (analysis, suggestions) to the model increases the coupling to this implicit behavior — old verdict files will still have the 'reviewer' extra field.",
+      "likelihood": "low",
+      "impact": "medium",
+      "impact_detail": "Not an immediate risk. However, the implicit reliance on Pydantic's default extra-field handling is fragile. A future refactoring that adds extra='forbid' would break verdict parsing for all existing and new verdict files.",
+      "affected_files": [
+        "orchestrator/models.py:97-103 (ReviewVerdict)",
+        "orchestrator/routes/pipelines.py:1621-1624 (_read_review_verdict parsing)"
+      ],
+      "mitigation": "Either: (a) add `reviewer` as an optional field to ReviewVerdict (since the prompt template includes it), or (b) add explicit `model_config = ConfigDict(extra='ignore')` to ReviewVerdict to document the intentional behavior and prevent accidental breakage from a future extra='forbid' change. Option (b) is lower risk and more explicit.",
+      "rollback": "N/A — pre-existing fragility.",
+      "human_review_needed": false
+    },
+    {
+      "id": "R-8",
+      "category": "correctness",
+      "title": "Tier 3 test mocks may mask integration issues",
+      "description": "test_tier3_execute.py uses mock_read_verdict to return pre-built ReviewVerdict objects, bypassing the actual JSON parsing in _read_review_verdict(). With the new fields, mocks will use ReviewVerdict defaults (empty strings) which is correct, but the tests won't validate that agent-written JSON with the new fields actually parses correctly end-to-end.",
+      "likelihood": "low",
+      "impact": "low",
+      "impact_detail": "If an agent writes malformed JSON for the new fields (e.g., a list instead of a string for analysis), the mock-based tests won't catch it. Only real pipeline runs would reveal the issue.",
+      "affected_files": [
+        "orchestrator/tests/test_tier3_execute.py"
+      ],
+      "mitigation": "Add a specific test in TestReadReviewVerdict (test_tier3_execute.py:682) that reads a JSON file containing the new fields and validates they parse into ReviewVerdict correctly. Also test with the 'reviewer' extra field present to confirm Pydantic ignores it.",
+      "rollback": "N/A — test improvement.",
+      "human_review_needed": false
+    },
+    {
+      "id": "R-9",
+      "category": "deployment",
+      "title": "Active pipelines during deployment may see mixed behavior",
+      "description": "If the orchestrator is restarted to deploy the new code while a pipeline is in a review cycle, the following can happen: (a) reviews already written with old schema will be read by new aggregation code — this is safe due to Pydantic defaults. (b) New prompt will be served to reviewers mid-cycle — this is safe since each reviewer session is independent. (c) The review cycle may have some verdicts in old format and some in new format — the aggregation handles this via defaults.",
+      "likelihood": "low",
+      "impact": "low",
+      "impact_detail": "No data corruption or pipeline failure. Worst case: one review cycle produces mixed-depth verdicts (some old-style shallow, some new-style deep). The overall verdict logic is unaffected.",
+      "affected_files": [],
+      "mitigation": "No special deployment sequencing needed. The Pydantic defaults provide natural backward compatibility. For extra safety, deploy during low-pipeline-activity windows.",
+      "rollback": "Standard orchestrator restart with previous version.",
+      "human_review_needed": false
+    },
+    {
+      "id": "R-10",
+      "category": "security",
+      "title": "No new attack surface introduced",
+      "description": "The changes modify internal prompt construction, JSON schema fields, and aggregation logic. No new external inputs, API endpoints, or authentication changes are introduced. The verdict JSON is written by sandboxed agents and read by the orchestrator — the trust boundary is unchanged.",
+      "likelihood": "negligible",
+      "impact": "negligible",
+      "impact_detail": "No security risk identified.",
+      "affected_files": [],
+      "mitigation": "None required.",
+      "rollback": "N/A",
+      "human_review_needed": false
+    }
+  ],
+
+  "risk_matrix": {
+    "high_priority": [
+      {
+        "risk_id": "R-1",
+        "title": "NamedTuple return type breaks callers",
+        "action": "Ensure atomic commit for aggregation + caller updates. Add unit test for return type."
+      }
+    ],
+    "medium_priority": [
+      {
+        "risk_id": "R-2",
+        "title": "Production aggregation untested",
+        "action": "Add direct unit tests for _aggregate_review_verdicts() with ReviewVerdict objects."
+      },
+      {
+        "risk_id": "R-3",
+        "title": "Advisory content has no consumer",
+        "action": "Add task to surface advisory_content in phase-completion comments. Human decision needed on approach."
+      },
+      {
+        "risk_id": "R-5",
+        "title": "Over-reporting risk from aggressive prompting",
+        "action": "Add anti-hallucination guidance to prompts for all reviewer types."
+      }
+    ],
+    "low_priority": [
+      {
+        "risk_id": "R-4",
+        "title": "Token cost increase",
+        "action": "Include length guidance in prompts. Monitor post-deployment."
+      },
+      {
+        "risk_id": "R-6",
+        "title": "Review conventions drift",
+        "action": "Human decision: inline vs shared file. Either way, add cross-references."
+      },
+      {
+        "risk_id": "R-7",
+        "title": "Pydantic extra field handling implicit",
+        "action": "Add explicit model_config or reviewer field to ReviewVerdict."
+      },
+      {
+        "risk_id": "R-8",
+        "title": "Mock-based tests miss JSON parsing issues",
+        "action": "Add JSON round-trip test in TestReadReviewVerdict."
+      },
+      {
+        "risk_id": "R-9",
+        "title": "Mixed behavior during deployment",
+        "action": "No action needed — Pydantic defaults provide compatibility."
+      }
+    ]
+  },
+
+  "areas_requiring_human_review": [
+    {
+      "area": "Advisory content surfacing strategy",
+      "reason": "The implementation plan collects advisory_content but has no task to surface it. How and where should approved-verdict suggestions be shown to humans? Options: (a) append to phase-completion issue comment, (b) write separate summary file, (c) defer to follow-up issue.",
+      "risk_ids": ["R-3"],
+      "recommendation": "Option (a) — append to phase-completion comment. This is the natural place where humans review pipeline results and requires minimal additional code."
+    },
+    {
+      "area": "Review conventions sharing strategy",
+      "reason": "The architect chose to inline conventions (AD-4) rather than share via shared/prompts/. This creates a maintenance burden since the same conventions would exist in two places. The shared/prompts/ directory already contains shared criteria files, so adding review-conventions.md there would be consistent.",
+      "risk_ids": ["R-6"],
+      "recommendation": "Use shared/prompts/review-conventions.md for consistency with existing shared criteria pattern. The cross-boundary dependency concern is already accepted for criteria files."
+    }
+  ],
+
+  "rollback_plan": {
+    "strategy": "Single-commit revert",
+    "description": "All changes should be in a single PR (possibly multi-commit but squash-mergeable). Rollback is a git revert of the merge commit. No data migration is needed in either direction because: (a) old verdict files parse correctly with new model (Pydantic defaults), (b) new verdict files with extra fields parse correctly with old model (Pydantic ignores extras by default), (c) the aggregation function return type change is code-only with no persistent state.",
+    "steps": [
+      "1. Revert the merge commit on main",
+      "2. Deploy the orchestrator with reverted code",
+      "3. No data cleanup needed — old and new verdict files are intercompatible",
+      "4. In-flight pipelines will continue normally with old behavior"
+    ],
+    "data_migration_needed": false,
+    "downtime_required": false
+  },
+
+  "implementation_plan_amendments": [
+    {
+      "amendment": "Make tasks 2 and 3 atomic",
+      "reason": "The AggregatedReviewResult NamedTuple with 3 fields cannot be destructured into 2 variables. Both callers MUST be updated in the same commit as the return type change.",
+      "risk_id": "R-1",
+      "priority": "required"
+    },
+    {
+      "amendment": "Add task: surface advisory_content in phase-completion comments",
+      "reason": "Without this, the advisory content collected by the new aggregation is dead code. The approved-verdict suggestions would still be lost at the pipeline level.",
+      "risk_id": "R-3",
+      "priority": "required"
+    },
+    {
+      "amendment": "Revise task-8 to test the production _aggregate_review_verdicts function",
+      "reason": "test_multi_reviewer.py tests a local stub function, not the production function. New tests should import and test the actual production function.",
+      "risk_id": "R-2",
+      "priority": "required"
+    },
+    {
+      "amendment": "Add anti-hallucination prompt guidance",
+      "reason": "Prevent reviewers from fabricating issues to fill the always-required analysis field.",
+      "risk_id": "R-5",
+      "priority": "recommended"
+    },
+    {
+      "amendment": "Add explicit model_config = ConfigDict(extra='ignore') to ReviewVerdict",
+      "reason": "Document the intentional Pydantic behavior of ignoring extra fields like 'reviewer' in verdict JSON.",
+      "risk_id": "R-7",
+      "priority": "recommended"
+    },
+    {
+      "amendment": "Add JSON round-trip test in TestReadReviewVerdict for new fields",
+      "reason": "Ensure agent-written JSON with analysis and suggestions fields parses correctly end-to-end.",
+      "risk_id": "R-8",
+      "priority": "recommended"
+    }
+  ],
+
+  "overall_risk_level": "LOW-MEDIUM",
+  "overall_assessment": "The proposed approach is sound and the risks are manageable. The most critical finding is that the architect's R-2 mitigation regarding NamedTuple unpacking is factually incorrect — this will cause a hard runtime failure if callers are not updated atomically. The second finding is a plan gap: advisory content is collected but has no consumer, which means the 'approve with suggestions' feature is incomplete without an additional task. The third finding is a test coverage gap that predates this issue but should be fixed alongside the changes. All risks have straightforward mitigations. No risk warrants blocking the approach or choosing an alternative. The rollback path is clean due to Pydantic's backward-compatible field defaults.",
+  "blocking_risks": false
+}
