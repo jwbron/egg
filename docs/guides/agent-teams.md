@@ -69,6 +69,7 @@ The current implementation uses an in-memory `MessageStore` with polling. The ta
 
 ```bash
 # Long-poll for messages (blocks until messages arrive or timeout)
+# Planned — --wait not yet available; currently use: egg-orch message poll
 egg-orch message poll --wait 30
 ```
 
