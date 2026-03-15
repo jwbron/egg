@@ -66,6 +66,11 @@ This index helps both humans and LLMs navigate the documentation efficiently.
 | [Agent Recovery](reference/agent-recovery.md) | Retry manager, circuit breaker, conflict detection, and resilience utilities |
 | [Post-Agent Commit](reference/post-agent-commit.md) | Auto-commit behavior on container exit: phase restrictions, error handling |
 | [Redaction](reference/redaction.md) | Checkpoint redaction patterns, security model, and limitations |
+| [Orchestrator CLI](reference/orchestrator-cli.md) | Full `egg-orch` command reference for pipelines, phases, decisions, containers |
+| [Checkpoint Browser](reference/checkpoint-browser.md) | Full `egg-checkpoint` command reference for browsing agent session history |
+| [SDLC Contract](reference/sdlc-contract.md) | Full `egg-contract` command reference for tracking tasks, commits, decisions |
+| [Coordinator Agent](reference/coordinator-agent.md) | Coordinator role: spawning agents, phase advancement, HITL gates, guardrails |
+| [Integrator Agent](reference/integrator-agent.md) | Integrator role: attestation verification, cross-referencing artifacts |
 
 ### SDLC Pipeline Templates
 
