@@ -239,7 +239,15 @@ If any agent is in the `OBJECTING` readiness state (separate from BRC phase), th
 
 ### Timeout Handling
 
-If consensus is not reached within `consensus_timeout_minutes`, the orchestrator creates a HITL decision asking the human how to proceed (advance anyway, wait, or abort).
+If consensus is not reached within `consensus_timeout_minutes`, the BRC tracker (`PeerConsensusTracker.handle_timeout()`) evaluates blocking agents by role criticality:
+
+- **Critical blockers** (required reviewers still unconfirmed): emits `CONSENSUS_FAILURE` and creates a HITL decision asking how to proceed.
+- **Advisory-only blockers** (non-critical roles unconfirmed): emits `CONSENSUS_TIMEOUT` and proceeds automatically — no HITL created.
+- **No blockers**: proceeds immediately with no HITL.
+
+If the BRC tracker is unavailable, the orchestrator falls back to the old behavior and creates a generic HITL decision for any timeout.
+
+Timeout handling is idempotent — if the timeout fires multiple times (e.g., due to a race with the overseer), only the first invocation takes effect.
 
 ### Agent Failure During Consensus
 
@@ -275,7 +283,8 @@ The 60-second window is tracked via the `_failure_times` list, filtered to recen
 |----------|-------------|
 | Single agent failure | Retry (respawn), Abort phase, Continue without |
 | Multiple failures (2+ / 60s) | Retry phase, Cancel pipeline |
-| Consensus timeout | Advance anyway, Wait longer, Abort |
+| Consensus timeout (critical blockers) | Continue waiting, Accept current state, Abort phase |
+| Consensus timeout (advisory only) | *(no HITL — proceeds automatically)* |
 | Agent objection | Resolve then advance, Override, Abort |
 
 ## Shared Pipeline Branch
