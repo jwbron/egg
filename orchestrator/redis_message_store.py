@@ -25,8 +25,8 @@ except ImportError:
     def get_logger(name: str, **kwargs) -> logging.Logger:  # type: ignore[misc]
         return logging.getLogger(name)
 
-import redis
 
+import redis
 from message_store import Message
 
 logger = get_logger("orchestrator.redis_message_store")
@@ -55,6 +55,7 @@ def _message_to_redis(msg: Message) -> dict[str, str]:
 
 def _message_from_redis(stream_id: str, fields: dict[bytes | str, bytes | str]) -> Message:
     """Deserialize a Message from Redis hash fields."""
+
     # Redis returns bytes by default; handle both bytes and str
     def _get(key: str) -> str:
         val = fields.get(key) or fields.get(key.encode(encoding="utf-8"), b"")
@@ -179,7 +180,11 @@ class RedisMessageStore:
                 exclusive_start = self._increment_stream_id(start_id) if since_id else start_id
                 result_entries = self._redis.xrange(key, min=exclusive_start, count=limit * 3)
                 # Normalize to same format as xread
-                result = [(key.encode() if isinstance(key, str) else key, result_entries)] if result_entries else []
+                result = (
+                    [(key.encode() if isinstance(key, str) else key, result_entries)]
+                    if result_entries
+                    else []
+                )
         except redis.RedisError as e:
             logger.error(
                 "Failed to read from Redis Stream",
@@ -190,7 +195,7 @@ class RedisMessageStore:
 
         messages = []
         if result:
-            for stream_key, entries in result:
+            for _stream_key, entries in result:
                 for stream_id, fields in entries:
                     if isinstance(stream_id, bytes):
                         stream_id = stream_id.decode("utf-8")

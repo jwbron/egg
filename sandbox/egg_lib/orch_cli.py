@@ -1643,9 +1643,7 @@ def create_parser() -> argparse.ArgumentParser:
     coord_cancel.set_defaults(func=cmd_coordinator_cancel)
 
     # -- consensus (BRC protocol) --
-    consensus_parser = subparsers.add_parser(
-        "consensus", help="BRC consensus protocol commands"
-    )
+    consensus_parser = subparsers.add_parser("consensus", help="BRC consensus protocol commands")
     consensus_sub = consensus_parser.add_subparsers(dest="consensus_command")
 
     # consensus propose

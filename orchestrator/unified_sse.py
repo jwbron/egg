@@ -316,9 +316,7 @@ def create_unified_sse_stream(
                         try:
                             from peer_consensus import get_peer_consensus_tracker
 
-                            tracker = get_peer_consensus_tracker(
-                                payload["pipeline_id"]
-                            )
+                            tracker = get_peer_consensus_tracker(payload["pipeline_id"])
                             if tracker:
                                 payload["consensus"] = tracker.evaluate()
                         except ImportError:

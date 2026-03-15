@@ -730,22 +730,29 @@ def handle_consensus_propose_signal(
         from message_store import Message, MessageType, get_message_store
 
         store = get_message_store()
-        store.add_message(Message(
-            pipeline_id=pipeline_id,
-            from_role=agent_role,
-            to_role="all",
-            message_type=MessageType.CONSENSUS_PROPOSE,
-            subject=f"Proposal from {agent_role}",
-            body=payload.get("summary", ""),
-            metadata={"payload": payload, "version": result.get("version")},
-        ))
+        store.add_message(
+            Message(
+                pipeline_id=pipeline_id,
+                from_role=agent_role,
+                to_role="all",
+                message_type=MessageType.CONSENSUS_PROPOSE,
+                subject=f"Proposal from {agent_role}",
+                body=payload.get("summary", ""),
+                metadata={"payload": payload, "version": result.get("version")},
+            )
+        )
 
         return make_success_response(
             f"Proposal recorded for {agent_role}",
             data=result,
         )
     except (ValueError, Exception) as e:
-        logger.error("Failed to process consensus propose", pipeline_id=pipeline_id, role=agent_role, error=str(e))
+        logger.error(
+            "Failed to process consensus propose",
+            pipeline_id=pipeline_id,
+            role=agent_role,
+            error=str(e),
+        )
         return make_error_response(str(e), 400 if isinstance(e, ValueError) else 500)
 
 
@@ -779,22 +786,30 @@ def handle_consensus_ack_signal(
         from message_store import Message, MessageType, get_message_store
 
         store = get_message_store()
-        store.add_message(Message(
-            pipeline_id=pipeline_id,
-            from_role=reviewer_role,
-            to_role=producer_role,
-            message_type=MessageType.CONSENSUS_ACK,
-            subject=f"ACK from {reviewer_role} for {producer_role}",
-            body=payload.get("reason", ""),
-            metadata={"payload": payload, "version": result.get("version")},
-        ))
+        store.add_message(
+            Message(
+                pipeline_id=pipeline_id,
+                from_role=reviewer_role,
+                to_role=producer_role,
+                message_type=MessageType.CONSENSUS_ACK,
+                subject=f"ACK from {reviewer_role} for {producer_role}",
+                body=payload.get("reason", ""),
+                metadata={"payload": payload, "version": result.get("version")},
+            )
+        )
 
         return make_success_response(
             f"ACK recorded: {reviewer_role} -> {producer_role}",
             data=result,
         )
     except (ValueError, Exception) as e:
-        logger.error("Failed to process consensus ACK", pipeline_id=pipeline_id, reviewer=reviewer_role, producer=producer_role, error=str(e))
+        logger.error(
+            "Failed to process consensus ACK",
+            pipeline_id=pipeline_id,
+            reviewer=reviewer_role,
+            producer=producer_role,
+            error=str(e),
+        )
         return make_error_response(str(e), 400 if isinstance(e, ValueError) else 500)
 
 
@@ -828,15 +843,21 @@ def handle_consensus_nack_signal(
         from message_store import Message, MessageType, get_message_store
 
         store = get_message_store()
-        store.add_message(Message(
-            pipeline_id=pipeline_id,
-            from_role=reviewer_role,
-            to_role=producer_role,
-            message_type=MessageType.CONSENSUS_NACK,
-            subject=f"NACK from {reviewer_role} for {producer_role}",
-            body=payload.get("reason", ""),
-            metadata={"payload": payload, "reason": result.get("reason"), "revision_count": result.get("revision_count")},
-        ))
+        store.add_message(
+            Message(
+                pipeline_id=pipeline_id,
+                from_role=reviewer_role,
+                to_role=producer_role,
+                message_type=MessageType.CONSENSUS_NACK,
+                subject=f"NACK from {reviewer_role} for {producer_role}",
+                body=payload.get("reason", ""),
+                metadata={
+                    "payload": payload,
+                    "reason": result.get("reason"),
+                    "revision_count": result.get("revision_count"),
+                },
+            )
+        )
 
         return make_success_response(
             f"NACK recorded: {reviewer_role} -> {producer_role}",
@@ -874,14 +895,16 @@ def handle_consensus_withdraw_signal(
         from message_store import Message, MessageType, get_message_store
 
         store = get_message_store()
-        store.add_message(Message(
-            pipeline_id=pipeline_id,
-            from_role=agent_role,
-            to_role="all",
-            message_type=MessageType.CONSENSUS_WITHDRAW,
-            subject=f"Withdrawal by {agent_role}",
-            body=reason,
-        ))
+        store.add_message(
+            Message(
+                pipeline_id=pipeline_id,
+                from_role=agent_role,
+                to_role="all",
+                message_type=MessageType.CONSENSUS_WITHDRAW,
+                subject=f"Withdrawal by {agent_role}",
+                body=reason,
+            )
+        )
 
         return make_success_response(
             f"Withdrawal recorded for {agent_role}",
@@ -917,15 +940,17 @@ def handle_consensus_confirmed_signal(
         from message_store import Message, MessageType, get_message_store
 
         store = get_message_store()
-        store.add_message(Message(
-            pipeline_id=pipeline_id,
-            from_role=agent_role,
-            to_role="all",
-            message_type=MessageType.CONSENSUS_CONFIRMED,
-            subject=f"Confirmed by {agent_role}",
-            body="",
-            metadata={"consensus_reached": result.get("consensus_reached", False)},
-        ))
+        store.add_message(
+            Message(
+                pipeline_id=pipeline_id,
+                from_role=agent_role,
+                to_role="all",
+                message_type=MessageType.CONSENSUS_CONFIRMED,
+                subject=f"Confirmed by {agent_role}",
+                body="",
+                metadata={"consensus_reached": result.get("consensus_reached", False)},
+            )
+        )
 
         return make_success_response(
             f"Confirmation recorded for {agent_role}",

@@ -988,7 +988,9 @@ def _get_concurrent_status(pipeline: "Pipeline") -> dict | None:
                 agents_data[role] = {
                     "state": agent_info.state.value,
                     "reason": agent_info.reason,
-                    "updated_at": agent_info.timestamp.isoformat() if agent_info.timestamp else None,
+                    "updated_at": agent_info.timestamp.isoformat()
+                    if agent_info.timestamp
+                    else None,
                 }
             else:
                 # BRC dict format

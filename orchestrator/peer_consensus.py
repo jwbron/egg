@@ -34,15 +34,14 @@ except ImportError:
         return logging.getLogger(name)
 
 
-from egg_orchestrator.types import ConsensusPhase
-
-from approval_matrix import ApprovalMatrix, ApprovalState
+from approval_matrix import ApprovalMatrix
 from attestation_schemas import (
     AttestationStrictness,
     ProposalPayload,
     ReviewPayload,
     validate_attestation,
 )
+from egg_orchestrator.types import ConsensusPhase
 from events import EventType, emit_event
 from review_graph import ReviewGraph
 
@@ -322,9 +321,7 @@ class PeerConsensusTracker:
             # Check if agent can confirm
             if self.graph.is_producer(agent_role):
                 if not self.matrix.is_fully_acked(agent_role):
-                    raise ValueError(
-                        f"Producer {agent_role} cannot confirm: not fully ACKed"
-                    )
+                    raise ValueError(f"Producer {agent_role} cannot confirm: not fully ACKed")
                 self._producer_phases[agent_role] = ConsensusPhase.CONFIRMED
 
             if self.graph.is_reviewer(agent_role):
@@ -376,9 +373,7 @@ class PeerConsensusTracker:
         with self._lock:
             # First, do scoped re-evaluation
             if changed_artifacts:
-                invalidated = self.matrix.invalidate_overlapping_acks(
-                    agent_role, changed_artifacts
-                )
+                invalidated = self.matrix.invalidate_overlapping_acks(agent_role, changed_artifacts)
             else:
                 # Conservative: invalidate all ACKs
                 invalidated = []
@@ -409,8 +404,7 @@ class PeerConsensusTracker:
                 sole_reviewer_for = []
                 for producer in producers:
                     remaining_reviewers = [
-                        r for r in self.graph.reviewers_for(producer)
-                        if r != role
+                        r for r in self.graph.reviewers_for(producer) if r != role
                     ]
                     if not remaining_reviewers:
                         sole_reviewer_for.append(producer)

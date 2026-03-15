@@ -54,7 +54,9 @@ class DocumenterAttestation(BaseModel):
 class ReviewerCodeAttestation(BaseModel):
     """Attestation for code reviewer ACK/NACK."""
 
-    files_reviewed: list[str] = Field(default_factory=list, description="Specific file paths reviewed")
+    files_reviewed: list[str] = Field(
+        default_factory=list, description="Specific file paths reviewed"
+    )
     issues_found: int = Field(default=0, description="Issues found")
     issues_resolved: int = Field(default=0, description="Issues resolved")
     risk_considered: str = Field(default="", description="One risk considered")
@@ -206,9 +208,7 @@ def _validate_strict(role: str, instance: BaseModel, is_producer: bool) -> None:
                 )
         elif role == "tester" and isinstance(instance, TesterAttestation):
             if instance.tests_run == 0:
-                raise ValueError(
-                    "Tester attestation requires tests_run > 0 in strict mode"
-                )
+                raise ValueError("Tester attestation requires tests_run > 0 in strict mode")
         elif role == "documenter" and isinstance(instance, DocumenterAttestation):
             if not instance.sections_updated:
                 raise ValueError(
@@ -227,6 +227,4 @@ def _validate_strict(role: str, instance: BaseModel, is_producer: bool) -> None:
                 )
         elif role == "checker" and isinstance(instance, CheckerAttestation):
             if not instance.test_results:
-                raise ValueError(
-                    "Checker attestation requires test_results in strict mode"
-                )
+                raise ValueError("Checker attestation requires test_results in strict mode")

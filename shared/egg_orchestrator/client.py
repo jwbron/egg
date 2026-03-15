@@ -473,11 +473,14 @@ class OrchestratorClient:
         Returns:
             SignalResponse from orchestrator
         """
-        return self._send_signal(pipeline_id, {
-            "signal_type": "consensus_withdraw",
-            "agent_role": agent_role,
-            "reason": reason,
-        })
+        return self._send_signal(
+            pipeline_id,
+            {
+                "signal_type": "consensus_withdraw",
+                "agent_role": agent_role,
+                "reason": reason,
+            },
+        )
 
     def consensus_status(
         self,
