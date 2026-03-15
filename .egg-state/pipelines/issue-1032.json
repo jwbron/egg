@@ -83,7 +83,7 @@
   },
   "decisions": [],
   "created_at": "2026-03-15T20:55:27.920633",
-  "updated_at": "2026-03-15T20:59:19.767485",
+  "updated_at": "2026-03-15T21:00:01.104361",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
@@ -113,8 +113,8 @@
       {
         "role": "reviewer_agent_design",
         "spawned_at": "2026-03-15T20:56:15.769947",
-        "completed_at": null,
-        "status": "running",
+        "completed_at": "2026-03-15T20:59:53.458002Z",
+        "status": "complete",
         "container_id": "f243896df2f3cdbc9b812e02a2c275db413157d751fafa59da23688e9f4f227f",
         "task_context": "Review the agent design aspects of issue #1032: Agent anchor mechanism for post-compaction state recovery. Evaluate: (1) Does the anchor schema capture the right information for effective recovery? (2) Is the update trigger design robust - will anchors stay in sync with actual agent state? (3) How does this interact with the existing checkpoint system and egg-contract? (4) Are there risks of anchors becoming stale or misleading? (5) Is the size budget (2KB agent, 4KB team) realistic for the proposed schema? (6) Gateway enforcement design - should agents only write their own anchors? Read the issue with 'gh issue view 1032'. Check .egg-state/drafts/ for the refiner's output and existing patterns in shared/ and .egg-state/.",
         "retry_number": 0
@@ -144,5 +144,5 @@
   },
   "plan_phase_waves": null,
   "plan_phase_names": null,
-  "version": 13
+  "version": 14
 }
