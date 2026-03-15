@@ -954,10 +954,16 @@ def _get_concurrent_status(pipeline: "Pipeline") -> dict | None:
     Dependencies on other concurrent-mode modules (message_store, consensus) are
     imported lazily and degrade gracefully to empty structures when unavailable.
     """
-    config = pipeline.config
-    if not getattr(config, "concurrent_execution", False):
+    try:
+        from multi_agent import is_concurrent_execution
+    except ImportError:
+        from ..multi_agent import is_concurrent_execution  # type: ignore[no-redef]
+
+    current_phase = pipeline.current_phase.value if pipeline.current_phase else None
+    if not is_concurrent_execution(pipeline, phase=current_phase):
         return None
 
+    config = pipeline.config
     result: dict = {
         "enabled": True,
         "max_concurrent_agents": getattr(config, "max_concurrent_agents", 6),
@@ -6415,11 +6421,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                     except ImportError:
                         from ..multi_agent import is_concurrent_execution  # type: ignore[no-redef]
 
-                    use_concurrent = is_concurrent_execution(pipeline) and current_phase.value in {
-                        "refine",
-                        "plan",
-                        "implement",
-                    }
+                    use_concurrent = is_concurrent_execution(pipeline, phase=current_phase.value)
 
                     if use_coordinator:
                         logger.info(
