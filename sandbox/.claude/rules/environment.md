@@ -1,107 +1,46 @@
 # Sandboxed Environment
 
-You run in a sandboxed Docker container with network lockdown. No SSH keys, cloud creds, or production access.
+Sandboxed Docker container. No SSH keys, cloud creds, or production access.
 
 ## Network Modes
 
-Network traffic is routed through a filtering proxy. The mode is selected via CLI flags when starting egg:
-- `egg` or `egg --public` → Public mode (default)
-- `egg --private` → Private mode
+- `egg --public` (default): Full internet + public repos only. Can access PyPI, npm, web.
+- `egg --private`: Anthropic API only + private repos only. No PyPI/npm/web access — dependencies are pre-installed.
 
-### Public Mode (`PRIVATE_MODE=false`, default)
-Full internet access + public repos only.
-
-In this mode:
-- Web search and fetch work normally
-- You CAN access PyPI, npm, and package registries
-- You CAN access arbitrary URLs
-- You CANNOT access private repositories (only public repos allowed)
-
-### Private Mode (`PRIVATE_MODE=true`)
-Network locked down (Anthropic API only) + private repos only.
-
-In this mode:
-- Only `api.anthropic.com` (Claude API) is allowed through the proxy
-- You CANNOT access PyPI, npm, or any package registry (dependencies are pre-installed)
-- You CANNOT use web search or fetch arbitrary URLs
-- You CAN access private repositories
-- You CANNOT access public repositories
-
-**GitHub access** MUST go through the gateway sidecar's git/gh wrappers (not through the proxy). This ensures policy enforcement (branch ownership, merge blocking, etc.) cannot be bypassed.
+GitHub access MUST go through the gateway sidecar (not the proxy) for policy enforcement.
 
 ## Capabilities
 
-**CAN**: Read/edit `~/repos/`, run tests, `git push` (HTTPS), `gh` CLI (PRs, issues), PostgreSQL, Redis, Python, Node.js, Go, Java
+**CAN**: Read/edit `~/repos/`, run tests, `git push` (HTTPS), `gh` CLI, PostgreSQL, Redis, Python, Node.js, Go, Java
 
-**CANNOT**: Merge PRs, SSH push, deploy to GCP/AWS, access production, access GitHub tokens directly
+**CANNOT**: Merge PRs, SSH push, deploy, access production, access GitHub tokens directly
 
 ## Gateway Sidecar
 
-All git/gh operations are routed through the gateway sidecar. You do NOT have direct access to GitHub tokens — credentials are held by the gateway.
-
-Key restrictions enforced by the gateway:
-- `git push`: Only to branches you own (`egg/` or `egg-` prefixed, or has your open PR)
+All git/gh operations routed through gateway. Key restrictions:
+- `git push`: Only to `egg/`-prefixed branches (or branches with your open PR)
 - `git worktree add/remove`: **Unsupported** — use `git checkout -b` instead
-- `git checkout/switch` (branch): **Blocked in pipeline mode** — you are locked to your worktree branch
+- `git checkout/switch` (branch): **Blocked in pipeline mode**
 - `git commit`: **Phase-validated** — staged files must comply with phase restrictions
 - `gh pr merge`: **Blocked** — human must merge via GitHub UI
 
-## Git Push
-
-Use `git push origin <branch>` (HTTPS). Operations are authenticated by the gateway sidecar.
-
-If push fails:
-- Check `git remote -v` is HTTPS
-- Check gateway sidecar is running: `curl http://egg-gateway:9848/api/v1/health`
-  (Port 9848 is defined in shared/egg_config/constants.py)
-- Ensure branch is egg-owned (egg-prefixed or has your open PR)
+If push fails: check `git remote -v` is HTTPS, check `curl http://egg-gateway:9848/api/v1/health`, verify branch is egg-owned.
 
 ## File System
 
 | Path | Purpose |
 |------|---------|
-| `~/repos/` | Code workspace (RW) - contains repos, but is NOT itself a git repo. Run git commands from `~/repos/<repo>/`, not `~/repos/`. |
+| `~/repos/` | Code workspace (RW) — NOT a git repo itself |
 | `~/repos/<repo>/.egg-state/` | SDLC pipeline state (may be readonly in implement phase) |
 | `~/context-sync/` | Confluence/JIRA (RO) |
 | `~/sharing/` | Persistent data, notifications, context |
 
-**Pipeline readonly directories:** During the implement phase, `.egg-state/drafts/`, `.egg-state/contracts/`, `.egg-state/pipelines/`, and `.egg-state/reviews/` are mounted readonly. Check for `.egg-readonly` marker files to understand restrictions. Attempting to write to these directories will produce an EROFS (read-only filesystem) error.
-
-**Post-agent auto-commit:** When your container exits, any uncommitted changes are automatically committed and pushed by the gateway. Phase-restricted files are restored (not committed). You do not need to worry about losing work if you time out.
-
-## Services
-
-- PostgreSQL and Redis start automatically
+**Post-agent auto-commit**: Uncommitted changes are auto-committed on container exit. Phase-restricted files are restored.
 
 ## Shell Command Safety
 
-Shell commands run in this container share resources with the host system. Unbounded
-commands can consume excessive CPU and memory, increasing costs and causing timeouts.
+**Scope all filesystem operations to `~/repos/` or `$EGG_REPO_PATH`.** Never search from `/` — it will be killed by timeout.
 
-**Scope all filesystem operations to `~/repos/` or `$EGG_REPO_PATH`.** The root
-filesystem (`/`) includes system directories, package caches, and virtual environments
-that are irrelevant to your task. Searching from `/` scans tens of thousands of files
-and will be killed by the system timeout (default 300 seconds).
+**On push failure**: Report via `egg-orch signal error --error "Push failed: <msg>" --recoverable`. Do NOT push to a different branch name.
 
-**DO**:
-```bash
-grep -rn "pattern" ~/repos/
-find ~/repos/ -name "*.py" -exec grep -l "pattern" {} \;
-```
-
-**DON'T**:
-```bash
-grep -rn "pattern" /          # Scans entire filesystem — will be killed after 120s
-find / -name "*.py"           # Same problem — unbounded search
-```
-
-**On push failure**: Do NOT improvise by pushing to a different branch name. The
-gateway enforces branch assignment in pipeline mode and will reject pushes to
-non-assigned branches. Instead, report the error:
-```bash
-egg-orch signal error --error "Push failed: <error message>" --recoverable
-```
-
-## Network Lockdown Notes
-
-If a tool returns 403 Forbidden, you are likely in private mode. Acknowledge the limitation and proceed with local resources. Package installation and web access are unavailable in private mode — all common dependencies are pre-installed.
+If a tool returns 403 Forbidden, you are likely in private mode. Proceed with local resources.
