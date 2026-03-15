@@ -6,9 +6,9 @@ the circular ACK problem where a producer would be incentivized to
 NACK a negative review of their own code.
 """
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from enum import StrEnum
-from collections.abc import Callable
 from typing import Any
 
 

@@ -6341,7 +6341,9 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                         from ..multi_agent import is_concurrent_execution  # type: ignore[no-redef]
 
                     use_concurrent = is_concurrent_execution(pipeline) and current_phase.value in {
-                        "refine", "plan", "implement"
+                        "refine",
+                        "plan",
+                        "implement",
                     }
 
                     if use_coordinator:
