@@ -4,8 +4,8 @@
   "repo": "jwbron/egg",
   "branch": "egg/issue-1032",
   "prompt": null,
-  "status": "awaiting_human",
-  "current_phase": "plan",
+  "status": "pending",
+  "current_phase": "refine",
   "config": {
     "auto_create_pr": true,
     "multi_agent": true,
@@ -15,7 +15,7 @@
     "max_hitl_review_cycles": 3,
     "hitl_gates": true,
     "allow_short_circuit": true,
-    "enable_parallel_phases": false,
+    "enable_parallel_phases": true,
     "concurrent_execution": false,
     "max_concurrent_agents": 6,
     "message_poll_hint_seconds": 30,
@@ -26,246 +26,17 @@
     "coordinator_max_retries_per_role": 2,
     "coordinator_max_respawns": 2
   },
-  "phases": {
-    "refine": {
-      "phase": "refine",
-      "status": "complete",
-      "started_at": "2026-03-15T06:04:12.393783",
-      "work_started_at": "2026-03-15T06:04:12.414610",
-      "completed_at": "2026-03-15T06:16:56.458334",
-      "containers": [
-        {
-          "container_id": "ed869640a844c97bf1b0f8b0d2226c917c77f0cc9ccae28a1e9a661a70b04bef",
-          "container_name": "egg-sandbox-egg-issue-1032-coordinator",
-          "status": "exited",
-          "started_at": "2026-03-15T06:04:13.517773",
-          "exited_at": "2026-03-15T06:16:41.516630",
-          "exit_code": 0,
-          "agent_role": "coordinator",
-          "session_token": null
-        }
-      ],
-      "agents": [
-        {
-          "role": "coordinator",
-          "status": "complete",
-          "container_id": "ed869640a844c97bf1b0f8b0d2226c917c77f0cc9ccae28a1e9a661a70b04bef",
-          "started_at": "2026-03-15T06:04:13.517780",
-          "completed_at": "2026-03-15T06:16:41.517496",
-          "commit": null,
-          "outputs": {},
-          "error": null,
-          "retry_count": 0,
-          "conflicts": [],
-          "plan_phase_id": null
-        }
-      ],
-      "review_cycles": 0,
-      "hitl_review_cycles": 0,
-      "cycle_timings": [
-        {
-          "cycle": 0,
-          "started_at": "2026-03-15T06:04:12.414610",
-          "completed_at": "2026-03-15T06:16:56.448140",
-          "commit_sha": "1d2165de6dad7586c085bc013ac2f2d1e0427264"
-        }
-      ],
-      "artifacts": {},
-      "error": null,
-      "hitl_feedback": null,
-      "phase_start_sha": null
-    },
-    "plan": {
-      "phase": "plan",
-      "status": "running",
-      "started_at": "2026-03-15T06:20:50.078287",
-      "work_started_at": "2026-03-15T06:20:50.096744",
-      "completed_at": null,
-      "containers": [
-        {
-          "container_id": "2fac06d733ee343e09db11329981aefdb51f81f72a046ca4a222d0a0c8bd78e5",
-          "container_name": "egg-sandbox-egg-issue-1032-coordinator",
-          "status": "removed",
-          "started_at": "2026-03-15T06:20:50.718722",
-          "exited_at": "2026-03-15T06:21:30.380094",
-          "exit_code": null,
-          "agent_role": "coordinator",
-          "session_token": null
-        }
-      ],
-      "agents": [
-        {
-          "role": "coordinator",
-          "status": "failed",
-          "container_id": "2fac06d733ee343e09db11329981aefdb51f81f72a046ca4a222d0a0c8bd78e5",
-          "started_at": "2026-03-15T06:20:50.718728",
-          "completed_at": "2026-03-15T06:21:30.380094",
-          "commit": null,
-          "outputs": {},
-          "error": "Pipeline running",
-          "retry_count": 0,
-          "conflicts": [],
-          "plan_phase_id": null
-        }
-      ],
-      "review_cycles": 0,
-      "hitl_review_cycles": 0,
-      "cycle_timings": [
-        {
-          "cycle": 0,
-          "started_at": "2026-03-15T06:20:50.096744",
-          "completed_at": null,
-          "commit_sha": "f9f7146c628a64e463a0e7284f91ffa2212e094d"
-        }
-      ],
-      "artifacts": {},
-      "error": null,
-      "hitl_feedback": null,
-      "phase_start_sha": "2892c29fdf439b5e210128a683e32e26a723e76d"
-    }
-  },
-  "decisions": [
-    {
-      "id": "decision-1",
-      "question": "The refine phase has completed. Please review the analysis and approve to continue, or provide feedback to request changes.",
-      "context": "",
-      "options": [
-        "approve",
-        "request changes"
-      ],
-      "decision_type": "phase_gate",
-      "questions": [],
-      "status": "cancelled",
-      "created_at": "2026-03-15T06:11:23.837686",
-      "resolved_at": "2026-03-15T06:20:49.661378",
-      "resolution": null,
-      "phase": "refine"
-    },
-    {
-      "id": "decision-2",
-      "question": "The refine phase has completed. Please review the analysis and approve to continue, or provide feedback to request changes.",
-      "context": "# Issue #1032: Agent Anchor Mechanism for Post-Compaction State Recovery\n\n## Refined Specification\n\n### Problem Statement\n\nIn long-running agent sessions — especially in the async team model (#1027, #1028, #1030) — context compaction is inevitable. When Claude's context window is compressed, agents lose:\n\n1. **Task focus** — what sub-task they're working on, what's completed\n2. **Inter-agent decisions** — agreements made via BRC consensus or direct messaging\n3. **Coordination state** — who they're waiting on, who's waiting on them\n4. **Failure history** — approaches that already failed\n5. **Consensus commitments** — positions taken in the BRC protocol\n\nThe existing recovery mechanisms are insufficient:\n- **egg-contract** is pipeline/phase-scoped, not agent-scoped or granular enough for mid-task recovery\n- **Checkpoints** are post-session snapshots, not live state — they can't be read during the same session\n- **consensus_wrapper.py** handles clean-exit recovery but not mid-session compaction\n- **Redis messages** persist but an agent post-compaction doesn't know *which* messages matter or what decisions they represent\n\n### Proposed Solution: Agent Anchor Files\n\nPersistent, structured state files that agents maintain at `.egg-state/agent-anchors/<agent-id>.yaml`. After context compaction, the anchor is injected into the refreshed context (like `CLAUDE.md`), giving the agent enough state to continue coherently.\n\n---\n\n## Design Decisions\n\n### 1. FORMAT: YAML\n\n**Recommendation: YAML only.**\n\n**Rationale:**\n- Anchors are primarily **consumed by LLMs** (injected into agent context post-compaction). YAML is more token-efficient and readable for language models — fewer braces, quotes, and structural noise.\n- Anchors are **written by agents** (via shell commands or the `egg-orch` CLI). YAML is easier to produce from shell scripts and heredocs than JSON (no escaping issues with embedded strings).\n- The codebase already uses YAML for agent-facing configuration: `repositories.yaml`, `.egg/schemas/yaml-tasks.schema.json` (YAML task definitions validated by JSON Schema).\n- Human readability matters for debugging — developers will inspect anchors during incident response.\n- JSON Schema can validate YAML files (the existing `yaml-tasks.schema.json` pattern proves this works).\n- **Counterargument considered**: JSON is more machine-parseable, but anchors are not consumed by high-throughput machine pipelines. The orchestrator reads them infrequently (on compaction events), and `PyYAML`/`ruamel.yaml` are already available in the sandbox.\n\n**Schema validation**: Define `.egg/schemas/agent-anchor.schema.json` following the existing pattern (`contract.schema.json`, `checkpoint.schema.json`). Validate YAML content against JSON Schema using the same approach as `yaml-tasks.schema.json`.\n\n### 2. SIZE BUDGET: 2KB agent / 4KB team — Validated with adjustments\n\n**Recommendation: 2KB soft limit per agent anchor, 4KB soft limit for team anchor. 3KB hard limit per agent, 6KB hard limit for team. Gateway enforces hard limits.**\n\n**Rationale:**\n- Claude's context window after compaction retains ~50-70% of capacity. Injecting a 2KB anchor (~500 tokens) consumes <1% of even the smallest usable window. This is comparable to a `CLAUDE.md` section.\n- The existing contract files average ~2.2-2.5KB (`901.json` = 2203 bytes, `897.json` = 2510 bytes). Anchors should be similar in size — they serve a similar structural purpose.\n- **Soft limit** (2KB/4KB): The CLI warns when exceeded but doesn't block. Agents should self-regulate by summarizing older entries and pruning completed items.\n- **Hard limit** (3KB/6KB): The gateway rejects writes that exceed this. Prevents runaway anchors from consuming excessive context budget. The 50% overhead above soft limit allows for temporary spikes during complex coordination.\n- **Team anchor at 2x**: The team anchor tracks N agents' statuses plus cross-cutting decisions. 4KB soft / 6KB hard is sufficient for teams of up to ~8 agents (the current max is 10 per pipeline).\n\n**Auto-pruning strategy**: When an anchor approaches the soft limit, the agent should:\n1. Move completed items to a `history` section (excluded from injection)\n2. Summarize older decisions into a single line\n3. Drop `files_modified` entries for files no longer being actively edited\n\n### 3. UPDATE MECHANISM: Self-report with orchestrator enrichment\n\n**Recommendation: Agents self-report their own anchors. The orchestrator enriches with observed state for the team anchor only.**\n\n**Protocol:**\n\n**Agent anchors (self-report):**\n- Agents write their own anchor via `egg-orch anchor update` CLI command\n- Updates happen at natural checkpoints: sub-task completion, decision made, status change, BRC state transition\n- The CLI validates the YAML against the schema before writing\n- Agents are prompted (via system instructions) to update anchors at these moments\n\n**Team anchor (orchestrator-maintained):**\n- The orchestrator/mediator maintains the team anchor by aggregating:\n  - Agent status from heartbeats and signals\n  - BRC consensus state from `PeerConsensusTracker`\n  - Cross-agent decisions from the message bus\n  - Dependency/blocking relationships\n- This avoids requiring agents to maintain a shared file (which would cause write conflicts)\n\n**Why not purely observed?**\n- Only the agent knows its *intent* — what it's currently trying to do, what approach it chose, what it learned. Observed state (heartbeats, git commits) captures *actions* but not *reasoning*.\n- The consensus_wrapper recovery prompt already relies on self-reported BRC state; anchors extend this pattern.\n\n**Why not purely self-report?**\n- Agents can't reliably observe other agents' state. The team anchor needs a coordinator perspective.\n- Self-reported status can lag (agent forgets to update). The orchestrator enriches with authoritative timing data.\n\n### 4. CONFLICT RESOLUTION: Anchor-wins with freshness check\n\n**Recommendation: After compaction, the anchor is the authoritative starting point. The agent then validates against live state and reconciles.**\n\n**Protocol:**\n\n1. **Injection**: Post-compaction, the anchor is injected into context with a header:\n   ```\n   ## ANCHOR RECOVERY — Your context was compacted\n   The following is your last saved state. Verify against live state before proceeding.\n   ```\n\n2. **Freshness check**: The injected prompt instructs the agent to:\n   - Run `egg-orch consensus status` to verify BRC state matches anchor\n   - Run `egg-orch message poll --since <last_message_id>` to catch messages received after last anchor update\n   - Check `git log --oneline -5` to verify file state matches anchor's `files_modified`\n\n3. **Reconciliation rules**:\n   - **Anchor says \"waiting on X\", but X already responded**: Agent processes the response (messages are in Redis, not lost). Agent updates anchor.\n   - **Anchor says \"working on task A\", but task A was completed post-anchor-write**: Git log shows the commit. Agent advances to next task and updates anchor.\n   - **Anchor says \"decided approach B\", but team anchor shows approach A**: Team anchor wins (it reflects consensus). Agent adjusts.\n   - **Anchor is stale (>5 minutes old with no updates)**: Warn the agent that significant state may have changed. Encourage thorough verification.\n\n4. **Corruption/missing anchor**: If the anchor file is missing or unparseable, fall back to:\n   - Team anchor (for role/task assignment)\n   - `egg-contract show` (for task list)\n   - `egg-orch consensus status` (for BRC state)\n   - Last checkpoint (if available)\n\n### 5. ANCHOR CLEANUP: Lifecycle tied to agent session, retained for audit\n\n**Recommendation: Create on agent spawn, delete (soft) on agent termination, retain in checkpoints.**\n\n**Lifecycle:**\n\n| Event | Action |\n|-------|--------|\n| Agent spawned | Create empty anchor with `agent_id`, `role`, `team`, `task` from spawn context |\n| Agent working | Agent updates anchor at milestones |\n| Agent CONFIRMED (BRC) | Mark anchor status as `confirmed` |\n| Agent terminated (clean) | Move anchor to `.egg-state/agent-anchors/archive/<agent-id>.yaml` |\n| Agent terminated (crash) | Anchor stays in place; consensus_wrapper or replacement agent uses it for recovery |\n| Pipeline complete | Archive all anchors to checkpoint branch |\n| Pipeline deleted | Delete anchor directory |\n\n**Retention:**\n- Active anchors: live in `.egg-state/agent-anchors/` during pipeline execution\n- Archived anchors: moved to `archive/` subdirectory on clean termination\n- Checkpoint inclusion: gateway's checkpoint handler includes anchor files in the checkpoint commit (alongside transcripts and artifacts)\n- On-disk retention: 7 days in archive, then auto-pruned by a cleanup job (or next pipeline run)\n\n**Team anchor lifecycle:**\n- Created by orchestrator when the first agent is spawned\n- Updated continuously by orchestrator\n- Archived when all agents are terminated and pipeline advances/completes\n\n### 6. GATEWAY ENFORCEMENT: Yes, agent-scoped writes enforced\n\n**Recommendation: The gateway enforces that agents can only write their own anchor file. Team anchor is write-restricted to orchestrator/mediator roles.**\n\n**Implementation:**\n\nAdd to `gateway/phase_filter.py` a new `FileRestriction` rule:\n```python\nFileRestriction(\n    role=\"*\",  # All roles\n    blocked_patterns=[\".egg-state/agent-anchors/*.yaml\"],\n    blocked_reason=\"Agents may only write their own anchor file\"\n)\n```\n\nThe gateway's git push filter already normalizes paths and checks role-based restrictions. For anchors:\n- Extract `agent_id` from the filename\n- Verify it matches the pushing agent's session ID (available from the gateway session)\n- Allow writes only to `agent-anchors/<own-agent-id>.yaml`\n- Team anchor (`team-<team-id>.yaml`) writable only by `mediator`, `overseer`, `coordinator`, and `liaison` roles\n\nThis follows the existing pattern where `phase_filter.py` enforces role-based file restrictions (e.g., coders can't write to `.egg-state/contracts/`).\n\n**CLI enforcement (defense in depth):**\n- `egg-orch anchor update` verifies `EGG_AGENT_ROLE` and session identity before writing\n- Rejects writes to other agents' anchor files at the CLI level (before gateway check)\n\n---\n\n## Schema Definition\n\n```yaml\n# .egg/schemas/agent-anchor.schema.json (expressed here in YAML for readability)\n$schema: \"https://json-schema.org/draft/2020-12/schema\"\n$id: \"https://github.com/jwbron/egg/schemas/agent-anchor.schema.json\"\ntitle: \"Agent Anchor\"\ndescription: \"Persistent state anchor for post-compaction recovery\"\ntype: object\nrequired: [schema_version, agent_id, role, team, task, status, updated_at]\nproperties:\n  schema_version:\n    type: string\n    pattern: \"^[0-9]+\\\\.[0-9]+$\"\n    default: \"1.0\"\n  agent_id:\n    type: string\n    description: \"Unique agent identifier (e.g., coder-abc123)\"\n  role:\n    type: string\n    description: \"Agent role (coder, tester, documenter, etc.)\"\n  team:\n    type: string\n    description: \"Team/pipeline identifier (e.g., issue-432)\"\n  task:\n    type: string\n    description: \"Current task description (human-readable)\"\n    maxLength: 200\n  spawned_by:\n    type: string\n    description: \"Role that spawned this agent (liaison, coordinator)\"\n  status:\n    type: string\n    enum: [initializing, in_progress, waiting, blocked, confirmed, completed, failed]\n  updated_at:\n    type: string\n    format: date-time\n  last_message_id:\n    type: string\n    description: \"Last processed message ID for post-compaction catch-up\"\n  progress:\n    type: array\n    items:\n      type: object\n      required: [state, description]\n      properties:\n        state:\n          type: string\n          enum: [completed, current, pending]\n        description:\n          type: string\n          maxLength: 120\n    maxItems: 10\n    description: \"Ordered task progress (max 10 items to enforce size budget)\"\n  decisions:\n    type: array\n    items:\n      type: object\n      required: [with_agent, decided, timestamp]\n      properties:\n        with_agent:\n          type: string\n        decided:\n          type: string\n          maxLength: 150\n        timestamp:\n          type: string\n          format: date-time\n    maxItems: 8\n    description: \"Key decisions made with other agents (max 8)\"\n  waiting_on:\n    type: array\n    items:\n      type: string\n    description: \"Agent roles this agent is waiting on\"\n  blocked_by:\n    type: array\n    items:\n      type: string\n    description: \"Agent roles blocking this agent\"\n  files_modified:\n    type: array\n    items:\n      type: string\n    maxItems: 15\n    description: \"Files currently being modified (max 15)\"\n  key_context:\n    type: array\n    items:\n      type: string\n      maxLength: 150\n    maxItems: 5\n    description: \"Critical context that must survive compaction (max 5 items)\"\n  brc_state:\n    type: object\n    description: \"BRC consensus protocol state snapshot\"\n    properties:\n      phase:\n        type: string\n        enum: [WORKING, PROPOSED, REVIEWING, CONFIRMED]\n      proposal_version:\n        type: integer\n      pending_reviews:\n        type: array\n        items:\n          type: string\n      received_acks:\n        type: array\n        items:\n          type: string\n      received_nacks:\n        type: array\n        items:\n          type: object\n          properties:\n            reviewer:\n              type: string\n            reason:\n              type: string\nadditionalProperties: false\n```\n\n**Team anchor schema** extends this with:\n- `agents`: map of agent_id → {role, status, last_heartbeat}\n- `team_decisions`: array of team-level decisions\n- `dependency_graph`: current blocking relationships\n- `escalation_history`: array of HITL escalations\n\n---\n\n## Integration Points\n\n### With egg-contract system\n- Anchors complement contracts, not replace them. Contracts track pipeline-level tasks and acceptance criteria. Anchors track agent-level working state.\n- `egg-contract show` output can seed the initial anchor's `task` and `progress` fields.\n- When an agent links a commit via `egg-contract add-commit`, the anchor's `progress` should also be updated (the CLI can do both).\n\n### With checkpoint system\n- Anchor files are included in checkpoint commits (extend `gateway/checkpoint_handler.py`)\n- On agent restart (not just compaction), the checkpoint loader can surface the previous session's anchor as additional context.\n- `egg-checkpoint show` should display anchor state alongside transcript/artifacts.\n\n### With BRC consensus protocol\n- The anchor's `brc_state` section mirrors `PeerConsensusTracker` state for the specific agent.\n- After compaction, the agent uses the anchor's `brc_state` to know whether it has already proposed, received reviews, etc.\n- The `consensus_wrapper.py` recovery prompt should reference the anchor file instead of (or in addition to) querying the orchestrator API. This reduces API calls and provides richer context.\n- `last_message_id` enables the agent to poll only new messages post-compaction.\n\n### With cross-agent messaging (#1027)\n- When an agent receives a message that represents a decision, it should record it in the anchor's `decisions` array.\n- The `last_message_id` field enables efficient catch-up after compaction (poll `--since <id>` instead of re-reading all messages).\n\n---\n\n## CLI Design\n\n```bash\n# Update own anchor (validates schema, enforces size limit)\negg-orch anchor update --status in_progress \\\n  --progress '{\"state\":\"current\",\"description\":\"Fixing token validation\"}' \\\n  --decision '{\"with_agent\":\"tester\",\"decided\":\"Use parametrized tests\"}' \\\n  --key-context \"Token validation skips expiry for admin scope\" \\\n  --last-message-id msg-abc123\n\n# View own anchor\negg-orch anchor show\n\n# View another agent's anchor (read-only)\negg-orch anchor show --agent coder-abc123\n\n# View team anchor\negg-orch anchor show --team issue-432\n\n# Validate anchor against schema\negg-orch anchor validate\n```\n\nThe CLI writes to `.egg-state/agent-anchors/<agent-id>.yaml` using the agent ID from `EGG_AGENT_ROLE` + session context.\n\n---\n\n## Edge Cases\n\n### Agent crash before anchor update\n- The last-written anchor is the recovery point. It may be stale.\n- The freshness check protocol (section 4) handles this: the replacement agent verifies against live state.\n- Worst case: anchor is from session start. The agent falls back to contract + checkpoint + message history.\n\n### Concurrent anchor writes\n- Not possible for agent anchors (one agent per file, gateway-enforced).\n- Team anchor: the orchestrator is single-threaded per pipeline. No concurrent writes.\n- If the architecture changes to allow multiple writers, use Redis-based locking (already available in the sandbox).\n\n### Anchor corruption\n- YAML parse failure: fall back to contract + live state queries (section 4).\n- Schema validation failure: log warning, attempt partial recovery of parseable fields.\n- Empty file: treat as missing (section 4 fallback chain).\n\n### Anchor-context mismatch after rapid changes\n- Between the last anchor update and compaction, significant state may have changed.\n- The `updated_at` timestamp lets the post-compaction injection warn: \"Anchor is N minutes stale.\"\n- The freshness check protocol catches up via message poll and git log.\n\n### Multiple compaction events in one session\n- Each compaction re-injects the anchor. The agent should update the anchor after each recovery to keep it fresh.\n- The injection prompt reminds: \"Update your anchor after verifying state.\"\n\n---\n\n## Implementation Phases\n\n### Phase 1: Core infrastructure\n1. Define JSON Schema (`.egg/schemas/agent-anchor.schema.json`)\n2. Add `egg-orch anchor` CLI commands (update, show, validate)\n3. Add anchor directory creation to pipeline startup\n4. Add gateway enforcement for agent-scoped writes\n5. Add constants to `shared/egg_config/constants.py` (`ANCHOR_DIR`, size limits)\n\n### Phase 2: Agent integration\n1. Add anchor update instructions to agent system prompts (CLAUDE.md rules)\n2. Modify `consensus_wrapper.py` to reference anchor in recovery prompt\n3. Add anchor injection to post-compaction context loading\n4. Extend checkpoint handler to include anchors\n\n### Phase 3: Team anchor & enrichment\n1. Implement team anchor maintenance in orchestrator\n2. Add orchestrator enrichment (heartbeat → team anchor)\n3. Integrate BRC state snapshots into anchors\n4. Add `last_message_id` tracking for efficient catch-up\n\n### Phase 4: Cleanup & observability\n1. Implement anchor archival on agent termination\n2. Add anchor state to `egg-checkpoint show` output\n3. Add anchor size monitoring and auto-pruning warnings\n4. Add anchor freshness alerts to overseer agent\n\n---\n\n## Success Criteria\n\n1. Agents update anchors at natural milestones (sub-task completion, decisions, status changes)\n2. After context compaction, agents resume coherently using anchor + freshness check\n3. No duplicate work or contradictory decisions after compaction events\n4. Team anchor provides mediator/overseer with consistent team state view\n5. Anchor files stay within size budget (>95% of updates under soft limit)\n6. Gateway enforces agent-scoped writes (no cross-agent anchor tampering)\n7. Anchors are included in checkpoints for audit/debugging\n8. Anchor system adds <500ms latency to agent milestone operations\n",
-      "options": [
-        "approve",
-        "request changes"
-      ],
-      "decision_type": "phase_gate",
-      "questions": [],
-      "status": "cancelled",
-      "created_at": "2026-03-15T06:16:59.775388",
-      "resolved_at": "2026-03-15T06:20:49.682829",
-      "resolution": null,
-      "phase": "refine"
-    },
-    {
-      "id": "decision-3",
-      "question": "The plan phase has completed. Please review the plan and approve to continue, or provide feedback to request changes.",
-      "context": "",
-      "options": [
-        "approve",
-        "request changes"
-      ],
-      "decision_type": "phase_gate",
-      "questions": [],
-      "status": "pending",
-      "created_at": "2026-03-15T06:31:07.621614",
-      "resolved_at": null,
-      "resolution": null,
-      "phase": "plan"
-    }
-  ],
-  "created_at": "2026-03-15T06:04:04.531778",
-  "updated_at": "2026-03-15T06:31:07.643465",
-  "contract_synced": true,
+  "phases": {},
+  "decisions": [],
+  "created_at": "2026-03-15T06:51:43.025288",
+  "updated_at": "2026-03-15T06:51:43.025523",
+  "contract_synced": false,
   "network_mode": null,
   "short_circuit": false,
   "complexity_tier": "mid",
   "error": null,
-  "coordinator_state": {
-    "workflow_type": "",
-    "agents_spawned": [
-      {
-        "role": "refiner",
-        "spawned_at": "2026-03-15T06:04:36.530813",
-        "completed_at": "2026-03-15T06:09:40.860252Z",
-        "status": "complete",
-        "container_id": "be2f24706f70f3707d95b8ddb1f66b0c8cca17c201ba3019d0d75115aa343739",
-        "task_context": "Refine issue #1032: Agent anchor mechanism for post-compaction state recovery.\n\nTASK: Analyze the issue requirements, resolve the 6 key design questions, and produce a refined specification.\n\nThe issue proposes a persistent anchor file system (.egg-state/agent-anchors/<agent-id>.yaml) that agents maintain to recover state after context compaction. Key areas to refine:\n\n1. FORMAT: YAML vs JSON vs both - recommend one with rationale\n2. SIZE BUDGET: Proposed 2KB per agent, 4KB for team. Validate or adjust.\n3. UPDATE MECHANISM: Self-report vs observed state vs both - define the protocol\n4. CONFLICT RESOLUTION: How to reconcile diverged in-memory vs anchor state post-compaction\n5. ANCHOR CLEANUP: Lifecycle policy (when created, when deleted, retention for audit)\n6. GATEWAY ENFORCEMENT: Should gateway enforce agent-scoped writes to anchor files?\n\nAlso consider:\n- Integration with existing egg-contract system and checkpoint system\n- Schema validation for anchor files\n- How anchors interact with the BRC consensus protocol (#1027, #1028, #1030)\n- Edge cases: agent crash before anchor update, concurrent anchor writes, anchor corruption\n\nRead the issue carefully (gh issue view 1032), review existing related code in .egg-state/, shared/egg_config/, and the gateway enforcement layer. Produce a refined spec in .egg-state/drafts/ with clear recommendations for each design question.",
-        "retry_number": 0
-      },
-      {
-        "role": "reviewer_refine",
-        "spawned_at": "2026-03-15T06:04:50.972766",
-        "completed_at": "2026-03-15T06:10:59.314528Z",
-        "status": "complete",
-        "container_id": "8f5b3def7f55146887346964658c04eec598f5da1403f5bb55f996b52f7863af",
-        "task_context": "Review the refiner's output for issue #1032: Agent anchor mechanism for post-compaction state recovery.\n\nThe issue proposes persistent anchor files that agents maintain for state recovery after context compaction. The refiner is producing a refined spec with design decisions.\n\nYOUR REVIEW FOCUS:\n- Are the design decisions well-justified? Do the recommended approaches handle edge cases?\n- Is the anchor schema complete enough for all agent roles (coder, tester, documenter, reviewer, mediator)?\n- Are size budgets realistic? Will 2KB be enough for complex multi-file tasks?\n- Is the conflict resolution strategy sound? What happens if anchor is stale?\n- Does the cleanup policy balance audit needs with disk/branch pollution?\n- Are dependencies on #1027, #1028, #1030 correctly identified and scoped?\n- Are there missing requirements or unstated assumptions?\n\nRead the issue (gh issue view 1032) and the refiner's draft output in .egg-state/drafts/ when available. Provide specific, actionable feedback.",
-        "retry_number": 0
-      },
-      {
-        "role": "reviewer_agent_design",
-        "spawned_at": "2026-03-15T06:04:51.329207",
-        "completed_at": "2026-03-15T06:09:03.472188Z",
-        "status": "complete",
-        "container_id": "3fcdabf299726dd14b6cddef0fecf05d2b8906b792a0eed5d8bef624c2cf4377",
-        "task_context": "Review the refiner's output for issue #1032: Agent anchor mechanism for post-compaction state recovery.\n\nThis issue introduces a new subsystem for agent state persistence. Review from an AGENT DESIGN perspective:\n\nYOUR REVIEW FOCUS:\n- Does the anchor mechanism integrate cleanly with the existing agent lifecycle (spawn → work → signal → complete)?\n- How does this interact with the BRC consensus protocol? Will anchors capture consensus state correctly?\n- Is the injection mechanism post-compaction well-defined? How does it interact with CLAUDE.md and other system prompt components?\n- Are there concerns about anchor staleness causing agents to act on outdated state?\n- Does the team-level anchor create a single point of failure for the mediator?\n- How does this interact with egg-checkpoint? Is there duplication or complementary coverage?\n- Will gateway enforcement of agent-scoped writes be feasible given current gateway architecture?\n\nRead the issue (gh issue view 1032) and review the refiner's draft in .egg-state/drafts/ when available. Provide specific architectural feedback.",
-        "retry_number": 0
-      },
-      {
-        "role": "architect",
-        "spawned_at": "2026-03-15T06:21:49.293506",
-        "completed_at": "2026-03-15T06:26:27.934779Z",
-        "status": "complete",
-        "container_id": "b7e34af512ac2440e0d641f1406338e0eb55cb668bdd775bc6151550994ee4f9",
-        "task_context": "Design the agent anchor mechanism for post-compaction state recovery (issue #1032). This is a new feature that allows agents to maintain structured state files (.egg-state/agent-anchors/<agent-id>.yaml) that serve as recovery points after context compaction. Key design areas:\n\n1. **Anchor file schema**: Define the YAML schema for agent anchors and team anchors. Consider the fields outlined in the issue: agent_id, role, team, task, status, progress, decisions, waiting_on, blocked_by, files_modified, key_context. Address the size budget (proposed 2KB agent, 4KB team).\n\n2. **Update mechanism**: Design how anchors are updated - both self-reported by agents and observed by the orchestrator/message bus. Define update triggers (sub-task completion, decisions, status changes, periodic self-checkpoint).\n\n3. **Post-compaction injection**: Design how anchor files are injected into agent context after compaction. Similar to CLAUDE.md loading but triggered by compaction events.\n\n4. **Team-level anchor**: Design the team-level anchor maintained by the mediator/orchestrator tracking active agents, team decisions, cross-agent dependencies, and escalation history.\n\n5. **Conflict resolution**: Address divergence between in-memory state and anchor (e.g., anchor says waiting but response already arrived).\n\n6. **Gateway enforcement**: Design access controls so agents can only write their own anchor file.\n\n7. **Anchor lifecycle**: Define creation, update, and cleanup (on agent termination, team completion, retention for audit).\n\n8. **Integration points**: How this connects with #1027 (cross-agent communication), #1028 (conversational coordinator), #1030 (agent roster).\n\nRead the existing codebase structure, especially .egg-state/, shared/egg_config/, gateway/, and sandbox/ to understand current patterns. Check docs/index.md for navigation. Output your architecture plan to .egg-state/drafts/architecture-plan.md.",
-        "retry_number": 0
-      },
-      {
-        "role": "task_planner",
-        "spawned_at": "2026-03-15T06:21:49.671232",
-        "completed_at": "2026-03-15T06:25:42.020316Z",
-        "status": "complete",
-        "container_id": "02323fb6fde97687872a60a032e5d0d79dfa9be0443c84d7e074ff3a869ed5bf",
-        "task_context": "Create a task breakdown for implementing the agent anchor mechanism (issue #1032). Read the issue details with 'gh issue view 1032' and review the existing codebase structure.\n\nBreak the implementation into concrete, ordered tasks:\n\n1. **Schema definition**: YAML schema for agent anchors and team anchors, with validation\n2. **Core library**: Python module for creating, reading, updating, and deleting anchor files (CRUD operations)\n3. **Agent self-update integration**: Hook into agent lifecycle to trigger anchor updates at milestones, decisions, status changes\n4. **Message bus integration**: Connect with cross-agent message bus (#1027) to update anchors from conversation summaries\n5. **Post-compaction injection**: Mechanism to detect compaction and inject anchor into refreshed context\n6. **Gateway enforcement**: Access control rules so agents can only modify their own anchor\n7. **Team anchor management**: Mediator/orchestrator logic for maintaining team-level state\n8. **Conflict resolution**: Logic for reconciling stale anchor state with current reality\n9. **Cleanup and lifecycle**: Anchor deletion on agent/team termination, retention policy\n10. **Tests**: Unit and integration tests for all components\n\nFor each task, specify: files to create/modify, dependencies on other tasks, estimated complexity, and acceptance criteria.\n\nOutput your task plan to .egg-state/drafts/task-plan.md.",
-        "retry_number": 0
-      },
-      {
-        "role": "risk_analyst",
-        "spawned_at": "2026-03-15T06:21:49.987880",
-        "completed_at": "2026-03-15T06:26:14.774860Z",
-        "status": "complete",
-        "container_id": "bb51b40727f5049387ffd9354f09d2aa72e4e7d76748815b0f605f2a106a27f1",
-        "task_context": "Analyze risks for the agent anchor mechanism implementation (issue #1032). Read the issue with 'gh issue view 1032' and review the existing codebase.\n\nKey risk areas to assess:\n\n1. **Context budget risk**: Anchor files injected post-compaction consume context window space. If anchors grow too large, they defeat the purpose of compaction. Assess the 2KB/4KB size budget proposal.\n\n2. **Stale state risk**: Anchor may diverge from reality between updates. Agent acts on outdated anchor after compaction. What's the blast radius?\n\n3. **Race conditions**: Multiple agents updating related state simultaneously (e.g., agent updates its anchor while mediator updates team anchor with different view of that agent's status).\n\n4. **Performance impact**: Frequent anchor writes to disk. Impact on agent throughput, especially with gateway enforcement checks.\n\n5. **Schema evolution**: How to handle anchor format changes as the feature evolves. Backward compatibility.\n\n6. **Dependency risks**: This depends on #1027 (messaging), #1028 (coordinator), #1030 (roster). What if those aren't ready? Can this be implemented incrementally?\n\n7. **Security**: Anchor files contain task context and decisions. Could a compromised agent read other agents' anchors to gain unauthorized context?\n\n8. **Failure modes**: What happens if anchor write fails? If anchor file is corrupted? If compaction happens mid-anchor-update?\n\nFor each risk, provide: likelihood, impact, mitigation strategy, and residual risk.\n\nOutput your risk analysis to .egg-state/drafts/risk-analysis.md.",
-        "retry_number": 0
-      },
-      {
-        "role": "reviewer_plan",
-        "spawned_at": "2026-03-15T06:21:50.305644",
-        "completed_at": "2026-03-15T06:30:06.090276Z",
-        "status": "complete",
-        "container_id": "7a52ac41f5a143dedc4161e293ba840ebb48bb8e98b7a9848b47773945beba03",
-        "task_context": "Review the plan phase outputs for the agent anchor mechanism (issue #1032). Read the issue with 'gh issue view 1032'.\n\nWait for the architect, task_planner, and risk_analyst outputs to appear in .egg-state/drafts/ (architecture-plan.md, task-plan.md, risk-analysis.md). Poll for these files periodically.\n\nReview criteria:\n1. **Completeness**: Does the architecture cover all aspects from the issue? Are all design questions addressed?\n2. **Feasibility**: Can this be implemented within the existing codebase patterns? Check existing .egg-state/, gateway/, shared/ patterns.\n3. **Task ordering**: Are dependencies between tasks correct? Is the breakdown granular enough for parallel agent work?\n4. **Risk coverage**: Are the identified risks realistic? Are mitigations actionable?\n5. **Size budget**: Is the 2KB/4KB anchor size budget realistic given the schema?\n6. **Integration**: Does the plan properly account for dependencies on #1027, #1028, #1030?\n7. **Testability**: Is the design testable? Are acceptance criteria clear?\n\nProvide your review in .egg-state/drafts/plan-review.md with specific feedback for each document.",
-        "retry_number": 0
-      }
-    ],
-    "phase_decisions": [],
-    "escalations": [],
-    "guardrail_counters": {
-      "total_agents_spawned": 7,
-      "retries_by_role": {
-        "refiner": 1,
-        "reviewer_refine": 1,
-        "reviewer_agent_design": 1,
-        "architect": 1,
-        "task_planner": 1,
-        "risk_analyst": 1,
-        "reviewer_plan": 1
-      },
-      "coordinator_respawns": 0,
-      "started_at": "2026-03-15T06:04:12.435560"
-    }
-  },
+  "coordinator_state": null,
   "plan_phase_waves": null,
   "plan_phase_names": null,
-  "version": 42
+  "version": 2
 }
