@@ -37,7 +37,6 @@ def client(app):
 
 def _make_concurrent_pipeline(pipeline_id: str = "issue-999", **config_overrides) -> Pipeline:
     """Create a pipeline with concurrent_execution enabled."""
-    config = PipelineConfig()
     defaults = {
         "concurrent_execution": True,
         "max_concurrent_agents": 4,
@@ -45,11 +44,7 @@ def _make_concurrent_pipeline(pipeline_id: str = "issue-999", **config_overrides
         "consensus_timeout_minutes": 30,
     }
     defaults.update(config_overrides)
-    for key, val in defaults.items():
-        try:
-            setattr(config, key, val)
-        except (AttributeError, ValueError):
-            config.__dict__[key] = val
+    config = PipelineConfig(**defaults)
 
     return Pipeline(
         id=pipeline_id,
@@ -67,8 +62,7 @@ class TestGetConcurrentStatusUnit:
 
     def test_returns_none_when_concurrent_not_enabled(self):
         """Should return None for a pipeline with concurrent execution disabled."""
-        config = PipelineConfig()
-        config.concurrent_execution = False
+        config = PipelineConfig(concurrent_execution=False, concurrent_phases=[])
         pipeline = Pipeline(
             id="issue-100",
             issue_number=100,
@@ -205,8 +199,7 @@ class TestPipelineStatusConcurrentEndpoint:
         self, mock_resolve, mock_repo_path, client
     ):
         """Verify concurrent section is NOT present for non-concurrent pipelines."""
-        config = PipelineConfig()
-        config.concurrent_execution = False
+        config = PipelineConfig(concurrent_execution=False, concurrent_phases=[])
         pipeline = Pipeline(
             id="issue-100",
             issue_number=100,

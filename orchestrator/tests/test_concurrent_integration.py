@@ -39,22 +39,12 @@ def client(app):
 
 def _make_concurrent_pipeline(pipeline_id: str = "issue-999") -> Pipeline:
     """Create a pipeline with concurrent_execution enabled."""
-    config = PipelineConfig()
-    # Set concurrent execution fields (added by Phase 2 / TASK-2-1)
-    # Use setattr since PipelineConfig may not have these fields yet
-    # (Phase 2 dependency). When Phase 2 is implemented, these become
-    # regular field assignments.
-    try:
-        config.concurrent_execution = True  # type: ignore[attr-defined]
-        config.max_concurrent_agents = 6  # type: ignore[attr-defined]
-        config.message_poll_hint_seconds = 30  # type: ignore[attr-defined]
-        config.consensus_timeout_minutes = 30  # type: ignore[attr-defined]
-    except (AttributeError, ValueError):
-        # Fields not yet on PipelineConfig — set via __dict__ for testing
-        config.__dict__["concurrent_execution"] = True
-        config.__dict__["max_concurrent_agents"] = 6
-        config.__dict__["message_poll_hint_seconds"] = 30
-        config.__dict__["consensus_timeout_minutes"] = 30
+    config = PipelineConfig(
+        concurrent_execution=True,
+        max_concurrent_agents=6,
+        message_poll_hint_seconds=30,
+        consensus_timeout_minutes=30,
+    )
 
     pipeline = Pipeline(
         id=pipeline_id,
@@ -100,8 +90,7 @@ class TestConcurrentPipelineStatus:
     @patch("routes.pipelines._resolve_pipeline")
     def test_status_no_concurrent_when_disabled(self, mock_resolve, mock_repo_path, client):
         """When concurrent_execution is false, status has no concurrent section."""
-        config = PipelineConfig()
-        config.concurrent_execution = False
+        config = PipelineConfig(concurrent_execution=False, concurrent_phases=[])
         pipeline = Pipeline(
             id="issue-100",
             issue_number=100,

@@ -10,7 +10,7 @@ from enum import StrEnum
 from typing import Any, Literal, NamedTuple
 
 from egg_contracts.models import PipelinePhase
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class PipelineStatus(StrEnum):
@@ -344,8 +344,15 @@ class PipelineConfig(BaseModel):
         description="Enable parallel phase execution for independent plan phases (Tier 3 only)",
     )
     concurrent_execution: bool = Field(
-        default=True,
+        default=False,
         description="Enable concurrent agent execution within a phase (all agents start simultaneously)",
+    )
+    concurrent_phases: list[str] = Field(
+        default=["refine", "plan", "implement"],
+        description=(
+            "Phases where BRC concurrent execution is activated even when "
+            "concurrent_execution is False. Ignored when concurrent_execution is True."
+        ),
     )
     max_concurrent_agents: int = Field(
         default=6, ge=1, description="Maximum concurrent agents per phase"
@@ -374,6 +381,15 @@ class PipelineConfig(BaseModel):
     coordinator_max_respawns: int = Field(
         default=2, ge=0, description="Maximum coordinator respawns after crash"
     )
+
+    @field_validator("concurrent_phases")
+    @classmethod
+    def validate_concurrent_phases(cls, v: list[str]) -> list[str]:
+        valid = {p.value for p in PipelinePhase}
+        invalid = [p for p in v if p not in valid]
+        if invalid:
+            raise ValueError(f"Invalid phase names: {invalid}")
+        return v
 
 
 class Pipeline(BaseModel):
