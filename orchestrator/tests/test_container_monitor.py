@@ -33,17 +33,14 @@ from container_monitor import (
     ContainerEvent,
     ContainerMonitor,
     _reconcile_container_state,
-    _reconcile_coordinator_agent,
     create_pipeline_reconciliation_handler,
 )
 from models import (
     AgentExecution,
     AgentExecutionStatus,
     AgentRole,
-    AgentSpawnRecord,
     ContainerInfo,
     ContainerStatus,
-    CoordinatorState,
     Pipeline,
     PipelinePhase,
     PipelineStatus,
@@ -264,130 +261,6 @@ class TestReconcileContainerState:
 
 
 # ---------------------------------------------------------------------------
-# Helpers: coordinator-spawned agents
-# ---------------------------------------------------------------------------
-
-
-def _make_pipeline_with_coordinator_agent(container_id: str = "coord_agent_123") -> Pipeline:
-    """Return a RUNNING pipeline with a coordinator-spawned agent."""
-    pipeline = Pipeline(
-        id="local-99",
-        repo="owner/repo",
-        status=PipelineStatus.RUNNING,
-        current_phase=PipelinePhase.IMPLEMENT,
-        coordinator_state=CoordinatorState(
-            agents_spawned=[
-                AgentSpawnRecord(
-                    role=AgentRole.DOCUMENTER,
-                    container_id=container_id,
-                    status="running",
-                    task_context="Update the README",
-                ),
-            ],
-        ),
-    )
-    return pipeline
-
-
-# ---------------------------------------------------------------------------
-# Tests: _reconcile_coordinator_agent
-# ---------------------------------------------------------------------------
-
-
-class TestReconcileCoordinatorAgent:
-    """Tests for the _reconcile_coordinator_agent helper."""
-
-    def test_marks_agent_complete_on_graceful_exit(self):
-        """A coordinator-spawned agent that exits cleanly is marked complete."""
-        container_id = "coord_agent_123"
-        pipeline = _make_pipeline_with_coordinator_agent(container_id)
-        store = _make_store(pipeline)
-        exited_info = _make_container_info(container_id, exit_code=0)
-
-        result = _reconcile_coordinator_agent(store, exited_info, failed=False)
-
-        assert result is True
-        spawn_record = pipeline.coordinator_state.agents_spawned[0]
-        assert spawn_record.status == "complete"
-        assert spawn_record.completed_at is not None
-        store.save_pipeline.assert_called_once()
-
-    def test_marks_agent_failed_on_nonzero_exit(self):
-        """A coordinator-spawned agent that crashes is marked failed."""
-        container_id = "coord_agent_123"
-        pipeline = _make_pipeline_with_coordinator_agent(container_id)
-        store = _make_store(pipeline)
-        exited_info = _make_container_info(container_id, exit_code=1)
-
-        result = _reconcile_coordinator_agent(store, exited_info, failed=True)
-
-        assert result is True
-        spawn_record = pipeline.coordinator_state.agents_spawned[0]
-        assert spawn_record.status == "failed"
-        assert spawn_record.completed_at is not None
-
-    def test_ignores_already_completed_agents(self):
-        """An already-completed agent is not updated again."""
-        container_id = "coord_agent_123"
-        pipeline = _make_pipeline_with_coordinator_agent(container_id)
-        pipeline.coordinator_state.agents_spawned[0].status = "complete"
-        store = _make_store(pipeline)
-        exited_info = _make_container_info(container_id, exit_code=0)
-
-        result = _reconcile_coordinator_agent(store, exited_info, failed=False)
-
-        assert result is False
-        store.save_pipeline.assert_not_called()
-
-    def test_ignores_untracked_containers(self):
-        """A container not in coordinator_state is silently ignored."""
-        pipeline = _make_pipeline_with_coordinator_agent("other_container")
-        store = _make_store(pipeline)
-        exited_info = _make_container_info("unknown_container")
-
-        result = _reconcile_coordinator_agent(store, exited_info, failed=False)
-
-        assert result is False
-        store.save_pipeline.assert_not_called()
-
-    def test_ignores_pipelines_without_coordinator_state(self):
-        """Pipelines without coordinator_state are skipped."""
-        pipeline = _make_pipeline_with_running_agent("abc123")
-        assert pipeline.coordinator_state is None
-        store = _make_store(pipeline)
-        exited_info = _make_container_info("abc123")
-
-        result = _reconcile_coordinator_agent(store, exited_info, failed=False)
-
-        assert result is False
-        store.save_pipeline.assert_not_called()
-
-    def test_handles_version_conflict(self):
-        """Returns False on VersionConflictError (concurrent writer won)."""
-        from state_store import VersionConflictError
-
-        container_id = "coord_agent_123"
-        pipeline = _make_pipeline_with_coordinator_agent(container_id)
-        store = _make_store(pipeline)
-        store.save_pipeline.side_effect = VersionConflictError("conflict")
-        exited_info = _make_container_info(container_id, exit_code=0)
-
-        result = _reconcile_coordinator_agent(store, exited_info, failed=False)
-
-        assert result is False
-
-    def test_handles_store_list_error(self):
-        """Returns False without crashing when store.list_pipelines fails."""
-        store = MagicMock()
-        store.list_pipelines.side_effect = Exception("Store unavailable")
-        exited_info = _make_container_info("some_id")
-
-        result = _reconcile_coordinator_agent(store, exited_info, failed=False)
-
-        assert result is False
-
-
-# ---------------------------------------------------------------------------
 # Tests: create_pipeline_reconciliation_handler
 # ---------------------------------------------------------------------------
 
@@ -423,25 +296,6 @@ class TestCreatePipelineReconciliationHandler:
         handler(event)
 
         mock_get_store.assert_not_called()
-
-    @patch("state_store.get_state_store")
-    def test_handler_reconciles_coordinator_agent_on_stopped_event(self, mock_get_store):
-        """Handler processes STOPPED events for coordinator-spawned agents."""
-        container_id = "coord_agent_stopped"
-        pipeline = _make_pipeline_with_coordinator_agent(container_id)
-        store = _make_store(pipeline)
-        mock_get_store.return_value = store
-
-        handler = create_pipeline_reconciliation_handler("/repo")
-        event = ContainerEvent(
-            ContainerEvent.STOPPED,
-            _make_container_info(container_id, exit_code=0),
-        )
-        handler(event)
-
-        mock_get_store.assert_called_once()
-        spawn_record = pipeline.coordinator_state.agents_spawned[0]
-        assert spawn_record.status == "complete"
 
     @patch("state_store.get_state_store")
     def test_handler_ignores_exited_event(self, mock_get_store):

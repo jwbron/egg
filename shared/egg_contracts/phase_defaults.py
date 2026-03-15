@@ -98,11 +98,6 @@ _DEFAULT_PHASE_CONFIGS: dict[PipelinePhase, PhaseConfig] = {
         max_review_cycles=3,
         human_review_mechanism=HumanReviewMechanism.PR_REVIEW,
     ),
-    PipelinePhase.COORDINATOR: PhaseConfig(
-        checks=[],
-        max_review_cycles=1,
-        human_review_mechanism=HumanReviewMechanism.ISSUE_CHECKBOX,
-    ),
 }
 
 

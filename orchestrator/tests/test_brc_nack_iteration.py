@@ -458,7 +458,7 @@ class TestDuplicatePhaseGatePrevention:
         # make correct decisions.
         #
         # The actual dedup logic is a simple `any()` check on
-        # pipeline.decisions — tested via the coordinator route tests.
+        # pipeline.decisions — tested via the decision route tests.
         # Here we just verify the pipeline path's NACK awareness doesn't
         # create spurious success that would trigger duplicate gates.
         mock_monotonic.return_value = 0.0

@@ -245,15 +245,6 @@ def advance_phase(pipeline_id: str) -> tuple[Response, int]:
 
         previous_phase = pipeline.current_phase
 
-        # Block non-coordinator phase advance on coordinator-managed pipelines
-        # to prevent bypassing HITL gate enforcement (see #1131).
-        if pipeline.config.coordinator_enabled and not force:
-            return make_error_response(
-                f"Pipeline {pipeline_id} is coordinator-managed. "
-                "Use the coordinator phase endpoint instead.",
-                status_code=409,
-            )
-
         # Validate transition unless forced
         if not force:
             is_valid, error = validate_phase_transition(previous_phase, target_phase)

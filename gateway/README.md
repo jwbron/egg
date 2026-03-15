@@ -90,8 +90,6 @@ The gateway enforces file-level access restrictions to prevent certain roles fro
 - Fail-closed security: if file detection fails, push is blocked with HTTP 500
 - Backwards compatibility: when session role is unavailable, file restrictions are skipped to support legacy sessions
 - **Tier-aware access**: Agent file restrictions accept an optional `complexity_tier` parameter. In Tier 3 (`high`), the Integrator role uses `INTEGRATOR_TIER3_PATTERNS` which grants write access to source, test, and documentation directories for fixing integration issues across phase boundaries (while still blocking `.egg-state/contracts/` and `.github/`)
-- **Coordinator role**: The `coordinator` agent role is restricted to `.egg-state/agent-outputs/` only. All source code, docs, tests, contracts, drafts, reviews, and `.github/` are blocked. This ensures the coordinator operates purely as an orchestration layer without modifying pipeline artifacts directly (defined in `agent_restrictions.py` as `COORDINATOR_PATTERNS`)
-
 **Error messages:**
 - `Push denied: Role 'X' cannot modify: <files>. <reason>` (HTTP 403) - File blocked by restriction
 - `Push denied: Could not verify file changes for security check: <error>` (HTTP 500) - Detection failure

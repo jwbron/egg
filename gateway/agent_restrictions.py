@@ -55,8 +55,6 @@ class AgentRole:
     REVIEWER_REFINE = "reviewer_refine"
     REVIEWER_PLAN = "reviewer_plan"
     REVIEWER_UNIFIED = "reviewer_unified"  # Vestigial: kept for backwards compatibility with persisted pipeline state
-    # Coordinator role
-    COORDINATOR = "coordinator"
 
 
 @dataclass
@@ -523,35 +521,6 @@ CHECKER_PATTERNS = AgentFilePattern(
     ],
 )
 
-# Coordinator agent patterns
-# Coordinator can only write to agent-outputs (for state persistence)
-COORDINATOR_PATTERNS = AgentFilePattern(
-    role=AgentRole.COORDINATOR,
-    description="Coordinator agent: agent-outputs only (orchestrates other agents)",
-    allowed_patterns=[
-        ".egg-state/agent-outputs/",
-    ],
-    blocked_patterns=[
-        # Source code (coordinator must not modify code directly)
-        "src/",
-        "lib/",
-        "shared/",
-        "gateway/",
-        "sandbox/",
-        "action/",
-        "orchestrator/",
-        # Docs and tests
-        "docs/",
-        "tests/",
-        "test/",
-        # Protected state
-        ".egg-state/contracts/",
-        ".egg-state/drafts/",
-        ".egg-state/reviews/",
-        ".github/",
-    ],
-)
-
 
 # Registry of all agent patterns
 AGENT_PATTERNS: dict[str, AgentFilePattern] = {
@@ -570,7 +539,6 @@ AGENT_PATTERNS: dict[str, AgentFilePattern] = {
     AgentRole.REVIEWER_PLAN: REVIEWER_PLAN_PATTERNS,
     AgentRole.REVIEWER_UNIFIED: REVIEWER_UNIFIED_PATTERNS,
     AgentRole.CHECKER: CHECKER_PATTERNS,
-    AgentRole.COORDINATOR: COORDINATOR_PATTERNS,
 }
 
 
@@ -759,7 +727,6 @@ AGENT_GH_RESTRICTIONS: dict[str, AgentGHRestriction] = {
         AgentRole.REVIEWER_REFINE,
         AgentRole.REVIEWER_PLAN,
         AgentRole.REVIEWER_UNIFIED,
-        AgentRole.COORDINATOR,
     ]
 }
 

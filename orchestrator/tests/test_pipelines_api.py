@@ -12,11 +12,8 @@ from models import (
     AgentExecution,
     AgentExecutionStatus,
     AgentRole,
-    AgentSpawnRecord,
     ContainerInfo,
     ContainerStatus,
-    CoordinatorState,
-    GuardrailCounters,
     PhaseExecution,
     Pipeline,
     PipelinePhase,
@@ -261,12 +258,6 @@ def _make_cancellable_pipeline(pipeline_id="test-pipeline"):
             status=PipelineStatus.RUNNING,
             containers=[
                 ContainerInfo(
-                    container_id="coordinator-aaa",
-                    container_name="egg-test-coordinator",
-                    agent_role=AgentRole.COORDINATOR,
-                    status=ContainerStatus.RUNNING,
-                ),
-                ContainerInfo(
                     container_id="refiner-bbb",
                     container_name="egg-test-refiner",
                     agent_role=AgentRole.REFINER,
@@ -275,11 +266,6 @@ def _make_cancellable_pipeline(pipeline_id="test-pipeline"):
             ],
             agents=[
                 AgentExecution(
-                    role=AgentRole.COORDINATOR,
-                    status=AgentExecutionStatus.RUNNING,
-                    container_id="coordinator-aaa",
-                ),
-                AgentExecution(
                     role=AgentRole.REFINER,
                     status=AgentExecutionStatus.RUNNING,
                     container_id="refiner-bbb",
@@ -287,17 +273,6 @@ def _make_cancellable_pipeline(pipeline_id="test-pipeline"):
             ],
         ),
     }
-    pipeline.coordinator_state = CoordinatorState(
-        agents_spawned=[
-            AgentSpawnRecord(
-                role=AgentRole.REFINER,
-                status="running",
-                container_id="refiner-bbb",
-                task_context="Refine issue",
-            ),
-        ],
-        guardrail_counters=GuardrailCounters(),
-    )
     return pipeline
 
 
@@ -346,11 +321,6 @@ class TestTerminatedPipelineSyncsState:
             assert agent.completed_at is not None
             assert agent.error == "Pipeline cancelled"  # status-specific message
 
-        # Coordinator spawn records should be marked cancelled
-        for record in pipeline.coordinator_state.agents_spawned:
-            assert record.status == "cancelled"
-            assert record.completed_at is not None
-
         # Pipeline state should have been saved
         mock_store.save_pipeline.assert_called_once_with(pipeline)
 
@@ -366,7 +336,6 @@ class TestTerminatedPipelineSyncsState:
         # Mark one agent as already complete
         pipeline.phases["refine"].agents[0].status = AgentExecutionStatus.COMPLETE
         pipeline.phases["refine"].containers[0].status = ContainerStatus.EXITED
-        pipeline.coordinator_state.agents_spawned[0].status = "complete"
 
         mock_store = MagicMock()
         mock_store.update_pipeline.return_value = pipeline
@@ -391,11 +360,6 @@ class TestTerminatedPipelineSyncsState:
         # Already-complete agent/container should NOT be overwritten
         assert pipeline.phases["refine"].agents[0].status == AgentExecutionStatus.COMPLETE
         assert pipeline.phases["refine"].containers[0].status == ContainerStatus.EXITED
-        assert pipeline.coordinator_state.agents_spawned[0].status == "complete"
-
-        # Still-running agent/container should be updated
-        assert pipeline.phases["refine"].agents[1].status == AgentExecutionStatus.FAILED
-        assert pipeline.phases["refine"].containers[1].status == ContainerStatus.REMOVED
 
     @patch("routes.pipelines.get_decision_queue")
     @patch("routes.pipelines.get_container_spawner")
