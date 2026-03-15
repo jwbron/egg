@@ -124,6 +124,7 @@ The `is_open()` method returns `True` only in the `OPEN` state. `can_execute()` 
 | Multiple failures (2+ within 60s) in concurrent mode | Immediate phase abort + HITL decision |
 | Circuit breaker OPEN | Block new agent spawns; alert operators |
 | Agent failure during consensus | Remove from consensus; treat as single failure |
+| All agents exit with unresolved NACKs (concurrent mode) | Phase returns failure + HITL decision: retry phase / accept current state / abort phase |
 
 HITL escalation creates a decision in the pipeline's decision queue. Options presented to the human depend on the failure type (see [Concurrent Execution Guide](../guides/concurrent-execution.md) for concurrent-mode options).
 
