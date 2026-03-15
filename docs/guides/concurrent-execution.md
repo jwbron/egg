@@ -245,7 +245,7 @@ If consensus is not reached within `consensus_timeout_minutes`, the orchestrator
 ### Agent Failure During Consensus
 
 When an agent crashes, `PeerConsensusTracker.handle_agent_crash()` assesses impact:
-- If the crash requires escalation (e.g., a critical producer or reviewer is lost), the orchestrator logs a warning and creates a HITL decision.
+- If the crash requires escalation (e.g., a sole reviewer is lost and no other reviewer can cover the producer), the orchestrator logs a warning and creates a HITL decision.
 - Otherwise, the agent is removed from consensus tracking and treated as a single-agent failure (see failure recovery below).
 
 ## Failure Recovery
