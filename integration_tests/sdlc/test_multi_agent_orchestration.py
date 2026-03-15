@@ -35,7 +35,7 @@ class TestDependencyGraph:
     def test_build_graph_all_roles(self):
         """Build graph includes all agent roles."""
         graph = build_dependency_graph()
-        assert len(graph.nodes) == 13
+        assert len(graph.nodes) == 15
         assert AgentRole.CODER in graph.nodes
         assert AgentRole.TESTER in graph.nodes
         assert AgentRole.DOCUMENTER in graph.nodes
@@ -540,9 +540,24 @@ class TestPlanPhaseRoles:
         from egg_contracts.agent_roles import get_roles_for_phase
 
         roles = get_roles_for_phase("implement", include_reviewers=True)
-        assert len(roles) == 6  # 4 implement + 2 reviewers
+        assert len(roles) == 7  # 4 implement + 3 reviewers
+        assert AgentRole.CODER in roles
+        assert AgentRole.TESTER in roles
+        assert AgentRole.DOCUMENTER in roles
+        assert AgentRole.INTEGRATOR in roles
         assert AgentRole.REVIEWER_CODE in roles
         assert AgentRole.REVIEWER_CONTRACT in roles
+        assert AgentRole.CHECKER in roles
+
+    def test_default_includes_reviewers(self):
+        """Default call to get_roles_for_phase includes reviewer roles."""
+        from egg_contracts.agent_roles import get_roles_for_phase
+
+        roles = get_roles_for_phase("implement")
+        assert AgentRole.REVIEWER_CODE in roles
+        assert AgentRole.REVIEWER_CONTRACT in roles
+        assert AgentRole.CHECKER in roles
+        assert len(roles) == 7  # 4 implement + 3 reviewers
 
     def test_get_plan_roles_with_reviewers(self):
         """Get plan roles with reviewers included."""
@@ -705,7 +720,7 @@ class TestMultiAgentConfig:
         config = MultiAgentConfig()
         assert config.enabled is True
         assert config.parallel_execution is True
-        assert len(config.roles_enabled) == 13  # All roles
+        assert len(config.roles_enabled) == 14  # All roles
         assert len(config.phase_overrides) == 0
 
     def test_phase_override(self):
