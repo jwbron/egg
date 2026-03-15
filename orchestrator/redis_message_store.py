@@ -195,7 +195,7 @@ class RedisMessageStore:
 
         messages = []
         if result:
-            for _stream_key, entries in result:
+            for _sk, entries in result:
                 for stream_id, fields in entries:
                     if isinstance(stream_id, bytes):
                         stream_id = stream_id.decode("utf-8")
