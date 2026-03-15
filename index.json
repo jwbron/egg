@@ -145,7 +145,8 @@
       "ckpt-6c016a8ab49cf98c",
       "ckpt-41d17408cec42a56",
       "ckpt-9ee51c4ab6c38d4e",
-      "ckpt-9e0837bca4cda63c"
+      "ckpt-9e0837bca4cda63c",
+      "ckpt-f1fd424f164f208d"
     ]
   },
   "by_commit": {},
@@ -182,7 +183,8 @@
     "issue-1032": [
       "ckpt-41d17408cec42a56",
       "ckpt-9ee51c4ab6c38d4e",
-      "ckpt-9e0837bca4cda63c"
+      "ckpt-9e0837bca4cda63c",
+      "ckpt-f1fd424f164f208d"
     ],
     "issue-1059": [
       "ckpt-90a940ff983837a4",
@@ -373,7 +375,8 @@
       "ckpt-3c1d335c87be86ef"
     ],
     "issue-1032-failsafe-fetch": [
-      "ckpt-41d17408cec42a56"
+      "ckpt-41d17408cec42a56",
+      "ckpt-f1fd424f164f208d"
     ],
     "issue-1032-failsafe-push": [
       "ckpt-9ee51c4ab6c38d4e",
@@ -650,7 +653,8 @@
       "ckpt-6c016a8ab49cf98c",
       "ckpt-41d17408cec42a56",
       "ckpt-9ee51c4ab6c38d4e",
-      "ckpt-9e0837bca4cda63c"
+      "ckpt-9e0837bca4cda63c",
+      "ckpt-f1fd424f164f208d"
     ]
   },
   "by_trigger": {
@@ -799,7 +803,8 @@
       "ckpt-6c016a8ab49cf98c",
       "ckpt-41d17408cec42a56",
       "ckpt-9ee51c4ab6c38d4e",
-      "ckpt-9e0837bca4cda63c"
+      "ckpt-9e0837bca4cda63c",
+      "ckpt-f1fd424f164f208d"
     ]
   },
   "checkpoints": [
@@ -3557,8 +3562,27 @@
       "tool_call_count": 0,
       "total_tokens": 0,
       "trigger_type": "session_end"
+    },
+    {
+      "agent_type": "unknown",
+      "branch": null,
+      "commit_sha": null,
+      "created_at": "2026-03-15T22:53:47.200321Z",
+      "files_touched_count": 0,
+      "id": "ckpt-f1fd424f164f208d",
+      "issue_number": null,
+      "message_count": 0,
+      "pipeline_id": "issue-1032",
+      "pipeline_phase": null,
+      "pr_number": null,
+      "repo": null,
+      "session_id": "issue-1032-failsafe-fetch",
+      "session_status": "completed",
+      "tool_call_count": 0,
+      "total_tokens": 0,
+      "trigger_type": "session_end"
     }
   ],
-  "last_updated": "2026-03-15T22:49:31.234769Z",
+  "last_updated": "2026-03-15T22:53:48.095510Z",
   "schemaVersion": "2.0"
 }
