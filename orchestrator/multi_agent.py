@@ -657,7 +657,7 @@ def is_concurrent_execution(pipeline: Pipeline, phase: str | None = None) -> boo
         pipeline: Pipeline to check.
         phase: Optional phase name. When provided, also returns True if the
             phase is listed in ``concurrent_phases`` (which defaults to
-            ``["refine", "plan"]``).
+            ``["refine", "plan", "implement"]``).
 
     Returns:
         True if concurrent execution should be used — either because the

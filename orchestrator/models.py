@@ -10,7 +10,7 @@ from enum import StrEnum
 from typing import Any, Literal, NamedTuple
 
 from egg_contracts.models import PipelinePhase
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class PipelineStatus(StrEnum):
@@ -355,6 +355,16 @@ class PipelineConfig(BaseModel):
             "all eligible phases run concurrently regardless of this list."
         ),
     )
+
+    @field_validator("concurrent_phases")
+    @classmethod
+    def validate_concurrent_phases(cls, v: list[str]) -> list[str]:
+        valid = {p.value for p in PipelinePhase}
+        invalid = [p for p in v if p not in valid]
+        if invalid:
+            raise ValueError(f"Invalid phase names: {invalid}")
+        return v
+
     max_concurrent_agents: int = Field(
         default=6, ge=1, description="Maximum concurrent agents per phase"
     )

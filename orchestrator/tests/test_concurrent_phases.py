@@ -8,6 +8,8 @@ flag is False.
 import sys
 from pathlib import Path
 
+import pytest
+
 # Add orchestrator to path
 _orchestrator_path = Path(__file__).parent.parent
 if str(_orchestrator_path) not in sys.path:
@@ -81,9 +83,31 @@ class TestIsConcurrentExecution:
         assert is_concurrent_execution(pipeline, phase="integrate") is False
 
     def test_backward_compat_no_concurrent_phases_attr(self):
-        """Pipelines without concurrent_phases still work via global flag."""
-        pipeline = _make_pipeline(concurrent_execution=True)
-        # Simulate old config without the field
-        if hasattr(pipeline.config, "concurrent_phases"):
-            delattr(pipeline.config, "concurrent_phases")
+        """Pipelines without concurrent_phases fall back to empty list."""
+        pipeline = _make_pipeline(concurrent_execution=False)
+        # Simulate old config object that lacks the concurrent_phases field
+        # by replacing config with a plain object
+        old_config = type("OldConfig", (), {"concurrent_execution": False})()
+        pipeline.config = old_config  # type: ignore[assignment]
+        # Without concurrent_phases attr, getattr defaults to [] so phase
+        # check returns False
+        assert is_concurrent_execution(pipeline, phase="refine") is False
+
+    def test_backward_compat_global_flag_still_works(self):
+        """Global concurrent_execution=True works even without concurrent_phases."""
+        pipeline = _make_pipeline(concurrent_execution=False)
+        old_config = type("OldConfig", (), {"concurrent_execution": True})()
+        pipeline.config = old_config  # type: ignore[assignment]
         assert is_concurrent_execution(pipeline, phase="refine") is True
+
+
+class TestConcurrentPhasesValidation:
+    """Test PipelineConfig validation for concurrent_phases."""
+
+    def test_valid_phases_accepted(self):
+        config = PipelineConfig(concurrent_phases=["refine", "plan"])
+        assert config.concurrent_phases == ["refine", "plan"]
+
+    def test_invalid_phase_rejected(self):
+        with pytest.raises(ValueError, match="Invalid phase names"):
+            PipelineConfig(concurrent_phases=["refine", "implment"])
