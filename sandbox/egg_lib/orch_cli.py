@@ -1117,11 +1117,12 @@ def cmd_consensus_propose(args: argparse.Namespace) -> int:
     role = _require_role(args)
 
     # Read payload from file or construct from args
+    payload: dict[str, Any]
     if getattr(args, "file", None):
         with open(args.file) as f:
             payload = json.load(f)
     else:
-        payload: dict[str, Any] = {
+        payload = {
             "summary": getattr(args, "summary", "") or "",
             "attestation": {},
             "artifacts": getattr(args, "artifacts", []) or [],
