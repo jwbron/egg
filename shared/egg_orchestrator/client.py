@@ -496,7 +496,9 @@ class OrchestratorClient:
         """
         endpoint = f"/api/v1/pipelines/{pipeline_id}/status"
         response = self._make_request(endpoint)
-        return cast(dict[str, Any], response.get("data", {}).get("concurrent", {}).get("consensus", {}))
+        return cast(
+            dict[str, Any], response.get("data", {}).get("concurrent", {}).get("consensus", {})
+        )
 
     def send_message(
         self,
