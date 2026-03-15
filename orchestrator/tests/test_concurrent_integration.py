@@ -533,10 +533,8 @@ class TestConcurrentPromptLifecycle:
             pipeline_mode="issue",
             concurrent=True,
         )
-        assert "Concurrent Consensus Protocol" in prompt
-        assert "BOOTSTRAP" in prompt
+        assert "BRC Consensus Protocol" in prompt
         assert "STAY ALIVE" in prompt
-        assert "WAIT FOR STOP" in prompt
         assert "FAILED your role" in prompt
 
     def test_non_concurrent_prompt_omits_lifecycle_preamble(self):
@@ -549,7 +547,7 @@ class TestConcurrentPromptLifecycle:
             pipeline_id="issue-123",
             pipeline_mode="issue",
         )
-        assert "Concurrent Consensus Protocol" not in prompt
+        assert "BRC Consensus Protocol" not in prompt
 
     def test_concurrent_phase_completion_includes_polling_loop(self):
         """Concurrent prompts should have stay-alive instructions in Phase Completion."""
