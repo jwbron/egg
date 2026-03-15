@@ -1672,7 +1672,10 @@ def create_parser() -> argparse.ArgumentParser:
     cons_ack.add_argument("pipeline_id", nargs="?", help="Pipeline ID")
     cons_ack.add_argument("--role", help="Reviewer role (default: EGG_AGENT_ROLE)")
     cons_ack.add_argument(
-        "--files-reviewed", nargs="+", help="Artifact references (files, commits) reviewed"
+        "--files-reviewed",
+        nargs="+",
+        required=True,
+        help="Artifact references (files, commits) reviewed",
     )
     _add_json_flag(cons_ack)
     cons_ack.set_defaults(func=cmd_consensus_ack)
@@ -1684,7 +1687,10 @@ def create_parser() -> argparse.ArgumentParser:
     cons_nack.add_argument("--role", help="Reviewer role (default: EGG_AGENT_ROLE)")
     cons_nack.add_argument("--reason", required=True, help="Reason for NACK")
     cons_nack.add_argument(
-        "--files-reviewed", nargs="+", help="Artifact references (files, commits) reviewed"
+        "--files-reviewed",
+        nargs="+",
+        required=True,
+        help="Artifact references (files, commits) reviewed",
     )
     _add_json_flag(cons_nack)
     cons_nack.set_defaults(func=cmd_consensus_nack)

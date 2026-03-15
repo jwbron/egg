@@ -119,12 +119,15 @@ class RedisMessageStore:
         fields = _message_to_redis(message)
 
         try:
-            stream_id = self._redis.xadd(key, fields)
+            # Use a Redis pipeline for atomic xadd + hincrby
+            pipe = self._redis.pipeline()
+            pipe.xadd(key, fields)
+            pipe.hincrby(counts_key_val, message.message_type, 1)
+            results = pipe.execute()
+
+            stream_id = results[0]
             if isinstance(stream_id, bytes):
                 stream_id = stream_id.decode("utf-8")
-
-            # Increment the per-type counter for O(1) status lookups
-            self._redis.hincrby(counts_key_val, message.message_type, 1)
 
             # Cache the mapping from message UUID to stream ID
             with self._lock:
@@ -230,6 +233,11 @@ class RedisMessageStore:
 
         Uses a Redis hash counter (pipeline:{id}:msg_counts) for O(1) type
         aggregation instead of scanning the entire stream.
+
+        Note: The counter is increment-only (no decrement on message deletion
+        or stream trimming). ``total`` comes from XINFO STREAM (authoritative)
+        while ``by_type`` comes from the counter hash, so the two may diverge
+        if the stream is externally trimmed. ``clear()`` resets both.
         """
         key = _stream_key(pipeline_id)
         counts_key = _counts_key(pipeline_id)
