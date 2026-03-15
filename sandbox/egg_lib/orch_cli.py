@@ -1300,27 +1300,6 @@ def cmd_consensus_status(args: argparse.Namespace) -> int:
                 state_str += " [CONFIRMED]"
             print(state_str)
 
-    approval_matrix = consensus.get("approval_matrix", {})
-    if approval_matrix:
-        print("\nApproval matrix:")
-        for producer, reviewers in approval_matrix.items():
-            if isinstance(reviewers, dict):
-                reviews = []
-                for reviewer, verdict in reviewers.items():
-                    reviews.append(f"{reviewer}={verdict}")
-                print(f"  {producer}: {', '.join(reviews) if reviews else 'no reviews'}")
-            else:
-                print(f"  {producer}: {reviewers}")
-
-    review_graph = consensus.get("review_graph", {})
-    if review_graph:
-        print("\nReview graph:")
-        for reviewer, producers in review_graph.items():
-            if isinstance(producers, list):
-                print(f"  {reviewer} reviews: {', '.join(producers)}")
-            else:
-                print(f"  {reviewer}: {producers}")
-
     blocking = consensus.get("blocking_agents", [])
     if blocking:
         print(f"\nBlocking agents: {', '.join(blocking)}")

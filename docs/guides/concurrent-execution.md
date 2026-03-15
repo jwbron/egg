@@ -236,7 +236,7 @@ Consensus is reached when `is_complete: true` — all registered agents are conf
 
 ### Objections
 
-If any agent is in the `OBJECTING` readiness state (separate from BRC phase), `has_objections: true` is returned. The orchestrator surfaces objections to the human for resolution before the phase can advance.
+If any agent is in the `OBJECTING` readiness state (separate from BRC phase), the orchestrator detects the objection and surfaces it to the human as a HITL decision for resolution before the phase can advance.
 
 ### Timeout Handling
 
