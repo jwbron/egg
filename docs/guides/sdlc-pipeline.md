@@ -270,8 +270,8 @@ Timing starts when actual work begins (`work_started_at`), excluding setup and H
 
 | Phase | Purpose | Allowed Operations | Exit Requires |
 |-------|---------|-------------------|---------------|
-| **Refine** | Analyze issue, produce analysis document | `gh issue comment/edit` | Auto-review pass + Human approval |
-| **Plan** | Create implementation plan with tasks | `gh issue comment/edit`, `egg-contract add-decision` | Auto-review pass + Human approval |
+| **Refine** | Analyze issue, produce analysis document | `git push`, `egg-contract add-decision` | Auto-review pass + Human approval |
+| **Plan** | Create implementation plan with tasks | `git push`, `egg-contract add-decision` | Auto-review pass + Human approval |
 | **Implement** | Execute tasks on draft PR with CI and review feedback | `git push`, `egg-contract add-commit/update-notes` | All checks pass (CI + PR review) |
 | **PR** | Finalize PR for human review and merge | `gh pr edit`, `git push` | Human merge (closes issue automatically) |
 
@@ -504,7 +504,7 @@ Each phase has a defined set of permitted operations. The gateway blocks all oth
 5. If the operation is not allowed for that phase (per `.egg/phase-permissions.json`), the gateway returns HTTP 403
 
 **Phase restrictions:**
-- **Refine/Plan phases**: Cannot `git push` or `gh pr create`—prevents code changes before plan approval
+- **Refine/Plan phases**: `git push` restricted to `.egg-state/` files; cannot `gh pr create`—prevents source code changes before plan approval
 - **Implement phase**: Can `git push` to the branch; draft PR is created automatically by the pipeline (not by agent)
 - **PR phase**: PR is auto-created by the orchestrator from contract metadata and git log (no agent spawned). Human must merge.
 
