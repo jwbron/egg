@@ -102,19 +102,44 @@ Keep the dashboard output concise. Only show changes from the previous poll when
 
 ## Phase 4 — HITL (Human-in-the-Loop)
 
-When `get_status` returns `pending_decisions`, handle each decision:
+When `get_status` returns `pending_decisions`, handle each decision based on its `decision_type`:
+
+### For `phase_gate` decisions (phase approval gates):
+
+The `get_status` response enriches phase_gate decisions with `draft_content` (the phase's output document) and `completed_agents_summary` (role + status for each completed agent).
+
+1. **Show the draft document** — Display the `draft_content` field from the decision. If the content is long, show a summary of the key sections (headings and first paragraph of each) followed by the full content in a collapsed format. If `draft_content` is missing, note that no draft was found.
+
+2. **Show completed agents** — Display `completed_agents_summary` as a compact table:
+   ```
+   Agents: refiner (complete), reviewer_refine (complete), reviewer_agent_design (complete)
+   ```
+
+3. **Ask for approval** — Use `AskUserQuestion`:
+   - **Question**: "Phase '<phase>' is complete. Do you approve the output above to proceed?"
+   - **Header**: "Approval"
+   - **Options**:
+     - **"Approve"** — description: "Proceed to the next phase"
+     - **"Request changes"** — description: "Send feedback for the agents to address"
+   - The user can also type custom feedback in the "Other" field
+
+4. **Submit the response**:
+   - If "Approve" → call `provide_input` with `response: "approved"`
+   - If "Request changes" or custom text → call `provide_input` with the user's feedback as the `response`
 
 ### For `choice` type decisions:
 Use `AskUserQuestion` to present the options:
 - Question: the decision's `question` field
-- Options: the decision's `options` array
+- Options: the decision's `options` array (each as a label with empty description)
 
 ### For `feedback` type decisions:
 Use `AskUserQuestion` with a free-text option:
 - Present the question to the user
 - Collect their response
 
-After getting the user's answer, call the `provide_input` MCP tool:
+### After handling any decision type:
+
+Call the `provide_input` MCP tool:
 
 ```
 Tool: provide_input

@@ -233,6 +233,8 @@ class CoordinatorToolHandler:
         """Get enriched coordinator state for a pipeline.
 
         Fetches coordinator state, pipeline details, and recent messages.
+        For phase_gate decisions, includes draft document content so the
+        caller can present it to the user without needing filesystem access.
         Falls back gracefully if pipeline details or messages fail.
         """
         task_id = quote(args["task_id"], safe="")
@@ -242,6 +244,7 @@ class CoordinatorToolHandler:
         status = result.get("data", {})
 
         # Enrichment: pipeline details (optional)
+        pipeline_data: dict[str, Any] = {}
         try:
             pipeline_result = self._make_request(f"/api/v1/pipelines/{task_id}")
             pipeline_data = pipeline_result.get("data", {}).get("pipeline", {})
@@ -271,7 +274,89 @@ class CoordinatorToolHandler:
         except Exception:
             logger.debug("Failed to fetch messages", task_id=task_id)
 
+        # Enrichment: attach draft content to phase_gate decisions (optional)
+        self._enrich_phase_gate_decisions(status, task_id, pipeline_data)
+
         return status
+
+    def _enrich_phase_gate_decisions(
+        self,
+        status: dict[str, Any],
+        pipeline_id: str,
+        pipeline_data: dict[str, Any],
+    ) -> None:
+        """Attach draft content and agent summaries to phase_gate decisions.
+
+        Reads the draft document from the pipeline worktree so the caller
+        can present it to the user without needing direct filesystem access.
+        Mutates ``status["pending_decisions"]`` in place.
+        """
+        import os
+
+        pending = status.get("pending_decisions", [])
+        phase_gates = [d for d in pending if d.get("decision_type") == "phase_gate"]
+        if not phase_gates:
+            return
+
+        # Build completed agents summary
+        completed_agents = status.get("completed_agents", [])
+        agents_summary = [
+            {
+                "role": a.get("role", ""),
+                "status": a.get("status", ""),
+            }
+            for a in completed_agents
+        ]
+
+        # Resolve repo path to read drafts from the worktree
+        repo = pipeline_data.get("repo", "")
+        issue_number = pipeline_data.get("issue_number")
+        current_phase = status.get("current_phase", "")
+
+        draft_content = None
+        try:
+            if repo:
+                from orchestrator.routes import resolve_worktree_path
+                from orchestrator.routes.pipelines import _get_draft_path
+
+                env_path = os.environ.get("EGG_REPO_PATH", "/home/egg/repos")
+                base_path = Path(env_path)
+                repo_name = repo.split("/")[-1]
+                repo_path = base_path / repo_name if not (base_path / ".git").exists() else base_path
+                worktree_path = resolve_worktree_path(pipeline_id, repo_path)
+
+                # phase_gate fires after a phase completes, so the draft
+                # belongs to the phase recorded in the decision (or the
+                # current phase as fallback).
+                for decision in phase_gates:
+                    decision_phase = decision.get("phase") or current_phase
+                    draft_rel = _get_draft_path(
+                        decision_phase,
+                        issue_number=issue_number,
+                        pipeline_id=pipeline_id,
+                    )
+                    if draft_rel:
+                        draft_path = worktree_path / draft_rel
+                        if draft_path.exists():
+                            content = draft_path.read_text(encoding="utf-8")
+                            max_chars = 16_000
+                            if len(content) > max_chars:
+                                content = content[:max_chars] + (
+                                    f"\n\n... (truncated, {len(content)} chars total)"
+                                )
+                            draft_content = content
+        except Exception:
+            logger.debug(
+                "Failed to read draft for phase_gate enrichment",
+                pipeline_id=pipeline_id,
+            )
+
+        # Attach enrichments to each phase_gate decision
+        for decision in phase_gates:
+            if draft_content is not None:
+                decision["draft_content"] = draft_content
+            if agents_summary:
+                decision["completed_agents_summary"] = agents_summary
 
     def _handle_provide_input(self, args: dict[str, Any]) -> dict[str, Any]:
         """Resolve an escalation decision."""
