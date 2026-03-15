@@ -49,6 +49,7 @@ CLAUDE.md
 .egg-state/contracts/
 .egg-state/drafts/
 .egg-state/reviews/
+.egg-state/checks/
 
 # Docker
 .docker/

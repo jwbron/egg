@@ -1,7 +1,0 @@
-{
-  "reviewer": "code",
-  "verdict": "approved",
-  "summary": "Clean implementation adding checkpoint discovery hints to agent prompts. Changes are purely additive prompt text across 4 touchpoints: _build_role_context (general pointer for execution roles), _build_agent_prompt (role-specific commands for tester/documenter/integrator), _build_phase_scoped_prompt (failed session hint in revision checklist), and sandbox .claude/ rules/commands. No security concerns — no user input handling, no new endpoints. Architecture is sound: analysis roles correctly excluded via early return, coder gets hints only during revision cycles. 460-line test file covers positive, negative, and edge cases. conftest.py fix for sys.modules mock pollution is correct. All 6685 tests pass, lint and mypy clean. Minor cosmetic inconsistency: tester-mode.md and checkpoint.md rule omit --phase implement from the coder checkpoint command while pipelines.py includes it — not blocking.",
-  "feedback": "",
-  "timestamp": "2026-02-23T08:35:00Z"
-}
