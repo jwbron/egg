@@ -10,6 +10,7 @@ Agent roles:
 - TESTER: Writes tests for the implemented changes
 - DOCUMENTER: Updates documentation for the changes
 - INTEGRATOR: Runs full test suite and validates integration
+- CHECKER: Runs lint/type-check/tests (auto-fix in sequential, reviewer in concurrent)
 - REFINER: Analyzes tasks and produces structured analysis in the refine phase
 
 The orchestrator uses these definitions to:
@@ -629,7 +630,7 @@ CHECKER_ROLE = AgentRoleDefinition(
             ".egg-state/reviews/",
             ".egg-state/agent-outputs/",
         ],
-        blocked_write=["docs/", ".egg-state/contracts/"],
+        blocked_write=["docs/", "**/README.md", "**/*.md", ".egg-state/contracts/"],
     ),
     produces_outputs=["check_results"],
     requires_inputs=["changed_files"],
