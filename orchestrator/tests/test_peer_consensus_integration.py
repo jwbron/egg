@@ -400,9 +400,9 @@ class TestAttestationSchemas:
 class TestScaledReEvaluation:
     """Test scoped re-evaluation at roster scale (6+ agents).
 
-    These tests use realistic multi-agent review graphs mimicking the
-    16-agent implement topology, exercising concurrent NACKs, overlapping
-    artifact changes, and context-change NACK detection.
+    These tests use realistic multi-agent review graphs (up to 7 roles)
+    exercising concurrent NACKs, overlapping artifact changes, and
+    context-change NACK detection.
     """
 
     @pytest.fixture
@@ -600,7 +600,7 @@ class TestScaledReEvaluation:
         assert r2["context_change"] is True
         assert r2["needs_escalation"] is False
 
-    def test_full_16_agent_implement_graph(self):
+    def test_full_implement_graph(self):
         """Use the default implement graph (7 roles) and run a full
         propose/review/re-propose cycle to verify no invalidation bugs."""
         graph = get_default_implement_graph()

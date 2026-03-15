@@ -4941,25 +4941,16 @@ def _run_concurrent_phase(
 
         # 6. Consensus timeout
         if elapsed >= consensus_timeout:
-            if _emit_event is not None:
-                _emit_event(
-                    EventType.CONSENSUS_TIMEOUT,
-                    pipeline_id,
-                    data={
-                        "timeout_minutes": consensus_timeout / 60,
-                        "blocking_agents": consensus.get("blocking_agents", []),
-                    },
-                )
             logger.warning(
                 "Consensus timeout reached, falling back to container exit",
                 pipeline_id=pipeline_id,
                 timeout_minutes=consensus_timeout / 60,
             )
-            # Fire-and-forget HITL decision: the orchestrator's decision
-            # queue handles resolution asynchronously.  This function falls
-            # through to wait for remaining containers regardless.
-            # Skip if the BRC tracker already handled the timeout (escalation
-            # or proceed) to avoid duplicate/conflicting HITL decisions.
+            # Let the BRC tracker handle the timeout first — it emits
+            # role-aware events (CONSENSUS_FAILURE or CONSENSUS_TIMEOUT)
+            # and returns whether it handled the situation.  Only fall
+            # back to the generic CONSENSUS_TIMEOUT event and HITL
+            # decision if BRC did not handle it.
             _brc_handled = False
             try:
                 from ..peer_consensus import get_peer_consensus_tracker  # type: ignore[import-not-found]  # noqa: I001
@@ -4982,6 +4973,15 @@ def _run_concurrent_phase(
                 )
 
             if not _brc_handled:
+                if _emit_event is not None:
+                    _emit_event(
+                        EventType.CONSENSUS_TIMEOUT,
+                        pipeline_id,
+                        data={
+                            "timeout_minutes": consensus_timeout / 60,
+                            "blocking_agents": consensus.get("blocking_agents", []),
+                        },
+                    )
                 try:
                     pipeline.add_decision(
                         question=f"Consensus not reached after {int(consensus_timeout / 60)} minutes. How to proceed?",

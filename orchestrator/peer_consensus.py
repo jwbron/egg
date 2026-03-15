@@ -255,9 +255,10 @@ class PeerConsensusTracker:
             # Transition producer back to WORKING
             self._producer_phases[producer_role] = ConsensusPhase.WORKING
 
-            # Check revision count — context-change NACKs still increment the
-            # count (safety cap), but don't trigger escalation since the reviewer
-            # is flagging a different issue, not oscillating on the same one.
+            # Check revision count — context-change NACKs increment the count
+            # for observability but do not trigger escalation, since the
+            # reviewer is flagging a different issue rather than oscillating
+            # on the same one.
             rev_count = self.matrix.revision_count(reviewer_role, producer_role)
             needs_escalation = rev_count >= self.max_revision_rounds and not context_change
 
@@ -453,19 +454,20 @@ class PeerConsensusTracker:
 
             return {"action": "continue", "crashed_role": role}
 
-    def mark_timeout_handled(self) -> None:
-        """Mark that the BRC tracker has handled the timeout."""
-        with self._lock:
-            self._timeout_handled = True
-
     def is_timeout_handled(self) -> bool:
         """Check whether the BRC tracker has already handled the timeout."""
         with self._lock:
             return self._timeout_handled
 
     def handle_timeout(self) -> dict[str, Any]:
-        """Handle consensus timeout. Evaluate by role criticality."""
+        """Handle consensus timeout. Evaluate by role criticality.
+
+        Idempotent: returns a cached result if already called.
+        """
         with self._lock:
+            if self._timeout_handled:
+                return {"action": "already_handled", "reason": "Timeout previously processed"}
+
             blocking = self.matrix.get_all_blocking_edges()
             if not blocking:
                 self._timeout_handled = True
