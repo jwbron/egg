@@ -6,6 +6,7 @@ enabling external Claude Code sessions to interact with the coordinator
 via the MCP protocol.
 """
 
+import os
 import sys
 from pathlib import Path
 from typing import Any
@@ -275,7 +276,8 @@ class CoordinatorToolHandler:
             logger.debug("Failed to fetch messages", task_id=task_id)
 
         # Enrichment: attach draft content to phase_gate decisions (optional)
-        self._enrich_phase_gate_decisions(status, task_id, pipeline_data)
+        raw_task_id = args["task_id"]
+        self._enrich_phase_gate_decisions(status, raw_task_id, pipeline_data)
 
         return status
 
@@ -291,8 +293,6 @@ class CoordinatorToolHandler:
         can present it to the user without needing direct filesystem access.
         Mutates ``status["pending_decisions"]`` in place.
         """
-        import os
-
         pending = status.get("pending_decisions", [])
         phase_gates = [d for d in pending if d.get("decision_type") == "phase_gate"]
         if not phase_gates:
@@ -313,48 +313,39 @@ class CoordinatorToolHandler:
         issue_number = pipeline_data.get("issue_number")
         current_phase = status.get("current_phase", "")
 
-        draft_content = None
-        try:
-            if repo:
-                from orchestrator.routes import resolve_worktree_path
-                from orchestrator.routes.pipelines import _get_draft_path
+        # Attach enrichments per-decision
+        for decision in phase_gates:
+            draft_content = None
+            try:
+                if repo:
+                    from orchestrator.routes import resolve_worktree_path
+                    from orchestrator.routes.pipelines import _read_phase_draft
 
-                env_path = os.environ.get("EGG_REPO_PATH", "/home/egg/repos")
-                base_path = Path(env_path)
-                repo_name = repo.split("/")[-1]
-                repo_path = (
-                    base_path / repo_name if not (base_path / ".git").exists() else base_path
-                )
-                worktree_path = resolve_worktree_path(pipeline_id, repo_path)
+                    env_path = os.environ.get("EGG_REPO_PATH", "/home/egg/repos")
+                    base_path = Path(env_path)
+                    repo_name = repo.split("/")[-1]
+                    repo_path = (
+                        base_path / repo_name if not (base_path / ".git").exists() else base_path
+                    )
+                    worktree_path = resolve_worktree_path(pipeline_id, repo_path)
 
-                # phase_gate fires after a phase completes, so the draft
-                # belongs to the phase recorded in the decision (or the
-                # current phase as fallback).
-                for decision in phase_gates:
+                    # phase_gate fires after a phase completes, so the draft
+                    # belongs to the phase recorded in the decision (or the
+                    # current phase as fallback).
                     decision_phase = decision.get("phase") or current_phase
-                    draft_rel = _get_draft_path(
+                    draft_content = _read_phase_draft(
+                        worktree_path,
                         decision_phase,
                         issue_number=issue_number,
                         pipeline_id=pipeline_id,
+                        max_chars=16_000,
                     )
-                    if draft_rel:
-                        draft_path = worktree_path / draft_rel
-                        if draft_path.exists():
-                            content = draft_path.read_text(encoding="utf-8")
-                            max_chars = 16_000
-                            if len(content) > max_chars:
-                                content = content[:max_chars] + (
-                                    f"\n\n... (truncated, {len(content)} chars total)"
-                                )
-                            draft_content = content
-        except Exception:
-            logger.debug(
-                "Failed to read draft for phase_gate enrichment",
-                pipeline_id=pipeline_id,
-            )
+            except Exception:
+                logger.debug(
+                    "Failed to read draft for phase_gate enrichment",
+                    pipeline_id=pipeline_id,
+                )
 
-        # Attach enrichments to each phase_gate decision
-        for decision in phase_gates:
             if draft_content is not None:
                 decision["draft_content"] = draft_content
             if agents_summary:

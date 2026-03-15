@@ -6,10 +6,12 @@ and tool definitions with mocked orchestrator backend.
 """
 
 import json
+import os
 import sys
 import time
+import types
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -696,3 +698,182 @@ class TestCoordinatorToolHandler:
         result = handler.handle_tool_call("list_tasks", {"status_filter": "failed"})
         assert result["total"] == 1
         assert result["tasks"][0]["id"] == "p1"
+
+
+def _mock_pipelines_module(read_draft_fn=None):
+    """Create a mock orchestrator.routes.pipelines module for testing.
+
+    The real module can't be imported in the test environment (missing docker
+    dependency), so we inject a mock into sys.modules to allow the lazy
+    ``from orchestrator.routes.pipelines import _read_phase_draft`` to resolve.
+    """
+    mod = types.ModuleType("orchestrator.routes.pipelines")
+    mod._read_phase_draft = read_draft_fn or MagicMock(return_value=None)
+    return mod
+
+
+class TestEnrichPhaseGateDecisions:
+    """Tests for phase_gate decision enrichment in get_status."""
+
+    def _make_status_with_phase_gate(self, phase="refine", decision_phase=None):
+        """Helper to build a status dict with a phase_gate decision."""
+        decision = {"decision_type": "phase_gate", "id": "d-1"}
+        if decision_phase:
+            decision["phase"] = decision_phase
+        return {
+            "current_phase": phase,
+            "pending_decisions": [decision],
+            "completed_agents": [
+                {"role": "refiner", "status": "complete"},
+                {"role": "reviewer_refine", "status": "complete"},
+            ],
+        }
+
+    @patch.object(CoordinatorToolHandler, "_make_request")
+    def test_enriches_phase_gate_with_draft_and_agents(self, mock_req, tmp_path):
+        """phase_gate decisions get draft_content and completed_agents_summary."""
+        draft_text = "# Refinement\n\nAnalysis of the issue."
+        mock_read = MagicMock(return_value=draft_text)
+        mock_mod = _mock_pipelines_module(read_draft_fn=mock_read)
+
+        status_data = self._make_status_with_phase_gate(phase="refine")
+        pipeline_data = {"repo": "owner/repo", "issue_number": 42}
+
+        mock_req.side_effect = [
+            {"data": status_data},
+            {"data": {"pipeline": pipeline_data}},
+            {"data": {"messages": []}},
+        ]
+
+        handler = CoordinatorToolHandler()
+        with (
+            patch.dict(os.environ, {"EGG_REPO_PATH": str(tmp_path)}),
+            patch("orchestrator.routes.resolve_worktree_path", return_value=tmp_path),
+            patch.dict(sys.modules, {"orchestrator.routes.pipelines": mock_mod}),
+        ):
+            result = handler.handle_tool_call("get_status", {"task_id": "issue-42"})
+
+        decision = result["pending_decisions"][0]
+        assert decision["draft_content"] == draft_text
+        assert decision["completed_agents_summary"] == [
+            {"role": "refiner", "status": "complete"},
+            {"role": "reviewer_refine", "status": "complete"},
+        ]
+        # Verify _read_phase_draft was called with correct args
+        mock_read.assert_called_once()
+        call_kwargs = mock_read.call_args
+        assert call_kwargs[0][1] == "refine"  # phase
+        assert call_kwargs[1]["issue_number"] == 42
+        assert call_kwargs[1]["max_chars"] == 16_000
+
+    @patch.object(CoordinatorToolHandler, "_make_request")
+    def test_graceful_when_draft_missing(self, mock_req, tmp_path):
+        """Enrichment degrades gracefully when _read_phase_draft returns None."""
+        mock_read = MagicMock(return_value=None)
+        mock_mod = _mock_pipelines_module(read_draft_fn=mock_read)
+
+        status_data = self._make_status_with_phase_gate(phase="refine")
+        pipeline_data = {"repo": "owner/repo", "issue_number": 42}
+
+        mock_req.side_effect = [
+            {"data": status_data},
+            {"data": {"pipeline": pipeline_data}},
+            {"data": {"messages": []}},
+        ]
+
+        handler = CoordinatorToolHandler()
+        with (
+            patch.dict(os.environ, {"EGG_REPO_PATH": str(tmp_path)}),
+            patch("orchestrator.routes.resolve_worktree_path", return_value=tmp_path),
+            patch.dict(sys.modules, {"orchestrator.routes.pipelines": mock_mod}),
+        ):
+            result = handler.handle_tool_call("get_status", {"task_id": "issue-42"})
+
+        decision = result["pending_decisions"][0]
+        # No draft_content when _read_phase_draft returns None
+        assert "draft_content" not in decision
+        # agents_summary is still attached
+        assert "completed_agents_summary" in decision
+
+    @patch.object(CoordinatorToolHandler, "_make_request")
+    def test_truncates_large_draft(self, mock_req, tmp_path):
+        """Draft content longer than max_chars is truncated by _read_phase_draft."""
+        large_content = "x" * 20_000
+        truncated = large_content[:16_000] + "\n\n... (truncated, 20000 chars total)"
+        mock_read = MagicMock(return_value=truncated)
+        mock_mod = _mock_pipelines_module(read_draft_fn=mock_read)
+
+        status_data = self._make_status_with_phase_gate(phase="refine")
+        pipeline_data = {"repo": "owner/repo", "issue_number": 42}
+
+        mock_req.side_effect = [
+            {"data": status_data},
+            {"data": {"pipeline": pipeline_data}},
+            {"data": {"messages": []}},
+        ]
+
+        handler = CoordinatorToolHandler()
+        with (
+            patch.dict(os.environ, {"EGG_REPO_PATH": str(tmp_path)}),
+            patch("orchestrator.routes.resolve_worktree_path", return_value=tmp_path),
+            patch.dict(sys.modules, {"orchestrator.routes.pipelines": mock_mod}),
+        ):
+            result = handler.handle_tool_call("get_status", {"task_id": "issue-42"})
+
+        decision = result["pending_decisions"][0]
+        assert "draft_content" in decision
+        assert len(decision["draft_content"]) < 20_000
+        assert "truncated" in decision["draft_content"]
+        assert "20000 chars total" in decision["draft_content"]
+        # Verify max_chars=16_000 was passed to _read_phase_draft
+        assert mock_read.call_args[1]["max_chars"] == 16_000
+
+    @patch.object(CoordinatorToolHandler, "_make_request")
+    def test_no_enrichment_without_phase_gate(self, mock_req):
+        """get_status skips enrichment when no phase_gate decisions exist."""
+        mock_req.side_effect = [
+            {
+                "data": {
+                    "current_phase": "implement",
+                    "pending_decisions": [{"decision_type": "choice", "id": "d-1"}],
+                    "completed_agents": [],
+                }
+            },
+            {"data": {"pipeline": {"repo": "owner/repo"}}},
+            {"data": {"messages": []}},
+        ]
+
+        handler = CoordinatorToolHandler()
+        result = handler.handle_tool_call("get_status", {"task_id": "issue-42"})
+        decision = result["pending_decisions"][0]
+        assert "draft_content" not in decision
+        assert "completed_agents_summary" not in decision
+
+    @patch.object(CoordinatorToolHandler, "_make_request")
+    def test_uses_raw_task_id_not_encoded(self, mock_req, tmp_path):
+        """pipeline_id passed to filesystem ops is the raw task_id, not URL-encoded."""
+        mock_read = MagicMock(return_value="draft content")
+        mock_mod = _mock_pipelines_module(read_draft_fn=mock_read)
+
+        status_data = self._make_status_with_phase_gate(phase="refine")
+        pipeline_data = {"repo": "owner/repo"}
+
+        mock_req.side_effect = [
+            {"data": status_data},
+            {"data": {"pipeline": pipeline_data}},
+            {"data": {"messages": []}},
+        ]
+
+        handler = CoordinatorToolHandler()
+        with (
+            patch.dict(os.environ, {"EGG_REPO_PATH": str(tmp_path)}),
+            patch(
+                "orchestrator.routes.resolve_worktree_path", return_value=tmp_path
+            ) as mock_resolve,
+            patch.dict(sys.modules, {"orchestrator.routes.pipelines": mock_mod}),
+        ):
+            handler.handle_tool_call("get_status", {"task_id": "my-pipeline"})
+
+        # resolve_worktree_path should receive the raw pipeline_id
+        mock_resolve.assert_called_once()
+        assert mock_resolve.call_args[0][0] == "my-pipeline"
