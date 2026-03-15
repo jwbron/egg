@@ -41,6 +41,7 @@ class AgentRole:
     TESTER = "tester"
     DOCUMENTER = "documenter"
     INTEGRATOR = "integrator"
+    CHECKER = "checker"
     # Plan-phase roles
     ARCHITECT = "architect"
     TASK_PLANNER = "task_planner"
@@ -487,6 +488,15 @@ REVIEWER_UNIFIED_PATTERNS = AgentFilePattern(
     blocked_patterns=_REVIEWER_BLOCKED,
 )
 
+# Checker agent patterns
+# Checker runs lint, type checking, and tests — same write access as reviewers
+CHECKER_PATTERNS = AgentFilePattern(
+    role=AgentRole.CHECKER,
+    description="Checker agent: reviews and agent-outputs only",
+    allowed_patterns=_REVIEWER_ALLOWED,
+    blocked_patterns=_REVIEWER_BLOCKED,
+)
+
 # Coordinator agent patterns
 # Coordinator can only write to agent-outputs (for state persistence)
 COORDINATOR_PATTERNS = AgentFilePattern(
@@ -533,6 +543,7 @@ AGENT_PATTERNS: dict[str, AgentFilePattern] = {
     AgentRole.REVIEWER_REFINE: REVIEWER_REFINE_PATTERNS,
     AgentRole.REVIEWER_PLAN: REVIEWER_PLAN_PATTERNS,
     AgentRole.REVIEWER_UNIFIED: REVIEWER_UNIFIED_PATTERNS,
+    AgentRole.CHECKER: CHECKER_PATTERNS,
     AgentRole.COORDINATOR: COORDINATOR_PATTERNS,
 }
 
