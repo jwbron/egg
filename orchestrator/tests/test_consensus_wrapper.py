@@ -49,8 +49,8 @@ class TestBuildConsensusWrappedCommand:
         assert "Restarting" in script
         assert "RESTART_COUNT" in script
         assert "MAX_RESTARTS" in script
-        assert "egg-orch message poll" in script
         assert "EGG_CONCURRENT_MODE" in script
+        assert "BRC" in script
 
     def test_does_not_auto_signal_ready(self):
         """The wrapper must NOT auto-signal READY on clean exit."""
@@ -97,10 +97,10 @@ class TestBuildConsensusWrappedCommand:
         assert "NOT restarting" in script
 
     def test_contains_recovery_prompt(self):
-        """The wrapper should contain the recovery prompt text."""
+        """The wrapper should contain the BRC recovery prompt text."""
         cmd = build_consensus_wrapped_command("Prompt")
         script = cmd[2]
-        assert "CONSENSUS RECOVERY" in script
+        assert "BRC CONSENSUS RECOVERY" in script
         assert "You were restarted" in script
 
     def test_exits_with_failure_after_max_restarts(self):
@@ -109,6 +109,7 @@ class TestBuildConsensusWrappedCommand:
         script = cmd[2]
         assert "Exiting with failure" in script
         assert "exit 1" in script
+        assert "never reached CONFIRMED" in script
 
     def test_custom_max_restarts(self):
         """Should support custom max_restarts parameter."""
@@ -123,17 +124,18 @@ class TestBuildConsensusWrappedCommand:
         assert f"MAX_RESTARTS={MAX_CONSENSUS_RESTARTS}" in script
 
     def test_recovery_prompt_has_placeholders(self):
-        """Recovery prompt should contain restart number placeholders."""
+        """Recovery prompt should contain restart number and BRC state placeholders."""
         assert "{restart_number}" in _RECOVERY_PROMPT
         assert "{max_restarts}" in _RECOVERY_PROMPT
+        assert "{brc_state}" in _RECOVERY_PROMPT
         # {role} was removed — it is not used in the prompt
         assert "{role}" not in _RECOVERY_PROMPT
 
-    def test_contains_ready_check_before_restart(self):
-        """Wrapper should check if agent already signaled READY before restarting."""
+    def test_contains_confirmed_check_before_restart(self):
+        """Wrapper should check if agent already reached CONFIRMED before restarting."""
         cmd = build_consensus_wrapped_command("Prompt")
         script = cmd[2]
-        assert "already signaled READY" in script
+        assert "already CONFIRMED" in script
         assert "EGG_AGENT_ROLE" in script
 
     def test_ready_polling_uses_separate_constant(self):
@@ -370,23 +372,24 @@ class TestConsensusWrapperBehavior:
                 call_count = f.read().count("---CLAUDE_CALL---")
             assert call_count == 3
             assert "Max restarts (2) exhausted" in result.stdout
+            assert "never reached CONFIRMED" in result.stdout
             # Should exit with failure code after exhausting restarts
             assert result.returncode == 1
 
     @staticmethod
-    def _make_mock_tools_with_agent_ready_state(
+    def _make_mock_tools_with_agent_confirmed_state(
         tmpdir: str,
         log_file: str,
         claude_log_file: str | None = None,
         agent_role: str = "coder",
         consensus_after: int = 2,
     ) -> None:
-        """Create mock tools where the agent is already READY but consensus is pending.
+        """Create mock tools where the agent is already CONFIRMED but consensus is pending.
 
-        The mock egg-orch returns per-agent state showing the agent as READY
+        The mock egg-orch returns per-agent state showing the agent as CONFIRMED
         with ``is_complete=false`` initially. After ``consensus_after`` calls
         to ``pipeline status``, it returns ``is_complete=true``. This exercises
-        the READY polling path (skip restart, wait for consensus).
+        the CONFIRMED polling path (skip restart, wait for consensus).
         """
         counter_file = os.path.join(tmpdir, "orch_status_count")
         mock_orch = os.path.join(tmpdir, "egg-orch")
@@ -394,11 +397,11 @@ class TestConsensusWrapperBehavior:
         # avoid f-string brace escaping confusion.
         json_incomplete = (
             '{"data": {"concurrent": {"consensus": {"is_complete": false, '
-            '"agents": {"' + agent_role + '": {"state": "READY"}}}}}}'
+            '"agents": {"' + agent_role + '": {"confirmed": true}}}}}}'
         )
         json_complete = (
             '{"data": {"concurrent": {"consensus": {"is_complete": true, '
-            '"agents": {"' + agent_role + '": {"state": "READY"}}}}}}'
+            '"agents": {"' + agent_role + '": {"confirmed": true}}}}}}'
         )
         with open(mock_orch, "w") as f:
             f.write("#!/bin/bash\n")
@@ -422,13 +425,13 @@ class TestConsensusWrapperBehavior:
 
         _make_mock_claude(tmpdir, claude_log_file)
 
-    def test_ready_agent_skips_restart_and_polls(self):
-        """Agent already READY should skip restart and poll for consensus."""
+    def test_confirmed_agent_skips_restart_and_polls(self):
+        """Agent already CONFIRMED should skip restart and poll for consensus."""
         with tempfile.TemporaryDirectory() as tmpdir:
             log_file = os.path.join(tmpdir, "egg-orch.log")
             claude_log = os.path.join(tmpdir, "claude.log")
-            # Mock returns agent as READY, consensus false then true on 3rd call
-            self._make_mock_tools_with_agent_ready_state(
+            # Mock returns agent as CONFIRMED, consensus false then true on 3rd call
+            self._make_mock_tools_with_agent_confirmed_state(
                 tmpdir,
                 log_file,
                 claude_log,
@@ -441,8 +444,8 @@ class TestConsensusWrapperBehavior:
 
             # Should exit cleanly
             assert result.returncode == 0
-            # Should detect agent is already READY and skip restart
-            assert "already signaled READY" in result.stdout
+            # Should detect agent is already CONFIRMED and skip restart
+            assert "already CONFIRMED" in result.stdout
             # Should eventually detect consensus
             assert "Consensus reached" in result.stdout
             # Claude should only be called once (no restart)
@@ -453,7 +456,7 @@ class TestConsensusWrapperBehavior:
             assert "Restarting" not in result.stdout
 
     def test_no_auto_ready_on_clean_exit(self):
-        """Wrapper must NOT auto-signal READY — only restarts are allowed."""
+        """Wrapper must NOT auto-signal READY or auto-confirm — only restarts are allowed."""
         with tempfile.TemporaryDirectory() as tmpdir:
             log_file = os.path.join(tmpdir, "egg-orch.log")
             claude_log = os.path.join(tmpdir, "claude.log")
@@ -462,10 +465,11 @@ class TestConsensusWrapperBehavior:
             cmd = build_consensus_wrapped_command("Do the work", max_restarts=1)
             self._run_wrapper_command(cmd, tmpdir)
 
-            # Check egg-orch calls — should not contain "signal readiness --state READY"
-            # from the wrapper itself (only the agent inside Claude should signal READY)
+            # Check egg-orch calls — should not contain readiness signals or
+            # consensus confirmations from the wrapper itself
             if os.path.exists(log_file):
                 with open(log_file) as f:
                     log_content = f.read()
-                # The wrapper should only call pipeline status, not signal READY
+                # The wrapper should only call pipeline status, not signal READY/CONFIRMED
                 assert "signal readiness --state READY" not in log_content
+                assert "consensus confirmed" not in log_content

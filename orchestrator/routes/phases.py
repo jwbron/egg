@@ -96,6 +96,15 @@ def _clear_concurrent_state(pipeline_id: str) -> None:
 
     cleared = get_message_store().clear(pipeline_id)
     get_consensus_evaluator().clear(pipeline_id)
+
+    # Clear BRC tracker if it exists
+    try:
+        from peer_consensus import remove_peer_consensus_tracker
+
+        remove_peer_consensus_tracker(pipeline_id)
+    except ImportError:
+        pass
+
     if cleared:
         logger.debug(
             "Cleared concurrent state on phase transition",

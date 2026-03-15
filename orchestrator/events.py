@@ -67,6 +67,14 @@ class EventType(StrEnum):
     CONSENSUS_REACHED = "consensus.reached"
     CONSENSUS_TIMEOUT = "consensus.timeout"
 
+    # Consensus protocol (BRC) — per-message events
+    CONSENSUS_PROPOSE_RECEIVED = "consensus.propose_received"
+    CONSENSUS_ACK_RECEIVED = "consensus.ack_received"
+    CONSENSUS_NACK_RECEIVED = "consensus.nack_received"
+    CONSENSUS_CONFIRMED_RECEIVED = "consensus.confirmed_received"
+    CONSENSUS_WITHDRAW_RECEIVED = "consensus.withdraw_received"
+    CONSENSUS_FAILURE = "consensus.failure"
+
     # HITL events
     DECISION_CREATED = "decision.created"
     DECISION_RESOLVED = "decision.resolved"

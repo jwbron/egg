@@ -145,13 +145,50 @@ def poll_messages(pipeline_id: str) -> tuple[Response, int]:
     except (ValueError, TypeError):
         return _make_error("Invalid limit parameter: must be an integer")
 
+    # Long-polling support
+    try:
+        wait = min(max(int(request.args.get("wait", "0")), 0), 60)
+    except (ValueError, TypeError):
+        wait = 0
+
     message_store = get_message_store()
-    messages = message_store.get_messages(
-        pipeline_id,
-        role=role,
-        since_id=since_id,
-        limit=limit,
-    )
+
+    kwargs: dict[str, Any] = {
+        "role": role,
+        "since_id": since_id,
+        "limit": limit,
+    }
+    if wait > 0:
+        kwargs["wait"] = wait
+
+    try:
+        messages = message_store.get_messages(pipeline_id, **kwargs)
+    except TypeError:
+        # Fallback for in-memory store that doesn't support wait
+        kwargs.pop("wait", None)
+        messages = message_store.get_messages(pipeline_id, **kwargs)
+
+    # Delphi visibility filtering: withhold CONSENSUS_PROPOSE messages from
+    # reviewers who haven't yet submitted their independent ACK/NACK
+    if role:
+        try:
+            from peer_consensus import get_peer_consensus_tracker
+        except ImportError:
+            get_peer_consensus_tracker = None  # type: ignore[assignment]
+
+        if get_peer_consensus_tracker:
+            tracker = get_peer_consensus_tracker(pipeline_id)
+            if tracker and tracker.graph.is_reviewer(role):
+                filtered_messages = []
+                for msg in messages:
+                    if msg.message_type == "CONSENSUS_PROPOSE":
+                        producer = msg.from_role
+                        # Only withhold if this reviewer is assigned to this producer
+                        if tracker.graph.get_edge(role, producer):
+                            if not tracker.matrix.has_reviewed(role, producer):
+                                continue  # Withhold PROPOSE until reviewer submits evaluation
+                    filtered_messages.append(msg)
+                messages = filtered_messages
 
     return _make_success(
         "Messages retrieved",

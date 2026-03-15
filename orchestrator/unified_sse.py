@@ -311,6 +311,17 @@ def create_unified_sse_stream(
                                     [e for e in cs.escalations if e.resolved_at is None]
                                 ),
                             }
+
+                        # Include BRC consensus data in status events
+                        try:
+                            from peer_consensus import get_peer_consensus_tracker
+
+                            tracker = get_peer_consensus_tracker(payload["pipeline_id"])
+                            if tracker:
+                                payload["consensus"] = tracker.evaluate()
+                        except ImportError:
+                            pass
+
                 except Exception:
                     logger.debug(
                         "Failed to enrich unified SSE event",

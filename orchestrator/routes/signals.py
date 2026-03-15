@@ -122,6 +122,11 @@ def handle_signal(pipeline_id: str) -> tuple[Response, int]:
         "error": handle_error_signal,
         "heartbeat": handle_heartbeat_signal,
         "readiness": handle_readiness_signal,
+        "consensus_propose": handle_consensus_propose_signal,
+        "consensus_ack": handle_consensus_ack_signal,
+        "consensus_nack": handle_consensus_nack_signal,
+        "consensus_withdraw": handle_consensus_withdraw_signal,
+        "consensus_confirmed": handle_consensus_confirmed_signal,
     }
 
     handler = handlers.get(signal_type)
@@ -587,6 +592,11 @@ def handle_readiness_signal(
             "reason": "Optional reason text"
         }
     """
+    logger.warning(
+        "Readiness signal is deprecated. Use consensus protocol signals instead.",
+        pipeline_id=pipeline_id,
+        role=data.get("agent_role"),
+    )
     agent_role_str = data.get("agent_role")
     if not agent_role_str:
         return make_error_response("Missing agent_role")
@@ -685,6 +695,287 @@ def handle_readiness_signal(
         )
 
 
+def handle_consensus_propose_signal(
+    pipeline_id: str,
+    data: dict[str, Any],
+    repo_path: Path,
+) -> tuple[Response, int]:
+    """Handle CONSENSUS_PROPOSE signal from a producer agent."""
+    agent_role = data.get("agent_role")
+    if not agent_role:
+        return make_error_response("Missing agent_role")
+
+    payload = data.get("payload", {})
+    if not payload:
+        return make_error_response("Missing payload")
+
+    try:
+        from peer_consensus import get_peer_consensus_tracker
+    except ImportError:
+        from ..peer_consensus import get_peer_consensus_tracker  # type: ignore[no-redef]
+
+    tracker = get_peer_consensus_tracker(pipeline_id)
+    if not tracker:
+        return make_error_response(f"No consensus tracker for pipeline {pipeline_id}", 404)
+
+    try:
+        # Check if this is a re-proposal
+        changed_artifacts = data.get("changed_artifacts")
+        if changed_artifacts:
+            result = tracker.handle_re_propose(agent_role, payload, changed_artifacts)
+        else:
+            result = tracker.handle_propose(agent_role, payload)
+
+        # Write consensus message to message bus
+        from message_store import Message, MessageType, get_message_store
+
+        store = get_message_store()
+        store.add_message(
+            Message(
+                pipeline_id=pipeline_id,
+                from_role=agent_role,
+                to_role="all",
+                message_type=MessageType.CONSENSUS_PROPOSE,
+                subject=f"Proposal from {agent_role}",
+                body=payload.get("summary", ""),
+                metadata={"payload": payload, "version": result.get("version")},
+            )
+        )
+
+        return make_success_response(
+            f"Proposal recorded for {agent_role}",
+            data=result,
+        )
+    except (ValueError, Exception) as e:
+        logger.error(
+            "Failed to process consensus propose",
+            pipeline_id=pipeline_id,
+            role=agent_role,
+            error=str(e),
+        )
+        return make_error_response(str(e), 400 if isinstance(e, ValueError) else 500)
+
+
+def handle_consensus_ack_signal(
+    pipeline_id: str,
+    data: dict[str, Any],
+    repo_path: Path,
+) -> tuple[Response, int]:
+    """Handle CONSENSUS_ACK signal from a reviewer agent."""
+    reviewer_role = data.get("agent_role")
+    producer_role = data.get("producer_role")
+    if not reviewer_role:
+        return make_error_response("Missing agent_role")
+    if not producer_role:
+        return make_error_response("Missing producer_role")
+
+    payload = data.get("payload", {})
+
+    try:
+        from peer_consensus import get_peer_consensus_tracker
+    except ImportError:
+        from ..peer_consensus import get_peer_consensus_tracker  # type: ignore[no-redef]
+
+    tracker = get_peer_consensus_tracker(pipeline_id)
+    if not tracker:
+        return make_error_response(f"No consensus tracker for pipeline {pipeline_id}", 404)
+
+    try:
+        result = tracker.handle_ack(reviewer_role, producer_role, payload)
+
+        from message_store import Message, MessageType, get_message_store
+
+        store = get_message_store()
+        store.add_message(
+            Message(
+                pipeline_id=pipeline_id,
+                from_role=reviewer_role,
+                to_role=producer_role,
+                message_type=MessageType.CONSENSUS_ACK,
+                subject=f"ACK from {reviewer_role} for {producer_role}",
+                body=payload.get("reason", ""),
+                metadata={"payload": payload, "version": result.get("version")},
+            )
+        )
+
+        # Notify the producer when all reviewers have ACKed so it can confirm
+        if result.get("fully_acked"):
+            store.add_message(
+                Message(
+                    pipeline_id=pipeline_id,
+                    from_role="orchestrator",
+                    to_role=producer_role,
+                    message_type=MessageType.STATUS,
+                    subject="All reviewers have ACKed — ready to confirm",
+                    body=f"All assigned reviewers have ACKed your proposal (version {result.get('version')}). "
+                    "Run `egg-orch consensus confirmed` to confirm.",
+                    metadata={"fully_acked": True, "version": result.get("version")},
+                )
+            )
+
+        return make_success_response(
+            f"ACK recorded: {reviewer_role} -> {producer_role}",
+            data=result,
+        )
+    except (ValueError, Exception) as e:
+        logger.error(
+            "Failed to process consensus ACK",
+            pipeline_id=pipeline_id,
+            reviewer=reviewer_role,
+            producer=producer_role,
+            error=str(e),
+        )
+        return make_error_response(str(e), 400 if isinstance(e, ValueError) else 500)
+
+
+def handle_consensus_nack_signal(
+    pipeline_id: str,
+    data: dict[str, Any],
+    repo_path: Path,
+) -> tuple[Response, int]:
+    """Handle CONSENSUS_NACK signal from a reviewer agent."""
+    reviewer_role = data.get("agent_role")
+    producer_role = data.get("producer_role")
+    if not reviewer_role:
+        return make_error_response("Missing agent_role")
+    if not producer_role:
+        return make_error_response("Missing producer_role")
+
+    payload = data.get("payload", {})
+
+    try:
+        from peer_consensus import get_peer_consensus_tracker
+    except ImportError:
+        from ..peer_consensus import get_peer_consensus_tracker  # type: ignore[no-redef]
+
+    tracker = get_peer_consensus_tracker(pipeline_id)
+    if not tracker:
+        return make_error_response(f"No consensus tracker for pipeline {pipeline_id}", 404)
+
+    try:
+        result = tracker.handle_nack(reviewer_role, producer_role, payload)
+
+        from message_store import Message, MessageType, get_message_store
+
+        store = get_message_store()
+        store.add_message(
+            Message(
+                pipeline_id=pipeline_id,
+                from_role=reviewer_role,
+                to_role=producer_role,
+                message_type=MessageType.CONSENSUS_NACK,
+                subject=f"NACK from {reviewer_role} for {producer_role}",
+                body=payload.get("reason", ""),
+                metadata={
+                    "payload": payload,
+                    "reason": result.get("reason"),
+                    "revision_count": result.get("revision_count"),
+                },
+            )
+        )
+
+        return make_success_response(
+            f"NACK recorded: {reviewer_role} -> {producer_role}",
+            data=result,
+        )
+    except (ValueError, Exception) as e:
+        logger.error("Failed to process consensus NACK", pipeline_id=pipeline_id, error=str(e))
+        return make_error_response(str(e), 400 if isinstance(e, ValueError) else 500)
+
+
+def handle_consensus_withdraw_signal(
+    pipeline_id: str,
+    data: dict[str, Any],
+    repo_path: Path,
+) -> tuple[Response, int]:
+    """Handle CONSENSUS_WITHDRAW signal from a producer agent."""
+    agent_role = data.get("agent_role")
+    if not agent_role:
+        return make_error_response("Missing agent_role")
+
+    reason = data.get("reason", "")
+
+    try:
+        from peer_consensus import get_peer_consensus_tracker
+    except ImportError:
+        from ..peer_consensus import get_peer_consensus_tracker  # type: ignore[no-redef]
+
+    tracker = get_peer_consensus_tracker(pipeline_id)
+    if not tracker:
+        return make_error_response(f"No consensus tracker for pipeline {pipeline_id}", 404)
+
+    try:
+        result = tracker.handle_withdraw(agent_role, reason)
+
+        from message_store import Message, MessageType, get_message_store
+
+        store = get_message_store()
+        store.add_message(
+            Message(
+                pipeline_id=pipeline_id,
+                from_role=agent_role,
+                to_role="all",
+                message_type=MessageType.CONSENSUS_WITHDRAW,
+                subject=f"Withdrawal by {agent_role}",
+                body=reason,
+            )
+        )
+
+        return make_success_response(
+            f"Withdrawal recorded for {agent_role}",
+            data=result,
+        )
+    except (ValueError, Exception) as e:
+        logger.error("Failed to process consensus withdraw", pipeline_id=pipeline_id, error=str(e))
+        return make_error_response(str(e), 400 if isinstance(e, ValueError) else 500)
+
+
+def handle_consensus_confirmed_signal(
+    pipeline_id: str,
+    data: dict[str, Any],
+    repo_path: Path,
+) -> tuple[Response, int]:
+    """Handle CONSENSUS_CONFIRMED signal from an agent."""
+    agent_role = data.get("agent_role")
+    if not agent_role:
+        return make_error_response("Missing agent_role")
+
+    try:
+        from peer_consensus import get_peer_consensus_tracker
+    except ImportError:
+        from ..peer_consensus import get_peer_consensus_tracker  # type: ignore[no-redef]
+
+    tracker = get_peer_consensus_tracker(pipeline_id)
+    if not tracker:
+        return make_error_response(f"No consensus tracker for pipeline {pipeline_id}", 404)
+
+    try:
+        result = tracker.handle_confirmed(agent_role)
+
+        from message_store import Message, MessageType, get_message_store
+
+        store = get_message_store()
+        store.add_message(
+            Message(
+                pipeline_id=pipeline_id,
+                from_role=agent_role,
+                to_role="all",
+                message_type=MessageType.CONSENSUS_CONFIRMED,
+                subject=f"Confirmed by {agent_role}",
+                body="",
+                metadata={"consensus_reached": result.get("consensus_reached", False)},
+            )
+        )
+
+        return make_success_response(
+            f"Confirmation recorded for {agent_role}",
+            data=result,
+        )
+    except (ValueError, Exception) as e:
+        logger.error("Failed to process consensus confirmed", pipeline_id=pipeline_id, error=str(e))
+        return make_error_response(str(e), 400 if isinstance(e, ValueError) else 500)
+
+
 @signals_bp.route("/<pipeline_id>/signal/batch", methods=["POST"])
 def handle_batch_signals(pipeline_id: str) -> tuple[Response, int]:
     """
@@ -733,6 +1024,11 @@ def handle_batch_signals(pipeline_id: str) -> tuple[Response, int]:
                 "error": handle_error_signal,
                 "heartbeat": handle_heartbeat_signal,
                 "readiness": handle_readiness_signal,
+                "consensus_propose": handle_consensus_propose_signal,
+                "consensus_ack": handle_consensus_ack_signal,
+                "consensus_nack": handle_consensus_nack_signal,
+                "consensus_withdraw": handle_consensus_withdraw_signal,
+                "consensus_confirmed": handle_consensus_confirmed_signal,
             }
 
             handler = handlers.get(signal_type)

@@ -7,7 +7,7 @@ orchestrator during managed execution.
 import json
 import os
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, cast
 from urllib.error import HTTPError, URLError
 from urllib.request import ProxyHandler, Request, build_opener
 
@@ -20,6 +20,8 @@ from .constants import (
 )
 from .types import (
     CompletionData,
+    ConsensusProposalData,
+    ConsensusReviewData,
     ErrorData,
     HeartbeatData,
     MessageData,
@@ -378,6 +380,126 @@ class OrchestratorClient:
         )
         return self._send_signal(pipeline_id, data.to_dict())
 
+    def consensus_propose(
+        self,
+        pipeline_id: str,
+        agent_role: str,
+        payload: dict[str, Any],
+        changed_artifacts: list[str] | None = None,
+    ) -> SignalResponse:
+        """Send CONSENSUS_PROPOSE signal.
+
+        Args:
+            pipeline_id: Pipeline ID
+            agent_role: Role of the proposing agent
+            payload: Proposal payload (summary, attestation, artifacts, etc.)
+            changed_artifacts: List of changed artifacts for re-proposals
+
+        Returns:
+            SignalResponse from orchestrator
+        """
+        data = ConsensusProposalData(
+            agent_role=agent_role,
+            payload=payload,
+            changed_artifacts=changed_artifacts or [],
+        )
+        return self._send_signal(pipeline_id, data.to_dict())
+
+    def consensus_ack(
+        self,
+        pipeline_id: str,
+        agent_role: str,
+        producer_role: str,
+        payload: dict[str, Any] | None = None,
+    ) -> SignalResponse:
+        """Send CONSENSUS_ACK signal.
+
+        Args:
+            pipeline_id: Pipeline ID
+            agent_role: Role of the reviewing agent
+            producer_role: Role of the producer being ACKed
+            payload: Additional review data
+
+        Returns:
+            SignalResponse from orchestrator
+        """
+        data = ConsensusReviewData(
+            agent_role=agent_role,
+            producer_role=producer_role,
+            verdict="ACK",
+            payload=payload or {},
+        )
+        return self._send_signal(pipeline_id, data.to_dict())
+
+    def consensus_nack(
+        self,
+        pipeline_id: str,
+        agent_role: str,
+        producer_role: str,
+        payload: dict[str, Any] | None = None,
+    ) -> SignalResponse:
+        """Send CONSENSUS_NACK signal.
+
+        Args:
+            pipeline_id: Pipeline ID
+            agent_role: Role of the reviewing agent
+            producer_role: Role of the producer being NACKed
+            payload: Additional review data (should include reason)
+
+        Returns:
+            SignalResponse from orchestrator
+        """
+        data = ConsensusReviewData(
+            agent_role=agent_role,
+            producer_role=producer_role,
+            verdict="NACK",
+            payload=payload or {},
+        )
+        return self._send_signal(pipeline_id, data.to_dict())
+
+    def consensus_withdraw(
+        self,
+        pipeline_id: str,
+        agent_role: str,
+        reason: str,
+    ) -> SignalResponse:
+        """Send CONSENSUS_WITHDRAW signal.
+
+        Args:
+            pipeline_id: Pipeline ID
+            agent_role: Role of the withdrawing agent
+            reason: Reason for withdrawal
+
+        Returns:
+            SignalResponse from orchestrator
+        """
+        return self._send_signal(
+            pipeline_id,
+            {
+                "signal_type": "consensus_withdraw",
+                "agent_role": agent_role,
+                "reason": reason,
+            },
+        )
+
+    def consensus_status(
+        self,
+        pipeline_id: str,
+    ) -> dict[str, Any]:
+        """Get BRC consensus status.
+
+        Args:
+            pipeline_id: Pipeline ID
+
+        Returns:
+            Consensus status data from pipeline status
+        """
+        endpoint = f"/api/v1/pipelines/{pipeline_id}/status"
+        response = self._make_request(endpoint)
+        return cast(
+            dict[str, Any], response.get("data", {}).get("concurrent", {}).get("consensus", {})
+        )
+
     def send_message(
         self,
         pipeline_id: str,
@@ -419,6 +541,7 @@ class OrchestratorClient:
         role: str | None = None,
         since_id: str | None = None,
         limit: int = 100,
+        wait: int | None = None,
     ) -> dict[str, Any]:
         """Poll for inter-agent messages.
 
@@ -427,6 +550,7 @@ class OrchestratorClient:
             role: Filter for messages targeted to this role
             since_id: Return only messages after this ID
             limit: Max messages to return
+            wait: Long-poll timeout in seconds (server holds connection)
 
         Returns:
             Response data with messages list
@@ -437,9 +561,13 @@ class OrchestratorClient:
         if since_id:
             params.append(f"since_id={since_id}")
         params.append(f"limit={limit}")
+        if wait is not None:
+            params.append(f"wait={wait}")
         query = "&".join(params)
         endpoint = f"/api/v1/pipelines/{pipeline_id}/messages?{query}"
-        return self._make_request(endpoint)
+        # Use a longer timeout when long-polling to avoid client-side timeout
+        timeout_override = (wait + 5) if wait else None
+        return self._make_request(endpoint, timeout_override=timeout_override)
 
     def get_message_status(self, pipeline_id: str) -> dict[str, Any]:
         """Get message bus status for a pipeline.

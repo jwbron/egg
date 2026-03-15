@@ -5,12 +5,15 @@ concurrent phase execution. Messages are ephemeral within a phase and
 captured in checkpoints at session end for auditability.
 """
 
+import logging
 import threading
 import uuid
 from datetime import UTC, datetime
 from typing import Any
 
 from pydantic import BaseModel, Field
+
+logger = logging.getLogger("orchestrator.message_store")
 
 
 class MessageType:
@@ -21,6 +24,12 @@ class MessageType:
     STATUS = "STATUS"
     AGENT_FAILED = "AGENT_FAILED"
     HANDOFF = "HANDOFF"
+    # Consensus protocol (BRC)
+    CONSENSUS_PROPOSE = "CONSENSUS_PROPOSE"
+    CONSENSUS_ACK = "CONSENSUS_ACK"
+    CONSENSUS_NACK = "CONSENSUS_NACK"
+    CONSENSUS_WITHDRAW = "CONSENSUS_WITHDRAW"
+    CONSENSUS_CONFIRMED = "CONSENSUS_CONFIRMED"
 
 
 class Message(BaseModel):
@@ -153,10 +162,53 @@ _store_lock = threading.Lock()
 
 
 def get_message_store() -> MessageStore:
-    """Get the singleton message store."""
+    """Get the singleton message store.
+
+    Uses Redis Streams when Redis is available, falling back to
+    in-memory storage for tests or when Redis is not configured.
+    """
     global _message_store
     if _message_store is None:
         with _store_lock:
             if _message_store is None:
-                _message_store = MessageStore()
+                _message_store = _create_message_store()
     return _message_store
+
+
+def _create_message_store() -> MessageStore:
+    """Create the appropriate message store backend."""
+    import os
+
+    redis_host = os.environ.get("REDIS_HOST", "localhost")
+    redis_port = int(os.environ.get("REDIS_PORT", "6379"))
+    redis_db = int(os.environ.get("REDIS_MESSAGE_DB", "1"))  # Separate DB from other Redis usage
+    use_redis = os.environ.get("EGG_MESSAGE_STORE_BACKEND", "auto")
+
+    if use_redis == "memory":
+        return MessageStore()
+
+    if use_redis in ("redis", "auto"):
+        try:
+            from redis_message_store import get_redis_message_store
+
+            store = get_redis_message_store(host=redis_host, port=redis_port, db=redis_db)
+            logger.info(
+                "Using Redis Streams message store",
+                extra={"host": redis_host, "port": redis_port, "db": redis_db},
+            )
+            return store  # type: ignore[return-value]
+        except Exception as e:
+            if use_redis == "redis":
+                raise  # Explicit Redis mode — fail hard
+            logger.warning(
+                "Redis unavailable, falling back to in-memory message store",
+                extra={"error": str(e)},
+            )
+
+    return MessageStore()
+
+
+def reset_message_store() -> None:
+    """Reset the singleton message store (for testing)."""
+    global _message_store
+    _message_store = None

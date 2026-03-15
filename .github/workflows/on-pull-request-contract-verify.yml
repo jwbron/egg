@@ -50,20 +50,50 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Fetch PR metadata (labels + branch name) in a single API call
-          pr_data=$(gh api "repos/${{ github.repository }}/pulls/${PR_NUMBER}" --jq '{labels: [.labels[].name], branch: .head.ref}')
+          # Fetch PR metadata (labels, branch name, body) in a single API call
+          pr_data=$(gh api "repos/${{ github.repository }}/pulls/${PR_NUMBER}" --jq '{labels: [.labels[].name], branch: .head.ref, body: .body}')
           branch_name=$(echo "$pr_data" | jq -r '.branch')
           labels=$(echo "$pr_data" | jq -r '.labels[]')
+          pr_body=$(echo "$pr_data" | jq -r '.body // ""')
 
-          # Extract issue number from branch name (egg/issue-{number}...)
+          # Extract issue number — try multiple sources in priority order
+          issue_number=""
+
+          # 1. Branch name: egg/issue-{number}...
           if [[ "$branch_name" =~ ^egg/issue-([0-9]+) ]]; then
             issue_number="${BASH_REMATCH[1]}"
-            echo "Extracted issue number from branch: $issue_number"
-            echo "issue_number=${issue_number}" >> "$GITHUB_OUTPUT"
+            echo "Extracted issue number from branch name: $issue_number"
+
+          # 2. PR body: "Issue: https://github.com/.../issues/{number}" or "Issue: #{number}"
           else
-            echo "Could not extract issue number from branch name: $branch_name"
-            echo "issue_number=" >> "$GITHUB_OUTPUT"
+            # Try URL form: Issue: https://github.com/owner/repo/issues/1234
+            issue_number=$(echo "$pr_body" | grep -oi 'Issue:[[:space:]]*https\?://github\.com/[^/]*/[^/]*/issues/[0-9]*' | grep -o '[0-9]*$' | head -1 || true)
+            # Try shorthand form: Issue: #1234
+            if [[ -z "$issue_number" ]]; then
+              issue_number=$(echo "$pr_body" | grep -oi 'Issue:[[:space:]]*#[0-9]*' | grep -o '[0-9]*$' | head -1 || true)
+            fi
+            if [[ -n "$issue_number" ]]; then
+              echo "Extracted issue number from PR body: $issue_number"
+            fi
           fi
+
+          # 3. Fallback: scan .egg-state/contracts/ on the branch for any contract file
+          if [[ -z "$issue_number" ]]; then
+            echo "Could not extract issue number from branch name or PR body"
+            echo "Scanning .egg-state/contracts/ on branch $branch_name..."
+            contract_files=$(gh api "repos/${{ github.repository }}/contents/.egg-state/contracts?ref=${branch_name}" \
+              --jq '.[].name' 2>/dev/null || echo "")
+            if [[ -n "$contract_files" ]]; then
+              # Take the first .json file and extract the number from its filename
+              first_contract=$(echo "$contract_files" | grep '\.json$' | head -1)
+              if [[ "$first_contract" =~ ^([0-9]+)\.json$ ]]; then
+                issue_number="${BASH_REMATCH[1]}"
+                echo "Extracted issue number from contract filename: $issue_number"
+              fi
+            fi
+          fi
+
+          echo "issue_number=${issue_number}" >> "$GITHUB_OUTPUT"
 
           # For workflow_dispatch, always run
           if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then

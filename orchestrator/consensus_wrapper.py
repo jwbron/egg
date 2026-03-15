@@ -1,15 +1,17 @@
 """Build consensus-wrapped commands for concurrent agent containers.
 
 When agents run in concurrent mode, they must stay alive after completing
-their work to participate in consensus. This module provides a shell wrapper
-that detects early Claude exits and restarts the agent with a recovery prompt
-instead of blindly marking consensus as approved.
+their work to participate in BRC (Broadcast-Review-Converge) consensus.
+This module provides a shell wrapper that detects early Claude exits and
+restarts the agent with a recovery prompt instead of blindly marking
+consensus as approved.
 
-If the agent exits without signaling READY, the wrapper restarts Claude with
-a prompt that explains what happened and instructs it to assess state, then
-either signal READY or continue working. Restarts are capped at
-``MAX_CONSENSUS_RESTARTS`` (default 2). After exhausting restarts the wrapper
-exits with code 1 so the orchestrator's failure path handles escalation.
+If the agent exits without reaching CONFIRMED state in the BRC protocol,
+the wrapper restarts Claude with a prompt that explains what happened and
+instructs it to assess state, then continue the BRC protocol. Restarts
+are capped at ``MAX_CONSENSUS_RESTARTS`` (default 2). After exhausting
+restarts the wrapper exits with code 1 so the orchestrator's failure path
+handles escalation.
 """
 
 import shlex
@@ -24,28 +26,28 @@ MAX_CONSENSUS_RESTARTS = 2
 MAX_READY_POLL_CYCLES = 10
 
 # Recovery prompt given to Claude when it is restarted by the wrapper.
-# Placeholders: {restart_number}, {max_restarts}
+# Placeholders: {restart_number}, {max_restarts}, {brc_state}
 _RECOVERY_PROMPT = (
-    "## CONSENSUS RECOVERY — You were restarted by the consensus wrapper\n\n"
-    "You exited your previous session without the orchestrator confirming "
-    "consensus. This is restart {restart_number} of {max_restarts}.\n\n"
-    "**What happened**: Your agent process exited cleanly, but the consensus "
-    "protocol requires you to remain alive until ALL agents signal READY and "
-    "the orchestrator stops your container. Because you exited early, the "
-    "wrapper restarted you so you can finish the protocol.\n\n"
+    "## BRC CONSENSUS RECOVERY — You were restarted by the consensus wrapper\n\n"
+    "You exited your previous session without completing the BRC consensus protocol. "
+    "This is restart {restart_number} of {max_restarts}.\n\n"
+    "**What happened**: Your agent process exited cleanly, but the Broadcast-Review-"
+    "Converge (BRC) protocol requires all agents to reach CONFIRMED state before "
+    "the orchestrator stops your container.\n\n"
+    "**Your BRC state**: {brc_state}\n\n"
     "**What you must do now**:\n"
-    "1. Poll for messages: `egg-orch message poll`\n"
-    "2. Check if your work is complete — review any new commits or feedback "
-    "from other agents.\n"
-    "3. If your work is done, signal READY: "
-    '`egg-orch signal readiness --state READY --reason "Work complete"`\n'
-    "4. If there is new feedback or work to address, handle it first, then "
-    "signal READY.\n"
-    "5. **Stay alive** — keep polling with `egg-orch message poll` in a loop. "
-    "Do NOT exit. The orchestrator will send SIGTERM when consensus is reached.\n\n"
-    "**If you exit again without signaling READY, you will be restarted again "
-    "(up to the maximum). After that, your role will be left without consensus "
-    "and the orchestrator will need to handle it.**\n"
+    "1. Check consensus status: `egg-orch consensus status`\n"
+    "2. Poll for messages: `egg-orch message poll --wait 30`\n"
+    "3. Based on your role type:\n"
+    "   - **Producer**: If WORKING, complete work and propose (`egg-orch consensus propose`). "
+    "If PROPOSED, check for ACKs/NACKs and respond. If all ACKed, confirm.\n"
+    "   - **Reviewer**: Check for proposals from assigned producers. Review artifacts in git, "
+    "then ACK (`egg-orch consensus ack <role>`) or NACK (`egg-orch consensus nack <role>`). "
+    "Once all reviewed, confirm.\n"
+    "4. **Stay alive** — keep polling with `egg-orch message poll --wait 30`. "
+    "The orchestrator will send SIGTERM when consensus is reached.\n\n"
+    "**If you exit again without reaching CONFIRMED, you will be restarted again "
+    "(up to the maximum).**\n"
 )
 
 # Shell script that wraps the Claude CLI invocation. After Claude exits:
@@ -67,6 +69,23 @@ run_claude() {{
     return $?
 }}
 
+# Helper: extract BRC agent state from pipeline status JSON
+get_brc_state() {{
+    local response="$1"
+    local role="$2"
+    echo "$response" | python3 -c \
+        "import sys,json; d=json.load(sys.stdin); agent=d.get('data',{{}}).get('concurrent',{{}}).get('consensus',{{}}).get('agents',{{}}).get('$role',{{}}); print(json.dumps(agent))" \
+        2>/dev/null || echo "{{}}"
+}}
+
+get_agent_confirmed() {{
+    local response="$1"
+    local role="$2"
+    echo "$response" | python3 -c \
+        "import sys,json; d=json.load(sys.stdin); agent=d.get('data',{{}}).get('concurrent',{{}}).get('consensus',{{}}).get('agents',{{}}).get('$role',{{}}); print(agent.get('confirmed',False))" \
+        2>/dev/null || echo "False"
+}}
+
 # --- Initial run ---
 run_claude {initial_prompt}
 CLAUDE_EXIT=$?
@@ -76,15 +95,15 @@ if [ "${{EGG_CONCURRENT_MODE:-}}" != "true" ]; then
     exit $CLAUDE_EXIT
 fi
 
-# Non-zero exit means the agent crashed — do not restart or signal READY.
+# Non-zero exit means the agent crashed — do not restart.
 if [ "$CLAUDE_EXIT" -ne 0 ]; then
     echo "[consensus-wrapper] Agent failed (code $CLAUDE_EXIT). NOT restarting."
     exit $CLAUDE_EXIT
 fi
 
-# --- Check if consensus is already complete or agent already signaled READY ---
-# If the agent signaled READY but then exited (e.g., context exhaustion),
-# restarting is unnecessary. Query pipeline status for consensus state.
+# --- Check if consensus is already complete or agent already CONFIRMED ---
+# If the agent reached CONFIRMED in the BRC protocol but then exited
+# (e.g., context exhaustion), restarting is unnecessary.
 MAX_READY_POLLS={max_ready_polls}
 RESPONSE=$(egg-orch pipeline status --json 2>/dev/null || echo "{{}}")
 IS_COMPLETE=$(echo "$RESPONSE" | python3 -c \
@@ -95,14 +114,12 @@ if [ "$IS_COMPLETE" = "True" ]; then
     exit 0
 fi
 
-# Check if this agent already signaled READY (uses EGG_AGENT_ROLE env var)
+# Check if this agent already reached CONFIRMED state (BRC protocol)
 AGENT_ROLE="${{EGG_AGENT_ROLE:-}}"
 if [ -n "$AGENT_ROLE" ]; then
-    AGENT_STATE=$(echo "$RESPONSE" | python3 -c \
-        "import sys,json; d=json.load(sys.stdin); agents=d.get('data',{{}}).get('concurrent',{{}}).get('consensus',{{}}).get('agents',{{}}); print(agents.get('$AGENT_ROLE',{{}}).get('state',''))" \
-        2>/dev/null || echo "")
-    if [ "$AGENT_STATE" = "READY" ]; then
-        echo "[consensus-wrapper] Agent already signaled READY. Skipping restart, waiting for consensus..."
+    AGENT_CONFIRMED=$(get_agent_confirmed "$RESPONSE" "$AGENT_ROLE")
+    if [ "$AGENT_CONFIRMED" = "True" ]; then
+        echo "[consensus-wrapper] Agent already CONFIRMED in BRC protocol. Waiting for consensus..."
         POLL_INTERVAL="${{EGG_MESSAGE_POLL_INTERVAL:-30}}"
         WAIT_COUNT=0
         while [ "$WAIT_COUNT" -lt "$MAX_READY_POLLS" ]; do
@@ -117,23 +134,29 @@ if [ -n "$AGENT_ROLE" ]; then
                 exit 0
             fi
         done
-        echo "[consensus-wrapper] Agent was READY but consensus not reached. Exiting cleanly."
+        echo "[consensus-wrapper] Agent was CONFIRMED but consensus not reached. Exiting cleanly."
         exit 0
     fi
 fi
 
-# --- Restart loop for clean exits without consensus ---
+# --- Restart loop for clean exits without BRC consensus ---
 while [ "$RESTART_COUNT" -lt "$MAX_RESTARTS" ]; do
     RESTART_COUNT=$((RESTART_COUNT + 1))
-    echo "[consensus-wrapper] Agent exited without consensus. Restarting ($RESTART_COUNT/$MAX_RESTARTS)..."
+    echo "[consensus-wrapper] Agent exited without BRC consensus. Restarting ($RESTART_COUNT/$MAX_RESTARTS)..."
+
+    # Get current BRC state for the recovery prompt
+    BRC_STATE="unknown"
+    if [ -n "$AGENT_ROLE" ]; then
+        BRC_STATE=$(get_brc_state "$RESPONSE" "$AGENT_ROLE")
+    fi
 
     # Build recovery prompt with restart context
     RECOVERY_PROMPT=$(cat <<'RECOVERY_EOF'
 {recovery_prompt_template}
 RECOVERY_EOF
 )
-    # Substitute restart number into the prompt
-    RECOVERY_PROMPT=$(echo "$RECOVERY_PROMPT" | sed "s/{{restart_number}}/$RESTART_COUNT/g; s/{{max_restarts}}/$MAX_RESTARTS/g")
+    # Substitute restart number and BRC state into the prompt
+    RECOVERY_PROMPT=$(echo "$RECOVERY_PROMPT" | sed "s/{{restart_number}}/$RESTART_COUNT/g; s/{{max_restarts}}/$MAX_RESTARTS/g; s/{{brc_state}}/$BRC_STATE/g")
 
     run_claude "$RECOVERY_PROMPT"
     CLAUDE_EXIT=$?
@@ -156,7 +179,7 @@ RECOVERY_EOF
 done
 
 # --- Max restarts exhausted: shut down with failure ---
-echo "[consensus-wrapper] Max restarts ($MAX_RESTARTS) exhausted. Agent never signaled READY. Exiting with failure."
+echo "[consensus-wrapper] Max restarts ($MAX_RESTARTS) exhausted. Agent never reached CONFIRMED. Exiting with failure."
 exit 1
 """
 
@@ -168,11 +191,12 @@ def build_consensus_wrapped_command(
     max_restarts: int = MAX_CONSENSUS_RESTARTS,
     max_ready_polls: int = MAX_READY_POLL_CYCLES,
 ) -> list[str]:
-    """Build a shell command that runs Claude with a consensus restart wrapper.
+    """Build a shell command that runs Claude with a BRC consensus restart wrapper.
 
-    The wrapper detects when Claude exits without consensus and restarts it
-    with a recovery prompt instead of auto-signaling READY. This ensures
-    agents explicitly participate in consensus rather than having it faked.
+    The wrapper detects when Claude exits without reaching CONFIRMED state
+    in the BRC protocol and restarts it with a recovery prompt. This ensures
+    agents explicitly participate in the Broadcast-Review-Converge consensus
+    rather than having it faked.
 
     Args:
         prompt_text: The prompt to pass to the Claude CLI.

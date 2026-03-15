@@ -61,6 +61,12 @@ class MessageType(StrEnum):
     STATUS = "STATUS"
     AGENT_FAILED = "AGENT_FAILED"
     HANDOFF = "HANDOFF"
+    # Consensus protocol (BRC)
+    CONSENSUS_PROPOSE = "CONSENSUS_PROPOSE"
+    CONSENSUS_ACK = "CONSENSUS_ACK"
+    CONSENSUS_NACK = "CONSENSUS_NACK"
+    CONSENSUS_WITHDRAW = "CONSENSUS_WITHDRAW"
+    CONSENSUS_CONFIRMED = "CONSENSUS_CONFIRMED"
 
 
 class ReadinessState(StrEnum):
@@ -70,6 +76,22 @@ class ReadinessState(StrEnum):
     READY = "READY"
     BLOCKED = "BLOCKED"
     OBJECTING = "OBJECTING"
+
+
+class ConsensusPhase(StrEnum):
+    """Agent consensus phase in BRC protocol.
+
+    Tracks where each agent is in the Broadcast-Review-Converge cycle:
+    - WORKING: Agent is still doing work, hasn't proposed yet
+    - PROPOSED: Agent has broadcast its proposal (producers only)
+    - REVIEWING: Agent is reviewing proposals (reviewers only)
+    - CONFIRMED: Agent has confirmed consensus
+    """
+
+    WORKING = "WORKING"
+    PROPOSED = "PROPOSED"
+    REVIEWING = "REVIEWING"
+    CONFIRMED = "CONFIRMED"
 
 
 class AgentRole(StrEnum):
@@ -371,9 +393,65 @@ class CoordinatorEscalateData:
         return result
 
 
+@dataclass
+class ConsensusProposalData:
+    """Data for consensus propose signal.
+
+    Attributes:
+        agent_role: Role of the proposing agent
+        payload: Proposal payload (summary, attestation, artifacts, etc.)
+        changed_artifacts: List of changed artifacts for re-proposals
+    """
+
+    agent_role: str
+    payload: dict[str, Any] = field(default_factory=dict)
+    changed_artifacts: list[str] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary for API calls."""
+        result: dict[str, Any] = {
+            "signal_type": "consensus_propose",
+            "agent_role": self.agent_role,
+            "payload": self.payload,
+        }
+        if self.changed_artifacts:
+            result["changed_artifacts"] = self.changed_artifacts
+        return result
+
+
+@dataclass
+class ConsensusReviewData:
+    """Data for consensus ACK/NACK signal.
+
+    Attributes:
+        agent_role: Role of the reviewing agent
+        producer_role: Role of the producer being reviewed
+        verdict: Review verdict ("ACK" or "NACK")
+        payload: Additional review data (e.g., reason for NACK)
+    """
+
+    agent_role: str
+    producer_role: str
+    verdict: str  # "ACK" or "NACK"
+    payload: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary for API calls."""
+        signal_type = "consensus_ack" if self.verdict == "ACK" else "consensus_nack"
+        return {
+            "signal_type": signal_type,
+            "agent_role": self.agent_role,
+            "producer_role": self.producer_role,
+            "payload": self.payload,
+        }
+
+
 __all__ = [
     "AgentRole",
     "CompletionData",
+    "ConsensusPhase",
+    "ConsensusProposalData",
+    "ConsensusReviewData",
     "CoordinatorEscalateData",
     "CoordinatorPhaseData",
     "CoordinatorSpawnData",
