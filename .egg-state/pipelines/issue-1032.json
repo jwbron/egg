@@ -4,7 +4,7 @@
   "repo": "jwbron/egg",
   "branch": "egg/issue-1032",
   "prompt": null,
-  "status": "running",
+  "status": "cancelled",
   "current_phase": "plan",
   "config": {
     "auto_create_pr": true,
@@ -159,7 +159,7 @@
     }
   ],
   "created_at": "2026-03-15T06:51:43.025288",
-  "updated_at": "2026-03-15T07:55:16.612228",
+  "updated_at": "2026-03-15T08:02:00.556413",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
@@ -251,5 +251,5 @@
   },
   "plan_phase_waves": null,
   "plan_phase_names": null,
-  "version": 37
+  "version": 38
 }
