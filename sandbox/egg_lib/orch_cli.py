@@ -43,6 +43,7 @@ Commands:
     egg-orch consensus ack <producer> ...        ACK a producer's proposal
     egg-orch consensus nack <producer> ...       NACK a producer's proposal
     egg-orch consensus withdraw <pid> ...        Withdraw proposal
+    egg-orch consensus confirmed <pid>           Confirm after all reviewers ACK
     egg-orch consensus status <pid>              Show BRC consensus status
 """
 
@@ -1235,6 +1236,32 @@ def cmd_consensus_withdraw(args: argparse.Namespace) -> int:
     return 1
 
 
+def cmd_consensus_confirmed(args: argparse.Namespace) -> int:
+    """Send CONSENSUS_CONFIRMED signal after all reviewers ACK."""
+    pid = require_pipeline_id(args)
+    role = _require_role(args)
+
+    data: dict[str, Any] = {
+        "signal_type": "consensus_confirmed",
+        "agent_role": role,
+    }
+
+    result = orch_request(f"/api/v1/pipelines/{pid}/signal", method="POST", data=data)
+
+    if args.json:
+        print_json(result)
+        return 0
+
+    if result.get("success"):
+        consensus_reached = result.get("data", {}).get("consensus_reached", False)
+        print(f"Confirmation recorded for {role}")
+        if consensus_reached:
+            print("  Consensus reached!")
+        return 0
+    print(f"Error: {result.get('message')}", file=sys.stderr)
+    return 1
+
+
 def cmd_consensus_status(args: argparse.Namespace) -> int:
     """Show BRC consensus status (approval matrix and review graph)."""
     pid = require_pipeline_id(args)
@@ -1702,6 +1729,13 @@ def create_parser() -> argparse.ArgumentParser:
     cons_withdraw.add_argument("--reason", required=True, help="Reason for withdrawal")
     _add_json_flag(cons_withdraw)
     cons_withdraw.set_defaults(func=cmd_consensus_withdraw)
+
+    # consensus confirmed
+    cons_confirmed = consensus_sub.add_parser("confirmed", help="Confirm after all reviewers ACK")
+    cons_confirmed.add_argument("pipeline_id", nargs="?", help="Pipeline ID")
+    cons_confirmed.add_argument("--role", help="Agent role (default: EGG_AGENT_ROLE)")
+    _add_json_flag(cons_confirmed)
+    cons_confirmed.set_defaults(func=cmd_consensus_confirmed)
 
     # consensus status
     cons_status = consensus_sub.add_parser("status", help="Show consensus status")
