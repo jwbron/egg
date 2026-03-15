@@ -1,8 +1,7 @@
-"""Tests for per-phase concurrent execution (BRC activation).
+"""Tests for concurrent execution default behavior.
 
-Verifies that is_concurrent_execution correctly activates BRC for phases
-listed in concurrent_phases, even when the global concurrent_execution
-flag is False.
+Verifies that is_concurrent_execution returns True by default so BRC
+consensus activates for all multi-agent phases.
 """
 
 import sys
@@ -18,15 +17,11 @@ from multi_agent import is_concurrent_execution
 
 
 def _make_pipeline(
-    concurrent_execution: bool = False,
-    concurrent_phases: list[str] | None = None,
+    concurrent_execution: bool = True,
     current_phase: PipelinePhase = PipelinePhase.IMPLEMENT,
 ) -> Pipeline:
-    """Create a test pipeline with configurable concurrent settings."""
-    kwargs: dict = {"concurrent_execution": concurrent_execution}
-    if concurrent_phases is not None:
-        kwargs["concurrent_phases"] = concurrent_phases
-    config = PipelineConfig(**kwargs)
+    """Create a test pipeline."""
+    config = PipelineConfig(concurrent_execution=concurrent_execution)
     return Pipeline(
         id="issue-1140",
         repo="test/repo",
@@ -38,52 +33,22 @@ def _make_pipeline(
 
 
 class TestIsConcurrentExecution:
-    """Test is_concurrent_execution with phase-aware logic."""
+    """Test is_concurrent_execution with default-True behavior."""
 
-    def test_global_flag_true_enables_all_phases(self):
-        pipeline = _make_pipeline(concurrent_execution=True)
+    def test_default_config_is_concurrent(self):
+        pipeline = _make_pipeline()
         assert is_concurrent_execution(pipeline) is True
-        assert is_concurrent_execution(pipeline, phase="refine") is True
-        assert is_concurrent_execution(pipeline, phase="plan") is True
-        assert is_concurrent_execution(pipeline, phase="implement") is True
 
-    def test_global_flag_false_no_phase_returns_false(self):
+    def test_default_config_concurrent_for_all_phases(self):
+        for phase in ("refine", "plan", "implement"):
+            pipeline = _make_pipeline()
+            assert is_concurrent_execution(pipeline, phase=phase) is True
+
+    def test_explicit_false_disables(self):
         pipeline = _make_pipeline(concurrent_execution=False)
         assert is_concurrent_execution(pipeline) is False
 
-    def test_default_concurrent_phases_enables_refine_plan_implement(self):
-        """Default concurrent_phases includes all three phases."""
-        pipeline = _make_pipeline(concurrent_execution=False)
-        assert is_concurrent_execution(pipeline, phase="refine") is True
-        assert is_concurrent_execution(pipeline, phase="plan") is True
-        assert is_concurrent_execution(pipeline, phase="implement") is True
-
-    def test_custom_concurrent_phases(self):
-        pipeline = _make_pipeline(
-            concurrent_execution=False,
-            concurrent_phases=["refine"],
-        )
-        assert is_concurrent_execution(pipeline, phase="refine") is True
-        assert is_concurrent_execution(pipeline, phase="plan") is False
-        assert is_concurrent_execution(pipeline, phase="implement") is False
-
-    def test_empty_concurrent_phases(self):
-        pipeline = _make_pipeline(
-            concurrent_execution=False,
-            concurrent_phases=[],
-        )
-        assert is_concurrent_execution(pipeline, phase="refine") is False
-        assert is_concurrent_execution(pipeline, phase="plan") is False
-        assert is_concurrent_execution(pipeline, phase="implement") is False
-
-    def test_unknown_phase_returns_false(self):
-        pipeline = _make_pipeline(concurrent_execution=False)
-        assert is_concurrent_execution(pipeline, phase="integrate") is False
-
-    def test_backward_compat_no_concurrent_phases_attr(self):
-        """Pipelines without concurrent_phases still work via global flag."""
-        pipeline = _make_pipeline(concurrent_execution=True)
-        # Simulate old config without the field
-        if hasattr(pipeline.config, "concurrent_phases"):
-            delattr(pipeline.config, "concurrent_phases")
+    def test_phase_param_accepted(self):
+        """phase parameter is accepted for call-site compatibility."""
+        pipeline = _make_pipeline()
         assert is_concurrent_execution(pipeline, phase="refine") is True

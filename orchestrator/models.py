@@ -344,16 +344,8 @@ class PipelineConfig(BaseModel):
         description="Enable parallel phase execution for independent plan phases (Tier 3 only)",
     )
     concurrent_execution: bool = Field(
-        default=False,
+        default=True,
         description="Enable concurrent agent execution within a phase (all agents start simultaneously)",
-    )
-    concurrent_phases: list[str] = Field(
-        default=["refine", "plan", "implement"],
-        description=(
-            "Phases that use concurrent BRC-based execution even when "
-            "concurrent_execution is False. When concurrent_execution is True, "
-            "all eligible phases run concurrently regardless of this list."
-        ),
     )
     max_concurrent_agents: int = Field(
         default=6, ge=1, description="Maximum concurrent agents per phase"

@@ -655,19 +655,9 @@ def is_concurrent_execution(pipeline: Pipeline, phase: str | None = None) -> boo
 
     Args:
         pipeline: Pipeline to check.
-        phase: Optional phase name. When provided, also returns True if the
-            phase is listed in ``concurrent_phases`` (which defaults to
-            ``["refine", "plan"]``).
+        phase: Accepted for call-site compatibility but unused.
 
     Returns:
-        True if concurrent execution should be used — either because the
-        global ``concurrent_execution`` flag is set, or because *phase* is
-        in the pipeline's ``concurrent_phases`` list.
+        True if concurrent_execution is enabled in the pipeline config.
     """
-    if getattr(pipeline.config, "concurrent_execution", False):
-        return True
-    if phase is not None:
-        concurrent_phases = getattr(pipeline.config, "concurrent_phases", [])
-        if phase in concurrent_phases:
-            return True
-    return False
+    return getattr(pipeline.config, "concurrent_execution", False)
