@@ -213,6 +213,7 @@ class TestPipelineConfig:
         assert config.parallel_agents is True
         assert config.max_review_cycles == 3
         assert config.hitl_gates is True
+        assert config.concurrent_phases == ["refine", "plan", "implement"]
 
     def test_custom_config(self):
         """Test custom configuration."""
