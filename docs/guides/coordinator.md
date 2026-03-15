@@ -416,7 +416,7 @@ The coordinator runs with `phase="coordinator"` — a special phase value distin
 
 ## Troubleshooting
 
-**`submit_task` returns 409 (pipeline already exists)**: A pipeline for this issue already exists. The 409 response now includes `existing_pipeline_id`, `existing_status`, and `existing_phase` so you can decide whether to resume monitoring (`get_status`) or cancel and resubmit (`cancel_task` with `cleanup=true`).
+**`submit_task` returns 409 (pipeline already exists)**: A pipeline for this issue already exists. The 409 response includes `existing_pipeline_id`, `existing_status`, and `existing_phase` so you can decide whether to resume monitoring (`get_status`) or cancel and resubmit (`cancel_task` with `cleanup=true`).
 
 **Coordinator not spawning**: Verify `coordinator_enabled: true` in the pipeline config via `egg-orch pipeline get <id>`.
 
