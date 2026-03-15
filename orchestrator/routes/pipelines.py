@@ -4951,8 +4951,7 @@ def _run_concurrent_phase(
             if consensus.get("has_unresolved_nacks"):
                 nack_details = consensus.get("unresolved_nacks", [])
                 nack_summary = "; ".join(
-                    f"{n['reviewer']} NACKed {n['producer']}: {n['reason']}"
-                    for n in nack_details
+                    f"{n['reviewer']} NACKed {n['producer']}: {n['reason']}" for n in nack_details
                 )
                 logger.warning(
                     "All containers exited with unresolved NACKs",
@@ -4971,9 +4970,7 @@ def _run_concurrent_phase(
                     )
                 except Exception:
                     pass
-                combined_logs += (
-                    f"\n--- UNRESOLVED NACKs ({len(nack_details)}) ---\n{nack_summary}"
-                )
+                combined_logs += f"\n--- UNRESOLVED NACKs ({len(nack_details)}) ---\n{nack_summary}"
                 return 1, combined_logs
 
             return 0, combined_logs
@@ -5097,17 +5094,14 @@ def _run_concurrent_phase(
             if _final_consensus.get("has_unresolved_nacks"):
                 nack_details = _final_consensus.get("unresolved_nacks", [])
                 nack_summary = "; ".join(
-                    f"{n['reviewer']} NACKed {n['producer']}: {n['reason']}"
-                    for n in nack_details
+                    f"{n['reviewer']} NACKed {n['producer']}: {n['reason']}" for n in nack_details
                 )
                 logger.warning(
                     "Timeout with unresolved NACKs — returning failure",
                     pipeline_id=pipeline_id,
                     nack_count=len(nack_details),
                 )
-                combined_logs += (
-                    f"\n--- UNRESOLVED NACKs ({len(nack_details)}) ---\n{nack_summary}"
-                )
+                combined_logs += f"\n--- UNRESOLVED NACKs ({len(nack_details)}) ---\n{nack_summary}"
                 return 1, combined_logs
 
             return 0, combined_logs
