@@ -1,6 +1,6 @@
 # Concurrent Execution Mode
 
-Concurrent execution mode runs all implement-phase agents simultaneously — all sharing the pipeline branch — rather than sequentially in dependency-ordered waves. Agents communicate via the orchestrator message bus and signal readiness for phase completion via a consensus protocol.
+Concurrent execution mode runs all agents for the current pipeline phase simultaneously — all sharing the pipeline branch — rather than sequentially in dependency-ordered waves. Agents communicate via the orchestrator message bus and signal readiness for phase completion via a consensus protocol. BRC consensus is supported for the **refine**, **plan**, and **implement** phases.
 
 This is distinct from the standard wave-based parallel execution (Tier 2), where agents run in dependency order but multiple independent agents execute in parallel within each wave.
 
@@ -25,14 +25,13 @@ Relevant `PipelineConfig` fields:
 
 ## Agent Startup Protocol
 
-When concurrent execution starts for the implement phase, the `ConcurrentPhaseExecutor` (in `orchestrator/concurrent_executor.py`) spawns the following roles simultaneously using a `ThreadPoolExecutor`:
+When concurrent execution starts, the `ConcurrentPhaseExecutor` (in `orchestrator/concurrent_executor.py`) queries `get_roles_for_phase(phase, include_reviewers=True)` (from `shared/egg_contracts/agent_roles.py`) to determine which roles to spawn simultaneously using a `ThreadPoolExecutor`. Roles are phase-dependent:
 
-- `coder`
-- `tester`
-- `documenter`
-- `checker`
-- `reviewer_code`
-- `reviewer_contract`
+| Phase | Spawned roles |
+|-------|--------------|
+| `refine` | `refiner`, `reviewer_refine`, `reviewer_agent_design` |
+| `plan` | `architect`, `task_planner`, `risk_analyst`, `reviewer_plan` |
+| `implement` | `coder`, `tester`, `documenter`, `checker`, `reviewer_code`, `reviewer_contract` |
 
 **Shared branch**: All agents operate on the pipeline's shared branch (e.g., `egg/issue-123`). Agents coordinate commits via the message bus to sequence their work and avoid conflicts.
 

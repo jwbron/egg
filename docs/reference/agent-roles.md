@@ -16,7 +16,7 @@ All agent roles in egg, their responsibilities, phases, file access permissions,
 | `coder` | Implement | No (wave 1) | — |
 | `tester` | Implement | Yes (with `documenter`) | coder |
 | `documenter` | Implement | Yes (with `tester`) | coder |
-| `checker` | Implement | — | coder |
+| `checker` | Implement | Yes (reviewer, with `reviewer_code`, `reviewer_contract`) | coder |
 | `integrator` | Implement | No | coder, tester |
 | `reviewer_code` | Implement | Yes (with `reviewer_contract`) | integrator |
 | `reviewer_contract` | Implement | Yes (with `reviewer_code`) | integrator |
@@ -155,9 +155,13 @@ Reviewer roles always run as a distinct step after all workers and the integrato
 
 ### `checker`
 
-**Purpose**: Run linters, formatters, and auto-fixers on the code.
+**Purpose**: Run linters, formatters, and auto-fixers on the code (sequential mode); evaluate coder output via BRC protocol (concurrent mode).
 
-**File access**: No explicit restriction patterns defined. The checker role is not registered in `AGENT_PATTERNS` in `gateway/agent_restrictions.py`, so it has unrestricted write access (allowed by the gateway's backwards-compatibility fallback for unknown roles).
+**File access** (defined as `CHECKER_PATTERNS` in `gateway/agent_restrictions.py`):
+- Allowed writes: `**/*.py`, `**/*.ts`, `**/*.tsx`, `**/*.js`, `**/*.jsx`, `**/*.go`, `**/*.java`, `**/*.rb`, `**/*.rs`, `**/*.sh`, `**/*.yml`, `**/*.yaml`, `**/*.json`, `**/*.toml`, `.egg-state/reviews/`, `.egg-state/agent-outputs/`
+- Blocked: `docs/`, `**/README.md`, `**/*.md`, `.egg-state/contracts/`
+
+In concurrent (BRC) mode, `checker` acts as a reviewer in the implement phase alongside `reviewer_code` and `reviewer_contract`.
 
 **Prompt context**: Summarized background, implementation summary.
 

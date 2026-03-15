@@ -166,7 +166,7 @@ The `role` must be a valid `AgentRole` **and** must be appropriate for the curre
 |-------|-------------|
 | `refine` | `refiner`, `reviewer_refine`, `reviewer_agent_design` |
 | `plan` | `architect`, `task_planner`, `risk_analyst`, `reviewer_plan` |
-| `implement` | `coder`, `tester`, `documenter`, `integrator`, `reviewer_code`, `reviewer_contract` |
+| `implement` | `coder`, `tester`, `documenter`, `checker`, `reviewer_code`, `reviewer_contract` |
 | `pr`, `coordinator` | Any role (no phase-role restriction) |
 
 **Contract enforcement**: Spawning any agent in the `implement` or `pr` phase when the pipeline has no contract (`contract_synced: false`) returns HTTP 409. Contracts are auto-created at pipeline startup; a 409 here indicates that creation failed — check orchestrator logs.
