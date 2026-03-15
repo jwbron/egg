@@ -98,6 +98,8 @@ orchestrator/
 ├── handoffs.py             # Agent handoff data management
 ├── message_store.py        # Inter-agent message store (Redis Streams when available, in-memory fallback)
 ├── peer_consensus.py       # BRC (Broadcast-Review-Converge) peer consensus tracker
+├── mcp_server.py           # MCP server sidecar for pipeline management integration with Claude Code (port 9850)
+├── mcp_tools.py            # MCP tool definitions and handlers for pipeline management operations
 ├── metrics.py              # Pipeline metrics and telemetry
 ├── models.py               # Pydantic models for pipelines
 ├── multi_agent.py          # Multi-agent orchestration
