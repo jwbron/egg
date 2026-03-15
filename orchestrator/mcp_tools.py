@@ -322,7 +322,9 @@ class CoordinatorToolHandler:
                 env_path = os.environ.get("EGG_REPO_PATH", "/home/egg/repos")
                 base_path = Path(env_path)
                 repo_name = repo.split("/")[-1]
-                repo_path = base_path / repo_name if not (base_path / ".git").exists() else base_path
+                repo_path = (
+                    base_path / repo_name if not (base_path / ".git").exists() else base_path
+                )
                 worktree_path = resolve_worktree_path(pipeline_id, repo_path)
 
                 # phase_gate fires after a phase completes, so the draft
