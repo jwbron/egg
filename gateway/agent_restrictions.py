@@ -692,3 +692,101 @@ def validate_agent_push(
         return AgentRestrictionResult.allow(role, reason)
     else:
         return AgentRestrictionResult.block(role, blocked_files, reason)
+
+
+# --- GitHub operation restrictions ---
+# Blocks agents from executing specific gh CLI commands (e.g., issue comment).
+# This is defense-in-depth: phase permissions also block these, but role-based
+# restrictions catch cases where phase is not set or not enforced.
+
+
+@dataclass
+class AgentGHRestriction:
+    """GitHub operation restrictions for an agent role.
+
+    Defines which gh CLI operations an agent is blocked from executing.
+    """
+
+    role: str
+    blocked_operations: list[str] = field(default_factory=list)
+    description: str = ""
+
+    def is_blocked(self, command: str) -> bool:
+        """Check if a gh command is blocked for this role.
+
+        Args:
+            command: The gh command string (e.g., "issue comment 123")
+
+        Returns:
+            True if the command is blocked
+        """
+        cmd_lower = command.lower()
+        for blocked in self.blocked_operations:
+            blocked_lower = blocked.lower()
+            if blocked_lower.endswith(" *"):
+                # Prefix match: "issue comment *" blocks "issue comment 123"
+                prefix = blocked_lower[:-2]  # Strip " *"
+                if cmd_lower.startswith(prefix):
+                    return True
+            elif cmd_lower == blocked_lower:
+                return True
+        return False
+
+
+# All pipeline agent roles are blocked from posting issue comments and editing issues.
+# These operations should go through .egg-state/reviews/ or the contract API.
+_BLOCKED_GH_OPS = ["issue comment *", "issue edit *"]
+
+AGENT_GH_RESTRICTIONS: dict[str, AgentGHRestriction] = {
+    role: AgentGHRestriction(
+        role=role,
+        blocked_operations=_BLOCKED_GH_OPS,
+        description=f"Agent role '{role}' cannot post issue comments or edit issues",
+    )
+    for role in [
+        AgentRole.CODER,
+        AgentRole.TESTER,
+        AgentRole.DOCUMENTER,
+        AgentRole.INTEGRATOR,
+        AgentRole.CHECKER,
+        AgentRole.ARCHITECT,
+        AgentRole.TASK_PLANNER,
+        AgentRole.RISK_ANALYST,
+        AgentRole.REFINER,
+        AgentRole.REVIEWER_CODE,
+        AgentRole.REVIEWER_CONTRACT,
+        AgentRole.REVIEWER_AGENT_DESIGN,
+        AgentRole.REVIEWER_REFINE,
+        AgentRole.REVIEWER_PLAN,
+        AgentRole.REVIEWER_UNIFIED,
+        AgentRole.COORDINATOR,
+    ]
+}
+
+
+def check_agent_gh_operation(role: str, command: str) -> tuple[bool, str]:
+    """Check if an agent role is allowed to execute a gh command.
+
+    Args:
+        role: The agent role identifier (e.g., "coder", "reviewer_refine")
+        command: The gh command string (e.g., "issue comment 1032")
+
+    Returns:
+        Tuple of (allowed, reason). allowed is False if blocked.
+    """
+    if not role:
+        return True, "No agent role specified"
+
+    role_lower = role.lower()
+    restriction = AGENT_GH_RESTRICTIONS.get(role_lower)
+    if restriction is None:
+        # Unknown role - allow for backwards compatibility
+        return True, f"Unknown agent role: {role}"
+
+    if restriction.is_blocked(command):
+        return False, (
+            f"Agent role '{role}' is not allowed to execute 'gh {command}'. "
+            f"Write reviews to .egg-state/reviews/ instead."
+        )
+
+    return True, f"Operation allowed for agent role '{role}'"
