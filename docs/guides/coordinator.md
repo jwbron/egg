@@ -432,7 +432,13 @@ The coordinator runs with `phase="coordinator"` — a special phase value distin
 
 **MCP connection failed**: Verify the MCP server is running on port 9850 (`curl http://localhost:9850/health`). The server starts automatically as a background thread alongside the orchestrator. Check the MCP port in `~/.config/egg/config.yaml` (`mcp_server_port`).
 
-**Regular phase endpoint blocked (HTTP 409 — coordinator-managed pipeline)**: Calling `egg-orch phase advance` (the non-coordinator phase endpoint) on a coordinator-managed pipeline returns 409 with "Use the coordinator phase endpoint instead." Always use `egg-orch coordinator phase` for coordinator-managed pipelines. If the pipeline is stuck and cannot use the coordinator endpoint, pass `"force": true` in the API body to bypass the guard as an escape hatch.
+**Regular phase endpoint blocked (HTTP 409 — coordinator-managed pipeline)**: Calling `egg-orch phase advance` (the non-coordinator phase endpoint) on a coordinator-managed pipeline returns 409 with "Use the coordinator phase endpoint instead." Always use `egg-orch coordinator phase` for coordinator-managed pipelines. If the pipeline is stuck and cannot use the coordinator endpoint, bypass the guard by passing `"force": true` via the raw API:
+
+```bash
+curl -X POST http://egg-orchestrator:9849/api/v1/pipelines/<id>/phase \
+  -H 'Content-Type: application/json' \
+  -d '{"target_phase": "<phase>", "force": true}'
+```
 
 **Phase advance blocked (HTTP 409 — no contract)**: Advancing to `implement` or `pr` requires a contract. Run `egg-orch pipeline get <id>` and check `contract_synced`. If false, the contract creation during pipeline startup failed — check orchestrator logs. Contracts are created automatically; manual intervention is rarely needed. If contract creation consistently fails, check orchestrator logs for the root cause (permissions, disk space, git connectivity). Recreate the pipeline with `egg-orch pipeline create --repo <owner/name> --issue <n>` — creating a pipeline whose existing record is in a terminal state (failed, cancelled, or complete) automatically replaces it.
 
