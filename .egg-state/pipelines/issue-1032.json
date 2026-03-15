@@ -90,10 +90,10 @@
         {
           "container_id": "7b82976b6ab0bb1b8350c1bf80d53677da527f3bc59a8474607f42f7c9146c69",
           "container_name": "egg-sandbox-egg-issue-1032-coordinator",
-          "status": "removed",
+          "status": "exited",
           "started_at": "2026-03-15T21:18:35.050941",
-          "exited_at": "2026-03-15T21:19:16.666253",
-          "exit_code": null,
+          "exited_at": "2026-03-15T21:19:17.285738",
+          "exit_code": 137,
           "agent_role": "coordinator",
           "session_token": null
         }
@@ -104,10 +104,10 @@
           "status": "failed",
           "container_id": "7b82976b6ab0bb1b8350c1bf80d53677da527f3bc59a8474607f42f7c9146c69",
           "started_at": "2026-03-15T21:18:35.050948",
-          "completed_at": "2026-03-15T21:19:16.666253",
+          "completed_at": "2026-03-15T21:19:17.295862",
           "commit": null,
           "outputs": {},
-          "error": "Pipeline running",
+          "error": "Container exited with code 137",
           "retry_count": 0,
           "conflicts": [],
           "plan_phase_id": null
@@ -164,7 +164,7 @@
     }
   ],
   "created_at": "2026-03-15T20:55:27.920633",
-  "updated_at": "2026-03-15T21:19:16.666586",
+  "updated_at": "2026-03-15T21:19:17.296098",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
@@ -225,5 +225,5 @@
   },
   "plan_phase_waves": null,
   "plan_phase_names": null,
-  "version": 34
+  "version": 35
 }
