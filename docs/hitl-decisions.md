@@ -283,7 +283,7 @@ Both `OrchClient.create_decision()` and the underlying orchestrator API (`POST /
 
 ## Related Files
 
-- `orchestrator/mcp_tools.py` — MCP `get_status` tool; enriches `phase_gate` decisions with `draft_content` and `completed_agents_summary`
+- `orchestrator/mcp_tools.py` — MCP `get_status` tool; enriches `phase_gate` decisions with `draft_content`, `completed_agents_summary`, and `reviewer_feedback`
 - `orchestrator/models.py` — `HITLDecision` model with `decision_type`, `questions`, and `phase` fields
 - `orchestrator/decision_queue.py` — Decision queue handling typed decisions
 - `orchestrator/routes/decisions.py` — Decision API endpoints (create, list, resolve)

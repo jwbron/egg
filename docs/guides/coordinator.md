@@ -95,7 +95,7 @@ When given an issue number, it auto-detects the repo and fetches the issue — n
 | `list_tasks` | List coordinator-managed pipelines | (none) | `status_filter`, `limit`, `repo`, `issue_number` |
 | `cancel_task` | Cancel a task; use `cleanup=true` to also delete pipeline state so the issue can be resubmitted | `task_id` | `reason`, `cleanup` |
 
-> **`get_status` enrichment:** `phase_gate` decisions are enriched with `draft_content` (full draft document text) and `completed_agents_summary`, so callers can display the draft without filesystem access.
+> **`get_status` enrichment:** `phase_gate` decisions are enriched with `draft_content` (full draft document text), `completed_agents_summary`, and `reviewer_feedback` (reviewer verdicts and analysis from `.egg-state/reviews/`), so callers can display the draft and reviewer context without filesystem access.
 
 **`submit_task` parameters:**
 - `description` (required) — Natural language task description
