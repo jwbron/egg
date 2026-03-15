@@ -65,7 +65,7 @@ All concurrent agent containers are wrapped with a shell script defined in `orch
 
 1. Claude runs inside the wrapper script with the original task prompt.
 2. If Claude exits non-zero (crashed), the wrapper exits immediately with the same code — no restart.
-3. If Claude exits cleanly (code 0), the wrapper restarts Claude with a **recovery prompt** that explains the agent was restarted because it exited without signaling `READY`. The recovery prompt instructs the agent to poll for messages, assess state, and explicitly signal `READY` or continue working.
+3. If Claude exits cleanly (code 0), the wrapper restarts Claude with a **recovery prompt** that explains the agent was restarted because it exited without signaling `READY`. The recovery prompt instructs the agent to poll for messages, assess state, and explicitly signal `READY` or continue working. If the agent is a producer with unresolved NACKs, the recovery prompt also includes the NACK feedback (reviewer role and reason) so the agent knows exactly what to address before re-proposing.
 4. Restarts are capped at `MAX_CONSENSUS_RESTARTS` (default: 2). After each restart, the wrapper checks if consensus was reached. If so, it exits cleanly.
 5. After exhausting all restarts, the wrapper exits with code 1, triggering the orchestrator's agent failure path (HITL decision with retry/abort/continue options).
 
@@ -233,6 +233,10 @@ The consensus block returns:
 {
   "is_complete": false,
   "blocking_agents": ["tester"],
+  "has_unresolved_nacks": true,
+  "unresolved_nacks": [
+    {"reviewer": "reviewer_code", "producer": "coder", "reason": "Missing error handling", "version": 1}
+  ],
   "protocol": "brc",
   "agents": {
     "coder": {"producer_phase": "PROPOSED", "confirmed": false},
@@ -241,7 +245,7 @@ The consensus block returns:
 }
 ```
 
-Consensus is reached when `is_complete: true` — all registered agents are confirmed.
+Consensus is reached when `is_complete: true` — all registered agents are confirmed **and there are no unresolved NACKs** in the approval matrix. An agent can be in the `confirmed` set but `is_complete` still remains `false` if a reviewer has issued a NACK that the producer has not yet addressed. The `version` field in each NACK entry tracks which proposal iteration the NACK was issued against, so agents and operators can tell whether the producer has re-proposed since the NACK.
 
 ### Objections
 
@@ -254,6 +258,8 @@ If consensus is not reached within `consensus_timeout_minutes`, the BRC tracker 
 - **Critical blockers** (required reviewers still unconfirmed): emits `CONSENSUS_FAILURE` and creates a HITL decision asking how to proceed.
 - **Advisory-only blockers** (non-critical roles unconfirmed): emits `CONSENSUS_TIMEOUT` and proceeds automatically — no HITL created.
 - **No blockers**: proceeds immediately with no HITL.
+
+After the timeout check, if the approval matrix still has unresolved NACKs (producers that exited without addressing reviewer feedback), the phase returns failure regardless of which agents are confirmed.
 
 If the BRC tracker is unavailable, the orchestrator falls back to the old behavior and creates a generic HITL decision for any timeout.
 
@@ -296,6 +302,7 @@ The 60-second window is tracked via the `_failure_times` list, filtered to recen
 | Consensus timeout (critical blockers) | Continue waiting, Accept current state, Abort phase |
 | Consensus timeout (advisory only) | *(no HITL — proceeds automatically)* |
 | Agent objection | Resolve then advance, Override, Abort |
+| All agents exited with unresolved NACKs | Retry phase, Accept current state, Abort phase |
 
 ## Shared Pipeline Branch
 
