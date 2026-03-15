@@ -4972,7 +4972,22 @@ def _run_concurrent_phase(
                     error=str(e),
                 )
 
-            if not _brc_handled:
+            if _brc_handled and _brc_timeout_result.get("action") == "escalate":
+                # BRC handled the timeout but requests escalation —
+                # critical reviewers are unconfirmed.  Still need a HITL
+                # decision so a human can intervene.
+                try:
+                    pipeline.add_decision(
+                        question=(
+                            f"BRC consensus failure: critical reviewers unconfirmed after "
+                            f"{int(consensus_timeout / 60)} minutes. How to proceed?"
+                        ),
+                        options=["Continue waiting", "Accept current state", "Abort phase"],
+                        phase=pipeline.current_phase,
+                    )
+                except Exception:
+                    pass
+            elif not _brc_handled:
                 if _emit_event is not None:
                     _emit_event(
                         EventType.CONSENSUS_TIMEOUT,

@@ -258,9 +258,13 @@ class PeerConsensusTracker:
             # Check revision count — context-change NACKs increment the count
             # for observability but do not trigger escalation, since the
             # reviewer is flagging a different issue rather than oscillating
-            # on the same one.
+            # on the same one.  However, a hard cap at 3× max_revision_rounds
+            # ensures escalation even for alternating-file NACK patterns.
             rev_count = self.matrix.revision_count(reviewer_role, producer_role)
-            needs_escalation = rev_count >= self.max_revision_rounds and not context_change
+            hard_cap = self.max_revision_rounds * 3
+            needs_escalation = (
+                rev_count >= self.max_revision_rounds and not context_change
+            ) or rev_count >= hard_cap
 
             emit_event(
                 EventType.CONSENSUS_NACK_RECEIVED,

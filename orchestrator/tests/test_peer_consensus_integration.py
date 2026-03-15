@@ -697,3 +697,77 @@ class TestScaledReEvaluation:
 
         state = t.evaluate()
         assert state["is_complete"] is True
+
+
+class TestTimeoutIdempotency:
+    """Test that handle_timeout() is idempotent — second call returns cached result."""
+
+    def test_handle_timeout_idempotent(self):
+        """Calling handle_timeout() twice returns already_handled on second call."""
+        graph = ReviewGraph([ReviewEdge("rev_code", "coder", ReviewCriticality.CRITICAL)])
+        t = PeerConsensusTracker("test-idem", graph, cooldown_seconds=0)
+        t.register_agent("coder")
+        t.register_agent("rev_code")
+
+        # Propose but don't ACK — creates a blocking edge
+        t.handle_propose("coder", {"summary": "v1", "artifacts": ["src/main.py"]})
+
+        result1 = t.handle_timeout()
+        assert result1["action"] == "escalate"
+        assert t.is_timeout_handled() is True
+
+        result2 = t.handle_timeout()
+        assert result2["action"] == "already_handled"
+        assert result2["reason"] == "Timeout previously processed"
+
+    def test_handle_timeout_idempotent_advisory(self):
+        """Advisory-only timeout path is also idempotent."""
+        graph = ReviewGraph([ReviewEdge("rev_code", "coder", ReviewCriticality.ADVISORY)])
+        t = PeerConsensusTracker("test-idem-adv", graph, cooldown_seconds=0)
+        t.register_agent("coder")
+        t.register_agent("rev_code")
+
+        t.handle_propose("coder", {"summary": "v1", "artifacts": ["src/main.py"]})
+
+        result1 = t.handle_timeout()
+        assert result1["action"] == "proceed_with_notification"
+        assert t.is_timeout_handled() is True
+
+        result2 = t.handle_timeout()
+        assert result2["action"] == "already_handled"
+
+
+class TestAlternatingNackHardCap:
+    """Test that alternating-file NACK patterns hit the hard cap."""
+
+    def test_alternating_file_nacks_escalate_at_hard_cap(self):
+        """Reviewer alternating NACKs between two files eventually
+        triggers escalation at 3x max_revision_rounds."""
+        graph = ReviewGraph([ReviewEdge("rev_code", "coder", ReviewCriticality.CRITICAL)])
+        t = PeerConsensusTracker("test-hardcap", graph, cooldown_seconds=0, max_revision_rounds=2)
+        t.register_agent("coder")
+        t.register_agent("rev_code")
+
+        files = ["src/auth.py", "src/db.py"]
+        # Hard cap = max_revision_rounds * 3 = 6
+        # Alternate NACKs on different files until we hit the cap
+        for i in range(6):
+            t.handle_propose("coder", {"summary": f"v{i + 1}", "artifacts": files})
+            result = t.handle_nack(
+                "rev_code",
+                "coder",
+                {
+                    "artifact_references": [files[i % 2]],
+                    "reason": f"issue in {files[i % 2]}",
+                },
+            )
+            if i < 5:
+                # context_change is True for i>=1 (alternating files),
+                # and rev_count < hard_cap, so no escalation
+                assert result["needs_escalation"] is False, (
+                    f"Unexpected escalation at round {i + 1}"
+                )
+            else:
+                # At round 6 (rev_count=6 == hard_cap), escalation fires
+                assert result["needs_escalation"] is True, f"Expected escalation at round {i + 1}"
+                assert result["revision_count"] == 6

@@ -100,6 +100,9 @@ class ApprovalMatrix:
         entry.state = ApprovalState.ACKED
         entry.version = version
         entry.artifact_refs = artifact_refs or []
+        # Note: nack_artifact_refs intentionally NOT cleared here —
+        # is_context_change_nack() needs the previous NACK's refs to
+        # persist through ACK transitions for context-change detection.
         entry.reason = ""
         entry.timestamp = datetime.now(UTC)
         return entry
@@ -120,6 +123,7 @@ class ApprovalMatrix:
 
         entry.state = ApprovalState.NACKED
         entry.version = version
+        entry.artifact_refs = []
         entry.nack_artifact_refs = artifact_refs or []
         entry.reason = reason
         entry.timestamp = datetime.now(UTC)
