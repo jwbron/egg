@@ -4,8 +4,8 @@
   "repo": "jwbron/egg",
   "branch": "egg/issue-1032",
   "prompt": null,
-  "status": "pending",
-  "current_phase": "refine",
+  "status": "running",
+  "current_phase": "plan",
   "config": {
     "auto_create_pr": true,
     "multi_agent": true,
@@ -31,10 +31,43 @@
     "coordinator_max_retries_per_role": 2,
     "coordinator_max_respawns": 2
   },
-  "phases": {},
+  "phases": {
+    "refine": {
+      "phase": "refine",
+      "status": "complete",
+      "started_at": null,
+      "work_started_at": null,
+      "completed_at": "2026-03-15T21:20:42.481732",
+      "containers": [],
+      "agents": [],
+      "review_cycles": 0,
+      "hitl_review_cycles": 0,
+      "cycle_timings": [],
+      "artifacts": {},
+      "error": null,
+      "hitl_feedback": null,
+      "phase_start_sha": null
+    },
+    "plan": {
+      "phase": "plan",
+      "status": "running",
+      "started_at": "2026-03-15T21:20:42.481797",
+      "work_started_at": "2026-03-15T21:20:42.481805",
+      "completed_at": null,
+      "containers": [],
+      "agents": [],
+      "review_cycles": 0,
+      "hitl_review_cycles": 0,
+      "cycle_timings": [],
+      "artifacts": {},
+      "error": null,
+      "hitl_feedback": null,
+      "phase_start_sha": null
+    }
+  },
   "decisions": [],
   "created_at": "2026-03-15T21:20:19.275567",
-  "updated_at": "2026-03-15T21:20:19.275642",
+  "updated_at": "2026-03-15T21:20:42.482725",
   "contract_synced": false,
   "network_mode": null,
   "short_circuit": false,
@@ -43,5 +76,5 @@
   "coordinator_state": null,
   "plan_phase_waves": null,
   "plan_phase_names": null,
-  "version": 2
+  "version": 3
 }
