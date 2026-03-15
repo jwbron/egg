@@ -83,7 +83,7 @@
   },
   "decisions": [],
   "created_at": "2026-03-15T22:39:56.812459",
-  "updated_at": "2026-03-15T22:40:04.547230",
+  "updated_at": "2026-03-15T22:41:09.899817",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
@@ -91,17 +91,29 @@
   "error": null,
   "coordinator_state": {
     "workflow_type": "",
-    "agents_spawned": [],
+    "agents_spawned": [
+      {
+        "role": "refiner",
+        "spawned_at": "2026-03-15T22:41:09.899681",
+        "completed_at": null,
+        "status": "running",
+        "container_id": "ed3771259b4bfdac6419985632daa12fbb181e47bd69f43ebe7a6dfa34f2a87a",
+        "task_context": "Analyze issue #1032: Agent anchor mechanism for post-compaction state recovery. This is a well-specified enhancement with detailed design including: JSON anchor files at .egg-state/agent-anchors/<agent-id>.json, 2KB/3KB size budgets, self-report + orchestrator enrichment update model, anchor-as-floor conflict resolution with message catch-up, lifecycle-based cleanup with Redis TTL, gateway enforcement with session-scoped ownership. The issue includes full JSON schema spec, CLI design (egg-orch anchor init/update/show/validate/cleanup), Python library (shared/egg_anchor/), 4 implementation phases, 10 success criteria, and 3 open questions. Produce refinement output covering: scope validation, risk assessment, dependency analysis (soft deps on #1027, #1030), effort estimation across the 4 phases, and any gaps or concerns in the design.",
+        "retry_number": 0
+      }
+    ],
     "phase_decisions": [],
     "escalations": [],
     "guardrail_counters": {
-      "total_agents_spawned": 0,
-      "retries_by_role": {},
+      "total_agents_spawned": 1,
+      "retries_by_role": {
+        "refiner": 1
+      },
       "coordinator_respawns": 0,
       "started_at": "2026-03-15T22:40:02.207981"
     }
   },
   "plan_phase_waves": null,
   "plan_phase_names": null,
-  "version": 8
+  "version": 9
 }
