@@ -798,6 +798,21 @@ def handle_consensus_ack_signal(
             )
         )
 
+        # Notify the producer when all reviewers have ACKed so it can confirm
+        if result.get("fully_acked"):
+            store.add_message(
+                Message(
+                    pipeline_id=pipeline_id,
+                    from_role="orchestrator",
+                    to_role=producer_role,
+                    message_type=MessageType.STATUS,
+                    subject="All reviewers have ACKed — ready to confirm",
+                    body=f"All assigned reviewers have ACKed your proposal (version {result.get('version')}). "
+                    "Run `egg-orch consensus confirmed` to confirm.",
+                    metadata={"fully_acked": True, "version": result.get("version")},
+                )
+            )
+
         return make_success_response(
             f"ACK recorded: {reviewer_role} -> {producer_role}",
             data=result,

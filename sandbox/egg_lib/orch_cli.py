@@ -1165,7 +1165,9 @@ def cmd_consensus_ack(args: argparse.Namespace) -> int:
         "signal_type": "consensus_ack",
         "agent_role": role,
         "producer_role": args.producer_role,
-        "payload": {},
+        "payload": {
+            "artifact_references": args.files_reviewed or [],
+        },
     }
 
     result = orch_request(f"/api/v1/pipelines/{pid}/signal", method="POST", data=data)
@@ -1192,6 +1194,7 @@ def cmd_consensus_nack(args: argparse.Namespace) -> int:
         "producer_role": args.producer_role,
         "payload": {
             "reason": args.reason,
+            "artifact_references": args.files_reviewed or [],
         },
     }
 
@@ -1668,6 +1671,9 @@ def create_parser() -> argparse.ArgumentParser:
     cons_ack.add_argument("producer_role", help="Producer role to ACK")
     cons_ack.add_argument("pipeline_id", nargs="?", help="Pipeline ID")
     cons_ack.add_argument("--role", help="Reviewer role (default: EGG_AGENT_ROLE)")
+    cons_ack.add_argument(
+        "--files-reviewed", nargs="+", help="Artifact references (files, commits) reviewed"
+    )
     _add_json_flag(cons_ack)
     cons_ack.set_defaults(func=cmd_consensus_ack)
 
@@ -1677,6 +1683,9 @@ def create_parser() -> argparse.ArgumentParser:
     cons_nack.add_argument("pipeline_id", nargs="?", help="Pipeline ID")
     cons_nack.add_argument("--role", help="Reviewer role (default: EGG_AGENT_ROLE)")
     cons_nack.add_argument("--reason", required=True, help="Reason for NACK")
+    cons_nack.add_argument(
+        "--files-reviewed", nargs="+", help="Artifact references (files, commits) reviewed"
+    )
     _add_json_flag(cons_nack)
     cons_nack.set_defaults(func=cmd_consensus_nack)
 
