@@ -276,6 +276,7 @@ This dual-trigger approach ensures contract verification runs even when the labe
 
 1. **Trigger check** — Determines if verification should run:
    - Fetches PR metadata (labels and branch name) in a single API call
+   - Extracts issue number from branch name (used downstream for contract lookup)
    - For labeled PRs, runs immediately
    - For unlabeled PRs, queries the PR files API to check if any new file was added under `.egg-state/contracts/`
 2. **Contract verification** — Uses the reusable review framework with a contract-specific prompt:
