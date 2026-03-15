@@ -398,11 +398,19 @@ class TestToolDefinitions:
         props = tool["inputSchema"]["properties"]
         assert "status_filter" in props
         assert "limit" in props
+        assert "repo" in props
+        assert "issue_number" in props
         assert props["status_filter"]["enum"] == ["active", "completed", "failed", "all"]
 
     def test_cancel_task_requires_task_id(self):
         tool = next(t for t in COORDINATOR_TOOLS if t["name"] == "cancel_task")
         assert "task_id" in tool["inputSchema"]["required"]
+
+    def test_cancel_task_has_cleanup_option(self):
+        tool = next(t for t in COORDINATOR_TOOLS if t["name"] == "cancel_task")
+        props = tool["inputSchema"]["properties"]
+        assert "cleanup" in props
+        assert props["cleanup"]["type"] == "boolean"
 
 
 # ── CoordinatorToolHandler tests ─────────────────────────────────────
@@ -696,3 +704,203 @@ class TestCoordinatorToolHandler:
         result = handler.handle_tool_call("list_tasks", {"status_filter": "failed"})
         assert result["total"] == 1
         assert result["tasks"][0]["id"] == "p1"
+
+    @patch.object(CoordinatorToolHandler, "_make_request")
+    def test_submit_task_409_returns_existing_pipeline_details(self, mock_req):
+        """submit_task should surface existing pipeline details on 409 conflict."""
+        from io import BytesIO
+        from urllib.error import HTTPError
+
+        error_body = json.dumps(
+            {
+                "success": False,
+                "message": "Pipeline issue-1059 already exists",
+                "details": {
+                    "existing_pipeline_id": "issue-1059",
+                    "existing_status": "awaiting_human",
+                    "existing_phase": "pr",
+                },
+            }
+        ).encode()
+        http_error = HTTPError(
+            url="http://localhost:9849/api/v1/pipelines",
+            code=409,
+            msg="Conflict",
+            hdrs={},
+            fp=BytesIO(error_body),
+        )
+        mock_req.side_effect = http_error
+        handler = CoordinatorToolHandler()
+        result = handler.handle_tool_call(
+            "submit_task",
+            {"description": "Fix bug", "issue_number": 1059, "repo": "owner/repo"},
+        )
+        assert "error" in result
+        assert "already exists" in result["error"]
+        assert result["existing_pipeline_id"] == "issue-1059"
+        assert result["existing_status"] == "awaiting_human"
+        assert result["existing_phase"] == "pr"
+
+    @patch.object(CoordinatorToolHandler, "_make_request")
+    def test_submit_task_409_without_details(self, mock_req):
+        """submit_task should handle 409 without enriched details gracefully."""
+        from io import BytesIO
+        from urllib.error import HTTPError
+
+        error_body = json.dumps(
+            {
+                "success": False,
+                "message": "Pipeline issue-42 already exists",
+            }
+        ).encode()
+        http_error = HTTPError(
+            url="http://localhost:9849/api/v1/pipelines",
+            code=409,
+            msg="Conflict",
+            hdrs={},
+            fp=BytesIO(error_body),
+        )
+        mock_req.side_effect = http_error
+        handler = CoordinatorToolHandler()
+        result = handler.handle_tool_call(
+            "submit_task",
+            {"description": "Fix bug", "issue_number": 42, "repo": "owner/repo"},
+        )
+        assert "error" in result
+        assert "already exists" in result["error"]
+        # No details keys when details are absent
+        assert "existing_pipeline_id" not in result
+
+    @patch.object(CoordinatorToolHandler, "_make_request")
+    def test_list_tasks_filter_by_repo(self, mock_req):
+        """list_tasks should filter by repo."""
+        mock_req.return_value = {
+            "data": {
+                "pipelines": [
+                    {
+                        "id": "p1",
+                        "config": {"coordinator_enabled": True},
+                        "status": "running",
+                        "repo": "owner/repo-a",
+                    },
+                    {
+                        "id": "p2",
+                        "config": {"coordinator_enabled": True},
+                        "status": "running",
+                        "repo": "owner/repo-b",
+                    },
+                ]
+            }
+        }
+        handler = CoordinatorToolHandler()
+        result = handler.handle_tool_call(
+            "list_tasks", {"status_filter": "all", "repo": "owner/repo-a"}
+        )
+        assert result["total"] == 1
+        assert result["tasks"][0]["id"] == "p1"
+
+    @patch.object(CoordinatorToolHandler, "_make_request")
+    def test_list_tasks_filter_by_issue_number(self, mock_req):
+        """list_tasks should filter by issue_number."""
+        mock_req.return_value = {
+            "data": {
+                "pipelines": [
+                    {
+                        "id": "issue-42",
+                        "config": {"coordinator_enabled": True},
+                        "status": "running",
+                        "issue_number": 42,
+                    },
+                    {
+                        "id": "issue-99",
+                        "config": {"coordinator_enabled": True},
+                        "status": "running",
+                        "issue_number": 99,
+                    },
+                ]
+            }
+        }
+        handler = CoordinatorToolHandler()
+        result = handler.handle_tool_call(
+            "list_tasks", {"status_filter": "all", "issue_number": 42}
+        )
+        assert result["total"] == 1
+        assert result["tasks"][0]["id"] == "issue-42"
+
+    @patch.object(CoordinatorToolHandler, "_make_request")
+    def test_list_tasks_filter_by_repo_and_issue(self, mock_req):
+        """list_tasks should support combined repo + issue_number filter."""
+        mock_req.return_value = {
+            "data": {
+                "pipelines": [
+                    {
+                        "id": "issue-42",
+                        "config": {"coordinator_enabled": True},
+                        "status": "running",
+                        "repo": "owner/repo",
+                        "issue_number": 42,
+                    },
+                    {
+                        "id": "issue-42-other",
+                        "config": {"coordinator_enabled": True},
+                        "status": "running",
+                        "repo": "other/repo",
+                        "issue_number": 42,
+                    },
+                ]
+            }
+        }
+        handler = CoordinatorToolHandler()
+        result = handler.handle_tool_call(
+            "list_tasks",
+            {"status_filter": "all", "repo": "owner/repo", "issue_number": 42},
+        )
+        assert result["total"] == 1
+        assert result["tasks"][0]["id"] == "issue-42"
+
+    @patch.object(CoordinatorToolHandler, "_make_request")
+    def test_cancel_task_with_cleanup(self, mock_req):
+        """cancel_task with cleanup=True should PATCH then DELETE."""
+        mock_req.return_value = {"success": True}
+        handler = CoordinatorToolHandler()
+        result = handler.handle_tool_call(
+            "cancel_task",
+            {"task_id": "issue-42", "reason": "Stale", "cleanup": True},
+        )
+        assert result["cancelled"] is True
+        assert "pipeline_state" in result["cleaned_up"]
+        assert "containers" in result["cleaned_up"]
+        # Should have made 2 requests: PATCH (cancel) + DELETE (cleanup)
+        assert mock_req.call_count == 2
+        patch_call = mock_req.call_args_list[0]
+        assert patch_call[1]["method"] == "PATCH"
+        delete_call = mock_req.call_args_list[1]
+        assert delete_call[1]["method"] == "DELETE"
+
+    @patch.object(CoordinatorToolHandler, "_make_request")
+    def test_cancel_task_cleanup_failure(self, mock_req):
+        """cancel_task should report cleanup failure gracefully."""
+        mock_req.side_effect = [
+            {"success": True},  # PATCH succeeds
+            Exception("delete failed"),  # DELETE fails
+        ]
+        handler = CoordinatorToolHandler()
+        result = handler.handle_tool_call(
+            "cancel_task",
+            {"task_id": "issue-42", "cleanup": True},
+        )
+        assert result["cancelled"] is True
+        assert result["cleaned_up"] == []
+        assert "cleanup failed" in result["message"]
+
+    @patch.object(CoordinatorToolHandler, "_make_request")
+    def test_cancel_task_without_cleanup(self, mock_req):
+        """cancel_task without cleanup should only PATCH."""
+        mock_req.return_value = {"success": True}
+        handler = CoordinatorToolHandler()
+        result = handler.handle_tool_call(
+            "cancel_task",
+            {"task_id": "issue-42"},
+        )
+        assert result["success"] is True
+        assert mock_req.call_count == 1

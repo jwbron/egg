@@ -684,6 +684,7 @@ AGENT_ROLES: dict[AgentRole, AgentRoleDefinition] = {
     AgentRole.TESTER: TESTER_ROLE,
     AgentRole.DOCUMENTER: DOCUMENTER_ROLE,
     AgentRole.INTEGRATOR: INTEGRATOR_ROLE,
+    AgentRole.CHECKER: CHECKER_ROLE,
     # Plan-phase roles
     AgentRole.ARCHITECT: ARCHITECT_ROLE,
     AgentRole.TASK_PLANNER: TASK_PLANNER_ROLE,
@@ -698,7 +699,6 @@ AGENT_ROLES: dict[AgentRole, AgentRoleDefinition] = {
     AgentRole.REVIEWER_AGENT_DESIGN: REVIEWER_AGENT_DESIGN_ROLE,
     AgentRole.REVIEWER_REFINE: REVIEWER_REFINE_ROLE,
     AgentRole.REVIEWER_PLAN: REVIEWER_PLAN_ROLE,
-    AgentRole.CHECKER: CHECKER_ROLE,
 }
 
 
