@@ -197,6 +197,9 @@ class PeerConsensusTracker:
             # Transition reviewer to REVIEWING
             self._reviewer_phases[reviewer_role] = ConsensusPhase.REVIEWING
 
+            # Check if producer is now fully ACKed
+            fully_acked = self.matrix.is_fully_acked(producer_role)
+
             emit_event(
                 EventType.CONSENSUS_ACK_RECEIVED,
                 self.pipeline_id,
@@ -204,11 +207,9 @@ class PeerConsensusTracker:
                     "reviewer": reviewer_role,
                     "producer": producer_role,
                     "version": version,
+                    "fully_acked": fully_acked,
                 },
             )
-
-            # Check if producer is now fully ACKed
-            fully_acked = self.matrix.is_fully_acked(producer_role)
 
             return {
                 "status": "acked",

@@ -1167,7 +1167,7 @@ def cmd_consensus_ack(args: argparse.Namespace) -> int:
         "agent_role": role,
         "producer_role": args.producer_role,
         "payload": {
-            "artifact_references": args.files_reviewed or [],
+            "artifact_references": args.files_reviewed,
         },
     }
 
@@ -1195,7 +1195,7 @@ def cmd_consensus_nack(args: argparse.Namespace) -> int:
         "producer_role": args.producer_role,
         "payload": {
             "reason": args.reason,
-            "artifact_references": args.files_reviewed or [],
+            "artifact_references": args.files_reviewed,
         },
     }
 
