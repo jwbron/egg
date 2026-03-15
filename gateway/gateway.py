@@ -2909,9 +2909,7 @@ def gh_execute() -> tuple[Response, int] | Response:
         # Detect issue comment creation via gh api (bypass prevention).
         # POST to repos/{owner}/{repo}/issues/{id}/comments is equivalent to
         # "gh issue comment {id}" — apply the same phase + role checks.
-        import re as _re
-
-        _api_issue_comment_match = _re.match(r"^repos/[^/]+/[^/]+/issues/(\d+)/comments$", api_path)
+        _api_issue_comment_match = re.match(r"^repos/[^/]+/[^/]+/issues/(\d+)/comments$", api_path)
         if _api_issue_comment_match and method.upper() == "POST":
             synthesized_cmd = f"issue comment {_api_issue_comment_match.group(1)}"
             # Phase check
@@ -2945,8 +2943,6 @@ def gh_execute() -> tuple[Response, int] | Response:
                     pass
             # Role check
             if session_role:
-                from agent_restrictions import check_agent_gh_operation  # type: ignore[import-untyped]
-
                 api_role_allowed, api_role_reason = check_agent_gh_operation(
                     session_role, synthesized_cmd
                 )
