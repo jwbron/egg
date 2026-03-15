@@ -1,6 +1,6 @@
 name: "egg: Contract Verification"
 
-# Trigger on PRs with the sdlc:pr label or a contract file
+# Trigger on PRs with the sdlc:pr label or a new contract file in the diff
 # This workflow verifies that implementation matches the SDLC contract
 on:
   pull_request:
@@ -107,7 +107,7 @@ jobs:
             fi
 
             # No label — only run if the PR adds a new file to .egg-state/contracts/
-            added_contract=$(gh api "repos/${{ github.repository }}/pulls/${PR_NUMBER}/files" \
+            added_contract=$(gh api "repos/${{ github.repository }}/pulls/${PR_NUMBER}/files?per_page=100" \
               --jq '[.[] | select(.status == "added" and (.filename | startswith(".egg-state/contracts/")))] | length')
             if [[ "${added_contract:-0}" -gt 0 ]]; then
               echo "PR adds a new contract file, running contract verification"
