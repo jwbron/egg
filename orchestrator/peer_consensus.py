@@ -94,6 +94,8 @@ class PeerConsensusTracker:
         self._flip_flop_counts: dict[str, int] = {}
         # Track proposal artifacts per producer (for scoped re-evaluation)
         self._proposal_artifacts: dict[str, list[str]] = {}
+        # Whether handle_timeout() has already processed the timeout
+        self._timeout_handled: bool = False
 
     def register_agent(self, role: str) -> None:
         """Register an agent for consensus tracking."""
@@ -233,6 +235,11 @@ class PeerConsensusTracker:
             # Validate review payload
             review = ReviewPayload(verdict="NACK", **payload)
 
+            # Check for context-change NACK before recording (uses previous refs)
+            context_change = self.matrix.is_context_change_nack(
+                reviewer_role, producer_role, review.artifact_references
+            )
+
             version = self.matrix.get_proposal_version(producer_role)
             self.matrix.record_nack(
                 reviewer_role,
@@ -248,9 +255,16 @@ class PeerConsensusTracker:
             # Transition producer back to WORKING
             self._producer_phases[producer_role] = ConsensusPhase.WORKING
 
-            # Check revision count
+            # Check revision count — context-change NACKs increment the count
+            # for observability but do not trigger escalation, since the
+            # reviewer is flagging a different issue rather than oscillating
+            # on the same one.  However, a hard cap at 3× max_revision_rounds
+            # ensures escalation even for alternating-file NACK patterns.
             rev_count = self.matrix.revision_count(reviewer_role, producer_role)
-            needs_escalation = rev_count >= self.max_revision_rounds
+            hard_cap = self.max_revision_rounds * 3
+            needs_escalation = (
+                rev_count >= self.max_revision_rounds and not context_change
+            ) or rev_count >= hard_cap
 
             emit_event(
                 EventType.CONSENSUS_NACK_RECEIVED,
@@ -262,6 +276,7 @@ class PeerConsensusTracker:
                     "reason": review.reason,
                     "revision_count": rev_count,
                     "needs_escalation": needs_escalation,
+                    "context_change": context_change,
                 },
             )
 
@@ -270,6 +285,7 @@ class PeerConsensusTracker:
                 "reason": review.reason,
                 "revision_count": rev_count,
                 "needs_escalation": needs_escalation,
+                "context_change": context_change,
             }
 
     def handle_withdraw(
@@ -442,11 +458,23 @@ class PeerConsensusTracker:
 
             return {"action": "continue", "crashed_role": role}
 
-    def handle_timeout(self) -> dict[str, Any]:
-        """Handle consensus timeout. Evaluate by role criticality."""
+    def is_timeout_handled(self) -> bool:
+        """Check whether the BRC tracker has already handled the timeout."""
         with self._lock:
+            return self._timeout_handled
+
+    def handle_timeout(self) -> dict[str, Any]:
+        """Handle consensus timeout. Evaluate by role criticality.
+
+        Idempotent: returns a cached result if already called.
+        """
+        with self._lock:
+            if self._timeout_handled:
+                return {"action": "already_handled", "reason": "Timeout previously processed"}
+
             blocking = self.matrix.get_all_blocking_edges()
             if not blocking:
+                self._timeout_handled = True
                 return {"action": "proceed", "reason": "No blocking edges"}
 
             # Separate critical vs advisory blockers
@@ -460,6 +488,7 @@ class PeerConsensusTracker:
                     advisory_blockers.append(entry)
 
             if critical_blockers:
+                self._timeout_handled = True
                 emit_event(
                     EventType.CONSENSUS_FAILURE,
                     self.pipeline_id,
@@ -477,6 +506,7 @@ class PeerConsensusTracker:
                 }
 
             # Only advisory blockers — proceed with notification
+            self._timeout_handled = True
             emit_event(
                 EventType.CONSENSUS_TIMEOUT,
                 self.pipeline_id,
@@ -561,6 +591,7 @@ class PeerConsensusTracker:
             self._proposal_timestamps.clear()
             self._flip_flop_counts.clear()
             self._proposal_artifacts.clear()
+            self._timeout_handled = False
 
     def _check_consensus(self) -> bool:
         """Check if all agents have confirmed. Emit event if so."""

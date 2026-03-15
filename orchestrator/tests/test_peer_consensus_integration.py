@@ -395,3 +395,379 @@ class TestAttestationSchemas:
 
         # Relaxed should not raise
         validate_attestation("coder", {}, AttestationStrictness.RELAXED, is_producer=True)
+
+
+class TestScaledReEvaluation:
+    """Test scoped re-evaluation at roster scale (6+ agents).
+
+    These tests use realistic multi-agent review graphs (up to 7 roles)
+    exercising concurrent NACKs, overlapping artifact changes, and
+    context-change NACK detection.
+    """
+
+    @pytest.fixture
+    def six_agent_graph(self):
+        """6-agent graph: 2 producers, 4 reviewers with cross-review."""
+        return ReviewGraph(
+            [
+                ReviewEdge("rev_code", "coder", ReviewCriticality.CRITICAL),
+                ReviewEdge("rev_contract", "coder", ReviewCriticality.CRITICAL),
+                ReviewEdge("checker", "coder", ReviewCriticality.CRITICAL),
+                ReviewEdge("rev_code", "tester", ReviewCriticality.CRITICAL),
+                ReviewEdge("rev_contract", "tester", ReviewCriticality.ADVISORY),
+                ReviewEdge("checker", "tester", ReviewCriticality.ADVISORY),
+            ]
+        )
+
+    @pytest.fixture
+    def six_agent_tracker(self, six_agent_graph):
+        t = PeerConsensusTracker(
+            "test-scaled", six_agent_graph, cooldown_seconds=0, max_revision_rounds=2
+        )
+        for role in ["coder", "tester", "rev_code", "rev_contract", "checker"]:
+            t.register_agent(role)
+        return t
+
+    def test_concurrent_nacks_different_producers(self, six_agent_tracker):
+        """Two reviewers NACK two different producers simultaneously.
+
+        Each producer should only need re-review from its NACKing reviewer.
+        """
+        t = six_agent_tracker
+
+        # Both producers propose
+        t.handle_propose("coder", {"summary": "v1", "artifacts": ["src/auth.py"]})
+        t.handle_propose("tester", {"summary": "tests v1", "artifacts": ["tests/test_auth.py"]})
+
+        # rev_code NACKs coder, rev_contract NACKs tester (concurrent)
+        r1 = t.handle_nack(
+            "rev_code", "coder", {"artifact_references": ["src/auth.py"], "reason": "bug in auth"}
+        )
+        r2 = t.handle_nack(
+            "rev_contract",
+            "tester",
+            {"artifact_references": ["tests/test_auth.py"], "reason": "missing edge case"},
+        )
+
+        assert r1["status"] == "nacked"
+        assert r2["status"] == "nacked"
+
+        # Coder's rev_contract and checker ACKs should still be possible
+        # (they weren't affected by rev_code's NACK of coder)
+        t.handle_ack("rev_contract", "coder", {"artifact_references": ["src/auth.py"]})
+        t.handle_ack("checker", "coder", {"artifact_references": ["src/auth.py"]})
+
+        # Coder re-proposes — only rev_code needs to re-review
+        result = t.handle_re_propose(
+            "coder",
+            {"summary": "fixed auth", "artifacts": ["src/auth.py"]},
+            changed_artifacts=["src/auth.py"],
+        )
+        # rev_contract and checker ACKed auth.py, which is the changed artifact,
+        # so they get invalidated
+        assert result["version"] == 2
+
+    def test_overlapping_artifact_invalidation(self, six_agent_tracker):
+        """Producer re-proposes with artifacts that overlap some reviewers' ACKs."""
+        t = six_agent_tracker
+
+        t.handle_propose(
+            "coder", {"summary": "v1", "artifacts": ["src/auth.py", "src/utils.py", "src/db.py"]}
+        )
+
+        # Different reviewers ACK referencing different files
+        t.handle_ack("rev_code", "coder", {"artifact_references": ["src/auth.py"]})
+        t.handle_ack("rev_contract", "coder", {"artifact_references": ["src/db.py"]})
+        t.handle_ack("checker", "coder", {"artifact_references": ["src/utils.py"]})
+
+        # Re-propose changes only auth.py
+        invalidated = t.matrix.invalidate_overlapping_acks("coder", ["src/auth.py"])
+
+        # Only rev_code's ACK should be invalidated (referenced auth.py)
+        assert "rev_code" in invalidated
+        assert "rev_contract" not in invalidated
+        assert "checker" not in invalidated
+
+        # Verify states
+        assert t.matrix.get_entry("rev_code", "coder").state == ApprovalState.PENDING
+        assert t.matrix.get_entry("rev_contract", "coder").state == ApprovalState.ACKED
+        assert t.matrix.get_entry("checker", "coder").state == ApprovalState.ACKED
+
+    def test_cascading_re_propose_preserves_unaffected_acks(self, six_agent_tracker):
+        """In a 6-agent graph, one producer's re-proposal should not
+        invalidate ACKs for a different producer."""
+        t = six_agent_tracker
+
+        # Both producers propose
+        t.handle_propose("coder", {"summary": "code v1", "artifacts": ["src/auth.py"]})
+        t.handle_propose("tester", {"summary": "tests v1", "artifacts": ["tests/test_auth.py"]})
+
+        # All reviewers ACK both producers
+        t.handle_ack("rev_code", "coder", {"artifact_references": ["src/auth.py"]})
+        t.handle_ack("rev_contract", "coder", {"artifact_references": ["src/auth.py"]})
+        t.handle_ack("checker", "coder", {"artifact_references": ["src/auth.py"]})
+        t.handle_ack("rev_code", "tester", {"artifact_references": ["tests/test_auth.py"]})
+
+        # Coder gets NACKed by checker and re-proposes
+        t.handle_nack(
+            "checker", "coder", {"artifact_references": ["src/auth.py"], "reason": "lint fail"}
+        )
+        t.handle_re_propose(
+            "coder",
+            {"summary": "code v2", "artifacts": ["src/auth.py"]},
+            changed_artifacts=["src/auth.py"],
+        )
+
+        # Tester's ACKs should be completely unaffected
+        assert t.matrix.get_entry("rev_code", "tester").state == ApprovalState.ACKED
+
+    def test_concurrent_nack_and_re_propose_race(self, six_agent_tracker):
+        """One reviewer NACKs while another ACKs the same producer,
+        then producer re-proposes. ACK should be preserved if its
+        artifacts weren't changed."""
+        t = six_agent_tracker
+
+        t.handle_propose("coder", {"summary": "v1", "artifacts": ["src/auth.py", "src/utils.py"]})
+
+        # rev_code ACKs (referencing utils.py only)
+        t.handle_ack("rev_code", "coder", {"artifact_references": ["src/utils.py"]})
+        # rev_contract ACKs (referencing auth.py)
+        t.handle_ack("rev_contract", "coder", {"artifact_references": ["src/auth.py"]})
+        # checker NACKs (referencing auth.py)
+        t.handle_nack(
+            "checker",
+            "coder",
+            {"artifact_references": ["src/auth.py"], "reason": "injection"},
+        )
+
+        # Coder re-proposes, changing only auth.py
+        result = t.handle_re_propose(
+            "coder",
+            {"summary": "v2", "artifacts": ["src/auth.py"]},
+            changed_artifacts=["src/auth.py"],
+        )
+
+        # rev_code's ACK on utils.py should be preserved
+        assert t.matrix.get_entry("rev_code", "coder").state == ApprovalState.ACKED
+        # rev_contract's ACK on auth.py should be invalidated
+        assert t.matrix.get_entry("rev_contract", "coder").state == ApprovalState.PENDING
+        assert "rev_contract" in result["invalidated_reviewers"]
+        assert "rev_code" not in result["invalidated_reviewers"]
+
+    def test_context_change_nack_not_escalated(self):
+        """Reviewer NACKs citing file A, producer fixes, reviewer ACKs,
+        new commit changes file B, reviewer NACKs citing file B.
+        Despite hitting revision count, needs_escalation should be False."""
+        graph = ReviewGraph([ReviewEdge("rev_code", "coder", ReviewCriticality.CRITICAL)])
+        t = PeerConsensusTracker("test-ctx", graph, cooldown_seconds=0, max_revision_rounds=2)
+        t.register_agent("coder")
+        t.register_agent("rev_code")
+
+        # Round 1: propose, NACK on file A
+        t.handle_propose("coder", {"summary": "v1", "artifacts": ["src/auth.py"]})
+        r1 = t.handle_nack(
+            "rev_code",
+            "coder",
+            {"artifact_references": ["src/auth.py"], "reason": "bug in auth"},
+        )
+        assert r1["revision_count"] == 1
+        assert r1["needs_escalation"] is False
+        assert r1["context_change"] is False
+
+        # Round 2: fix and re-propose, reviewer ACKs
+        t.handle_re_propose(
+            "coder",
+            {"summary": "v2 - fixed auth", "artifacts": ["src/auth.py"]},
+            changed_artifacts=["src/auth.py"],
+        )
+        t.handle_ack("rev_code", "coder", {"artifact_references": ["src/auth.py"]})
+
+        # New tester commit changes file B — coder re-proposes with B
+        t.handle_re_propose(
+            "coder",
+            {"summary": "v3 - includes tester changes", "artifacts": ["src/auth.py", "src/db.py"]},
+            changed_artifacts=["src/db.py"],
+        )
+
+        # Reviewer NACKs citing file B (context change)
+        r2 = t.handle_nack(
+            "rev_code",
+            "coder",
+            {"artifact_references": ["src/db.py"], "reason": "issue in db.py"},
+        )
+        # Revision count is 2 (>= max_revision_rounds), but it's a context change
+        assert r2["revision_count"] == 2
+        assert r2["context_change"] is True
+        assert r2["needs_escalation"] is False
+
+    def test_full_implement_graph(self):
+        """Use the default implement graph (7 roles) and run a full
+        propose/review/re-propose cycle to verify no invalidation bugs."""
+        graph = get_default_implement_graph()
+        t = PeerConsensusTracker("test-full", graph, cooldown_seconds=0)
+
+        # Register all roles
+        for role in graph.all_roles():
+            t.register_agent(role)
+
+        # Producers propose
+        t.handle_propose(
+            "coder",
+            {"summary": "Implementation", "artifacts": ["src/main.py", "src/utils.py"]},
+        )
+        t.handle_propose(
+            "tester",
+            {"summary": "Tests", "artifacts": ["tests/test_main.py"]},
+        )
+        t.handle_propose(
+            "documenter",
+            {"summary": "Docs", "artifacts": ["docs/README.md"]},
+        )
+
+        # All reviewers ACK coder
+        t.handle_ack("reviewer_code", "coder", {"artifact_references": ["src/main.py"]})
+        t.handle_ack(
+            "reviewer_contract", "coder", {"artifact_references": ["src/main.py", "src/utils.py"]}
+        )
+        t.handle_ack("checker", "coder", {"artifact_references": ["src/main.py", "src/utils.py"]})
+        # tester (dual-role) ACKs coder
+        t.handle_ack("tester", "coder", {"artifact_references": ["src/main.py"]})
+
+        # reviewer_code ACKs tester and documenter
+        t.handle_ack("reviewer_code", "tester", {"artifact_references": ["tests/test_main.py"]})
+        t.handle_ack("reviewer_code", "documenter", {"artifact_references": ["docs/README.md"]})
+
+        # Verify coder is fully acked
+        assert t.matrix.is_fully_acked("coder")
+        assert t.matrix.is_fully_acked("tester")
+        assert t.matrix.is_fully_acked("documenter")
+
+        # checker NACKs coder on utils.py
+        t.handle_nack(
+            "checker",
+            "coder",
+            {"artifact_references": ["src/utils.py"], "reason": "type error"},
+        )
+
+        assert not t.matrix.is_fully_acked("coder")
+
+        # Coder re-proposes changing only utils.py
+        result = t.handle_re_propose(
+            "coder",
+            {"summary": "Fixed utils", "artifacts": ["src/main.py", "src/utils.py"]},
+            changed_artifacts=["src/utils.py"],
+        )
+
+        # reviewer_code ACKed main.py — should be preserved
+        assert t.matrix.get_entry("reviewer_code", "coder").state == ApprovalState.ACKED
+        # tester ACKed main.py — should be preserved
+        assert t.matrix.get_entry("tester", "coder").state == ApprovalState.ACKED
+        # reviewer_contract ACKed main.py AND utils.py — should be invalidated
+        assert t.matrix.get_entry("reviewer_contract", "coder").state == ApprovalState.PENDING
+        assert "reviewer_contract" in result["invalidated_reviewers"]
+
+        # Tester and documenter ACKs should be completely unaffected
+        assert t.matrix.get_entry("reviewer_code", "tester").state == ApprovalState.ACKED
+        assert t.matrix.get_entry("reviewer_code", "documenter").state == ApprovalState.ACKED
+
+        # checker re-reviews and ACKs (NACKing reviewer, needs to re-ACK)
+        t.handle_ack("checker", "coder", {"artifact_references": ["src/utils.py"]})
+        # reviewer_contract re-reviews and ACKs (invalidated, needs to re-ACK)
+        t.handle_ack(
+            "reviewer_contract", "coder", {"artifact_references": ["src/main.py", "src/utils.py"]}
+        )
+        # Preserved ACKs (reviewer_code, tester) are at old version — they need
+        # to re-ACK at the new proposal version for is_fully_acked to pass
+        t.handle_ack("reviewer_code", "coder", {"artifact_references": ["src/main.py"]})
+        t.handle_ack("tester", "coder", {"artifact_references": ["src/main.py"]})
+
+        # Now coder should be fully acked again
+        assert t.matrix.is_fully_acked("coder")
+
+        # All confirm
+        for role in [
+            "coder",
+            "tester",
+            "documenter",
+            "reviewer_code",
+            "reviewer_contract",
+            "checker",
+        ]:
+            t.handle_confirmed(role)
+
+        state = t.evaluate()
+        assert state["is_complete"] is True
+
+
+class TestTimeoutIdempotency:
+    """Test that handle_timeout() is idempotent — second call returns cached result."""
+
+    def test_handle_timeout_idempotent(self):
+        """Calling handle_timeout() twice returns already_handled on second call."""
+        graph = ReviewGraph([ReviewEdge("rev_code", "coder", ReviewCriticality.CRITICAL)])
+        t = PeerConsensusTracker("test-idem", graph, cooldown_seconds=0)
+        t.register_agent("coder")
+        t.register_agent("rev_code")
+
+        # Propose but don't ACK — creates a blocking edge
+        t.handle_propose("coder", {"summary": "v1", "artifacts": ["src/main.py"]})
+
+        result1 = t.handle_timeout()
+        assert result1["action"] == "escalate"
+        assert t.is_timeout_handled() is True
+
+        result2 = t.handle_timeout()
+        assert result2["action"] == "already_handled"
+        assert result2["reason"] == "Timeout previously processed"
+
+    def test_handle_timeout_idempotent_advisory(self):
+        """Advisory-only timeout path is also idempotent."""
+        graph = ReviewGraph([ReviewEdge("rev_code", "coder", ReviewCriticality.ADVISORY)])
+        t = PeerConsensusTracker("test-idem-adv", graph, cooldown_seconds=0)
+        t.register_agent("coder")
+        t.register_agent("rev_code")
+
+        t.handle_propose("coder", {"summary": "v1", "artifacts": ["src/main.py"]})
+
+        result1 = t.handle_timeout()
+        assert result1["action"] == "proceed_with_notification"
+        assert t.is_timeout_handled() is True
+
+        result2 = t.handle_timeout()
+        assert result2["action"] == "already_handled"
+
+
+class TestAlternatingNackHardCap:
+    """Test that alternating-file NACK patterns hit the hard cap."""
+
+    def test_alternating_file_nacks_escalate_at_hard_cap(self):
+        """Reviewer alternating NACKs between two files eventually
+        triggers escalation at 3x max_revision_rounds."""
+        graph = ReviewGraph([ReviewEdge("rev_code", "coder", ReviewCriticality.CRITICAL)])
+        t = PeerConsensusTracker("test-hardcap", graph, cooldown_seconds=0, max_revision_rounds=2)
+        t.register_agent("coder")
+        t.register_agent("rev_code")
+
+        files = ["src/auth.py", "src/db.py"]
+        # Hard cap = max_revision_rounds * 3 = 6
+        # Alternate NACKs on different files until we hit the cap
+        for i in range(6):
+            t.handle_propose("coder", {"summary": f"v{i + 1}", "artifacts": files})
+            result = t.handle_nack(
+                "rev_code",
+                "coder",
+                {
+                    "artifact_references": [files[i % 2]],
+                    "reason": f"issue in {files[i % 2]}",
+                },
+            )
+            if i < 5:
+                # Round 0: context_change=False but rev_count < max_revision_rounds
+                # Rounds 1-4: context_change=True (alternating files) and rev_count < hard_cap
+                assert result["needs_escalation"] is False, (
+                    f"Unexpected escalation at round {i + 1}"
+                )
+            else:
+                # At round 6 (rev_count=6 == hard_cap), escalation fires
+                assert result["needs_escalation"] is True, f"Expected escalation at round {i + 1}"
+                assert result["revision_count"] == 6
