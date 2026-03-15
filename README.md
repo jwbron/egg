@@ -88,7 +88,7 @@ Tier 3 decomposes large features into independent plan phases that run as parall
 
 ### Concurrent Execution Mode
 
-An optional execution mode where all implement-phase agents (coder, tester, documenter, checker, reviewers) start simultaneously, all sharing the pipeline branch. Agents communicate via the orchestrator message bus and signal readiness via a consensus protocol. Phase completion requires all agents to reach `READY` state. Enable with `concurrent_execution: true` in pipeline config.
+BRC concurrent execution runs all agents for a phase simultaneously — all sharing the pipeline branch. Agents communicate via the orchestrator message bus and reach phase completion through a consensus protocol. BRC is **enabled by default** for the refine, plan, and implement phases (configurable via `concurrent_phases`). Set `concurrent_execution: true` to activate BRC for all phases.
 
 See [Concurrent Execution Guide](docs/guides/concurrent-execution.md) for the full protocol.
 

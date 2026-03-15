@@ -1,23 +1,33 @@
 # Concurrent Execution Mode
 
-Concurrent execution mode runs all agents for the current pipeline phase simultaneously — all sharing the pipeline branch — rather than sequentially in dependency-ordered waves. Agents communicate via the orchestrator message bus and signal readiness for phase completion via a consensus protocol. BRC consensus is supported for the **refine**, **plan**, and **implement** phases.
+Concurrent execution mode runs all agents for the current pipeline phase simultaneously — all sharing the pipeline branch — rather than sequentially in dependency-ordered waves. Agents communicate via the orchestrator message bus and signal readiness for phase completion via a consensus protocol. BRC consensus is active by default for the **refine**, **plan**, and **implement** phases.
 
 This is distinct from the standard wave-based parallel execution (Tier 2), where agents run in dependency order but multiple independent agents execute in parallel within each wave.
 
 ## Enabling Concurrent Execution
 
-Set `concurrent_execution: true` in the pipeline config when creating a pipeline:
+BRC concurrent execution is **enabled by default** for the refine, plan, and implement phases via the `concurrent_phases` config field. No additional configuration is required for standard pipelines.
+
+To activate BRC for every phase (including non-standard phases), set `concurrent_execution: true`:
 
 ```bash
 egg-orch pipeline create --repo owner/name --issue 123 \
   --config '{"concurrent_execution": true}'
 ```
 
+To disable BRC entirely, set `concurrent_phases` to an empty list:
+
+```bash
+egg-orch pipeline create --repo owner/name --issue 123 \
+  --config '{"concurrent_phases": []}'
+```
+
 Relevant `PipelineConfig` fields:
 
 | Field | Default | Description |
 |-------|---------|-------------|
-| `concurrent_execution` | `false` | Enable concurrent agent execution |
+| `concurrent_execution` | `false` | Enable BRC for every phase (overrides `concurrent_phases`) |
+| `concurrent_phases` | `["refine", "plan", "implement"]` | Phases where BRC is active when `concurrent_execution` is `false` |
 | `max_concurrent_agents` | `6` | Maximum agents per phase |
 | `message_poll_hint_seconds` | `30` | Suggested polling interval for agents |
 | `consensus_timeout_minutes` | `30` | Timeout before HITL escalation |
