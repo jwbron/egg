@@ -522,6 +522,7 @@ class TestSetupClaude:
         # Use a wrapper that only affects repos_dir, not all PosixPath instances
         # (patching the class method would break skills_src.iterdir() etc.)
         original_iterdir = type(repos_dir).iterdir
+
         def iterdir_side_effect(self):
             if self == repos_dir:
                 raise PermissionError("Permission denied")
