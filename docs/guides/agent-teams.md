@@ -1,8 +1,8 @@
-# Agent Teams and Peer Consensus
+# Agent Teams and Deliberative Consensus
 
-Agent teams are groups of LLM agents that work concurrently on a shared task and must reach agreement before advancing. This guide covers the motivation, architecture, and protocol design for agent team communication and peer consensus in egg.
+Agent teams are groups of LLM agents that work concurrently on a shared task and must reach agreement before advancing. This guide covers the motivation, architecture, and protocol design for agent team communication and Deliberative Consensus in egg.
 
-For operational details on the current concurrent execution mode, see [Concurrent Execution](concurrent-execution.md). This guide focuses on the design principles and the peer consensus protocol that replaces the original orchestrator-centric readiness tallying.
+For operational details on the current concurrent execution mode, see [Concurrent Execution](concurrent-execution.md). This guide focuses on the design principles and **Deliberative Consensus** — the combination of a structured consensus protocol (BRC) and an evidence-backed reasoning layer — that replaces the original orchestrator-centric readiness tallying.
 
 ## Why Agent Teams
 
@@ -14,7 +14,7 @@ The naive solution — each agent independently tells the orchestrator "I'm READ
 
 2. **No mutual agreement.** Agents never agree *with each other* — they announce their state to a central authority. The orchestrator declares consensus, but no agent has actually evaluated any other agent's output.
 
-Agent teams solve this by replacing orchestrator-decreed consensus with **peer-negotiated consensus** — agents communicate directly, review each other's work, and individually confirm they agree with the group.
+Agent teams solve this by replacing orchestrator-decreed consensus with **Deliberative Consensus** — agents communicate directly, review each other's work with verifiable evidence, and individually confirm they agree with the group.
 
 ## Three Layers of the Problem
 
@@ -25,6 +25,8 @@ Agent team coordination spans three distinct layers. Solutions that address only
 | **Transport** | How messages are delivered between agents | Distributed systems |
 | **Protocol** | Rules governing proposals, acknowledgments, and state transitions | Distributed consensus |
 | **Reasoning** | Agents genuinely evaluating each other's work and forming independent judgments | Sociology, game theory |
+
+The protocol and reasoning layers are independently variable but jointly necessary — BRC without the reasoning layer is just vote-counting with extra steps, and evidence-backed reasoning without protocol structure has no enforcement mechanism. Together they form **Deliberative Consensus**: agents reach agreement through a structured process (BRC) grounded in verifiable evidence (Evidence-Backed Deliberation).
 
 ### Transport: Redis Streams + Long-Polling
 
