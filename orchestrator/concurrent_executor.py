@@ -86,9 +86,7 @@ class ConcurrentPhaseExecutor:
         from egg_contracts.agent_roles import get_roles_for_phase
 
         phase = self.pipeline.current_phase.value
-        contract_roles = get_roles_for_phase(
-            phase, include_reviewers=True, repo=self.pipeline.repo
-        )
+        contract_roles = get_roles_for_phase(phase, include_reviewers=True, repo=self.pipeline.repo)
         return [AgentRole(r.value) for r in contract_roles]
 
     def get_worktree_branch(self, role: AgentRole) -> str:
