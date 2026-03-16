@@ -1110,6 +1110,30 @@ execute_via_gateway() {
     local repo
     repo=$(get_repo)
 
+    # Resolve --body-file/-F to --body before sending to gateway
+    # (gateway runs on a different filesystem, so file paths won't resolve there)
+    local resolved_args=()
+    local i=0
+    while [ $i -lt ${#ARGS[@]} ]; do
+        case "${ARGS[$i]}" in
+            --body-file|-F)
+                ((i++))
+                local bf="${ARGS[$i]}"
+                if [ ! -f "$bf" ]; then
+                    echo "ERROR: File not found: $bf" >&2
+                    return 1
+                fi
+                local bf_content
+                bf_content=$(cat "$bf") || { echo "ERROR: Failed to read $bf" >&2; return 1; }
+                resolved_args+=("--body" "$bf_content")
+                ;;
+            *)
+                resolved_args+=("${ARGS[$i]}")
+                ;;
+        esac
+        ((i++))
+    done
+
     # Build JSON payload using Python for proper escaping
     # Include repo so gateway can inject --repo if needed
     local payload
@@ -1125,7 +1149,7 @@ data = {
 if sys.argv[2]:
     data['repo'] = sys.argv[2]
 print(json.dumps(data))
-" "$cwd" "$repo" "${ARGS[@]}")
+" "$cwd" "$repo" "${resolved_args[@]}")
 
     call_gateway "/api/v1/gh/execute" "$payload"
 }
@@ -1144,9 +1168,25 @@ done
 set -- "${ARGS[@]}"
 
 # Parse the main command
+# Skip values for flags that take arguments (e.g. -R repo, --repo=repo)
+# so that "gh -R owner/repo issue create" correctly identifies issue/create
 main_cmd=""
 sub_cmd=""
+skip_next=false
 for arg in "$@"; do
+    if $skip_next; then
+        skip_next=false
+        continue
+    fi
+    case "$arg" in
+        -R|--repo|-H|--hostname)
+            skip_next=true
+            continue
+            ;;
+        --repo=*|--hostname=*)
+            continue
+            ;;
+    esac
     if [[ "$arg" != -* ]]; then
         if [ -z "$main_cmd" ]; then
             main_cmd="$arg"
