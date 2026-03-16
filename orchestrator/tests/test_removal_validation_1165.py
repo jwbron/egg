@@ -173,8 +173,8 @@ class TestIntegratorRoleRemoval:
 
     def test_signals_role_map_no_integrator(self):
         """signals.py _AGENT_ROLE_TO_CONTRACT_ROLE should not map integrator."""
-        from routes.signals import _AGENT_ROLE_TO_CONTRACT_ROLE
         from models import AgentRole
+        from routes.signals import _AGENT_ROLE_TO_CONTRACT_ROLE
 
         # Check that INTEGRATOR is not in the mapping if it still exists as enum
         if hasattr(AgentRole, "INTEGRATOR"):
@@ -356,9 +356,7 @@ class TestNoMultiAgentImports:
         )
 
     def test_concurrent_executor_no_multi_agent_import(self):
-        self._check_no_multi_agent_import(
-            _project_root / "orchestrator" / "concurrent_executor.py"
-        )
+        self._check_no_multi_agent_import(_project_root / "orchestrator" / "concurrent_executor.py")
 
 
 # ---------------------------------------------------------------------------
@@ -419,9 +417,7 @@ class TestConcurrentBRCOnlyPath:
             assert env.get("EGG_CONCURRENT_MODE") == "true", (
                 f"Role {role.value} missing EGG_CONCURRENT_MODE"
             )
-            assert "EGG_BRC_ROLE_TYPE" in env, (
-                f"Role {role.value} missing EGG_BRC_ROLE_TYPE"
-            )
+            assert "EGG_BRC_ROLE_TYPE" in env, f"Role {role.value} missing EGG_BRC_ROLE_TYPE"
 
 
 # ---------------------------------------------------------------------------
@@ -528,9 +524,7 @@ class TestHandoffsCleanup:
         if not handoffs_path.exists():
             pytest.skip("handoffs.py not found")
         source = handoffs_path.read_text()
-        assert "INTEGRATOR" not in source, (
-            "handoffs.py ROLE_MAP should not reference INTEGRATOR"
-        )
+        assert "INTEGRATOR" not in source, "handoffs.py ROLE_MAP should not reference INTEGRATOR"
 
 
 # ---------------------------------------------------------------------------
@@ -607,10 +601,12 @@ class TestConcurrentExecutorFailureHandling:
         mock_decision = MagicMock()
         mock_decision.id = "decision-1"
 
-        with patch("concurrent_executor.get_message_store") as mock_store, \
-             patch("concurrent_executor.get_peer_consensus_tracker") as mock_tracker, \
-             patch("concurrent_executor.emit_event"), \
-             patch.object(type(pipeline), "add_decision", return_value=mock_decision):
+        with (
+            patch("concurrent_executor.get_message_store") as mock_store,
+            patch("concurrent_executor.get_peer_consensus_tracker") as mock_tracker,
+            patch("concurrent_executor.emit_event"),
+            patch.object(type(pipeline), "add_decision", return_value=mock_decision),
+        ):
             mock_store.return_value = MagicMock()
             mock_tracker.return_value = MagicMock(
                 handle_agent_crash=MagicMock(return_value={"action": "continue"})
@@ -629,10 +625,12 @@ class TestConcurrentExecutorFailureHandling:
         mock_decision = MagicMock()
         mock_decision.id = "decision-2"
 
-        with patch("concurrent_executor.get_message_store") as mock_store, \
-             patch("concurrent_executor.get_peer_consensus_tracker") as mock_tracker, \
-             patch("concurrent_executor.emit_event"), \
-             patch.object(type(pipeline), "add_decision", return_value=mock_decision):
+        with (
+            patch("concurrent_executor.get_message_store") as mock_store,
+            patch("concurrent_executor.get_peer_consensus_tracker") as mock_tracker,
+            patch("concurrent_executor.emit_event"),
+            patch.object(type(pipeline), "add_decision", return_value=mock_decision),
+        ):
             mock_store.return_value = MagicMock()
             mock_tracker.return_value = MagicMock(
                 handle_agent_crash=MagicMock(return_value={"action": "continue"})
@@ -693,6 +691,4 @@ class TestNoStaleStringReferences:
             pytest.skip(f"{relative_path} not found")
         source = filepath.read_text()
         for pattern in self._STALE_PATTERNS:
-            assert pattern not in source, (
-                f"Stale reference '{pattern}' found in {relative_path}"
-            )
+            assert pattern not in source, f"Stale reference '{pattern}' found in {relative_path}"

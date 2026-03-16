@@ -374,7 +374,6 @@ class AgentExecutionModel(BaseModel):
     )
 
 
-
 class Contract(BaseModel):
     """The complete SDLC contract."""
 
