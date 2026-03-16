@@ -533,6 +533,13 @@ class TestBackwardCompatibility:
         )
         assert info.agent_role == AgentRole.TESTER
 
+    def test_reviewer_unified_in_container_info_deserializes(self):
+        """ContainerInfo with agent_role='reviewer_unified' migrates to reviewer_code."""
+        info = ContainerInfo.model_validate(
+            {"container_id": "c1", "container_name": "test", "agent_role": "reviewer_unified"}
+        )
+        assert info.agent_role == AgentRole.REVIEWER_CODE
+
     def test_valid_roles_unaffected_by_migration(self):
         """Existing valid roles are not changed by the migration validator."""
         agent = AgentExecution.model_validate({"role": "coder"})
