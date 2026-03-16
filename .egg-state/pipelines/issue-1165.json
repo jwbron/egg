@@ -48,10 +48,10 @@
         {
           "container_id": "6e11ccbd358d92557fabeb199d2c930e25573ef7e62a686c4049ea643937a0ef",
           "container_name": "issue-1165-refiner",
-          "status": "running",
+          "status": "failed",
           "started_at": "2026-03-16T00:14:10.656208",
-          "exited_at": null,
-          "exit_code": null,
+          "exited_at": "2026-03-16T00:17:01.492286Z",
+          "exit_code": 137,
           "agent_role": "refiner",
           "session_token": null
         },
@@ -82,13 +82,13 @@
         },
         {
           "role": "refiner",
-          "status": "running",
+          "status": "failed",
           "container_id": "6e11ccbd358d92557fabeb199d2c930e25573ef7e62a686c4049ea643937a0ef",
           "started_at": "2026-03-16T00:14:10.656212",
-          "completed_at": null,
+          "completed_at": "2026-03-16T00:17:02.926297",
           "commit": null,
           "outputs": {},
-          "error": null,
+          "error": "Container exited with code 137",
           "retry_count": 0,
           "conflicts": [],
           "plan_phase_id": null
@@ -125,7 +125,7 @@
   },
   "decisions": [],
   "created_at": "2026-03-16T00:14:01.681153",
-  "updated_at": "2026-03-16T00:16:51.621159",
+  "updated_at": "2026-03-16T00:17:02.926364",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
@@ -133,5 +133,5 @@
   "error": null,
   "plan_phase_waves": null,
   "plan_phase_names": null,
-  "version": 9
+  "version": 10
 }
