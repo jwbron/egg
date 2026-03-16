@@ -1713,7 +1713,11 @@ def _build_review_prompt(
             "execution path in the real deployment environment. Check that config files, "
             "environment variables, and dependencies are actually available where the code runs"
         )
-        lines.append("6. Research when uncertain — look up library behavior, check documentation")
+        lines.append(
+            "6. Research when uncertain — use WebSearch and WebFetch (when available) "
+            "to look up library behavior, check official documentation, verify "
+            "API usage patterns, and confirm the code follows current best practices"
+        )
         lines.append("7. Consider edge cases the author may not have tested")
         lines.append("8. Evaluate against the criteria below")
         lines.append(f"9. Write your verdict to `{verdict_path}` as JSON")
@@ -2518,10 +2522,14 @@ def _build_phase_prompt(
                 "Analyze this issue and produce a structured analysis document. Your goal is to:\n",
                 "1. Understand the problem or feature request",
                 "2. Research the current codebase to understand existing patterns",
-                "3. Identify constraints and dependencies",
-                "4. Consider multiple implementation approaches",
-                "5. Recommend an approach with justification",
-                "6. Surface **all** questions and uncertainties that need human input "
+                "3. Research externally when the task involves third-party libraries, APIs, "
+                "or integrations — use WebSearch and WebFetch (when available) to look up "
+                "current documentation, best practices, and known issues. Skip external "
+                "research for purely internal changes where codebase context is sufficient.",
+                "4. Identify constraints and dependencies",
+                "5. Consider multiple implementation approaches",
+                "6. Recommend an approach with justification",
+                "7. Surface **all** questions and uncertainties that need human input "
                 "(do not self-limit — raise every ambiguity)",
                 "",
                 "**IMPORTANT**: Do NOT create an implementation plan, task breakdown, "
@@ -2713,13 +2721,46 @@ def _build_phase_prompt(
                 steps.append("Review the plan (check `.egg-state/drafts/`)")
             steps.extend(
                 [
-                    "Implement the required changes",
+                    "Implement the required changes — when working with third-party "
+                    "libraries or APIs, use WebSearch and WebFetch (when available) to "
+                    "look up current documentation, usage examples, and best practices",
                     "Run tests to verify correctness",
                     "Commit with descriptive messages",
                 ]
             )
             for i, step in enumerate(steps, 1):
                 lines.append(f"{i}. {step}")
+            lines.append("")
+
+            lines.append("## Parallel Execution with Subagents\n")
+            lines.append(
+                "You have access to Claude Code's **Agent tool** for spawning subagents. "
+                "Use it to parallelize independent work:\n"
+            )
+            lines.append(
+                "- If the plan has multiple independent phases or task groups that don't touch "
+                "overlapping files, implement them in parallel by launching one subagent per "
+                "phase/group."
+            )
+            lines.append(
+                "- Each subagent gets a clear, self-contained prompt describing its scope "
+                "(files to modify, tasks to complete, acceptance criteria)."
+            )
+            lines.append(
+                "- Subagents share your working directory and git state. Ensure parallel "
+                "subagents work on **non-overlapping files** to avoid conflicts."
+            )
+            lines.append(
+                "- Subagents should only edit files — do NOT stage or commit from subagents. "
+                "After all subagents complete, stage and commit the combined changes yourself."
+            )
+            lines.append(
+                "- After subagents complete, verify the combined changes compile, pass tests, "
+                "and integrate correctly."
+            )
+            lines.append(
+                "- For small or sequential tasks, just implement directly — don't over-parallelize."
+            )
             lines.append("")
         else:
             # Revision cycle: slim delta-focused prompt.
@@ -3112,8 +3153,20 @@ def _build_agent_prompt(
                 "- Uncovered code paths and branches",
                 "- Integration gaps between components",
                 "",
+                "When testing third-party library integrations or unfamiliar frameworks, "
+                "use WebSearch and WebFetch (when available) to look up testing patterns, "
+                "known edge cases, and recommended test approaches for those libraries.",
+                "",
                 "Before writing tests, review the coder's session for context on what was changed and why:",
                 "`egg-checkpoint list --pipeline $EGG_PIPELINE_ID --agent-type coder --phase implement`",
+                "",
+                "## Parallel Execution with Subagents\n",
+                "If the changes span multiple independent components or modules, you can use "
+                "Claude Code's **Agent tool** to parallelize test writing. Launch one subagent "
+                "per component to write and run tests concurrently. Each subagent should work "
+                "on non-overlapping test files. Subagents should only write files — do NOT "
+                "stage or commit from subagents. After all subagents complete, run the full "
+                "test suite to verify everything passes together, then stage and commit yourself.",
                 "",
             ]
         )
@@ -3131,6 +3184,10 @@ def _build_agent_prompt(
                 "- Accurate descriptions of new features or changes",
                 "- Updated usage examples if APIs changed",
                 "- Clear explanation of any breaking changes",
+                "",
+                "When documenting third-party integrations or external APIs, use WebSearch "
+                "and WebFetch (when available) to verify current API signatures, link to "
+                "official documentation, and confirm usage examples are up to date.",
                 "",
                 "Find all changed files across agents:",
                 "`egg-checkpoint context --pipeline $EGG_PIPELINE_ID --files`",
@@ -3162,9 +3219,14 @@ def _build_agent_prompt(
                 "",
                 "1. Understand the problem or feature request from the issue",
                 "2. Research the current codebase to understand existing patterns",
-                "3. Identify key files, constraints, and dependencies",
-                "4. Consider multiple implementation approaches",
-                "5. Recommend an approach with justification and document technical decisions",
+                "3. Research externally when the task involves third-party libraries, APIs, "
+                "or frameworks — use WebSearch and WebFetch (when available) to verify "
+                "assumptions, check current documentation, review architectural patterns, "
+                "and look up current best practices. Skip external research for purely "
+                "internal changes.",
+                "4. Identify key files, constraints, and dependencies",
+                "5. Consider multiple implementation approaches",
+                "6. Recommend an approach with justification and document technical decisions",
                 "",
                 f"Write your analysis to `.egg-state/agent-outputs/{_identifier}-architect-output.json`.",
                 "",
@@ -3238,9 +3300,13 @@ def _build_agent_prompt(
                 "",
                 "1. Review the architecture analysis from the ARCHITECT agent",
                 "2. Identify technical risks (security, performance, compatibility)",
-                "3. Assess impact and likelihood of each risk",
-                "4. Propose mitigation strategies and rollback plans",
-                "5. Flag areas that need human review",
+                "3. Research externally when the change involves third-party dependencies — "
+                "use WebSearch and WebFetch (when available) to check for known "
+                "vulnerabilities, deprecation notices, and compatibility issues. "
+                "Skip external research for purely internal changes.",
+                "4. Assess impact and likelihood of each risk",
+                "5. Propose mitigation strategies and rollback plans",
+                "6. Flag areas that need human review",
                 "",
                 f"Write your risk assessment to `.egg-state/agent-outputs/{_identifier}-risk_analyst-output.json`.",
                 "",
@@ -3595,7 +3661,7 @@ def _run_concurrent_phase(
                 pip = store.load_pipeline(pipeline_id)
                 pe = pip.get_phase_execution(PipelinePhase(phase_str))
                 for agent in pe.agents:
-                    if agent.status == StateAgentStatus.RUNNING:
+                    if agent.status in (StateAgentStatus.RUNNING, StateAgentStatus.FAILED):
                         agent.status = StateAgentStatus.COMPLETE
                         agent.completed_at = datetime.utcnow()
                 store.save_pipeline(pip)
@@ -5201,6 +5267,13 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                         phase_execution = pipeline.get_phase_execution(current_phase)
                         review_cycle = phase_execution.review_cycles
 
+                        # Reset status to RUNNING at cycle start so that a
+                        # previous cycle's FAILED status doesn't persist and
+                        # cause _derive_subphase_status() to misreport (see
+                        # issue #1178).
+                        phase_execution.status = PipelineStatus.RUNNING
+                        pipeline.status = PipelineStatus.RUNNING
+
                         # Record when actual agent work begins (excludes sandbox setup
                         # and HITL waiting time from the phase duration).
                         phase_execution.work_started_at = datetime.utcnow()
@@ -5392,8 +5465,10 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                     )
 
                     reviewer_roles = _phase_reviewer_roles.get(current_phase.value, [])
-                    if not reviewer_roles:
-                        break  # No reviewers for this phase — advance
+                    # BRC concurrent phases already include reviewers in the consensus
+                    # protocol. Spawning separate reviewers would duplicate the review
+                    # and trigger unnecessary retry cycles (see issue #1178).
+                    break  # Reviewers already handled in BRC — advance to next phase
 
                     # Clean stale verdict files
                     for role in reviewer_roles:

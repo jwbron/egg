@@ -75,12 +75,13 @@ def make_error_response(
 def make_success_response(
     message: str,
     data: dict[str, Any] | None = None,
+    status_code: int = 200,
 ) -> tuple[Response, int]:
     """Create a success response."""
     response: dict[str, Any] = {"success": True, "message": message}
     if data:
         response["data"] = data
-    return jsonify(response), 200
+    return jsonify(response), status_code
 
 
 from routes import (  # noqa: E402 — shared helper
@@ -769,6 +770,30 @@ def handle_consensus_propose_signal(
             )
         )
 
+        # Notify stale confirmed reviewers that they need to re-review.
+        # This prevents deadlocks when a producer withdraws and re-proposes
+        # after some reviewers have already confirmed on a prior version.
+        for stale_reviewer in result.get("stale_confirmed_reviewers", []):
+            store.add_message(
+                Message(
+                    pipeline_id=pipeline_id,
+                    from_role="orchestrator",
+                    to_role=stale_reviewer,
+                    message_type=MessageType.CONSENSUS_RE_REVIEW,
+                    subject=f"Re-review required: {agent_role} submitted new proposal v{result.get('version')}",
+                    body=(
+                        f"Producer {agent_role} has submitted a new proposal "
+                        f"(version {result.get('version')}) after withdrawal. "
+                        f"Your previous confirmation was on an earlier version. "
+                        f"Please re-review and ACK/NACK the new proposal."
+                    ),
+                    metadata={
+                        "producer_role": agent_role,
+                        "version": result.get("version"),
+                    },
+                )
+            )
+
         return make_success_response(
             f"Proposal recorded for {agent_role}",
             data=result,
@@ -979,6 +1004,15 @@ def handle_consensus_confirmed_signal(
     try:
         result = tracker.handle_confirmed(agent_role)
 
+        # If the producer is waiting for reviewer re-ACKs (e.g. after a
+        # re-proposal invalidated stale ACKs), return 202 so the agent
+        # knows to retry later instead of treating it as an error.
+        # Note: we intentionally skip writing a CONSENSUS_CONFIRMED message
+        # to the message store here — the agent hasn't actually confirmed,
+        # so peers polling for CONSENSUS_CONFIRMED won't see a premature one.
+        if result.get("status") == "pending_acks":
+            return make_success_response(result["message"], data=result, status_code=202)
+
         from message_store import Message, MessageType, get_message_store
 
         store = get_message_store()
@@ -1064,7 +1098,8 @@ def handle_batch_signals(pipeline_id: str) -> tuple[Response, int]:
                 results.append(
                     {
                         "signal_type": signal_type,
-                        "success": status == 200,
+                        "success": status in (200, 202),
+                        "pending": status == 202,
                         "response": response.get_json(),
                     }
                 )

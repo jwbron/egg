@@ -1248,7 +1248,12 @@ def cmd_consensus_confirmed(args: argparse.Namespace) -> int:
         return 0
 
     if result.get("success"):
-        consensus_reached = result.get("data", {}).get("consensus_reached", False)
+        data = result.get("data", {})
+        # 202: producer is waiting for reviewer re-ACKs after re-proposal
+        if data.get("status") == "pending_acks":
+            print(f"Waiting for reviewer re-ACKs: {result.get('message')}")
+            return 2
+        consensus_reached = data.get("consensus_reached", False)
         print(f"Confirmation recorded for {role}")
         if consensus_reached:
             print("  Consensus reached!")
