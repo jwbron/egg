@@ -150,7 +150,7 @@ This file controls:
 
 ### Per-Repo Check Commands
 
-The `repo_settings` section supports configuring explicit check commands for the SDLC pipeline implement phase. When configured, the checker agent runs these commands instead of auto-discovering test/lint commands.
+The `repo_settings` section supports configuring explicit check commands for the SDLC pipeline implement phase. When configured, the tester agent runs these commands instead of auto-discovering test/lint commands.
 
 **Example:**
 ```yaml
@@ -169,7 +169,7 @@ Each check has:
 - `name`: Display label (e.g., "lint", "test", "integration")
 - `command`: Shell command to execute
 
-Checks run sequentially during the implement phase checker step. If not configured, the checker falls back to auto-discovery (scanning for Makefile, package.json, pyproject.toml, etc.).
+Checks run sequentially during the implement phase test step. If not configured, the tester falls back to auto-discovery (scanning for Makefile, package.json, pyproject.toml, etc.).
 
 **Configuration:**
 - Setup flow: Run `egg --setup` and answer "yes" to "Configure SDLC check commands?"

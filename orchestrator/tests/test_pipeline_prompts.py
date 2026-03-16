@@ -20,11 +20,11 @@ from routes.pipelines import (
     _build_agent_prompt,
     _build_autofix_prompt,
     _build_check_and_fix_prompt,
-    _build_checker_prompt,
     _build_phase_prompt,
     _build_phase_scoped_prompt,
     _build_review_prompt,
     _build_role_context,
+    _build_tester_prompt,
     _extract_plan_overview,
     _get_agent_design_criteria,
     _get_code_review_criteria,
@@ -38,18 +38,18 @@ from routes.pipelines import (
 )
 
 
-class TestBuildCheckerPrompt:
-    """Tests for _build_checker_prompt with repo_checks parameter."""
+class TestBuildTesterPrompt:
+    """Tests for _build_tester_prompt with repo_checks parameter."""
 
     def test_discovery_mode_without_repo_checks(self):
         """Without repo_checks, prompt uses discovery instructions."""
-        result = _build_checker_prompt("pid-1", "local")
+        result = _build_tester_prompt("pid-1", "local")
         assert "Discover and run all project test and lint commands" in result
         assert "Makefile" in result
 
     def test_discovery_mode_with_repo(self):
         """Discovery mode includes repo working directory."""
-        result = _build_checker_prompt("pid-1", "local", repo="acme/web-app")
+        result = _build_tester_prompt("pid-1", "local", repo="acme/web-app")
         assert "Repository: acme/web-app" in result
         assert "~/repos/web-app" in result
         assert "Discover and run all" in result
@@ -60,7 +60,7 @@ class TestBuildCheckerPrompt:
             {"name": "lint", "command": "make lint"},
             {"name": "test", "command": "make test"},
         ]
-        result = _build_checker_prompt("pid-1", "local", repo="acme/web-app", repo_checks=checks)
+        result = _build_tester_prompt("pid-1", "local", repo="acme/web-app", repo_checks=checks)
         assert "make lint" in result
         assert "make test" in result
         assert "**lint**" in result
@@ -72,7 +72,7 @@ class TestBuildCheckerPrompt:
     def test_explicit_checks_without_repo(self):
         """Explicit checks work even without a repo specified."""
         checks = [{"name": "build", "command": "npm run build"}]
-        result = _build_checker_prompt("pid-1", "issue", repo_checks=checks)
+        result = _build_tester_prompt("pid-1", "issue", repo_checks=checks)
         assert "npm run build" in result
         assert "Repository:" not in result
 
@@ -80,20 +80,20 @@ class TestBuildCheckerPrompt:
         """Both modes include the namespaced results JSON format."""
         checks = [{"name": "test", "command": "pytest"}]
         for prompt in [
-            _build_checker_prompt("pid-1", "local"),
-            _build_checker_prompt("pid-1", "local", repo_checks=checks),
+            _build_tester_prompt("pid-1", "local"),
+            _build_tester_prompt("pid-1", "local", repo_checks=checks),
         ]:
             assert "pid-1-implement-results.json" in prompt
             assert "all_passed" in prompt
 
     def test_results_filename_uses_issue_number(self):
         """Results filename uses issue_number when provided."""
-        result = _build_checker_prompt("pid-1", "issue", issue_number=871)
+        result = _build_tester_prompt("pid-1", "issue", issue_number=871)
         assert "871-implement-results.json" in result
 
     def test_includes_pipeline_metadata(self):
         """Prompt always includes pipeline ID and mode."""
-        result = _build_checker_prompt("pid-42", "issue")
+        result = _build_tester_prompt("pid-42", "issue")
         assert "pid-42" in result
         assert "issue" in result
 

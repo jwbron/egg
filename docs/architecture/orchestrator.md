@@ -439,7 +439,7 @@ The orchestrator manages Docker-in-Docker (DinD) devserver stacks during deploym
 - Devserver containers run in dedicated `egg-check-{pipeline_id}` bridge network
 - No internet access (internal-only, no gateway, no DNS)
 - Services can only communicate within the isolated network
-- Sandbox checker makes HTTP requests from outside the devserver network
+- Sandbox tester makes HTTP requests from outside the devserver network
 
 **Resource limits (per container):**
 - CPU: 1.0 core

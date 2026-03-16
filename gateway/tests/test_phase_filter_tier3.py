@@ -2,14 +2,14 @@
 
 Covers:
 - check_agent_restrictions passes complexity_tier to validate_agent_push
-- Non-integrator roles are unaffected by complexity_tier
+- Non-producer roles are unaffected by complexity_tier
 """
 
 from phase_filter import check_agent_restrictions
 
 
 class TestOtherRolesUnaffectedByTier:
-    """Tests that non-integrator roles ignore complexity_tier."""
+    """Tests that non-producer roles ignore complexity_tier."""
 
     def test_coder_unaffected_by_high_tier(self):
         """Coder role behavior unchanged with complexity_tier='high'."""

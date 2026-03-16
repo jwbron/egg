@@ -257,7 +257,7 @@ loaded = load_checkpoint(checkpoint_path)
 - `roles.py` - Role-based field ownership validation
 - `audit.py` - Audit log utilities
 - `agent_recovery.py` - Multi-agent recovery (retry manager, circuit breaker, conflict detector)
-- `agent_roles.py` - Agent role definitions and file access patterns (tier-aware integrator access for Tier 3)
+- `agent_roles.py` - Agent role definitions and file access patterns
 - `checkpoints.py` - Checkpoint models (Checkpoint, SessionMetadata, Transcript, ToolCall, TokenUsage, InterAgentMessage)
 - `checkpoint_loader.py` - Checkpoint I/O (atomic save, load, indexing)
 - `checkpoint_cli.py` - CLI for browsing and querying checkpoints

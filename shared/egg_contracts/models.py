@@ -383,6 +383,15 @@ class PhaseAgentConfig(BaseModel):
         default=None, description="Max parallel agents (None = use pipeline default)"
     )
 
+    @field_validator("roles", mode="before")
+    @classmethod
+    def _filter_removed_roles(cls, v: Any) -> Any:
+        """Filter out removed role values from old persisted data."""
+        if v is None or not isinstance(v, list):
+            return v
+        valid = {r.value for r in AgentRoleType}
+        return [r for r in v if not isinstance(r, str) or r in valid]
+
 
 class MultiAgentConfig(BaseModel):
     """Configuration for multi-agent orchestration.
@@ -399,6 +408,15 @@ class MultiAgentConfig(BaseModel):
         default_factory=lambda: list(AgentRoleType),
         description="Which agent roles are enabled",
     )
+
+    @field_validator("roles_enabled", mode="before")
+    @classmethod
+    def _filter_removed_roles(cls, v: Any) -> Any:
+        """Filter out removed role values from old persisted data."""
+        if not isinstance(v, list):
+            return v
+        valid = {r.value for r in AgentRoleType}
+        return [r for r in v if not isinstance(r, str) or r in valid]
     phase_overrides: dict[str, PhaseAgentConfig] = Field(
         default_factory=dict,
         description="Per-phase agent configuration overrides",
@@ -451,6 +469,24 @@ class Contract(BaseModel):
         default_factory=list,
         description="Execution state for each agent in multi-agent mode",
     )
+
+    @field_validator("agent_executions", mode="before")
+    @classmethod
+    def _filter_removed_agent_roles(cls, v: Any) -> Any:
+        """Filter out executions with removed agent roles for backward compatibility.
+
+        Old contracts may contain executions for roles that have been removed
+        (integrator, checker, reviewer_unified). Drop them silently rather than
+        raising a ValidationError.
+        """
+        if not isinstance(v, list):
+            return v
+        valid_roles = {r.value for r in AgentRoleType}
+        return [
+            item
+            for item in v
+            if not isinstance(item, dict) or item.get("role") in valid_roles
+        ]
     multi_agent_config: MultiAgentConfig | None = Field(
         default=None,
         description="Configuration for multi-agent orchestration",

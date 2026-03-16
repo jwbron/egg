@@ -40,20 +40,10 @@ Switch to Documenter agent mode for documentation-focused work.
 
 **File**: `documenter-mode.md`
 
-### /integrator-mode
-Switch to Integrator agent mode for integration-focused work.
-
-**File**: `integrator-mode.md`
-
 ### /tester-mode
 Switch to Tester agent mode for testing-focused work.
 
 **File**: `tester-mode.md`
-
-### /checker-mode
-Switch to Checker agent mode for running checks (lint, type, test) and auto-fixing issues.
-
-**File**: `checker-mode.md`
 
 ### /reviewer-mode
 Switch to Reviewer agent mode for code quality or contract adherence review.

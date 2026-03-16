@@ -448,7 +448,7 @@ class TestScaledReEvaluation:
         assert r1["status"] == "nacked"
         assert r2["status"] == "nacked"
 
-        # Coder's rev_contract and checker ACKs should still be possible
+        # Coder's rev_contract and rev_extra ACKs should still be possible
         # (they weren't affected by rev_code's NACK of coder)
         t.handle_ack("rev_contract", "coder", {"artifact_references": ["src/auth.py"]})
         t.handle_ack("rev_extra", "coder", {"artifact_references": ["src/auth.py"]})
@@ -459,7 +459,7 @@ class TestScaledReEvaluation:
             {"summary": "fixed auth", "artifacts": ["src/auth.py"]},
             changed_artifacts=["src/auth.py"],
         )
-        # rev_contract and checker ACKed auth.py, which is the changed artifact,
+        # rev_contract and rev_extra ACKed auth.py, which is the changed artifact,
         # so they get invalidated
         assert result["version"] == 2
 
@@ -504,7 +504,7 @@ class TestScaledReEvaluation:
         t.handle_ack("rev_extra", "coder", {"artifact_references": ["src/auth.py"]})
         t.handle_ack("rev_code", "tester", {"artifact_references": ["tests/test_auth.py"]})
 
-        # Coder gets NACKed by checker and re-proposes
+        # Coder gets NACKed by rev_extra and re-proposes
         t.handle_nack(
             "rev_extra", "coder", {"artifact_references": ["src/auth.py"], "reason": "lint fail"}
         )
@@ -529,7 +529,7 @@ class TestScaledReEvaluation:
         t.handle_ack("rev_code", "coder", {"artifact_references": ["src/utils.py"]})
         # rev_contract ACKs (referencing auth.py)
         t.handle_ack("rev_contract", "coder", {"artifact_references": ["src/auth.py"]})
-        # checker NACKs (referencing auth.py)
+        # rev_extra NACKs (referencing auth.py)
         t.handle_nack(
             "rev_extra",
             "coder",

@@ -901,7 +901,7 @@ class DevserverManager:
             self._status.error_message = str(e)
             raise StackLifecycleError(f"Failed to start devserver: {e}") from e
 
-    def attach_checker(
+    def attach_tester(
         self,
         sandbox_container_id: str,
         service_names: list[str] | None = None,

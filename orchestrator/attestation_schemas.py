@@ -214,3 +214,8 @@ def _validate_strict(role: str, instance: BaseModel, is_producer: bool) -> None:
                 raise ValueError(
                     "Contract reviewer attestation requires at least one task verified in strict mode"
                 )
+        elif role == "tester" and isinstance(instance, TesterAttestation):
+            if instance.tests_run == 0:
+                raise ValueError(
+                    "Tester reviewer attestation requires tests_run > 0 in strict mode"
+                )

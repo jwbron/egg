@@ -269,6 +269,20 @@ class CheckpointV2(BaseModel):
     session_started_at: datetime = Field(..., description="When session started")
     session_ended_at: datetime | None = Field(default=None, description="When session ended")
 
+    @field_validator("agent_type", mode="before")
+    @classmethod
+    def _coerce_removed_agent_types(cls, v: Any) -> Any:
+        """Map removed agent types to UNKNOWN for backward compatibility.
+
+        Old checkpoints may contain agent types that have been removed
+        (e.g. integrator, checker). Map them to UNKNOWN.
+        """
+        if isinstance(v, str):
+            valid = {t.value for t in AgentType}
+            if v not in valid:
+                return AgentType.UNKNOWN.value
+        return v
+
     @field_validator("pipeline_phase")
     @classmethod
     def validate_pipeline_phase(cls, v: str | None) -> str | None:
@@ -322,6 +336,16 @@ class CheckpointSummaryV2(BaseModel):
     tool_call_count: int = Field(default=0, ge=0, description="Number of tool calls")
     total_tokens: int = Field(default=0, ge=0, description="Total tokens used")
     files_touched_count: int = Field(default=0, ge=0, description="Number of files touched")
+
+    @field_validator("agent_type", mode="before")
+    @classmethod
+    def _coerce_removed_agent_types(cls, v: Any) -> Any:
+        """Map removed agent types to UNKNOWN for backward compatibility."""
+        if isinstance(v, str):
+            valid = {t.value for t in AgentType}
+            if v not in valid:
+                return AgentType.UNKNOWN.value
+        return v
 
     @classmethod
     def from_checkpoint(cls, checkpoint: "CheckpointV2") -> "CheckpointSummaryV2":

@@ -365,7 +365,7 @@ def initialize_orchestration(
     Args:
         contract: The contract to initialize orchestration for
         roles: Specific roles to use. If None, uses the contract's
-            multi_agent_config.roles_enabled or defaults to the 4
+            multi_agent_config.roles_enabled or defaults to the 3
             implement-phase roles for backward compatibility.
         phase_id: Optional plan phase ID for Tier 3 composite keying.
             When set, executions are keyed by (phase_id, role).

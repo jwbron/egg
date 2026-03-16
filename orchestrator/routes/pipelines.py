@@ -5309,7 +5309,7 @@ def _parse_resolution(resolution: str | None) -> tuple[bool, str | None]:
     return True, None
 
 
-def _build_checker_prompt(
+def _build_tester_prompt(
     pipeline_id: str,
     pipeline_mode: str,
     repo: str | None = None,
@@ -6712,7 +6712,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                             issue_number=pipeline.issue_number,
                         )
                         check_fix_command = build_agent_command(check_fix_prompt, max_turns=100)
-                        checker_env = {**sandbox_env, "EGG_AGENT_ROLE": "tester"}
+                        tester_env = {**sandbox_env, "EGG_AGENT_ROLE": "tester"}
 
                         try:
                             # 45 min: combined check+fix budget, up from
@@ -6726,7 +6726,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                                 gateway_mode=gateway_mode,
                                 repos=repos,
                                 phase=current_phase,
-                                sandbox_env=checker_env,
+                                sandbox_env=tester_env,
                                 sandbox_command=check_fix_command,
                                 timeout=2700,
                                 store=store,

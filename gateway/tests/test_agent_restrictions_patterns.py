@@ -240,6 +240,10 @@ class TestTesterRole:
     def test_can_write_agent_outputs(self, pattern):
         assert pattern.can_write(".egg-state/agent-outputs/tester-out.json") is True
 
+    def test_can_write_reviews(self, pattern):
+        """Tester can write reviews (BRC concurrent mode reviewer role)."""
+        assert pattern.can_write(".egg-state/reviews/tester-review.json") is True
+
 
 class TestDocumenterRole:
     """Verify documenter agent can/cannot write expected files."""

@@ -93,7 +93,7 @@ class TestEvaluateWithNacks:
             {"artifact_references": ["a.py"], "reason": "bug"},
         )
 
-        # checker ACKs
+        # reviewer_contract ACKs
         tracker.handle_ack(
             "reviewer_contract",
             "coder",

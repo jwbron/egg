@@ -940,7 +940,7 @@ def check_agent_restrictions(
 
     SECURITY: Implements agent-role-based file access control:
     - Coder: source code and config, blocked from docs/tests/contracts
-    - Tester: test files only
+    - Tester: test files, source files (for auto-fix), and review output
     - Documenter: documentation and markdown only
 
     Args:
