@@ -7,7 +7,8 @@ import sys
 import tempfile
 
 from consensus_wrapper import (
-    _RECOVERY_PROMPT,
+    _RECOVERY_SYSTEM_PROMPT,
+    _RECOVERY_USER_PROMPT,
     MAX_CONSENSUS_RESTARTS,
     MAX_READY_POLL_CYCLES,
     build_consensus_wrapped_command,
@@ -96,12 +97,12 @@ class TestBuildConsensusWrappedCommand:
         assert 'if [ "$AGENT_EXIT" -ne 0 ]' in script
         assert "NOT restarting" in script
 
-    def test_contains_recovery_prompt(self):
-        """The wrapper should contain the BRC recovery prompt text."""
+    def test_contains_recovery_system_prompt(self):
+        """The wrapper should contain the BRC recovery system prompt text."""
         cmd = build_consensus_wrapped_command("Prompt")
         script = cmd[2]
-        assert "BRC CONSENSUS RECOVERY" in script
-        assert "You were restarted" in script
+        assert "BRC Consensus Recovery" in script
+        assert "--system-prompt" in script
 
     def test_exits_with_failure_after_max_restarts(self):
         """After exhausting restarts, wrapper should exit 1 (not wait passively)."""
@@ -123,13 +124,18 @@ class TestBuildConsensusWrappedCommand:
         script = cmd[2]
         assert f"MAX_RESTARTS={MAX_CONSENSUS_RESTARTS}" in script
 
-    def test_recovery_prompt_has_placeholders(self):
-        """Recovery prompt should contain restart number and BRC state placeholders."""
-        assert "{restart_number}" in _RECOVERY_PROMPT
-        assert "{max_restarts}" in _RECOVERY_PROMPT
-        assert "{brc_state}" in _RECOVERY_PROMPT
+    def test_recovery_system_prompt_has_placeholders(self):
+        """Recovery system prompt should contain restart number and BRC state placeholders."""
+        assert "{restart_number}" in _RECOVERY_SYSTEM_PROMPT
+        assert "{max_restarts}" in _RECOVERY_SYSTEM_PROMPT
+        assert "{brc_state}" in _RECOVERY_SYSTEM_PROMPT
         # {role} was removed — it is not used in the prompt
-        assert "{role}" not in _RECOVERY_PROMPT
+        assert "{role}" not in _RECOVERY_SYSTEM_PROMPT
+
+    def test_recovery_user_prompt_is_benign(self):
+        """Recovery user prompt should not contain commands or injection-like content."""
+        assert "egg-orch" not in _RECOVERY_USER_PROMPT
+        assert "restarted" not in _RECOVERY_USER_PROMPT.lower()
 
     def test_contains_confirmed_check_before_restart(self):
         """Wrapper should check if agent already reached CONFIRMED before restarting."""
@@ -157,6 +163,9 @@ def _make_mock_agent(tmpdir: str, agent_log_file: str | None = None, exit_code: 
     Non-egg_agent ``python3`` invocations (used by the wrapper for JSON
     parsing) fall through to the real ``python3``.
 
+    The mock logs all arguments so tests can verify both the user prompt
+    (last positional arg) and flags like ``--system-prompt``.
+
     Args:
         tmpdir: Directory to create the mock in (must be on PATH).
         agent_log_file: File to log calls to. If None, logs to tmpdir/claude.log.
@@ -174,7 +183,7 @@ def _make_mock_agent(tmpdir: str, agent_log_file: str | None = None, exit_code: 
             f.write(f"  exit {exit_code}\n")
         else:
             f.write(f'  echo "---CLAUDE_CALL_START---" >> {shlex.quote(agent_log)}\n')
-            f.write(f'  echo "${{@: -1}}" >> {shlex.quote(agent_log)}\n')
+            f.write(f'  echo "ARGS: $*" >> {shlex.quote(agent_log)}\n')
             f.write(f'  echo "---CLAUDE_CALL_END---" >> {shlex.quote(agent_log)}\n')
         f.write("else\n")
         f.write(f'  exec {shlex.quote(real_python)} "$@"\n')
@@ -252,7 +261,7 @@ class TestConsensusWrapperBehavior:
             result = self._run_wrapper_command(cmd, tmpdir)
 
             assert result.returncode == 1
-            assert "NOT restarting" in result.stdout
+            assert "NOT restarting" in result.stderr
 
     @staticmethod
     def _make_mock_tools_with_delayed_consensus(
@@ -311,14 +320,21 @@ class TestConsensusWrapperBehavior:
             result = self._run_wrapper_command(cmd, tmpdir)
 
             assert result.returncode == 0
-            assert "Restarting" in result.stdout
+            assert "Restarting" in result.stderr
             # Claude should have been called at least twice (initial + 1 restart)
             with open(claude_log) as f:
                 log_content = f.read()
             call_count = log_content.count("---CLAUDE_CALL_START---")
             assert call_count >= 2
-            # Second call should contain recovery prompt content
-            assert "CONSENSUS RECOVERY" in log_content
+            # Second call should contain the benign recovery user prompt
+            assert "Continue the BRC consensus protocol" in log_content
+            # Verify --system-prompt is passed on restart calls but not on the
+            # initial call (reviewer feedback #1).
+            calls = log_content.split("---CLAUDE_CALL_START---")[1:]  # skip leading empty
+            initial_call = calls[0]
+            restart_call = calls[1]
+            assert "--system-prompt" not in initial_call
+            assert "--system-prompt" in restart_call
 
     def test_nonzero_exit_propagates_exit_code(self):
         """Wrapper must propagate the original non-zero exit code."""
@@ -385,8 +401,8 @@ class TestConsensusWrapperBehavior:
             with open(claude_log) as f:
                 call_count = f.read().count("---CLAUDE_CALL---")
             assert call_count == 3
-            assert "Max restarts (2) exhausted" in result.stdout
-            assert "never reached CONFIRMED" in result.stdout
+            assert "Max restarts (2) exhausted" in result.stderr
+            assert "never reached CONFIRMED" in result.stderr
             # Should exit with failure code after exhausting restarts
             assert result.returncode == 1
 
@@ -459,15 +475,15 @@ class TestConsensusWrapperBehavior:
             # Should exit cleanly
             assert result.returncode == 0
             # Should detect agent is already CONFIRMED and skip restart
-            assert "already CONFIRMED" in result.stdout
+            assert "already CONFIRMED" in result.stderr
             # Should eventually detect consensus
-            assert "Consensus reached" in result.stdout
+            assert "Consensus reached" in result.stderr
             # Claude should only be called once (no restart)
             with open(claude_log) as f:
                 call_count = f.read().count("---CLAUDE_CALL_START---")
             assert call_count == 1
             # Should NOT show any restart messages
-            assert "Restarting" not in result.stdout
+            assert "Restarting" not in result.stderr
 
     def test_no_auto_ready_on_clean_exit(self):
         """Wrapper must NOT auto-signal READY or auto-confirm — only restarts are allowed."""

@@ -74,6 +74,10 @@ async def run_agent_async(
         model=model,
         cwd=str(cwd) if cwd else None,
         env=env or {},
+        # Read CLAUDE.md and settings.json from the filesystem so the agent
+        # picks up sandbox rules (BRC protocol, egg-orch CLI, git safety, etc.).
+        # Without this the SDK ignores all filesystem-based configuration.
+        setting_sources=["project", "user"],
     )
     if max_turns is not None:
         options.max_turns = max_turns

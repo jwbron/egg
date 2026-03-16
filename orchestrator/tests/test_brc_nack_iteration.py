@@ -529,15 +529,15 @@ class TestConsensusWrapperNackFeedback:
     """Consensus wrapper should include NACK feedback in recovery prompt."""
 
     def test_wrapper_includes_nack_feedback_placeholder(self):
-        from consensus_wrapper import _RECOVERY_PROMPT
+        from consensus_wrapper import _RECOVERY_SYSTEM_PROMPT
 
-        assert "{nack_feedback}" in _RECOVERY_PROMPT
+        assert "{nack_feedback}" in _RECOVERY_SYSTEM_PROMPT
 
     def test_wrapper_recovery_prompt_mentions_nack_handling(self):
-        from consensus_wrapper import _RECOVERY_PROMPT
+        from consensus_wrapper import _RECOVERY_SYSTEM_PROMPT
 
-        assert "NACKs" in _RECOVERY_PROMPT
-        assert "re-propose" in _RECOVERY_PROMPT
+        assert "NACKs" in _RECOVERY_SYSTEM_PROMPT
+        assert "re-propose" in _RECOVERY_SYSTEM_PROMPT
 
     def test_wrapper_script_calls_get_nack_feedback(self):
         from consensus_wrapper import build_consensus_wrapped_command
