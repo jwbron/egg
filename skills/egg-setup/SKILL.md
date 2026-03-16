@@ -1,5 +1,5 @@
 ---
-name: setup
+name: egg-setup
 description: Walk the user through initial egg setup or update an existing configuration — checks dependencies, configures secrets, repositories, and validates the installation.
 disable-model-invocation: true
 argument-hint: "[--check | --update secrets | --update repos | --update config]"
@@ -11,15 +11,15 @@ You are guiding the user through egg setup or configuration updates. Walk throug
 
 ## Argument Parsing
 
-Parse arguments after `/setup`:
+Parse arguments after `/egg-setup`:
 
 | Input | Interpretation |
 |-------|---------------|
-| `/setup` | Full setup — run all phases in order |
-| `/setup --check` | Health check only — verify dependencies and config, report status |
-| `/setup --update secrets` | Update secrets only (Phase 3) |
-| `/setup --update repos` | Update repository configuration only (Phase 4) |
-| `/setup --update config` | Update general config only (Phase 5) |
+| `/egg-setup` | Full setup — run all phases in order |
+| `/egg-setup --check` | Health check only — verify dependencies and config, report status |
+| `/egg-setup --update secrets` | Update secrets only (Phase 3) |
+| `/egg-setup --update repos` | Update repository configuration only (Phase 4) |
+| `/egg-setup --update config` | Update general config only (Phase 5) |
 
 ## Phase 1 — Dependency Check
 
@@ -76,7 +76,7 @@ If "Show install instructions", detect the platform and show appropriate command
 
 After showing instructions, ask if the user has installed the dependencies and wants to re-check.
 
-If running `/setup --check`, stop here after reporting the results. Do not proceed to other phases.
+If running `/egg-setup --check`, stop here after reporting the results. Do not proceed to other phases.
 
 ## Phase 2 — Existing Configuration Detection
 
@@ -405,10 +405,10 @@ Your egg configuration is ready. Here's what to do next:
   /sdlc -r <repo> -i <issue>   # Issue-driven pipeline
 
 ### Update Configuration Later
-  /setup --update secrets   # Update API keys and tokens
-  /setup --update repos     # Add or modify repositories
-  /setup --update config    # Update general settings
-  /setup --check            # Verify your setup is healthy
+  /egg-setup --update secrets   # Update API keys and tokens
+  /egg-setup --update repos     # Add or modify repositories
+  /egg-setup --update config    # Update general settings
+  /egg-setup --check            # Verify your setup is healthy
 ```
 
 ## Critical Rules
