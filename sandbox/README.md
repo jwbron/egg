@@ -192,6 +192,8 @@ Per-repo `build_commands` in `repositories.yaml` allow project-specific dependen
 2. The Dockerfile `COPY repo-deps/` layer picks up these files — changes to watch files (e.g., `package-lock.json`) invalidate the Docker cache for this layer
 3. `docker-setup.py` reads `build_commands` and `extra_packages` from `manifest.json` in `repo-deps/` (since `repositories.yaml` is unavailable in the build context) and executes each repo's commands in its watch files directory
 4. `compute_build_hash()` includes watch file contents, so `egg` automatically detects when a rebuild is needed
+5. If `persist_dirs` is configured, `persist_build_dirs()` copies those directories (e.g., `node_modules`) from the build context to `/opt/prebuilt-deps/<repo>/` in the image
+6. At container startup, `restore_prebuilt_deps()` in `entrypoint.py` restores persisted directories into the mounted repo, making them available without network access
 
 **Config propagation:** During Docker builds, `repositories.yaml` is not available in the build context. Both `build_commands` and `extra_packages` are propagated via a `manifest.json` file that `create_dockerfile()` writes into `repo-deps/`. The `docker-setup.py` script reads this manifest as a fallback when `repositories.yaml` is not found.
 
