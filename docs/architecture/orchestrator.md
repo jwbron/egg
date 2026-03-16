@@ -380,6 +380,10 @@ Fixed IPs:
 - `GET /health` - MCP server health check
 - `POST /mcp` - Streamable HTTP transport endpoint (MCP protocol via JSON-RPC)
 
+Available MCP tools (orchestrator-backed): `check_health`, `get_status`, `get_pipeline_snapshot`, `get_phase`, `get_consensus_status`, `list_containers`, `get_container_logs`, `send_message`, `get_decisions`, `provide_input`, `get_messages`, `list_tasks`, `cancel_task`
+
+Available MCP tools (gateway-backed, requires `gateway_url`): `list_checkpoints`, `search_checkpoints`, `get_contract`
+
 **CLI Access:**
 The `egg-orch` CLI (`sandbox/bin/egg-orch`) provides command-line access to all orchestrator API endpoints. Available in sandbox containers for agent use, or can be run from the host with appropriate environment variables. See the [README CLI Reference](../../README.md#egg-orch-cli) for command details.
 
