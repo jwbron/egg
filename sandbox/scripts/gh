@@ -1110,15 +1110,28 @@ execute_via_gateway() {
     local repo
     repo=$(get_repo)
 
-    # Resolve --body-file/-F to --body before sending to gateway
+    # Resolve --body-file to --body before sending to gateway
     # (gateway runs on a different filesystem, so file paths won't resolve there)
+    # NOTE: Only match --body-file (long form), NOT -F. In gh api, -F means
+    # --field (typed parameter), not --body-file. Since execute_via_gateway is the
+    # catch-all handler, -F here would misinterpret field values as file paths.
     local resolved_args=()
     local i=0
     while [ $i -lt ${#ARGS[@]} ]; do
         case "${ARGS[$i]}" in
-            --body-file|-F)
+            --body-file)
                 ((i++))
                 local bf="${ARGS[$i]}"
+                if [ ! -f "$bf" ]; then
+                    echo "ERROR: File not found: $bf" >&2
+                    return 1
+                fi
+                local bf_content
+                bf_content=$(cat "$bf") || { echo "ERROR: Failed to read $bf" >&2; return 1; }
+                resolved_args+=("--body" "$bf_content")
+                ;;
+            --body-file=*)
+                local bf="${ARGS[$i]#--body-file=}"
                 if [ ! -f "$bf" ]; then
                     echo "ERROR: File not found: $bf" >&2
                     return 1

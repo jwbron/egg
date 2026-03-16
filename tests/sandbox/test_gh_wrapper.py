@@ -2034,16 +2034,27 @@ class TestExecuteViaGatewayBodyFileResolution:
     --body-file <path> to --body <content> before sending to the gateway.
     """
 
-    # Bash snippet that replicates the --body-file resolution logic
+    # Bash snippet that replicates the --body-file resolution logic.
+    # Only matches --body-file (long form), NOT -F, because -F means --field
+    # in gh api and execute_via_gateway is the catch-all handler.
     BODY_FILE_RESOLVER = textwrap.dedent("""\
         ARGS=("$@")
         resolved_args=()
         i=0
         while [ $i -lt ${#ARGS[@]} ]; do
             case "${ARGS[$i]}" in
-                --body-file|-F)
+                --body-file)
                     ((i++))
                     bf="${ARGS[$i]}"
+                    if [ ! -f "$bf" ]; then
+                        echo "ERROR: File not found: $bf" >&2
+                        exit 1
+                    fi
+                    bf_content=$(cat "$bf") || { echo "ERROR: Failed to read $bf" >&2; exit 1; }
+                    resolved_args+=("--body" "$bf_content")
+                    ;;
+                --body-file=*)
+                    bf="${ARGS[$i]#--body-file=}"
                     if [ ! -f "$bf" ]; then
                         echo "ERROR: File not found: $bf" >&2
                         exit 1
@@ -2098,16 +2109,27 @@ print(json.dumps(sys.argv[1:]))
         finally:
             os.unlink(tmpfile)
 
-    def test_short_flag_resolved(self):
-        """-F should be resolved the same as --body-file."""
-        content = "Short flag content"
+    def test_short_flag_F_passes_through(self):
+        """-F should NOT be resolved as --body-file in execute_via_gateway.
+
+        In gh api, -F means --field (typed parameter), not --body-file.
+        Since execute_via_gateway is the catch-all, -F must pass through unchanged.
+        """
+        resolved = self._resolve(["api", "repos/owner/repo/issues", "-F", "per_page=100"])
+        assert resolved == ["api", "repos/owner/repo/issues", "-F", "per_page=100"]
+
+    def test_body_file_equals_syntax(self):
+        """--body-file=<path> (equals syntax) should be resolved."""
+        content = "Equals syntax content"
         with tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False) as f:
             f.write(content)
             tmpfile = f.name
 
         try:
-            resolved = self._resolve(["pr", "comment", "42", "-F", tmpfile])
-            assert "-F" not in resolved
+            resolved = self._resolve(
+                ["issue", "create", "--title", "test", f"--body-file={tmpfile}"]
+            )
+            assert not any(a.startswith("--body-file") for a in resolved)
             assert "--body" in resolved
             body_idx = resolved.index("--body")
             assert resolved[body_idx + 1] == content
