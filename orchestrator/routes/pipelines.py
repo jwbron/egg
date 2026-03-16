@@ -5976,15 +5976,6 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
             with get_pipeline_state_lock(pipeline_id):
                 pipeline = store.load_pipeline(pipeline_id)
                 pipeline.current_phase = next_phase
-                # Mark plan phase as completed-but-skipped.  We use
-                # PipelineStatus.COMPLETE (no SKIPPED status exists) and
-                # record a note in the error field so dashboards/audits can
-                # distinguish a skipped plan from one that actually ran.
-                if skip_plan:
-                    plan_execution = pipeline.get_phase_execution(PipelinePhase.PLAN)
-                    plan_execution.status = PipelineStatus.COMPLETE
-                    plan_execution.completed_at = datetime.utcnow()
-                    plan_execution.error = "skipped: short-circuit"
                 store.save_pipeline(pipeline, force_commit=(pipeline.issue_number is None))
 
             logger.info(
