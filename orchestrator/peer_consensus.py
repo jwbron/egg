@@ -353,7 +353,10 @@ class PeerConsensusTracker:
             # Check if agent can confirm
             if self.graph.is_producer(agent_role):
                 if not self.matrix.is_fully_acked(agent_role):
-                    raise ValueError(f"Producer {agent_role} cannot confirm: not fully ACKed")
+                    return {
+                        "status": "pending_acks",
+                        "message": f"Producer {agent_role} waiting for reviewer re-ACKs",
+                    }
                 self._producer_phases[agent_role] = ConsensusPhase.CONFIRMED
 
             if self.graph.is_reviewer(agent_role):

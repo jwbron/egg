@@ -931,8 +931,9 @@ class TestWithdrawReProposalDeadlock:
         t.handle_propose("refiner", {"summary": "v3", "artifacts": ["design.md"]})
 
         # Refiner should NOT be able to confirm (not fully ACKed on v3)
-        with pytest.raises(ValueError, match="not fully ACKed"):
-            t.handle_confirmed("refiner")
+        # Returns pending_acks instead of raising ValueError (issue #1178)
+        result = t.handle_confirmed("refiner")
+        assert result["status"] == "pending_acks"
 
         # After both reviewers re-ACK, refiner can confirm
         t.handle_ack("reviewer_agent_design", "refiner", {"artifact_references": ["design.md"]})
@@ -985,3 +986,71 @@ class TestWithdrawReProposalDeadlock:
         t.handle_confirmed("reviewer_agent_design")
         result = t.handle_confirmed("reviewer_refine")
         assert result["consensus_reached"] is True
+
+
+class TestPrematureConfirmReturnsPending:
+    """Test that handle_confirmed returns pending_acks instead of raising
+    when a producer tries to confirm before being fully ACKed (issue #1178)."""
+
+    def test_confirm_before_acked_returns_pending(self, tracker):
+        """Producer confirming without full ACKs gets pending_acks, not ValueError."""
+        # Coder proposes
+        tracker.handle_propose(
+            "coder",
+            {
+                "summary": "Implemented feature",
+                "artifacts": ["src/feature.py"],
+            },
+        )
+
+        # Only reviewer_code ACKs, but checker hasn't ACKed yet
+        tracker.handle_ack(
+            "reviewer_code",
+            "coder",
+            {
+                "attestation": {
+                    "files_reviewed": ["src/feature.py"],
+                    "issues_found": 0,
+                    "issues_resolved": 0,
+                    "risk_considered": "None",
+                },
+                "artifact_references": ["src/feature.py"],
+            },
+        )
+
+        # Coder tries to confirm before checker ACKs — should return pending, not raise
+        result = tracker.handle_confirmed("coder")
+        assert result["status"] == "pending_acks"
+        assert "waiting" in result["message"].lower()
+
+        # Coder should NOT be in confirmed set
+        assert "coder" not in tracker._confirmed
+
+    def test_confirm_after_re_propose_invalidates_stale_acks(self, tracker):
+        """After re-proposal un-confirms stale reviewers, premature confirm returns pending."""
+        # Full happy path first: propose, ACK, but then re-propose
+        tracker.handle_propose(
+            "coder",
+            {"summary": "v1", "artifacts": ["src/auth.py"]},
+        )
+        tracker.handle_ack(
+            "reviewer_code",
+            "coder",
+            {"artifact_references": ["src/auth.py"]},
+        )
+        tracker.handle_ack(
+            "checker",
+            "coder",
+            {"artifact_references": ["src/auth.py"]},
+        )
+
+        # Coder re-proposes (invalidating stale ACKs)
+        tracker.handle_re_propose(
+            "coder",
+            {"summary": "v2", "artifacts": ["src/auth.py"]},
+            changed_artifacts=["src/auth.py"],
+        )
+
+        # Now coder tries to confirm — should get pending_acks
+        result = tracker.handle_confirmed("coder")
+        assert result["status"] == "pending_acks"
