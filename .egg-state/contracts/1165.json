@@ -9,43 +9,7 @@
   "current_phase": "refine",
   "acceptance_criteria": [],
   "phases": [],
-  "decisions": [
-    {
-      "id": "decision-1",
-      "question": "How should this be split into PRs?",
-      "options": [
-        "Option A: Single large PR (~5000-6000 lines, atomic change)",
-        "Option B: 3-4 smaller PRs following dependency order",
-        "Option C: Two PRs \u2014 prep refactor + main removal (recommended)"
-      ],
-      "phase": "refine",
-      "status": "pending",
-      "answer": null
-    },
-    {
-      "id": "decision-2",
-      "question": "What should happen to open PR #1171 (docs: add integrator to concurrent implement phase roles)?",
-      "options": [
-        "Close #1171 \u2014 integrator is being removed anyway",
-        "Merge #1171 first, then remove in this issue",
-        "Ignore \u2014 this issue will supersede it"
-      ],
-      "phase": "refine",
-      "status": "pending",
-      "answer": null
-    },
-    {
-      "id": "decision-3",
-      "question": "After removal, should concurrent_execution and concurrent_phases config flags also be removed (since BRC is now the only mode)?",
-      "options": [
-        "Yes, remove them too \u2014 they are now always-on",
-        "No, keep them for now \u2014 useful as kill switches"
-      ],
-      "phase": "refine",
-      "status": "pending",
-      "answer": null
-    }
-  ],
+  "decisions": [],
   "workflow_owner": null,
   "audit_log": [],
   "refine_review_cycles": 0,
@@ -53,82 +17,8 @@
   "plan_review_cycles": 0,
   "plan_review_feedback": "",
   "pr": null,
-  "feedback": {
-    "questions": [
-      "Are there any in-flight pipelines using Tier 3 or multi-agent wave execution that need to complete before this lands?",
-      "The issue says no backward compatibility for old pipeline state. Should we add a one-time migration script to clean up old .egg-state/pipelines/*.json files, or is intentional failure on stale state acceptable?"
-    ],
-    "phase": "refine",
-    "status": "pending",
-    "answers": []
-  },
+  "feedback": null,
   "phase_configs": null,
-  "agent_executions": [
-    {
-      "role": "coder",
-      "phase_id": null,
-      "status": "pending",
-      "started_at": null,
-      "completed_at": null,
-      "commit": null,
-      "checkpoint_id": null,
-      "outputs": {},
-      "error": null,
-      "retry_count": 0,
-      "conflicts": []
-    },
-    {
-      "role": "tester",
-      "phase_id": null,
-      "status": "pending",
-      "started_at": null,
-      "completed_at": null,
-      "commit": null,
-      "checkpoint_id": null,
-      "outputs": {},
-      "error": null,
-      "retry_count": 0,
-      "conflicts": []
-    },
-    {
-      "role": "documenter",
-      "phase_id": null,
-      "status": "pending",
-      "started_at": null,
-      "completed_at": null,
-      "commit": null,
-      "checkpoint_id": null,
-      "outputs": {},
-      "error": null,
-      "retry_count": 0,
-      "conflicts": []
-    },
-    {
-      "role": "integrator",
-      "phase_id": null,
-      "status": "pending",
-      "started_at": null,
-      "completed_at": null,
-      "commit": null,
-      "checkpoint_id": null,
-      "outputs": {},
-      "error": null,
-      "retry_count": 0,
-      "conflicts": []
-    },
-    {
-      "role": "reviewer_agent_design",
-      "phase_id": null,
-      "status": "failed",
-      "started_at": null,
-      "completed_at": "2026-03-16T00:23:23.685450Z",
-      "commit": null,
-      "checkpoint_id": null,
-      "outputs": {},
-      "error": "reviewer_agent_design blocked: refiner has not produced 1165-analysis.md draft after multiple review cycles. Consensus agents dict is empty \u2014 refiner may have failed.",
-      "retry_count": 0,
-      "conflicts": []
-    }
-  ],
+  "agent_executions": [],
   "multi_agent_config": null
 }
