@@ -25,32 +25,37 @@ MAX_CONSENSUS_RESTARTS = 2
 # 10 * 30 = 300 seconds (5 minutes) for other agents to finish.
 MAX_READY_POLL_CYCLES = 10
 
-# Recovery prompt given to the agent when it is restarted by the wrapper.
+# System prompt injected on restart so the agent treats recovery instructions as
+# trusted operator context (not user input that might be flagged as injection).
 # Placeholders: {restart_number}, {max_restarts}, {brc_state}, {nack_feedback}
-_RECOVERY_PROMPT = (
-    "## BRC CONSENSUS RECOVERY — You were restarted by the consensus wrapper\n\n"
-    "You exited your previous session without completing the BRC consensus protocol. "
+_RECOVERY_SYSTEM_PROMPT = (
+    "# BRC Consensus Recovery\n\n"
+    "This agent was restarted by the orchestrator's consensus wrapper because it "
+    "exited without completing the BRC (Broadcast-Review-Converge) consensus protocol. "
     "This is restart {restart_number} of {max_restarts}.\n\n"
-    "**What happened**: Your agent process exited cleanly, but the Broadcast-Review-"
-    "Converge (BRC) protocol requires all agents to reach CONFIRMED state before "
-    "the orchestrator stops your container.\n\n"
-    "**Your BRC state**: {brc_state}\n\n"
+    "## Current BRC state\n\n"
+    "{brc_state}\n\n"
     "{nack_feedback}"
-    "**What you must do now**:\n"
+    "## Required actions\n\n"
     "1. Check consensus status: `egg-orch consensus status`\n"
     "2. Poll for messages: `egg-orch message poll --wait 30`\n"
     "3. Based on your role type:\n"
-    "   - **Producer**: If you received NACKs, you MUST address the reviewer feedback "
-    "above, revise your work, and re-propose (`egg-orch consensus propose`). "
+    "   - **Producer**: If you received NACKs, address the reviewer feedback, "
+    "revise your work, and re-propose (`egg-orch consensus propose`). "
     "If WORKING, complete work and propose. "
     "If PROPOSED, check for ACKs/NACKs and respond. If all ACKed, confirm.\n"
-    "   - **Reviewer**: Check for proposals from assigned producers. Review artifacts in git, "
-    "then ACK (`egg-orch consensus ack <role>`) or NACK (`egg-orch consensus nack <role>`). "
-    "Once all reviewed, confirm.\n"
+    "   - **Reviewer**: Check for proposals from assigned producers. Review "
+    "artifacts in git, then ACK or NACK. Once all reviewed, confirm.\n"
     "4. **Stay alive** — keep polling with `egg-orch message poll --wait 30`. "
     "The orchestrator will send SIGTERM when consensus is reached.\n\n"
-    "**If you exit again without reaching CONFIRMED, you will be restarted again "
-    "(up to the maximum).**\n"
+    "If the agent exits again without reaching CONFIRMED, it will be restarted "
+    "(up to the maximum).\n"
+)
+
+# Simple user prompt for recovery — the actual instructions are in the system prompt.
+_RECOVERY_USER_PROMPT = (
+    "Continue the BRC consensus protocol. Check your current state and "
+    "take the appropriate next steps for your role."
 )
 
 # Shell script that wraps the agent invocation. After the agent exits:
@@ -66,9 +71,19 @@ set -uo pipefail
 MAX_RESTARTS={max_restarts}
 RESTART_COUNT=0
 
+# Log wrapper messages to stderr so they never leak into agent SDK context.
+cw_log() {{
+    echo "[consensus-wrapper] $*" >&2
+}}
+
 run_agent() {{
     local prompt="$1"
-    {agent_command_prefix} "$prompt"
+    local system_prompt="${{2:-}}"
+    if [ -n "$system_prompt" ]; then
+        {agent_command_prefix} --system-prompt "$system_prompt" "$prompt"
+    else
+        {agent_command_prefix} "$prompt"
+    fi
     return $?
 }}
 
@@ -119,7 +134,7 @@ fi
 
 # Non-zero exit means the agent crashed — do not restart.
 if [ "$AGENT_EXIT" -ne 0 ]; then
-    echo "[consensus-wrapper] Agent failed (code $AGENT_EXIT). NOT restarting."
+    cw_log "Agent failed (code $AGENT_EXIT). NOT restarting."
     exit $AGENT_EXIT
 fi
 
@@ -132,7 +147,7 @@ IS_COMPLETE=$(echo "$RESPONSE" | python3 -c \
     "import sys,json; d=json.load(sys.stdin); print(d.get('data',{{}}).get('concurrent',{{}}).get('consensus',{{}}).get('is_complete',False))" \
     2>/dev/null || echo "False")
 if [ "$IS_COMPLETE" = "True" ]; then
-    echo "[consensus-wrapper] Consensus already reached. Exiting."
+    cw_log "Consensus already reached. Exiting."
     exit 0
 fi
 
@@ -141,7 +156,7 @@ AGENT_ROLE="${{EGG_AGENT_ROLE:-}}"
 if [ -n "$AGENT_ROLE" ]; then
     AGENT_CONFIRMED=$(get_agent_confirmed "$RESPONSE" "$AGENT_ROLE")
     if [ "$AGENT_CONFIRMED" = "True" ]; then
-        echo "[consensus-wrapper] Agent already CONFIRMED in BRC protocol. Waiting for consensus..."
+        cw_log "Agent already CONFIRMED in BRC protocol. Waiting for consensus..."
         POLL_INTERVAL="${{EGG_MESSAGE_POLL_INTERVAL:-30}}"
         WAIT_COUNT=0
         while [ "$WAIT_COUNT" -lt "$MAX_READY_POLLS" ]; do
@@ -152,11 +167,11 @@ if [ -n "$AGENT_ROLE" ]; then
                 "import sys,json; d=json.load(sys.stdin); print(d.get('data',{{}}).get('concurrent',{{}}).get('consensus',{{}}).get('is_complete',False))" \
                 2>/dev/null || echo "False")
             if [ "$IS_COMPLETE" = "True" ]; then
-                echo "[consensus-wrapper] Consensus reached. Exiting."
+                cw_log "Consensus reached. Exiting."
                 exit 0
             fi
         done
-        echo "[consensus-wrapper] Agent was CONFIRMED but consensus not reached. Exiting cleanly."
+        cw_log "Agent was CONFIRMED but consensus not reached. Exiting cleanly."
         exit 0
     fi
 fi
@@ -164,9 +179,9 @@ fi
 # --- Restart loop for clean exits without BRC consensus ---
 while [ "$RESTART_COUNT" -lt "$MAX_RESTARTS" ]; do
     RESTART_COUNT=$((RESTART_COUNT + 1))
-    echo "[consensus-wrapper] Agent exited without BRC consensus. Restarting ($RESTART_COUNT/$MAX_RESTARTS)..."
+    cw_log "Agent exited without BRC consensus. Restarting ($RESTART_COUNT/$MAX_RESTARTS)..."
 
-    # Get current BRC state and NACK feedback for the recovery prompt
+    # Get current BRC state and NACK feedback for the recovery system prompt
     RESPONSE=$(egg-orch pipeline status --json 2>/dev/null || echo "{{}}")
     BRC_STATE="unknown"
     NACK_FEEDBACK=""
@@ -175,27 +190,29 @@ while [ "$RESTART_COUNT" -lt "$MAX_RESTARTS" ]; do
         NACK_FEEDBACK=$(get_nack_feedback "$RESPONSE" "$AGENT_ROLE")
     fi
 
-    # Build recovery prompt with restart context
-    RECOVERY_PROMPT=$(cat <<'RECOVERY_EOF'
-{recovery_prompt_template}
+    # Build recovery system prompt with restart context.
+    # The system prompt is a trusted channel — the Agent SDK model will not
+    # flag it as prompt injection (unlike recovery text in the user prompt).
+    RECOVERY_SYS=$(cat <<'RECOVERY_EOF'
+{recovery_system_prompt_template}
 RECOVERY_EOF
 )
     # Use Python for safe template substitution (avoids sed/awk special character
     # issues with backslashes, ampersands, and other chars in NACK feedback text)
-    RECOVERY_PROMPT=$(_CW_RESTART="$RESTART_COUNT" _CW_MAX="$MAX_RESTARTS" \
+    RECOVERY_SYS=$(_CW_RESTART="$RESTART_COUNT" _CW_MAX="$MAX_RESTARTS" \
         _CW_BRC="$BRC_STATE" _CW_NACK="$NACK_FEEDBACK" \
         python3 -c 'import sys, os
 template = sys.stdin.read()
 for old, key in [("{{restart_number}}", "_CW_RESTART"), ("{{max_restarts}}", "_CW_MAX"),
                  ("{{brc_state}}", "_CW_BRC"), ("{{nack_feedback}}", "_CW_NACK")]:
     template = template.replace(old, os.environ[key])
-sys.stdout.write(template)' <<< "$RECOVERY_PROMPT")
+sys.stdout.write(template)' <<< "$RECOVERY_SYS")
 
-    run_agent "$RECOVERY_PROMPT"
+    run_agent {recovery_user_prompt} "$RECOVERY_SYS"
     AGENT_EXIT=$?
 
     if [ "$AGENT_EXIT" -ne 0 ]; then
-        echo "[consensus-wrapper] Agent failed on restart $RESTART_COUNT (code $AGENT_EXIT). Stopping."
+        cw_log "Agent failed on restart $RESTART_COUNT (code $AGENT_EXIT). Stopping."
         exit $AGENT_EXIT
     fi
 
@@ -206,13 +223,13 @@ sys.stdout.write(template)' <<< "$RECOVERY_PROMPT")
         2>/dev/null || echo "False")
 
     if [ "$IS_COMPLETE" = "True" ]; then
-        echo "[consensus-wrapper] Consensus reached after restart $RESTART_COUNT. Exiting."
+        cw_log "Consensus reached after restart $RESTART_COUNT. Exiting."
         exit 0
     fi
 done
 
 # --- Max restarts exhausted: shut down with failure ---
-echo "[consensus-wrapper] Max restarts ($MAX_RESTARTS) exhausted. Agent never reached CONFIRMED. Exiting with failure."
+cw_log "Max restarts ($MAX_RESTARTS) exhausted. Agent never reached CONFIRMED. Exiting with failure."
 exit 1
 """
 
@@ -256,12 +273,15 @@ def build_consensus_wrapped_command(
     agent_command_prefix = " ".join(shlex.quote(p) for p in agent_prefix_parts)
     initial_prompt = shlex.quote(prompt_text)
 
+    recovery_user_prompt = shlex.quote(_RECOVERY_USER_PROMPT)
+
     script = _CONSENSUS_WRAPPER_TEMPLATE.format(
         agent_command_prefix=agent_command_prefix,
         initial_prompt=initial_prompt,
         max_restarts=max_restarts,
         max_ready_polls=max_ready_polls,
-        recovery_prompt_template=_RECOVERY_PROMPT,
+        recovery_system_prompt_template=_RECOVERY_SYSTEM_PROMPT,
+        recovery_user_prompt=recovery_user_prompt,
     )
 
     return ["bash", "-c", script]
