@@ -2,11 +2,13 @@
   "issue": 1165,
   "phase": "plan",
   "agent": "architect",
-  "revision": 1,
+  "revision": 2,
 
   "title": "Architecture analysis: Remove per-phase/task breakdown delegation from implement phase",
 
-  "summary": "Collapse all conditional execution paths in the implement phase to always use concurrent BRC execution. Remove Tier 3 phase-level dispatch, multi-agent wave execution, single-agent fallback, short-circuit mode, complexity tiers, integrator role, and all associated plumbing. ~5000-6000 lines removed across ~25-30 files. Dependency on #1164 (coordinator removal) is satisfied — PR #1169 merged. Recommended approach: two PRs (prep refactor + main removal).",
+  "summary": "Collapse all conditional execution paths in the implement phase to always use concurrent BRC execution. Remove Tier 3 phase-level dispatch, multi-agent wave execution, single-agent fallback, short-circuit mode, complexity tiers, integrator role, and all associated plumbing. ~5000-6000 lines removed across ~25-30 files. Dependency on #1164 (coordinator removal) is satisfied — PR #1169 merged. Recommended approach: single PR with four ordered phases. Revision 2 fixes the file path error flagged in plan review, addresses INTEGRATOR enum values in checkpoint/types modules, and adds missing test files to the update list.",
+
+  "revision_notes": "Revision 2 addresses plan review feedback (verdict: needs_revision). Three changes: (1) Fixed TASK-2-3/2-4/2-5 file path from non-existent orchestrator/orchestrator.py to actual orchestrator/routes/pipelines.py. (2) Added explicit handling for INTEGRATOR enum values in shared/egg_orchestrator/types.py, shared/egg_contracts/checkpoints.py, shared/egg_contracts/models.py (AgentRole enum, separate from INTEGRATOR_ROLE), gateway/checkpoint_handler.py, and orchestrator/models.py. (3) Added 9 missing test files to the update scope in TASK-4-2.",
 
   "problem_statement": {
     "description": "The implement phase has accumulated multiple conditional execution paths: Tier 3 phase-level dispatch (_run_tier3_implement), multi-agent wave execution (_run_multi_agent_phase), single-agent fallback, short-circuit mode, and complexity tiers. The decision tree in orchestrator/routes/pipelines.py (line ~6446) selects between these paths based on multi_agent, complexity_tier, and concurrent_execution flags. This branching logic is hard to reason about, test, and maintain, and different paths produce inconsistent behavior.",
@@ -100,7 +102,7 @@
         {"id": "A4", "target": "PipelineDispatcher, create_dispatcher (entire file after signals.py refactor)", "file": "orchestrator/dispatch.py"},
         {"id": "A5", "target": "Single-agent fallback path", "file": "orchestrator/routes/pipelines.py", "lines": "6598-6665"},
         {"id": "A6", "target": "Decision tree collapse to always call _run_concurrent_phase()", "file": "orchestrator/routes/pipelines.py", "lines": "6440-6598"},
-        {"id": "A7", "target": "PhaseDependencyGraph", "file": "shared/egg_contracts/dependency_graph.py", "lines": "364-539"},
+        {"id": "A7", "target": "PhaseDependencyGraph and PhaseWave classes", "file": "shared/egg_contracts/dependency_graph.py", "lines": "364-539"},
         {"id": "A8", "target": "Post-tier3 special handling (skip-checker guards, reviewer exclusions)", "file": "orchestrator/routes/pipelines.py", "lines": "~6697-6999"},
         {"id": "A9", "target": "INTEGRATOR from ROLE_MAP/REVERSE_ROLE_MAP", "file": "orchestrator/handoffs.py", "lines": "46-51"}
       ]
@@ -125,13 +127,18 @@
       ]
     },
     "D_integrator_role": {
-      "description": "Integrator role definition, gateway patterns, sandbox artifacts, docs",
+      "description": "Integrator role definition, enum values, gateway patterns, sandbox artifacts, docs",
       "items": [
         {"id": "D1", "target": "INTEGRATOR_ROLE definition", "file": "shared/egg_contracts/agent_roles.py", "lines": "292-321, 644"},
         {"id": "D2", "target": "INTEGRATOR in REVIEWER_CODE and REVIEWER_CONTRACT dependencies", "file": "shared/egg_contracts/agent_roles.py", "lines": "483, 515"},
         {"id": "D3", "target": "INTEGRATOR_PATTERNS, INTEGRATOR_TIER3_PATTERNS", "file": "gateway/agent_restrictions.py", "lines": "298-359"},
         {"id": "D4", "target": "sandbox/.claude/rules/integrator.md, sandbox/.claude/commands/integrator-mode.md"},
-        {"id": "D5", "target": "docs/reference/integrator-agent.md"}
+        {"id": "D5", "target": "docs/reference/integrator-agent.md"},
+        {"id": "D6", "target": "INTEGRATOR enum value in orchestrator/models.py:64 (AgentRole enum)", "file": "orchestrator/models.py", "note": "Remove — no agents will have this role after removal"},
+        {"id": "D7", "target": "INTEGRATOR enum value in shared/egg_contracts/models.py:323 (AgentRole enum)", "file": "shared/egg_contracts/models.py", "note": "Remove — dead role"},
+        {"id": "D8", "target": "INTEGRATOR enum value in shared/egg_orchestrator/types.py:105 (AgentRole enum)", "file": "shared/egg_orchestrator/types.py", "note": "Remove — dead role"},
+        {"id": "D9", "target": "INTEGRATOR enum value in shared/egg_contracts/checkpoints.py:161 (AgentType enum)", "file": "shared/egg_contracts/checkpoints.py", "note": "KEEP for backward compatibility — existing checkpoint data references this value. Removing would break deserialization of historical checkpoints."},
+        {"id": "D10", "target": "INTEGRATOR mapping in gateway/checkpoint_handler.py:223", "file": "gateway/checkpoint_handler.py", "note": "KEEP — needed to correctly process checkpoints from historical integrator sessions"}
       ]
     },
     "E_multi_agent_config": {
@@ -195,100 +202,102 @@
         "orchestrator/tests/test_dag_visualizer_review_fixes.py",
         "gateway/tests/test_phase_filter_tier3.py",
         "orchestrator/tests/test_start_pipeline.py",
-        "orchestrator/tests/test_pipeline_prompts.py"
+        "orchestrator/tests/test_pipeline_prompts.py",
+        "orchestrator/tests/test_models.py",
+        "gateway/tests/test_agent_restrictions_gh.py",
+        "gateway/tests/test_agent_restrictions_patterns.py",
+        "tests/shared/test_egg_orchestrator.py",
+        "tests/shared/egg_contracts/test_checkpoints.py",
+        "shared/egg_contracts/tests/test_orchestrator.py",
+        "orchestrator/tests/test_concurrent_integration.py",
+        "gateway/tests/test_checkpoint_handler.py",
+        "tests/gateway/test_agent_restrictions.py"
       ]
     }
   },
 
-  "recommended_approach": {
-    "strategy": "Two PRs — prep refactor followed by main removal (Option C from analysis)",
-    "rationale": "The prep PR unblocks the main removal by eliminating cross-module dependencies (signals.py → dispatch.py, pipelines.py → multi_agent.py). The main PR is then mostly deletions and simplifications which are straightforward to review even at ~5000 lines. This matches the analysis recommendation and the migration order from the issue.",
+  "integrator_enum_decision": {
+    "description": "The plan review noted that INTEGRATOR enum values appear in 5 modules beyond agent_roles.py. This section clarifies the removal/retention decision for each.",
+    "remove": [
+      {
+        "file": "orchestrator/models.py",
+        "line": 64,
+        "class": "AgentRole",
+        "reason": "Orchestrator AgentRole enum — no agents will be spawned with this role. Remove to prevent dead enum value from confusing future maintainers."
+      },
+      {
+        "file": "shared/egg_contracts/models.py",
+        "line": 323,
+        "class": "AgentRole",
+        "reason": "Contract AgentRole enum — used for multi-agent config roles_enabled list. MultiAgentConfig itself is being removed (E1). Remove."
+      },
+      {
+        "file": "shared/egg_orchestrator/types.py",
+        "line": 105,
+        "class": "AgentRole",
+        "reason": "Orchestrator types AgentRole enum — used by sandbox egg-orch CLI and message bus. No agents will have this role. Remove."
+      },
+      {
+        "file": "shared/egg_contracts/agent_roles.py",
+        "line": 44,
+        "class": "AgentRole",
+        "reason": "Agent role definitions AgentRole enum — the primary definition. Being removed as part of INTEGRATOR_ROLE removal."
+      }
+    ],
+    "keep": [
+      {
+        "file": "shared/egg_contracts/checkpoints.py",
+        "line": 161,
+        "class": "AgentType",
+        "reason": "Checkpoint AgentType enum is used to classify stored checkpoint data. Historical integrator checkpoints exist in the egg/checkpoints/v2 branch. Removing would break deserialization of these records. Keep the enum value but it will not be assigned to new agents."
+      },
+      {
+        "file": "gateway/checkpoint_handler.py",
+        "line": 223,
+        "mapping": "integrator -> AgentType.INTEGRATOR",
+        "reason": "This mapping resolves orchestrator role names to checkpoint AgentType for checkpoint storage. Since AgentType.INTEGRATOR is retained for backward compat, this mapping must also be retained to correctly handle any remaining checkpoint writes or reads."
+      }
+    ]
+  },
 
-    "pr1_prep_refactor": {
-      "title": "Prep: relocate is_concurrent_execution and inline dispatch calls in signals.py",
-      "scope": "Behavioral no-op — pure refactoring",
-      "tasks": [
-        {
-          "id": "T1",
-          "description": "Move is_concurrent_execution() from orchestrator/multi_agent.py to orchestrator/concurrent_executor.py. Update all call sites (pipelines.py:6461, pipelines.py:951).",
-          "risk": "Low — function relocation only"
-        },
-        {
-          "id": "T2",
-          "description": "Refactor orchestrator/routes/signals.py to replace create_dispatcher and map_agent_role_to_contract_role imports with direct egg_contracts.Orchestrator calls. Inline the dispatcher logic for completion/progress recording (lines 339-345, 489-494).",
-          "risk": "Medium — signal handling is critical path. Must preserve exact behavior."
-        }
-      ],
-      "validation": "All existing tests pass. No behavior change."
+  "recommended_approach": {
+    "strategy": "Single PR with four ordered implementation phases",
+    "rationale": "Pipeline constraint requires a single PR. The work is organized into four internal phases: (1) prerequisite relocations and refactors, (2) core orchestrator removal, (3) configuration, gateway, and role cleanup, and (4) documentation and test cleanup. This matches the analysis recommendation's migration order.",
+
+    "critical_file_path_correction": {
+      "description": "TASK-2-3, TASK-2-4, and TASK-2-5 in the plan reference orchestrator/orchestrator.py which DOES NOT EXIST. The actual file is orchestrator/routes/pipelines.py (8004 lines). All functions listed in these tasks (_run_tier3_implement, _build_phase_scoped_prompt, _run_multi_agent_phase, _check_short_circuit_signal, _check_high_complexity_signal, single-agent fallback, decision tree) are in orchestrator/routes/pipelines.py.",
+      "wrong_path": "orchestrator/orchestrator.py",
+      "correct_path": "orchestrator/routes/pipelines.py",
+      "affected_tasks": ["TASK-2-3", "TASK-2-4", "TASK-2-5"]
     },
 
-    "pr2_main_removal": {
-      "title": "Remove conditional dispatch, integrator, short-circuit, complexity tiers, multi-agent config",
-      "scope": "~5000-6000 lines removed across ~25-30 files",
-      "migration_order": [
-        {
-          "step": 1,
-          "description": "Remove integrator from reviewer dependency lists in agent_roles.py (lines 483, 515) and role maps in handoffs.py (lines 46-51)",
-          "rationale": "Unblocks integrator role deletion without breaking reviewer role definitions"
-        },
-        {
-          "step": 2,
-          "description": "Remove orchestrator core: _run_tier3_implement, _run_multi_agent_phase, single-agent fallback. Collapse decision tree to always call _run_concurrent_phase(). Remove post-phase tier3 conditional logic.",
-          "rationale": "Central change — eliminates all alternate execution paths"
-        },
-        {
-          "step": 3,
-          "description": "Delete orchestrator/multi_agent.py and orchestrator/dispatch.py entirely (dependencies removed in PR1)",
-          "rationale": "Clean up modules that no longer have callers"
-        },
-        {
-          "step": 4,
-          "description": "Remove short-circuit mode: _check_short_circuit_signal, short_circuit parameter threading, model fields (allow_short_circuit, short_circuit), phase skip logic",
-          "rationale": "Independent removal — no other code depends on short-circuit"
-        },
-        {
-          "step": 5,
-          "description": "Remove complexity tier: _check_high_complexity_signal, ComplexityTier enum, complexity_tier model field, gateway threading (agent_restrictions.py INTEGRATOR_TIER3_PATTERNS, phase_filter.py, session_manager.py, container_spawner.py, gateway_client.py)",
-          "rationale": "Requires integrator removal first (INTEGRATOR_TIER3_PATTERNS references both)"
-        },
-        {
-          "step": 6,
-          "description": "Remove integrator role: INTEGRATOR_ROLE definition, INTEGRATOR enum values (4 locations: egg_contracts agent_roles, orchestrator models, gateway agent_restrictions), gateway patterns (INTEGRATOR_PATTERNS, INTEGRATOR_TIER3_PATTERNS), sandbox artifacts (integrator.md, integrator-mode.md), reference doc",
-          "rationale": "All consumers removed in prior steps"
-        },
-        {
-          "step": 7,
-          "description": "Remove multi-agent config: MultiAgentConfig class, Contract.multi_agent_config, is_multi_agent_enabled(), exports, initialize_orchestration() refs, CLI --multi-agent arg, runtime EGG_MULTI_AGENT env var, contract display, schema",
-          "rationale": "With only BRC execution, multi-agent config is dead"
-        },
-        {
-          "step": 8,
-          "description": "Remove config flags: enable_parallel_phases, plan_phase_waves, plan_phase_names, max_parallel_agents (replace reviewer spawning at ~line 6885 with len(reviewer_roles) as max_workers)",
-          "rationale": "All consumers removed — these were Tier 3/wave-specific"
-        },
-        {
-          "step": 9,
-          "description": "Remove PhaseDependencyGraph from shared/egg_contracts/dependency_graph.py",
-          "rationale": "Only used by _run_tier3_implement which is gone"
-        },
-        {
-          "step": 10,
-          "description": "Remove DAG visualizer tier3 code (_render_tier3_implement, tier3 conditional)",
-          "rationale": "Tier 3 no longer exists"
-        },
-        {
-          "step": 11,
-          "description": "Delete dead test files (9 files), update remaining test files (6 files) to remove dead branches",
-          "rationale": "Tests for removed code"
-        },
-        {
-          "step": 12,
-          "description": "Update documentation: delete tier3-dispatch.md, update sdlc-pipeline.md, agent-teams.md, orchestrator.md, agent-roles.md, index.md, README.md, CLAUDE.md, analysis template, gateway README",
-          "rationale": "Documentation references removed concepts"
-        }
-      ],
-      "validation": "All remaining tests pass. Concurrent BRC execution works end-to-end for all phases (refine, plan, implement)."
-    }
+    "migration_order": [
+      {
+        "step": 1,
+        "phase": "Phase 1 - Prerequisites",
+        "description": "Relocate is_concurrent_execution() from multi_agent.py to concurrent_executor.py. Refactor signals.py to inline dispatch calls. Remove integrator from reviewer deps and role maps.",
+        "rationale": "Unblocks file deletions in Phase 2"
+      },
+      {
+        "step": 2,
+        "phase": "Phase 2 - Core removal",
+        "description": "Delete multi_agent.py, dispatch.py. Remove execution paths from orchestrator/routes/pipelines.py: _run_tier3_implement, _run_multi_agent_phase, single-agent fallback. Collapse decision tree to always-BRC. Remove short-circuit mode and complexity tier detection.",
+        "rationale": "Central change — eliminates all alternate execution paths"
+      },
+      {
+        "step": 3,
+        "phase": "Phase 3 - Config/Gateway/Role cleanup",
+        "description": "Remove integrator role (definition, enum values in 4 modules, gateway patterns, sandbox artifacts). Remove MultiAgentConfig. Remove gateway complexity_tier threading. Remove dead config flags. Remove DAG visualizer tier3 code. Remove PhaseDependencyGraph/PhaseWave.",
+        "rationale": "All consumers removed in Phase 2"
+      },
+      {
+        "step": 4,
+        "phase": "Phase 4 - Docs/Tests",
+        "description": "Delete 9 dead test files. Update 15 surviving test files (6 original + 9 newly identified with INTEGRATOR references). Update documentation (10 files). Final verification grep.",
+        "rationale": "Clean up references to removed concepts"
+      }
+    ],
+    "validation": "All remaining tests pass. Concurrent BRC execution works end-to-end for all phases."
   },
 
   "risk_assessment": [
@@ -296,7 +305,7 @@
       "id": "R1",
       "risk": "signals.py refactoring breaks signal handling",
       "severity": "high",
-      "mitigation": "PR1 is a behavioral no-op. Test signal handling paths thoroughly. The existing test_signals.py tests must all pass unchanged."
+      "mitigation": "Refactoring is a behavioral no-op. Test signal handling paths thoroughly. Existing test_signals.py tests must all pass unchanged."
     },
     {
       "id": "R2",
@@ -308,19 +317,25 @@
       "id": "R3",
       "risk": "Old pipeline state files fail validation after model field removal",
       "severity": "low",
-      "mitigation": "Issue explicitly states intentional clean break. No backward compatibility. This is accepted risk per issue author."
+      "mitigation": "Issue explicitly states intentional clean break. No backward compatibility. Accepted risk per issue author."
     },
     {
       "id": "R4",
       "risk": "Merge conflicts with concurrent work",
       "severity": "medium",
-      "mitigation": "The two-PR strategy limits the window. PR1 is small. PR2 should be merged promptly after approval."
+      "mitigation": "Single PR should be merged promptly after approval to minimize conflict window."
     },
     {
       "id": "R5",
       "risk": "Gateway behavior changes break running pipelines",
       "severity": "medium",
-      "mitigation": "Verify no in-flight pipelines use Tier 3 or wave execution before deploying. The gateway changes (removing complexity_tier parameter, INTEGRATOR patterns) are safe only when no agent sessions reference them."
+      "mitigation": "Verify no in-flight pipelines use Tier 3 or wave execution before deploying. Gateway changes (removing complexity_tier parameter, INTEGRATOR patterns) are safe only when no agent sessions reference them."
+    },
+    {
+      "id": "R6",
+      "risk": "Removing INTEGRATOR from checkpoint AgentType breaks historical checkpoint access",
+      "severity": "medium",
+      "mitigation": "KEEP AgentType.INTEGRATOR in checkpoints.py and the mapping in checkpoint_handler.py. Only remove from orchestrator/contract/types AgentRole enums where the value drives runtime behavior."
     }
   ],
 
@@ -340,14 +355,17 @@
     "gateway": [
       "gateway/agent_restrictions.py",
       "gateway/phase_filter.py",
-      "gateway/session_manager.py"
+      "gateway/session_manager.py",
+      "gateway/checkpoint_handler.py"
     ],
     "shared": [
       "shared/egg_contracts/models.py",
       "shared/egg_contracts/agent_roles.py",
       "shared/egg_contracts/dependency_graph.py",
       "shared/egg_contracts/orchestration.py",
-      "shared/egg_contracts/__init__.py"
+      "shared/egg_contracts/__init__.py",
+      "shared/egg_contracts/checkpoints.py",
+      "shared/egg_orchestrator/types.py"
     ],
     "sandbox": [
       "sandbox/egg_lib/cli.py",
@@ -380,23 +398,23 @@
     },
     "internal_dependencies": [
       {
-        "blocker": "T1 (relocate is_concurrent_execution)",
+        "blocker": "TASK-1-1 (relocate is_concurrent_execution)",
         "blocked": "Deletion of multi_agent.py",
         "reason": "is_concurrent_execution is called from pipelines.py and must have a new home before its current module is deleted"
       },
       {
-        "blocker": "T2 (inline dispatch calls in signals.py)",
+        "blocker": "TASK-1-2 (inline dispatch calls in signals.py)",
         "blocked": "Deletion of dispatch.py",
         "reason": "signals.py imports create_dispatcher and map_agent_role_to_contract_role from dispatch.py"
       },
       {
-        "blocker": "Step 1 (remove integrator from reviewer deps)",
-        "blocked": "Step 6 (remove integrator role definition)",
+        "blocker": "TASK-1-3 (remove integrator from reviewer deps)",
+        "blocked": "TASK-3-1 (remove integrator role definition)",
         "reason": "REVIEWER_CODE and REVIEWER_CONTRACT roles list INTEGRATOR as a dependency"
       },
       {
-        "blocker": "Step 2 (remove execution paths)",
-        "blocked": "Step 3 (delete multi_agent.py and dispatch.py)",
+        "blocker": "Phase 2 (remove execution paths)",
+        "blocked": "Phase 3 (delete multi_agent.py and dispatch.py, remove enum values)",
         "reason": "Execution paths import from these modules"
       }
     ]
@@ -406,28 +424,28 @@
     {
       "id": "decision-1",
       "question": "PR splitting strategy: single large PR vs 3-4 smaller PRs vs two PRs (prep + main)?",
-      "recommendation": "Two PRs (Option C)",
-      "status": "pending_human_input"
+      "recommendation": "Moot — pipeline constraint requires single PR",
+      "status": "resolved"
     },
     {
       "id": "decision-2",
       "question": "What to do with open PR #1171 (integrator docs)?",
-      "recommendation": "Close #1171 — integrator is being removed",
-      "status": "pending_human_input"
+      "recommendation": "PR #1171 is merged. Its integrator docs will be removed as part of this work.",
+      "status": "resolved"
     },
     {
       "id": "decision-3",
       "question": "Should concurrent_execution and concurrent_phases config flags be removed since BRC is now always-on?",
-      "recommendation": "Remove them — dead config risks reintroducing conditional dispatch",
+      "recommendation": "Remove them — dead config risks reintroducing conditional dispatch. Plan TASK-3-4 has contingency for 'keep' decision.",
       "status": "pending_human_input"
     }
   ],
 
   "scope_estimate": {
     "lines_removed": "~5000-6000",
-    "files_modified": "~25-30",
+    "files_modified": "~30-35",
     "files_deleted": "~12 (multi_agent.py, dispatch.py, 9 test files, tier3-dispatch.md)",
     "test_files_deleted": 9,
-    "test_files_updated": 6
+    "test_files_updated": 15
   }
 }
