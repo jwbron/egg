@@ -57,15 +57,6 @@ Each phase transition requires human approval (except implement → pr when all 
 
 Pipeline state is stored on a dedicated `egg/pipeline-state` orphan branch accessed via a persistent git worktree at `/home/egg/.egg-state/pipeline-worktree`. The branch is local-only (never pushed to remote) and persists across orchestrator restarts via the Docker state volume.
 
-### Multi-Agent Execution
-
-Agents execute in dependency-ordered waves:
-
-- **Tier 2** (standard): Coder → Tester + Documenter (parallel)
-- **Tier 3** (high complexity): Each plan phase gets its own implement cycle (Coder → Tester → Documenter → Checker → Code Reviewer), with independent phases running in parallel. The DAG visualization renders Tier 3 pipelines with individual sub-phase boxes arranged by dependency wave, connected by fan-out/fan-in connectors for parallel phases.
-
-Reviewers always run as a separate step after all workers complete, spawning in parallel with a configurable concurrency limit.
-
 ### Concurrent Execution Mode
 
 When `concurrent_execution: true` is set in the pipeline configuration, agents within a phase run simultaneously rather than in waves. Agents coordinate through:
@@ -175,7 +166,7 @@ All endpoints are prefixed with `/api/v1`.
 | `GET` | `/health` | Service health |
 | `GET` | `/ready` | Readiness check |
 | `GET` | `/live` | Liveness check |
-| `GET` | `/pipelines/{id}/health` | On-demand pipeline health check (runs all Tier 1 + Tier 2 checks) |
+| `GET` | `/pipelines/{id}/health` | On-demand pipeline health check |
 
 ### Metrics
 
@@ -204,8 +195,6 @@ orchestrator/
 ├── state_store.py          # Git-backed persistent state storage
 ├── container_spawner.py    # Container spawning with gateway session integration
 ├── container_monitor.py    # Container state monitoring and lifecycle tracking
-├── multi_agent.py          # Wave-based parallel agent execution
-├── dispatch.py             # Dispatch logic bridging orchestrator and egg_contracts (legacy, minimal)
 ├── decision_queue.py       # HITL decision queue management (supports typed decisions)
 ├── handoffs.py             # Agent-to-agent data handoff mechanism
 ├── devserver.py            # Docker-in-Docker devserver management
@@ -228,7 +217,7 @@ orchestrator/
 │       └── agent_inspector.py   # Claude-powered agent progress analysis
 ├── sse.py                  # Server-Sent Events for real-time status
 ├── unified_sse.py          # Unified SSE stream for multiple pipelines
-├── dag_visualizer.py       # Pipeline DAG visualization (incl. Tier 3 sub-phase rendering)
+├── dag_visualizer.py       # Pipeline DAG visualization
 ├── resilience.py           # Retry, circuit breaker, and resilience patterns
 ├── metrics.py              # Metrics collection and reporting
 ├── status_reporter.py      # Status reporting utilities
@@ -330,7 +319,7 @@ Defined in `shared/egg_config/constants.py`:
 .venv/bin/pytest orchestrator/tests/ -v
 
 # Run specific test
-.venv/bin/pytest orchestrator/tests/test_multi_agent.py -v
+.venv/bin/pytest orchestrator/tests/test_concurrent_integration.py -v
 ```
 
 ## Related Documentation

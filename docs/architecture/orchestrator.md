@@ -74,7 +74,7 @@ A two-tier health check framework provides structured, extensible failure detect
 **Lifecycle integration:**
 - `STARTUP`: Runs after startup reconciliation on all RUNNING pipelines (non-blocking)
 - `RUNTIME_TICK`: Triggered by container state changes via `ContainerMonitor` (non-blocking)
-- `WAVE_COMPLETE`: Runs after each agent wave in `multi_agent.py`; `FAIL_PIPELINE` breaks wave execution
+- `WAVE_COMPLETE`: Runs after each agent wave completes; `FAIL_PIPELINE` breaks wave execution
 - `PHASE_COMPLETE`: Runs before phase advance in `routes/phases.py`; `FAIL_PIPELINE` blocks the transition (409 Conflict)
 - `ON_DEMAND`: Available via `GET /api/v1/pipelines/{id}/health`
 

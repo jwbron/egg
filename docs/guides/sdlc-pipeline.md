@@ -563,20 +563,6 @@ The implement phase uses concurrent BRC execution to parallelize work across spe
 | **Reviewer (Code)** | Reviews code for security, correctness | Review verdicts only |
 | **Reviewer (Contract)** | Verifies task completion | Review verdicts only |
 
-### Configuration
-
-The implement phase agent configuration is managed via the contract's `multi_agent_config`:
-
-```json
-{
-  "multi_agent_config": {
-    "enabled": true,
-    "roles_enabled": ["coder", "tester", "documenter", "checker", "reviewer_code", "reviewer_contract"],
-    "parallel_execution": true
-  }
-}
-```
-
 ### Agent Handoffs
 
 Each agent produces handoff data stored in `.egg-state/agent-outputs/{identifier}-{role}-output.json` (e.g., `871-coder-output.json` for issue #871):
@@ -1003,9 +989,7 @@ work → checker+autofixer (run checks → fix → re-run, up to 3x) → review
 
 | File | Purpose |
 |------|---------|
-| `orchestrator/dispatch.py` | Pipeline phase dispatch |
 | `orchestrator/container_spawner.py` | Agent container lifecycle |
-| `orchestrator/multi_agent.py` | Multi-agent orchestration |
 | `orchestrator/decision_queue.py` | HITL decision handling (typed decisions) |
 | `orchestrator/models.py` | Pipeline and HITLDecision models (decision_type, questions) |
 | `orchestrator/state_store.py` | Git-backed pipeline state |

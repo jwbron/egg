@@ -160,10 +160,10 @@ AGENT_FILE_RESTRICTIONS = {
 
 ### Step 7: Register with Orchestrator
 
-Register the agent with the local orchestrator's multi-agent system in `orchestrator/multi_agent.py`:
+Register the agent with the concurrent execution system:
 
-1. Add to the dispatch logic
-2. Add to the parallel groups configuration
+1. Add the role to `shared/egg_contracts/agent_roles.py`
+2. Configure file access patterns and phase assignments
 3. Configure container spawning for the new agent role
 
 ### Step 8: Add Tests
@@ -258,7 +258,7 @@ plan = compute_execution_plan([
 Run tests:
 
 ```bash
-pytest tests/sdlc/test_multi_agent_orchestration.py -v
+pytest tests/sdlc/test_concurrent_integration.py -v
 pytest tests/gateway/test_agent_restrictions.py -v
 ```
 

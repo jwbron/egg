@@ -44,7 +44,7 @@ from review_graph import get_review_graph_for_phase
 
 logger = get_logger("orchestrator.concurrent_executor")
 
-# Type alias for spawn function (matches multi_agent.py pattern)
+# Type alias for spawn function
 SpawnFn = Callable[..., Any]
 
 # Failure detection window: multiple failures within this window trigger abort

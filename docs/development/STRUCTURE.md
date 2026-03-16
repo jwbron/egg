@@ -91,7 +91,6 @@ orchestrator/
 ├── dag_visualizer.py       # ASCII DAG visualization for pipeline status
 ├── decision_queue.py       # HITL decision queue
 ├── devserver.py            # Devserver lifecycle manager for deployment validation (DinD)
-├── dispatch.py             # Agent dispatch logic
 ├── docker_client.py        # Docker API client
 ├── events.py               # Event bus for pipeline events
 ├── gateway_client.py       # Gateway API client (sessions, worktrees, config)
@@ -102,7 +101,6 @@ orchestrator/
 ├── mcp_tools.py            # MCP tool definitions and handlers for pipeline management operations
 ├── metrics.py              # Pipeline metrics and telemetry
 ├── models.py               # Pydantic models for pipelines
-├── multi_agent.py          # Multi-agent orchestration
 ├── redis_message_store.py  # Redis Streams-backed message store implementation
 ├── resilience.py           # Retry and error recovery
 ├── review_graph.py         # Asymmetric review graph topology for BRC consensus
@@ -285,7 +283,6 @@ integration_tests/
     ├── test_review_rejection.py   # Reviewer rejection and fix cycles
     ├── test_hitl_flow.py          # Human-in-the-loop decision flow
     ├── test_role_enforcement.py   # Role-based mutation enforcement
-    └── test_multi_agent_orchestration.py  # Multi-agent workflow tests
 ```
 
 ## Unit Tests Structure

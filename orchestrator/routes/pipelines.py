@@ -1537,7 +1537,7 @@ def _build_role_context(
     if summary:
         lines.append(f"## Background\n\n{summary}\n")
 
-    # Phase-specific context (Tier 3)
+    # Phase-specific context
     if phase_obj is not None:
         lines.append(f"## Phase Scope: {phase_obj.name} ({phase_obj.id})\n")
 

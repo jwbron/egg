@@ -164,7 +164,6 @@ Contracts can override phase defaults via the `phase_configs` field, allowing pe
 The SDLC pipeline orchestrates agent-based development with structurally enforced checkpoints through the local orchestrator:
 
 **Core components:**
-- `orchestrator/dispatch.py` - Pipeline phase dispatch and management
 - `orchestrator/container_spawner.py` - Agent container lifecycle management
 - `orchestrator/decision_queue.py` - Human-in-the-loop decision handling with debounce
 - `orchestrator/state_store.py` - Git-backed pipeline state management
