@@ -496,10 +496,15 @@ class PeerConsensusTracker:
                             "unreviewed_producers": sole_reviewer_for,
                         },
                     )
-                    return {
+                    result: dict[str, Any] = {
                         "action": "escalate",
                         "reason": f"Reviewer {role} crashed and was sole reviewer for {sole_reviewer_for}",
                     }
+                    # Include blocking_producers so HITL gets complete info
+                    # (reviewer may also have pending reviews for other producers)
+                    if blocking_producers:
+                        result["blocking_producers"] = blocking_producers
+                    return result
 
                 if blocking_producers:
                     emit_event(
@@ -525,8 +530,12 @@ class PeerConsensusTracker:
         Called when a human decides to continue without a failed reviewer.
         Removes all edges from this reviewer, allowing is_fully_acked()
         to pass without their ACK.
+
+        Raises ValueError if the role is not a reviewer in the graph.
         """
         with self._lock:
+            if not self.graph.is_reviewer(role):
+                raise ValueError(f"Cannot excuse '{role}': not a reviewer in the review graph")
             producers = self.graph.producers_for(role)
             for producer in producers:
                 self.graph.remove_edge(role, producer)

@@ -1312,3 +1312,67 @@ class TestConfirmErrorListsPendingReviewers:
         assert result["status"] == "pending_acks"
         assert "checker" in result["message"]
         assert "Pending reviewers" in result["message"]
+
+
+class TestExcuseReviewerValidation:
+    """Test excuse_reviewer rejects non-reviewer roles."""
+
+    def test_excuse_non_reviewer_raises(self):
+        """excuse_reviewer raises ValueError for a non-reviewer role."""
+        graph = ReviewGraph(
+            [
+                ReviewEdge("reviewer_code", "coder", ReviewCriticality.CRITICAL),
+                ReviewEdge("checker", "coder", ReviewCriticality.CRITICAL),
+            ]
+        )
+        t = PeerConsensusTracker("test-pipeline", graph, cooldown_seconds=0)
+        t.register_agent("coder")
+        t.register_agent("reviewer_code")
+        t.register_agent("checker")
+
+        with pytest.raises(ValueError, match="not a reviewer"):
+            t.excuse_reviewer("coder")
+
+    def test_excuse_unknown_role_raises(self):
+        """excuse_reviewer raises ValueError for an unknown role."""
+        graph = ReviewGraph([ReviewEdge("reviewer_code", "coder", ReviewCriticality.CRITICAL)])
+        t = PeerConsensusTracker("test-pipeline", graph, cooldown_seconds=0)
+        t.register_agent("coder")
+        t.register_agent("reviewer_code")
+
+        with pytest.raises(ValueError, match="not a reviewer"):
+            t.excuse_reviewer("nonexistent")
+
+
+class TestSoleReviewerCrashIncludesBlockingProducers:
+    """Test sole_reviewer_for path includes blocking_producers when applicable."""
+
+    def test_sole_reviewer_crash_includes_blocking_producers(self):
+        """When reviewer is sole for some producers and blocking for others,
+        the crash result includes both pieces of information."""
+        graph = ReviewGraph(
+            [
+                # reviewer_code is sole reviewer for coder
+                ReviewEdge("reviewer_code", "coder", ReviewCriticality.CRITICAL),
+                # reviewer_code also reviews tester (with checker as backup)
+                ReviewEdge("reviewer_code", "tester", ReviewCriticality.CRITICAL),
+                ReviewEdge("checker", "tester", ReviewCriticality.CRITICAL),
+            ]
+        )
+        t = PeerConsensusTracker("test-pipeline", graph, cooldown_seconds=0)
+        t.register_agent("coder")
+        t.register_agent("tester")
+        t.register_agent("reviewer_code")
+        t.register_agent("checker")
+
+        # Both producers propose
+        t.handle_propose("coder", {"summary": "v1", "artifacts": ["src/a.py"]})
+        t.handle_propose("tester", {"summary": "v1", "artifacts": ["test_a.py"]})
+
+        # reviewer_code crashes — sole for coder, pending for tester
+        result = t.handle_agent_crash("reviewer_code")
+        assert result["action"] == "escalate"
+        assert "sole reviewer" in result["reason"]
+        # Should include blocking_producers for tester
+        assert "blocking_producers" in result
+        assert "tester" in result["blocking_producers"]
