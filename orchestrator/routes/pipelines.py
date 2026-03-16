@@ -1816,7 +1816,11 @@ def _build_review_prompt(
             "execution path in the real deployment environment. Check that config files, "
             "environment variables, and dependencies are actually available where the code runs"
         )
-        lines.append("6. Research when uncertain — look up library behavior, check documentation")
+        lines.append(
+            "6. Research when uncertain — use WebSearch and WebFetch (when available) "
+            "to look up library behavior, check official documentation, and verify "
+            "that API usage patterns in the code are correct"
+        )
         lines.append("7. Consider edge cases the author may not have tested")
         lines.append("8. Evaluate against the criteria below")
         lines.append(f"9. Write your verdict to `{verdict_path}` as JSON")
@@ -2624,10 +2628,14 @@ def _build_phase_prompt(
                 "Analyze this issue and produce a structured analysis document. Your goal is to:\n",
                 "1. Understand the problem or feature request",
                 "2. Research the current codebase to understand existing patterns",
-                "3. Identify constraints and dependencies",
-                "4. Consider multiple implementation approaches",
-                "5. Recommend an approach with justification",
-                "6. Surface **all** questions and uncertainties that need human input "
+                "3. Research externally when the task involves third-party libraries, APIs, "
+                "or integrations — use WebSearch and WebFetch (when available) to look up "
+                "current documentation, best practices, and known issues. Skip external "
+                "research for purely internal changes where codebase context is sufficient.",
+                "4. Identify constraints and dependencies",
+                "5. Consider multiple implementation approaches",
+                "6. Recommend an approach with justification",
+                "7. Surface **all** questions and uncertainties that need human input "
                 "(do not self-limit — raise every ambiguity)",
                 "",
                 "**IMPORTANT**: Do NOT create an implementation plan, task breakdown, "
@@ -2850,7 +2858,9 @@ def _build_phase_prompt(
                 steps.append(f"Review the {review_target} (check `.egg-state/drafts/`)")
             steps.extend(
                 [
-                    "Implement the required changes",
+                    "Implement the required changes — when working with third-party "
+                    "libraries or APIs, use WebSearch and WebFetch (when available) to "
+                    "look up current documentation and usage examples",
                     "Run tests to verify correctness",
                     "Commit with descriptive messages",
                 ]
@@ -3252,6 +3262,10 @@ def _build_agent_prompt(
                 "- Uncovered code paths and branches",
                 "- Integration gaps between components",
                 "",
+                "When testing third-party library integrations or unfamiliar frameworks, "
+                "use WebSearch and WebFetch (when available) to look up testing patterns, "
+                "known edge cases, and recommended test approaches for those libraries.",
+                "",
                 "Before writing tests, review the coder's session for context on what was changed and why:",
                 "`egg-checkpoint list --pipeline $EGG_PIPELINE_ID --agent-type coder --phase implement`",
                 "",
@@ -3271,6 +3285,10 @@ def _build_agent_prompt(
                 "- Accurate descriptions of new features or changes",
                 "- Updated usage examples if APIs changed",
                 "- Clear explanation of any breaking changes",
+                "",
+                "When documenting third-party integrations or external APIs, use WebSearch "
+                "and WebFetch (when available) to verify current API signatures, link to "
+                "official documentation, and confirm usage examples are up to date.",
                 "",
                 "Find all changed files across agents:",
                 "`egg-checkpoint context --pipeline $EGG_PIPELINE_ID --files`",
@@ -3302,9 +3320,13 @@ def _build_agent_prompt(
                 "",
                 "1. Understand the problem or feature request from the issue",
                 "2. Research the current codebase to understand existing patterns",
-                "3. Identify key files, constraints, and dependencies",
-                "4. Consider multiple implementation approaches",
-                "5. Recommend an approach with justification and document technical decisions",
+                "3. Research externally when the task involves third-party libraries, APIs, "
+                "or frameworks — use WebSearch and WebFetch (when available) to verify "
+                "assumptions, check current documentation, and review architectural patterns. "
+                "Skip external research for purely internal changes.",
+                "4. Identify key files, constraints, and dependencies",
+                "5. Consider multiple implementation approaches",
+                "6. Recommend an approach with justification and document technical decisions",
                 "",
                 f"Write your analysis to `.egg-state/agent-outputs/{_identifier}-architect-output.json`.",
                 "",
@@ -3378,9 +3400,13 @@ def _build_agent_prompt(
                 "",
                 "1. Review the architecture analysis from the ARCHITECT agent",
                 "2. Identify technical risks (security, performance, compatibility)",
-                "3. Assess impact and likelihood of each risk",
-                "4. Propose mitigation strategies and rollback plans",
-                "5. Flag areas that need human review",
+                "3. Research externally when the change involves third-party dependencies — "
+                "use WebSearch and WebFetch (when available) to check for known "
+                "vulnerabilities, deprecation notices, and compatibility issues. "
+                "Skip external research for purely internal changes.",
+                "4. Assess impact and likelihood of each risk",
+                "5. Propose mitigation strategies and rollback plans",
+                "6. Flag areas that need human review",
                 "",
                 f"Write your risk assessment to `.egg-state/agent-outputs/{_identifier}-risk_analyst-output.json`.",
                 "",
