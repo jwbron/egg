@@ -69,10 +69,10 @@
       "agents": [
         {
           "role": "reviewer_refine",
-          "status": "running",
+          "status": "complete",
           "container_id": "33ff8499e610cd83ca02cf5b0992900c4470d1ac912f6adfa39164aa7e2b1ad1",
           "started_at": "2026-03-16T02:29:08.952653",
-          "completed_at": null,
+          "completed_at": "2026-03-16T02:37:07.048070",
           "commit": null,
           "outputs": {},
           "error": null,
@@ -82,10 +82,10 @@
         },
         {
           "role": "refiner",
-          "status": "running",
+          "status": "complete",
           "container_id": "301ac81920989a5153f78ccbaf69d41f15bb6157f1242a3946ded903e92201e5",
           "started_at": "2026-03-16T02:29:08.952664",
-          "completed_at": null,
+          "completed_at": "2026-03-16T02:37:07.048085",
           "commit": null,
           "outputs": {},
           "error": null,
@@ -95,10 +95,10 @@
         },
         {
           "role": "reviewer_agent_design",
-          "status": "running",
+          "status": "complete",
           "container_id": "7e5082c8ad238344a55dc20a33b9cf70e3f529baf06b4ad2aeb15e918ed9cc34",
           "started_at": "2026-03-16T02:29:08.952670",
-          "completed_at": null,
+          "completed_at": "2026-03-16T02:37:07.048089",
           "commit": null,
           "outputs": {},
           "error": null,
@@ -125,7 +125,7 @@
   },
   "decisions": [],
   "created_at": "2026-03-16T02:29:02.276729",
-  "updated_at": "2026-03-16T02:29:08.952744",
+  "updated_at": "2026-03-16T02:37:07.048271",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
@@ -133,5 +133,5 @@
   "error": null,
   "plan_phase_waves": null,
   "plan_phase_names": null,
-  "version": 7
+  "version": 8
 }
