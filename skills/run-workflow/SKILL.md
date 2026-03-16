@@ -113,7 +113,7 @@ During phase cycle transitions (e.g., plan phase review cycles), the orchestrato
 **Before treating `failed` as terminal, apply these checks:**
 
 1. If `status` is `failed` but `running_agents` is non-empty → treat as "transitioning", not failed. Log: `"Status shows failed but agents still running — treating as cycle transition."` Continue polling.
-2. If `status` is `failed` and `running_agents` is empty → run `egg-pipeline-watch <task_id> --once --compact` to confirm actual state before exiting. If the pipeline watch shows active work, continue polling.
+2. If `status` is `failed` and `running_agents` is empty → call `get_pipeline_snapshot` MCP tool with the `task_id` to confirm actual state before exiting. If the snapshot shows active containers or recent messages, continue polling.
 3. Only exit to Phase 5 when `status` is `failed`, `running_agents` is empty, **and** the secondary check confirms the pipeline is genuinely stopped.
 
 ### Post-Consensus Reviewer Behavior
@@ -195,9 +195,9 @@ Then use `AskUserQuestion` to offer options:
   - **"Nudge agent"** — description: "Send a message asking the agent to report status"
 
 Handle each response:
-- **Check agent logs** → Run `egg-orch container list <task_id>` to find the container ID, then `egg-orch container logs <task_id> <container_id> --lines 50`. Show the user the last 50 lines and let them decide next steps.
+- **Check agent logs** → Call the `get_container_logs` MCP tool with `task_id` and `agent_role` set to the stalled agent's role (lines: 50). Show the user the output and let them decide next steps.
 - **Wait longer** → Reset the stall counter for this agent. Resume monitoring.
-- **Nudge agent** → Run `egg-orch message send <task_id> --role overseer --to <role> --type STATUS --body "Overseer check: you appear stalled in <phase>. Please send a heartbeat or progress update."` and resume monitoring. If the agent remains stalled for another 3 polls after the nudge, re-alert the user with stronger options (see escalation below).
+- **Nudge agent** → Call the `send_message` MCP tool with `task_id`, `to_role` set to the stalled role, `message_type: "STATUS"`, and `body: "Overseer check: you appear stalled in <phase>. Please send a heartbeat or progress update."` Resume monitoring. If the agent remains stalled for another 3 polls after the nudge, re-alert the user with stronger options (see escalation below).
 
 **NACK escalation** — When an unresolved NACK persists for 3+ polls, surface it prominently:
 
@@ -218,9 +218,9 @@ Then use `AskUserQuestion` to offer options:
   - **"Wait longer"** — description: "The producer may be working on fixes — give it more time"
 
 Handle each response:
-- **Check producer logs** → Run `egg-orch container list <task_id>`, find the producer's container, then `egg-orch container logs <task_id> <container_id> --lines 50`. Show the output and let the user decide next steps.
-- **Check reviewer logs** → Same approach, but for the reviewer's container.
-- **Nudge producer** → Run `egg-orch message send <task_id> --role overseer --to <producer_role> --type STATUS --body "Overseer check: unresolved NACK from <reviewer> — please address and re-propose."` and resume monitoring.
+- **Check producer logs** → Call the `get_container_logs` MCP tool with `task_id` and `agent_role` set to the producer's role (lines: 50). Show the output and let the user decide next steps.
+- **Check reviewer logs** → Call the `get_container_logs` MCP tool with `task_id` and `agent_role` set to the reviewer's role (lines: 50). Show the output and let the user decide next steps.
+- **Nudge producer** → Call the `send_message` MCP tool with `task_id`, `to_role` set to the producer role, `message_type: "STATUS"`, and `body: "Overseer check: unresolved NACK from <reviewer> — please address and re-propose."` Resume monitoring.
 - **Wait longer** → Reset the NACK stall counter. Resume monitoring.
 
 **Post-nudge escalation** — If an agent remains stalled after a nudge (3+ more polls with no change), use `AskUserQuestion` to offer stronger actions:
@@ -232,7 +232,7 @@ Handle each response:
   - **"Continue waiting"** — description: "Reset the counter and keep monitoring"
 
 Handle each response:
-- **View full agent logs** → Run `egg-orch container list <task_id>` to find the container, then `egg-orch container logs <task_id> <container_id> --lines 200`. Show the output and let the user decide next steps.
+- **View full agent logs** → Call the `get_container_logs` MCP tool with `task_id` and `agent_role` set to the stalled agent's role (lines: 200). Show the output and let the user decide next steps.
 - **Restart pipeline** → Confirm with the user, then call `cancel_task` with `task_id` and `cleanup: true`, followed by `submit_task` with the original parameters. Resume from Phase 3 with the new `task_id`.
 - **Continue waiting** → Reset the stall counter. Resume monitoring.
 
@@ -260,7 +260,7 @@ Then use `AskUserQuestion`:
 Handle each response:
 - **Keep monitoring** → Resume polling. Reset the timer threshold (don't re-alert for another 30 minutes).
 - **Open PR with current work** → Proceed to [Stuck Pipeline Rescue](#stuck-pipeline-rescue).
-- **Check what's blocking** → Run `egg-orch consensus status <task_id>` and `egg-orch container list <task_id>`, then show blocking agents and their recent logs. Let the user decide next steps.
+- **Check what's blocking** → Call `get_consensus_status` and `list_containers` MCP tools with the `task_id`, then show blocking agents and their recent logs (via `get_container_logs`). Let the user decide next steps.
 
 This threshold is configurable — adjust based on task complexity. The 60-minute default balances patience for legitimate long-running work against catching stuck pipelines.
 
@@ -279,14 +279,8 @@ git log --oneline origin/egg/<branch> ^origin/main
 If commits exist, the branch has usable work.
 
 **Step 2: Check containers for uncommitted work**
-```bash
-egg-orch container list <task_id>
-```
-For each running container with agent work:
-```bash
-egg-orch container logs <task_id> <container_id> --lines 50
-```
-Look for signs of uncommitted changes (agents mention "modified files" or "working on" in logs).
+
+Call the `list_containers` MCP tool with the `task_id`. For each running container with agent work, call `get_container_logs` with `task_id` and the container's `agent_role` (lines: 50). Look for signs of uncommitted changes (agents mention "modified files" or "working on" in logs).
 
 **Step 3: Offer rescue options via `AskUserQuestion`**
 - **Question**: "Pipeline appears stuck. How would you like to proceed with the completed work?"
@@ -531,27 +525,26 @@ Phase: <phase where failure occurred>
 
 ## Troubleshooting
 
-When the pipeline is stuck, failing, or behaving unexpectedly, use these tools to investigate before asking the user to re-run:
+When the pipeline is stuck, failing, or behaving unexpectedly, use MCP tools to investigate before asking the user to re-run:
 
-| Scenario | Command | Notes |
-|----------|---------|-------|
-| Pipeline stuck or unclear state | `egg-orch pipeline status <task_id>` | Shows current phase, status, pending decisions |
-| Check orchestrator + gateway health | `egg-orch health` | Verifies both services are reachable |
-| View agent logs | `egg-orch container logs <task_id> <container_id>` | Add `--lines 100` for last N lines |
-| List containers in pipeline | `egg-orch container list <task_id>` | Find container IDs for log viewing |
-| Live pipeline visualization | `egg-pipeline-watch <task_id>` | Real-time DAG; use `--once` for snapshot |
-| Review prior agent sessions | `egg-checkpoint list --pipeline <task_id>` | Browse transcripts, tool calls, token usage |
-| Check what agents did | `egg-checkpoint context --pipeline <task_id>` | Cross-agent context summary by phase |
-| Token usage / cost | `egg-checkpoint cost --pipeline <task_id>` | Breakdown by agent |
-| SDLC contract state | `egg-contract show` | Task progress, pending decisions |
-| BRC consensus state | `egg-orch consensus status <task_id>` | Agent phases, blocking agents, completion |
-| Agent messages | `egg-orch message poll <task_id> --wait 0` | Check message bus (proposals, ACKs, NACKs) |
+| Scenario | MCP Tool | Notes |
+|----------|----------|-------|
+| Pipeline stuck or unclear state | `get_pipeline_snapshot` | Comprehensive view: pipeline state, containers, messages, decisions |
+| Check orchestrator + gateway health | `check_health` | Verifies both services are reachable |
+| View agent logs | `get_container_logs` | Auto-selects container by role; set `lines` for more output |
+| List containers in pipeline | `list_containers` | Find container IDs, statuses, and agent roles |
+| BRC consensus state | `get_consensus_status` | Agent phases, blocking agents, unresolved NACKs |
+| Review prior agent sessions | `list_checkpoints` | Browse transcripts, tool calls, token usage |
+| Search agent sessions | `search_checkpoints` | Search checkpoint metadata for keywords |
+| SDLC contract state | `get_contract` | Task progress, pending decisions |
+| Send message to agent | `send_message` | Nudge agents, request status updates |
+| Phase details | `get_phase` | Current phase, execution timing, review cycles |
 | Message bus stats | Via `get_status` MCP tool | `concurrent.consensus` field in response |
 
 **When to use these during the workflow:**
-- **Phase 3 (Monitor)**: If status appears stuck for multiple polls, run `egg-orch pipeline status` and `egg-orch container list` to check for failed containers. If the pipeline uses concurrent agents (`EGG_CONCURRENT_MODE`), check `egg-orch consensus status` to see which agents are blocking — a stuck agent may be waiting on a NACK resolution or hasn't proposed yet. Show the user a summary of what you find.
-- **Phase 4 (HITL)**: If `provide_input` fails, check `egg-orch health` first. If the orchestrator is healthy, verify the `decision_id` is still valid with `egg-orch decision list`.
-- **Phase 5 (Failure)**: Before offering re-run options, check `egg-orch container logs` for the failed agent to give the user context on what went wrong.
+- **Phase 3 (Monitor)**: If status appears stuck for multiple polls, call `get_pipeline_snapshot` to check for failed containers and consensus state. If the pipeline uses concurrent agents (`EGG_CONCURRENT_MODE`), call `get_consensus_status` to see which agents are blocking — a stuck agent may be waiting on a NACK resolution or hasn't proposed yet. Show the user a summary of what you find.
+- **Phase 4 (HITL)**: If `provide_input` fails, call `check_health` first. If the orchestrator is healthy, verify the decision state with `get_status`.
+- **Phase 5 (Failure)**: Before offering re-run options, call `get_container_logs` for the failed agent to give the user context on what went wrong.
 
 **Reading consensus state**: The `get_status` response includes a `concurrent.consensus` object when agents are running in BRC mode. Key fields:
 - `is_complete`: Whether all agents have confirmed
@@ -563,7 +556,7 @@ When the pipeline is stuck, failing, or behaving unexpectedly, use these tools t
 
 ## Critical Rules
 
-- **Always use MCP tools** (`submit_task`, `get_status`, `provide_input`, `cancel_task`) — never call orchestrator APIs directly
+- **Always use MCP tools** (`submit_task`, `get_status`, `provide_input`, `cancel_task`, `check_health`, `list_containers`, `get_container_logs`, `send_message`, `get_consensus_status`, `get_phase`, `get_pipeline_snapshot`, `list_checkpoints`, `search_checkpoints`, `get_contract`) — never call orchestrator/gateway APIs or CLIs directly
 - **Always serialize JSON payloads as strings** for `provide_input` — the `response` parameter is a string, not an object. Pass `'{"action": "approve"}'` not `{"action": "approve"}`
 - **Never skip HITL** — always present decisions to the user and wait for their response
 - **Stop polling on exit** — always exit the monitoring loop when the workflow ends

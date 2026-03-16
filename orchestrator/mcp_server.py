@@ -76,16 +76,21 @@ class MCPServer:
     def __init__(
         self,
         orchestrator_url: str = "http://localhost:9849",
+        gateway_url: str | None = None,
         port: int = DEFAULT_MCP_PORT,
         rate_limit: int = DEFAULT_RATE_LIMIT,
     ):
         self.orchestrator_url = orchestrator_url
+        self.gateway_url = gateway_url
         self.port = port
         self.rate_limiter = RateLimiter(max_requests=rate_limit)
 
         from mcp_tools import PIPELINE_TOOLS, PipelineToolHandler
 
-        self.tool_handler = PipelineToolHandler(orchestrator_url=orchestrator_url)
+        self.tool_handler = PipelineToolHandler(
+            orchestrator_url=orchestrator_url,
+            gateway_url=gateway_url,
+        )
         self.tools_config = PIPELINE_TOOLS
         self._mcp = None
 
@@ -184,12 +189,14 @@ def _json_type_to_python(prop_def: dict) -> type:
 
 def start_mcp_server(
     orchestrator_url: str = "http://localhost:9849",
+    gateway_url: str | None = None,
     port: int = DEFAULT_MCP_PORT,
     rate_limit: int = DEFAULT_RATE_LIMIT,
 ) -> MCPServer:
     """Start the MCP server in a background thread."""
     server = MCPServer(
         orchestrator_url=orchestrator_url,
+        gateway_url=gateway_url,
         port=port,
         rate_limit=rate_limit,
     )
