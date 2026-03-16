@@ -629,6 +629,84 @@ def check_claude_update() -> str | None:
     return None
 
 
+def get_installed_agent_sdk_version() -> str | None:
+    """Get the claude-agent-sdk version installed in the current image.
+
+    Returns:
+        Version string (e.g., "0.1.5") or None if not available
+    """
+    if not image_exists():
+        return None
+
+    try:
+        result = subprocess.run(
+            [
+                "docker",
+                "run",
+                "--rm",
+                "--entrypoint",
+                "cat",
+                Config.IMAGE_NAME,
+                "/opt/claude-agent-sdk-version.txt",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            return result.stdout.strip()
+        return None
+    except Exception:
+        return None
+
+
+def get_latest_agent_sdk_version() -> str | None:
+    """Get the latest claude-agent-sdk version from PyPI.
+
+    Returns:
+        Version string (e.g., "0.1.5") or None if check fails
+    """
+    import json
+    import urllib.request
+
+    try:
+        url = "https://pypi.org/pypi/claude-agent-sdk/json"
+        with urllib.request.urlopen(url, timeout=10) as response:
+            data = json.loads(response.read().decode())
+            version: str | None = data.get("info", {}).get("version")
+            return version
+    except Exception:
+        return None
+
+
+def check_agent_sdk_update() -> str | None:
+    """Check if a claude-agent-sdk update is available.
+
+    Returns:
+        The new version string if update available, None otherwise
+    """
+    quiet = get_quiet_mode()
+    installed = get_installed_agent_sdk_version()
+    latest = get_latest_agent_sdk_version()
+
+    if not latest:
+        # Can't check, don't force update
+        return None
+
+    if not installed:
+        # No version installed, use latest
+        return latest
+
+    # Compare versions
+    if installed != latest:
+        if not quiet:
+            info(f"claude-agent-sdk update available: {installed} → {latest}")
+        return latest
+
+    return None
+
+
 def hash_file(path: Path, hasher: Any) -> None:
     """Add a single file's content to the hasher."""
     try:
@@ -849,6 +927,11 @@ def should_rebuild_image() -> tuple[bool, str]:
     if claude_version:
         return True, f"Claude Code update available ({claude_version})"
 
+    # Check for claude-agent-sdk updates
+    agent_sdk_version = check_agent_sdk_update()
+    if agent_sdk_version:
+        return True, f"claude-agent-sdk update available ({agent_sdk_version})"
+
     return False, "build hash matches (skipping rebuild)"
 
 
@@ -889,6 +972,9 @@ def build_image() -> bool:
     # Check for Claude Code updates
     claude_version = check_claude_update()
 
+    # Check for claude-agent-sdk updates
+    agent_sdk_version = check_agent_sdk_update()
+
     # Compute the build hash to store as a label
     build_hash = compute_build_hash()
 
@@ -910,6 +996,11 @@ def build_image() -> bool:
             str(Config.DOCKERFILE),
             str(Config.CONFIG_DIR),
         ]
+
+        # Pass agent SDK version to bust cache if update available
+        if agent_sdk_version:
+            cmd.insert(2, "--build-arg")
+            cmd.insert(3, f"CLAUDE_AGENT_SDK_VERSION={agent_sdk_version}")
 
         # Pass Claude version to bust cache if update available
         if claude_version:
