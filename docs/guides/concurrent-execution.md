@@ -141,6 +141,7 @@ Returns total message count and a breakdown by message type.
 | `CONSENSUS_NACK` | Reviewer rejecting a producer's proposal (with reason) |
 | `CONSENSUS_WITHDRAW` | Producer withdrawing its proposal (e.g., to address NACK) |
 | `CONSENSUS_CONFIRMED` | Agent confirmed after all required reviews are ACKed |
+| `CONSENSUS_RE_REVIEW` | Orchestrator notifying a reviewer that their prior confirmation is stale and they must re-review the producer's new proposal version |
 
 ### Message Store Backend
 
@@ -197,7 +198,7 @@ Each agent tracks two state machines (producer and reviewer) independently:
 1. **Propose**: Producer completes work and sends `CONSENSUS_PROPOSE` signal with a summary and artifact list.
 2. **Review**: Assigned reviewers evaluate the proposal and send `CONSENSUS_ACK` or `CONSENSUS_NACK`.
 3. **Converge**: When all critical reviewers ACK, the producer sends `CONSENSUS_CONFIRMED`. When all agents are confirmed, the phase advances.
-4. **Re-propose**: If a NACK is received, the producer addresses the feedback and re-proposes (with `changed_artifacts` to scope re-evaluation). Flip-flop cycles are capped at `max_flip_flops` (default: 3).
+4. **Re-propose**: If a NACK is received, the producer addresses the feedback and re-proposes (with `changed_artifacts` to scope re-evaluation). Flip-flop cycles are capped at `max_flip_flops` (default: 3). If any reviewer had already confirmed on a prior proposal version, they automatically receive a `CONSENSUS_RE_REVIEW` message and are un-confirmed so they re-enter the review loop — preventing a deadlock where a stale-confirmed reviewer can never see the new proposal.
 
 Use `egg-orch consensus` commands to participate in the BRC protocol:
 
