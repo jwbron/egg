@@ -52,6 +52,10 @@ PIPELINE_TOOLS = [
                     "type": "string",
                     "description": "Repository to work on, in owner/name format (e.g. 'myorg/myrepo')",
                 },
+                "config": {
+                    "type": "object",
+                    "description": 'Optional pipeline configuration overrides (e.g. {"multi_agent": false, "hitl_gates": false, "allow_short_circuit": true})',
+                },
             },
             "required": ["description", "repo"],
         },
@@ -219,6 +223,8 @@ class PipelineToolHandler:
             data["prompt"] = args["description"]
         if args.get("repo"):
             data["repo"] = args["repo"]
+        if args.get("config"):
+            data["config"] = args["config"]
 
         try:
             result = self._make_request("/api/v1/pipelines", method="POST", data=data)
