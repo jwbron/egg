@@ -23,7 +23,6 @@ from dag_visualizer import (
     _render_phase_box,
     _render_side_by_side,
     _render_subphase_box,
-    _render_tier3_implement,
     _total_work_seconds,
     generate_status_report,
     render_compact_status,
@@ -848,88 +847,6 @@ class TestSubphaseBoxEdgeCases:
         lines = _render_subphase_box("p1", "Auth", agents)
         text = "\n".join(lines)
         assert "▶" in text
-
-
-# ---------------------------------------------------------------------------
-# _render_tier3_implement edge cases
-# ---------------------------------------------------------------------------
-
-
-class TestTier3ImplementEdgeCases:
-    """Additional edge cases for _render_tier3_implement."""
-
-    def test_empty_wave_in_middle_skipped(self):
-        """Empty waves (no phase IDs) are skipped."""
-        pipeline = _make_pipeline(
-            plan_phase_waves=[["p1"], [], ["p2"]],
-            plan_phase_names={"p1": "Auth", "p2": "API"},
-        )
-        lines = _render_tier3_implement(pipeline, None, is_current=True)
-        text = "\n".join(lines)
-        assert "Auth" in text
-        assert "API" in text
-
-    def test_not_current_phase(self):
-        """Non-current implement doesn't show >>> marker."""
-        pipeline = _make_pipeline(
-            plan_phase_waves=[["p1"]],
-            plan_phase_names={"p1": "Auth"},
-        )
-        lines = _render_tier3_implement(pipeline, None, is_current=False)
-        text = "\n".join(lines)
-        assert ">>>" not in text
-
-    def test_sequential_then_parallel_then_sequential(self):
-        """Mixed sequential and parallel waves render correctly."""
-        pipeline = _make_pipeline(
-            plan_phase_waves=[["p1"], ["p2", "p3"], ["p4"]],
-            plan_phase_names={
-                "p1": "Setup",
-                "p2": "Auth",
-                "p3": "API",
-                "p4": "Integration",
-            },
-        )
-        lines = _render_tier3_implement(pipeline, None, is_current=True)
-        text = "\n".join(lines)
-
-        assert "Setup" in text
-        assert "Auth" in text
-        assert "API" in text
-        assert "Integration" in text
-        # Fan connectors should appear for the parallel wave
-        assert "┌" in text or "+" in text
-
-    def test_top_level_agents_with_deduplication(self):
-        """Top-level agents with duplicate roles show count."""
-        pipeline = _make_pipeline(
-            plan_phase_waves=[["p1"]],
-            plan_phase_names={"p1": "Auth"},
-        )
-        phase_exec = PhaseExecution(
-            phase=PipelinePhase.IMPLEMENT,
-            status=PipelineStatus.RUNNING,
-            agents=[
-                AgentExecution(
-                    role=AgentRole.CODER,
-                    status=AgentExecutionStatus.COMPLETE,
-                    plan_phase_id="p1",
-                ),
-                AgentExecution(
-                    role=AgentRole.REVIEWER_CONTRACT,
-                    status=AgentExecutionStatus.FAILED,
-                ),
-                AgentExecution(
-                    role=AgentRole.REVIEWER_CONTRACT,
-                    status=AgentExecutionStatus.COMPLETE,
-                ),
-            ],
-        )
-        lines = _render_tier3_implement(pipeline, phase_exec, is_current=True)
-        text = "\n".join(lines)
-        assert "Pipeline agents" in text
-        assert "×2" in text
-        assert text.count("reviewer_contract") == 1
 
 
 # ---------------------------------------------------------------------------
