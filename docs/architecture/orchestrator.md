@@ -88,9 +88,9 @@ See `orchestrator/health_checks/README.md` for the full framework reference, inc
 
 Pipelines can specify an explicit network mode that controls internet access for spawned containers:
 
-- **`public`**: Full internet access (default)
+- **`public`**: Full internet access
 - **`private`**: Network lockdown - Anthropic API + private GitHub repos only (enforced by gateway proxy)
-- **`None`** (auto): Defaults to `public`
+- **`None`** (auto): Auto-detected from repo visibility (see below)
 
 **Setting network mode:**
 
@@ -101,7 +101,10 @@ Pipelines can specify an explicit network mode that controls internet access for
 **How it works:**
 
 1. Network mode is stored in the pipeline model (`orchestrator/models.py:Pipeline.network_mode`)
-2. When spawning containers, the orchestrator uses the pipeline's `network_mode` (if set) to configure the gateway session mode
+2. When spawning containers:
+   - If `network_mode` is explicitly set, the orchestrator uses that value
+   - If not set, the orchestrator queries the gateway for the pipeline's repo visibility (`GatewayClient.get_repo_visibility()`): private/internal repos get `"private"` mode, public repos get `"public"` mode
+   - If no repo is associated with the pipeline, defaults to `"public"`
 3. The gateway enforces network policy based on the session mode (see `gateway/README.md`)
 
 **Special case: PR phase**
