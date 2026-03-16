@@ -2,7 +2,7 @@
 
 Attestations are structured claims that agents include in their proposals
 and reviews. They serve as costly signals — harder to produce without
-actually doing the work — and enable cross-verification by the integrator.
+actually doing the work — and enable cross-verification by reviewers.
 """
 
 from enum import StrEnum
@@ -72,16 +72,6 @@ class ReviewerContractAttestation(BaseModel):
     gaps_identified: list[str] = Field(default_factory=list, description="Gaps found")
 
 
-class CheckerAttestation(BaseModel):
-    """Attestation for checker role ACK/NACK."""
-
-    lint_results: str = Field(default="", description="Lint results summary")
-    type_results: str = Field(default="", description="Type check results")
-    test_results: str = Field(default="", description="Test results summary")
-    auto_fixes: list[str] = Field(default_factory=list, description="Auto-fixes applied")
-    remaining_warnings: list[str] = Field(default_factory=list, description="Remaining warnings")
-
-
 # --- Payload wrappers ---
 
 # Map role names to their attestation model
@@ -94,7 +84,6 @@ PRODUCER_ATTESTATION_MODELS: dict[str, type[BaseModel]] = {
 REVIEWER_ATTESTATION_MODELS: dict[str, type[BaseModel]] = {
     "reviewer_code": ReviewerCodeAttestation,
     "reviewer_contract": ReviewerContractAttestation,
-    "checker": CheckerAttestation,
     "tester": TesterAttestation,  # Tester is also a reviewer
 }
 
@@ -225,6 +214,3 @@ def _validate_strict(role: str, instance: BaseModel, is_producer: bool) -> None:
                 raise ValueError(
                     "Contract reviewer attestation requires at least one task verified in strict mode"
                 )
-        elif role == "checker" and isinstance(instance, CheckerAttestation):
-            if not instance.test_results:
-                raise ValueError("Checker attestation requires test_results in strict mode")

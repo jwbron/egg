@@ -67,7 +67,6 @@ This index helps both humans and LLMs navigate the documentation efficiently.
 | [Orchestrator CLI](reference/orchestrator-cli.md) | Full `egg-orch` command reference for pipelines, phases, decisions, containers |
 | [Checkpoint Browser](reference/checkpoint-browser.md) | Full `egg-checkpoint` command reference for browsing agent session history |
 | [SDLC Contract](reference/sdlc-contract.md) | Full `egg-contract` command reference for tracking tasks, commits, decisions |
-| [Integrator Agent](reference/integrator-agent.md) | Integrator role: attestation verification, cross-referencing artifacts |
 
 ### SDLC Pipeline Templates
 

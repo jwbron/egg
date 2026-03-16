@@ -60,7 +60,6 @@ def map_contract_role_to_agent_role(contract_role: ContractAgentRole) -> AgentRo
         ContractAgentRole.CODER: AgentRole.CODER,
         ContractAgentRole.TESTER: AgentRole.TESTER,
         ContractAgentRole.DOCUMENTER: AgentRole.DOCUMENTER,
-        ContractAgentRole.INTEGRATOR: AgentRole.INTEGRATOR,
         ContractAgentRole.ARCHITECT: AgentRole.ARCHITECT,
         ContractAgentRole.TASK_PLANNER: AgentRole.TASK_PLANNER,
         ContractAgentRole.RISK_ANALYST: AgentRole.RISK_ANALYST,
@@ -79,13 +78,12 @@ def map_agent_role_to_contract_role(agent_role: AgentRole) -> ContractAgentRole 
 
     Returns:
         Corresponding egg_contracts AgentRole, or None if no mapping exists
-        (e.g. REVIEWER, CHECKER roles don't interact with contracts)
+        (e.g. REVIEWER role doesn't interact with contracts)
     """
     mapping = {
         AgentRole.CODER: ContractAgentRole.CODER,
         AgentRole.TESTER: ContractAgentRole.TESTER,
         AgentRole.DOCUMENTER: ContractAgentRole.DOCUMENTER,
-        AgentRole.INTEGRATOR: ContractAgentRole.INTEGRATOR,
         AgentRole.ARCHITECT: ContractAgentRole.ARCHITECT,
         AgentRole.TASK_PLANNER: ContractAgentRole.TASK_PLANNER,
         AgentRole.RISK_ANALYST: ContractAgentRole.RISK_ANALYST,
@@ -212,9 +210,9 @@ class PipelineDispatcher:
             )
 
             # Save outputs if provided — only for contract-mapped roles (CODER,
-            # TESTER, DOCUMENTER, INTEGRATOR). REVIEWER and CHECKER roles don't
-            # have contract counterparts; their verdicts are stored in the
-            # AgentExecution record returned below, not as contract outputs.
+            # TESTER, DOCUMENTER). REVIEWER roles don't have contract
+            # counterparts; their verdicts are stored in the AgentExecution
+            # record returned below, not as contract outputs.
             if outputs:
                 save_agent_output(
                     self.repo_path, contract_role, outputs, identifier=self.contract_key

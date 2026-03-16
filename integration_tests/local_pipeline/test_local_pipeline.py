@@ -535,7 +535,7 @@ class TestReviewCycleApproved:
 
         try:
             start_pipeline(orchestrator_url, pipeline_id)
-            # Longer timeout: 2 reviewers for refine+plan, 4 for implement + checker
+            # Longer timeout: 2 reviewers for refine+plan, 2 for implement
             final = wait_for_pipeline_terminal(orchestrator_url, pipeline_id, timeout=360)
             assert final["data"]["status"] == "complete", (
                 f"Pipeline should complete with approved reviews: {final}"
@@ -620,119 +620,6 @@ class TestFailedPipelineCannotRestart:
             assert start_status == 409, (
                 f"Expected 409 for restarting failed pipeline, got {start_status}: {start_data}"
             )
-
-        finally:
-            delete_pipeline(orchestrator_url, pipeline_id)
-
-
-class TestImplementPhaseReviewed:
-    """Implement phase now gets checker + multi-reviewer cycle.
-
-    Unlike previous behavior where implement was skipped for review,
-    the implement phase now runs:
-    1. Worker (CODER)
-    2. Checker (CHECKER) — runs tests/lint
-    3. Multi-reviewer loop (code, contract for implement; refine, agent-design for refine)
-    """
-
-    def test_implement_phase_gets_reviewed(self, orchestrator_url: str) -> None:
-        """Pipeline completes with implement phase reviewed (checker + reviewers)."""
-        data, status = create_pipeline(
-            orchestrator_url,
-            prompt="Test implement phase review",
-            config={"hitl_gates": False},
-        )
-        assert status == 200
-        pipeline_id = data["data"]["pipeline"]["id"]
-
-        try:
-            start_pipeline(orchestrator_url, pipeline_id)
-            final = wait_for_pipeline_terminal(orchestrator_url, pipeline_id, timeout=360)
-            assert final["data"]["status"] == "complete", (
-                f"Pipeline should complete with implement review: {final}"
-            )
-
-            # Verify implement phase completed (was previously just skipped)
-            get_data, _ = get_pipeline(orchestrator_url, pipeline_id)
-            phases = get_data["data"]["pipeline"].get("phases", {})
-            assert "implement" in phases
-            assert phases["implement"]["status"] == "complete"
-            # No revision cycles (all reviewers approve by default)
-            assert phases["implement"]["review_cycles"] == 0
-
-        finally:
-            delete_pipeline(orchestrator_url, pipeline_id)
-
-
-class TestAutofixLoop:
-    """Checker fails on first attempt, autofix runs, checker passes on retry.
-
-    Uses CHECK_FAIL_THEN_PASS prompt keyword to make the mock checker
-    fail on the first attempt and pass on subsequent attempts. Verifies
-    the autofix loop runs and the pipeline still completes.
-    """
-
-    def test_autofix_loop_recovers(self, orchestrator_url: str) -> None:
-        """Pipeline completes after checker fail → autofix → checker pass."""
-        data, status = create_pipeline(
-            orchestrator_url,
-            prompt="Test CHECK_FAIL_THEN_PASS autofix loop",
-            config={"hitl_gates": False},
-        )
-        assert status == 200
-        pipeline_id = data["data"]["pipeline"]["id"]
-
-        try:
-            start_pipeline(orchestrator_url, pipeline_id)
-            # Extra time: autofix loop adds checker + autofixer containers
-            final = wait_for_pipeline_terminal(orchestrator_url, pipeline_id, timeout=480)
-            assert final["data"]["status"] == "complete", (
-                f"Pipeline should complete after autofix recovery: {final}"
-            )
-            assert final["data"]["current_phase"] == "pr"
-
-            # Verify implement phase completed
-            get_data, _ = get_pipeline(orchestrator_url, pipeline_id)
-            phases = get_data["data"]["pipeline"].get("phases", {})
-            assert "implement" in phases
-            assert phases["implement"]["status"] == "complete"
-
-        finally:
-            delete_pipeline(orchestrator_url, pipeline_id)
-
-
-class TestAutofixCircuitBreaker:
-    """Checker always fails — verify pipeline still advances after max attempts.
-
-    Uses CHECK_FAIL prompt keyword to make the mock checker always fail.
-    The autofix circuit breaker (max 3 attempts) should fire and the
-    pipeline should proceed to review and complete despite check failures.
-    """
-
-    def test_autofix_circuit_breaker_advances(self, orchestrator_url: str) -> None:
-        """Pipeline completes despite persistent check failures."""
-        data, status = create_pipeline(
-            orchestrator_url,
-            prompt="Test CHECK_FAIL autofix circuit breaker",
-            config={"hitl_gates": False},
-        )
-        assert status == 200
-        pipeline_id = data["data"]["pipeline"]["id"]
-
-        try:
-            start_pipeline(orchestrator_url, pipeline_id)
-            # Extra time: max 3 checker + 2 autofixer iterations
-            final = wait_for_pipeline_terminal(orchestrator_url, pipeline_id, timeout=600)
-            assert final["data"]["status"] == "complete", (
-                f"Pipeline should complete via autofix circuit breaker: {final}"
-            )
-            assert final["data"]["current_phase"] == "pr"
-
-            # Verify implement phase completed (graceful degradation)
-            get_data, _ = get_pipeline(orchestrator_url, pipeline_id)
-            phases = get_data["data"]["pipeline"].get("phases", {})
-            assert "implement" in phases
-            assert phases["implement"]["status"] == "complete"
 
         finally:
             delete_pipeline(orchestrator_url, pipeline_id)

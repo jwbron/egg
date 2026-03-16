@@ -1,7 +1,7 @@
 """Tests for multi-agent orchestration.
 
 Tests the orchestration logic for coordinating specialized agents
-(coder, tester, documenter, integrator) during the implement phase.
+(coder, tester, documenter) during the implement phase.
 """
 
 from egg_contracts import (
@@ -35,11 +35,10 @@ class TestDependencyGraph:
     def test_build_graph_all_roles(self):
         """Build graph includes all agent roles."""
         graph = build_dependency_graph()
-        assert len(graph.nodes) == 15
+        assert len(graph.nodes) == 12
         assert AgentRole.CODER in graph.nodes
         assert AgentRole.TESTER in graph.nodes
         assert AgentRole.DOCUMENTER in graph.nodes
-        assert AgentRole.INTEGRATOR in graph.nodes
         assert AgentRole.ARCHITECT in graph.nodes
         assert AgentRole.TASK_PLANNER in graph.nodes
         assert AgentRole.RISK_ANALYST in graph.nodes
@@ -51,11 +50,10 @@ class TestDependencyGraph:
 
         roles = get_roles_for_phase("implement", include_reviewers=False)
         graph = build_dependency_graph(roles)
-        assert len(graph.nodes) == 4
+        assert len(graph.nodes) == 3
         assert AgentRole.CODER in graph.nodes
         assert AgentRole.TESTER in graph.nodes
         assert AgentRole.DOCUMENTER in graph.nodes
-        assert AgentRole.INTEGRATOR in graph.nodes
 
     def test_build_graph_subset(self):
         """Build graph with subset of roles."""
@@ -79,11 +77,9 @@ class TestDependencyGraph:
         coder_idx = sorted_roles.index(AgentRole.CODER)
         tester_idx = sorted_roles.index(AgentRole.TESTER)
         documenter_idx = sorted_roles.index(AgentRole.DOCUMENTER)
-        integrator_idx = sorted_roles.index(AgentRole.INTEGRATOR)
 
         assert coder_idx < tester_idx
         assert coder_idx < documenter_idx
-        assert tester_idx < integrator_idx
 
     def test_compute_waves(self):
         """Compute waves groups implement-phase agents correctly."""
@@ -101,9 +97,6 @@ class TestDependencyGraph:
         assert AgentRole.TESTER in waves[1]
         assert AgentRole.DOCUMENTER in waves[1]
 
-        # Wave 3: integrator
-        assert AgentRole.INTEGRATOR in waves[2]
-
     def test_execution_plan(self):
         """Execution plan has correct structure for implement phase."""
         from egg_contracts.agent_roles import get_roles_for_phase
@@ -111,8 +104,8 @@ class TestDependencyGraph:
         roles = get_roles_for_phase("implement", include_reviewers=False)
         plan = compute_execution_plan(roles)
 
-        assert len(plan) == 3
-        assert plan.total_agents == 4
+        assert len(plan) == 2
+        assert plan.total_agents == 3
 
         wave1 = plan.get_wave(1)
         assert wave1 is not None
@@ -122,10 +115,6 @@ class TestDependencyGraph:
         wave2 = plan.get_wave(2)
         assert wave2 is not None
         assert wave2.is_parallel()
-
-        wave3 = plan.get_wave(3)
-        assert wave3 is not None
-        assert not wave3.is_parallel()
 
 
 class TestOrchestrationState:
@@ -146,8 +135,8 @@ class TestOrchestrationState:
         contract = self._create_test_contract()
         state = initialize_orchestration(contract)
 
-        assert len(state.executions) == 4
-        for role in [AgentRole.CODER, AgentRole.TESTER, AgentRole.DOCUMENTER, AgentRole.INTEGRATOR]:
+        assert len(state.executions) == 3
+        for role in [AgentRole.CODER, AgentRole.TESTER, AgentRole.DOCUMENTER]:
             assert role in state.executions
             assert state.executions[role].status == AgentExecutionStatus.PENDING
 
@@ -214,7 +203,6 @@ class TestOrchestrationState:
         assert AgentRole.CODER not in pending
         assert AgentRole.TESTER in pending
         assert AgentRole.DOCUMENTER in pending
-        assert AgentRole.INTEGRATOR in pending
 
     def test_all_complete(self):
         """Check all complete."""
@@ -273,18 +261,6 @@ class TestRunnableAgents:
 
         assert AgentRole.TESTER in runnable
         assert AgentRole.DOCUMENTER in runnable
-        assert AgentRole.INTEGRATOR not in runnable
-
-    def test_after_tester_complete(self):
-        """After tester completes, integrator can run."""
-        contract = self._create_test_contract()
-        state = initialize_orchestration(contract)
-        state.mark_complete(AgentRole.CODER)
-        state.mark_complete(AgentRole.TESTER)
-
-        runnable = get_runnable_agents(state)
-
-        assert AgentRole.INTEGRATOR in runnable
 
     def test_no_runnable_when_running(self):
         """Running agent is not in runnable list."""
@@ -316,7 +292,7 @@ class TestOrchestrator:
         orch = create_orchestrator(contract)
 
         assert orch.contract is contract
-        assert len(orch.state.executions) == 4
+        assert len(orch.state.executions) == 3
 
     def test_first_dispatch(self):
         """First dispatch selects coder."""
@@ -376,9 +352,9 @@ class TestOrchestrator:
 
         summary = orch.get_status_summary()
 
-        assert summary["total_agents"] == 4
+        assert summary["total_agents"] == 3
         assert summary["completed"] == 1
-        assert summary["pending"] == 3
+        assert summary["pending"] == 2
         assert not summary["all_complete"]
         assert not summary["any_failed"]
 
@@ -390,7 +366,7 @@ class TestOrchestrator:
 
         updated = orch.apply_to_contract()
 
-        assert len(updated.agent_executions) == 4
+        assert len(updated.agent_executions) == 3
         coder_ex = next(ex for ex in updated.agent_executions if ex.role == AgentRoleType.CODER)
         assert coder_ex.status == AgentExecutionStatus.COMPLETE
         assert coder_ex.commit == "abc1234"
@@ -457,7 +433,6 @@ class TestConvenienceFunctions:
 
         assert can_agent_run(AgentRole.TESTER, state)
         assert can_agent_run(AgentRole.DOCUMENTER, state)
-        assert not can_agent_run(AgentRole.INTEGRATOR, state)
 
 
 class TestPlanPhaseRoles:
@@ -474,15 +449,14 @@ class TestPlanPhaseRoles:
         assert AgentRole.RISK_ANALYST in roles
 
     def test_get_roles_for_implement_phase(self):
-        """Get execution roles for implement phase returns coder, tester, documenter, integrator."""
+        """Get execution roles for implement phase returns coder, tester, documenter."""
         from egg_contracts.agent_roles import get_roles_for_phase
 
         roles = get_roles_for_phase("implement", include_reviewers=False)
-        assert len(roles) == 4
+        assert len(roles) == 3
         assert AgentRole.CODER in roles
         assert AgentRole.TESTER in roles
         assert AgentRole.DOCUMENTER in roles
-        assert AgentRole.INTEGRATOR in roles
 
     def test_get_roles_for_unknown_phase_raises(self):
         """Unknown phase raises ValueError."""
@@ -540,14 +514,12 @@ class TestPlanPhaseRoles:
         from egg_contracts.agent_roles import get_roles_for_phase
 
         roles = get_roles_for_phase("implement", include_reviewers=True)
-        assert len(roles) == 7  # 4 implement + 3 reviewers
+        assert len(roles) == 5  # 3 implement + 2 reviewers
         assert AgentRole.CODER in roles
         assert AgentRole.TESTER in roles
         assert AgentRole.DOCUMENTER in roles
-        assert AgentRole.INTEGRATOR in roles
         assert AgentRole.REVIEWER_CODE in roles
         assert AgentRole.REVIEWER_CONTRACT in roles
-        assert AgentRole.CHECKER in roles
 
     def test_default_includes_reviewers(self):
         """Default call to get_roles_for_phase includes reviewer roles."""
@@ -556,8 +528,7 @@ class TestPlanPhaseRoles:
         roles = get_roles_for_phase("implement")
         assert AgentRole.REVIEWER_CODE in roles
         assert AgentRole.REVIEWER_CONTRACT in roles
-        assert AgentRole.CHECKER in roles
-        assert len(roles) == 7  # 4 implement + 3 reviewers
+        assert len(roles) == 5  # 3 implement + 2 reviewers
 
     def test_get_plan_roles_with_reviewers(self):
         """Get plan roles with reviewers included."""
@@ -644,19 +615,19 @@ class TestReviewerRoles:
     """Tests for reviewer agent roles."""
 
     def test_reviewer_roles_in_graph(self):
-        """Reviewer roles depend on integrator."""
+        """Reviewer roles depend on tester."""
         from egg_contracts.agent_roles import get_roles_for_phase
 
         roles = get_roles_for_phase("implement", include_reviewers=True)
         graph = build_dependency_graph(roles)
 
-        # Reviewers should be in a wave after integrator
+        # Reviewers should be in a wave after tester
         waves = graph.compute_waves()
-        assert len(waves) == 4  # coder -> tester+doc -> integrator -> reviewers
+        assert len(waves) == 3  # coder -> tester+doc -> reviewers
 
-        # Wave 4 should be all reviewers
-        assert AgentRole.REVIEWER_CODE in waves[3]
-        assert AgentRole.REVIEWER_CONTRACT in waves[3]
+        # Wave 3 should be all reviewers
+        assert AgentRole.REVIEWER_CODE in waves[2]
+        assert AgentRole.REVIEWER_CONTRACT in waves[2]
 
     def test_reviewer_roles_read_only(self):
         """Reviewer roles have read-only file access."""
@@ -720,7 +691,7 @@ class TestMultiAgentConfig:
         config = MultiAgentConfig()
         assert config.enabled is True
         assert config.parallel_execution is True
-        assert len(config.roles_enabled) == 16  # All roles
+        assert len(config.roles_enabled) == 12  # All roles
         assert len(config.phase_overrides) == 0
 
     def test_phase_override(self):

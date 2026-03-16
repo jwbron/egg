@@ -187,7 +187,7 @@ class TestOrphanedAgentsVisibility:
                 ),
                 # Top-level: no phase_id
                 AgentExecution(
-                    role=AgentRole.INTEGRATOR,
+                    role=AgentRole.DOCUMENTER,
                     status=AgentExecutionStatus.PENDING,
                 ),
             ],
@@ -197,7 +197,7 @@ class TestOrphanedAgentsVisibility:
 
         # Both should be in Pipeline agents box
         assert "tester" in text
-        assert "integrator" in text
+        assert "documenter" in text
         assert "Pipeline agents" in text
 
     def test_all_agents_orphaned_renders_only_top_level(self):
@@ -569,7 +569,7 @@ class TestFullDagWithReviewFixes:
                         ),
                         # Top-level agent
                         AgentExecution(
-                            role=AgentRole.INTEGRATOR,
+                            role=AgentRole.REVIEWER_CODE,
                             status=AgentExecutionStatus.PENDING,
                         ),
                     ],
@@ -582,7 +582,7 @@ class TestFullDagWithReviewFixes:
         assert "coder" in result
         assert "tester" in result
         assert "documenter" in result
-        assert "integrator" in result
+        assert "reviewer_code" in result
         # Orphaned + top-level go to Pipeline agents
         assert "Pipeline agents" in result
 

@@ -562,7 +562,7 @@ def cmd_add_decision(args: argparse.Namespace) -> int:
         return 1
 
 
-VALID_AGENT_ROLES = ["coder", "tester", "documenter", "integrator"]
+VALID_AGENT_ROLES = ["coder", "tester", "documenter"]
 VALID_AGENT_STATUSES = ["pending", "running", "complete", "failed", "skipped", "blocked"]
 
 

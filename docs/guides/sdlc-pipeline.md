@@ -19,7 +19,7 @@ Agents cannot be trusted to self-police via prompts alone. The pipeline enforces
 - **Commit-time validation**: The gateway validates staged files against phase restrictions before allowing `git commit`
 - **Push-time operation filtering**: The gateway blocks operations not permitted in the current phase
 - **Push-target enforcement**: Pipeline agents must push to their assigned branch only—the gateway rejects pushes to any other branch (HTTP 403), preventing agents from improvising branch names on push failure. Killswitch: `PUSH_TARGET_ENFORCEMENT=false`
-- **Agent-role file restrictions**: Each agent role (coder, tester, documenter, integrator, etc.) has allowed and blocked file patterns enforced at push time. Controlled by the `EGG_AGENT_RESTRICTIONS_ENFORCE` environment variable (default: warn-only mode with audit logging; set to `true` to block violating pushes)
+- **Agent-role file restrictions**: Each agent role (coder, tester, documenter, etc.) has allowed and blocked file patterns enforced at push time. Controlled by the `EGG_AGENT_RESTRICTIONS_ENFORCE` environment variable (default: warn-only mode with audit logging; set to `true` to block violating pushes)
 - **Role-based field ownership**: Contract mutations are validated against caller role
 - **Completion signal branch verification**: When an agent signals completion with a commit SHA, the orchestrator verifies the commit exists on the pipeline's expected branch (HTTP 409 on mismatch)
 - **Per-command timeout**: Shell commands in the sandbox are wrapped with a configurable timeout (default 300s) to prevent runaway commands like `grep -rn / ` from hanging the container. Configurable via `BASH_COMMAND_TIMEOUT`
@@ -237,12 +237,11 @@ For Tier 3 (high-complexity) pipelines, the Implement phase is expanded into ind
         │
     ┌──────────────────────┐
     │ ○ Pipeline agents    │
-    │  ○ integrator        │
     │  ○ reviewer_contract │
     └──────────────────────┘
 ```
 
-Each sub-phase box shows its aggregate status, phase name, and agent sequence with per-agent status symbols. Top-level agents (integrator, contract reviewer) that are not scoped to a specific plan phase appear in a separate "Pipeline agents" box after all sub-phases.
+Each sub-phase box shows its aggregate status, phase name, and agent sequence with per-agent status symbols. Top-level agents (contract reviewer) that are not scoped to a specific plan phase appear in a separate "Pipeline agents" box after all sub-phases.
 
 The Tier 3 visualization is driven by two fields on the `Pipeline` model:
 - `plan_phase_waves`: Ordered list of dependency waves, where each wave is a list of plan phase IDs that can run in parallel
@@ -410,7 +409,7 @@ After all phases complete:
 | `shared/egg_contracts/dependency_graph.py` | `PhaseDependencyGraph`, `PhaseWave` — phase-level DAG and wave computation |
 | `shared/egg_contracts/orchestration.py` | Composite key `(phase_id, role)` execution tracking |
 | `shared/egg_contracts/orchestrator.py` | Phase-scoped dispatch via `Orchestrator(contract, phase_id=...)` |
-| `shared/egg_contracts/agent_roles.py` | `get_role_definition(role, complexity_tier=...)` for Tier 3 integrator |
+| `shared/egg_contracts/agent_roles.py` | `get_role_definition(role, complexity_tier=...)` for role definitions |
 | `shared/egg_contracts/models.py` | `Phase.dependencies`, `AgentExecutionModel.phase_id` |
 | `shared/egg_contracts/plan_parser.py` | Dependency normalization in `ParsedPhase.to_contract_phase()` |
 | `orchestrator/models.py` | `ComplexityTier` enum, `PipelineConfig.enable_parallel_phases`, `Pipeline.plan_phase_waves`, `Pipeline.plan_phase_names` |
@@ -656,11 +655,10 @@ Agent prompts include role-appropriate context rather than embedding the full is
 
 **Analysis roles** (architect, task_planner, risk_analyst) receive the full issue body, since they need it for problem understanding and planning.
 
-**Execution roles** (tester, documenter, integrator) receive:
+**Execution roles** (tester, documenter) receive:
 - A 1-2 sentence background summary extracted from the issue title and first paragraph
 - Phase-scoped task details with descriptions, acceptance criteria, and affected files (Tier 3)
-- An implementation summary across all phases (integrator only)
-- One-line orientation summaries of other phases (tester/documenter in Tier 3)
+- One-line orientation summaries of other phases (Tier 3)
 - Checkpoint discovery hints for reviewing prior agent sessions (`egg-checkpoint`)
 - Pointers to full context on demand (`gh issue view`, handoff data, git diff)
 
@@ -721,7 +719,7 @@ To explicitly configure multi-agent mode, use the contract's `multi_agent_config
 {
   "multi_agent_config": {
     "enabled": true,
-    "roles_enabled": ["coder", "tester", "documenter", "integrator"],
+    "roles_enabled": ["coder", "tester", "documenter"],
     "parallel_execution": true
   }
 }
@@ -1004,12 +1002,12 @@ repo_settings:
         command: npm test
 ```
 
-When configured, the implement phase checker+autofixer agent runs these commands sequentially instead of auto-discovering test/lint commands. This is useful when:
+When configured, the implement phase tester agent runs these commands sequentially instead of auto-discovering test/lint commands. This is useful when:
 - Auto-discovery doesn't find the right commands
 - You want to run checks in a specific order
 - You need to run custom validation scripts
 
-If not configured, the checker+autofixer agent falls back to auto-discovery (scanning for Makefile, package.json, pyproject.toml, etc.). See [Configuration](../../config/README.md#per-repo-check-commands) for setup details.
+If not configured, the tester agent falls back to auto-discovery (scanning for Makefile, package.json, pyproject.toml, etc.). See [Configuration](../../config/README.md#per-repo-check-commands) for setup details.
 
 ### Built-in Checks
 
@@ -1145,19 +1143,20 @@ merge-fix ─┬─> lint ──┬─> fixer ─> review
 
 This parallel execution reduces cycle time by running independent checks concurrently. The fixer step allows the agent to attempt automated corrections before requiring human intervention.
 
-### Combined Checker+Autofixer Agent
+### Tester: Tests, Lint, and Auto-Fix
 
-After the coder completes, the pipeline runs a single combined checker+autofixer agent that:
+After the coder completes, the tester agent handles both testing and code quality checks:
 
-1. **Runs all checks** — Discovers and executes test/lint commands (or uses configured commands)
-2. **Fixes issues inline** — Attempts auto-fixable repairs without leaving the session
-3. **Repeats up to 3 times** — Re-runs checks after each fix attempt until all pass or attempts are exhausted
+1. **Writes and runs tests** — Finds gaps in the implementation and creates test coverage
+2. **Runs lint/type checks** — Discovers and executes lint/type-check commands (or uses configured commands)
+3. **Fixes issues inline** — Attempts auto-fixable repairs without leaving the session
+4. **Repeats up to 3 times** — Re-runs checks after each fix attempt until all pass or attempts are exhausted
 
-Running checks and fixes in the same agent session avoids context loss that occurred when separate checker and autofixer containers passed results through intermediate files.
+Combining tests, checks, and fixes in the same agent session avoids context loss.
 
 **Flow:**
 ```
-work → checker+autofixer (run checks → fix → re-run, up to 3x) → review
+work → tester (write tests → run checks → fix → re-run, up to 3x) → review
 ```
 
 ## Implementation Reference
@@ -1269,8 +1268,8 @@ egg-contract add-feedback --question "What is the expected request volume?" --qu
 
 ## Concurrent Execution Mode
 
-Concurrent execution mode enables all agents (coder, tester, documenter, integrator, reviewer_code,
-reviewer_contract, checker) to run simultaneously during the implement phase,
+Concurrent execution mode enables all agents (coder, tester, documenter, reviewer_code,
+reviewer_contract) to run simultaneously during the implement phase,
 collaborating via a polling-based message bus hosted by the orchestrator.
 
 ### Configuration
@@ -1423,10 +1422,6 @@ and avoid conflicts — for example, the coder signals `HANDOFF` when its change
 committed so downstream agents (tester, documenter) know it is safe to pull and build
 on top.
 
-After all concurrent agents reach consensus, the integrator runs in a separate
-(non-concurrent) step to validate integration, run the full test suite, and confirm
-the shared branch is ready for merge.
-
 ### Failure Handling
 
 **Single agent failure**:
@@ -1468,7 +1463,6 @@ Response includes a `concurrent` section:
         "coder": {"state": "READY", "reason": "Implementation complete"},
         "tester": {"state": "WORKING", "reason": null},
         "documenter": {"state": "READY", "reason": "Docs updated"},
-        "checker": {"state": "READY", "reason": "All checks pass"},
         "reviewer_code": {"state": "WORKING", "reason": null},
         "reviewer_contract": {"state": "READY", "reason": "Contract approved"}
       },

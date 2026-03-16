@@ -150,7 +150,7 @@ During the `implement` phase, certain `.egg-state/` subdirectories are mounted r
 | `.egg-state/pipelines/` | Readonly | Writable |
 | `.egg-state/reviews/` | Readonly (except reviewers) | Writable |
 
-**Reviewer exemption**: Reviewer agents (roles starting with `reviewer`, e.g., `reviewer_code`, `reviewer_contract`) are exempted from the `.egg-state/reviews/` readonly mount because they need to write verdict files to that directory. Other implement phase agents (coder, tester, documenter, integrator) still have readonly access.
+**Reviewer exemption**: Reviewer agents (roles starting with `reviewer`, e.g., `reviewer_code`, `reviewer_contract`) are exempted from the `.egg-state/reviews/` readonly mount because they need to write verdict files to that directory. Other implement phase agents (coder, tester, documenter) still have readonly access.
 
 The orchestrator calls `ensure_egg_state_dirs()` before spawning containers to create the required directories (bind mounts require existing source paths) and place `.egg-readonly` marker files explaining the restriction and current phase. Reviewer agents do not receive the `.egg-readonly` marker in the `reviews/` directory. Then `phase_readonly_mounts()` generates the readonly `MountSpec` entries, which are added alongside the existing `.git` shadow mounts. Only directories that exist on the host are mounted (missing directories are skipped). See `shared/egg_container/__init__.py` and `orchestrator/container_spawner.py`.
 
@@ -217,14 +217,12 @@ The orchestrator coordinates specialized agent roles across pipeline phases. Eac
 | Role | Responsibility |
 |------|----------------|
 | **Coder** | Write code, create commits, push branches |
-| **Tester** | Find gaps in implementation, write and run tests |
+| **Tester** | Find gaps in implementation, write and run tests, run lint/type-checks, apply auto-fixes |
 | **Documenter** | Update docs and READMEs |
-| **Checker** | Run linters, formatters, and auto-fixers on code |
-| **Integrator** | Run full test suite, validate integration |
 
-**Execution model (Tier 2)**: Wave-based with dependencies. The coder runs first, then tester and documenter run in parallel (both depend on coder's output). The integrator runs after the coder and tester complete (it does not wait for the documenter).
+**Execution model (Tier 2)**: Wave-based with dependencies. The coder runs first, then tester and documenter run in parallel (both depend on coder's output). Reviewers run after the tester and documenter complete.
 
-**Execution model (Tier 3)**: For high-complexity tasks, each plan phase runs its own implement cycle (Coder → Tester → Documenter → Checker → Code Reviewer). Independent phases can execute in parallel. After all phase cycles complete, the integrator runs with write access to fix cross-phase integration issues.
+**Execution model (Tier 3)**: For high-complexity tasks, each plan phase runs its own implement cycle (Coder → Tester → Documenter → Code Reviewer). Independent phases can execute in parallel.
 
 **Reviewers:**
 - **Code Reviewer**: Security, correctness, code quality, testing, documentation
@@ -232,11 +230,11 @@ The orchestrator coordinates specialized agent roles across pipeline phases. Eac
 
 ### Prompt Context Scoping
 
-Agent prompts are scoped to role-relevant context. Analysis roles (architect, task_planner, risk_analyst) receive the full issue body for problem understanding. Execution roles (tester, documenter, integrator) receive a summarized background with structured task information and pointers to full context on demand. Phase-scoped coders (Tier 3) see the plan overview and current phase tasks, not the full plan. See [SDLC Pipeline Guide: Role-Specific Prompt Context](../guides/sdlc-pipeline.md#role-specific-prompt-context) for details.
+Agent prompts are scoped to role-relevant context. Analysis roles (architect, task_planner, risk_analyst) receive the full issue body for problem understanding. Execution roles (tester, documenter) receive a summarized background with structured task information and pointers to full context on demand. Phase-scoped coders (Tier 3) see the plan overview and current phase tasks, not the full plan. See [SDLC Pipeline Guide: Role-Specific Prompt Context](../guides/sdlc-pipeline.md#role-specific-prompt-context) for details.
 
 ### Reviewer Execution
 
-Reviewers always run as a separate step after all workers (and checkers, if applicable) complete. They spawn in parallel with a configurable concurrency limit (`max_parallel_agents`). In implement phase, reviewers run after the integrator completes. In plan phase, reviewers run after the task planner and risk analyst complete. In refine phase, reviewers run after the refiner completes.
+Reviewers always run as a separate step after all workers complete. They spawn in parallel with a configurable concurrency limit (`max_parallel_agents`). In implement phase, reviewers run after the tester and documenter complete. In plan phase, reviewers run after the task planner and risk analyst complete. In refine phase, reviewers run after the refiner completes.
 
 ### Wave Cycle Safety
 
@@ -350,14 +348,14 @@ EGG_AGENT_ROLE=coder
 
 **Use case:** Multi-agent workflows, complex implementations
 
-**Tier 3 enhancement:** For high-complexity tasks, the distributed mode runs each plan phase through its own implement cycle (Coder → Tester → Agentic Review), with independent phases optionally executing in parallel. After all phase cycles complete, an Integrator with expanded write access merges results and fixes integration issues. The DAG visualization endpoint renders Tier 3 pipelines with expanded sub-phase boxes, arranged by dependency wave with fan-out/fan-in connectors for parallel phases. This is driven by the `Pipeline.plan_phase_waves` and `Pipeline.plan_phase_names` fields, populated at Tier 3 implement start. See [SDLC Pipeline Guide: Tier 3](../../docs/guides/sdlc-pipeline.md#tier-3-phase-level-dispatch) for details.
+**Tier 3 enhancement:** For high-complexity tasks, the distributed mode runs each plan phase through its own implement cycle (Coder → Tester → Agentic Review), with independent phases optionally executing in parallel. The DAG visualization endpoint renders Tier 3 pipelines with expanded sub-phase boxes, arranged by dependency wave with fan-out/fan-in connectors for parallel phases. This is driven by the `Pipeline.plan_phase_waves` and `Pipeline.plan_phase_names` fields, populated at Tier 3 implement start. See [SDLC Pipeline Guide: Tier 3](../../docs/guides/sdlc-pipeline.md#tier-3-phase-level-dispatch) for details.
 
 **Environment:**
 ```bash
 EGG_ORCHESTRATOR_MODE=distributed
 EGG_ORCHESTRATOR_URL=http://172.32.0.3:9849
 EGG_PIPELINE_ID=issue-123
-EGG_AGENT_ROLE=coder  # or tester, documenter, integrator
+EGG_AGENT_ROLE=coder  # or tester, documenter
 ```
 
 ## Component Interaction

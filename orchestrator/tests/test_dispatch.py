@@ -97,7 +97,6 @@ class TestMapAgentRoleToContractRole:
             AgentRole.CODER,
             AgentRole.TESTER,
             AgentRole.DOCUMENTER,
-            AgentRole.INTEGRATOR,
             AgentRole.ARCHITECT,
             AgentRole.TASK_PLANNER,
             AgentRole.RISK_ANALYST,
@@ -114,7 +113,6 @@ class TestMapAgentRoleToContractRole:
         non_contract_roles = [
             AgentRole.REFINER,
             AgentRole.REVIEWER,
-            AgentRole.CHECKER,
             AgentRole.REVIEWER_REFINE,
             AgentRole.REVIEWER_PLAN,
         ]

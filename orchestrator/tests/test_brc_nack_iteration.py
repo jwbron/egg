@@ -43,7 +43,7 @@ def simple_graph():
     return ReviewGraph(
         [
             ReviewEdge("reviewer_code", "coder", ReviewCriticality.CRITICAL),
-            ReviewEdge("checker", "coder", ReviewCriticality.CRITICAL),
+            ReviewEdge("reviewer_contract", "coder", ReviewCriticality.CRITICAL),
         ]
     )
 
@@ -53,7 +53,7 @@ def tracker(simple_graph):
     t = PeerConsensusTracker("test-pipeline", simple_graph, cooldown_seconds=0)
     t.register_agent("coder")
     t.register_agent("reviewer_code")
-    t.register_agent("checker")
+    t.register_agent("reviewer_contract")
     return t
 
 
@@ -95,14 +95,14 @@ class TestEvaluateWithNacks:
 
         # checker ACKs
         tracker.handle_ack(
-            "checker",
+            "reviewer_contract",
             "coder",
             {"artifact_references": ["a.py"]},
         )
 
         # Force agents into _confirmed set (simulating a bug where they
         # confirmed despite NACK)
-        tracker._confirmed = {"coder", "reviewer_code", "checker"}
+        tracker._confirmed = {"coder", "reviewer_code", "reviewer_contract"}
 
         state = tracker.evaluate()
         # Must still be incomplete because reviewer_code NACKed
@@ -118,7 +118,7 @@ class TestEvaluateWithNacks:
             {"artifact_references": ["a.py"], "reason": "bug"},
         )
         tracker.handle_ack(
-            "checker",
+            "reviewer_contract",
             "coder",
             {"artifact_references": ["a.py"]},
         )
@@ -137,7 +137,7 @@ class TestEvaluateWithNacks:
             {"artifact_references": ["a.py"]},
         )
         tracker.handle_ack(
-            "checker",
+            "reviewer_contract",
             "coder",
             {"artifact_references": ["a.py"]},
         )

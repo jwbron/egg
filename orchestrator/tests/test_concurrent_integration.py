@@ -191,14 +191,14 @@ class TestConcurrentMessageExchange:
         def poll_for_role(role):
             return [m for m in messages if m["to_role"] in (role, "all")]
 
-        # Integrator broadcasts status
-        send_message("integrator", "all", "STATUS", "Starting merge")
+        # Coder broadcasts status
+        send_message("coder", "all", "STATUS", "Implementation complete")
 
         # All agents should see it
-        for role in ("coder", "tester", "documenter"):
+        for role in ("tester", "documenter", "reviewer_code"):
             received = poll_for_role(role)
             assert len(received) == 1, f"{role} should receive broadcast"
-            assert received[0]["from_role"] == "integrator"
+            assert received[0]["from_role"] == "coder"
 
 
 class TestConcurrentConsensusFlow:
@@ -214,20 +214,15 @@ class TestConcurrentConsensusFlow:
             "coder": "WORKING",
             "tester": "WORKING",
             "documenter": "WORKING",
-            "integrator": "WORKING",
+            "reviewer_code": "WORKING",
         }
 
         def signal_readiness(role, state, reason=None):
             agent_states[role] = state
 
         def evaluate_consensus():
-            """Phase completes when all non-integrator agents are READY
-            and integrator is READY."""
-            non_integrator_ready = all(
-                agent_states[r] == "READY" for r in ("coder", "tester", "documenter")
-            )
-            integrator_ready = agent_states["integrator"] == "READY"
-            return non_integrator_ready and integrator_ready
+            """Phase completes when all agents are READY."""
+            return all(s == "READY" for s in agent_states.values())
 
         # Initial state: no consensus
         assert not evaluate_consensus()
@@ -242,10 +237,10 @@ class TestConcurrentConsensusFlow:
 
         # Documenter finishes
         signal_readiness("documenter", "READY", "Docs updated")
-        assert not evaluate_consensus()  # Still waiting on integrator
+        assert not evaluate_consensus()  # Still waiting on reviewer_code
 
-        # Integrator merges and signals ready
-        signal_readiness("integrator", "READY", "Merge complete")
+        # Reviewer finishes
+        signal_readiness("reviewer_code", "READY", "Review complete")
         assert evaluate_consensus()
 
     def test_objection_blocks_consensus(self):
@@ -254,7 +249,7 @@ class TestConcurrentConsensusFlow:
             "coder": "READY",
             "tester": "OBJECTING",
             "documenter": "READY",
-            "integrator": "READY",
+            "reviewer_code": "READY",
         }
 
         has_objection = any(s == "OBJECTING" for s in agent_states.values())
@@ -269,7 +264,7 @@ class TestConcurrentConsensusFlow:
             "coder": "READY",
             "tester": "READY",
             "documenter": "READY",
-            "integrator": "WORKING",
+            "reviewer_code": "WORKING",
         }
 
         # Tester discovers an issue after signaling ready
@@ -281,7 +276,7 @@ class TestConcurrentConsensusFlow:
 
         # Tester fixes and re-signals
         agent_states["tester"] = "READY"
-        agent_states["integrator"] = "READY"
+        agent_states["reviewer_code"] = "READY"
         all_ready = all(s == "READY" for s in agent_states.values())
         assert all_ready
 
@@ -291,19 +286,18 @@ class TestConcurrentConsensusFlow:
             "coder": "READY",
             "tester": "BLOCKED",
             "documenter": "READY",
-            "integrator": "READY",
+            "reviewer_code": "READY",
         }
 
         all_ready = all(s == "READY" for s in agent_states.values())
         assert not all_ready
 
-    def test_six_agent_consensus_requires_all_ready(self):
-        """Consensus with 6 agents requires all 6 to be READY."""
+    def test_five_agent_consensus_requires_all_ready(self):
+        """Consensus with 5 agents requires all 5 to be READY."""
         agent_states = {
             "coder": "WORKING",
             "tester": "WORKING",
             "documenter": "WORKING",
-            "checker": "WORKING",
             "reviewer_code": "WORKING",
             "reviewer_contract": "WORKING",
         }
@@ -314,8 +308,8 @@ class TestConcurrentConsensusFlow:
         # Not ready with any agent still WORKING
         assert not evaluate_consensus()
 
-        # Signal 5 of 6 agents READY — still no consensus
-        for role in ("coder", "tester", "documenter", "checker", "reviewer_code"):
+        # Signal 4 of 5 agents READY — still no consensus
+        for role in ("coder", "tester", "documenter", "reviewer_code"):
             agent_states[role] = "READY"
         assert not evaluate_consensus()
 
@@ -324,7 +318,7 @@ class TestConcurrentConsensusFlow:
         assert evaluate_consensus()
 
         # One agent reverts to WORKING — consensus broken
-        agent_states["checker"] = "WORKING"
+        agent_states["reviewer_code"] = "WORKING"
         assert not evaluate_consensus()
 
 
@@ -398,7 +392,7 @@ class TestConcurrentEndToEnd:
             "coder": "WORKING",
             "tester": "WORKING",
             "documenter": "WORKING",
-            "integrator": "WORKING",
+            "reviewer_code": "WORKING",
         }
         phase_complete = False
 
@@ -439,11 +433,11 @@ class TestConcurrentEndToEnd:
 
         signal_ready("tester", "All tests pass")
         signal_ready("documenter", "Documentation complete")
-        assert not check_consensus()  # Integrator still working
+        assert not check_consensus()  # Reviewer still working
 
-        # Step 6: Integrator merges and signals
-        send_msg("integrator", "all", "STATUS", "Starting merge")
-        signal_ready("integrator", "Merge complete, all green")
+        # Step 6: Reviewer finishes and signals
+        send_msg("reviewer_code", "all", "STATUS", "Review complete")
+        signal_ready("reviewer_code", "All code reviewed, looks good")
 
         # Step 7: Consensus reached
         assert check_consensus()
@@ -474,10 +468,8 @@ class TestGetAgentRoles:
         assert AgentRole.CODER in roles
         assert AgentRole.TESTER in roles
         assert AgentRole.DOCUMENTER in roles
-        assert AgentRole.CHECKER in roles
         assert AgentRole.REVIEWER_CODE in roles
         assert AgentRole.REVIEWER_CONTRACT in roles
-        assert AgentRole.INTEGRATOR in roles
 
     def test_returns_refine_phase_roles(self):
         """get_agent_roles returns refine-phase roles when phase is refine."""

@@ -4,7 +4,7 @@ Covers:
 - AgentFilePattern.can_write() pattern matching logic
 - _normalize_path() path traversal prevention
 - _matches_pattern() glob-style matching (prefix, wildcard, **)
-- All 14 agent role permission matrices
+- All 12 agent role permission matrices
 - check_agent_file_access() and validate_agent_push() entry points
 - Blocked patterns taking precedence over allowed patterns (security)
 - Edge cases: empty inputs, unknown roles, many blocked files
@@ -212,22 +212,24 @@ class TestTesterRole:
     def test_can_write_test_dir(self, pattern):
         assert pattern.can_write("tests/test_foo.py") is True
 
-    def test_cannot_write_nested_test_in_blocked_dir(self, pattern):
-        """Tester blocked from gateway/ even for test files (blocked > allowed)."""
-        assert pattern.can_write("gateway/tests/test_gw.py") is False
+    def test_can_write_nested_test_in_gateway(self, pattern):
+        """Tester can write test files in gateway/ (source write access for auto-fix)."""
+        assert pattern.can_write("gateway/tests/test_gw.py") is True
 
-    def test_cannot_write_test_file_in_blocked_dir(self, pattern):
-        """Tester blocked from src/ even for test-named files (blocked > allowed)."""
-        assert pattern.can_write("src/test_module.py") is False
+    def test_can_write_test_file_in_src(self, pattern):
+        """Tester can write test-named files in src/ (source write access for auto-fix)."""
+        assert pattern.can_write("src/test_module.py") is True
 
     def test_can_write_spec_file(self, pattern):
         assert pattern.can_write("components/Button.spec.tsx") is True
 
-    def test_cannot_write_source(self, pattern):
-        assert pattern.can_write("src/app.py") is False
+    def test_can_write_source(self, pattern):
+        """Tester can write source files for auto-fix."""
+        assert pattern.can_write("src/app.py") is True
 
-    def test_cannot_write_gateway(self, pattern):
-        assert pattern.can_write("gateway/gateway.py") is False
+    def test_can_write_gateway(self, pattern):
+        """Tester can write gateway files for auto-fix."""
+        assert pattern.can_write("gateway/gateway.py") is True
 
     def test_cannot_write_docs(self, pattern):
         assert pattern.can_write("docs/guide.md") is False
@@ -266,35 +268,6 @@ class TestDocumenterRole:
 
     def test_can_write_agent_outputs(self, pattern):
         assert pattern.can_write(".egg-state/agent-outputs/doc-out.json") is True
-
-
-class TestIntegratorRole:
-    """Verify integrator agent is read-only except handoff output."""
-
-    @pytest.fixture
-    def pattern(self):
-        return get_agent_pattern(AgentRole.INTEGRATOR)
-
-    def test_can_write_agent_outputs(self, pattern):
-        assert pattern.can_write(".egg-state/agent-outputs/integrator-out.json") is True
-
-    def test_cannot_write_source(self, pattern):
-        assert pattern.can_write("src/app.py") is False
-
-    def test_cannot_write_gateway(self, pattern):
-        assert pattern.can_write("gateway/gateway.py") is False
-
-    def test_cannot_write_tests(self, pattern):
-        assert pattern.can_write("tests/test_foo.py") is False
-
-    def test_cannot_write_docs(self, pattern):
-        assert pattern.can_write("docs/guide.md") is False
-
-    def test_cannot_write_contracts(self, pattern):
-        assert pattern.can_write(".egg-state/contracts/123.json") is False
-
-    def test_cannot_write_github(self, pattern):
-        assert pattern.can_write(".github/workflows/ci.yml") is False
 
 
 class TestArchitectRole:
@@ -392,29 +365,6 @@ class TestReviewerRoles:
     def test_cannot_write_contracts(self, role):
         pattern = get_agent_pattern(role)
         assert pattern.can_write(".egg-state/contracts/123.json") is False
-
-
-class TestCheckerRole:
-    """Verify checker agent can write source files and review outputs."""
-
-    @pytest.fixture
-    def pattern(self):
-        return get_agent_pattern(AgentRole.CHECKER)
-
-    def test_can_write_source(self, pattern):
-        assert pattern.can_write("src/app.py") is True
-
-    def test_can_write_reviews(self, pattern):
-        assert pattern.can_write(".egg-state/reviews/check-results.json") is True
-
-    def test_can_write_agent_outputs(self, pattern):
-        assert pattern.can_write(".egg-state/agent-outputs/checker-out.json") is True
-
-    def test_cannot_write_contracts(self, pattern):
-        assert pattern.can_write(".egg-state/contracts/123.json") is False
-
-    def test_cannot_write_docs(self, pattern):
-        assert pattern.can_write("docs/guide.md") is False
 
 
 class TestRefinerRole:

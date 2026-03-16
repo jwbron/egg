@@ -44,7 +44,6 @@ class AgentRole(StrEnum):
     CODER = "coder"
     TESTER = "tester"
     DOCUMENTER = "documenter"
-    INTEGRATOR = "integrator"
     MY_NEW_AGENT = "my_new_agent"  # Add your role
 ```
 
@@ -215,8 +214,7 @@ by the issue number or pipeline ID to prevent merge conflicts:
 .egg-state/agent-outputs/
 ├── {identifier}-coder-output.json
 ├── {identifier}-tester-output.json
-├── {identifier}-documenter-output.json
-└── {identifier}-integrator-output.json
+└── {identifier}-documenter-output.json
 ```
 
 For example, issue #871 produces `871-coder-output.json`, `871-tester-output.json`, etc.
@@ -276,7 +274,7 @@ Agent prompts are built with role-appropriate context via `_build_role_context()
 
 **Analysis roles** (architect, task_planner, risk_analyst) receive the full issue body in a `## Task Description` section. They need complete context for problem analysis and planning.
 
-**Execution roles** (tester, documenter, integrator, and any new execution agents) receive:
+**Execution roles** (tester, documenter, and any new execution agents) receive:
 - A `## Background` section with a 1-2 sentence summary extracted from the issue
 - A `## Phase Scope` section with task details when running in Tier 3 (descriptions, acceptance criteria, affected files)
 - A `## For More Context` section with pointers to the full issue (`gh issue view`), handoff data, and git diff

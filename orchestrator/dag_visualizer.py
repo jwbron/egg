@@ -126,7 +126,7 @@ def _deduplicate_agents(
 ) -> tuple[list[AgentExecution], dict[str, int]]:
     """Collapse multiple runs of the same role into a single entry.
 
-    When an agent role runs multiple times (e.g., checker retries,
+    When an agent role runs multiple times (e.g., tester retries,
     coder re-runs across review cycles), keep only the latest
     execution per role and track the run count.
 
@@ -312,10 +312,10 @@ def _render_phase_box(
 
     # Build optional agent info lines, grouped by execution wave.
     # Agents that ran multiple times are collapsed into a single entry
-    # with a run count (e.g. "✓ checker ×2").
+    # with a run count (e.g. "✓ tester ×2").
     # For Tier 3, agents with a plan_phase_id are grouped by sub-phase
     # first, then by wave within each sub-phase.  Agents without a
-    # plan_phase_id (e.g. reviewer_contract, integrator) are rendered
+    # plan_phase_id (e.g. reviewer_contract) are rendered
     # after all sub-phase groups.
     agent_lines: list[str] = []
     if agents:
@@ -737,8 +737,8 @@ def _render_tier3_implement(
       into their corresponding sub-phase box.
     - Agents whose ``plan_phase_id`` does not match any wave entry
       (orphaned) are treated as top-level agents so they remain visible.
-    - Agents without a ``plan_phase_id`` (e.g. integrator,
-      reviewer_contract) are rendered in a separate "Pipeline agents"
+    - Agents without a ``plan_phase_id`` (e.g. reviewer_contract)
+      are rendered in a separate "Pipeline agents"
       box after all sub-phases.
 
     Wave rendering:
@@ -845,7 +845,7 @@ def _render_tier3_implement(
             lines.append(f"        {v_line}")
             lines.append(f"        {arrow}")
 
-    # Render top-level agents (integrator, reviewer_contract, etc.) in a separate box
+    # Render top-level agents (reviewer_contract, etc.) in a separate box
     if top_level_agents:
         v_line = "|" if use_ascii else "│"
         arrow = "v" if use_ascii else "▼"

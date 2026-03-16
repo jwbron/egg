@@ -1,6 +1,6 @@
 # Tier 3 Dispatch: Phase-Level Parallel Execution
 
-Tier 3 is the high-complexity execution path for tasks that decompose into multiple largely independent work phases. Instead of a single implement cycle, each plan phase runs its own implement cycle (Coder → Tester → Documenter → Checker → Code Reviewer), and independent phases execute in parallel. After all phase cycles complete, the integrator runs with expanded write access to fix cross-phase integration issues.
+Tier 3 is the high-complexity execution path for tasks that decompose into multiple largely independent work phases. Instead of a single implement cycle, each plan phase runs its own implement cycle (Coder → Tester → Documenter → Code Reviewer), and independent phases execute in parallel.
 
 ## What Tier 3 Is
 
@@ -9,7 +9,7 @@ The pipeline has three complexity tiers:
 | Tier | `complexity_tier` | Description |
 |------|-------------------|-------------|
 | Tier 1 | `low` | Short-circuit: refine signals `short_circuit: true`, skips plan, jumps to implement |
-| Tier 2 | `mid` | Standard wave-based: coder → tester + documenter → integrator → reviewers |
+| Tier 2 | `mid` | Standard wave-based: coder → tester + documenter → reviewers |
 | Tier 3 | `high` | Phase-level dispatch: each plan phase runs its own implement cycle |
 
 Tier 3 is activated when the plan document defines multiple phases with explicit dependency relationships, and the task complexity is assessed as `high`.
@@ -23,7 +23,7 @@ The `complexity_tier` field on the `Pipeline` model (`orchestrator/models.py`) d
 3. If the parsed plan contains multiple phases with non-trivial dependency structure, the orchestrator sets `complexity_tier = "high"` on the pipeline
 4. The `complexity_tier` is stored in pipeline state and passed to the gateway when spawning containers via the `EGG_COMPLEXITY_TIER` environment variable
 
-The gateway's `get_agent_pattern()` function reads this tier to determine which file access rules apply to the integrator role.
+The gateway's `get_agent_pattern()` function reads this tier to determine which file access rules apply per role.
 
 ## Plan Phase Dependency Syntax
 
@@ -128,7 +128,6 @@ Each plan phase in a wave runs its own implement cycle in a sub-worktree branche
 - Coder
 - Tester
 - Documenter
-- Checker
 - Code Reviewer
 
 These agents run in the same dependency-ordered waves as Tier 2, but scoped to the phase's tasks and files.
@@ -139,54 +138,9 @@ These agents run in the same dependency-ordered waves as Tier 2, but scoped to t
 
 **Phase isolation**: Each phase cycle commits to its own sub-branch. Agents in one phase cannot see in-progress uncommitted work from another phase (they see the committed baseline).
 
-## Integrator Role in Tier 3
-
-After all phase cycles complete, the Tier 3 integrator runs with substantially expanded file access compared to the standard Tier 2 integrator.
-
-### File Access: Tier 2 Integrator
-
-The standard integrator can only write to `.egg-state/agent-outputs/`. It is blocked from all source directories.
-
-### File Access: Tier 3 Integrator (`INTEGRATOR_TIER3_PATTERNS`)
-
-The Tier 3 integrator (`gateway/agent_restrictions.py:INTEGRATOR_TIER3_PATTERNS`) has write access to:
-
-| Pattern | Description |
-|---------|-------------|
-| `.egg-state/agent-outputs/` | Handoff output |
-| `src/` | Source code |
-| `lib/` | Library code |
-| `shared/` | Shared modules |
-| `action/` | Action scripts |
-| `docs/` | Documentation |
-| `tests/` | Tests |
-| `test/` | Tests (alternate layout) |
-| `bin/` | Executables |
-| `config/` | Configuration |
-| `scripts/` | Scripts |
-| `orchestrator/` | Orchestrator code |
-| `integration_tests/` | Integration tests |
-
-The Tier 3 integrator is **still blocked** from:
-
-| Pattern | Reason |
-|---------|--------|
-| `.egg-state/contracts/` | Contracts modified via API only |
-| `.github/` | CI configuration is out of scope |
-| `gateway/` | Security-sensitive, out of scope |
-| `sandbox/` | Security-sensitive, out of scope |
-
-The integrator receives the expanded permissions because it must merge and reconcile work from multiple phase cycles that may have introduced incompatible changes.
-
-### How the Tier Is Passed to the Gateway
-
-The `complexity_tier` is passed to the gateway in the spawn configuration. The gateway's `get_agent_pattern(role, complexity_tier)` function returns `INTEGRATOR_TIER3_PATTERNS` when `role == "integrator"` and `complexity_tier == "high"`.
-
-Validation happens at git push time: the gateway checks the files in the commit against the agent's permitted pattern set and rejects pushes that violate the rules.
-
 ## Cleanup
 
-After the Tier 3 integrator completes, `cleanup_phase_worktrees()` in `gateway/worktree_manager.py` removes the per-phase sub-worktrees. The pipeline worktree itself remains until the pipeline is deleted.
+After all phase cycles complete, `cleanup_phase_worktrees()` in `gateway/worktree_manager.py` removes the per-phase sub-worktrees. The pipeline worktree itself remains until the pipeline is deleted.
 
 ## DAG Visualization
 
@@ -195,5 +149,5 @@ The `GET /api/v1/pipelines/{id}/visualization` endpoint renders Tier 3 pipelines
 ## Related Documentation
 
 - [SDLC Pipeline Guide](sdlc-pipeline.md) — Full pipeline operation including Tier 3 detail
-- [Agent Roles Reference](../reference/agent-roles.md) — Integrator and all role permissions
+- [Agent Roles Reference](../reference/agent-roles.md) — All role permissions
 - [Orchestrator Architecture](../architecture/orchestrator.md) — Per-phase worktrees and state management

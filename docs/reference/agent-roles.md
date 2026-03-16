@@ -16,14 +16,11 @@ All agent roles in egg, their responsibilities, phases, file access permissions,
 | `coder` | Implement | No (wave 1) | — |
 | `tester` | Implement | Yes (with `documenter`) | coder |
 | `documenter` | Implement | Yes (with `tester`) | coder |
-| `checker` | Implement | Yes (reviewer, with `reviewer_code`, `reviewer_contract`) | coder |
-| `integrator` | Implement | No | coder, tester |
-| `reviewer_code` | Implement | Yes (with `reviewer_contract`) | integrator |
-| `reviewer_contract` | Implement | Yes (with `reviewer_code`) | integrator |
-| `reviewer_unified` | _(deprecated)_ | — | — |
+| `reviewer_code` | Implement | Yes (with `reviewer_contract`) | coder, tester |
+| `reviewer_contract` | Implement | Yes (with `reviewer_code`) | coder, tester |
 | `inspector` | Any | — | — (health checks) |
 
-Reviewer roles always run as a distinct step after all workers and the integrator complete.
+Reviewer roles always run as a distinct step after all workers complete.
 
 ## Refine Phase
 
@@ -126,7 +123,7 @@ Reviewer roles always run as a distinct step after all workers and the integrato
 
 ### `tester`
 
-**Purpose**: Find gaps in the implementation, write and run tests.
+**Purpose**: Find gaps in the implementation, write and run tests, run linters/type-checkers, and apply auto-fixes.
 
 **File access**:
 - Allowed writes: `tests/`, `test/`, `**/tests/`, `**/test/`, all test file patterns (`**/*_test.py`, `**/test_*.py`, `**/*.test.ts`, etc.), `.egg-state/agent-outputs/`
@@ -137,6 +134,8 @@ Reviewer roles always run as a distinct step after all workers and the integrato
 - `.egg-state/agent-outputs/{identifier}-tester-output.json` — Handoff data
 
 **Prompt context**: Summarized background, coder handoff data, task list.
+
+**Note**: The tester also handles lint/type-check/auto-fix responsibilities that were previously performed by the checker role.
 
 ### `documenter`
 
@@ -151,38 +150,6 @@ Reviewer roles always run as a distinct step after all workers and the integrato
 - `.egg-state/agent-outputs/{identifier}-documenter-output.json` — Handoff data
 
 **Prompt context**: Summarized background, task list, pointers to relevant docs.
-
-### `checker`
-
-**Purpose**: Run linters, formatters, and auto-fixers on the code (sequential mode); evaluate coder output via BRC protocol (concurrent mode).
-
-**File access** (defined as `CHECKER_PATTERNS` in `gateway/agent_restrictions.py`):
-- Allowed writes: `**/*.py`, `**/*.ts`, `**/*.tsx`, `**/*.js`, `**/*.jsx`, `**/*.go`, `**/*.java`, `**/*.rb`, `**/*.rs`, `**/*.sh`, `**/*.yml`, `**/*.yaml`, `**/*.json`, `**/*.toml`, `.egg-state/reviews/`, `.egg-state/agent-outputs/`
-- Blocked: `docs/`, `**/README.md`, `**/*.md`, `.egg-state/contracts/`
-
-In concurrent (BRC) mode, `checker` acts as a reviewer in the implement phase alongside `reviewer_code` and `reviewer_contract`.
-
-**Prompt context**: Summarized background, implementation summary.
-
-### `integrator`
-
-**Purpose**: Run the full test suite, validate integration, and produce a completion signal.
-
-**Tier 2 file access**:
-- Allowed writes: `.egg-state/agent-outputs/` only
-- Blocked: `src/`, `lib/`, `shared/`, `gateway/`, `sandbox/`, `action/`, `docs/`, `tests/`, `test/`, `.egg-state/contracts/`, `.github/`
-
-**Tier 3 file access** (when `complexity_tier == "high"`):
-- Allowed writes: `.egg-state/agent-outputs/`, `src/`, `lib/`, `shared/`, `action/`, `docs/`, `tests/`, `test/`, `bin/`, `config/`, `scripts/`, `orchestrator/`, `integration_tests/`
-- Still blocked: `.egg-state/contracts/`, `.github/`, `gateway/`, `sandbox/`
-
-The Tier 3 expanded access is required because the integrator must merge results from multiple phase cycles and fix cross-phase integration issues.
-
-**Outputs**:
-- `.egg-state/agent-outputs/{identifier}-integrator-output.json` — Handoff data including test results
-- `.egg-state/checks/{identifier}-implement-results.json` — Check results
-
-**Prompt context**: Summarized background, all agent handoff data, check results.
 
 ### `reviewer_code`
 
@@ -219,7 +186,7 @@ Agent prompts are scoped to role-relevant context to avoid unnecessary token usa
 | Role group | Context provided |
 |------------|-----------------|
 | Analysis roles (architect, task_planner, risk_analyst) | Full issue body |
-| Execution roles (tester, documenter, integrator) | Summarized background + structured task info + pointers to full context |
+| Execution roles (tester, documenter) | Summarized background + structured task info + pointers to full context |
 | Tier 3 phase-scoped coders | Plan overview + current phase tasks only (not full multi-phase plan) |
 | Reviewers | Full plan/draft/diff relevant to their review scope |
 
@@ -243,5 +210,5 @@ For the exact allowed and blocked patterns per role, see `gateway/agent_restrict
 ## Related Documentation
 
 - [SDLC Pipeline Guide](../guides/sdlc-pipeline.md) — Phase execution and agent waves
-- [Tier 3 Dispatch Guide](../guides/tier3-dispatch.md) — Integrator Tier 3 permissions
+- [Tier 3 Dispatch Guide](../guides/tier3-dispatch.md) — Phase-level parallel dispatch
 - [Architecture Overview](../architecture/README.md) — Role-based access control

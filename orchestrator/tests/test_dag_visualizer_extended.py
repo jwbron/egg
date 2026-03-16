@@ -315,8 +315,7 @@ class TestRenderPhaseBox:
             AgentExecution(role=AgentRole.CODER, status=AgentExecutionStatus.COMPLETE),
             AgentExecution(role=AgentRole.TESTER, status=AgentExecutionStatus.COMPLETE),
             AgentExecution(role=AgentRole.DOCUMENTER, status=AgentExecutionStatus.COMPLETE),
-            AgentExecution(role=AgentRole.INTEGRATOR, status=AgentExecutionStatus.RUNNING),
-            AgentExecution(role=AgentRole.REVIEWER_CODE, status=AgentExecutionStatus.PENDING),
+            AgentExecution(role=AgentRole.REVIEWER_CODE, status=AgentExecutionStatus.RUNNING),
             AgentExecution(role=AgentRole.REVIEWER_CONTRACT, status=AgentExecutionStatus.PENDING),
         ]
         lines = _render_phase_box(
@@ -331,7 +330,6 @@ class TestRenderPhaseBox:
         assert "coder" in text
         assert "tester" in text
         assert "documenter" in text
-        assert "integrator" in text
         assert "reviewer_code" in text
 
 
@@ -965,21 +963,16 @@ class TestRenderPhaseDetailTier3:
                             status=AgentExecutionStatus.RUNNING,
                             plan_phase_id="p2",
                         ),
-                        AgentExecution(
-                            role=AgentRole.INTEGRATOR,
-                            status=AgentExecutionStatus.PENDING,
-                        ),
                     ],
                 ),
             },
         )
         result = render_phase_detail(pipeline, PipelinePhase.IMPLEMENT)
 
-        assert "Agents (4):" in result
+        assert "Agents (3):" in result
         # All agents should appear, not just unique roles
         assert result.count("coder") == 2
         assert "tester" in result
-        assert "integrator" in result
 
 
 # ---------------------------------------------------------------------------

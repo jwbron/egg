@@ -53,7 +53,6 @@ class TestAgentRoleConsistency:
             AgentRole.CODER,
             AgentRole.TESTER,
             AgentRole.DOCUMENTER,
-            AgentRole.INTEGRATOR,
         }
         shared_values = {r.value for r in SharedAgentRole}
 
@@ -156,24 +155,7 @@ class TestRealAgentPatterns:
         pattern = get_agent_pattern("tester")
         assert pattern is not None
         assert pattern.can_write("tests/test_module.py")
-        # Test files in src/ are blocked because src/ is blocked for tester
-        # (tester shouldn't modify source code directories)
-        assert not pattern.can_write("src/module_test.py")
-
-    def test_integrator_cannot_write_source_or_tests(self):
-        """Integrator should not be able to write source or test files."""
-        pattern = get_agent_pattern("integrator")
-        assert pattern is not None
-        assert not pattern.can_write("src/module.py")
-        assert not pattern.can_write("tests/test.py")
-        assert not pattern.can_write("lib/utils.js")
-
-    def test_integrator_agent_outputs_directory(self):
-        """Integrator should be able to write JSON handoff files to agent outputs."""
-        pattern = get_agent_pattern("integrator")
-        assert pattern is not None
-        assert pattern.can_write(".egg-state/agent-outputs/report.json")
-        assert pattern.can_write(".egg-state/agent-outputs/integrator-output.json")
+        assert pattern.can_write("src/module.py")  # Tester can now write source files for auto-fix
 
 
 class TestValidateAgentPush:

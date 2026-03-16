@@ -477,7 +477,7 @@ def get_repo_checks(repo: str) -> list[dict[str, str]]:
     """Get configured check commands for a repository.
 
     These are the commands to run during the SDLC pipeline implement phase
-    checker step. Each check has a "name" (display label) and "command"
+    test step. Each check has a "name" (display label) and "command"
     (shell command to execute). They run sequentially.
 
     Args:

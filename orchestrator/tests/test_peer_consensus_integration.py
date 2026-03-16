@@ -23,11 +23,10 @@ from review_graph import ReviewCriticality, ReviewEdge, ReviewGraph, get_default
 
 @pytest.fixture
 def simple_graph():
-    """Simple 2-producer, 2-reviewer graph for testing."""
+    """Simple 2-producer, 1-reviewer graph for testing."""
     return ReviewGraph(
         [
             ReviewEdge("reviewer_code", "coder", ReviewCriticality.CRITICAL),
-            ReviewEdge("checker", "coder", ReviewCriticality.CRITICAL),
             ReviewEdge("reviewer_code", "tester", ReviewCriticality.ADVISORY),
         ]
     )
@@ -40,7 +39,6 @@ def tracker(simple_graph):
     t.register_agent("coder")
     t.register_agent("tester")
     t.register_agent("reviewer_code")
-    t.register_agent("checker")
     return t
 
 
@@ -97,23 +95,6 @@ class TestHappyPath:
                 "artifact_references": ["src/auth.py"],
             },
         )
-        assert result["status"] == "acked"
-
-        # checker ACKs coder
-        result = tracker.handle_ack(
-            "checker",
-            "coder",
-            {
-                "attestation": {
-                    "lint_results": "clean",
-                    "type_results": "pass",
-                    "test_results": "20/20 pass",
-                    "auto_fixes": [],
-                    "remaining_warnings": [],
-                },
-                "artifact_references": ["src/auth.py"],
-            },
-        )
         assert result["fully_acked"] is True
 
         # reviewer_code ACKs tester
@@ -134,8 +115,7 @@ class TestHappyPath:
         # All confirm
         tracker.handle_confirmed("coder")
         tracker.handle_confirmed("tester")  # Both producer and reviewer confirmed
-        tracker.handle_confirmed("reviewer_code")
-        result = tracker.handle_confirmed("checker")
+        result = tracker.handle_confirmed("reviewer_code")
 
         assert result["consensus_reached"] is True
 
@@ -157,18 +137,9 @@ class TestNackAndRePropose:
             },
         )
 
-        # reviewer_code ACKs
-        tracker.handle_ack(
-            "reviewer_code",
-            "coder",
-            {
-                "artifact_references": ["src/utils.py"],
-            },
-        )
-
-        # checker NACKs
+        # reviewer_code NACKs
         result = tracker.handle_nack(
-            "checker",
+            "reviewer_code",
             "coder",
             {
                 "artifact_references": ["src/auth.py"],
@@ -188,8 +159,6 @@ class TestNackAndRePropose:
             changed_artifacts=["src/auth.py"],
         )
 
-        # reviewer_code's ACK on utils.py should stand (no overlap)
-        # But we need checker to re-review
         assert result["version"] == 2
 
     def test_nack_reason_required(self, tracker):
@@ -252,12 +221,23 @@ class TestCommitmentDevices:
 class TestTimeoutHandling:
     """Test consensus timeout with critical vs advisory roles."""
 
-    def test_timeout_critical_blocker_escalates(self, tracker):
-        tracker.handle_propose("coder", {"summary": "v1", "artifacts": ["a.py"]})
-        # Only reviewer_code ACKs, checker doesn't
-        tracker.handle_ack("reviewer_code", "coder", {"artifact_references": ["a.py"]})
+    def test_timeout_critical_blocker_escalates(self):
+        graph = ReviewGraph(
+            [
+                ReviewEdge("reviewer_code", "coder", ReviewCriticality.CRITICAL),
+                ReviewEdge("reviewer_contract", "coder", ReviewCriticality.CRITICAL),
+            ]
+        )
+        t = PeerConsensusTracker("test", graph, cooldown_seconds=0)
+        t.register_agent("coder")
+        t.register_agent("reviewer_code")
+        t.register_agent("reviewer_contract")
 
-        result = tracker.handle_timeout()
+        t.handle_propose("coder", {"summary": "v1", "artifacts": ["a.py"]})
+        # Only reviewer_code ACKs, reviewer_contract doesn't
+        t.handle_ack("reviewer_code", "coder", {"artifact_references": ["a.py"]})
+
+        result = t.handle_timeout()
         assert result["action"] == "escalate"
         assert "critical_blockers" in result
 
@@ -265,17 +245,17 @@ class TestTimeoutHandling:
         graph = ReviewGraph(
             [
                 ReviewEdge("reviewer_code", "coder", ReviewCriticality.CRITICAL),
-                ReviewEdge("checker", "coder", ReviewCriticality.ADVISORY),
+                ReviewEdge("reviewer_contract", "coder", ReviewCriticality.ADVISORY),
             ]
         )
         t = PeerConsensusTracker("test", graph, cooldown_seconds=0)
         t.register_agent("coder")
         t.register_agent("reviewer_code")
-        t.register_agent("checker")
+        t.register_agent("reviewer_contract")
 
         t.handle_propose("coder", {"summary": "v1", "artifacts": ["a.py"]})
         t.handle_ack("reviewer_code", "coder", {"artifact_references": ["a.py"]})
-        # checker hasn't ACKed but is advisory
+        # reviewer_contract hasn't ACKed but is advisory
 
         result = t.handle_timeout()
         assert result["action"] == "proceed_with_notification"
@@ -321,7 +301,6 @@ class TestReviewGraph:
         graph = get_default_implement_graph()
         assert "reviewer_code" in graph.reviewers_for("coder")
         assert "reviewer_contract" in graph.reviewers_for("coder")
-        assert "checker" in graph.reviewers_for("coder")
         assert "tester" in graph.reviewers_for("coder")
         assert graph.is_dual_role("tester")
         assert graph.is_producer("coder")
@@ -406,34 +385,33 @@ class TestScaledReEvaluation:
     """
 
     @pytest.fixture
-    def six_agent_graph(self):
-        """6-agent graph: 2 producers, 4 reviewers with cross-review."""
+    def five_agent_graph(self):
+        """5-agent graph: 2 producers, 3 reviewers with cross-review."""
         return ReviewGraph(
             [
                 ReviewEdge("rev_code", "coder", ReviewCriticality.CRITICAL),
                 ReviewEdge("rev_contract", "coder", ReviewCriticality.CRITICAL),
-                ReviewEdge("checker", "coder", ReviewCriticality.CRITICAL),
+                ReviewEdge("rev_extra", "coder", ReviewCriticality.CRITICAL),
                 ReviewEdge("rev_code", "tester", ReviewCriticality.CRITICAL),
                 ReviewEdge("rev_contract", "tester", ReviewCriticality.ADVISORY),
-                ReviewEdge("checker", "tester", ReviewCriticality.ADVISORY),
             ]
         )
 
     @pytest.fixture
-    def six_agent_tracker(self, six_agent_graph):
+    def five_agent_tracker(self, five_agent_graph):
         t = PeerConsensusTracker(
-            "test-scaled", six_agent_graph, cooldown_seconds=0, max_revision_rounds=2
+            "test-scaled", five_agent_graph, cooldown_seconds=0, max_revision_rounds=2
         )
-        for role in ["coder", "tester", "rev_code", "rev_contract", "checker"]:
+        for role in ["coder", "tester", "rev_code", "rev_contract", "rev_extra"]:
             t.register_agent(role)
         return t
 
-    def test_concurrent_nacks_different_producers(self, six_agent_tracker):
+    def test_concurrent_nacks_different_producers(self, five_agent_tracker):
         """Two reviewers NACK two different producers simultaneously.
 
         Each producer should only need re-review from its NACKing reviewer.
         """
-        t = six_agent_tracker
+        t = five_agent_tracker
 
         # Both producers propose
         t.handle_propose("coder", {"summary": "v1", "artifacts": ["src/auth.py"]})
@@ -455,7 +433,7 @@ class TestScaledReEvaluation:
         # Coder's rev_contract and checker ACKs should still be possible
         # (they weren't affected by rev_code's NACK of coder)
         t.handle_ack("rev_contract", "coder", {"artifact_references": ["src/auth.py"]})
-        t.handle_ack("checker", "coder", {"artifact_references": ["src/auth.py"]})
+        t.handle_ack("rev_extra", "coder", {"artifact_references": ["src/auth.py"]})
 
         # Coder re-proposes — only rev_code needs to re-review
         result = t.handle_re_propose(
@@ -467,9 +445,9 @@ class TestScaledReEvaluation:
         # so they get invalidated
         assert result["version"] == 2
 
-    def test_overlapping_artifact_invalidation(self, six_agent_tracker):
+    def test_overlapping_artifact_invalidation(self, five_agent_tracker):
         """Producer re-proposes with artifacts that overlap some reviewers' ACKs."""
-        t = six_agent_tracker
+        t = five_agent_tracker
 
         t.handle_propose(
             "coder", {"summary": "v1", "artifacts": ["src/auth.py", "src/utils.py", "src/db.py"]}
@@ -478,7 +456,7 @@ class TestScaledReEvaluation:
         # Different reviewers ACK referencing different files
         t.handle_ack("rev_code", "coder", {"artifact_references": ["src/auth.py"]})
         t.handle_ack("rev_contract", "coder", {"artifact_references": ["src/db.py"]})
-        t.handle_ack("checker", "coder", {"artifact_references": ["src/utils.py"]})
+        t.handle_ack("rev_extra", "coder", {"artifact_references": ["src/utils.py"]})
 
         # Re-propose changes only auth.py
         invalidated = t.matrix.invalidate_overlapping_acks("coder", ["src/auth.py"])
@@ -486,17 +464,17 @@ class TestScaledReEvaluation:
         # Only rev_code's ACK should be invalidated (referenced auth.py)
         assert "rev_code" in invalidated
         assert "rev_contract" not in invalidated
-        assert "checker" not in invalidated
+        assert "rev_extra" not in invalidated
 
         # Verify states
         assert t.matrix.get_entry("rev_code", "coder").state == ApprovalState.PENDING
         assert t.matrix.get_entry("rev_contract", "coder").state == ApprovalState.ACKED
-        assert t.matrix.get_entry("checker", "coder").state == ApprovalState.ACKED
+        assert t.matrix.get_entry("rev_extra", "coder").state == ApprovalState.ACKED
 
-    def test_cascading_re_propose_preserves_unaffected_acks(self, six_agent_tracker):
+    def test_cascading_re_propose_preserves_unaffected_acks(self, five_agent_tracker):
         """In a 6-agent graph, one producer's re-proposal should not
         invalidate ACKs for a different producer."""
-        t = six_agent_tracker
+        t = five_agent_tracker
 
         # Both producers propose
         t.handle_propose("coder", {"summary": "code v1", "artifacts": ["src/auth.py"]})
@@ -505,12 +483,12 @@ class TestScaledReEvaluation:
         # All reviewers ACK both producers
         t.handle_ack("rev_code", "coder", {"artifact_references": ["src/auth.py"]})
         t.handle_ack("rev_contract", "coder", {"artifact_references": ["src/auth.py"]})
-        t.handle_ack("checker", "coder", {"artifact_references": ["src/auth.py"]})
+        t.handle_ack("rev_extra", "coder", {"artifact_references": ["src/auth.py"]})
         t.handle_ack("rev_code", "tester", {"artifact_references": ["tests/test_auth.py"]})
 
         # Coder gets NACKed by checker and re-proposes
         t.handle_nack(
-            "checker", "coder", {"artifact_references": ["src/auth.py"], "reason": "lint fail"}
+            "rev_extra", "coder", {"artifact_references": ["src/auth.py"], "reason": "lint fail"}
         )
         t.handle_re_propose(
             "coder",
@@ -521,11 +499,11 @@ class TestScaledReEvaluation:
         # Tester's ACKs should be completely unaffected
         assert t.matrix.get_entry("rev_code", "tester").state == ApprovalState.ACKED
 
-    def test_concurrent_nack_and_re_propose_race(self, six_agent_tracker):
+    def test_concurrent_nack_and_re_propose_race(self, five_agent_tracker):
         """One reviewer NACKs while another ACKs the same producer,
         then producer re-proposes. ACK should be preserved if its
         artifacts weren't changed."""
-        t = six_agent_tracker
+        t = five_agent_tracker
 
         t.handle_propose("coder", {"summary": "v1", "artifacts": ["src/auth.py", "src/utils.py"]})
 
@@ -535,7 +513,7 @@ class TestScaledReEvaluation:
         t.handle_ack("rev_contract", "coder", {"artifact_references": ["src/auth.py"]})
         # checker NACKs (referencing auth.py)
         t.handle_nack(
-            "checker",
+            "rev_extra",
             "coder",
             {"artifact_references": ["src/auth.py"], "reason": "injection"},
         )
@@ -601,7 +579,7 @@ class TestScaledReEvaluation:
         assert r2["needs_escalation"] is False
 
     def test_full_implement_graph(self):
-        """Use the default implement graph (7 roles) and run a full
+        """Use the default implement graph (5 roles) and run a full
         propose/review/re-propose cycle to verify no invalidation bugs."""
         graph = get_default_implement_graph()
         t = PeerConsensusTracker("test-full", graph, cooldown_seconds=0)
@@ -629,7 +607,6 @@ class TestScaledReEvaluation:
         t.handle_ack(
             "reviewer_contract", "coder", {"artifact_references": ["src/main.py", "src/utils.py"]}
         )
-        t.handle_ack("checker", "coder", {"artifact_references": ["src/main.py", "src/utils.py"]})
         # tester (dual-role) ACKs coder
         t.handle_ack("tester", "coder", {"artifact_references": ["src/main.py"]})
 
@@ -642,9 +619,9 @@ class TestScaledReEvaluation:
         assert t.matrix.is_fully_acked("tester")
         assert t.matrix.is_fully_acked("documenter")
 
-        # checker NACKs coder on utils.py
+        # reviewer_contract NACKs coder on utils.py
         t.handle_nack(
-            "checker",
+            "reviewer_contract",
             "coder",
             {"artifact_references": ["src/utils.py"], "reason": "type error"},
         )
@@ -662,17 +639,12 @@ class TestScaledReEvaluation:
         assert t.matrix.get_entry("reviewer_code", "coder").state == ApprovalState.ACKED
         # tester ACKed main.py — should be preserved
         assert t.matrix.get_entry("tester", "coder").state == ApprovalState.ACKED
-        # reviewer_contract ACKed main.py AND utils.py — should be invalidated
-        assert t.matrix.get_entry("reviewer_contract", "coder").state == ApprovalState.PENDING
-        assert "reviewer_contract" in result["invalidated_reviewers"]
 
         # Tester and documenter ACKs should be completely unaffected
         assert t.matrix.get_entry("reviewer_code", "tester").state == ApprovalState.ACKED
         assert t.matrix.get_entry("reviewer_code", "documenter").state == ApprovalState.ACKED
 
-        # checker re-reviews and ACKs (NACKing reviewer, needs to re-ACK)
-        t.handle_ack("checker", "coder", {"artifact_references": ["src/utils.py"]})
-        # reviewer_contract re-reviews and ACKs (invalidated, needs to re-ACK)
+        # reviewer_contract re-reviews and ACKs (NACKing reviewer, needs to re-ACK)
         t.handle_ack(
             "reviewer_contract", "coder", {"artifact_references": ["src/main.py", "src/utils.py"]}
         )
@@ -691,7 +663,6 @@ class TestScaledReEvaluation:
             "documenter",
             "reviewer_code",
             "reviewer_contract",
-            "checker",
         ]:
             t.handle_confirmed(role)
 

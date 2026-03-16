@@ -320,8 +320,6 @@ class AgentRoleType(StrEnum):
     CODER = "coder"
     TESTER = "tester"
     DOCUMENTER = "documenter"
-    INTEGRATOR = "integrator"
-    CHECKER = "checker"
     # Plan-phase roles
     ARCHITECT = "architect"
     TASK_PLANNER = "task_planner"
@@ -334,7 +332,6 @@ class AgentRoleType(StrEnum):
     REVIEWER_AGENT_DESIGN = "reviewer_agent_design"
     REVIEWER_REFINE = "reviewer_refine"
     REVIEWER_PLAN = "reviewer_plan"
-    REVIEWER_UNIFIED = "reviewer_unified"  # Vestigial: kept for backwards compatibility with persisted pipeline state
 
 
 class AgentExecutionModel(BaseModel):

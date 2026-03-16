@@ -45,7 +45,7 @@ class SessionMetadata(BaseModel):
     )
     agent_role: str | None = Field(
         default=None,
-        description="Agent role (e.g., coder, tester, documenter, integrator)",
+        description="Agent role (e.g., coder, tester, documenter)",
     )
     started_at: datetime = Field(..., description="When session started")
     ended_at: datetime | None = Field(default=None, description="When session ended")
@@ -158,13 +158,11 @@ class AgentType(StrEnum):
     CODER = "coder"
     TESTER = "tester"
     DOCUMENTER = "documenter"
-    INTEGRATOR = "integrator"
     REVIEWER = "reviewer"
     ARCHITECT = "architect"
     TASK_PLANNER = "task_planner"
     RISK_ANALYST = "risk_analyst"
     REFINER = "refiner"
-    CHECKER = "checker"
     UNKNOWN = "unknown"
 
 

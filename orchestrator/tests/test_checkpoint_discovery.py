@@ -2,7 +2,7 @@
 Tests for checkpoint discovery hints in pipeline prompts.
 
 Validates that egg-checkpoint CLI references are correctly injected into
-agent prompts for tester, documenter, integrator, and coder (revision) roles.
+agent prompts for tester, documenter, and coder (revision) roles.
 See issue #887.
 """
 
@@ -36,11 +36,6 @@ class TestRoleContextCheckpointPointer:
     def test_documenter_has_checkpoint_pointer(self):
         """Documenter context includes egg-checkpoint pointer."""
         result = _build_role_context("documenter", "# Issue\n\nBody.", issue_number=1)
-        assert "egg-checkpoint context --pipeline $EGG_PIPELINE_ID" in result
-
-    def test_integrator_has_checkpoint_pointer(self):
-        """Integrator context includes egg-checkpoint pointer."""
-        result = _build_role_context("integrator", "# Issue\n\nBody.", issue_number=1)
         assert "egg-checkpoint context --pipeline $EGG_PIPELINE_ID" in result
 
     def test_checkpoint_pointer_mentions_checkpoint_rule(self):
@@ -123,19 +118,6 @@ class TestAgentPromptCheckpointHints:
         )
         assert "egg-checkpoint context --pipeline $EGG_PIPELINE_ID --files" in result
 
-    def test_integrator_prompt_has_context_and_cost_commands(self):
-        """Integrator prompt includes both context and cost checkpoint commands."""
-        result = _build_agent_prompt(
-            role_value="integrator",
-            phase="implement",
-            pipeline_id="pid-1",
-            pipeline_mode="issue",
-            prompt="# Feature\n\nDetail.",
-            issue_number=1,
-        )
-        assert "egg-checkpoint context --pipeline $EGG_PIPELINE_ID --files" in result
-        assert "egg-checkpoint cost --pipeline $EGG_PIPELINE_ID" in result
-
     def test_architect_prompt_has_no_checkpoint_commands(self):
         """Architect prompt does not include checkpoint discovery hints."""
         result = _build_agent_prompt(
@@ -210,25 +192,6 @@ class TestAgentPromptCheckpointHints:
         )
         assert "egg-checkpoint context --pipeline $EGG_PIPELINE_ID --files" in result
 
-    def test_integrator_with_all_phases_still_gets_checkpoint_hint(self):
-        """Integrator with all_phases still gets checkpoint hints."""
-        p1 = MagicMock()
-        p1.id = "phase-1"
-        p1.name = "Core"
-        p1.tasks = []
-        p1.status = "complete"
-
-        result = _build_agent_prompt(
-            role_value="integrator",
-            phase="implement",
-            pipeline_id="pid-1",
-            pipeline_mode="issue",
-            prompt="# Feature",
-            issue_number=1,
-            all_phases=[p1],
-        )
-        assert "egg-checkpoint context --pipeline $EGG_PIPELINE_ID --files" in result
-        assert "egg-checkpoint cost --pipeline $EGG_PIPELINE_ID" in result
 
 
 # ---------------------------------------------------------------------------
@@ -384,7 +347,7 @@ class TestCheckpointHintsEndToEnd:
 
     def test_all_execution_roles_get_general_checkpoint_pointer(self):
         """All execution roles get the general checkpoint pointer in context."""
-        for role in ("tester", "documenter", "integrator"):
+        for role in ("tester", "documenter"):
             result = _build_agent_prompt(
                 role_value=role,
                 phase="implement",
@@ -429,22 +392,6 @@ class TestCheckpointHintsEndToEnd:
         assert "egg-checkpoint context --pipeline $EGG_PIPELINE_ID" in result
         # Specific command (note: same command in both, but appears in different sections)
         assert "egg-checkpoint context --pipeline $EGG_PIPELINE_ID --files" in result
-
-    def test_integrator_gets_both_general_and_specific_checkpoint_hints(self):
-        """Integrator gets the general pointer plus context+cost commands."""
-        result = _build_agent_prompt(
-            role_value="integrator",
-            phase="implement",
-            pipeline_id="pid-1",
-            pipeline_mode="issue",
-            prompt="# Feature\n\nDetail.",
-            issue_number=1,
-        )
-        # General pointer
-        assert "egg-checkpoint context --pipeline $EGG_PIPELINE_ID" in result
-        # Specific commands
-        assert "egg-checkpoint context --pipeline $EGG_PIPELINE_ID --files" in result
-        assert "egg-checkpoint cost --pipeline $EGG_PIPELINE_ID" in result
 
     def test_no_analysis_roles_get_checkpoint_hints(self):
         """No analysis role gets any checkpoint hint."""

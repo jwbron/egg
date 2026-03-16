@@ -4,7 +4,7 @@ Devserver lifecycle manager for deployment validation.
 Manages the full lifecycle of a target application's devserver stack
 during the check phase: extracting compose config from committed state,
 generating override mounts for agent-modified code, creating an air-gapped
-network, starting/stopping the stack, and attaching the sandbox checker.
+network, starting/stopping the stack, and attaching the sandbox tester.
 
 The orchestrator (which has Docker socket access) drives this module.
 The sandbox never gets Docker socket access — it only makes HTTP requests
@@ -138,7 +138,7 @@ class DevserverManager:
     - Generating a compose override with read-only agent code mounts
     - Creating an air-gapped egg-check network
     - Starting and stopping the docker-compose stack
-    - Attaching the sandbox (checker) to the network
+    - Attaching the sandbox (tester) to the network
     """
 
     def __init__(
@@ -369,7 +369,7 @@ class DevserverManager:
     def _create_scoped_network(self, service_name: str) -> str:
         """Create a per-service scoped network for inter-container isolation.
 
-        Each service gets its own internal bridge so the checker can only
+        Each service gets its own internal bridge so the tester can only
         reach services under test, not database emulators or caches directly.
 
         Args:
@@ -906,14 +906,14 @@ class DevserverManager:
         sandbox_container_id: str,
         service_names: list[str] | None = None,
     ) -> None:
-        """Attach the sandbox (checker) container to the egg-check network.
+        """Attach the sandbox (tester) container to the egg-check network.
 
         After attachment, the sandbox can reach devserver services by
         container name on the egg-check network.
 
         Args:
             sandbox_container_id: Docker container ID of the sandbox.
-            service_names: Optional list of specific services the checker
+            service_names: Optional list of specific services the tester
                 should reach. Currently attaches to the main egg-check
                 network (full access); per-service scoping is available
                 via scoped networks.
@@ -925,14 +925,14 @@ class DevserverManager:
             self._attached_containers.append(sandbox_container_id)
 
             logger.info(
-                "Attached checker to check network",
+                "Attached tester to check network",
                 container_id=sandbox_container_id[:12],
                 network=self._network_name,
             )
 
         except Exception as e:
             raise NetworkError(
-                f"Failed to attach checker {sandbox_container_id[:12]} "
+                f"Failed to attach tester {sandbox_container_id[:12]} "
                 f"to network '{self._network_name}': {e}"
             ) from e
 

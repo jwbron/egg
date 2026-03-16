@@ -289,7 +289,7 @@ def _configure_repo_checks(writable_repos: list[str]) -> dict[str, Any]:
     """Prompt for per-repo check commands (test/lint) for the SDLC pipeline.
 
     For each writable repo, asks whether the user wants to configure explicit
-    check commands.  When configured, the SDLC pipeline checker step runs
+    check commands.  When configured, the SDLC pipeline test step runs
     these commands instead of auto-discovering them.
 
     Args:

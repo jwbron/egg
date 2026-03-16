@@ -7,7 +7,6 @@ Covers:
 - Phase dependency graph integration
 - Fallback to standard multi-agent when no phases exist
 - Review verdict handling and retry logic
-- Integrator runs after all phases complete
 """
 
 from __future__ import annotations
@@ -142,9 +141,9 @@ class TestRunTier3ImplementSequential:
         )
 
         assert exit_code == 0
-        # Should have called spawn for: coder + tester + documenter + checker + reviewer
-        # for each of 2 phases plus integrator at the end = 2 * 5 + 1 = 11
-        assert mock_spawn.call_count == 11
+        # Should have called spawn for: coder + tester + documenter + tester (check+fix) + reviewer
+        # for each of 2 phases = 2 * 5 = 10
+        assert mock_spawn.call_count == 10
 
     @patch("pipelines._spawn_and_wait")
     @patch("pipelines._read_review_verdict")
@@ -255,8 +254,8 @@ class TestRunTier3ImplementSequential:
         mock_contract_exists.assert_called_once_with(42, tmp_path)
         mock_load_from_branch.assert_called_once_with(42, tmp_path, branch="egg/test-pipeline/work")
         mock_save_contract.assert_called_once()
-        # Should proceed with Tier 3 (1 phase * 5 agents + integrator = 6)
-        assert mock_spawn.call_count == 6
+        # Should proceed with Tier 3 (1 phase * 5 agents = 5: coder + tester + documenter + tester check+fix + reviewer)
+        assert mock_spawn.call_count == 5
 
     @patch("egg_contracts.loader.load_contract_from_branch")
     @patch("egg_contracts.loader.contract_exists")
@@ -368,11 +367,10 @@ class TestRunTier3ImplementSequential:
         )
 
         assert exit_code == 0
-        # retry=0: coder + tester + documenter + checker + reviewer = 5
-        # retry=1: coder + tester + documenter + checker + reviewer = 5
-        # integrator = 1
-        # total = 11
-        assert mock_spawn.call_count == 11
+        # retry=0: coder + tester + documenter + tester(check+fix) + reviewer = 5
+        # retry=1: coder + tester + documenter + tester(check+fix) + reviewer = 5
+        # total = 10
+        assert mock_spawn.call_count == 10
 
     @patch("pipelines._spawn_and_wait")
     @patch("pipelines._read_review_verdict")
@@ -412,96 +410,6 @@ class TestRunTier3ImplementSequential:
         coder_call = mock_spawn.call_args_list[0]
         env = coder_call[1].get("sandbox_env", coder_call[0][7] if len(coder_call[0]) > 7 else {})
         assert env.get("EGG_PLAN_PHASE_ID") == "phase-1"
-
-    @patch("pipelines._spawn_and_wait")
-    @patch("pipelines._read_review_verdict")
-    @patch("pipelines._read_last_review_feedback")
-    @patch("pipelines._read_phase_draft")
-    def test_integrator_runs_after_all_phases(
-        self,
-        mock_read_draft,
-        mock_read_feedback,
-        mock_read_verdict,
-        mock_spawn,
-        tmp_path: Path,
-    ):
-        """Integrator runs after all phase cycles complete."""
-        self._make_contract_with_phases(tmp_path, phase_count=2)
-        mock_spawn.return_value = (0, "logs")
-        mock_read_verdict.return_value = ReviewVerdict(verdict="approved")
-        mock_read_feedback.return_value = None
-        mock_read_draft.return_value = None
-
-        pipeline = self._make_pipeline()
-
-        exit_code, logs = self._run(
-            pipeline_id="test-pipeline",
-            pipeline=pipeline,
-            spawner=MagicMock(),
-            repo_volumes={},
-            gateway_mode="public",
-            repos=["owner/repo"],
-            sandbox_env={},
-            store=MagicMock(),
-            certs_volume=None,
-            worktree_repo_path=tmp_path,
-        )
-
-        assert exit_code == 0
-        # Last spawn call should be for the integrator
-        last_call = mock_spawn.call_args_list[-1]
-        # Check agent_role is INTEGRATOR
-        agent_role = last_call[1].get(
-            "agent_role", last_call[0][2] if len(last_call[0]) > 2 else None
-        )
-        from models import AgentRole
-
-        assert agent_role == AgentRole.INTEGRATOR
-
-    @patch("pipelines._spawn_and_wait")
-    @patch("pipelines._read_review_verdict")
-    @patch("pipelines._read_last_review_feedback")
-    @patch("pipelines._read_phase_draft")
-    def test_integrator_failure_returns_error(
-        self,
-        mock_read_draft,
-        mock_read_feedback,
-        mock_read_verdict,
-        mock_spawn,
-        tmp_path: Path,
-    ):
-        """Integrator failure returns exit code 1."""
-        self._make_contract_with_phases(tmp_path, phase_count=1)
-        # Phase agents succeed, integrator fails
-        mock_spawn.side_effect = [
-            (0, "coder logs"),  # coder
-            (0, "tester logs"),  # tester
-            (0, "documenter logs"),  # documenter
-            (0, "checker logs"),  # checker
-            (0, "review logs"),  # reviewer
-            (1, "integrator fail"),  # integrator
-        ]
-        mock_read_verdict.return_value = ReviewVerdict(verdict="approved")
-        mock_read_feedback.return_value = None
-        mock_read_draft.return_value = None
-
-        pipeline = self._make_pipeline()
-
-        exit_code, logs = self._run(
-            pipeline_id="test-pipeline",
-            pipeline=pipeline,
-            spawner=MagicMock(),
-            repo_volumes={},
-            gateway_mode="public",
-            repos=["owner/repo"],
-            sandbox_env={},
-            store=MagicMock(),
-            certs_volume=None,
-            worktree_repo_path=tmp_path,
-        )
-
-        assert exit_code == 1
-        assert "integrator fail" in logs
 
     @patch("pipelines._spawn_and_wait")
     @patch("pipelines._read_review_verdict")
@@ -731,8 +639,8 @@ class TestRunTier3ImplementParallel:
         )
 
         assert exit_code == 0
-        # 2 phases * 5 agents (coder+tester+documenter+checker+reviewer) + 1 integrator = 11
-        assert mock_spawn.call_count == 11
+        # 2 phases * 5 agents (coder+tester+documenter+tester check+fix+reviewer) = 10
+        assert mock_spawn.call_count == 10
 
     def _make_diamond_phases(self, tmp_path: Path):
         """Create contract with diamond dependency pattern."""
@@ -786,7 +694,7 @@ class TestRunTier3ImplementParallel:
         mock_spawn,
         tmp_path: Path,
     ):
-        """Diamond dependency pattern: all 4 phases + integrator complete."""
+        """Diamond dependency pattern: all 4 phases complete."""
         self._make_diamond_phases(tmp_path)
         mock_spawn.return_value = (0, "logs")
         mock_read_verdict.return_value = ReviewVerdict(verdict="approved")
@@ -809,8 +717,8 @@ class TestRunTier3ImplementParallel:
         )
 
         assert exit_code == 0
-        # 4 phases * 5 agents (coder+tester+documenter+checker+reviewer) + 1 integrator = 21
-        assert mock_spawn.call_count == 21
+        # 4 phases * 5 agents (coder+tester+documenter+tester check+fix+reviewer) = 20
+        assert mock_spawn.call_count == 20
 
 
 class TestReadReviewVerdict:
@@ -1047,7 +955,7 @@ class TestRetryExhaustion:
         )
 
         assert exit_code == 1
-        # 3 cycles (0, 1, 2) * 5 agents (coder, tester, documenter, checker, reviewer) = 15
+        # 3 cycles (0, 1, 2) * 5 agents (coder, tester, documenter, tester check+fix, reviewer) = 15
         assert mock_spawn.call_count == 15
 
 
@@ -1161,6 +1069,6 @@ class TestCancelEventParallelCancellation:
         assert exit_code == 1
         # The failing phase spawned 1 coder. The sibling may have spawned
         # its coder concurrently, but should not proceed past tester/documenter/
-        # checker/reviewer once cancel_event is set. Total spawns should be
+        # reviewer once cancel_event is set. Total spawns should be
         # less than the full 10 (2 phases * 5 agents).
         assert mock_spawn.call_count < 10

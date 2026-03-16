@@ -491,10 +491,8 @@ class TestAgentRole:
         roles = list(AgentRole)
         assert AgentRole.CODER in roles
         assert AgentRole.REVIEWER in roles
-        assert AgentRole.CHECKER in roles
         assert AgentRole.TESTER in roles
         assert AgentRole.DOCUMENTER in roles
-        assert AgentRole.INTEGRATOR in roles
         assert AgentRole.ARCHITECT in roles
         assert AgentRole.TASK_PLANNER in roles
         assert AgentRole.RISK_ANALYST in roles
@@ -505,42 +503,11 @@ class TestAgentRole:
         assert AgentRole.REVIEWER_AGENT_DESIGN in roles
         assert AgentRole.REVIEWER_REFINE in roles
         assert AgentRole.REVIEWER_PLAN in roles
-        assert AgentRole.REVIEWER_UNIFIED in roles
-        assert len(roles) == 17
+        assert len(roles) == 14
 
 
 class TestBackwardCompatibility:
     """Tests for backward compatibility with removed enum values."""
-
-    def test_reviewer_unified_deserializes(self):
-        """Old pipeline state with reviewer_unified agent role deserializes without error."""
-        import json as json_mod
-
-        raw = json_mod.dumps(
-            {
-                "id": "issue-100",
-                "issue_number": 100,
-                "repo": "owner/repo",
-                "branch": "egg/issue-100",
-                "mode": "issue",
-                "status": "running",
-                "current_phase": "implement",
-                "phases": {
-                    "implement": {
-                        "phase": "implement",
-                        "status": "running",
-                        "agents": [
-                            {
-                                "role": "reviewer_unified",
-                                "status": "complete",
-                            }
-                        ],
-                    }
-                },
-            }
-        )
-        pipeline = Pipeline.model_validate_json(raw)
-        assert pipeline.phases["implement"].agents[0].role == AgentRole.REVIEWER_UNIFIED
 
     def test_decision_timeout_still_valid(self):
         """Ensure the existing vestigial DecisionStatus.TIMEOUT still works."""

@@ -669,7 +669,6 @@ class TestWaveGrouping:
                     AgentExecution(role=AgentRole.CODER, status=AgentExecutionStatus.COMPLETE),
                     AgentExecution(role=AgentRole.TESTER, status=AgentExecutionStatus.COMPLETE),
                     AgentExecution(role=AgentRole.DOCUMENTER, status=AgentExecutionStatus.COMPLETE),
-                    AgentExecution(role=AgentRole.INTEGRATOR, status=AgentExecutionStatus.COMPLETE),
                     AgentExecution(
                         role=AgentRole.REVIEWER_CODE, status=AgentExecutionStatus.RUNNING
                     ),
@@ -686,22 +685,17 @@ class TestWaveGrouping:
         agent_lines = [
             line.strip()
             for line in lines
-            if "coder" in line or "tester" in line or "integrator" in line or "reviewer" in line
+            if "coder" in line or "tester" in line or "reviewer" in line
         ]
 
         # Coder should be on its own line (wave 1)
         assert any(
-            "coder" in line and "tester" not in line and "integrator" not in line
+            "coder" in line and "tester" not in line
             for line in agent_lines
         )
         # Tester and documenter should be on the same line (wave 2)
         assert any("tester" in line and "documenter" in line for line in agent_lines)
-        # Integrator should be on its own line (wave 3)
-        assert any(
-            "integrator" in line and "coder" not in line and "reviewer" not in line
-            for line in agent_lines
-        )
-        # Reviewers should be after integrator (wave 4)
+        # Reviewers should appear
         assert any("reviewer_code" in line for line in agent_lines)
 
     def test_plan_phase_wave_order(self):
@@ -747,43 +741,13 @@ class TestWaveGrouping:
             AgentExecution(role=AgentRole.CODER, status=AgentExecutionStatus.COMPLETE),
             AgentExecution(role=AgentRole.TESTER, status=AgentExecutionStatus.COMPLETE),
             AgentExecution(role=AgentRole.DOCUMENTER, status=AgentExecutionStatus.COMPLETE),
-            AgentExecution(role=AgentRole.INTEGRATOR, status=AgentExecutionStatus.RUNNING),
         ]
         waves = _compute_wave_order(PipelinePhase.IMPLEMENT, agents)
 
-        assert len(waves) == 3  # coder, tester+doc, integrator
+        assert len(waves) == 2  # coder, tester+doc
         assert len(waves[0]) == 1  # coder
         assert waves[0][0].role == AgentRole.CODER
         assert len(waves[1]) == 2  # tester + documenter
-        assert len(waves[2]) == 1  # integrator
-
-    def test_compute_wave_order_implement_with_checker(self):
-        """CHECKER is placed after CODER in implement phase wave ordering."""
-        agents = [
-            AgentExecution(role=AgentRole.CODER, status=AgentExecutionStatus.COMPLETE),
-            AgentExecution(role=AgentRole.TESTER, status=AgentExecutionStatus.COMPLETE),
-            AgentExecution(role=AgentRole.DOCUMENTER, status=AgentExecutionStatus.COMPLETE),
-            AgentExecution(role=AgentRole.CHECKER, status=AgentExecutionStatus.RUNNING),
-            AgentExecution(role=AgentRole.REVIEWER_CODE, status=AgentExecutionStatus.RUNNING),
-            AgentExecution(role=AgentRole.REVIEWER_CONTRACT, status=AgentExecutionStatus.PENDING),
-        ]
-        waves = _compute_wave_order(PipelinePhase.IMPLEMENT, agents)
-
-        # Find which wave CHECKER is in
-        checker_wave = None
-        coder_wave = None
-        for i, wave in enumerate(waves):
-            for agent in wave:
-                if agent.role == AgentRole.CHECKER:
-                    checker_wave = i
-                if agent.role == AgentRole.CODER:
-                    coder_wave = i
-
-        assert checker_wave is not None, "CHECKER should be in a wave"
-        assert coder_wave is not None, "CODER should be in a wave"
-        assert checker_wave > coder_wave, (
-            f"CHECKER wave ({checker_wave}) should be after CODER wave ({coder_wave})"
-        )
 
     def test_compute_wave_order_unknown_phase_falls_back(self):
         """Phases without defined roles fall back to a single group."""
@@ -1092,12 +1056,11 @@ class TestNonGraphAgentOrdering:
     """Tests for non-graph agent placement relative to reviewers in the DAG."""
 
     def test_non_graph_agent_before_reviewers_in_implement(self):
-        """Non-graph agents appear between integrator and reviewers."""
+        """Non-graph agents appear before reviewers."""
         agents = [
             AgentExecution(role=AgentRole.CODER, status=AgentExecutionStatus.COMPLETE),
             AgentExecution(role=AgentRole.TESTER, status=AgentExecutionStatus.COMPLETE),
             AgentExecution(role=AgentRole.DOCUMENTER, status=AgentExecutionStatus.COMPLETE),
-            AgentExecution(role=AgentRole.INTEGRATOR, status=AgentExecutionStatus.COMPLETE),
             AgentExecution(role=AgentRole.REFINER, status=AgentExecutionStatus.COMPLETE),
             AgentExecution(role=AgentRole.REVIEWER_CONTRACT, status=AgentExecutionStatus.RUNNING),
             AgentExecution(role=AgentRole.REVIEWER_CODE, status=AgentExecutionStatus.RUNNING),
@@ -1120,30 +1083,29 @@ class TestNonGraphAgentOrdering:
             f"Non-graph agent wave ({refiner_wave}) should precede reviewer wave ({reviewer_wave})"
         )
 
-    def test_non_graph_agent_after_integrator_in_implement(self):
-        """Non-graph agent appears after the integrator wave."""
+    def test_non_graph_agent_after_producers_in_implement(self):
+        """Non-graph agent appears after the producer waves."""
         agents = [
             AgentExecution(role=AgentRole.CODER, status=AgentExecutionStatus.COMPLETE),
             AgentExecution(role=AgentRole.TESTER, status=AgentExecutionStatus.COMPLETE),
             AgentExecution(role=AgentRole.DOCUMENTER, status=AgentExecutionStatus.COMPLETE),
-            AgentExecution(role=AgentRole.INTEGRATOR, status=AgentExecutionStatus.COMPLETE),
             AgentExecution(role=AgentRole.REFINER, status=AgentExecutionStatus.COMPLETE),
             AgentExecution(role=AgentRole.REVIEWER_CONTRACT, status=AgentExecutionStatus.RUNNING),
         ]
         waves = _compute_wave_order(PipelinePhase.IMPLEMENT, agents)
 
-        integrator_wave = None
+        coder_wave = None
         refiner_wave = None
         for i, wave in enumerate(waves):
             for agent in wave:
-                if agent.role == AgentRole.INTEGRATOR:
-                    integrator_wave = i
+                if agent.role == AgentRole.CODER:
+                    coder_wave = i
                 if agent.role == AgentRole.REFINER:
                     refiner_wave = i
 
-        assert integrator_wave is not None
+        assert coder_wave is not None
         assert refiner_wave is not None
-        assert refiner_wave > integrator_wave
+        assert refiner_wave > coder_wave
 
     def test_dag_render_non_graph_agent_before_reviewers(self):
         """Full DAG render places non-graph agent line before reviewer lines."""
@@ -1155,7 +1117,6 @@ class TestNonGraphAgentOrdering:
                     AgentExecution(role=AgentRole.CODER, status=AgentExecutionStatus.COMPLETE),
                     AgentExecution(role=AgentRole.TESTER, status=AgentExecutionStatus.COMPLETE),
                     AgentExecution(role=AgentRole.DOCUMENTER, status=AgentExecutionStatus.COMPLETE),
-                    AgentExecution(role=AgentRole.INTEGRATOR, status=AgentExecutionStatus.COMPLETE),
                     AgentExecution(role=AgentRole.REFINER, status=AgentExecutionStatus.COMPLETE),
                     AgentExecution(
                         role=AgentRole.REVIEWER_CODE, status=AgentExecutionStatus.RUNNING
@@ -1321,7 +1282,6 @@ class TestRunCountDisplay:
                     AgentExecution(role=AgentRole.CODER, status=AgentExecutionStatus.COMPLETE),
                     AgentExecution(role=AgentRole.TESTER, status=AgentExecutionStatus.COMPLETE),
                     AgentExecution(role=AgentRole.DOCUMENTER, status=AgentExecutionStatus.COMPLETE),
-                    AgentExecution(role=AgentRole.INTEGRATOR, status=AgentExecutionStatus.COMPLETE),
                     AgentExecution(role=AgentRole.REFINER, status=AgentExecutionStatus.COMPLETE),
                     AgentExecution(role=AgentRole.REFINER, status=AgentExecutionStatus.COMPLETE),
                     AgentExecution(
@@ -1345,10 +1305,9 @@ class TestRunCountDisplay:
         reviewer_line = next(i for i, line in enumerate(lines) if "reviewer" in line)
         assert refiner_line < reviewer_line
 
-        # Ordering should be: coder, tester+documenter, integrator, refiner, reviewers
+        # Ordering should be: coder, tester+documenter, refiner, reviewers
         coder_line = next(i for i, line in enumerate(lines) if "coder" in line)
-        integrator_line = next(i for i, line in enumerate(lines) if "integrator" in line)
-        assert coder_line < integrator_line < refiner_line < reviewer_line
+        assert coder_line < refiner_line < reviewer_line
 
 
 # --- Tier 3 DAG visualization tests ---
@@ -1683,10 +1642,6 @@ class TestRenderTier3Implement:
                     plan_phase_id="phase-1",
                 ),
                 AgentExecution(
-                    role=AgentRole.INTEGRATOR,
-                    status=AgentExecutionStatus.PENDING,
-                ),
-                AgentExecution(
                     role=AgentRole.REVIEWER_CONTRACT,
                     status=AgentExecutionStatus.PENDING,
                 ),
@@ -1696,7 +1651,6 @@ class TestRenderTier3Implement:
         text = "\n".join(lines)
 
         assert "Pipeline agents" in text
-        assert "integrator" in text
         assert "reviewer_contract" in text
 
     def test_no_top_level_agents(self):
@@ -1863,7 +1817,7 @@ class TestRenderPipelineDagTier3:
                 plan_phase_id="phase-1",
             ),
             AgentExecution(
-                role=AgentRole.INTEGRATOR,
+                role=AgentRole.REVIEWER_CODE,
                 status=AgentExecutionStatus.PENDING,
             ),
         ]
@@ -1872,9 +1826,9 @@ class TestRenderPipelineDagTier3:
         lines = result.split("\n")
 
         auth_line = next(i for i, line in enumerate(lines) if "Auth" in line)
-        integrator_line = next(i for i, line in enumerate(lines) if "integrator" in line)
+        reviewer_line = next(i for i, line in enumerate(lines) if "reviewer_code" in line)
 
-        assert integrator_line > auth_line
+        assert reviewer_line > auth_line
 
     def test_ascii_mode_full_dag(self):
         """Full DAG renders correctly in ASCII mode."""

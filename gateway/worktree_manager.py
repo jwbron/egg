@@ -668,7 +668,7 @@ class WorktreeManager:
         """Remove phase worktrees after integration.
 
         Cleans up sub-worktrees created by create_phase_worktree() after
-        the integrator has merged sub-branches.
+        sub-branches have been merged.
 
         Args:
             container_id: Container identifier

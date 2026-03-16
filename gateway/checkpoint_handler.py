@@ -220,7 +220,6 @@ _ROLE_TO_AGENT_TYPE = {
     "coder": AgentType.CODER,
     "tester": AgentType.TESTER,
     "documenter": AgentType.DOCUMENTER,
-    "integrator": AgentType.INTEGRATOR,
     "reviewer": AgentType.REVIEWER,
     "reviewer_code": AgentType.REVIEWER,
     "reviewer_contract": AgentType.REVIEWER,
@@ -231,7 +230,6 @@ _ROLE_TO_AGENT_TYPE = {
     "task_planner": AgentType.TASK_PLANNER,
     "risk_analyst": AgentType.RISK_ANALYST,
     "refiner": AgentType.REFINER,
-    "checker": AgentType.CHECKER,
 }
 
 

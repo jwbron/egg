@@ -405,10 +405,10 @@ class TestConsensusMessageTypes:
     def test_consensus_nack(self, store):
         msg = Message(
             pipeline_id="test-pipeline",
-            from_role="checker",
+            from_role="reviewer_code",
             to_role="coder",
             message_type=MessageType.CONSENSUS_NACK,
-            subject="NACK from checker",
+            subject="NACK from reviewer",
             body="SQL injection found",
         )
         store.add_message(msg)

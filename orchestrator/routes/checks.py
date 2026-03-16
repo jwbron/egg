@@ -2,7 +2,7 @@
 Deployment validation check endpoints for egg-orchestrator.
 
 Provides REST endpoints for managing the devserver lifecycle during
-deployment validation checks. The sandbox (checker) uses these endpoints
+deployment validation checks. The sandbox (tester) uses these endpoints
 to coordinate with the orchestrator, which manages the Docker infrastructure.
 """
 
@@ -98,7 +98,7 @@ def start_deployment_check(pipeline_id: str) -> tuple[Response, int]:
     Loads the DeploymentConfig from the target repo, determines changed
     files from the pipeline's worktree, and starts the devserver stack.
 
-    Returns service endpoints the checker can use for validation.
+    Returns service endpoints the tester can use for validation.
 
     Returns:
         200 with DevserverStatus on success.

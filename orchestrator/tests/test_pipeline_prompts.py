@@ -905,12 +905,6 @@ class TestBuildRoleContext:
         assert "## Task Description" not in result
         assert "## For More Context" in result
 
-    def test_integrator_gets_summary_not_full_body(self):
-        """Integrator receives a summary, not the full issue body."""
-        result = _build_role_context("integrator", "# Feature\n\nDetail.", issue_number=10)
-        assert "## Background" in result
-        assert "## Task Description" not in result
-
     def test_tester_with_phase_obj_includes_tasks(self):
         """Tester with phase_obj includes phase-scoped task details."""
         task = self._make_task("TASK-1-1", "Add validation", ["models.py"], "Tests pass")
@@ -933,19 +927,6 @@ class TestBuildRoleContext:
         assert "TASK-2-1" in result
         assert "Focus your documentation" in result
 
-    def test_integrator_with_all_phases_includes_summary(self):
-        """Integrator with all_phases includes implementation summary."""
-        phases = [
-            self._make_phase("phase-1", "Core", [self._make_task()]),
-            self._make_phase("phase-2", "Tests", [self._make_task("t2", "Test")]),
-        ]
-        result = _build_role_context(
-            "integrator", "# Issue\n\nBody.", issue_number=1, all_phases=phases
-        )
-        assert "## Implementation Summary" in result
-        assert "phase-1" in result
-        assert "phase-2" in result
-
     def test_tester_with_all_phases_shows_other_phases(self):
         """Tester sees other phases listed for orientation."""
         task = self._make_task()
@@ -963,7 +944,7 @@ class TestBuildRoleContext:
 
     def test_context_pointers_always_present_for_execution_roles(self):
         """All execution roles get 'For More Context' pointers."""
-        for role in ("tester", "documenter", "integrator"):
+        for role in ("tester", "documenter"):
             result = _build_role_context(role, "# Issue\n\nBody.", issue_number=1)
             assert "## For More Context" in result
             assert "gh issue view 1" in result
@@ -1006,19 +987,6 @@ class TestBuildAgentPromptRoleContext:
         assert "## Background" in result
         assert "## Task Description" not in result
         assert "DOCUMENTER" in result
-
-    def test_integrator_prompt_has_background_not_task_description(self):
-        """Integrator prompt uses Background section, not Task Description."""
-        result = _build_agent_prompt(
-            role_value="integrator",
-            phase="implement",
-            pipeline_id="pid-1",
-            pipeline_mode="issue",
-            prompt="# Feature\n\nDetail.",
-            issue_number=10,
-        )
-        assert "## Background" in result
-        assert "## Task Description" not in result
 
     def test_architect_prompt_retains_full_task_description(self):
         """Architect still gets full Task Description."""
@@ -1073,7 +1041,7 @@ class TestBuildAgentPromptRoleContext:
 
     def test_every_prompt_has_context_section(self):
         """All role prompts include the Context metadata section."""
-        for role in ("tester", "documenter", "integrator", "architect"):
+        for role in ("tester", "documenter", "architect"):
             result = _build_agent_prompt(
                 role_value=role,
                 phase="implement",
@@ -1367,35 +1335,6 @@ class TestBuildRoleContextEdgeCases:
         assert "Task two" in result
         assert "Task three" in result
 
-    def test_integrator_phase_with_no_tasks(self):
-        """Integrator handles phases with empty task lists."""
-        phase = self._make_phase("phase-1", "Empty phase", tasks=[])
-        result = _build_role_context(
-            "integrator",
-            "# Issue",
-            issue_number=1,
-            all_phases=[phase],
-        )
-        assert "## Implementation Summary" in result
-        assert "0 tasks" in result
-
-    def test_integrator_collects_files_across_tasks(self):
-        """Integrator summary includes files from all tasks in each phase."""
-        tasks = [
-            self._make_task("t-1", "A", files=["x.py", "y.py"]),
-            self._make_task("t-2", "B", files=["y.py", "z.py"]),
-        ]
-        phase = self._make_phase("phase-1", "Core", tasks=tasks)
-        result = _build_role_context(
-            "integrator",
-            "# Issue",
-            issue_number=1,
-            all_phases=[phase],
-        )
-        assert "x.py" in result
-        assert "y.py" in result
-        assert "z.py" in result
-
     def test_no_issue_number_omits_gh_command(self):
         """When issue_number is None, no gh issue view command appears."""
         result = _build_role_context("tester", "# Issue", issue_number=None)
@@ -1435,8 +1374,8 @@ class TestBuildRoleContextEdgeCases:
         """Non-tester/non-documenter execution roles get generic phase intro."""
         task = self._make_task("t-1", "Fix thing")
         phase = self._make_phase(tasks=[task])
-        # Use integrator with phase_obj (not typical, but exercises the else branch)
-        result = _build_role_context("integrator", "# Issue", phase_obj=phase)
+        # Use an unknown role with phase_obj to exercise the else branch
+        result = _build_role_context("some_new_role", "# Issue", phase_obj=phase)
         assert "The following tasks were implemented in this phase" in result
         assert "Focus your testing" not in result
         assert "Focus your documentation" not in result
@@ -1518,32 +1457,6 @@ class TestBuildAgentPromptEdgeCases:
         # Should contain phase-prompt style content
         assert "implement" in result.lower()
 
-    def test_integrator_with_all_phases(self):
-        """Integrator prompt via _build_agent_prompt includes phase summary."""
-        p1 = MagicMock()
-        p1.id = "phase-1"
-        p1.name = "Core"
-        p1.tasks = []
-        p1.status = "complete"
-        p2 = MagicMock()
-        p2.id = "phase-2"
-        p2.name = "Polish"
-        p2.tasks = []
-        p2.status = "in_progress"
-
-        result = _build_agent_prompt(
-            role_value="integrator",
-            phase="implement",
-            pipeline_id="pid-1",
-            pipeline_mode="issue",
-            prompt="# Feature",
-            issue_number=1,
-            all_phases=[p1, p2],
-        )
-        assert "## Implementation Summary" in result
-        assert "phase-1" in result
-        assert "phase-2" in result
-
     def test_no_repo_or_branch_omits_those_lines(self):
         """When repo and branch are None, those lines are omitted from context."""
         result = _build_agent_prompt(
@@ -1600,18 +1513,6 @@ class TestNamespacedOutputFilenames:
             issue_number=871,
         )
         assert "871-risk_analyst-output.json" in result
-
-    def test_integrator_prompt_uses_issue_number(self):
-        """Integrator prompt references {issue_number}-integrator-output.json."""
-        result = _build_agent_prompt(
-            role_value="integrator",
-            phase="implement",
-            pipeline_id="issue-871",
-            pipeline_mode="issue",
-            prompt="# Feature",
-            issue_number=871,
-        )
-        assert "871-integrator-output.json" in result
 
     def test_prompt_falls_back_to_pipeline_id(self):
         """Without issue_number, prompt uses pipeline_id as identifier."""

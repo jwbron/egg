@@ -56,7 +56,7 @@ BRC is a structured consensus protocol inspired by Interactive Consistency, Ack-
 Not all agents review all other agents. The review graph is **asymmetric by role type**:
 
 - **Producers** (coder, tester, documenter): Create artifacts and propose them for review
-- **Reviewers** (reviewer_code, reviewer_contract, checker): Evaluate producers' proposals and issue ACK/NACK judgments
+- **Reviewers** (reviewer_code, reviewer_contract): Evaluate producers' proposals and issue ACK/NACK judgments
 
 This eliminates circular ACK problems. A coder doesn't ACK a reviewer's review of its own code — it *responds to NACKs* by revising and re-proposing.
 
@@ -66,12 +66,11 @@ This eliminates circular ACK problems. A coder doesn't ACK a reviewer's review o
 |----------|----------------------|
 | reviewer_code | coder, tester |
 | reviewer_contract | coder |
-| checker | coder |
-| tester | coder (implicitly — writes tests against the code, ACKs if tests pass) |
+| tester | coder (implicitly — writes tests against the code, runs lint/type-checks, ACKs if tests pass) |
 
-The tester has a **dual role**: it is both a producer (proposes test artifacts) and a reviewer (evaluates coder's work by running tests against it).
+The tester has a **dual role**: it is both a producer (proposes test artifacts) and a reviewer (evaluates coder's work by running tests and lint/type-checks against it).
 
-This gives 5 directed review edges for the default implement phase instead of ~30 for full N=6 pairwise review. The edge count varies by phase configuration.
+This gives 4 directed review edges for the default implement phase instead of ~20 for full N=5 pairwise review. The edge count varies by phase configuration.
 
 #### BRC Phases
 
@@ -146,7 +145,6 @@ The reasoning layer ensures agents don't just signal states — they make **stru
 |------|---------------------|
 | Reviewer (code) | Files reviewed (specific paths), issues found + resolved count, one risk considered |
 | Reviewer (contract) | Tasks verified (specific IDs), acceptance criteria checked, gaps identified |
-| Checker | Lint/type/test results (pass counts), auto-fixes applied, remaining warnings |
 
 #### Cheap Talk vs Costly Signals
 
@@ -171,17 +169,9 @@ Research (CONSENSAGENT, ACL 2025) shows LLM agents exhibit strong sycophancy in 
 
 3. **Critical thinking prompt.** Every proposal/review must include "one risk I considered." This is a secondary measure — easy to satisfy with generic output and should not be weighted equally.
 
-4. **Integrator cross-verification.** The integrator performs attestation verification as a post-consensus validation step, outside the BRC protocol proper. After BRC converges, the integrator checks attestations against actual artifacts — verifies cited files were actually modified, cited tests exist, cited commit SHAs are real. The integrator does not appear in the review adjacency table because it is not a BRC participant; it runs sequentially after consensus is reached.
-
-5. **Dynamic prompt refinement.** Evolve prompts based on observed rubber-stamping patterns rather than relying solely on procedural rules.
+4. **Dynamic prompt refinement.** Evolve prompts based on observed rubber-stamping patterns rather than relying solely on procedural rules.
 
 ## Consensus Failure Modes
-
-### Attestation Verification Failure
-
-After BRC converges, the integrator cross-references attestations against actual artifacts and finds discrepancies (cited commit doesn't exist, cited tests didn't run, cited files weren't modified). This is a post-consensus validation step — the integrator operates outside BRC (see [Anti-Sycophancy Measures](#anti-sycophancy-measures) above).
-
-**Recovery:** The integrator reopens consensus by sending `CONSENSUS_NACK` to the offending agent with specific discrepancies. The agent's CONFIRMED status is revoked and it must re-propose with accurate attestations. Since the integrator operates outside BRC, its NACK does not follow the standard scoped re-evaluation rules. Instead, the re-proposal goes through a full BRC re-evaluation: all originally assigned reviewers must re-review (their prior ACKs are invalidated because the attestation failure calls into question the quality of the original proposal they approved). After BRC re-converges, the integrator performs attestation verification again. After repeated attempts with the same false attestations, the integrator escalates to HITL. This makes costly signals actually costly — fabrication is detected.
 
 ### Partial Consensus at Timeout
 
@@ -189,8 +179,8 @@ The phase times out with some agents confirmed and others stuck (e.g., 4/6 confi
 
 **Recovery:** The orchestrator evaluates which agents are blocking using the review graph and role criticality:
 
-- **Critical roles unconfirmed** (reviewer_code, checker, tester): Block the phase. Create HITL escalation with the full approval matrix. Human decides whether to override, restart, or intervene.
-- **Non-critical roles unconfirmed** (documenter): Proceed with HITL notification. The integrator notes incomplete consensus in the PR description.
+- **Critical roles unconfirmed** (reviewer_code, tester): Block the phase. Create HITL escalation with the full approval matrix. Human decides whether to override, restart, or intervene.
+- **Non-critical roles unconfirmed** (documenter): Proceed with HITL notification. Incomplete consensus is noted in the PR description.
 
 Role criticality is configurable per phase in the review adjacency definition.
 
@@ -215,7 +205,7 @@ To prevent flip-flopping that destroys signal value:
 
 ## Cost and Latency
 
-Consensus overhead for a sparse review graph (N=6 agents, 5 review edges in default configuration):
+Consensus overhead for a sparse review graph (N=5 agents, 4 review edges in default configuration):
 
 | Item | Estimate |
 |------|----------|
@@ -289,7 +279,6 @@ The protocol design draws on research across three domains.
 | Incentive compatibility | Premature READY should be detectable | READY signals include verifiable attestations — transforms cheap talk into costly signals. |
 | Coordination games (Stag Hunt) | The real risk is everyone settling on low effort | Make effort visible via PROGRESS messages. Sequential revelation reduces uncertainty about others' effort. |
 | Signaling theory | Credible signals are harder to produce without doing the work | Per-role attestation requirements tied to actual artifacts. |
-| Principal-agent problem | The orchestrator can't observe effort directly | The integrator acts as the principal's auditor in a post-consensus validation step, cross-referencing attestations against artifacts. |
 | Commitment devices | READY must be meaningful; free flip-flopping destroys signal value | Cooldown after PROPOSED. Retraction requires citing new information. Lockout after 3 flip-flops (`max_flip_flops`). |
 
 ## References

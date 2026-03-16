@@ -1425,7 +1425,7 @@ def _read_phase_draft(
 def _summarize_issue(prompt: str | None, issue_number: int | None = None) -> str:
     """Extract a 1-2 sentence summary from the issue title and first paragraph.
 
-    Used to give execution agents (tester, documenter, integrator) a brief
+    Used to give execution agents (tester, documenter) a brief
     orientation without embedding the full issue body. Analysis agents
     (architect, task_planner, risk_analyst) still receive the full issue.
 
@@ -1519,7 +1519,7 @@ def _build_role_context(
     Analysis roles (architect, task_planner, risk_analyst) receive the full
     issue body since they need it for problem understanding and planning.
 
-    Execution roles (tester, documenter, integrator) receive a brief summary
+    Execution roles (tester, documenter) receive a brief summary
     with structured task information and pointers to full context.
 
     Args:
@@ -1570,21 +1570,7 @@ def _build_role_context(
                 lines.append(f"  - Files: {', '.join(task.files_affected)}")
         lines.append("")
 
-    # All-phases summary for integrator
-    if all_phases and role_value == "integrator":
-        lines.append("## Implementation Summary\n")
-        for phase in all_phases:
-            status = getattr(phase, "status", "unknown")
-            task_count = len(phase.tasks) if phase.tasks else 0
-            files: set[str] = set()
-            for t in phase.tasks or []:
-                files.update(getattr(t, "files_affected", None) or [])
-            files_str = f" — files: {', '.join(sorted(files))}" if files else ""
-            lines.append(
-                f"- **{phase.id}** ({phase.name}): {task_count} tasks [{status}]{files_str}"
-            )
-        lines.append("")
-    elif all_phases and phase_obj is not None and role_value in ("tester", "documenter"):
+    if all_phases and phase_obj is not None and role_value in ("tester", "documenter"):
         # Brief orientation about other phases for context
         other_phases = [p for p in all_phases if p.id != phase_obj.id]
         if other_phases:
@@ -3038,7 +3024,6 @@ def _build_brc_preamble(role_value: str, phase: str) -> str:
         is_reviewer = role_value in (
             "reviewer_code",
             "reviewer_contract",
-            "checker",
             "tester",
             "reviewer_refine",
             "reviewer_agent_design",
@@ -3132,10 +3117,10 @@ def _build_agent_prompt(
     """Build a role-specific prompt for multi-agent execution.
 
     For the CODER role, delegates to the existing _build_phase_prompt().
-    Other roles (TESTER, DOCUMENTER, INTEGRATOR, ARCHITECT, etc.) get
+    Other roles (TESTER, DOCUMENTER, ARCHITECT, etc.) get
     role-specific instructions.
 
-    Execution roles (tester, documenter, integrator) receive a summarized
+    Execution roles (tester, documenter) receive a summarized
     background with structured task information instead of the full issue
     body. Analysis roles (architect, task_planner, risk_analyst) receive
     the full issue body.
@@ -3210,7 +3195,7 @@ def _build_agent_prompt(
 
     # Include role-appropriate context instead of the raw issue body.
     # Analysis roles (architect, task_planner, risk_analyst) receive the full
-    # issue body. Execution roles (tester, documenter, integrator) receive a
+    # issue body. Execution roles (tester, documenter) receive a
     # brief summary with structured task information and context pointers.
     role_context = _build_role_context(
         role_value=role_value,
@@ -3274,24 +3259,6 @@ def _build_agent_prompt(
                 "",
                 "Find all changed files across agents:",
                 "`egg-checkpoint context --pipeline $EGG_PIPELINE_ID --files`",
-                "",
-            ]
-        )
-    elif role_value == "integrator":
-        lines.extend(
-            [
-                "Verify integration of all changes from CODER and TESTER agents:",
-                "",
-                "1. Run the full test suite to verify all tests pass",
-                "2. Check for integration issues between the changes",
-                "3. Verify no regressions were introduced",
-                "4. Produce an integration report",
-                "",
-                f"Write your integration report to `.egg-state/agent-outputs/{_identifier}-integrator-output.json`.",
-                "",
-                "Review pipeline overview and costs before integrating:",
-                "`egg-checkpoint context --pipeline $EGG_PIPELINE_ID --files` and "
-                "`egg-checkpoint cost --pipeline $EGG_PIPELINE_ID`",
                 "",
             ]
         )
@@ -3652,11 +3619,10 @@ def _run_tier3_implement(
     """Run Tier 3 phase-level dispatch for the implement phase.
 
     Loops through plan phases in dependency order, running a full
-    coder -> tester -> documenter -> checker -> code reviewer cycle for
-    each phase's tasks. If the code reviewer rejects, the coder retries
-    within that phase. Contract review runs once in the outer pipeline
-    loop after all phases complete. After all phases, an integrator runs
-    once.
+    coder -> tester -> documenter -> tester (check+fix) -> code reviewer
+    cycle for each phase's tasks. If the code reviewer rejects, the coder
+    retries within that phase. Contract review runs once in the outer
+    pipeline loop after all phases complete.
 
     Args:
         pipeline_id: Pipeline ID
@@ -3783,8 +3749,8 @@ def _run_tier3_implement(
     def _run_single_phase_cycle(phase_id: str) -> tuple[int, list[str]]:
         """Run a single phase implementation cycle.
 
-        Runs coder -> tester -> documenter -> checker -> code reviewer for
-        each plan phase, retrying on rejection.
+        Runs coder -> tester -> documenter -> tester (check+fix) -> code
+        reviewer for each plan phase, retrying on rejection.
 
         Checks ``cancel_event`` before each container spawn so that parallel
         phases can abort early when a sibling phase fails.
@@ -4000,9 +3966,9 @@ def _run_tier3_implement(
                     exit_code=documenter_exit,
                 )
 
-            # --- CHECKER + AUTOFIXER ---
+            # --- TESTER (CHECK + AUTOFIX) ---
             if cancel_event.is_set():
-                phase_logs.append(f"--- checker ({phase_id}, retry={retry}) cancelled ---")
+                phase_logs.append(f"--- tester check+fix ({phase_id}, retry={retry}) cancelled ---")
                 return 1, phase_logs
 
             repo_checks: list[dict] | None = None
@@ -4031,13 +3997,13 @@ def _run_tier3_implement(
                 check_exit, _ = _spawn_and_wait(
                     spawner=spawner,
                     pipeline_id=pipeline_id,
-                    agent_role=AgentRole.CHECKER,
+                    agent_role=AgentRole.TESTER,
                     issue_number=pipeline.issue_number,
                     repo_volumes=repo_volumes,
                     gateway_mode=gateway_mode,
                     repos=repos,
                     phase="implement",
-                    sandbox_env={**phase_env, "EGG_AGENT_ROLE": "checker"},
+                    sandbox_env={**phase_env, "EGG_AGENT_ROLE": "tester"},
                     sandbox_command=build_agent_command(check_fix_prompt, max_turns=100),
                     timeout=2700,
                     store=store,
@@ -4047,14 +4013,14 @@ def _run_tier3_implement(
                 )
                 if check_exit != 0:
                     logger.warning(
-                        "Checker+autofixer exited non-zero",
+                        "Tester check+fix exited non-zero",
                         pipeline_id=pipeline_id,
                         phase_id=phase_id,
                         exit_code=check_exit,
                     )
             except ContainerSpawnError as e:
                 logger.warning(
-                    "Checker+autofixer failed to spawn, skipping checks",
+                    "Tester check+fix failed to spawn, skipping checks",
                     pipeline_id=pipeline_id,
                     phase_id=phase_id,
                     error=str(e),
@@ -4265,68 +4231,6 @@ def _run_tier3_implement(
             if exit_code != 0:
                 return 1, "\n".join(all_logs)
 
-    # After all phases: run integrator with Tier 3-specific instructions
-    integrator_prompt = _build_agent_prompt(
-        role_value="integrator",
-        phase="implement",
-        pipeline_id=pipeline_id,
-        pipeline_mode=pipeline_mode,
-        prompt=pipeline.prompt,
-        issue_number=pipeline.issue_number,
-        repo=pipeline.repo,
-        branch=pipeline.branch,
-        repo_path=str(worktree_repo_path),
-        short_circuit=pipeline.short_circuit,
-        all_phases=contract.phases,
-    )
-    # Append Tier 3-specific integrator instructions
-    tier3_integrator_lines = [
-        "",
-        "## Tier 3 Integration Responsibilities\n",
-        "This is a **high-complexity** (Tier 3) pipeline with multiple implementation phases.",
-        "You have **write access** to source, test, and documentation files.\n",
-        "Your responsibilities:",
-        "1. Run the full test suite and fix any integration failures across phase boundaries",
-        "2. Resolve merge conflicts between phase implementations if present",
-        "3. Ensure all cross-phase dependencies work correctly end-to-end",
-        "4. Fix broken imports, missing interfaces, or type mismatches between phases",
-        "5. Run linters and fix any formatting issues introduced by phase coders",
-        "6. Commit your integration fixes with descriptive messages",
-        "",
-        f"Phases implemented (in order): {', '.join(phase_order)}",
-        "",
-    ]
-    integrator_prompt += "\n".join(tier3_integrator_lines)
-
-    integrator_command = build_agent_command(integrator_prompt)
-
-    integrator_exit, integrator_logs = _spawn_and_wait(
-        spawner=spawner,
-        pipeline_id=pipeline_id,
-        agent_role=AgentRole.INTEGRATOR,
-        issue_number=pipeline.issue_number,
-        repo_volumes=repo_volumes,
-        gateway_mode=gateway_mode,
-        repos=repos,
-        phase="implement",
-        sandbox_env=sandbox_env,
-        sandbox_command=integrator_command,
-        store=store,
-        certs_volume=certs_volume,
-        branch=pipeline.branch,
-        complexity_tier=pipeline.complexity_tier.value if pipeline.complexity_tier else None,
-    )
-
-    all_logs.append(f"--- integrator (exit={integrator_exit}) ---\n{integrator_logs}")
-
-    if integrator_exit != 0:
-        logger.error(
-            "Integrator failed",
-            pipeline_id=pipeline_id,
-            exit_code=integrator_exit,
-        )
-        return 1, "\n".join(all_logs)
-
     return 0, "\n".join(all_logs)
 
 
@@ -4496,7 +4400,7 @@ def _run_multi_agent_phase(
 
     # Create dispatcher and executor.
     # The contract's orchestration state defaults to implement-phase roles
-    # (CODER, TESTER, DOCUMENTER, INTEGRATOR).  For other phases (e.g. plan)
+    # (CODER, TESTER, DOCUMENTER).  For other phases (e.g. plan)
     # we need to reinitialize with the correct roles so the dispatcher
     # dispatches ARCHITECT, TASK_PLANNER, RISK_ANALYST instead.
     dispatcher = create_dispatcher(pipeline, worktree_repo_path)
@@ -5337,13 +5241,13 @@ def _build_checker_prompt(
     repo_checks: list[dict] | None = None,
     issue_number: int | None = None,
 ) -> str:
-    """Build a prompt for the checker agent that runs tests/lint.
+    """Build a prompt for the tester agent that runs tests/lint checks.
 
     .. deprecated::
-        Prefer :func:`_build_check_and_fix_prompt` which merges checker and
-        autofixer into a single agent session to avoid context loss.
+        Prefer :func:`_build_check_and_fix_prompt` which merges check and
+        autofix into a single agent session to avoid context loss.
 
-    The checker discovers and runs project test/lint commands, then
+    The tester discovers and runs project test/lint commands, then
     writes structured results to .egg-state/checks/{identifier}-implement-results.json.
 
     Args:
@@ -5354,7 +5258,7 @@ def _build_checker_prompt(
         issue_number: GitHub issue number (used for namespaced filenames).
     """
     lines = [
-        "You are the **checker** for the SDLC pipeline implement phase.\n",
+        "You are the **tester** running checks for the SDLC pipeline implement phase.\n",
         f"Pipeline ID: {pipeline_id}",
         f"Mode: {pipeline_mode}",
     ]
@@ -5430,8 +5334,8 @@ def _build_autofix_prompt(
     """Build a prompt for the autofixer agent.
 
     .. deprecated::
-        Prefer :func:`_build_check_and_fix_prompt` which merges checker and
-        autofixer into a single agent session to avoid context loss.
+        Prefer :func:`_build_check_and_fix_prompt` which merges check and
+        autofix into a single agent session to avoid context loss.
 
     Modeled on action/build-autofixer-prompt.sh. Tells the agent to read
     check failures, fix auto-fixable issues, and commit fixes.
@@ -5519,7 +5423,7 @@ def _build_check_and_fix_prompt(
 ) -> str:
     """Build a combined check-and-fix prompt for a single agent session.
 
-    Replaces the separate checker → autofixer loop with a single agent
+    Replaces the separate check → autofix loop with a single agent
     that runs checks, fixes auto-fixable issues, and repeats up to 3 times.
     This avoids context loss between separate container sessions.
 
@@ -5532,7 +5436,7 @@ def _build_check_and_fix_prompt(
         issue_number: GitHub issue number (used for namespaced filenames).
     """
     lines = [
-        "You are the **checker and autofixer** for the SDLC pipeline implement phase.\n",
+        "You are the **tester** running checks and autofixes for the SDLC pipeline implement phase.\n",
         f"Pipeline ID: {pipeline_id}",
         f"Mode: {pipeline_mode}",
     ]
@@ -5954,7 +5858,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
     1. Spawns a worker (CODER) container — or multi-agent wave execution
        for implement and plan phases when multi_agent is enabled
     2. For reviewed phases (refine, implement, plan): spawns reviewers
-       as a separate step after all workers (and checkers) complete,
+       as a separate step after all workers complete,
        then reads reviewer verdicts and loops back with feedback if
        revision is needed.
     3. Advances to the next phase once approved (or circuit-breaker hit)
@@ -6693,7 +6597,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                         break
 
                     # 2. Combined check-and-fix (implement phase only)
-                    # Tier 3 already runs checker per-phase, so skip here.
+                    # Tier 3 already runs check+fix per-phase, so skip here.
                     if current_phase.value == "implement" and not use_tier3:
                         # Look up configured check commands for this repo
                         repo_checks: list[dict] | None = None
@@ -6713,7 +6617,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                                     break
 
                         logger.info(
-                            "Spawning combined checker+autofixer",
+                            "Spawning combined check+autofix tester",
                             pipeline_id=pipeline_id,
                         )
 
@@ -6726,7 +6630,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                             issue_number=pipeline.issue_number,
                         )
                         check_fix_command = build_agent_command(check_fix_prompt, max_turns=100)
-                        checker_env = {**sandbox_env, "EGG_AGENT_ROLE": "checker"}
+                        checker_env = {**sandbox_env, "EGG_AGENT_ROLE": "tester"}
 
                         try:
                             # 45 min: combined check+fix budget, up from
@@ -6734,7 +6638,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                             exit_code, _ = _spawn_and_wait(
                                 spawner=spawner,
                                 pipeline_id=pipeline_id,
-                                agent_role=AgentRole.CHECKER,
+                                agent_role=AgentRole.TESTER,
                                 issue_number=pipeline.issue_number,
                                 repo_volumes=repo_volumes,
                                 gateway_mode=gateway_mode,
@@ -6749,13 +6653,13 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                             )
                             if exit_code != 0:
                                 logger.warning(
-                                    "Checker+autofixer exited non-zero",
+                                    "Tester check+fix exited non-zero",
                                     pipeline_id=pipeline_id,
                                     exit_code=exit_code,
                                 )
                         except ContainerSpawnError as e:
                             logger.warning(
-                                "Checker+autofixer failed to spawn, skipping checks",
+                                "Tester check+fix failed to spawn, skipping checks",
                                 pipeline_id=pipeline_id,
                                 error=str(e),
                             )
@@ -6776,8 +6680,8 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                             )
 
                     # 3. Spawn reviewers and read verdicts (reviewed phases)
-                    # Reviewers always run as a separate step after workers +
-                    # checker, for both multi-agent and single-agent paths.
+                    # Reviewers always run as a separate step after workers,
+                    # for both multi-agent and single-agent paths.
                     # For Tier 3, reviewer_code already ran per-phase inside
                     # _run_tier3_implement(), so only run reviewer_contract here
                     # to give it a full-pipeline retry loop.

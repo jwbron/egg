@@ -942,9 +942,6 @@ def check_agent_restrictions(
     - Coder: source code and config, blocked from docs/tests/contracts
     - Tester: test files only
     - Documenter: documentation and markdown only
-    - Integrator: handoff output only (read-only for everything else)
-      - Exception: In Tier 3 (high complexity), integrator gets write access
-        to source/tests/docs for fixing integration issues
 
     Args:
         agent_role: The agent role (e.g., "coder", "tester")

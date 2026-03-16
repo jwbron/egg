@@ -9,9 +9,8 @@ from modifying files outside their responsibility.
 Security model:
 - Architect/Task Planner/Risk Analyst: Can write drafts and agent-outputs only, blocked from source code, docs, contracts, reviews
 - Coder: Can write source code, blocked from docs and contracts
-- Tester: Can write test files only
+- Tester: Can write test files and source files (for auto-fix), blocked from docs and contracts
 - Documenter: Can write docs and markdown only
-- Integrator: Can only write handoff output (read-only otherwise)
 - Refiner: Can write drafts and agent-outputs only, blocked from source code and contracts
 - Reviewers: Can write reviews and agent-outputs only
 
@@ -40,8 +39,6 @@ class AgentRole:
     CODER = "coder"
     TESTER = "tester"
     DOCUMENTER = "documenter"
-    INTEGRATOR = "integrator"
-    CHECKER = "checker"
     # Plan-phase roles
     ARCHITECT = "architect"
     TASK_PLANNER = "task_planner"
@@ -54,7 +51,6 @@ class AgentRole:
     REVIEWER_AGENT_DESIGN = "reviewer_agent_design"
     REVIEWER_REFINE = "reviewer_refine"
     REVIEWER_PLAN = "reviewer_plan"
-    REVIEWER_UNIFIED = "reviewer_unified"  # Vestigial: kept for backwards compatibility with persisted pipeline state
 
 
 @dataclass
@@ -223,7 +219,7 @@ CODER_PATTERNS = AgentFilePattern(
 
 TESTER_PATTERNS = AgentFilePattern(
     role=AgentRole.TESTER,
-    description="Tester agent: test files only",
+    description="Tester agent: test files and source files (for auto-fix of lint/type errors)",
     allowed_patterns=[
         # Test directories
         "tests/",
@@ -243,20 +239,32 @@ TESTER_PATTERNS = AgentFilePattern(
         "**/*.spec.tsx",
         "**/*.spec.js",
         "**/*.spec.jsx",
+        # Source files (for auto-fix of lint/type errors)
+        "**/*.py",
+        "**/*.ts",
+        "**/*.tsx",
+        "**/*.js",
+        "**/*.jsx",
+        "**/*.go",
+        "**/*.java",
+        "**/*.rb",
+        "**/*.rs",
+        "**/*.sh",
+        # Configuration
+        "**/*.yml",
+        "**/*.yaml",
+        "**/*.json",
+        "**/*.toml",
+        # Review output (BRC concurrent mode)
+        ".egg-state/reviews/",
         # Handoff output
         ".egg-state/agent-outputs/",
     ],
     blocked_patterns=[
-        # Source code (Coder handles)
-        "src/",
-        "lib/",
-        "shared/",
-        "gateway/",
-        "sandbox/",
-        "action/",
         # Documentation (Documenter handles)
         "docs/",
         "**/README.md",
+        "**/*.md",
         # Contracts
         ".egg-state/contracts/",
     ],
@@ -292,61 +300,6 @@ DOCUMENTER_PATTERNS = AgentFilePattern(
         "**/test/",
         # Contracts
         ".egg-state/contracts/",
-    ],
-)
-
-INTEGRATOR_PATTERNS = AgentFilePattern(
-    role=AgentRole.INTEGRATOR,
-    description="Integrator agent: handoff output only (read-only otherwise)",
-    allowed_patterns=[
-        # Only handoff output
-        ".egg-state/agent-outputs/",
-    ],
-    blocked_patterns=[
-        # Block specific directories as defense-in-depth.
-        # Extension-based blocks (e.g., **/*.json) are intentionally omitted
-        # because they conflict with writing JSON handoff files to the allowed
-        # output directory (.egg-state/agent-outputs/). The allowed_patterns
-        # already restrict writes to the output directory only.
-        "src/",
-        "lib/",
-        "shared/",
-        "gateway/",
-        "sandbox/",
-        "action/",
-        "docs/",
-        "tests/",
-        "test/",
-        ".egg-state/contracts/",
-        ".github/",
-    ],
-)
-
-# Tier 3 (high complexity) integrator pattern — has write access to source,
-# tests, and docs to fix integration issues across phase boundaries.
-INTEGRATOR_TIER3_PATTERNS = AgentFilePattern(
-    role=AgentRole.INTEGRATOR,
-    description="Integrator agent (Tier 3): can modify source/tests/docs for integration fixes",
-    allowed_patterns=[
-        ".egg-state/agent-outputs/",
-        "src/",
-        "lib/",
-        "shared/",
-        "action/",
-        "docs/",
-        "tests/",
-        "test/",
-        "bin/",
-        "config/",
-        "scripts/",
-        "orchestrator/",
-        "integration_tests/",
-    ],
-    blocked_patterns=[
-        ".egg-state/contracts/",
-        ".github/",
-        "gateway/",
-        "sandbox/",
     ],
 )
 
@@ -479,47 +432,6 @@ REVIEWER_PLAN_PATTERNS = AgentFilePattern(
     blocked_patterns=_REVIEWER_BLOCKED,
 )
 
-REVIEWER_UNIFIED_PATTERNS = AgentFilePattern(
-    role=AgentRole.REVIEWER_UNIFIED,
-    description="Unified reviewer agent (vestigial): reviews and agent-outputs only",
-    allowed_patterns=_REVIEWER_ALLOWED,
-    blocked_patterns=_REVIEWER_BLOCKED,
-)
-
-CHECKER_PATTERNS = AgentFilePattern(
-    role=AgentRole.CHECKER,
-    description="Checker agent: source code access for auto-fixes (sequential) and reviews (concurrent)",
-    allowed_patterns=[
-        # Source code (needed for sequential check-and-fix mode)
-        "**/*.py",
-        "**/*.ts",
-        "**/*.tsx",
-        "**/*.js",
-        "**/*.jsx",
-        "**/*.go",
-        "**/*.java",
-        "**/*.rb",
-        "**/*.rs",
-        "**/*.sh",
-        # Configuration
-        "**/*.yml",
-        "**/*.yaml",
-        "**/*.json",
-        "**/*.toml",
-        # Review output (BRC concurrent mode)
-        ".egg-state/reviews/",
-        # Handoff output
-        ".egg-state/agent-outputs/",
-    ],
-    blocked_patterns=[
-        # Documentation (Documenter handles)
-        "docs/",
-        "**/README.md",
-        "**/*.md",
-        # Contracts (API only)
-        ".egg-state/contracts/",
-    ],
-)
 
 
 # Registry of all agent patterns
@@ -527,7 +439,6 @@ AGENT_PATTERNS: dict[str, AgentFilePattern] = {
     AgentRole.CODER: CODER_PATTERNS,
     AgentRole.TESTER: TESTER_PATTERNS,
     AgentRole.DOCUMENTER: DOCUMENTER_PATTERNS,
-    AgentRole.INTEGRATOR: INTEGRATOR_PATTERNS,
     AgentRole.ARCHITECT: ARCHITECT_PATTERNS,
     AgentRole.TASK_PLANNER: TASK_PLANNER_PATTERNS,
     AgentRole.RISK_ANALYST: RISK_ANALYST_PATTERNS,
@@ -537,8 +448,6 @@ AGENT_PATTERNS: dict[str, AgentFilePattern] = {
     AgentRole.REFINER: REFINER_PATTERNS,
     AgentRole.REVIEWER_REFINE: REVIEWER_REFINE_PATTERNS,
     AgentRole.REVIEWER_PLAN: REVIEWER_PLAN_PATTERNS,
-    AgentRole.REVIEWER_UNIFIED: REVIEWER_UNIFIED_PATTERNS,
-    AgentRole.CHECKER: CHECKER_PATTERNS,
 }
 
 
@@ -550,16 +459,12 @@ def get_agent_pattern(
 
     Args:
         role: The agent role identifier
-        complexity_tier: Optional complexity tier ('low', 'mid', 'high').
-            When 'high', the INTEGRATOR role uses expanded write permissions.
+        complexity_tier: Optional complexity tier (reserved for future use).
 
     Returns:
         AgentFilePattern for the role, or None if not found
     """
     role_lower = role.lower()
-    # In Tier 3, integrator gets expanded write access
-    if role_lower == AgentRole.INTEGRATOR and complexity_tier == "high":
-        return INTEGRATOR_TIER3_PATTERNS
     return AGENT_PATTERNS.get(role_lower)
 
 
@@ -715,8 +620,6 @@ AGENT_GH_RESTRICTIONS: dict[str, AgentGHRestriction] = {
         AgentRole.CODER,
         AgentRole.TESTER,
         AgentRole.DOCUMENTER,
-        AgentRole.INTEGRATOR,
-        AgentRole.CHECKER,
         AgentRole.ARCHITECT,
         AgentRole.TASK_PLANNER,
         AgentRole.RISK_ANALYST,
@@ -726,7 +629,6 @@ AGENT_GH_RESTRICTIONS: dict[str, AgentGHRestriction] = {
         AgentRole.REVIEWER_AGENT_DESIGN,
         AgentRole.REVIEWER_REFINE,
         AgentRole.REVIEWER_PLAN,
-        AgentRole.REVIEWER_UNIFIED,
     ]
 }
 

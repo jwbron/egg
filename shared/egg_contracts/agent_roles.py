@@ -7,10 +7,8 @@ dependency declarations that enable parallel execution where possible.
 
 Agent roles:
 - CODER: Implements code changes based on the plan tasks
-- TESTER: Writes tests for the implemented changes
+- TESTER: Writes and runs tests, runs lint/type-checks, applies auto-fixes
 - DOCUMENTER: Updates documentation for the changes
-- INTEGRATOR: Runs full test suite and validates integration
-- CHECKER: Runs lint/type-check/tests (auto-fix in sequential, reviewer in concurrent)
 - REFINER: Analyzes tasks and produces structured analysis in the refine phase
 
 The orchestrator uses these definitions to:
@@ -30,8 +28,7 @@ class AgentRole(StrEnum):
     Each role has a focused responsibility and specific file access patterns.
     The orchestrator uses these roles to parallelize work where dependencies allow.
 
-    Implement-phase roles: CODER, TESTER, DOCUMENTER, INTEGRATOR
-    Implement-phase checker: CHECKER (dual-mode: auto-fix in sequential, reviewer in concurrent)
+    Implement-phase roles: CODER, TESTER, DOCUMENTER
     Plan-phase roles: ARCHITECT, TASK_PLANNER, RISK_ANALYST
     Refine-phase roles: REFINER
     Reviewer roles: REVIEWER_CODE, REVIEWER_CONTRACT,
@@ -41,8 +38,6 @@ class AgentRole(StrEnum):
     CODER = "coder"
     TESTER = "tester"
     DOCUMENTER = "documenter"
-    INTEGRATOR = "integrator"
-    CHECKER = "checker"
     # Plan-phase roles
     ARCHITECT = "architect"
     TASK_PLANNER = "task_planner"
@@ -55,7 +50,6 @@ class AgentRole(StrEnum):
     REVIEWER_AGENT_DESIGN = "reviewer_agent_design"
     REVIEWER_REFINE = "reviewer_refine"
     REVIEWER_PLAN = "reviewer_plan"
-    REVIEWER_UNIFIED = "reviewer_unified"  # Vestigial: kept for backwards compatibility with persisted pipeline state
 
 
 class AgentStatus(StrEnum):
@@ -217,12 +211,16 @@ CODER_ROLE = AgentRoleDefinition(
 
 TESTER_ROLE = AgentRoleDefinition(
     role=AgentRole.TESTER,
-    description="Validates implementation and finds gaps by writing and running tests",
+    description=(
+        "Validates implementation by writing/running tests, "
+        "running lint and type-checks, and applying auto-fixes"
+    ),
     responsibilities=[
         "Read the list of changed files from coder",
         "Identify gaps in the implementation (missing error handling, boundary conditions, uncovered branches)",
         "Write or update tests targeting identified gaps",
-        "Report test coverage and document deficiencies found",
+        "Run linters and type checkers, apply auto-fixes where possible",
+        "Report test coverage, lint/type-check results, and document deficiencies found",
     ],
     dependencies=[AgentRole.CODER],  # Must wait for coder
     file_access=FileAccessPattern(
@@ -243,14 +241,34 @@ TESTER_ROLE = AgentRoleDefinition(
             "**/*.spec.tsx",
             "**/*.spec.js",
             "**/*.spec.jsx",
+            # Source files (for auto-fix of lint/type errors)
+            "**/*.py",
+            "**/*.ts",
+            "**/*.tsx",
+            "**/*.js",
+            "**/*.jsx",
+            "**/*.go",
+            "**/*.java",
+            "**/*.rb",
+            "**/*.rs",
+            "**/*.sh",
+            # Configuration
+            "**/*.yml",
+            "**/*.yaml",
+            "**/*.json",
+            "**/*.toml",
+            # Review output (BRC concurrent mode)
+            ".egg-state/reviews/",
             ".egg-state/agent-outputs/",  # For handoff data
         ],
         blocked_write=[
             "docs/",
+            "**/README.md",
+            "**/*.md",
             ".egg-state/contracts/",
         ],
     ),
-    produces_outputs=["test_files", "coverage_report", "gaps_found"],
+    produces_outputs=["test_files", "coverage_report", "gaps_found", "check_results"],
     requires_inputs=["changed_files"],
 )
 
@@ -288,38 +306,6 @@ DOCUMENTER_ROLE = AgentRoleDefinition(
     produces_outputs=["doc_files"],
     requires_inputs=["changed_files"],
 )
-
-INTEGRATOR_ROLE = AgentRoleDefinition(
-    role=AgentRole.INTEGRATOR,
-    description="Runs full test suite and validates integration",
-    responsibilities=[
-        "Run the full test suite",
-        "Validate all changes work together",
-        "Check for integration issues",
-        "Produce integration report",
-    ],
-    dependencies=[AgentRole.CODER, AgentRole.TESTER],  # Waits for code and tests
-    file_access=FileAccessPattern(
-        allowed_read=[],  # Can read all files
-        allowed_write=[
-            ".egg-state/agent-outputs/",  # For integration report
-        ],
-        blocked_write=[
-            # Use directory-based blocks instead of "**/*" which breaks
-            # can_write() by always matching before allowed_write is checked.
-            "src/",
-            "lib/",
-            "docs/",
-            "tests/",
-            "test/",
-            ".egg-state/contracts/",
-        ],
-    ),
-    can_run_in_parallel=False,  # Runs after others complete
-    produces_outputs=["integration_report"],
-    requires_inputs=["changed_files", "test_files"],
-)
-
 
 # Plan-phase agent role definitions
 
@@ -480,7 +466,7 @@ REVIEWER_CODE_ROLE = AgentRoleDefinition(
         "Check for OWASP top 10 vulnerabilities",
         "Verify error handling and edge cases",
     ],
-    dependencies=[AgentRole.INTEGRATOR, AgentRole.TASK_PLANNER, AgentRole.RISK_ANALYST],
+    dependencies=[AgentRole.TESTER, AgentRole.TASK_PLANNER, AgentRole.RISK_ANALYST],
     file_access=FileAccessPattern(
         allowed_read=[],
         allowed_write=[
@@ -490,7 +476,7 @@ REVIEWER_CODE_ROLE = AgentRoleDefinition(
         blocked_write=_REVIEWER_BLOCKED_WRITE,
     ),
     produces_outputs=["review_verdict"],
-    requires_inputs=["integration_report"],
+    requires_inputs=["test_files"],
 )
 
 # Contract reviewer needs write access to .egg-state/contracts/ to mark
@@ -512,7 +498,7 @@ REVIEWER_CONTRACT_ROLE = AgentRoleDefinition(
         "Check task completion status",
         "Validate contract consistency",
     ],
-    dependencies=[AgentRole.INTEGRATOR, AgentRole.TASK_PLANNER, AgentRole.RISK_ANALYST],
+    dependencies=[AgentRole.TESTER, AgentRole.TASK_PLANNER, AgentRole.RISK_ANALYST],
     file_access=FileAccessPattern(
         allowed_read=[],
         allowed_write=[
@@ -523,7 +509,7 @@ REVIEWER_CONTRACT_ROLE = AgentRoleDefinition(
         blocked_write=_REVIEWER_CONTRACT_BLOCKED_WRITE,
     ),
     produces_outputs=["review_verdict"],
-    requires_inputs=["integration_report"],
+    requires_inputs=["test_files"],
 )
 
 REVIEWER_AGENT_DESIGN_ROLE = AgentRoleDefinition(
@@ -593,56 +579,12 @@ REVIEWER_PLAN_ROLE = AgentRoleDefinition(
     requires_inputs=["task_breakdown", "risk_assessment"],
 )
 
-CHECKER_ROLE = AgentRoleDefinition(
-    role=AgentRole.CHECKER,
-    description="Runs lint, type-check, and test suites to validate implementation",
-    responsibilities=[
-        "Run linters and report errors",
-        "Run type checkers and report errors",
-        "Run test suites and report results",
-        "Apply auto-fixes where possible (sequential mode)",
-        "Report remaining warnings",
-        "Evaluate coder output via BRC protocol (concurrent mode)",
-    ],
-    dependencies=[AgentRole.CODER],
-    file_access=FileAccessPattern(
-        allowed_read=[],
-        allowed_write=[
-            # Source files (sequential check-and-fix mode)
-            "**/*.py",
-            "**/*.ts",
-            "**/*.tsx",
-            "**/*.js",
-            "**/*.jsx",
-            "**/*.go",
-            "**/*.java",
-            "**/*.rb",
-            "**/*.rs",
-            "**/*.sh",
-            # Configuration
-            "**/*.yml",
-            "**/*.yaml",
-            "**/*.json",
-            "**/*.toml",
-            # Review output (BRC concurrent mode)
-            ".egg-state/reviews/",
-            ".egg-state/agent-outputs/",
-        ],
-        blocked_write=["docs/", "**/README.md", "**/*.md", ".egg-state/contracts/"],
-    ),
-    produces_outputs=["check_results"],
-    requires_inputs=["changed_files"],
-)
-
-
 # Registry of all agent roles
 AGENT_ROLES: dict[AgentRole, AgentRoleDefinition] = {
     # Implement-phase roles
     AgentRole.CODER: CODER_ROLE,
     AgentRole.TESTER: TESTER_ROLE,
     AgentRole.DOCUMENTER: DOCUMENTER_ROLE,
-    AgentRole.INTEGRATOR: INTEGRATOR_ROLE,
-    AgentRole.CHECKER: CHECKER_ROLE,
     # Plan-phase roles
     AgentRole.ARCHITECT: ARCHITECT_ROLE,
     AgentRole.TASK_PLANNER: TASK_PLANNER_ROLE,
@@ -667,8 +609,6 @@ def get_role_definition(
     Args:
         role: The role to get (string or AgentRole enum)
         complexity_tier: Optional complexity tier ('low', 'mid', 'high').
-            When 'high', the INTEGRATOR role gets write access to source,
-            test, and doc files for integration fixes.
 
     Returns:
         The AgentRoleDefinition for this role
@@ -678,52 +618,7 @@ def get_role_definition(
     """
     if isinstance(role, str):
         role = AgentRole(role)
-    role_def = AGENT_ROLES[role]
-
-    # In Tier 3 (high complexity), the integrator gets write access
-    # to source, test, and doc files to fix integration issues
-    if role == AgentRole.INTEGRATOR and complexity_tier == "high":
-        return AgentRoleDefinition(
-            role=role_def.role,
-            description=role_def.description
-            + " (Tier 3: can modify source/tests/docs to fix integration issues)",
-            responsibilities=[
-                *role_def.responsibilities,
-                "Fix integration issues across phase boundaries",
-                "Resolve merge conflicts between phase implementations",
-                "Ensure all tests pass end-to-end",
-            ],
-            dependencies=role_def.dependencies,
-            file_access=FileAccessPattern(
-                allowed_read=[],  # Can read all files
-                allowed_write=[
-                    ".egg-state/agent-outputs/",
-                    "src/",
-                    "lib/",
-                    "docs/",
-                    "tests/",
-                    "test/",
-                    # Allow writing to common source directories
-                    "shared/",
-                    "orchestrator/",
-                    "action/",
-                    "bin/",
-                    "config/",
-                    "scripts/",
-                    "integration_tests/",
-                ],
-                blocked_write=[
-                    ".egg-state/contracts/",
-                    "gateway/",
-                    "sandbox/",
-                ],
-            ),
-            can_run_in_parallel=role_def.can_run_in_parallel,
-            produces_outputs=role_def.produces_outputs,
-            requires_inputs=role_def.requires_inputs,
-        )
-
-    return role_def
+    return AGENT_ROLES[role]
 
 
 def get_all_roles() -> list[AgentRoleDefinition]:
@@ -806,7 +701,7 @@ class AgentExecution:
 # Phase-to-role mappings for multi-agent execution
 
 _PHASE_ROLES: dict[str, list[AgentRole]] = {
-    "implement": [AgentRole.CODER, AgentRole.TESTER, AgentRole.DOCUMENTER, AgentRole.INTEGRATOR],
+    "implement": [AgentRole.CODER, AgentRole.TESTER, AgentRole.DOCUMENTER],
     "plan": [AgentRole.ARCHITECT, AgentRole.TASK_PLANNER, AgentRole.RISK_ANALYST],
     "refine": [AgentRole.REFINER],
 }
@@ -815,7 +710,6 @@ _PHASE_REVIEWERS: dict[str, list[AgentRole]] = {
     "implement": [
         AgentRole.REVIEWER_CODE,
         AgentRole.REVIEWER_CONTRACT,
-        AgentRole.CHECKER,
     ],
     "plan": [
         AgentRole.REVIEWER_PLAN,

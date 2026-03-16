@@ -57,7 +57,7 @@ egg-checkpoint list --issue $EGG_ISSUE_NUMBER --agent-type coder --phase impleme
 egg-checkpoint show ckpt-<id>
 ```
 
-**Get full pipeline context (integrator/tester):**
+**Get full pipeline context (tester):**
 ```bash
 egg-checkpoint context --pipeline $EGG_PIPELINE_ID
 egg-checkpoint context --pipeline $EGG_PIPELINE_ID --files
