@@ -163,8 +163,8 @@ When a pipeline agent container exits (normally or via timeout), the gateway aut
 
 | Phase | Allowed Operations | Blocked Operations | Exit Requires |
 |-------|-------------------|-------------------|---------------|
-| **refine** | `gh issue comment/edit`, `egg-contract add-decision` | `git push`, `gh pr create` | Human approval |
-| **plan** | `gh issue comment/edit`, `egg-contract add-decision` | `git push`, `gh pr create` | Human approval |
+| **refine** | `git push`, `egg-contract add-decision` | `gh issue comment/edit`, `gh pr create` | Human approval |
+| **plan** | `git push`, `egg-contract add-decision` | `gh issue comment/edit`, `gh pr create` | Human approval |
 | **implement** | `git push`, `egg-contract add-commit/update-notes` | `gh pr create` | All checks pass |
 | **pr** | `gh pr create/edit`, `git push` | — | Human merge |
 

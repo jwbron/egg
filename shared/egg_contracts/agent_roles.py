@@ -806,7 +806,7 @@ class AgentExecution:
 # Phase-to-role mappings for multi-agent execution
 
 _PHASE_ROLES: dict[str, list[AgentRole]] = {
-    "implement": [AgentRole.CODER, AgentRole.TESTER, AgentRole.DOCUMENTER],
+    "implement": [AgentRole.CODER, AgentRole.TESTER, AgentRole.DOCUMENTER, AgentRole.INTEGRATOR],
     "plan": [AgentRole.ARCHITECT, AgentRole.TASK_PLANNER, AgentRole.RISK_ANALYST],
     "refine": [AgentRole.REFINER],
 }
@@ -829,13 +829,13 @@ _PHASE_REVIEWERS: dict[str, list[AgentRole]] = {
 
 def get_roles_for_phase(
     phase: str,
-    include_reviewers: bool = False,
+    include_reviewers: bool = True,
 ) -> list[AgentRole]:
     """Return the agent roles for a given pipeline phase.
 
     Args:
         phase: Pipeline phase name (e.g., "implement", "plan")
-        include_reviewers: Whether to include reviewer roles
+        include_reviewers: Whether to include reviewer roles (default True)
 
     Returns:
         List of AgentRole values for that phase.

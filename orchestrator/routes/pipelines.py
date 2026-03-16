@@ -4401,7 +4401,7 @@ def _run_multi_agent_phase(
     # Note: phase_obj / all_phases are not passed here because Tier 2
     # dispatch has no contract phases. _build_role_context() handles this
     # gracefully — execution roles still get a summarized background.
-    roles = get_roles_for_phase(phase, include_reviewers=False)
+    roles = get_roles_for_phase(phase, include_reviewers=True)
     agent_prompts_by_role: dict = {}
     for contract_role in roles:
         role_str = contract_role.value
@@ -4608,7 +4608,13 @@ def _run_concurrent_phase(
     # Build per-role prompts (matches _run_multi_agent_phase pattern).
     from egg_contracts.agent_roles import get_roles_for_phase as _get_roles_for_phase
 
-    roles = [AgentRole(r.value) for r in _get_roles_for_phase(phase_str, include_reviewers=False)]
+    roles: list[AgentRole] = []
+    for r in _get_roles_for_phase(phase_str, include_reviewers=True):
+        try:
+            roles.append(AgentRole(r.value))
+        except ValueError:
+            # New roles not yet in orchestrator AgentRole — skip
+            continue
     agent_prompts: dict[AgentRole, str] = {}
     for role in roles:
         prompt = _build_agent_prompt(
