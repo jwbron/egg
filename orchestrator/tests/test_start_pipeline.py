@@ -319,7 +319,6 @@ def _make_awaiting_pipeline(
     pending_decisions=0,
     resolution='{"action": "approve"}',
     decision_type="phase_gate",
-    short_circuit=False,
 ):
     """Create an AWAITING_HUMAN pipeline with configurable decisions."""
     pipeline = Pipeline(
@@ -330,7 +329,6 @@ def _make_awaiting_pipeline(
         mode="issue",
         status=PipelineStatus.AWAITING_HUMAN,
         current_phase=phase,
-        short_circuit=short_circuit,
     )
     # Mark current phase as COMPLETE (as it would be when HITL gate fires)
     phase_exec = pipeline.get_phase_execution(phase)
@@ -486,31 +484,6 @@ class TestStartAwaitingHumanPipeline:
         data = json.loads(resp.data)
         assert data["data"]["status"] == "complete"
         assert pipeline.status == PipelineStatus.COMPLETE
-
-    @patch("routes.pipelines.get_pipeline_state_lock", side_effect=_noop_lock)
-    @patch("routes.pipelines._run_pipeline")
-    @patch("routes.pipelines._resolve_pipeline")
-    @patch("routes.pipelines.get_repo_path")
-    def test_short_circuit_skips_plan(
-        self, mock_get_repo, mock_resolve, mock_run, mock_lock, client
-    ):
-        """Short-circuit pipeline skips plan phase (refine → implement)."""
-        pipeline = _make_awaiting_pipeline(
-            phase=PipelinePhase.REFINE,
-            resolution='{"action": "approve"}',
-            short_circuit=True,
-        )
-        _setup_mocks(mock_get_repo, mock_resolve, pipeline)
-
-        resp = client.post("/api/v1/pipelines/issue-42/start")
-
-        assert resp.status_code == 200
-        # Should skip PLAN and go to IMPLEMENT
-        assert pipeline.current_phase == PipelinePhase.IMPLEMENT
-        # PLAN phase should be marked as skipped
-        plan_exec = pipeline.get_phase_execution(PipelinePhase.PLAN)
-        assert plan_exec.status == PipelineStatus.COMPLETE
-        assert plan_exec.error == "skipped: short-circuit"
 
     @patch("routes.pipelines.get_pipeline_state_lock", side_effect=_noop_lock)
     @patch("routes.pipelines._run_pipeline")

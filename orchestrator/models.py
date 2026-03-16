@@ -150,10 +150,6 @@ class AgentExecution(BaseModel):
     conflicts: list[str] = Field(
         default_factory=list, description="Files with unresolved merge conflicts"
     )
-    plan_phase_id: str | None = Field(
-        default=None,
-        description="Plan sub-phase ID for Tier 3 pipelines (e.g. 'phase-1')",
-    )
 
 
 class HITLDecision(BaseModel):
@@ -227,14 +223,6 @@ class PhaseExecution(BaseModel):
     )
 
 
-class ComplexityTier(StrEnum):
-    """Complexity tier for pipeline tasks."""
-
-    LOW = "low"
-    MID = "mid"
-    HIGH = "high"
-
-
 class PipelineConfig(BaseModel):
     """Configuration for pipeline execution."""
 
@@ -243,14 +231,7 @@ class PipelineConfig(BaseModel):
         description="Deprecated: PR creation is now always handled by the orchestrator. "
         "This field is retained for backwards compatibility with existing pipeline configs.",
     )
-    multi_agent: bool = Field(
-        default=True,
-        description="Use multi-agent execution in implement and plan phases",
-    )
     parallel_agents: bool = Field(default=True, description="Run independent agents in parallel")
-    max_parallel_agents: int = Field(
-        default=10, ge=1, description="Maximum parallel agents per wave"
-    )
     max_review_cycles: int = Field(default=3, ge=1, description="Max review cycles per phase")
     max_hitl_review_cycles: int = Field(
         default=3,
@@ -260,14 +241,6 @@ class PipelineConfig(BaseModel):
     hitl_gates: bool = Field(
         default=True,
         description="Pause for human approval after refine and plan phases",
-    )
-    allow_short_circuit: bool = Field(
-        default=True,
-        description="Allow refine agent to skip plan phase for low-complexity tasks",
-    )
-    enable_parallel_phases: bool = Field(
-        default=True,
-        description="Enable parallel phase execution for independent plan phases (Tier 3 only)",
     )
     concurrent_execution: bool = Field(
         default=False,
@@ -337,26 +310,7 @@ class Pipeline(BaseModel):
         default=None,
         description="Network mode for spawned containers: 'public', 'private', or None (auto from pipeline mode)",
     )
-    short_circuit: bool = Field(
-        default=False,
-        description="Skip plan phase (refine → implement) for low-complexity tasks",
-    )
-    complexity_tier: ComplexityTier = Field(
-        default=ComplexityTier.MID,
-        description="Complexity tier: low (short-circuit), mid (standard), high (phase-level dispatch)",
-    )
     error: str | None = Field(default=None, description="Error if failed")
-    plan_phase_waves: list[list[str]] | None = Field(
-        default=None,
-        description="Tier 3 plan phase waves for DAG visualization. "
-        "Each inner list is a wave of phase IDs that can run in parallel. "
-        "Populated by _run_tier3_implement() at implement start.",
-    )
-    plan_phase_names: dict[str, str] | None = Field(
-        default=None,
-        description="Mapping of plan phase ID to human-readable name for DAG visualization. "
-        "Populated alongside plan_phase_waves by _run_tier3_implement().",
-    )
     version: int = Field(
         default=1,
         ge=1,

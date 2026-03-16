@@ -372,58 +372,6 @@ class AgentExecutionModel(BaseModel):
     )
 
 
-class PhaseAgentConfig(BaseModel):
-    """Per-phase agent configuration override."""
-
-    enabled: bool = Field(default=True, description="Whether multi-agent is enabled for this phase")
-    roles: list[AgentRoleType] | None = Field(
-        default=None, description="Roles to use (None = use phase defaults)"
-    )
-    max_parallel_agents: int | None = Field(
-        default=None, description="Max parallel agents (None = use pipeline default)"
-    )
-
-    @field_validator("roles", mode="before")
-    @classmethod
-    def _filter_removed_roles(cls, v: Any) -> Any:
-        """Filter out removed role values from old persisted data."""
-        if v is None or not isinstance(v, list):
-            return v
-        valid = {r.value for r in AgentRoleType}
-        return [r for r in v if not isinstance(r, str) or r in valid]
-
-
-class MultiAgentConfig(BaseModel):
-    """Configuration for multi-agent orchestration.
-
-    Controls how agents are dispatched during the implement phase.
-    """
-
-    enabled: bool = Field(default=True, description="Whether multi-agent mode is enabled")
-    max_retries: int = Field(default=2, ge=0, description="Max retries per agent")
-    parallel_execution: bool = Field(
-        default=True, description="Allow parallel execution of independent agents"
-    )
-    roles_enabled: list[AgentRoleType] = Field(
-        default_factory=lambda: list(AgentRoleType),
-        description="Which agent roles are enabled",
-    )
-
-    @field_validator("roles_enabled", mode="before")
-    @classmethod
-    def _filter_removed_roles(cls, v: Any) -> Any:
-        """Filter out removed role values from old persisted data."""
-        if not isinstance(v, list):
-            return v
-        valid = {r.value for r in AgentRoleType}
-        return [r for r in v if not isinstance(r, str) or r in valid]
-
-    phase_overrides: dict[str, PhaseAgentConfig] = Field(
-        default_factory=dict,
-        description="Per-phase agent configuration overrides",
-    )
-
-
 class Contract(BaseModel):
     """The complete SDLC contract."""
 
@@ -485,11 +433,6 @@ class Contract(BaseModel):
         valid_roles = {r.value for r in AgentRoleType}
         return [item for item in v if not isinstance(item, dict) or item.get("role") in valid_roles]
 
-    multi_agent_config: MultiAgentConfig | None = Field(
-        default=None,
-        description="Configuration for multi-agent orchestration",
-    )
-
     @model_validator(mode="after")
     def _require_issue_or_pipeline_id(self) -> "Contract":
         """At least one of issue or pipeline_id must be set."""
@@ -547,16 +490,6 @@ class Contract(BaseModel):
             if execution.role == role:
                 return execution
         return None
-
-    def is_multi_agent_enabled(self) -> bool:
-        """Check if multi-agent mode is enabled for this contract.
-
-        Returns:
-            True if multi-agent orchestration is enabled
-        """
-        if self.multi_agent_config is None:
-            return True  # Default to enabled
-        return self.multi_agent_config.enabled
 
     def get_pending_agents(self) -> list[AgentExecutionModel]:
         """Get all agents that are pending execution.

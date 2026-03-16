@@ -23,14 +23,11 @@ The multi-agent system breaks down the implement phase into specialized agents t
          ▼                    ▼                    ▼
     ┌─────────┐         ┌──────────┐        ┌───────────┐
     │  Coder  │         │  Tester  │        │Documenter │
-    │ (wave 1)│         │ (wave 2) │        │ (wave 2)  │
     └─────────┘         └──────────┘        └───────────┘
                               │
-                              ▼
-                       ┌────────────┐
-                       │ Integrator │
-                       │  (wave 3)  │
-                       └────────────┘
+                       ┌──────┴──────┐
+                       │   Checker   │
+                       └─────────────┘
 ```
 
 ## Adding a New Agent
@@ -86,7 +83,6 @@ AGENT_ROLES: dict[AgentRole, AgentRoleDefinition] = {
     AgentRole.CODER: CODER_ROLE,
     AgentRole.TESTER: TESTER_ROLE,
     AgentRole.DOCUMENTER: DOCUMENTER_ROLE,
-    AgentRole.INTEGRATOR: INTEGRATOR_ROLE,
     AgentRole.MY_NEW_AGENT: MY_NEW_AGENT_ROLE,
 }
 ```
@@ -164,10 +160,10 @@ AGENT_FILE_RESTRICTIONS = {
 
 ### Step 7: Register with Orchestrator
 
-Register the agent with the local orchestrator's multi-agent system in `orchestrator/multi_agent.py`:
+Register the agent with the concurrent execution system:
 
-1. Add to the dispatch logic
-2. Add to the parallel groups configuration
+1. Add the role to `shared/egg_contracts/agent_roles.py`
+2. Configure file access patterns and phase assignments
 3. Configure container spawning for the new agent role
 
 ### Step 8: Add Tests
@@ -246,13 +242,11 @@ plan = compute_execution_plan([
     AgentRole.TESTER,
     AgentRole.DOCUMENTER,
     AgentRole.MY_NEW_AGENT,
-    AgentRole.INTEGRATOR,
 ])
 
 # Returns execution waves:
 # Wave 1: [CODER]
 # Wave 2: [TESTER, DOCUMENTER, MY_NEW_AGENT]  # Parallel
-# Wave 3: [INTEGRATOR]
 ```
 
 ## Testing Your Agent
@@ -264,7 +258,7 @@ plan = compute_execution_plan([
 Run tests:
 
 ```bash
-pytest tests/sdlc/test_multi_agent_orchestration.py -v
+pytest tests/sdlc/test_concurrent_integration.py -v
 pytest tests/gateway/test_agent_restrictions.py -v
 ```
 
@@ -276,12 +270,9 @@ Agent prompts are built with role-appropriate context via `_build_role_context()
 
 **Execution roles** (tester, documenter, and any new execution agents) receive:
 - A `## Background` section with a 1-2 sentence summary extracted from the issue
-- A `## Phase Scope` section with task details when running in Tier 3 (descriptions, acceptance criteria, affected files)
 - A `## For More Context` section with pointers to the full issue (`gh issue view`), handoff data, and git diff
 
 When adding a new execution role, `_build_role_context()` will automatically provide the summarized context. If the role needs phase-specific instructions (like the tester's "Focus your testing on..." or the documenter's "Focus your documentation on..."), add a condition in `_build_role_context()` for the new role.
-
-Phase-scoped coders (Tier 3) use `_build_phase_scoped_prompt()`, which embeds the plan overview (not the full plan) and one-line summaries of other phases. This is separate from `_build_role_context()`.
 
 ## Best Practices
 

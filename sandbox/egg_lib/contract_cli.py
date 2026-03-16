@@ -590,7 +590,6 @@ def cmd_agent_status(args: argparse.Namespace) -> int:
         # Output JSON format
         output = {
             "agent_executions": agent_executions,
-            "multi_agent_config": contract.get("multi_agent_config"),
         }
         print(json.dumps(output, indent=2))
     else:

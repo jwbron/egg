@@ -173,6 +173,8 @@ Research (CONSENSAGENT, ACL 2025) shows LLM agents exhibit strong sycophancy in 
 
 ## Consensus Failure Modes
 
+### Attestation Verification Failure
+
 ### Partial Consensus at Timeout
 
 The phase times out with some agents confirmed and others stuck (e.g., 4/6 confirmed, 2 in NACK loops).
@@ -279,6 +281,7 @@ The protocol design draws on research across three domains.
 | Incentive compatibility | Premature READY should be detectable | READY signals include verifiable attestations — transforms cheap talk into costly signals. |
 | Coordination games (Stag Hunt) | The real risk is everyone settling on low effort | Make effort visible via PROGRESS messages. Sequential revelation reduces uncertainty about others' effort. |
 | Signaling theory | Credible signals are harder to produce without doing the work | Per-role attestation requirements tied to actual artifacts. |
+| Principal-agent problem | The orchestrator can't observe effort directly | Reviewers cross-reference attestations against actual artifacts as part of the BRC protocol. |
 | Commitment devices | READY must be meaningful; free flip-flopping destroys signal value | Cooldown after PROPOSED. Retraction requires citing new information. Lockout after 3 flip-flops (`max_flip_flops`). |
 
 ## References

@@ -678,7 +678,7 @@ class TestConcurrentPhaseSkipsReviewerSpawn:
     def test_is_concurrent_execution_true_for_concurrent_pipeline(self):
         """is_concurrent_execution returns True for concurrent pipelines,
         which causes the reviewer-spawn guard to break."""
-        from multi_agent import is_concurrent_execution
+        from concurrent_executor import is_concurrent_execution
 
         pipeline = _make_concurrent_pipeline()
 
@@ -699,7 +699,7 @@ class TestConcurrentPhaseSkipsReviewerSpawn:
     def test_non_concurrent_pipeline_allows_reviewers(self):
         """When concurrent_execution is False, is_concurrent_execution is
         False and the reviewer-spawn guard would NOT break."""
-        from multi_agent import is_concurrent_execution
+        from concurrent_executor import is_concurrent_execution
 
         pipeline = _make_concurrent_pipeline()
         pipeline.config.concurrent_execution = False

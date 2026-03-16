@@ -181,7 +181,3 @@ If the coder pushes more commits after you signaled READY:
 3. Signal `READY` again
 
 The orchestrator will stop your container when all agents reach consensus.
-
-## Next Agent
-
-After you and the Tester complete, the **Integrator** agent runs.

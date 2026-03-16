@@ -602,13 +602,11 @@ AGENT_ROLES: dict[AgentRole, AgentRoleDefinition] = {
 
 def get_role_definition(
     role: AgentRole | str,
-    complexity_tier: str | None = None,
 ) -> AgentRoleDefinition:
     """Get the definition for an agent role.
 
     Args:
         role: The role to get (string or AgentRole enum)
-        complexity_tier: Optional complexity tier ('low', 'mid', 'high').
 
     Returns:
         The AgentRoleDefinition for this role

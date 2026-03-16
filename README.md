@@ -70,20 +70,6 @@ Each box is a pipeline phase. Within each phase, specialized agents run in depen
 3. **Implement** — A coder writes code, a tester finds gaps, writes tests, and runs lint/type-checks, a documenter updates docs. Code and contract reviewers provide line-level feedback. Re-implementation cycles continue until all checks pass.
 4. **PR** — The orchestrator auto-creates the PR using metadata from the plan, commit log, and diff stats. No agent is spawned. Only a human can merge via GitHub UI.
 
-**Short-circuit mode**: Simple tasks (typos, config changes) skip the plan phase entirely — the refine phase signals `short_circuit: true` and jumps straight to implementation.
-
-### Tiered Dispatch
-
-The pipeline adapts its execution strategy to task complexity:
-
-| Tier | Complexity | Strategy |
-|------|-----------|----------|
-| **Tier 1** | Low (typos, config) | Short-circuit: refine → implement (skip plan) |
-| **Tier 2** | Medium (single features) | Full pipeline, single coder in waves |
-| **Tier 3** | High (multi-phase features) | Parallel implement cycles per plan phase |
-
-Tier 3 decomposes large features into independent plan phases that run as parallel implement cycles (coder → tester → documenter → code reviewer), each scoped to its own file boundaries.
-
 ### Concurrent Execution Mode
 
 BRC concurrent execution runs all agents for a phase simultaneously — all sharing the pipeline branch. Agents communicate via the orchestrator message bus and reach phase completion through a consensus protocol. BRC is **enabled by default** for the refine, plan, and implement phases (configurable via `concurrent_phases`). Set `concurrent_execution: true` to activate BRC for all phases.
@@ -179,7 +165,6 @@ See [action/README.md](action/README.md) for full documentation and [GitHub Auto
 | **Architecture & security model** | [Architecture Overview](docs/architecture/README.md) |
 | **SDLC pipeline details** | [SDLC Pipeline Guide](docs/guides/sdlc-pipeline.md) |
 | **Concurrent execution mode** | [Concurrent Execution Guide](docs/guides/concurrent-execution.md) |
-| **Tier 3 / phase-level dispatch** | [Tier 3 Dispatch Guide](docs/guides/tier3-dispatch.md) |
 | **Agent roles & permissions** | [Agent Roles Reference](docs/reference/agent-roles.md) |
 | **Agent recovery & circuit breaker** | [Agent Recovery Reference](docs/reference/agent-recovery.md) |
 | **Post-agent auto-commit** | [Post-Agent Commit Reference](docs/reference/post-agent-commit.md) |

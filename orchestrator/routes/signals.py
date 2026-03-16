@@ -32,13 +32,30 @@ except ImportError:
         return logging.getLogger(name)
 
 
-from dispatch import create_dispatcher, map_agent_role_to_contract_role
+from egg_contracts import load_contract, save_contract
+from egg_contracts.agent_roles import AgentRole as ContractAgentRole
 from egg_contracts.loader import ContractNotFoundError
+from egg_contracts.orchestrator import create_orchestrator
 from handoffs import AgentOutput, save_agent_output
 from models import AgentRole
 from state_store import InvalidPipelineIdError, PipelineNotFoundError, get_state_store
 
 logger = get_logger("orchestrator.signals")
+
+# Mapping from orchestrator AgentRole to egg_contracts AgentRole.
+# Roles not in this mapping (e.g. REFINER, REVIEWER_REFINE) don't
+# participate in contract orchestration.
+_AGENT_ROLE_TO_CONTRACT_ROLE: dict[AgentRole, ContractAgentRole] = {
+    AgentRole.CODER: ContractAgentRole.CODER,
+    AgentRole.TESTER: ContractAgentRole.TESTER,
+    AgentRole.DOCUMENTER: ContractAgentRole.DOCUMENTER,
+    AgentRole.ARCHITECT: ContractAgentRole.ARCHITECT,
+    AgentRole.TASK_PLANNER: ContractAgentRole.TASK_PLANNER,
+    AgentRole.RISK_ANALYST: ContractAgentRole.RISK_ANALYST,
+    AgentRole.REVIEWER_CODE: ContractAgentRole.REVIEWER_CODE,
+    AgentRole.REVIEWER_CONTRACT: ContractAgentRole.REVIEWER_CONTRACT,
+    AgentRole.REVIEWER_AGENT_DESIGN: ContractAgentRole.REVIEWER_AGENT_DESIGN,
+}
 
 signals_bp = Blueprint("signals", __name__, url_prefix="/api/v1/pipelines")
 
@@ -333,17 +350,22 @@ def handle_complete_signal(
                         pipeline_id,
                     )
 
-        # Only interact with the contract dispatcher for roles that have
-        # a contract mapping (multi-agent phases: plan, implement).
-        # Single-agent roles like REFINER and REVIEWER_REFINE don't
-        # participate in contract orchestration.
-        has_contract_role = map_agent_role_to_contract_role(agent_role) is not None
+        # Only interact with the contract for roles that have a contract
+        # mapping.  Single-agent roles like REFINER and REVIEWER_REFINE
+        # don't participate in contract orchestration.
+        contract_role = _AGENT_ROLE_TO_CONTRACT_ROLE.get(agent_role)
 
-        if has_contract_role:
-            dispatcher = create_dispatcher(pipeline, contract_path)
-            dispatcher.complete_agent(agent_role, commit=commit, outputs=outputs)
-            dispatcher.save_contract()
-            is_complete = dispatcher.is_complete()
+        if contract_role is not None:
+            identifier: int | str = (
+                pipeline.issue_number if pipeline.issue_number is not None else pipeline_id
+            )
+            contract = load_contract(identifier, contract_path)
+            orch = create_orchestrator(contract)
+            orch.complete_agent(contract_role, commit=commit, outputs=outputs)
+            updated_contract = orch.apply_to_contract()
+            save_contract(updated_contract, contract_path)
+            decision = orch.get_next_dispatch()
+            is_complete = decision.all_complete
         else:
             is_complete = True
 
@@ -356,7 +378,7 @@ def handle_complete_signal(
                 handoff_data=outputs,
                 metrics=data.get("metrics", {}),
             )
-            # Derive pipeline identifier matching PipelineDispatcher.contract_key
+            # Derive pipeline identifier matching _pipeline_identifier() convention
             identifier: int | str = (
                 pipeline.issue_number if pipeline.issue_number is not None else pipeline_id
             )
@@ -484,15 +506,20 @@ def handle_error_signal(
         # Contracts live in per-pipeline worktrees, not the main repo.
         contract_path = resolve_worktree_path(pipeline_id, repo_path)
 
-        # Only interact with the contract dispatcher for roles that have
-        # a contract mapping.  Single-agent roles (REFINER, REVIEWER_REFINE,
-        # etc.) don't participate in contract orchestration.
-        has_contract_role = map_agent_role_to_contract_role(agent_role) is not None
+        # Only interact with the contract for roles that have a contract
+        # mapping.  Single-agent roles (REFINER, REVIEWER_REFINE, etc.)
+        # don't participate in contract orchestration.
+        contract_role = _AGENT_ROLE_TO_CONTRACT_ROLE.get(agent_role)
 
-        if has_contract_role:
-            dispatcher = create_dispatcher(pipeline, contract_path)
-            dispatcher.fail_agent(agent_role, error_message)
-            dispatcher.save_contract()
+        if contract_role is not None:
+            identifier: int | str = (
+                pipeline.issue_number if pipeline.issue_number is not None else pipeline_id
+            )
+            contract = load_contract(identifier, contract_path)
+            orch = create_orchestrator(contract)
+            orch.fail_agent(contract_role, error_message)
+            updated_contract = orch.apply_to_contract()
+            save_contract(updated_contract, contract_path)
 
         logger.error(
             "Agent failed",

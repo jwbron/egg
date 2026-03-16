@@ -261,9 +261,9 @@ loaded = load_checkpoint(checkpoint_path)
 - `checkpoints.py` - Checkpoint models (Checkpoint, SessionMetadata, Transcript, ToolCall, TokenUsage, InterAgentMessage)
 - `checkpoint_loader.py` - Checkpoint I/O (atomic save, load, indexing)
 - `checkpoint_cli.py` - CLI for browsing and querying checkpoints
-- `dependency_graph.py` - Task and phase dependency graphs for multi-agent orchestration (includes `PhaseDependencyGraph` for Tier 3 phase-level dispatch)
+- `dependency_graph.py` - Task dependency graphs for multi-agent orchestration
 - `loader.py` - Contract loading from filesystem
-- `orchestration.py` - Orchestration state management (supports composite `(phase_id, role)` keying for Tier 3)
+- `orchestration.py` - Orchestration state management
 - `orchestrator.py` - Multi-agent orchestrator logic (phase-scoped dispatch)
 - `phase_defaults.py` - Default check definitions per SDLC phase
 - `redactor.py` - Sensitive data redaction (env vars, tokens, credentials)

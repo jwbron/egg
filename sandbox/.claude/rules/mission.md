@@ -232,5 +232,5 @@ Both must reach CONFIRMED for the tester to be fully confirmed.
 
 If you receive an `AGENT_FAILED` message about another agent:
 - **Coder fails**: Tester/documenter/reviewer should continue waiting
-- **Tester fails**: Coder/documenter can continue; note the gap in PR description
-- **Reviewer fails**: Coder can continue; note review gap in PR description
+- **Tester fails**: Coder/documenter can continue; note the gap in your proposal
+- **Reviewer fails**: Coder can continue; note the review gap in your proposal

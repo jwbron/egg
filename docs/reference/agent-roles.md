@@ -13,14 +13,14 @@ All agent roles in egg, their responsibilities, phases, file access permissions,
 | `task_planner` | Plan | Yes (with `risk_analyst`) | architect |
 | `risk_analyst` | Plan | Yes (with `task_planner`) | architect |
 | `reviewer_plan` | Plan | No | task_planner, risk_analyst |
-| `coder` | Implement | No (wave 1) | — |
+| `coder` | Implement | No | — |
 | `tester` | Implement | Yes (with `documenter`) | coder |
 | `documenter` | Implement | Yes (with `tester`) | coder |
 | `reviewer_code` | Implement | Yes (with `reviewer_contract`) | coder, tester |
 | `reviewer_contract` | Implement | Yes (with `reviewer_code`) | coder, tester |
 | `inspector` | Any | — | — (health checks) |
 
-Reviewer roles always run as a distinct step after all workers complete.
+All implement phase agents run concurrently via BRC consensus.
 
 ## Refine Phase
 
@@ -119,7 +119,7 @@ Reviewer roles always run as a distinct step after all workers complete.
 - Commits on the worktree branch
 - `.egg-state/agent-outputs/{identifier}-coder-output.json` — Handoff data
 
-**Prompt context**: Plan document (or phase-scoped subset in Tier 3), summarized background.
+**Prompt context**: Plan document, summarized background.
 
 ### `tester`
 
@@ -186,8 +186,7 @@ Agent prompts are scoped to role-relevant context to avoid unnecessary token usa
 | Role group | Context provided |
 |------------|-----------------|
 | Analysis roles (architect, task_planner, risk_analyst) | Full issue body |
-| Execution roles (tester, documenter) | Summarized background + structured task info + pointers to full context |
-| Tier 3 phase-scoped coders | Plan overview + current phase tasks only (not full multi-phase plan) |
+| Execution roles (tester, documenter) | Summarized background + pointers to full context |
 | Reviewers | Full plan/draft/diff relevant to their review scope |
 
 ## Role-Based Contract Mutations
@@ -209,6 +208,6 @@ For the exact allowed and blocked patterns per role, see `gateway/agent_restrict
 
 ## Related Documentation
 
-- [SDLC Pipeline Guide](../guides/sdlc-pipeline.md) — Phase execution and agent waves
-- [Tier 3 Dispatch Guide](../guides/tier3-dispatch.md) — Phase-level parallel dispatch
+- [SDLC Pipeline Guide](../guides/sdlc-pipeline.md) — Phase execution and agent orchestration
+- [Concurrent Execution Guide](../guides/concurrent-execution.md) — BRC consensus protocol
 - [Architecture Overview](../architecture/README.md) — Role-based access control

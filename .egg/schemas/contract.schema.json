@@ -157,14 +157,6 @@
       },
       "default": []
     },
-    "multi_agent_config": {
-      "oneOf": [
-        { "$ref": "#/$defs/multiAgentConfig" },
-        { "type": "null" }
-      ],
-      "description": "Configuration for multi-agent orchestration",
-      "default": null
-    },
     "autofix_attempts": {
       "type": "integer",
       "description": "Number of autofix attempts in current implement phase cycle",
@@ -696,12 +688,6 @@
           "description": "The agent role",
           "enum": ["coder", "tester", "documenter", "architect", "task_planner", "risk_analyst", "refiner", "reviewer_code", "reviewer_contract", "reviewer_agent_design", "reviewer_refine", "reviewer_plan"]
         },
-        "phase_id": {
-          "type": ["string", "null"],
-          "description": "Plan phase ID this execution belongs to (e.g., 'phase-1'). Null for Tier 2 (role-only) keying.",
-          "pattern": "^phase-[0-9]+$",
-          "default": null
-        },
         "status": {
           "type": "string",
           "description": "Current execution status",
@@ -747,38 +733,6 @@
           "description": "Number of retry attempts",
           "minimum": 0,
           "default": 0
-        }
-      },
-      "additionalProperties": false
-    },
-    "multiAgentConfig": {
-      "type": "object",
-      "description": "Configuration for multi-agent orchestration",
-      "properties": {
-        "enabled": {
-          "type": "boolean",
-          "description": "Whether multi-agent mode is enabled",
-          "default": true
-        },
-        "max_retries": {
-          "type": "integer",
-          "description": "Max retries per agent",
-          "minimum": 0,
-          "default": 2
-        },
-        "parallel_execution": {
-          "type": "boolean",
-          "description": "Allow parallel execution of independent agents",
-          "default": true
-        },
-        "roles_enabled": {
-          "type": "array",
-          "description": "Which agent roles are enabled",
-          "items": {
-            "type": "string",
-            "enum": ["coder", "tester", "documenter", "architect", "task_planner", "risk_analyst", "refiner", "reviewer_code", "reviewer_contract", "reviewer_agent_design", "reviewer_refine", "reviewer_plan"]
-          },
-          "default": ["coder", "tester", "documenter"]
         }
       },
       "additionalProperties": false

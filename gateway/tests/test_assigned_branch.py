@@ -210,7 +210,6 @@ def _make_pipeline_session(
     mock_session.last_branch = assigned_branch
     mock_session.checkpoint_repo = None
     mock_session.last_repo_path = None
-    mock_session.complexity_tier = None
     return mock_session
 
 

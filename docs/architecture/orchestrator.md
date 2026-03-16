@@ -74,7 +74,7 @@ A two-tier health check framework provides structured, extensible failure detect
 **Lifecycle integration:**
 - `STARTUP`: Runs after startup reconciliation on all RUNNING pipelines (non-blocking)
 - `RUNTIME_TICK`: Triggered by container state changes via `ContainerMonitor` (non-blocking)
-- `WAVE_COMPLETE`: Runs after each agent wave in `multi_agent.py`; `FAIL_PIPELINE` breaks wave execution
+- `WAVE_COMPLETE`: Runs after each agent wave completes; `FAIL_PIPELINE` breaks wave execution
 - `PHASE_COMPLETE`: Runs before phase advance in `routes/phases.py`; `FAIL_PIPELINE` blocks the transition (409 Conflict)
 - `ON_DEMAND`: Available via `GET /api/v1/pipelines/{id}/health`
 
@@ -177,12 +177,6 @@ See `orchestrator/routes/pipelines.py` for implementation details.
 
 This architecture ensures the orchestrator reads artifacts from the correct isolated workspace rather than the main repository, preventing cross-contamination between pipelines.
 
-**Per-phase worktrees (Tier 3):**
-
-For Tier 3 parallel dispatch, the gateway's `WorktreeManager` can create sub-worktrees for individual plan phases via `create_phase_worktree()`. These are branched from the pipeline worktree for isolated phase-level implementation, with branch naming `egg/<feature>/phase-N`. After integration, `cleanup_phase_worktrees()` removes them.
-
-See `orchestrator/routes/pipelines.py:WORKTREE_BASE_DIR` and `gateway/worktree_manager.py` for implementation details.
-
 ## Multi-Agent Roles
 
 The orchestrator coordinates specialized agent roles across pipeline phases. Each role runs in its own sandbox container with scoped permissions enforced by the gateway.
@@ -219,26 +213,14 @@ The orchestrator coordinates specialized agent roles across pipeline phases. Eac
 | **Coder** | Write code, create commits, push branches |
 | **Tester** | Find gaps in implementation, write and run tests, run lint/type-checks, apply auto-fixes |
 | **Documenter** | Update docs and READMEs |
+| **Reviewer (Code)** | Security, correctness, code quality, testing, documentation |
+| **Reviewer (Contract)** | Verify acceptance criteria met, task completion status |
 
-**Execution model (Tier 2)**: Wave-based with dependencies. The coder runs first, then tester and documenter run in parallel (both depend on coder's output). Reviewers run after the tester and documenter complete.
-
-**Execution model (Tier 3)**: For high-complexity tasks, each plan phase runs its own implement cycle (Coder → Tester → Documenter → Code Reviewer). Independent phases can execute in parallel.
-
-**Reviewers:**
-- **Code Reviewer**: Security, correctness, code quality, testing, documentation
-- **Contract Reviewer**: Verify acceptance criteria met, task completion status
+**Execution model**: All implement phase agents run concurrently via the BRC consensus protocol. Agents communicate via the orchestrator message bus and reach phase completion through peer consensus.
 
 ### Prompt Context Scoping
 
-Agent prompts are scoped to role-relevant context. Analysis roles (architect, task_planner, risk_analyst) receive the full issue body for problem understanding. Execution roles (tester, documenter) receive a summarized background with structured task information and pointers to full context on demand. Phase-scoped coders (Tier 3) see the plan overview and current phase tasks, not the full plan. See [SDLC Pipeline Guide: Role-Specific Prompt Context](../guides/sdlc-pipeline.md#role-specific-prompt-context) for details.
-
-### Reviewer Execution
-
-Reviewers always run as a separate step after all workers complete. They spawn in parallel with a configurable concurrency limit (`max_parallel_agents`). In implement phase, reviewers run after the tester and documenter complete. In plan phase, reviewers run after the task planner and risk analyst complete. In refine phase, reviewers run after the refiner completes.
-
-### Wave Cycle Safety
-
-The multi-agent executor enforces a safety cap (`max_waves=5`) on the number of wave iterations per phase. This prevents unbounded wave cycles when the dispatcher repeatedly returns agents as runnable (e.g., reviewer→coder reset loops within a single review cycle). When the cap is reached, the orchestrator logs a warning and stops wave execution. This limit applies to each phase execution independently.
+Agent prompts are scoped to role-relevant context. Analysis roles (architect, task_planner, risk_analyst) receive the full issue body for problem understanding. Execution roles (tester, documenter) receive a summarized background with pointers to full context on demand. See [SDLC Pipeline Guide: Role-Specific Prompt Context](../guides/sdlc-pipeline.md#role-specific-prompt-context) for details.
 
 ## Deployment Modes
 
@@ -344,11 +326,8 @@ EGG_AGENT_ROLE=coder
 - Dependency-based scheduling (coder → tester → documenter)
 - Handoff data passed between agents
 - Parallel execution of independent agents
-- Tier 3 (high complexity): Phase-level dispatch with per-phase implement cycles
 
-**Use case:** Multi-agent workflows, complex implementations
-
-**Tier 3 enhancement:** For high-complexity tasks, the distributed mode runs each plan phase through its own implement cycle (Coder → Tester → Agentic Review), with independent phases optionally executing in parallel. The DAG visualization endpoint renders Tier 3 pipelines with expanded sub-phase boxes, arranged by dependency wave with fan-out/fan-in connectors for parallel phases. This is driven by the `Pipeline.plan_phase_waves` and `Pipeline.plan_phase_names` fields, populated at Tier 3 implement start. See [SDLC Pipeline Guide: Tier 3](../../docs/guides/sdlc-pipeline.md#tier-3-phase-level-dispatch) for details.
+**Use case:** Multi-agent workflows, complex implementations. All phases use concurrent BRC execution.
 
 **Environment:**
 ```bash
@@ -386,7 +365,7 @@ Fixed IPs:
 - `GET/POST /pipelines` - Pipeline CRUD (list, create). Creating a pipeline whose existing record is in a terminal state (failed, cancelled, or complete) automatically replaces it, enabling resubmission without a prior delete
 - `DELETE /pipelines/{id}` - Delete pipeline (stops containers, cleans up remote worktree branches best-effort, removes state)
 - `POST /pipelines/{id}/start` - Start or restart a pipeline (restarts failed pipelines by resetting the failed phase; recovers orphaned AWAITING_HUMAN pipelines by parsing the latest phase_gate resolution and either advancing to next phase or resetting for re-run; worktrees are preserved across restarts)
-- `GET /pipelines/{id}/visualization` - Pipeline status snapshot (JSON, text, or ASCII); for Tier 3 pipelines, the Implement phase is expanded into sub-phase boxes with fan-out/fan-in connectors
+- `GET /pipelines/{id}/visualization` - Pipeline status snapshot (JSON, text, or ASCII)
 - `GET /pipelines/{id}/stream` - Real-time SSE stream for single pipeline events and visualization
 - `GET /pipelines/stream` - Unified SSE stream for all active pipelines (supports `?ascii=true`, `?active_only=false`, `?full_dag=true`)
 - `POST /pipelines/{id}/signal` - Sandbox signals (complete, progress, error, readiness)
