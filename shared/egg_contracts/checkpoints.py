@@ -8,11 +8,14 @@ Checkpoints capture agent session context as first-class versioned data in Git,
 including transcripts, tool calls, files touched, and token usage.
 """
 
+import logging
 from datetime import datetime
 from enum import StrEnum
 from typing import Any
 
 from pydantic import BaseModel, Field, field_validator
+
+logger = logging.getLogger(__name__)
 
 
 class FileOperationType(StrEnum):
@@ -167,7 +170,16 @@ class AgentType(StrEnum):
 
     @classmethod
     def _missing_(cls, value: object) -> "AgentType":
-        """Coerce unrecognized agent types to UNKNOWN for backwards compatibility."""
+        """Coerce unrecognized agent types to UNKNOWN for backwards compatibility.
+
+        WARNING: This is lossy — the original value is discarded. Any load-modify-save
+        cycle on a checkpoint will replace the stored agent_type with "unknown".
+
+        Note: This intentional asymmetry with TriggerType and SessionStatus (which still
+        raise ValueError for unrecognized values) exists because agent types evolve faster
+        as roles are added/removed across versions.
+        """
+        logger.debug("Unrecognized agent type %r coerced to UNKNOWN", value)
         return cls.UNKNOWN
 
 
