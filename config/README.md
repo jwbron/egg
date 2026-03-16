@@ -212,6 +212,7 @@ Each `build_commands` entry has:
 - Repos without `build_commands` are unaffected (backwards compatible)
 - Docker layer caching means no rebuild when dependencies are unchanged
 - `persist_dirs` is optional — omit it for Python venvs installed into a fixed path; use it for JS `node_modules` or other repo-relative directories
+- Changing `persist_dirs` alone does not trigger a rebuild — add or modify a `watch_files` entry or use `egg --rebuild`
 - The existing `docker_setup.extra_packages` (apt/dnf) remains for OS-level packages; `build_commands` is for project-level dependencies
 - Both `build_commands` and `extra_packages` are included in `manifest.json` for the Docker build context
 

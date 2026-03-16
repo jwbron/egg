@@ -195,6 +195,8 @@ Per-repo `build_commands` in `repositories.yaml` allow project-specific dependen
 5. If `persist_dirs` is configured, `persist_build_dirs()` copies those directories (e.g., `node_modules`) from the build context to `/opt/prebuilt-deps/<repo>/` in the image
 6. At container startup, `restore_prebuilt_deps()` in `entrypoint.py` restores persisted directories into the mounted repo, making them available without network access
 
+> **Note:** `persist_dirs` is not included in `compute_build_hash()`. Changing only `persist_dirs` won't trigger an automatic rebuild — add or modify a `watch_files` entry or use `egg --rebuild`.
+
 **Config propagation:** During Docker builds, `repositories.yaml` is not available in the build context. Both `build_commands` and `extra_packages` are propagated via a `manifest.json` file that `create_dockerfile()` writes into `repo-deps/`. The `docker-setup.py` script reads this manifest as a fallback when `repositories.yaml` is not found.
 
 See [Configuration README](../config/README.md#per-repo-build-commands-dependency-caching) for configuration details.
