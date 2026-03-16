@@ -212,8 +212,9 @@ RUN if [ "$CLAUDE_AGENT_SDK_VERSION" = "latest" ]; then \
     pip3 show claude-agent-sdk 2>/dev/null | grep '^Version:' | cut -d' ' -f2 > /opt/claude-agent-sdk-version.txt || true
 
 # Install Claude Code CLI (native installer) for the egg user
-# ARG is used (not ENV) so that changing the version busts Docker's cache
-# The egg script checks for new versions and passes the latest version here
+# The egg script always passes the specific npm version to bust Docker's layer
+# cache when a new version is released. The "stable" fallback only applies if the
+# build-arg is omitted (e.g. manual docker build without the egg script).
 ARG CLAUDE_CODE_VERSION=stable
 RUN su - egg -c "curl -fsSL https://claude.ai/install.sh | bash -s -- $CLAUDE_CODE_VERSION" && \
     # Save installed version for update checks

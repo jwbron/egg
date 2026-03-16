@@ -161,6 +161,9 @@ class TestGetInstalledClaudeVersion:
 class TestGetLatestClaudeVersion:
     """Tests for get_latest_claude_version."""
 
+    def setup_method(self):
+        get_latest_claude_version.cache_clear()
+
     def test_returns_version(self):
         """Returns version from npm registry."""
         import json
@@ -242,6 +245,9 @@ class TestGetInstalledAgentSdkVersion:
 
 class TestGetLatestAgentSdkVersion:
     """Tests for get_latest_agent_sdk_version."""
+
+    def setup_method(self):
+        get_latest_agent_sdk_version.cache_clear()
 
     def test_returns_version(self):
         """Returns version from PyPI."""
