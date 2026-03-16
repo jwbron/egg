@@ -59,13 +59,13 @@ Each agent is registered in the peer consensus tracker before spawning begins.
 
 ## Consensus Wrapper
 
-All concurrent agent containers are wrapped with a shell script defined in `orchestrator/consensus_wrapper.py`. The wrapper detects when Claude exits without the orchestrator confirming consensus and restarts the agent with a recovery prompt instead of silently marking it as ready.
+All concurrent agent containers are wrapped with a shell script defined in `orchestrator/consensus_wrapper.py`. The wrapper detects when Claude exits without the orchestrator confirming consensus and restarts the agent with recovery instructions instead of silently marking it as ready.
 
 **How it works:**
 
 1. Claude runs inside the wrapper script with the original task prompt.
 2. If Claude exits non-zero (crashed), the wrapper exits immediately with the same code — no restart.
-3. If Claude exits cleanly (code 0), the wrapper restarts Claude with a **recovery prompt** that explains the agent was restarted because it exited without signaling `READY`. The recovery prompt instructs the agent to poll for messages, assess state, and explicitly signal `READY` or continue working. If the agent is a producer with unresolved NACKs, the recovery prompt also includes the NACK feedback (reviewer role and reason) so the agent knows exactly what to address before re-proposing.
+3. If Claude exits cleanly (code 0), the wrapper restarts Claude with recovery instructions injected as the **system prompt** (not the user prompt). Using the system prompt prevents the Agent SDK from flagging the recovery context as prompt injection. The recovery system prompt explains that the agent was restarted, includes the current BRC state, and (for producers with unresolved NACKs) includes the NACK feedback so the agent knows exactly what to address before re-proposing. A short user prompt ("Continue the BRC consensus protocol…") accompanies it.
 4. Restarts are capped at `MAX_CONSENSUS_RESTARTS` (default: 2). After each restart, the wrapper checks if consensus was reached. If so, it exits cleanly.
 5. After exhausting all restarts, the wrapper exits with code 1, triggering the orchestrator's agent failure path (HITL decision with retry/abort/continue options).
 
