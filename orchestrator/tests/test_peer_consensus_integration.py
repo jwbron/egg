@@ -810,9 +810,7 @@ class TestWithdrawReProposalDeadlock:
         t.handle_propose("refiner", {"summary": "v1", "artifacts": ["design.md"]})
 
         # reviewer_agent_design ACKs and confirms on v1
-        t.handle_ack(
-            "reviewer_agent_design", "refiner", {"artifact_references": ["design.md"]}
-        )
+        t.handle_ack("reviewer_agent_design", "refiner", {"artifact_references": ["design.md"]})
         t.handle_confirmed("reviewer_agent_design")
         assert "reviewer_agent_design" in t._confirmed
 
@@ -831,18 +829,14 @@ class TestWithdrawReProposalDeadlock:
         )
 
         # reviewer_refine ACKs v2 and confirms
-        t.handle_ack(
-            "reviewer_refine", "refiner", {"artifact_references": ["design.md"]}
-        )
+        t.handle_ack("reviewer_refine", "refiner", {"artifact_references": ["design.md"]})
         t.handle_confirmed("reviewer_refine")
 
         # refiner withdraws (e.g., realized more changes needed)
         t.handle_withdraw("refiner", "Need to incorporate additional feedback")
 
         # refiner re-proposes v4 (new proposal after withdrawal)
-        result = t.handle_propose(
-            "refiner", {"summary": "v4 - final", "artifacts": ["design.md"]}
-        )
+        result = t.handle_propose("refiner", {"summary": "v4 - final", "artifacts": ["design.md"]})
 
         # The fix: reviewer_agent_design was already un-confirmed during
         # handle_re_propose(v2) because their ACK on design.md overlapped
@@ -856,12 +850,8 @@ class TestWithdrawReProposalDeadlock:
         assert "reviewer_refine" in result["stale_confirmed_reviewers"]
 
         # Now both reviewers can re-review and the cycle completes
-        t.handle_ack(
-            "reviewer_agent_design", "refiner", {"artifact_references": ["design.md"]}
-        )
-        t.handle_ack(
-            "reviewer_refine", "refiner", {"artifact_references": ["design.md"]}
-        )
+        t.handle_ack("reviewer_agent_design", "refiner", {"artifact_references": ["design.md"]})
+        t.handle_ack("reviewer_refine", "refiner", {"artifact_references": ["design.md"]})
 
         # Now refiner should be fully ACKed
         assert t.matrix.is_fully_acked("refiner")
@@ -878,20 +868,14 @@ class TestWithdrawReProposalDeadlock:
 
         # Quick setup: propose, both ACK and confirm, then withdraw and re-propose
         t.handle_propose("refiner", {"summary": "v1", "artifacts": ["design.md"]})
-        t.handle_ack(
-            "reviewer_agent_design", "refiner", {"artifact_references": ["design.md"]}
-        )
-        t.handle_ack(
-            "reviewer_refine", "refiner", {"artifact_references": ["design.md"]}
-        )
+        t.handle_ack("reviewer_agent_design", "refiner", {"artifact_references": ["design.md"]})
+        t.handle_ack("reviewer_refine", "refiner", {"artifact_references": ["design.md"]})
         t.handle_confirmed("reviewer_agent_design")
         t.handle_confirmed("reviewer_refine")
 
         # Withdraw and re-propose
         t.handle_withdraw("refiner", "Revised approach needed")
-        result = t.handle_propose(
-            "refiner", {"summary": "v3", "artifacts": ["design.md"]}
-        )
+        result = t.handle_propose("refiner", {"summary": "v3", "artifacts": ["design.md"]})
 
         # Both reviewers should be in the stale list
         stale = result["stale_confirmed_reviewers"]
@@ -901,9 +885,7 @@ class TestWithdrawReProposalDeadlock:
     def test_no_stale_reviewers_on_first_proposal(self, refine_tracker):
         """First proposal should never have stale confirmed reviewers."""
         t = refine_tracker
-        result = t.handle_propose(
-            "refiner", {"summary": "v1", "artifacts": ["design.md"]}
-        )
+        result = t.handle_propose("refiner", {"summary": "v1", "artifacts": ["design.md"]})
         assert result["stale_confirmed_reviewers"] == []
 
     def test_re_propose_via_changed_artifacts_also_unconfirms(self, refine_tracker):
@@ -912,9 +894,7 @@ class TestWithdrawReProposalDeadlock:
         t = refine_tracker
 
         t.handle_propose("refiner", {"summary": "v1", "artifacts": ["design.md"]})
-        t.handle_ack(
-            "reviewer_agent_design", "refiner", {"artifact_references": ["design.md"]}
-        )
+        t.handle_ack("reviewer_agent_design", "refiner", {"artifact_references": ["design.md"]})
         t.handle_confirmed("reviewer_agent_design")
 
         # reviewer_refine NACKs
@@ -941,12 +921,8 @@ class TestWithdrawReProposalDeadlock:
         t = refine_tracker
 
         t.handle_propose("refiner", {"summary": "v1", "artifacts": ["design.md"]})
-        t.handle_ack(
-            "reviewer_agent_design", "refiner", {"artifact_references": ["design.md"]}
-        )
-        t.handle_ack(
-            "reviewer_refine", "refiner", {"artifact_references": ["design.md"]}
-        )
+        t.handle_ack("reviewer_agent_design", "refiner", {"artifact_references": ["design.md"]})
+        t.handle_ack("reviewer_refine", "refiner", {"artifact_references": ["design.md"]})
         t.handle_confirmed("reviewer_agent_design")
         t.handle_confirmed("reviewer_refine")
 
@@ -959,10 +935,6 @@ class TestWithdrawReProposalDeadlock:
             t.handle_confirmed("refiner")
 
         # After both reviewers re-ACK, refiner can confirm
-        t.handle_ack(
-            "reviewer_agent_design", "refiner", {"artifact_references": ["design.md"]}
-        )
-        t.handle_ack(
-            "reviewer_refine", "refiner", {"artifact_references": ["design.md"]}
-        )
+        t.handle_ack("reviewer_agent_design", "refiner", {"artifact_references": ["design.md"]})
+        t.handle_ack("reviewer_refine", "refiner", {"artifact_references": ["design.md"]})
         t.handle_confirmed("refiner")
