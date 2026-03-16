@@ -169,7 +169,8 @@
       "ckpt-a826565915d72018",
       "ckpt-f19a4991f708c4a8",
       "ckpt-0bc290ec659512a9",
-      "ckpt-cf19dfea546d92c5"
+      "ckpt-cf19dfea546d92c5",
+      "ckpt-c60effc430007230"
     ]
   },
   "by_commit": {},
@@ -209,7 +210,8 @@
       "ckpt-9e0837bca4cda63c",
       "ckpt-f1fd424f164f208d",
       "ckpt-a84388b11801c66b",
-      "ckpt-d4c4105d7208a38f"
+      "ckpt-d4c4105d7208a38f",
+      "ckpt-c60effc430007230"
     ],
     "issue-1059": [
       "ckpt-90a940ff983837a4",
@@ -424,7 +426,8 @@
     ],
     "issue-1032-failsafe-fetch": [
       "ckpt-41d17408cec42a56",
-      "ckpt-f1fd424f164f208d"
+      "ckpt-f1fd424f164f208d",
+      "ckpt-c60effc430007230"
     ],
     "issue-1032-failsafe-push": [
       "ckpt-9ee51c4ab6c38d4e",
@@ -776,7 +779,8 @@
       "ckpt-a826565915d72018",
       "ckpt-f19a4991f708c4a8",
       "ckpt-0bc290ec659512a9",
-      "ckpt-cf19dfea546d92c5"
+      "ckpt-cf19dfea546d92c5",
+      "ckpt-c60effc430007230"
     ]
   },
   "by_trigger": {
@@ -949,7 +953,8 @@
       "ckpt-a826565915d72018",
       "ckpt-f19a4991f708c4a8",
       "ckpt-0bc290ec659512a9",
-      "ckpt-cf19dfea546d92c5"
+      "ckpt-cf19dfea546d92c5",
+      "ckpt-c60effc430007230"
     ]
   },
   "checkpoints": [
@@ -4163,8 +4168,27 @@
       "tool_call_count": 0,
       "total_tokens": 0,
       "trigger_type": "session_end"
+    },
+    {
+      "agent_type": "unknown",
+      "branch": null,
+      "commit_sha": null,
+      "created_at": "2026-03-16T01:30:47.466875Z",
+      "files_touched_count": 0,
+      "id": "ckpt-c60effc430007230",
+      "issue_number": null,
+      "message_count": 0,
+      "pipeline_id": "issue-1032",
+      "pipeline_phase": null,
+      "pr_number": null,
+      "repo": null,
+      "session_id": "issue-1032-failsafe-fetch",
+      "session_status": "completed",
+      "tool_call_count": 0,
+      "total_tokens": 0,
+      "trigger_type": "session_end"
     }
   ],
-  "last_updated": "2026-03-16T01:01:21.967720Z",
+  "last_updated": "2026-03-16T01:30:48.387023Z",
   "schemaVersion": "2.0"
 }
