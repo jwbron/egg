@@ -326,8 +326,23 @@ Concurrent-execution-specific endpoints:
 | `GET` | `/api/v1/pipelines/{id}/messages/status` | Message bus statistics |
 | `POST` | `/api/v1/pipelines/{id}/signal` | Readiness or BRC consensus signal |
 
+## Structured Progress Reporting
+
+In addition to the message bus, agents emit structured progress events to the orchestrator for health monitoring. These events feed the deterministic tripwire system that detects stalls, loops, and failures.
+
+```bash
+# Report progress on current work step
+egg-orch progress emit --step "running tests" --state working --detail "pytest suite 3/5"
+
+# Report a blocker
+egg-orch progress emit --step "waiting for dependency" --state blocked --blocker "coder not ready"
+```
+
+Agents should emit progress at key milestones (starting/completing steps, encountering blockers, during long operations). See [Pipeline Health Monitoring](pipeline-health-monitoring.md) for the full structured progress API and health monitoring architecture.
+
 ## Related Documentation
 
 - [SDLC Pipeline Guide](sdlc-pipeline.md) — Standard wave-based execution
 - [Orchestrator Architecture](../architecture/orchestrator.md) — Deployment modes and API details
 - [Checkpoint Access](checkpoint-access.md) — Cross-agent checkpoint queries
+- [Pipeline Health Monitoring](pipeline-health-monitoring.md) — Two-tier health monitoring and structured progress

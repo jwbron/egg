@@ -48,7 +48,7 @@ Pipelines progress through four SDLC phases:
 |-------|---------|--------|
 | **refine** | Analyze task, evaluate options | Refiner, reviewers |
 | **plan** | Break work into tasks, assess risks | Architect, Task Planner, Risk Analyst, reviewers |
-| **implement** | Write code, tests, docs | Coder, Tester, Documenter, Checker, reviewers |
+| **implement** | Write code, tests, docs | Coder, Tester, Documenter, reviewers |
 | **pr** | Create pull request | Single agent |
 
 Each phase transition requires human approval (except implement → pr when all checks pass).
@@ -159,6 +159,13 @@ All endpoints are prefixed with `/api/v1`.
 | `GET` | `/pipelines/{id}/deployment-check/status` | Poll devserver status |
 | `POST` | `/pipelines/{id}/deployment-check/teardown` | Tear down devserver |
 
+### Structured Progress
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/pipelines/{id}/progress` | Emit structured progress event |
+| `GET` | `/pipelines/{id}/progress` | Query progress events (filterable by agent, time, limit) |
+
 ### Health
 
 | Method | Path | Description |
@@ -167,6 +174,7 @@ All endpoints are prefixed with `/api/v1`.
 | `GET` | `/ready` | Readiness check |
 | `GET` | `/live` | Liveness check |
 | `GET` | `/pipelines/{id}/health` | On-demand pipeline health check |
+| `GET` | `/pipelines/{id}/health/alerts` | Active deterministic health alerts |
 
 ### Metrics
 
@@ -204,6 +212,8 @@ orchestrator/
 ├── mcp_server.py           # SSE-based MCP server for pipeline management tools (port 9850)
 ├── mcp_tools.py            # MCP tool definitions and handlers (submit_task, get_status, etc.)
 ├── events.py               # Event emission and tracking
+├── health_monitor.py       # Deterministic tripwire processor (heartbeat, error repeat, stall detection)
+├── progress_store.py       # In-memory structured progress event storage
 ├── health_checks/          # Two-tier health check framework (see health_checks/README.md)
 │   ├── types.py            # HealthCheck protocol, HealthResult, enums
 │   ├── context.py          # PipelineHealthContext with lazy properties
@@ -225,15 +235,24 @@ orchestrator/
 ├── Dockerfile              # Container image (Python 3.11-slim)
 ├── entrypoint.sh           # Container startup script
 ├── requirements.txt        # Python dependencies
+├── overseer/               # Overseer agent server-side logic
+│   ├── __init__.py         # Package init
+│   ├── classifier.py       # Haiku classification (stall, loop, error, off-track)
+│   ├── decision_maker.py   # Sonnet/Opus corrective decision-making
+│   └── issue_filer.py      # Autonomous GitHub issue filing with diagnostics
 ├── routes/
 │   ├── checks.py           # Deployment check endpoints
 │   ├── containers.py       # Container lifecycle endpoints
 │   ├── decisions.py        # HITL decision endpoints
-│   ├── health.py           # Health check endpoints
+│   ├── health.py           # Health check endpoints (includes /health/alerts)
 │   ├── metrics.py          # Metrics endpoints
 │   ├── phases.py           # Phase management endpoints
 │   ├── pipelines.py        # Pipeline CRUD endpoints
+│   ├── progress.py         # Structured progress ingestion and query endpoints
 │   └── signals.py          # Sandbox signal callback endpoints
+├── cli/
+│   ├── progress.py         # egg-orch progress emit/query commands
+│   └── health.py           # egg-orch health alerts command
 └── tests/                  # Unit and integration tests (30+ files, including health check and concurrent execution tests)
 ```
 
@@ -284,6 +303,34 @@ Health check results are emitted via the EventBus:
 ### Phase-Advance Gating
 
 When health checks run at `PHASE_COMPLETE`, a `FAIL_PIPELINE` action blocks the phase transition (returns 409 Conflict). This prevents advancing past a broken state.
+
+## Pipeline Health Monitoring
+
+Beyond the lifecycle-triggered health checks above, the orchestrator provides continuous real-time monitoring via two tiers:
+
+### Structured Progress API
+
+Agents emit structured progress events via `POST /api/v1/pipelines/{id}/progress`. Events include step name, state (`working`/`blocked`/`complete`), detail text, and optional blocker description. Progress is stored in-memory with configurable retention (`progress_store.py`).
+
+CLI: `egg-orch progress emit --step "..." --state working` / `egg-orch progress query`
+
+### Deterministic Tripwires
+
+The `health_monitor.py` module subscribes to EventBus events and evaluates five tripwire rules:
+
+| Tripwire | Threshold Config | Action |
+|----------|-----------------|--------|
+| Heartbeat timeout | `orchestrator_heartbeat_timeout_seconds` (120s) | Auto-nudge agent |
+| Container exit | — | HITL escalation |
+| Repeated errors | `orchestrator_error_repeat_threshold` (3) | Escalate to overseer |
+| Message volume spike | `orchestrator_message_rate_limit` (20/min) | Auto-throttle |
+| Progress stall | Same as heartbeat | Nudge → escalate to overseer |
+
+### Overseer Agent
+
+Auto-spawned on every pipeline (when `overseer_enabled` is true). Uses Haiku for anomaly classification and Sonnet/Opus for corrective decisions via `shared/egg_agent/`. No repo access. See `orchestrator/overseer/` for server-side logic.
+
+See the [Pipeline Health Monitoring Guide](../docs/guides/pipeline-health-monitoring.md) for the full reference.
 
 ## Configuration
 

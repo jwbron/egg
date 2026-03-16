@@ -19,6 +19,7 @@ All agent roles in egg, their responsibilities, phases, file access permissions,
 | `reviewer_code` | Implement | Yes (with `reviewer_contract`) | coder, tester |
 | `reviewer_contract` | Implement | Yes (with `reviewer_code`) | coder, tester |
 | `inspector` | Any | — | — (health checks) |
+| `overseer` | All phases | — | — (pipeline health monitoring) |
 
 All implement phase agents run concurrently via BRC consensus.
 
@@ -176,6 +177,38 @@ All implement phase agents run concurrently via BRC consensus.
 **Purpose**: Health check role used by the Tier 2 semantic health check (`AgentInspectorCheck`). Sends pipeline context to Claude and interprets a structured JSON verdict.
 
 **Usage**: Spawned on-demand by the health check framework, not by standard pipeline dispatch.
+
+### `overseer`
+
+**Purpose**: Pipeline health monitoring agent that detects and responds to agent failures, stalls, loops, and off-track behavior. Uses a two-sub-tier LLM architecture: Haiku classifiers for anomaly detection and Sonnet/Opus decision-makers for corrective action.
+
+**Lifecycle**: Auto-spawned at pipeline start (when `overseer_enabled` is true in `PipelineConfig`). Runs across all phases until pipeline completion — one overseer per pipeline.
+
+**File access**:
+- Allowed writes: `.egg-state/oversight/` (structured oversight logs)
+- Blocked: All source code, tests, docs, configs, contracts, drafts, reviews
+
+**Access**:
+- Orchestrator APIs: pipeline status, container logs, progress queries, health alerts, message bus
+- GitHub API: `gh issue create` for diagnostic issue filing
+- `egg-orch message send` to redirect individual agents
+
+**Blocked from**:
+- All git operations (no repo volume mounted)
+- `gh pr merge`, `gh pr create`
+- `egg-orch phase advance`, `egg-orch phase complete`
+- Direct agent restart (must go through HITL decision queue)
+
+**Outputs**:
+- Redirect messages to stalled/off-track agents
+- HITL escalation requests for agent restarts
+- Autonomous GitHub issues with structured diagnostics (labeled `overseer-alert`)
+- Pipeline health summary at completion
+- Structured oversight logs in `.egg-state/oversight/`
+
+**Prompt context**: Orchestrator health alerts, structured progress events, agent container logs, pipeline state.
+
+See [Pipeline Health Monitoring Guide](../guides/pipeline-health-monitoring.md) for full details.
 
 ## Prompt Context Scoping
 
