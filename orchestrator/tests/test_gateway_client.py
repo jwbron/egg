@@ -748,7 +748,7 @@ class TestPushWorktreeBranch:
             )
             mock_reg.assert_called_once()
             call_kwargs = mock_reg.call_args
-            registered_branch = call_kwargs.kwargs.get("branch") or call_kwargs[1].get("branch")
+            registered_branch = call_kwargs.kwargs["branch"]
             assert registered_branch == "egg/issue-42"
 
 
@@ -805,7 +805,7 @@ class TestDeleteRemoteBranch:
             )
             mock_reg.assert_called_once()
             call_kwargs = mock_reg.call_args
-            registered_branch = call_kwargs.kwargs.get("branch") or call_kwargs[1].get("branch")
+            registered_branch = call_kwargs.kwargs["branch"]
             assert registered_branch == "egg/container-abc123/work"
 
 
