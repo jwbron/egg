@@ -618,6 +618,200 @@ class TestSuccessPathPushesStatefiles:
         mock_gateway.push_worktree_branch.assert_not_called()
 
 
+class TestNetworkModeAutoDetection:
+    """Verify the three-way network mode branch in _run_pipeline:
+    explicit mode / auto-detect from repo visibility / default public."""
+
+    @patch("routes.pipelines.get_gateway_client")
+    @patch(_COMMON_PATCHES[7])
+    @patch(_COMMON_PATCHES[6])
+    @patch(_COMMON_PATCHES[5])
+    @patch(_COMMON_PATCHES[4])
+    @patch(_COMMON_PATCHES[3])
+    @patch(_COMMON_PATCHES[2])
+    @patch(_COMMON_PATCHES[1])
+    @patch(_COMMON_PATCHES[0])
+    def test_explicit_network_mode_skips_gateway_call(
+        self,
+        mock_emit,
+        mock_get_spawner,
+        mock_get_store,
+        mock_spawn_wait,
+        mock_state_lock,
+        mock_build_prompt,
+        mock_read_draft,
+        mock_report,
+        mock_get_gw,
+    ):
+        """When pipeline.network_mode is set, gateway is not queried."""
+        from routes.pipelines import _run_pipeline
+
+        pipeline = _make_running_pipeline()
+        pipeline.network_mode = "private"
+        _setup_mocks(
+            mock_report,
+            mock_read_draft,
+            mock_build_prompt,
+            mock_state_lock,
+            mock_spawn_wait,
+            mock_get_store,
+            mock_get_spawner,
+            mock_emit,
+            pipeline,
+        )
+
+        with (
+            patch.dict(os.environ, {"EGG_HOST_REPO_MAP": '{"repo": "/host/repo"}'}, clear=False),
+            patch("pathlib.Path.exists", return_value=True),
+        ):
+            _run_pipeline("issue-42", Path("/repo"))
+
+        mock_get_gw.return_value.get_repo_visibility.assert_not_called()
+
+    @patch("routes.pipelines.get_gateway_client")
+    @patch(_COMMON_PATCHES[7])
+    @patch(_COMMON_PATCHES[6])
+    @patch(_COMMON_PATCHES[5])
+    @patch(_COMMON_PATCHES[4])
+    @patch(_COMMON_PATCHES[3])
+    @patch(_COMMON_PATCHES[2])
+    @patch(_COMMON_PATCHES[1])
+    @patch(_COMMON_PATCHES[0])
+    def test_private_repo_sets_private_mode(
+        self,
+        mock_emit,
+        mock_get_spawner,
+        mock_get_store,
+        mock_spawn_wait,
+        mock_state_lock,
+        mock_build_prompt,
+        mock_read_draft,
+        mock_report,
+        mock_get_gw,
+    ):
+        """When repo is private, gateway_mode should be 'private'."""
+        from routes.pipelines import _run_pipeline
+
+        pipeline = _make_running_pipeline()
+        pipeline.network_mode = None
+        _setup_mocks(
+            mock_report,
+            mock_read_draft,
+            mock_build_prompt,
+            mock_state_lock,
+            mock_spawn_wait,
+            mock_get_store,
+            mock_get_spawner,
+            mock_emit,
+            pipeline,
+        )
+
+        mock_get_gw.return_value.get_repo_visibility.return_value = "private"
+
+        with (
+            patch.dict(os.environ, {"EGG_HOST_REPO_MAP": '{"repo": "/host/repo"}'}, clear=False),
+            patch("pathlib.Path.exists", return_value=True),
+        ):
+            _run_pipeline("issue-42", Path("/repo"))
+
+        mock_get_gw.return_value.get_repo_visibility.assert_called_once_with("owner/repo")
+
+    @patch("routes.pipelines.get_gateway_client")
+    @patch(_COMMON_PATCHES[7])
+    @patch(_COMMON_PATCHES[6])
+    @patch(_COMMON_PATCHES[5])
+    @patch(_COMMON_PATCHES[4])
+    @patch(_COMMON_PATCHES[3])
+    @patch(_COMMON_PATCHES[2])
+    @patch(_COMMON_PATCHES[1])
+    @patch(_COMMON_PATCHES[0])
+    def test_gateway_failure_defaults_to_public(
+        self,
+        mock_emit,
+        mock_get_spawner,
+        mock_get_store,
+        mock_spawn_wait,
+        mock_state_lock,
+        mock_build_prompt,
+        mock_read_draft,
+        mock_report,
+        mock_get_gw,
+    ):
+        """When gateway returns None (failure), gateway_mode defaults to 'public'."""
+        from routes.pipelines import _run_pipeline
+
+        pipeline = _make_running_pipeline()
+        pipeline.network_mode = None
+        _setup_mocks(
+            mock_report,
+            mock_read_draft,
+            mock_build_prompt,
+            mock_state_lock,
+            mock_spawn_wait,
+            mock_get_store,
+            mock_get_spawner,
+            mock_emit,
+            pipeline,
+        )
+
+        mock_get_gw.return_value.get_repo_visibility.return_value = None
+
+        with (
+            patch.dict(os.environ, {"EGG_HOST_REPO_MAP": '{"repo": "/host/repo"}'}, clear=False),
+            patch("pathlib.Path.exists", return_value=True),
+        ):
+            _run_pipeline("issue-42", Path("/repo"))
+
+        mock_get_gw.return_value.get_repo_visibility.assert_called_once_with("owner/repo")
+
+    @patch("routes.pipelines.get_gateway_client")
+    @patch(_COMMON_PATCHES[7])
+    @patch(_COMMON_PATCHES[6])
+    @patch(_COMMON_PATCHES[5])
+    @patch(_COMMON_PATCHES[4])
+    @patch(_COMMON_PATCHES[3])
+    @patch(_COMMON_PATCHES[2])
+    @patch(_COMMON_PATCHES[1])
+    @patch(_COMMON_PATCHES[0])
+    def test_no_repo_defaults_to_public(
+        self,
+        mock_emit,
+        mock_get_spawner,
+        mock_get_store,
+        mock_spawn_wait,
+        mock_state_lock,
+        mock_build_prompt,
+        mock_read_draft,
+        mock_report,
+        mock_get_gw,
+    ):
+        """When pipeline has no repo, gateway_mode defaults to 'public' without calling gateway."""
+        from routes.pipelines import _run_pipeline
+
+        pipeline = _make_running_pipeline()
+        pipeline.network_mode = None
+        pipeline.repo = None
+        _setup_mocks(
+            mock_report,
+            mock_read_draft,
+            mock_build_prompt,
+            mock_state_lock,
+            mock_spawn_wait,
+            mock_get_store,
+            mock_get_spawner,
+            mock_emit,
+            pipeline,
+        )
+
+        with (
+            patch.dict(os.environ, {"EGG_HOST_REPO_MAP": '{"repo": "/host/repo"}'}, clear=False),
+            patch("pathlib.Path.exists", return_value=True),
+        ):
+            _run_pipeline("issue-42", Path("/repo"))
+
+        mock_get_gw.return_value.get_repo_visibility.assert_not_called()
+
+
 class TestAgentWorktreeCleanup:
     """Verify per-agent session worktrees are cleaned up in the pipeline finally block.
 

@@ -4528,8 +4528,6 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
         if pipeline.network_mode:
             gateway_mode = pipeline.network_mode
         elif pipeline.repo:
-            from gateway_client import get_gateway_client
-
             visibility = get_gateway_client().get_repo_visibility(pipeline.repo)
             if visibility in ("private", "internal"):
                 gateway_mode = "private"

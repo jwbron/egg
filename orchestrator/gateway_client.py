@@ -1002,7 +1002,7 @@ class GatewayClient:
             )
             visibilities = result.get("data", {}).get("visibilities", {})
             return visibilities.get(repo)
-        except GatewayError as e:
+        except Exception as e:
             logger.warning("Failed to query repo visibility", repo=repo, error=str(e))
             return None
 

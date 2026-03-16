@@ -976,6 +976,13 @@ class TestGetRepoVisibility:
             result = gateway_client.get_repo_visibility("owner/repo")
             assert result is None
 
+    def test_get_repo_visibility_null_data(self, gateway_client):
+        """Test graceful handling when data field is None (would cause AttributeError)."""
+        with patch.object(gateway_client, "_make_request") as mock_request:
+            mock_request.return_value = {"data": None}
+            result = gateway_client.get_repo_visibility("owner/repo")
+            assert result is None
+
 
 class TestSingletonClient:
     """Tests for singleton client."""
