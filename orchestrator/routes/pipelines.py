@@ -13,7 +13,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-import yaml
 from docker.errors import DockerException
 from flask import Blueprint, Response, jsonify, request, stream_with_context
 
@@ -5260,9 +5259,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                             pipeline = store.load_pipeline(pipeline_id)
                             phase_execution = pipeline.get_phase_execution(current_phase)
                             if phase_execution.cycle_timings:
-                                phase_execution.cycle_timings[
-                                    -1
-                                ].completed_at = datetime.utcnow()
+                                phase_execution.cycle_timings[-1].completed_at = datetime.utcnow()
                             phase_execution.status = PipelineStatus.FAILED
                             phase_execution.error = str(e)
                             phase_execution.completed_at = datetime.utcnow()

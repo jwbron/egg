@@ -293,6 +293,7 @@ class Session:
     claude_code_version: str | None = None  # Claude Code version from container
     assigned_branch: str | None = None  # Worktree branch locked to this session
     auto_commit_sha: str | None = None  # SHA from post-agent auto-commit
+
     def is_expired(self) -> bool:
         """Check if session has expired."""
         return datetime.now(UTC) > self.expires_at

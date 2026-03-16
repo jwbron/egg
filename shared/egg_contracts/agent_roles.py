@@ -642,7 +642,6 @@ def get_role_definition(
     return AGENT_ROLES[role]
 
 
-
 def get_all_roles() -> list[AgentRoleDefinition]:
     """Get all defined agent roles.
 

@@ -16,8 +16,8 @@ _orchestrator_path = Path(__file__).parent.parent
 if str(_orchestrator_path) not in sys.path:
     sys.path.insert(0, str(_orchestrator_path))
 
-from models import Pipeline, PipelineConfig, PipelinePhase, PipelineStatus
 from concurrent_executor import is_concurrent_execution
+from models import Pipeline, PipelineConfig, PipelinePhase, PipelineStatus
 
 
 def _make_pipeline(

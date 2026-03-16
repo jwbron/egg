@@ -392,7 +392,6 @@ def _render_arrow(use_ascii: bool = False) -> list[str]:
         return ["        │", "        │", "        ▼"]
 
 
-
 def render_pipeline_dag(
     pipeline: Pipeline,
     use_ascii: bool = False,

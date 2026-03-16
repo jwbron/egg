@@ -663,7 +663,6 @@ class TestWaveGrouping:
                     AgentExecution(role=AgentRole.CODER, status=AgentExecutionStatus.COMPLETE),
                     AgentExecution(role=AgentRole.TESTER, status=AgentExecutionStatus.COMPLETE),
                     AgentExecution(role=AgentRole.DOCUMENTER, status=AgentExecutionStatus.COMPLETE),
-
                     AgentExecution(
                         role=AgentRole.REVIEWER_CODE, status=AgentExecutionStatus.RUNNING
                     ),
@@ -684,10 +683,7 @@ class TestWaveGrouping:
         ]
 
         # Coder should be on its own line (wave 1)
-        assert any(
-            "coder" in line and "tester" not in line
-            for line in agent_lines
-        )
+        assert any("coder" in line and "tester" not in line for line in agent_lines)
         # Tester and documenter should be on the same line (wave 2)
         assert any("tester" in line and "documenter" in line for line in agent_lines)
         # Reviewers should appear
@@ -1140,7 +1136,6 @@ class TestNonGraphAgentOrdering:
                     AgentExecution(role=AgentRole.CODER, status=AgentExecutionStatus.COMPLETE),
                     AgentExecution(role=AgentRole.TESTER, status=AgentExecutionStatus.COMPLETE),
                     AgentExecution(role=AgentRole.DOCUMENTER, status=AgentExecutionStatus.COMPLETE),
-
                     AgentExecution(role=AgentRole.REFINER, status=AgentExecutionStatus.COMPLETE),
                     AgentExecution(
                         role=AgentRole.REVIEWER_CODE, status=AgentExecutionStatus.RUNNING
@@ -1306,7 +1301,6 @@ class TestRunCountDisplay:
                     AgentExecution(role=AgentRole.CODER, status=AgentExecutionStatus.COMPLETE),
                     AgentExecution(role=AgentRole.TESTER, status=AgentExecutionStatus.COMPLETE),
                     AgentExecution(role=AgentRole.DOCUMENTER, status=AgentExecutionStatus.COMPLETE),
-
                     AgentExecution(role=AgentRole.REFINER, status=AgentExecutionStatus.COMPLETE),
                     AgentExecution(role=AgentRole.REFINER, status=AgentExecutionStatus.COMPLETE),
                     AgentExecution(
@@ -1333,5 +1327,3 @@ class TestRunCountDisplay:
         # Ordering should be: coder, tester+documenter, refiner, reviewers
         coder_line = next(i for i, line in enumerate(lines) if "coder" in line)
         assert coder_line < refiner_line < reviewer_line
-
-
