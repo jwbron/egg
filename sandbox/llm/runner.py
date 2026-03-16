@@ -54,5 +54,10 @@ def run_interactive() -> None:
     env.setdefault("DISABLE_COST_WARNINGS", "1")
     env.setdefault("NO_PROXY", "127.0.0.1")
 
-    print("[llm] Launching Claude Code...")
-    os.execvpe(cmd[0], cmd, env)
+    print(f"[llm] Launching Claude Code: {cmd[0]}", file=sys.stderr)
+    try:
+        os.execvpe(cmd[0], cmd, env)
+    except OSError as e:
+        print(f"[llm] ERROR: Failed to execute {cmd[0]}: {e}", file=sys.stderr)
+        print(f"[llm] Command: {cmd}", file=sys.stderr)
+        sys.exit(255)
