@@ -4524,8 +4524,25 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
 
         # Map pipeline to gateway session mode.
         # If the pipeline has an explicit network_mode (e.g. "private"), use it;
-        # otherwise default to "public".
-        gateway_mode = pipeline.network_mode or "public"
+        # otherwise auto-detect from repo visibility via the gateway.
+        if pipeline.network_mode:
+            gateway_mode = pipeline.network_mode
+        elif pipeline.repo:
+            from gateway_client import get_gateway_client
+
+            visibility = get_gateway_client().get_repo_visibility(pipeline.repo)
+            if visibility in ("private", "internal"):
+                gateway_mode = "private"
+            else:
+                gateway_mode = "public"
+            logger.info(
+                "Auto-detected network mode from repo visibility",
+                repo=pipeline.repo,
+                visibility=visibility,
+                gateway_mode=gateway_mode,
+            )
+        else:
+            gateway_mode = "public"
 
         # Parse host repo map for volume mounts.  When the orchestrator
         # runs inside Docker, EGG_REPO_PATH is the *container* path but

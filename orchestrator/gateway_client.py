@@ -987,6 +987,27 @@ class GatewayClient:
                     pass
 
 
+    def get_repo_visibility(self, repo: str) -> str | None:
+        """Query repo visibility from gateway.
+
+        Args:
+            repo: Repository in owner/name format
+
+        Returns:
+            Visibility string ('public', 'private', 'internal') or None on failure
+        """
+        try:
+            result = self._make_request(
+                f"/api/v1/repos/visibility?repos={quote(repo, safe='')}",
+                use_launcher_auth=True,
+            )
+            visibilities = result.get("data", {}).get("visibilities", {})
+            return visibilities.get(repo)
+        except GatewayError as e:
+            logger.warning("Failed to query repo visibility", repo=repo, error=str(e))
+            return None
+
+
 class GatewayError(Exception):
     """Error from gateway operations."""
 
