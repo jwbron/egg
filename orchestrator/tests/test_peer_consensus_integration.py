@@ -1068,12 +1068,8 @@ class TestReProposalGuard:
         )
 
         # Both reviewers ACK
-        tracker.handle_ack(
-            "reviewer_code", "coder", {"artifact_references": ["src/auth.py"]}
-        )
-        tracker.handle_ack(
-            "checker", "coder", {"artifact_references": ["src/auth.py"]}
-        )
+        tracker.handle_ack("reviewer_code", "coder", {"artifact_references": ["src/auth.py"]})
+        tracker.handle_ack("checker", "coder", {"artifact_references": ["src/auth.py"]})
 
         # Verify fully ACKed
         assert tracker.matrix.is_fully_acked("coder")
@@ -1091,12 +1087,11 @@ class TestReProposalGuard:
             "coder",
             {"summary": "v1", "artifacts": ["src/auth.py"]},
         )
-        tracker.handle_ack(
-            "reviewer_code", "coder", {"artifact_references": ["src/auth.py"]}
-        )
+        tracker.handle_ack("reviewer_code", "coder", {"artifact_references": ["src/auth.py"]})
         # Checker NACKs instead of ACKing
         tracker.handle_nack(
-            "checker", "coder",
+            "checker",
+            "coder",
             {"artifact_references": ["src/auth.py"], "reason": "issues found"},
         )
 
@@ -1133,9 +1128,7 @@ class TestReviewerCrashPendingAck:
         )
 
         # Only reviewer_code ACKs; checker hasn't reviewed yet
-        t.handle_ack(
-            "reviewer_code", "coder", {"artifact_references": ["src/auth.py"]}
-        )
+        t.handle_ack("reviewer_code", "coder", {"artifact_references": ["src/auth.py"]})
 
         # Checker crashes with pending review -> should escalate
         result = t.handle_agent_crash("checker")
@@ -1163,12 +1156,8 @@ class TestReviewerCrashPendingAck:
         )
 
         # Both reviewers ACK
-        t.handle_ack(
-            "reviewer_code", "coder", {"artifact_references": ["src/auth.py"]}
-        )
-        t.handle_ack(
-            "checker", "coder", {"artifact_references": ["src/auth.py"]}
-        )
+        t.handle_ack("reviewer_code", "coder", {"artifact_references": ["src/auth.py"]})
+        t.handle_ack("checker", "coder", {"artifact_references": ["src/auth.py"]})
 
         # Checker crashes but already ACKed -> should continue
         result = t.handle_agent_crash("checker")
@@ -1199,9 +1188,7 @@ class TestExcuseReviewer:
         )
 
         # Only reviewer_code ACKs
-        t.handle_ack(
-            "reviewer_code", "coder", {"artifact_references": ["src/auth.py"]}
-        )
+        t.handle_ack("reviewer_code", "coder", {"artifact_references": ["src/auth.py"]})
 
         # Not fully ACKed yet (checker hasn't reviewed)
         assert not t.matrix.is_fully_acked("coder")
@@ -1239,9 +1226,7 @@ class TestRemoveEdge:
 
     def test_remove_edge_not_found(self):
         """remove_edge returns False for nonexistent edge."""
-        graph = ReviewGraph(
-            [ReviewEdge("reviewer_code", "coder", ReviewCriticality.CRITICAL)]
-        )
+        graph = ReviewGraph([ReviewEdge("reviewer_code", "coder", ReviewCriticality.CRITICAL)])
         result = graph.remove_edge("nonexistent", "coder")
         assert result is False
 
@@ -1272,9 +1257,7 @@ class TestConfirmErrorListsPendingReviewers:
         )
 
         # Only reviewer_code ACKs
-        tracker.handle_ack(
-            "reviewer_code", "coder", {"artifact_references": ["src/auth.py"]}
-        )
+        tracker.handle_ack("reviewer_code", "coder", {"artifact_references": ["src/auth.py"]})
 
         # Try to confirm — message should list checker as pending
         result = tracker.handle_confirmed("coder")
