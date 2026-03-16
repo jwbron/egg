@@ -230,7 +230,6 @@ _ROLE_TO_AGENT_TYPE = {
     "task_planner": AgentType.TASK_PLANNER,
     "risk_analyst": AgentType.RISK_ANALYST,
     "refiner": AgentType.REFINER,
-    "checker": AgentType.CHECKER,
 }
 
 

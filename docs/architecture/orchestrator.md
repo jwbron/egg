@@ -133,7 +133,7 @@ The orchestrator reads pipeline artifacts (verdict files, draft documents, check
 - `.egg-state/drafts/{identifier}-{phase}.md` — Draft for other phases (e.g., `plan`). No draft for `implement` phase.
 - `.egg-state/reviews/{identifier}-{phase}-{reviewer_type}-review.json` — Review verdict files
 - `.egg-state/agent-outputs/{identifier}-{role}-output.json` — Agent handoff data (e.g., `871-coder-output.json`). Falls back to `{role}-output.json` for backward compatibility.
-- `.egg-state/checks/{identifier}-implement-results.json` — Check results from the `implement` phase (e.g., `871-implement-results.json`)
+- `.egg-state/checks/{identifier}-implement-results.json` — *(Deprecated)* Previously written by the checker role. The checker has been absorbed into the tester, which reports results via its handoff output instead.
 
 **Volume mounts:**
 - Orchestrator: Bind mount from `${HOST_HOME}/.egg-worktrees` to `/home/egg/.egg-worktrees` (read container-written artifacts)
@@ -150,7 +150,7 @@ During the `implement` phase, certain `.egg-state/` subdirectories are mounted r
 | `.egg-state/pipelines/` | Readonly | Writable |
 | `.egg-state/reviews/` | Readonly (except reviewers) | Writable |
 
-**Reviewer exemption**: Reviewer agents (roles starting with `reviewer`, e.g., `reviewer_code`, `reviewer_contract`) are exempted from the `.egg-state/reviews/` readonly mount because they need to write verdict files to that directory. Other implement phase agents (coder, tester, documenter, checker) still have readonly access.
+**Reviewer exemption**: Reviewer agents (roles starting with `reviewer`, e.g., `reviewer_code`, `reviewer_contract`) are exempted from the `.egg-state/reviews/` readonly mount because they need to write verdict files to that directory. Other implement phase agents (coder, tester, documenter) still have readonly access.
 
 The orchestrator calls `ensure_egg_state_dirs()` before spawning containers to create the required directories (bind mounts require existing source paths) and place `.egg-readonly` marker files explaining the restriction and current phase. Reviewer agents do not receive the `.egg-readonly` marker in the `reviews/` directory. Then `phase_readonly_mounts()` generates the readonly `MountSpec` entries, which are added alongside the existing `.git` shadow mounts. Only directories that exist on the host are mounted (missing directories are skipped). See `shared/egg_container/__init__.py` and `orchestrator/container_spawner.py`.
 
@@ -211,9 +211,8 @@ The orchestrator coordinates specialized agent roles across pipeline phases. Eac
 | Role | Responsibility |
 |------|----------------|
 | **Coder** | Write code, create commits, push branches |
-| **Tester** | Find gaps in implementation, write and run tests |
+| **Tester** | Find gaps in implementation, write and run tests, run linters/type checkers, apply auto-fixes |
 | **Documenter** | Update docs and READMEs |
-| **Checker** | Run linters, formatters, and auto-fixers on code |
 | **Reviewer (Code)** | Security, correctness, code quality, testing, documentation |
 | **Reviewer (Contract)** | Verify acceptance criteria met, task completion status |
 
@@ -221,7 +220,7 @@ The orchestrator coordinates specialized agent roles across pipeline phases. Eac
 
 ### Prompt Context Scoping
 
-Agent prompts are scoped to role-relevant context. Analysis roles (architect, task_planner, risk_analyst) receive the full issue body for problem understanding. Execution roles (tester, documenter, checker) receive a summarized background with pointers to full context on demand. See [SDLC Pipeline Guide: Role-Specific Prompt Context](../guides/sdlc-pipeline.md#role-specific-prompt-context) for details.
+Agent prompts are scoped to role-relevant context. Analysis roles (architect, task_planner, risk_analyst) receive the full issue body for problem understanding. Execution roles (tester, documenter) receive a summarized background with pointers to full context on demand. See [SDLC Pipeline Guide: Role-Specific Prompt Context](../guides/sdlc-pipeline.md#role-specific-prompt-context) for details.
 
 ## Deployment Modes
 
@@ -334,7 +333,7 @@ EGG_AGENT_ROLE=coder
 EGG_ORCHESTRATOR_MODE=distributed
 EGG_ORCHESTRATOR_URL=http://172.32.0.3:9849
 EGG_PIPELINE_ID=issue-123
-EGG_AGENT_ROLE=coder  # or tester, documenter, checker
+EGG_AGENT_ROLE=coder  # or tester, documenter
 ```
 
 ## Component Interaction

@@ -738,32 +738,31 @@ class TestWaveGrouping:
         assert waves[0][0].role == AgentRole.CODER
         assert len(waves[1]) == 2  # tester + documenter
 
-    def test_compute_wave_order_implement_with_checker(self):
-        """CHECKER is placed after CODER in implement phase wave ordering."""
+    def test_compute_wave_order_implement_with_reviewers(self):
+        """REVIEWER_CODE is placed after CODER in implement phase wave ordering."""
         agents = [
             AgentExecution(role=AgentRole.CODER, status=AgentExecutionStatus.COMPLETE),
             AgentExecution(role=AgentRole.TESTER, status=AgentExecutionStatus.COMPLETE),
             AgentExecution(role=AgentRole.DOCUMENTER, status=AgentExecutionStatus.COMPLETE),
-            AgentExecution(role=AgentRole.CHECKER, status=AgentExecutionStatus.RUNNING),
             AgentExecution(role=AgentRole.REVIEWER_CODE, status=AgentExecutionStatus.RUNNING),
             AgentExecution(role=AgentRole.REVIEWER_CONTRACT, status=AgentExecutionStatus.PENDING),
         ]
         waves = _compute_wave_order(PipelinePhase.IMPLEMENT, agents)
 
-        # Find which wave CHECKER is in
-        checker_wave = None
+        # Find which wave REVIEWER_CODE is in
+        reviewer_wave = None
         coder_wave = None
         for i, wave in enumerate(waves):
             for agent in wave:
-                if agent.role == AgentRole.CHECKER:
-                    checker_wave = i
+                if agent.role == AgentRole.REVIEWER_CODE:
+                    reviewer_wave = i
                 if agent.role == AgentRole.CODER:
                     coder_wave = i
 
-        assert checker_wave is not None, "CHECKER should be in a wave"
+        assert reviewer_wave is not None, "REVIEWER_CODE should be in a wave"
         assert coder_wave is not None, "CODER should be in a wave"
-        assert checker_wave > coder_wave, (
-            f"CHECKER wave ({checker_wave}) should be after CODER wave ({coder_wave})"
+        assert reviewer_wave > coder_wave, (
+            f"REVIEWER_CODE wave ({reviewer_wave}) should be after CODER wave ({coder_wave})"
         )
 
     def test_compute_wave_order_unknown_phase_falls_back(self):

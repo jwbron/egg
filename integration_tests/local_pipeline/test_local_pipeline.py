@@ -626,17 +626,15 @@ class TestFailedPipelineCannotRestart:
 
 
 class TestImplementPhaseReviewed:
-    """Implement phase now gets checker + multi-reviewer cycle.
+    """Implement phase gets multi-reviewer cycle.
 
-    Unlike previous behavior where implement was skipped for review,
-    the implement phase now runs:
+    The implement phase runs:
     1. Worker (CODER)
-    2. Checker (CHECKER) — runs tests/lint
-    3. Multi-reviewer loop (code, contract for implement; refine, agent-design for refine)
+    2. Multi-reviewer loop (code, contract for implement; refine, agent-design for refine)
     """
 
     def test_implement_phase_gets_reviewed(self, orchestrator_url: str) -> None:
-        """Pipeline completes with implement phase reviewed (checker + reviewers)."""
+        """Pipeline completes with implement phase reviewed."""
         data, status = create_pipeline(
             orchestrator_url,
             prompt="Test implement phase review",

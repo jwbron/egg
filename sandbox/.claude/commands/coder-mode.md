@@ -92,7 +92,7 @@ When `EGG_CONCURRENT_MODE=true`, all agents start simultaneously. Your behavior 
 
 ### Startup
 
-Begin implementing immediately — you have no upstream dependencies. Other agents (tester, documenter, checker, reviewer_code, reviewer_contract) are waiting on your output.
+Begin implementing immediately — you have no upstream dependencies. Other agents (tester, documenter, reviewer_code, reviewer_contract) are waiting on your output.
 
 ### Message Bus (Required)
 
@@ -106,7 +106,7 @@ egg-orch message send --to all --type PROGRESS --subject "Committed auth module"
 egg-orch message poll
 ```
 
-**When to send PROGRESS**: After each significant commit (new module, API change, key interface). This unblocks tester/documenter/checker who are waiting for your code.
+**When to send PROGRESS**: After each significant commit (new module, API change, key interface). This unblocks tester/documenter who are waiting for your code.
 
 ### Readiness
 
@@ -131,11 +131,11 @@ while true; do
 done
 ```
 
-If a reviewer_code, reviewer_contract, or checker sends you feedback that requires changes:
+If a reviewer_code or reviewer_contract sends you feedback that requires changes:
 1. Signal `WORKING`: `egg-orch signal readiness --state WORKING --reason "Addressing reviewer feedback"`
 2. Make the fix, commit, send PROGRESS
 3. Signal `READY` again
 
 ## Next Agent
 
-After you complete, the **Tester**, **Documenter**, **Checker**, **Reviewer (code)**, and **Reviewer (contract)** agents can run in parallel.
+After you complete, the **Tester**, **Documenter**, **Reviewer (code)**, and **Reviewer (contract)** agents can run in parallel.

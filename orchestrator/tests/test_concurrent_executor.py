@@ -127,7 +127,6 @@ class TestAgentRoles:
         assert "coder" in role_names
         assert "tester" in role_names
         assert "documenter" in role_names
-        assert "checker" in role_names
         assert "reviewer_code" in role_names
         assert "reviewer_contract" in role_names
 
@@ -221,9 +220,8 @@ class TestReviewGraphIntegration:
         graph = get_default_implement_graph()
         reviewers = graph.reviewers_for("coder")
 
-        # Coder should have at least reviewer_code and checker as reviewers
+        # Coder should have at least reviewer_code as reviewer
         assert "reviewer_code" in reviewers
-        assert "checker" in reviewers
 
     def test_refine_graph_has_correct_edges(self):
         from review_graph import get_default_refine_graph, get_review_graph_for_phase

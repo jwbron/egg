@@ -9,7 +9,7 @@ from modifying files outside their responsibility.
 Security model:
 - Architect/Task Planner/Risk Analyst: Can write drafts and agent-outputs only, blocked from source code, docs, contracts, reviews
 - Coder: Can write source code, blocked from docs and contracts
-- Tester: Can write test files only
+- Tester: Can write test files and source files (for lint/type-check auto-fixes)
 - Documenter: Can write docs and markdown only
 - Refiner: Can write drafts and agent-outputs only, blocked from source code and contracts
 - Reviewers: Can write reviews and agent-outputs only
@@ -39,7 +39,6 @@ class AgentRole:
     CODER = "coder"
     TESTER = "tester"
     DOCUMENTER = "documenter"
-    CHECKER = "checker"
     # Plan-phase roles
     ARCHITECT = "architect"
     TASK_PLANNER = "task_planner"
@@ -52,7 +51,6 @@ class AgentRole:
     REVIEWER_AGENT_DESIGN = "reviewer_agent_design"
     REVIEWER_REFINE = "reviewer_refine"
     REVIEWER_PLAN = "reviewer_plan"
-    REVIEWER_UNIFIED = "reviewer_unified"  # Vestigial: kept for backwards compatibility with persisted pipeline state
 
 
 @dataclass
@@ -221,7 +219,7 @@ CODER_PATTERNS = AgentFilePattern(
 
 TESTER_PATTERNS = AgentFilePattern(
     role=AgentRole.TESTER,
-    description="Tester agent: test files only",
+    description="Tester agent: test files and source code (for lint/type-check auto-fixes)",
     allowed_patterns=[
         # Test directories
         "tests/",
@@ -241,20 +239,30 @@ TESTER_PATTERNS = AgentFilePattern(
         "**/*.spec.tsx",
         "**/*.spec.js",
         "**/*.spec.jsx",
+        # Source code (for lint/type-check auto-fixes)
+        "**/*.py",
+        "**/*.ts",
+        "**/*.tsx",
+        "**/*.js",
+        "**/*.jsx",
+        "**/*.go",
+        "**/*.java",
+        "**/*.rb",
+        "**/*.rs",
+        "**/*.sh",
+        # Configuration (for auto-fix updates)
+        "**/*.yml",
+        "**/*.yaml",
+        "**/*.json",
+        "**/*.toml",
         # Handoff output
         ".egg-state/agent-outputs/",
     ],
     blocked_patterns=[
-        # Source code (Coder handles)
-        "src/",
-        "lib/",
-        "shared/",
-        "gateway/",
-        "sandbox/",
-        "action/",
         # Documentation (Documenter handles)
         "docs/",
         "**/README.md",
+        "**/*.md",
         # Contracts
         ".egg-state/contracts/",
     ],
@@ -422,48 +430,6 @@ REVIEWER_PLAN_PATTERNS = AgentFilePattern(
     blocked_patterns=_REVIEWER_BLOCKED,
 )
 
-REVIEWER_UNIFIED_PATTERNS = AgentFilePattern(
-    role=AgentRole.REVIEWER_UNIFIED,
-    description="Unified reviewer agent (vestigial): reviews and agent-outputs only",
-    allowed_patterns=_REVIEWER_ALLOWED,
-    blocked_patterns=_REVIEWER_BLOCKED,
-)
-
-CHECKER_PATTERNS = AgentFilePattern(
-    role=AgentRole.CHECKER,
-    description="Checker agent: source code access for auto-fixes (sequential) and reviews (concurrent)",
-    allowed_patterns=[
-        # Source code (needed for sequential check-and-fix mode)
-        "**/*.py",
-        "**/*.ts",
-        "**/*.tsx",
-        "**/*.js",
-        "**/*.jsx",
-        "**/*.go",
-        "**/*.java",
-        "**/*.rb",
-        "**/*.rs",
-        "**/*.sh",
-        # Configuration
-        "**/*.yml",
-        "**/*.yaml",
-        "**/*.json",
-        "**/*.toml",
-        # Review output (BRC concurrent mode)
-        ".egg-state/reviews/",
-        # Handoff output
-        ".egg-state/agent-outputs/",
-    ],
-    blocked_patterns=[
-        # Documentation (Documenter handles)
-        "docs/",
-        "**/README.md",
-        "**/*.md",
-        # Contracts (API only)
-        ".egg-state/contracts/",
-    ],
-)
-
 
 # Registry of all agent patterns
 AGENT_PATTERNS: dict[str, AgentFilePattern] = {
@@ -479,8 +445,6 @@ AGENT_PATTERNS: dict[str, AgentFilePattern] = {
     AgentRole.REFINER: REFINER_PATTERNS,
     AgentRole.REVIEWER_REFINE: REVIEWER_REFINE_PATTERNS,
     AgentRole.REVIEWER_PLAN: REVIEWER_PLAN_PATTERNS,
-    AgentRole.REVIEWER_UNIFIED: REVIEWER_UNIFIED_PATTERNS,
-    AgentRole.CHECKER: CHECKER_PATTERNS,
 }
 
 
@@ -642,7 +606,6 @@ AGENT_GH_RESTRICTIONS: dict[str, AgentGHRestriction] = {
         AgentRole.CODER,
         AgentRole.TESTER,
         AgentRole.DOCUMENTER,
-        AgentRole.CHECKER,
         AgentRole.ARCHITECT,
         AgentRole.TASK_PLANNER,
         AgentRole.RISK_ANALYST,
@@ -652,7 +615,6 @@ AGENT_GH_RESTRICTIONS: dict[str, AgentGHRestriction] = {
         AgentRole.REVIEWER_AGENT_DESIGN,
         AgentRole.REVIEWER_REFINE,
         AgentRole.REVIEWER_PLAN,
-        AgentRole.REVIEWER_UNIFIED,
     ]
 }
 

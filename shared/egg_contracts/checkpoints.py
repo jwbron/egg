@@ -163,7 +163,6 @@ class AgentType(StrEnum):
     TASK_PLANNER = "task_planner"
     RISK_ANALYST = "risk_analyst"
     REFINER = "refiner"
-    CHECKER = "checker"
     UNKNOWN = "unknown"
 
 
