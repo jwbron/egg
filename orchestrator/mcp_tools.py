@@ -1055,7 +1055,7 @@ class PipelineToolHandler:
 
         consensus = concurrent.get("consensus", {})
 
-        if consensus:
+        if consensus and consensus.get("agents"):
             result["consensus"] = {
                 "is_complete": consensus.get("is_complete", False),
                 "blocking_agents": consensus.get("blocking_agents", []),

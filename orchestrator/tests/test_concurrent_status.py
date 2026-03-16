@@ -94,16 +94,18 @@ class TestGetConcurrentStatusUnit:
         assert result["messages"]["total"] == 0
         assert result["messages"]["by_type"] == {}
 
-    def test_consensus_fallback_when_unavailable(self):
-        """Should return empty consensus when consensus module is not importable."""
+    def test_consensus_omitted_when_unavailable(self):
+        """Should omit consensus key when consensus state is unavailable.
+
+        This ensures callers (e.g. MCP get_consensus_status) can fall back to
+        message-based inference instead of seeing a truthy-but-empty dict.
+        See issue #1229.
+        """
         pipeline = _make_concurrent_pipeline()
         result = _get_concurrent_status(pipeline)
 
         # Phase 3 not implemented yet, so consensus import will fail
-        assert "consensus" in result
-        assert result["consensus"]["agents"] == {}
-        assert result["consensus"]["is_complete"] is False
-        assert result["consensus"]["blocking_agents"] == []
+        assert "consensus" not in result
 
     def test_max_concurrent_agents_custom_value(self):
         """Should reflect custom max_concurrent_agents from config."""
@@ -189,7 +191,7 @@ class TestPipelineStatusConcurrentEndpoint:
         assert concurrent is not None, "concurrent section should be present"
         assert concurrent["enabled"] is True
         assert "messages" in concurrent
-        assert "consensus" in concurrent
+        # consensus is omitted when no tracker/evaluator is available (#1229)
         assert "max_concurrent_agents" in concurrent
         assert concurrent["max_concurrent_agents"] == 4
 
@@ -235,8 +237,12 @@ class TestPipelineStatusConcurrentEndpoint:
 
     @patch("routes.pipelines.get_repo_path", return_value="/tmp/test-repo")
     @patch("routes.pipelines._resolve_pipeline")
-    def test_concurrent_consensus_in_status(self, mock_resolve, mock_repo_path, client):
-        """Verify consensus state appears correctly in status response."""
+    def test_concurrent_consensus_omitted_when_no_tracker(self, mock_resolve, mock_repo_path, client):
+        """Consensus key is absent when no tracker or evaluator is available.
+
+        This allows callers to distinguish "no consensus data" from "consensus
+        data with no agents" and fall back to message-based inference (#1229).
+        """
         pipeline = _make_concurrent_pipeline()
         mock_store = MagicMock()
         mock_resolve.return_value = (mock_store, pipeline)
@@ -244,7 +250,4 @@ class TestPipelineStatusConcurrentEndpoint:
         resp = client.get("/api/v1/pipelines/issue-999/status")
         data = json.loads(resp.data)
 
-        consensus = data["data"]["concurrent"]["consensus"]
-        assert consensus["agents"] == {}
-        assert consensus["is_complete"] is False
-        assert consensus["blocking_agents"] == []
+        assert "consensus" not in data["data"]["concurrent"]

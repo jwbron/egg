@@ -84,7 +84,7 @@ class TestConcurrentPipelineStatus:
             # When phases 1-3 aren't available, we still get the structure
             assert concurrent["enabled"] is True
             assert "messages" in concurrent
-            assert "consensus" in concurrent
+            # consensus is omitted when no tracker is available (#1229)
 
     @patch("routes.pipelines.get_repo_path", return_value="/tmp/test-repo")
     @patch("routes.pipelines._resolve_pipeline")

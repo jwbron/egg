@@ -1025,11 +1025,11 @@ def _get_concurrent_status(pipeline: "Pipeline") -> dict | None:
             "protocol": consensus_state.get("protocol", "readiness"),
         }
     else:
-        result["consensus"] = {
-            "agents": {},
-            "is_complete": False,
-            "blocking_agents": [],
-        }
+        # Don't populate consensus with empty placeholder — callers (e.g. the
+        # MCP get_consensus_status tool) use truthiness to decide whether to
+        # fall back to message-based inference.  An empty-but-truthy dict
+        # prevents that fallback from triggering (see issue #1229).
+        pass
 
     # Agent lifecycle info from the phase execution record — shows which agents
     # are spawned for the current phase and their container-level status.
