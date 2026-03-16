@@ -41,7 +41,6 @@ Point egg at a GitHub issue and it runs the full lifecycle. Here's what a comple
     │   complete                                    │
     │   ✓ coder                                     │
     │   ✓ tester  ✓ documenter                      │
-    │   ✓ checker                                   │
     │   ✓ reviewer_code  ✓ reviewer_contract        │
     │   [1h11m]                                     │
     ╚═══════════════════════════════════════════════╝
@@ -68,7 +67,7 @@ Each box is a pipeline phase. Within each phase, specialized agents run in depen
 
 1. **Refine** — Agents analyze the task, research the codebase, and produce a requirements document. Reviewers validate the analysis. Human approves before planning begins.
 2. **Plan** — An architect recommends an approach, a task planner breaks it into discrete tasks with acceptance criteria, and a risk analyst flags concerns. Human approves before any code is written.
-3. **Implement** — A coder writes code, a tester finds gaps and writes tests, a documenter updates docs, and a checker runs linters. Code and contract reviewers provide line-level feedback. Re-implementation cycles continue until all checks pass.
+3. **Implement** — A coder writes code, a tester finds gaps, writes tests, and runs linters and type-checkers, a documenter updates docs. Code and contract reviewers provide line-level feedback. Re-implementation cycles continue until all checks pass.
 4. **PR** — The orchestrator auto-creates the PR using metadata from the plan, commit log, and diff stats. No agent is spawned. Only a human can merge via GitHub UI.
 
 ### Concurrent Execution Mode
