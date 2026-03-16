@@ -884,7 +884,7 @@ class CheckpointHandler:
                             break
                         except (
                             subprocess.TimeoutExpired,
-                            subprocess.CalledProcessError,
+                            CheckpointError,
                         ) as exc:
                             if attempt < max_fetch_attempts:
                                 backoff = 2**attempt
@@ -994,6 +994,7 @@ class CheckpointHandler:
                                 max_attempts=max_push_attempts,
                                 checkpoint_id=checkpoint.id,
                             )
+                            time.sleep(1)
                             # Pull remote changes and rebase our commit on top
                             self._run_git(
                                 str(temp_path),
@@ -1012,6 +1013,7 @@ class CheckpointHandler:
                         branch=CHECKPOINT_BRANCH,
                         trigger_type=checkpoint.trigger_type.value,
                         checkpoint_repo=checkpoint_repo or "(same repo)",
+                        push_attempts=push_attempt,
                     )
 
                     # Update usage aggregates (graceful degradation on failure)

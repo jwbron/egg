@@ -1265,8 +1265,8 @@ class TestFetchRetryInStore:
         fetch_calls = [c for c in git_calls if "fetch" in c[1]]
         assert len(fetch_calls) == 3, f"Expected 3 fetch attempts, got {len(fetch_calls)}"
 
-    def test_fetch_retries_on_called_process_error(self):
-        """Fetch retries on CalledProcessError (e.g., network failures)."""
+    def test_fetch_retries_on_checkpoint_error(self):
+        """Fetch retries on CheckpointError (e.g., network failures)."""
         import checkpoint_handler
 
         handler = checkpoint_handler.CheckpointHandler(github_token="test-token")
@@ -1280,7 +1280,9 @@ class TestFetchRetryInStore:
             if "fetch" in args:
                 call_count += 1
                 if call_count < 3:
-                    raise subprocess.CalledProcessError(128, "git fetch")
+                    raise checkpoint_handler.CheckpointError(
+                        "Git command failed: fatal: fetch failed"
+                    )
             return MagicMock(returncode=0, stdout="", stderr="")
 
         handler._run_git = track_run_git
@@ -1352,6 +1354,214 @@ class TestFetchRetryInStore:
 
         fetch_calls = [c for c in git_calls if "fetch" in c[1]]
         assert len(fetch_calls) == 1, f"Expected 1 fetch attempt (no retry), got {len(fetch_calls)}"
+
+
+class TestPushRetryInStore:
+    """Tests for push retry logic in store_checkpoint_v2."""
+
+    def _make_handler_and_checkpoint(self):
+        """Create a handler and checkpoint for push retry tests."""
+        import checkpoint_handler
+
+        handler = checkpoint_handler.CheckpointHandler(github_token="test-token")
+        handler._branch_exists = MagicMock(return_value=True)
+
+        from egg_contracts.checkpoints import (
+            CheckpointV2,
+            SessionMetadata,
+            TriggerType,
+        )
+
+        now = datetime.now(UTC)
+        checkpoint = CheckpointV2(
+            id="ckpt-a1b2c3d4e5f67890",
+            trigger_type=TriggerType.COMMIT,
+            session_id="test-container",
+            commit_sha="abc123def456789012345678901234567890abcd",
+            session=SessionMetadata(session_id="test-container", started_at=now),
+            created_at=now,
+            session_started_at=now,
+        )
+        return handler, checkpoint
+
+    @patch("time.sleep")
+    def test_push_succeeds_on_first_attempt(self, mock_sleep):
+        """Push succeeds on first attempt — no retry triggered."""
+        handler, checkpoint = self._make_handler_and_checkpoint()
+        git_calls = []
+
+        def track_run_git(cwd, args, **kwargs):
+            git_calls.append((cwd, args, kwargs))
+            return MagicMock(returncode=0, stdout="", stderr="")
+
+        handler._run_git = track_run_git
+
+        try:
+            handler.store_checkpoint_v2(checkpoint, "/fake/repo")
+        except Exception:
+            pass
+
+        push_calls = [c for c in git_calls if "push" in c[1]]
+        assert len(push_calls) == 1, f"Expected 1 push attempt, got {len(push_calls)}"
+        mock_sleep.assert_not_called()
+
+    @patch("time.sleep")
+    def test_push_retries_on_non_fast_forward(self, mock_sleep):
+        """Push fails with non-fast-forward, fetch+rebase succeeds, second push succeeds."""
+        import checkpoint_handler
+
+        handler, checkpoint = self._make_handler_and_checkpoint()
+        git_calls = []
+        push_count = 0
+
+        def track_run_git(cwd, args, **kwargs):
+            nonlocal push_count
+            git_calls.append((cwd, args, kwargs))
+            if "push" in args:
+                push_count += 1
+                if push_count == 1:
+                    raise checkpoint_handler.CheckpointError(
+                        "Git command failed: ! [rejected] non-fast-forward"
+                    )
+            return MagicMock(returncode=0, stdout="", stderr="")
+
+        handler._run_git = track_run_git
+
+        try:
+            handler.store_checkpoint_v2(checkpoint, "/fake/repo")
+        except Exception:
+            pass
+
+        push_calls = [c for c in git_calls if "push" in c[1]]
+        assert len(push_calls) == 2, f"Expected 2 push attempts, got {len(push_calls)}"
+        # Verify fetch+rebase happened between pushes
+        fetch_after_push = [
+            c
+            for c in git_calls
+            if "fetch" in c[1] and git_calls.index(c) > git_calls.index(push_calls[0])
+        ]
+        rebase_calls = [c for c in git_calls if "rebase" in c[1]]
+        assert len(fetch_after_push) >= 1, "Expected fetch after failed push"
+        assert len(rebase_calls) >= 1, "Expected rebase after failed push"
+
+    @patch("time.sleep")
+    def test_push_raises_after_max_attempts(self, mock_sleep):
+        """Push fails with non-fast-forward on all 3 attempts, then raises."""
+        import checkpoint_handler
+
+        handler, checkpoint = self._make_handler_and_checkpoint()
+        git_calls = []
+
+        def track_run_git(cwd, args, **kwargs):
+            git_calls.append((cwd, args, kwargs))
+            if "push" in args:
+                raise checkpoint_handler.CheckpointError(
+                    "Git command failed: ! [rejected] non-fast-forward"
+                )
+            return MagicMock(returncode=0, stdout="", stderr="")
+
+        handler._run_git = track_run_git
+
+        # store_checkpoint_v2 catches all exceptions and returns False
+        result = handler.store_checkpoint_v2(checkpoint, "/fake/repo")
+        assert result is False, "Expected store to return False after max push attempts"
+
+        push_calls = [c for c in git_calls if "push" in c[1]]
+        assert len(push_calls) == 3, f"Expected 3 push attempts, got {len(push_calls)}"
+
+    @patch("time.sleep")
+    def test_push_does_not_retry_on_non_matching_error(self, mock_sleep):
+        """Push fails with auth error — no retry, returns False immediately."""
+        import checkpoint_handler
+
+        handler, checkpoint = self._make_handler_and_checkpoint()
+        git_calls = []
+
+        def track_run_git(cwd, args, **kwargs):
+            git_calls.append((cwd, args, kwargs))
+            if "push" in args:
+                raise checkpoint_handler.CheckpointError(
+                    "Git command failed: fatal: Authentication failed"
+                )
+            return MagicMock(returncode=0, stdout="", stderr="")
+
+        handler._run_git = track_run_git
+
+        result = handler.store_checkpoint_v2(checkpoint, "/fake/repo")
+        assert result is False, "Expected store to return False on auth failure"
+
+        push_calls = [c for c in git_calls if "push" in c[1]]
+        assert len(push_calls) == 1, f"Expected 1 push attempt (no retry), got {len(push_calls)}"
+
+    @patch("time.sleep")
+    def test_push_fails_when_fetch_in_retry_fails(self, mock_sleep):
+        """Fetch within the retry loop fails — returns False."""
+        import checkpoint_handler
+
+        handler, checkpoint = self._make_handler_and_checkpoint()
+        git_calls = []
+        push_count = 0
+        push_failed = False
+
+        def track_run_git(cwd, args, **kwargs):
+            nonlocal push_count, push_failed
+            git_calls.append((cwd, args, kwargs))
+            if "push" in args:
+                push_count += 1
+                if push_count == 1:
+                    push_failed = True
+                    raise checkpoint_handler.CheckpointError(
+                        "Git command failed: ! [rejected] non-fast-forward"
+                    )
+            if "fetch" in args and push_failed:
+                raise checkpoint_handler.CheckpointError(
+                    "Git command failed: fatal: Could not read from remote"
+                )
+            return MagicMock(returncode=0, stdout="", stderr="")
+
+        handler._run_git = track_run_git
+
+        result = handler.store_checkpoint_v2(checkpoint, "/fake/repo")
+        assert result is False, "Expected store to return False on fetch failure"
+
+        push_calls = [c for c in git_calls if "push" in c[1]]
+        assert len(push_calls) == 1, (
+            f"Expected 1 push attempt before fetch failure, got {len(push_calls)}"
+        )
+
+    @patch("time.sleep")
+    def test_push_fails_when_rebase_in_retry_fails(self, mock_sleep):
+        """Rebase within the retry loop fails — returns False."""
+        import checkpoint_handler
+
+        handler, checkpoint = self._make_handler_and_checkpoint()
+        git_calls = []
+        push_count = 0
+
+        def track_run_git(cwd, args, **kwargs):
+            nonlocal push_count
+            git_calls.append((cwd, args, kwargs))
+            if "push" in args:
+                push_count += 1
+                if push_count == 1:
+                    raise checkpoint_handler.CheckpointError(
+                        "Git command failed: ! [rejected] non-fast-forward"
+                    )
+            if "rebase" in args:
+                raise checkpoint_handler.CheckpointError(
+                    "Git command failed: CONFLICT (content): Merge conflict"
+                )
+            return MagicMock(returncode=0, stdout="", stderr="")
+
+        handler._run_git = track_run_git
+
+        result = handler.store_checkpoint_v2(checkpoint, "/fake/repo")
+        assert result is False, "Expected store to return False on rebase failure"
+
+        push_calls = [c for c in git_calls if "push" in c[1]]
+        assert len(push_calls) == 1, (
+            f"Expected 1 push attempt before rebase failure, got {len(push_calls)}"
+        )
 
 
 class TestMissingBufferWarning:
