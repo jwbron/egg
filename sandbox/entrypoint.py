@@ -806,19 +806,22 @@ def restore_prebuilt_deps(
             logger.warn(f"No mounted repo found for prebuilt deps: {repo_dir_name}")
             continue
 
-        # Walk the prebuilt directory and copy into the repo
-        for item in repo_dir.rglob("*"):
-            if not item.is_file() and not item.is_symlink():
-                continue
-            rel_path = item.relative_to(repo_dir)
-            dest = target_repo / rel_path
+        # Copy prebuilt tree into repo, skipping files that already exist
+        def _copy_if_missing(src: str, dst: str, **kwargs: Any) -> None:
+            if os.path.exists(dst) or os.path.islink(dst):
+                return
+            try:
+                shutil.copy2(src, dst, **kwargs)
+            except OSError as e:
+                logger.warn(f"  Failed to restore {dst}: {e}")
 
-            # Skip if destination already exists (don't overwrite repo contents)
-            if dest.exists():
-                continue
-
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(item, dest, follow_symlinks=False)
+        shutil.copytree(
+            repo_dir,
+            target_repo,
+            copy_function=_copy_if_missing,
+            dirs_exist_ok=True,
+            symlinks=True,
+        )
 
         restored += 1
         logger.info(f"  Restored prebuilt deps for {repo_dir_name} -> {target_repo}")

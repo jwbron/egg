@@ -213,7 +213,7 @@ def load_build_commands_manifest(
         manifest_path: Path to the manifest file (default: /tmp/repo-deps/manifest.json)
 
     Returns:
-        List of dicts with 'repo', 'watch_files', and 'commands' keys.
+        List of dicts with 'repo', 'watch_files', 'commands', and 'persist_dirs' keys.
     """
     path = Path(manifest_path)
     if not path.exists():
