@@ -2992,8 +2992,7 @@ def _build_brc_preamble(role_value: str, phase: str) -> str:
         lines.extend(
             [
                 "### Reviewer Lifecycle",
-                "1. **PREPARE** (while waiting): "
-                + _build_reviewer_preparation(role_value, phase),
+                "1. **PREPARE** (while waiting): " + _build_reviewer_preparation(role_value, phase),
                 "2. **POLL**: Wait for `CONSENSUS_PROPOSE` from assigned producers "
                 "(`egg-orch message poll --wait 30`). Do NOT inspect producer "
                 "artifacts or form judgments before the proposal arrives.",
@@ -3075,9 +3074,7 @@ _ROLE_DESCRIPTIONS: dict[str, tuple[str, str]] = {
 }
 
 
-def _build_agent_roster(
-    all_roles: list[str], current_role: str, phase: str
-) -> str:
+def _build_agent_roster(all_roles: list[str], current_role: str, phase: str) -> str:
     """Build a roster of all active agents for the current phase.
 
     Shows each agent's role, what they do, and what they produce so that
@@ -3089,7 +3086,9 @@ def _build_agent_roster(
         "Each must complete their task AND reach CONFIRMED via BRC.\n"
     )
     for role in all_roles:
-        desc, artifacts = _ROLE_DESCRIPTIONS.get(role, ("Executes assigned role", "role-specific artifacts"))
+        desc, artifacts = _ROLE_DESCRIPTIONS.get(
+            role, ("Executes assigned role", "role-specific artifacts")
+        )
         marker = " **(you)**" if role == current_role else ""
         roster_lines.append(f"- **{role}**{marker}: {desc}. Produces: {artifacts}.")
     roster_lines.append("")
@@ -3173,9 +3172,7 @@ def _build_reviewer_preparation(role_value: str, phase: str) -> str:
     )
 
 
-def _build_producer_orientation(
-    role_value: str, phase: str, reviewers: list[str]
-) -> str:
+def _build_producer_orientation(role_value: str, phase: str, reviewers: list[str]) -> str:
     """Build orientation instructions for producer agents.
 
     Tells producers what to research before starting work — understanding
@@ -3242,15 +3239,13 @@ def _build_producer_orientation(
             return (
                 "read the prior review feedback carefully. Understand exactly "
                 "what concerns were raised and what changes are expected. Check "
-                "the current state of the code before making modifications."
-                + reviewer_awareness
+                "the current state of the code before making modifications." + reviewer_awareness
             )
 
     # Generic fallback
     return (
         "read the contract (`egg-contract show`) and explore the codebase "
-        "to understand context, patterns, and conventions before starting."
-        + reviewer_awareness
+        "to understand context, patterns, and conventions before starting." + reviewer_awareness
     )
 
 
