@@ -902,8 +902,9 @@ class TestWithdrawReProposalDeadlock:
         t.handle_propose("refiner", {"summary": "v3", "artifacts": ["design.md"]})
 
         # Refiner should NOT be able to confirm (not fully ACKed on v3)
-        with pytest.raises(ValueError, match="not fully ACKed"):
-            t.handle_confirmed("refiner")
+        # Returns pending_acks instead of raising ValueError (issue #1178)
+        result = t.handle_confirmed("refiner")
+        assert result["status"] == "pending_acks"
 
         # After both reviewers re-ACK, refiner can confirm
         t.handle_ack("reviewer_agent_design", "refiner", {"artifact_references": ["design.md"]})
@@ -956,3 +957,392 @@ class TestWithdrawReProposalDeadlock:
         t.handle_confirmed("reviewer_agent_design")
         result = t.handle_confirmed("reviewer_refine")
         assert result["consensus_reached"] is True
+
+
+class TestPrematureConfirmReturnsPending:
+    """Test that handle_confirmed returns pending_acks instead of raising
+    when a producer tries to confirm before being fully ACKed (issue #1178)."""
+
+    def test_confirm_before_acked_returns_pending(self, tracker):
+        """Producer confirming without full ACKs gets pending_acks, not ValueError."""
+        # Coder proposes
+        tracker.handle_propose(
+            "coder",
+            {
+                "summary": "Implemented feature",
+                "artifacts": ["src/feature.py"],
+            },
+        )
+
+        # Only reviewer_code ACKs, but checker hasn't ACKed yet
+        tracker.handle_ack(
+            "reviewer_code",
+            "coder",
+            {
+                "attestation": {
+                    "files_reviewed": ["src/feature.py"],
+                    "issues_found": 0,
+                    "issues_resolved": 0,
+                    "risk_considered": "None",
+                },
+                "artifact_references": ["src/feature.py"],
+            },
+        )
+
+        # Coder tries to confirm before checker ACKs — should return pending, not raise
+        result = tracker.handle_confirmed("coder")
+        assert result["status"] == "pending_acks"
+        assert "pending reviewers" in result["message"].lower()
+
+        # Coder should NOT be in confirmed set
+        assert "coder" not in tracker._confirmed
+
+    def test_confirm_after_re_propose_invalidates_stale_acks(self, tracker):
+        """After re-proposal un-confirms stale reviewers, premature confirm returns pending."""
+        # Full happy path first: propose, ACK, but then re-propose
+        tracker.handle_propose(
+            "coder",
+            {"summary": "v1", "artifacts": ["src/auth.py"]},
+        )
+        tracker.handle_ack(
+            "reviewer_code",
+            "coder",
+            {"artifact_references": ["src/auth.py"]},
+        )
+        tracker.handle_ack(
+            "checker",
+            "coder",
+            {"artifact_references": ["src/auth.py"]},
+        )
+
+        # Coder re-proposes (invalidating stale ACKs)
+        tracker.handle_re_propose(
+            "coder",
+            {"summary": "v2", "artifacts": ["src/auth.py"]},
+            changed_artifacts=["src/auth.py"],
+        )
+
+        # Now coder tries to confirm — should get pending_acks
+        result = tracker.handle_confirmed("coder")
+        assert result["status"] == "pending_acks"
+
+
+class TestReProposalGuard:
+    """Test that re-proposing when fully ACKed is rejected (issue #1185)."""
+
+    def test_propose_rejected_when_fully_acked(self, tracker):
+        """Producer cannot re-propose after being fully ACKed."""
+        # Coder proposes
+        tracker.handle_propose(
+            "coder",
+            {"summary": "v1", "artifacts": ["src/auth.py"]},
+        )
+
+        # Both reviewers ACK
+        tracker.handle_ack("reviewer_code", "coder", {"artifact_references": ["src/auth.py"]})
+        tracker.handle_ack("checker", "coder", {"artifact_references": ["src/auth.py"]})
+
+        # Verify fully ACKed
+        assert tracker.matrix.is_fully_acked("coder")
+
+        # Re-proposing should raise ValueError
+        with pytest.raises(ValueError, match="already fully ACKed"):
+            tracker.handle_propose(
+                "coder",
+                {"summary": "v2", "artifacts": ["src/auth.py"]},
+            )
+
+    def test_re_propose_allowed_after_nack(self, tracker):
+        """handle_re_propose is allowed after NACK (producer phase is WORKING)."""
+        tracker.handle_propose(
+            "coder",
+            {"summary": "v1", "artifacts": ["src/auth.py"]},
+        )
+        tracker.handle_ack("reviewer_code", "coder", {"artifact_references": ["src/auth.py"]})
+        # Checker NACKs instead of ACKing
+        tracker.handle_nack(
+            "checker",
+            "coder",
+            {"artifact_references": ["src/auth.py"], "reason": "issues found"},
+        )
+
+        # Re-proposing after NACK should work (producer phase is WORKING)
+        result = tracker.handle_re_propose(
+            "coder",
+            {"summary": "v2", "artifacts": ["src/auth.py"]},
+            changed_artifacts=["src/auth.py"],
+        )
+        assert result["status"] == "proposed"
+
+
+class TestReviewerCrashPendingAck:
+    """Test reviewer crash with pending vs completed ACKs (issue #1185)."""
+
+    def test_reviewer_crash_with_pending_ack_escalates(self):
+        """Non-sole reviewer crash with pending ACK escalates to HITL."""
+        graph = ReviewGraph(
+            [
+                ReviewEdge("reviewer_code", "coder", ReviewCriticality.CRITICAL),
+                ReviewEdge("checker", "coder", ReviewCriticality.CRITICAL),
+            ]
+        )
+        t = PeerConsensusTracker("test-pipeline", graph, cooldown_seconds=0)
+        t.register_agent("coder")
+        t.register_agent("reviewer_code")
+        t.register_agent("checker")
+
+        # Coder proposes
+        t.handle_propose(
+            "coder",
+            {"summary": "v1", "artifacts": ["src/auth.py"]},
+        )
+
+        # Only reviewer_code ACKs; checker hasn't reviewed yet
+        t.handle_ack("reviewer_code", "coder", {"artifact_references": ["src/auth.py"]})
+
+        # Checker crashes with pending review -> should escalate
+        result = t.handle_agent_crash("checker")
+        assert result["action"] == "escalate"
+        assert "pending reviews" in result["reason"]
+        assert "coder" in result["blocking_producers"]
+
+    def test_reviewer_crash_before_producer_proposes_continues(self):
+        """Reviewer crash when producer hasn't proposed yet should not escalate."""
+        graph = ReviewGraph(
+            [
+                ReviewEdge("reviewer_code", "coder", ReviewCriticality.CRITICAL),
+                ReviewEdge("checker", "coder", ReviewCriticality.CRITICAL),
+            ]
+        )
+        t = PeerConsensusTracker("test-pipeline", graph, cooldown_seconds=0)
+        t.register_agent("coder")
+        t.register_agent("reviewer_code")
+        t.register_agent("checker")
+
+        # Checker crashes BEFORE coder proposes -> should continue, not escalate
+        result = t.handle_agent_crash("checker")
+        assert result["action"] == "continue"
+        assert result["crashed_role"] == "checker"
+
+    def test_reviewer_crash_with_completed_ack_continues(self):
+        """Non-sole reviewer crash with completed ACK continues normally."""
+        graph = ReviewGraph(
+            [
+                ReviewEdge("reviewer_code", "coder", ReviewCriticality.CRITICAL),
+                ReviewEdge("checker", "coder", ReviewCriticality.CRITICAL),
+            ]
+        )
+        t = PeerConsensusTracker("test-pipeline", graph, cooldown_seconds=0)
+        t.register_agent("coder")
+        t.register_agent("reviewer_code")
+        t.register_agent("checker")
+
+        # Coder proposes
+        t.handle_propose(
+            "coder",
+            {"summary": "v1", "artifacts": ["src/auth.py"]},
+        )
+
+        # Both reviewers ACK
+        t.handle_ack("reviewer_code", "coder", {"artifact_references": ["src/auth.py"]})
+        t.handle_ack("checker", "coder", {"artifact_references": ["src/auth.py"]})
+
+        # Checker crashes but already ACKed -> should continue
+        result = t.handle_agent_crash("checker")
+        assert result["action"] == "continue"
+        assert result["crashed_role"] == "checker"
+
+    def test_reviewer_crash_clears_confirmed_on_escalation(self):
+        """Reviewer crash clears confirmed state even when escalating."""
+        graph = ReviewGraph(
+            [
+                ReviewEdge("reviewer_code", "coder", ReviewCriticality.CRITICAL),
+                ReviewEdge("checker", "coder", ReviewCriticality.CRITICAL),
+            ]
+        )
+        t = PeerConsensusTracker("test-pipeline", graph, cooldown_seconds=0)
+        t.register_agent("coder")
+        t.register_agent("reviewer_code")
+        t.register_agent("checker")
+
+        # Coder proposes
+        t.handle_propose(
+            "coder",
+            {"summary": "v1", "artifacts": ["src/auth.py"]},
+        )
+
+        # Only reviewer_code ACKs; checker hasn't reviewed yet
+        t.handle_ack("reviewer_code", "coder", {"artifact_references": ["src/auth.py"]})
+
+        # Checker confirms (reviewer side — even though it's premature, for test setup)
+        # Manually add to confirmed set to simulate pre-crash state
+        t._confirmed.add("checker")
+
+        # Checker crashes with pending review -> should escalate AND clear confirmed
+        result = t.handle_agent_crash("checker")
+        assert result["action"] == "escalate"
+        assert "checker" not in t._confirmed
+
+
+class TestExcuseReviewer:
+    """Test excuse_reviewer unblocks consensus (issue #1185)."""
+
+    def test_excuse_reviewer_unblocks_consensus(self):
+        """Excusing a dead reviewer allows is_fully_acked to pass."""
+        graph = ReviewGraph(
+            [
+                ReviewEdge("reviewer_code", "coder", ReviewCriticality.CRITICAL),
+                ReviewEdge("checker", "coder", ReviewCriticality.CRITICAL),
+            ]
+        )
+        t = PeerConsensusTracker("test-pipeline", graph, cooldown_seconds=0)
+        t.register_agent("coder")
+        t.register_agent("reviewer_code")
+        t.register_agent("checker")
+
+        # Coder proposes
+        t.handle_propose(
+            "coder",
+            {"summary": "v1", "artifacts": ["src/auth.py"]},
+        )
+
+        # Only reviewer_code ACKs
+        t.handle_ack("reviewer_code", "coder", {"artifact_references": ["src/auth.py"]})
+
+        # Not fully ACKed yet (checker hasn't reviewed)
+        assert not t.matrix.is_fully_acked("coder")
+
+        # Excuse checker (simulating HITL "Continue without" decision)
+        result = t.excuse_reviewer("checker")
+        assert result["status"] == "excused"
+        assert "coder" in result["affected_producers"]
+
+        # Now should be fully ACKed
+        assert t.matrix.is_fully_acked("coder")
+
+        # Checker should no longer be a reviewer in the graph
+        assert not t.graph.is_reviewer("checker")
+
+
+class TestRemoveEdge:
+    """Test ReviewGraph.remove_edge() (issue #1185)."""
+
+    def test_remove_edge_success(self):
+        """remove_edge removes an existing edge and updates role sets."""
+        graph = ReviewGraph(
+            [
+                ReviewEdge("reviewer_code", "coder", ReviewCriticality.CRITICAL),
+                ReviewEdge("checker", "coder", ReviewCriticality.CRITICAL),
+            ]
+        )
+        assert graph.is_reviewer("checker")
+        assert len(graph.reviewers_for("coder")) == 2
+
+        result = graph.remove_edge("checker", "coder")
+        assert result is True
+        assert len(graph.reviewers_for("coder")) == 1
+        assert not graph.is_reviewer("checker")
+
+    def test_remove_edge_not_found(self):
+        """remove_edge returns False for nonexistent edge."""
+        graph = ReviewGraph([ReviewEdge("reviewer_code", "coder", ReviewCriticality.CRITICAL)])
+        result = graph.remove_edge("nonexistent", "coder")
+        assert result is False
+
+    def test_remove_edge_preserves_other_edges(self):
+        """Removing one edge doesn't affect others."""
+        graph = ReviewGraph(
+            [
+                ReviewEdge("reviewer_code", "coder", ReviewCriticality.CRITICAL),
+                ReviewEdge("reviewer_code", "tester", ReviewCriticality.ADVISORY),
+                ReviewEdge("checker", "coder", ReviewCriticality.CRITICAL),
+            ]
+        )
+        graph.remove_edge("checker", "coder")
+        # reviewer_code should still review both coder and tester
+        assert graph.is_reviewer("reviewer_code")
+        assert "reviewer_code" in graph.reviewers_for("coder")
+        assert "reviewer_code" in graph.reviewers_for("tester")
+
+
+class TestConfirmErrorListsPendingReviewers:
+    """Test improved error message for premature confirm (issue #1185)."""
+
+    def test_confirm_error_lists_pending_reviewers(self, tracker):
+        """Premature confirm message lists which reviewers haven't ACKed."""
+        tracker.handle_propose(
+            "coder",
+            {"summary": "v1", "artifacts": ["src/auth.py"]},
+        )
+
+        # Only reviewer_code ACKs
+        tracker.handle_ack("reviewer_code", "coder", {"artifact_references": ["src/auth.py"]})
+
+        # Try to confirm — message should list checker as pending
+        result = tracker.handle_confirmed("coder")
+        assert result["status"] == "pending_acks"
+        assert "checker" in result["message"]
+        assert "Pending reviewers" in result["message"]
+
+
+class TestExcuseReviewerValidation:
+    """Test excuse_reviewer rejects non-reviewer roles."""
+
+    def test_excuse_non_reviewer_raises(self):
+        """excuse_reviewer raises ValueError for a non-reviewer role."""
+        graph = ReviewGraph(
+            [
+                ReviewEdge("reviewer_code", "coder", ReviewCriticality.CRITICAL),
+                ReviewEdge("checker", "coder", ReviewCriticality.CRITICAL),
+            ]
+        )
+        t = PeerConsensusTracker("test-pipeline", graph, cooldown_seconds=0)
+        t.register_agent("coder")
+        t.register_agent("reviewer_code")
+        t.register_agent("checker")
+
+        with pytest.raises(ValueError, match="not a reviewer"):
+            t.excuse_reviewer("coder")
+
+    def test_excuse_unknown_role_raises(self):
+        """excuse_reviewer raises ValueError for an unknown role."""
+        graph = ReviewGraph([ReviewEdge("reviewer_code", "coder", ReviewCriticality.CRITICAL)])
+        t = PeerConsensusTracker("test-pipeline", graph, cooldown_seconds=0)
+        t.register_agent("coder")
+        t.register_agent("reviewer_code")
+
+        with pytest.raises(ValueError, match="not a reviewer"):
+            t.excuse_reviewer("nonexistent")
+
+
+class TestSoleReviewerCrashIncludesBlockingProducers:
+    """Test sole_reviewer_for path includes blocking_producers when applicable."""
+
+    def test_sole_reviewer_crash_includes_blocking_producers(self):
+        """When reviewer is sole for some producers and blocking for others,
+        the crash result includes both pieces of information."""
+        graph = ReviewGraph(
+            [
+                # reviewer_code is sole reviewer for coder
+                ReviewEdge("reviewer_code", "coder", ReviewCriticality.CRITICAL),
+                # reviewer_code also reviews tester (with checker as backup)
+                ReviewEdge("reviewer_code", "tester", ReviewCriticality.CRITICAL),
+                ReviewEdge("checker", "tester", ReviewCriticality.CRITICAL),
+            ]
+        )
+        t = PeerConsensusTracker("test-pipeline", graph, cooldown_seconds=0)
+        t.register_agent("coder")
+        t.register_agent("tester")
+        t.register_agent("reviewer_code")
+        t.register_agent("checker")
+
+        # Both producers propose
+        t.handle_propose("coder", {"summary": "v1", "artifacts": ["src/a.py"]})
+        t.handle_propose("tester", {"summary": "v1", "artifacts": ["test_a.py"]})
+
+        # reviewer_code crashes — sole for coder, pending for tester
+        result = t.handle_agent_crash("reviewer_code")
+        assert result["action"] == "escalate"
+        assert "sole reviewer" in result["reason"]
+        # Should include blocking_producers for tester (but NOT coder, which is in sole_reviewer_for)
+        assert result["blocking_producers"] == ["tester"]

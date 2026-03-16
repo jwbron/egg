@@ -92,7 +92,7 @@ These conventions extend the core principle ("the sandbox is the constraint") wi
 LLM calls must never use direct `httpx.post()` or Anthropic SDK calls. Two approaches are supported:
 
 - **In-sandbox code** (e.g., `egg-health-inspect`, `sandbox/llm/`): use `egg_agent.client.run_agent()`, which wraps `claude-agent-sdk` for in-process execution.
-- **Orchestrator/gateway code spawning containers**: use `egg_agent.build_agent_command()` to build the `claude --print` command passed to `spawn_agent_container()`.
+- **Orchestrator/gateway code spawning containers**: use `egg_agent.build_agent_command()` to build the `python3 -m egg_agent` command passed to `spawn_agent_container()`.
 
 Both approaches ensure:
 - Consistent tool access across all agent invocations
@@ -228,11 +228,13 @@ verdict = resp.json()
 
 **Right approach:**
 ```python
-# Delegate to a sandbox container running claude --print
+# Delegate to a sandbox container using the Agent SDK
+from egg_agent import build_agent_command
+
 spawner.spawn_agent_container(
     pipeline_id=f"{pipeline_id}-inspect",
     agent_role=AgentRole.INSPECTOR,
-    command=["claude", "--print", "--max-turns", "1", ...],
+    command=build_agent_command(prompt=..., max_turns=1),
 )
 ```
 

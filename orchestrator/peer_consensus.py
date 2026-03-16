@@ -122,10 +122,26 @@ class PeerConsensusTracker:
         self,
         agent_role: str,
         payload: dict[str, Any],
+        *,
+        _skip_ack_guard: bool = False,
     ) -> dict[str, Any]:
         """Inner propose logic. Caller MUST hold self._lock."""
         if not self.graph.is_producer(agent_role):
             raise ValueError(f"{agent_role} is not a producer in this review graph")
+
+        # Guard: reject proposal when already fully ACKed and still in
+        # PROPOSED state (issue #1185). Skipped for handle_re_propose() which
+        # is always a legitimate path (after NACK or with new artifacts).
+        if (
+            not _skip_ack_guard
+            and self.matrix.is_fully_acked(agent_role)
+            and self._producer_phases.get(agent_role) == ConsensusPhase.PROPOSED
+        ):
+            raise ValueError(
+                f"Producer {agent_role} is already fully ACKed "
+                f"(v{self.matrix.get_proposal_version(agent_role)}). "
+                f"Call confirmed instead of re-proposing."
+            )
 
         # Validate payload
         proposal = ProposalPayload(**payload)
@@ -353,7 +369,15 @@ class PeerConsensusTracker:
             # Check if agent can confirm
             if self.graph.is_producer(agent_role):
                 if not self.matrix.is_fully_acked(agent_role):
-                    raise ValueError(f"Producer {agent_role} cannot confirm: not fully ACKed")
+                    blocking = self.matrix.get_blocking_edges(agent_role)
+                    pending_reviewers = [e.reviewer_role for e in blocking]
+                    return {
+                        "status": "pending_acks",
+                        "message": (
+                            f"Producer {agent_role} cannot confirm: not fully ACKed. "
+                            f"Pending reviewers: {pending_reviewers}"
+                        ),
+                    }
                 self._producer_phases[agent_role] = ConsensusPhase.CONFIRMED
 
             if self.graph.is_reviewer(agent_role):
@@ -420,30 +444,47 @@ class PeerConsensusTracker:
             # The NACKing reviewer(s) always need to re-review
             # (their state is already NACKED in the matrix)
 
-            # Handle as a normal proposal while still holding the lock
-            result = self._handle_propose_inner(agent_role, payload)
+            # Handle as a normal proposal while still holding the lock.
+            # Skip the ACK guard — re-propose is always legitimate.
+            result = self._handle_propose_inner(agent_role, payload, _skip_ack_guard=True)
             result["invalidated_reviewers"] = invalidated
             return result
 
     def handle_agent_crash(self, role: str) -> dict[str, Any]:
         """Handle an agent crash mid-protocol."""
         with self._lock:
+            # Always clean up confirmed state on crash, even if we escalate
+            self._confirmed.discard(role)
+
             if self.graph.is_producer(role):
                 # Producer crash: proposal stands, reviewers continue
                 # If reviewers NACK and producer can't respond, escalate
                 pass
 
             if self.graph.is_reviewer(role):
-                # Reviewer crash: remove from graph review requirements
-                # Check if remaining ACKs suffice
+                # Reviewer crash: check impact on each assigned producer
                 producers = self.graph.producers_for(role)
                 sole_reviewer_for = []
+                blocking_producers = []
                 for producer in producers:
                     remaining_reviewers = [
                         r for r in self.graph.reviewers_for(producer) if r != role
                     ]
                     if not remaining_reviewers:
                         sole_reviewer_for.append(producer)
+                    else:
+                        # Check if this reviewer had a pending (non-ACKed) review.
+                        # Skip producers that haven't proposed yet (version 0) —
+                        # there's nothing to review so no blocking relationship.
+                        latest_version = self.matrix.get_proposal_version(producer)
+                        if latest_version > 0:
+                            entry = self.matrix.get_entry(role, producer)
+                            if (
+                                entry is None
+                                or entry.state != ApprovalState.ACKED
+                                or entry.version != latest_version
+                            ):
+                                blocking_producers.append(producer)
 
                 if sole_reviewer_for:
                     emit_event(
@@ -455,15 +496,52 @@ class PeerConsensusTracker:
                             "unreviewed_producers": sole_reviewer_for,
                         },
                     )
-                    return {
+                    result: dict[str, Any] = {
                         "action": "escalate",
                         "reason": f"Reviewer {role} crashed and was sole reviewer for {sole_reviewer_for}",
                     }
+                    # Include blocking_producers so HITL gets complete info
+                    # (reviewer may also have pending reviews for other producers)
+                    if blocking_producers:
+                        result["blocking_producers"] = blocking_producers
+                    return result
 
-            # Remove from confirmed set
-            self._confirmed.discard(role)
+                if blocking_producers:
+                    emit_event(
+                        EventType.CONSENSUS_FAILURE,
+                        self.pipeline_id,
+                        data={
+                            "type": "reviewer_crash_pending",
+                            "crashed_role": role,
+                            "blocking_producers": blocking_producers,
+                        },
+                    )
+                    return {
+                        "action": "escalate",
+                        "reason": f"Reviewer {role} crashed with pending reviews for {blocking_producers}",
+                        "blocking_producers": blocking_producers,
+                    }
 
             return {"action": "continue", "crashed_role": role}
+
+    def excuse_reviewer(self, role: str) -> dict[str, Any]:
+        """Remove a reviewer from the review graph (HITL-gated).
+
+        Called when a human decides to continue without a failed reviewer.
+        Removes all edges from this reviewer, allowing is_fully_acked()
+        to pass without their ACK.
+
+        Raises ValueError if the role is not a reviewer in the graph.
+        """
+        with self._lock:
+            if not self.graph.is_reviewer(role):
+                raise ValueError(f"Cannot excuse '{role}': not a reviewer in the review graph")
+            producers = self.graph.producers_for(role)
+            for producer in producers:
+                self.graph.remove_edge(role, producer)
+            self._confirmed.discard(role)
+            self._reviewer_phases.pop(role, None)
+            return {"status": "excused", "role": role, "affected_producers": producers}
 
     def is_timeout_handled(self) -> bool:
         """Check whether the BRC tracker has already handled the timeout."""

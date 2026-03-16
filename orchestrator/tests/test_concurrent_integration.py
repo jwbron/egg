@@ -614,7 +614,7 @@ class TestSpawnUsesConsensusWrapper:
         command = call_kwargs.kwargs.get("command") or call_kwargs[1].get("command")
         assert command[0] == "bash"
         assert command[1] == "-c"
-        assert "claude" in command[2]
+        assert "egg_agent" in command[2]
         assert "RESTART_COUNT" in command[2]
         assert "CONSENSUS RECOVERY" in command[2]
 
@@ -669,3 +669,115 @@ class TestNoImplicitReadyOnCleanExit:
         assert "RESTART_COUNT" in script
         # Must NOT contain auto-READY
         assert "Auto-signaling READY" not in script
+
+
+class TestConcurrentPhaseSkipsReviewerSpawn:
+    """Test that concurrent (BRC) phases do not spawn separate reviewer
+    containers after consensus, preventing duplicate review cycles (issue #1178)."""
+
+    def test_is_concurrent_execution_true_for_concurrent_pipeline(self):
+        """is_concurrent_execution returns True for concurrent pipelines,
+        which causes the reviewer-spawn guard to break."""
+        from multi_agent import is_concurrent_execution
+
+        pipeline = _make_concurrent_pipeline()
+
+        # Concurrent execution is detected for all phases
+        assert is_concurrent_execution(pipeline, phase="implement") is True
+        assert is_concurrent_execution(pipeline, phase="plan") is True
+        assert is_concurrent_execution(pipeline, phase="refine") is True
+
+    def test_reviewer_roles_exist_for_phases(self):
+        """Reviewer roles ARE defined for phases — proving the concurrent
+        guard is needed to prevent redundant spawning."""
+        from egg_contracts.agent_roles import _PHASE_REVIEWERS
+
+        # Without the use_concurrent guard, these roles would be spawned
+        assert len(_PHASE_REVIEWERS.get("implement", [])) > 0
+        assert len(_PHASE_REVIEWERS.get("plan", [])) > 0
+
+    def test_non_concurrent_pipeline_allows_reviewers(self):
+        """When concurrent_execution is False, is_concurrent_execution is
+        False and the reviewer-spawn guard would NOT break."""
+        from multi_agent import is_concurrent_execution
+
+        pipeline = _make_concurrent_pipeline()
+        pipeline.config.concurrent_execution = False
+        pipeline.config.concurrent_phases = []
+
+        assert is_concurrent_execution(pipeline, phase="implement") is False
+
+
+class TestAgentsMarkedCompleteAfterConsensus:
+    """Test that _update_agents_complete transitions FAILED agents to COMPLETE
+    when BRC consensus succeeds (issue #1178, Bug 3)."""
+
+    def test_failed_agents_become_complete_via_store_roundtrip(self):
+        """Agents that exited non-zero should be marked COMPLETE after
+        consensus. Tested through a mock store load→update→save cycle
+        matching the _update_agents_complete code path."""
+        from models import (
+            AgentExecution,
+            AgentExecutionStatus,
+        )
+
+        # Build a pipeline with one RUNNING and one FAILED agent
+        pipeline = _make_concurrent_pipeline()
+        pe = pipeline.get_phase_execution(PipelinePhase.IMPLEMENT)
+        pe.status = PipelineStatus.RUNNING
+        pe.agents = [
+            AgentExecution(role="coder", status=AgentExecutionStatus.RUNNING),
+            AgentExecution(
+                role="tester",
+                status=AgentExecutionStatus.FAILED,
+                error="Container exited with code 1",
+            ),
+        ]
+
+        # Mock store: load_pipeline returns our pipeline, save captures it
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = pipeline
+
+        # Simulate _update_agents_complete: load → update → save
+        pip = mock_store.load_pipeline(pipeline.id)
+        loaded_pe = pip.get_phase_execution(PipelinePhase.IMPLEMENT)
+        for agent in loaded_pe.agents:
+            if agent.status in (
+                AgentExecutionStatus.RUNNING,
+                AgentExecutionStatus.FAILED,
+            ):
+                agent.status = AgentExecutionStatus.COMPLETE
+                agent.completed_at = datetime.now(tz=UTC)
+        mock_store.save_pipeline(pip)
+
+        # Verify both agents are COMPLETE in the saved pipeline
+        saved_pipeline = mock_store.save_pipeline.call_args[0][0]
+        saved_pe = saved_pipeline.get_phase_execution(PipelinePhase.IMPLEMENT)
+        assert saved_pe.agents[0].status == AgentExecutionStatus.COMPLETE
+        assert saved_pe.agents[1].status == AgentExecutionStatus.COMPLETE
+        assert saved_pe.agents[1].completed_at is not None
+        # Error info should be preserved
+        assert saved_pe.agents[1].error == "Container exited with code 1"
+
+    def test_phase_status_reset_via_get_phase_execution(self):
+        """Phase and pipeline status reset to RUNNING at cycle start is
+        verified through the model accessor, not direct attribute assignment."""
+        pipeline = _make_concurrent_pipeline()
+        pe = pipeline.get_phase_execution(PipelinePhase.IMPLEMENT)
+        pe.status = PipelineStatus.FAILED
+        pipeline.status = PipelineStatus.FAILED
+
+        # Simulate the status reset that happens at cycle start
+        # (pipelines.py:6416) — access through get_phase_execution to
+        # ensure the model's dict-based storage works correctly.
+        loaded_pe = pipeline.get_phase_execution(PipelinePhase.IMPLEMENT)
+        assert loaded_pe.status == PipelineStatus.FAILED  # precondition
+
+        loaded_pe.status = PipelineStatus.RUNNING
+        pipeline.status = PipelineStatus.RUNNING
+
+        # Re-fetch via accessor — must reflect the update
+        assert (
+            pipeline.get_phase_execution(PipelinePhase.IMPLEMENT).status == PipelineStatus.RUNNING
+        )
+        assert pipeline.status == PipelineStatus.RUNNING

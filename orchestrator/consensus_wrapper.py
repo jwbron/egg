@@ -2,12 +2,12 @@
 
 When agents run in concurrent mode, they must stay alive after completing
 their work to participate in BRC (Broadcast-Review-Converge) consensus.
-This module provides a shell wrapper that detects early Claude exits and
+This module provides a shell wrapper that detects early agent exits and
 restarts the agent with a recovery prompt instead of blindly marking
 consensus as approved.
 
 If the agent exits without reaching CONFIRMED state in the BRC protocol,
-the wrapper restarts Claude with a prompt that explains what happened and
+the wrapper restarts the agent with a prompt that explains what happened and
 instructs it to assess state, then continue the BRC protocol. Restarts
 are capped at ``MAX_CONSENSUS_RESTARTS`` (default 2). After exhausting
 restarts the wrapper exits with code 1 so the orchestrator's failure path
@@ -16,7 +16,7 @@ handles escalation.
 
 import shlex
 
-# Default maximum number of times the wrapper will restart Claude after a
+# Default maximum number of times the wrapper will restart the agent after a
 # clean exit without consensus being reached.
 MAX_CONSENSUS_RESTARTS = 2
 
@@ -25,7 +25,7 @@ MAX_CONSENSUS_RESTARTS = 2
 # 10 * 30 = 300 seconds (5 minutes) for other agents to finish.
 MAX_READY_POLL_CYCLES = 10
 
-# Recovery prompt given to Claude when it is restarted by the wrapper.
+# Recovery prompt given to the agent when it is restarted by the wrapper.
 # Placeholders: {restart_number}, {max_restarts}, {brc_state}, {nack_feedback}
 _RECOVERY_PROMPT = (
     "## BRC CONSENSUS RECOVERY — You were restarted by the consensus wrapper\n\n"
@@ -53,10 +53,10 @@ _RECOVERY_PROMPT = (
     "(up to the maximum).**\n"
 )
 
-# Shell script that wraps the Claude CLI invocation. After Claude exits:
+# Shell script that wraps the agent invocation. After the agent exits:
 # - Non-concurrent mode: exit normally.
 # - Non-zero exit: treat as failure, no restart.
-# - Clean exit (code 0): restart Claude with a recovery prompt (up to
+# - Clean exit (code 0): restart the agent with a recovery prompt (up to
 #   MAX_RESTARTS times). After max restarts, exit 1 to trigger the
 #   orchestrator's agent failure path (HITL decision).
 _CONSENSUS_WRAPPER_TEMPLATE = r"""
@@ -66,9 +66,9 @@ set -uo pipefail
 MAX_RESTARTS={max_restarts}
 RESTART_COUNT=0
 
-run_claude() {{
+run_agent() {{
     local prompt="$1"
-    {claude_command_prefix} "$prompt"
+    {agent_command_prefix} "$prompt"
     return $?
 }}
 
@@ -109,18 +109,18 @@ if my_nacks:
 }}
 
 # --- Initial run ---
-run_claude {initial_prompt}
-CLAUDE_EXIT=$?
+run_agent {initial_prompt}
+AGENT_EXIT=$?
 
 # If not in concurrent mode, exit normally
 if [ "${{EGG_CONCURRENT_MODE:-}}" != "true" ]; then
-    exit $CLAUDE_EXIT
+    exit $AGENT_EXIT
 fi
 
 # Non-zero exit means the agent crashed — do not restart.
-if [ "$CLAUDE_EXIT" -ne 0 ]; then
-    echo "[consensus-wrapper] Agent failed (code $CLAUDE_EXIT). NOT restarting."
-    exit $CLAUDE_EXIT
+if [ "$AGENT_EXIT" -ne 0 ]; then
+    echo "[consensus-wrapper] Agent failed (code $AGENT_EXIT). NOT restarting."
+    exit $AGENT_EXIT
 fi
 
 # --- Check if consensus is already complete or agent already CONFIRMED ---
@@ -191,12 +191,12 @@ for old, key in [("{{restart_number}}", "_CW_RESTART"), ("{{max_restarts}}", "_C
     template = template.replace(old, os.environ[key])
 sys.stdout.write(template)' <<< "$RECOVERY_PROMPT")
 
-    run_claude "$RECOVERY_PROMPT"
-    CLAUDE_EXIT=$?
+    run_agent "$RECOVERY_PROMPT"
+    AGENT_EXIT=$?
 
-    if [ "$CLAUDE_EXIT" -ne 0 ]; then
-        echo "[consensus-wrapper] Agent failed on restart $RESTART_COUNT (code $CLAUDE_EXIT). Stopping."
-        exit $CLAUDE_EXIT
+    if [ "$AGENT_EXIT" -ne 0 ]; then
+        echo "[consensus-wrapper] Agent failed on restart $RESTART_COUNT (code $AGENT_EXIT). Stopping."
+        exit $AGENT_EXIT
     fi
 
     # Check if consensus was reached during the restart
@@ -224,16 +224,16 @@ def build_consensus_wrapped_command(
     max_restarts: int = MAX_CONSENSUS_RESTARTS,
     max_ready_polls: int = MAX_READY_POLL_CYCLES,
 ) -> list[str]:
-    """Build a shell command that runs Claude with a BRC consensus restart wrapper.
+    """Build a shell command that runs the agent with a BRC consensus restart wrapper.
 
-    The wrapper detects when Claude exits without reaching CONFIRMED state
+    The wrapper detects when the agent exits without reaching CONFIRMED state
     in the BRC protocol and restarts it with a recovery prompt. This ensures
     agents explicitly participate in the Broadcast-Review-Converge consensus
     rather than having it faked.
 
     Args:
-        prompt_text: The prompt to pass to the Claude CLI.
-        model: Claude model to use.
+        prompt_text: The prompt to pass to the agent.
+        model: Agent model to use.
         max_turns: Maximum number of tool-call turns.
         max_restarts: Maximum restart attempts before exiting with failure.
         max_ready_polls: Maximum poll cycles to wait when agent already
@@ -242,24 +242,22 @@ def build_consensus_wrapped_command(
     Returns:
         Command list suitable for container spawning (bash -c "...").
     """
-    # Build the claude command prefix (everything except the prompt argument)
-    claude_prefix_parts = [
-        "claude",
-        "--dangerously-skip-permissions",
-        "--print",
-        "--verbose",
-        "--output-format",
-        "stream-json",
+    # Build the agent command prefix (everything except the prompt argument).
+    # Uses the Agent SDK entry point instead of the claude CLI.
+    agent_prefix_parts = [
+        "python3",
+        "-m",
+        "egg_agent",
         "--model",
         model,
         "--max-turns",
         str(max_turns),
     ]
-    claude_command_prefix = " ".join(shlex.quote(p) for p in claude_prefix_parts)
+    agent_command_prefix = " ".join(shlex.quote(p) for p in agent_prefix_parts)
     initial_prompt = shlex.quote(prompt_text)
 
     script = _CONSENSUS_WRAPPER_TEMPLATE.format(
-        claude_command_prefix=claude_command_prefix,
+        agent_command_prefix=agent_command_prefix,
         initial_prompt=initial_prompt,
         max_restarts=max_restarts,
         max_ready_polls=max_ready_polls,

@@ -9,7 +9,7 @@ Reusable Python libraries shared between the gateway sidecar and sandbox contain
 Claude Agent SDK wrapper for in-sandbox agent execution and orchestrator command building.
 
 - `run_agent()` / `run_agent_async()` — run a Claude agent in-process via `claude-agent-sdk`
-- `build_agent_command()` — build the `claude --print` command list for orchestrator-spawned containers
+- `build_agent_command()` — build the `python3 -m egg_agent` command list for orchestrator-spawned containers
 - `AgentResult` — dataclass with response text, success flag, and SDK metadata (cost, turns, duration)
 
 ```python
