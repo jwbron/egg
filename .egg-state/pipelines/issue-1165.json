@@ -180,15 +180,15 @@
       ],
       "decision_type": "phase_gate",
       "questions": [],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-03-16T02:39:04.450735",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-03-16T02:50:34.094924",
+      "resolution": "{\"action\": \"approve\", \"context\": \"## Resolved Questions\\n\\n**PR splitting strategy**\\nAnswer: Option A — Single large PR (~5000-6000 lines, atomic change)\\n\\n**Open PR #1171**\\nAnswer: Ignore — this issue supersedes it\\n\\n**concurrent_execution and concurrent_phases config flags**\\nAnswer: Yes, remove them — they are now always-on dead config\\n\\n**Stale pipeline state handling**\\nAnswer: Intentional failure is fine — no migration script needed\"}",
       "phase": "refine"
     }
   ],
   "created_at": "2026-03-16T02:29:02.276729",
-  "updated_at": "2026-03-16T02:39:04.466102",
+  "updated_at": "2026-03-16T02:50:34.099681",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
@@ -196,5 +196,5 @@
   "error": "Pipeline marked FAILED: agent container exited unexpectedly during execution. Restart via POST /pipelines/{id}/start.",
   "plan_phase_waves": null,
   "plan_phase_names": null,
-  "version": 17
+  "version": 18
 }
