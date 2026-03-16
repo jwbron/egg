@@ -2977,8 +2977,11 @@ def _build_brc_preamble(role_value: str, phase: str) -> str:
         lines.extend(
             [
                 "### Reviewer Lifecycle",
-                "1. **OBSERVE**: Detect new commits from assigned producers via git.",
-                "2. **REVIEW**: Form independent judgment from code artifacts.",
+                "1. **WAIT**: Poll for `CONSENSUS_PROPOSE` from assigned producers "
+                "(`egg-orch message poll --wait 30`). Do NOT inspect the filesystem "
+                "for producer artifacts before the proposal arrives.",
+                "2. **REVIEW**: Once a proposal arrives, form independent judgment from "
+                "the referenced code artifacts.",
                 '3. **ACK/NACK**: `egg-orch consensus ack <role> --files-reviewed "f1" "f2"` or '
                 '`egg-orch consensus nack <role> --reason "..." --files-reviewed "f1" "f2"`',
                 "4. **CONFIRM**: When all assigned producers reviewed: "
