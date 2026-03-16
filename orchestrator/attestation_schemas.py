@@ -75,7 +75,6 @@ class ReviewerContractAttestation(BaseModel):
     gaps_identified: list[str] = Field(default_factory=list, description="Gaps found")
 
 
-
 # --- Payload wrappers ---
 
 # Map role names to their attestation model

@@ -514,9 +514,7 @@ class TestBackwardCompatibility:
 
     def test_checker_no_longer_valid(self):
         """checker has been removed from AgentRole enum."""
-        assert not hasattr(AgentRole, "CHECKER"), (
-            "AgentRole.CHECKER should be removed"
-        )
+        assert not hasattr(AgentRole, "CHECKER"), "AgentRole.CHECKER should be removed"
 
     def test_decision_timeout_still_valid(self):
         """Ensure the existing vestigial DecisionStatus.TIMEOUT still works."""
