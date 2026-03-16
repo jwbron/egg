@@ -108,6 +108,7 @@ try:
         extract_branch_from_refspec,
         extract_repo_from_remote,
         get_policy_engine,
+        reload_policy_caches,
     )
     from .private_repo_policy import (
         check_private_repo_access,
@@ -177,6 +178,7 @@ except ImportError:
         extract_branch_from_refspec,
         extract_repo_from_remote,
         get_policy_engine,
+        reload_policy_caches,
     )
     from private_repo_policy import (  # type: ignore[no-redef]
         check_private_repo_access,
@@ -528,6 +530,48 @@ def health_check() -> Response:
         response_data["orchestrator"] = orchestrator_status
 
     return jsonify(response_data)
+
+
+def _reload_all_config() -> None:
+    """Reload all cached configuration from disk/environment.
+
+    Called by the SIGHUP handler and the /api/v1/config/reload endpoint.
+
+    Thread safety: all cached values are immutable types (frozenset, tuple,
+    None) and global variable assignment is atomic under CPython's GIL, so
+    concurrent readers see either the old or new value, never a torn state.
+    Avoid replacing any cache with a mutable type (e.g. dict) without adding
+    synchronisation.
+    """
+    try:
+        from config.repo_config import reload_config as reload_repo_config
+    except ImportError:
+        try:
+            from repo_config import reload_config as reload_repo_config  # type: ignore[no-redef]
+        except ImportError:
+            reload_repo_config = None  # type: ignore[assignment]
+
+    if reload_repo_config is not None:
+        try:
+            reload_repo_config()
+        finally:
+            reload_policy_caches()
+        logger.info("Configuration reloaded")
+    else:
+        reload_policy_caches()
+        logger.warning("Policy caches reloaded (repo_config unavailable)")
+
+
+@app.route("/api/v1/config/reload", methods=["POST"])
+@require_launcher_auth
+def config_reload() -> Response:
+    """Reload configuration from disk.
+
+    Clears all in-memory config caches so the next access re-reads from
+    repositories.yaml and environment variables. Requires launcher auth.
+    """
+    _reload_all_config()
+    return jsonify({"status": "ok", "message": "Configuration reloaded"})
 
 
 @app.route("/api/v1/git/push", methods=["POST"])
@@ -5014,6 +5058,13 @@ def main() -> None:
     except LauncherSecretNotConfiguredError as e:
         logger.error("Startup failed: launcher secret not configured", error=str(e))
         sys.exit(1)
+
+    # Register SIGHUP handler for config reload.
+    # Usage: docker kill -s HUP egg-gateway
+    def _handle_sighup(signum: int, frame: Any) -> None:
+        _reload_all_config()
+
+    signal.signal(signal.SIGHUP, _handle_sighup)
 
     # Register SIGTERM handler for graceful shutdown.
     # When Docker sends SIGTERM, delay for 5s to let in-flight session cleanup

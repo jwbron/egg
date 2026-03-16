@@ -963,9 +963,12 @@ def _prepare_gateway_config() -> tuple[list[str], list[str]]:
     mounts = []
     env_args = []
 
-    # Config file mount
-    if config_file.exists():
-        mounts.extend(["-v", f"{config_file}:/config/repositories.yaml:ro"])
+    # Config directory mount (directory mount instead of file mount so that
+    # inode-replacing editors like vim/nano/VS Code are reflected immediately).
+    # NOTE: /config and /secrets are the same source directory; the gateway is a
+    # trusted process — /config exists as a semantic alias for config reads.
+    if config_dir.exists():
+        mounts.extend(["-v", f"{config_dir}:/config:ro"])
 
     # Config directory (contains secrets.env, github-app.pem, launcher-secret)
     if config_dir.exists():

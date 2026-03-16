@@ -61,8 +61,12 @@ services:
       - GATEWAY_BOT_BRANCH_PREFIX=${GATEWAY_BOT_BRANCH_PREFIX:-}
       - GATEWAY_TRUSTED_USERS=${GATEWAY_TRUSTED_USERS:-}
     volumes:
-      # Repository configuration (required)
-      - ${EGG_CONFIG_DIR:-.}/repositories.yaml:/config/repositories.yaml:ro
+      # Repository configuration directory (directory mount instead of file mount
+      # so that inode-replacing editors like vim/nano/VS Code are reflected immediately).
+      # NOTE: /config and /secrets are intentionally the same source directory
+      # (EGG_CONFIG_DIR). The gateway is a trusted process that already has access
+      # to secrets via /secrets; /config exists as a semantic alias for config reads.
+      - ${EGG_CONFIG_DIR:-.}:/config:ro
       # Secrets directory (contains secrets.env, github-app.pem, launcher-secret)
       - ${EGG_CONFIG_DIR:-.}:/secrets:ro
       # Per-repo mounts are added via docker-compose.override.yml (auto-generated)
