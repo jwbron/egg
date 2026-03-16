@@ -11,7 +11,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import subprocess
 import time
 from typing import Any
 
@@ -318,21 +317,37 @@ class OverseerMonitor:
     # CLI wrappers
     # -----------------------------------------------------------------
 
+    async def _run_cli(self, *args: str, timeout: float = 15) -> tuple[int, str, str]:
+        """Run a CLI command asynchronously.
+
+        Returns:
+            Tuple of (returncode, stdout, stderr).
+        """
+        proc = await asyncio.create_subprocess_exec(
+            *args,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        try:
+            stdout_bytes, stderr_bytes = await asyncio.wait_for(
+                proc.communicate(), timeout=timeout,
+            )
+        except asyncio.TimeoutError:
+            proc.kill()
+            await proc.wait()
+            return -1, "", "timeout"
+        return proc.returncode or 0, (stdout_bytes or b"").decode(), (stderr_bytes or b"").decode()
+
     async def _query_progress(self) -> list[dict]:
         """Query progress events from the orchestrator."""
         try:
-            result = subprocess.run(
-                [
-                    "egg-orch", "progress", "query",
-                    "--pipeline", self.pipeline_id,
-                    "--json",
-                ],
-                capture_output=True,
-                text=True,
-                timeout=15,
+            rc, stdout, _ = await self._run_cli(
+                "egg-orch", "progress", "query",
+                "--pipeline", self.pipeline_id,
+                "--json",
             )
-            if result.returncode == 0 and result.stdout.strip():
-                data = json.loads(result.stdout)
+            if rc == 0 and stdout.strip():
+                data = json.loads(stdout)
                 return data if isinstance(data, list) else [data]
         except Exception:
             logger.debug("Failed to query progress events", exc_info=True)
@@ -341,18 +356,13 @@ class OverseerMonitor:
     async def _query_health_alerts(self) -> list[dict]:
         """Query active health alerts from the orchestrator."""
         try:
-            result = subprocess.run(
-                [
-                    "egg-orch", "health", "alerts",
-                    "--pipeline", self.pipeline_id,
-                    "--json",
-                ],
-                capture_output=True,
-                text=True,
-                timeout=15,
+            rc, stdout, _ = await self._run_cli(
+                "egg-orch", "health", "alerts",
+                "--pipeline", self.pipeline_id,
+                "--json",
             )
-            if result.returncode == 0 and result.stdout.strip():
-                data = json.loads(result.stdout)
+            if rc == 0 and stdout.strip():
+                data = json.loads(stdout)
                 return data if isinstance(data, list) else [data]
         except Exception:
             logger.debug("Failed to query health alerts", exc_info=True)
@@ -361,19 +371,15 @@ class OverseerMonitor:
     async def _poll_escalation_messages(self) -> list[dict]:
         """Poll for escalation messages directed to the overseer."""
         try:
-            result = subprocess.run(
-                [
-                    "egg-orch", "message", "poll",
-                    "--role", "overseer",
-                    "--wait", "5",
-                    "--json",
-                ],
-                capture_output=True,
-                text=True,
+            rc, stdout, _ = await self._run_cli(
+                "egg-orch", "message", "poll",
+                "--role", "overseer",
+                "--wait", "5",
+                "--json",
                 timeout=20,
             )
-            if result.returncode == 0 and result.stdout.strip():
-                data = json.loads(result.stdout)
+            if rc == 0 and stdout.strip():
+                data = json.loads(stdout)
                 if isinstance(data, list):
                     return data
                 if isinstance(data, dict) and data.get("messages"):
@@ -385,18 +391,13 @@ class OverseerMonitor:
     async def _query_pipeline_status(self) -> str:
         """Query the current pipeline status."""
         try:
-            result = subprocess.run(
-                [
-                    "egg-orch", "pipeline", "status",
-                    self.pipeline_id,
-                    "--json",
-                ],
-                capture_output=True,
-                text=True,
-                timeout=15,
+            rc, stdout, _ = await self._run_cli(
+                "egg-orch", "pipeline", "status",
+                self.pipeline_id,
+                "--json",
             )
-            if result.returncode == 0 and result.stdout.strip():
-                data = json.loads(result.stdout)
+            if rc == 0 and stdout.strip():
+                data = json.loads(stdout)
                 if isinstance(data, dict):
                     return data.get("status", "running")
         except Exception:
@@ -406,16 +407,11 @@ class OverseerMonitor:
     async def _send_message(self, agent_role: str, message: str) -> None:
         """Send a message to an agent via the orchestrator."""
         try:
-            subprocess.run(
-                [
-                    "egg-orch", "message", "send",
-                    "--to", agent_role,
-                    "--subject", "Overseer health check",
-                    "--body", message,
-                ],
-                capture_output=True,
-                text=True,
-                timeout=15,
+            await self._run_cli(
+                "egg-orch", "message", "send",
+                "--to", agent_role,
+                "--subject", "Overseer health check",
+                "--body", message,
             )
         except Exception:
             logger.debug("Failed to send message to %s", agent_role, exc_info=True)
@@ -423,16 +419,11 @@ class OverseerMonitor:
     async def _create_hitl_decision(self, agent_role: str, message: str) -> None:
         """Create a HITL decision for an agent issue."""
         try:
-            subprocess.run(
-                [
-                    "egg-orch", "decision", "create",
-                    "--question",
-                    f"Agent {agent_role} issue: {message}",
-                    "--options", "Restart agent", "Continue monitoring", "Cancel pipeline",
-                ],
-                capture_output=True,
-                text=True,
-                timeout=15,
+            await self._run_cli(
+                "egg-orch", "decision", "create",
+                "--question",
+                f"Agent {agent_role} issue: {message}",
+                "--options", "Restart agent", "Continue monitoring", "Cancel pipeline",
             )
         except Exception:
             logger.debug(

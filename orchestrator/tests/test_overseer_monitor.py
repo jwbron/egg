@@ -101,6 +101,11 @@ class _MockDecisionMaker:
         })
 
 
+def _mock_run_cli_empty():
+    """Create an AsyncMock for _run_cli that returns empty results."""
+    return AsyncMock(return_value=(0, "[]", ""))
+
+
 # ===================================================================
 # test_poll_cycle_no_anomalies
 # ===================================================================
@@ -109,15 +114,8 @@ class _MockDecisionMaker:
 class TestPollCycleNoAnomalies:
     """Test that a poll cycle with no anomalies completes cleanly."""
 
-    @patch("overseer.monitor.subprocess")
-    def test_poll_cycle_no_anomalies(self, mock_subprocess) -> None:
+    def test_poll_cycle_no_anomalies(self) -> None:
         """When no alerts or escalations, poll cycle completes without actions."""
-        # All subprocess calls return empty results
-        mock_result = MagicMock()
-        mock_result.returncode = 0
-        mock_result.stdout = "[]"
-        mock_subprocess.run.return_value = mock_result
-
         classifier = _MockClassifier()
         decision_maker = _MockDecisionMaker()
 
@@ -127,6 +125,7 @@ class TestPollCycleNoAnomalies:
             classifier=classifier,
             decision_maker=decision_maker,
         )
+        monitor._run_cli = AsyncMock(return_value=(0, "[]", ""))
 
         _run(monitor._poll_cycle())
 
@@ -147,16 +146,8 @@ class TestPollCycleNoAnomalies:
 class TestHandleEscalationRoutesClassifier:
     """Test that escalations always go through the classifier first."""
 
-    @patch("overseer.monitor.subprocess")
-    def test_handle_escalation_routes_through_classifier(
-        self, mock_subprocess
-    ) -> None:
+    def test_handle_escalation_routes_through_classifier(self) -> None:
         """Escalation handling must call classifier before decision maker."""
-        mock_result = MagicMock()
-        mock_result.returncode = 0
-        mock_result.stdout = "{}"
-        mock_subprocess.run.return_value = mock_result
-
         classifier = _MockClassifier()
         decision_maker = _MockDecisionMaker()
 
@@ -166,6 +157,7 @@ class TestHandleEscalationRoutesClassifier:
             classifier=classifier,
             decision_maker=decision_maker,
         )
+        monitor._run_cli = AsyncMock(return_value=(0, "{}", ""))
 
         escalation = {
             "agent_role": "coder",
@@ -197,14 +189,8 @@ class TestHandleEscalationRoutesClassifier:
 class TestHallucinationGuard:
     """Verify Sonnet only acts on classifier output, never raw data."""
 
-    @patch("overseer.monitor.subprocess")
-    def test_hallucination_guard(self, mock_subprocess) -> None:
+    def test_hallucination_guard(self) -> None:
         """Decision maker receives classifier output, not raw escalation data."""
-        mock_result = MagicMock()
-        mock_result.returncode = 0
-        mock_result.stdout = "{}"
-        mock_subprocess.run.return_value = mock_result
-
         classifier = _MockClassifier()
         classifier.classify_stall.return_value = {
             "classification": "stuck",
@@ -220,6 +206,7 @@ class TestHallucinationGuard:
             classifier=classifier,
             decision_maker=decision_maker,
         )
+        monitor._run_cli = AsyncMock(return_value=(0, "{}", ""))
 
         escalation = {
             "agent_role": "coder",
@@ -237,14 +224,8 @@ class TestHallucinationGuard:
         assert classification_arg["confidence"] == 0.95
         assert classification_arg["reasoning"] == "No tool calls for 15 minutes"
 
-    @patch("overseer.monitor.subprocess")
-    def test_escalation_respects_redirect_limit(self, mock_subprocess) -> None:
+    def test_escalation_respects_redirect_limit(self) -> None:
         """After max redirects, monitor escalates instead of redirecting."""
-        mock_result = MagicMock()
-        mock_result.returncode = 0
-        mock_result.stdout = "{}"
-        mock_subprocess.run.return_value = mock_result
-
         classifier = _MockClassifier()
         classifier.classify_stall.return_value = {
             "classification": "stuck",
@@ -273,6 +254,7 @@ class TestHallucinationGuard:
             classifier=classifier,
             decision_maker=decision_maker,
         )
+        monitor._run_cli = AsyncMock(return_value=(0, "{}", ""))
 
         # Pre-populate redirect history
         monitor._escalation_history["coder"] = [
