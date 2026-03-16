@@ -412,7 +412,9 @@ class PipelineToolHandler:
         gateway_url: str | None = None,
     ):
         self.orchestrator_url = orchestrator_url
-        self.gateway_url = gateway_url or os.environ.get("GATEWAY_URL", f"http://egg-gateway:{GATEWAY_PORT}")
+        self.gateway_url = gateway_url or os.environ.get(
+            "GATEWAY_URL", f"http://egg-gateway:{GATEWAY_PORT}"
+        )
         self._gateway_session_token: str | None = None
 
     def handle_tool_call(self, tool_name: str, arguments: dict[str, Any]) -> dict[str, Any]:
