@@ -508,6 +508,7 @@ class TestBuildPhasePromptRevisionMode:
         )
         assert "## Task Description" not in result
         assert "Build a widget with many features" not in result
+        assert "## Parallel Execution with Subagents" not in result
 
     def test_revision_cycle_contains_revision_instructions(self):
         """Cycle 2+ contains revision-focused instructions."""
