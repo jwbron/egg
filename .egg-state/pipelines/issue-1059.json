@@ -34,10 +34,10 @@
         {
           "container_id": "7cccecfb6005ebb355ff7fef2a1757ff07b21bb4bac9bd0fc1693e8d9d74bbae",
           "container_name": "issue-1059-refiner",
-          "status": "running",
+          "status": "exited",
           "started_at": "2026-03-16T19:35:24.103394",
-          "exited_at": null,
-          "exit_code": null,
+          "exited_at": "2026-03-16T19:35:24.670164Z",
+          "exit_code": 255,
           "agent_role": "refiner",
           "session_token": null
         },
@@ -65,13 +65,13 @@
       "agents": [
         {
           "role": "refiner",
-          "status": "running",
+          "status": "failed",
           "container_id": "7cccecfb6005ebb355ff7fef2a1757ff07b21bb4bac9bd0fc1693e8d9d74bbae",
           "started_at": "2026-03-16T19:35:24.103404",
-          "completed_at": null,
+          "completed_at": "2026-03-16T19:35:29.142670",
           "commit": null,
           "outputs": {},
-          "error": null,
+          "error": "Container exited with code 255",
           "retry_count": 0,
           "conflicts": []
         },
@@ -118,9 +118,9 @@
   },
   "decisions": [],
   "created_at": "2026-03-16T19:35:19.656867",
-  "updated_at": "2026-03-16T19:35:24.103486",
+  "updated_at": "2026-03-16T19:35:29.142759",
   "contract_synced": true,
   "network_mode": null,
   "error": null,
-  "version": 7
+  "version": 8
 }
