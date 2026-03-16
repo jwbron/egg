@@ -102,6 +102,8 @@ RUN pip3 install --no-cache-dir \
     requests \
     cryptography \
     PyJWT \
+    # Agent SDK for in-process Claude agent execution
+    claude-agent-sdk \
     # Dev dependencies for linting and testing
     ruff \
     pytest \
