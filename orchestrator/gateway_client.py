@@ -618,6 +618,7 @@ class GatewayClient:
                 container_ip=self.self_ip,
                 mode="public",
                 pipeline_id=pipeline_id,
+                branch=branch,
             )
             session_token = session.session_token
 
@@ -684,6 +685,7 @@ class GatewayClient:
                 container_ip=self.self_ip,
                 mode="public",
                 pipeline_id=pipeline_id,
+                branch=branch,
             )
             session_token = session.session_token
 
