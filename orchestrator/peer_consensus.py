@@ -634,7 +634,7 @@ class PeerConsensusTracker:
         producer_role: str,
         new_version: int,
     ) -> list[str]:
-        """Un-confirm reviewers whose ACK is on an older proposal version.
+        """Un-confirm reviewers who haven't ACKed the latest proposal version.
 
         When a producer withdraws and re-proposes, reviewers who already
         confirmed on a prior version must be notified to re-review.
