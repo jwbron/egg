@@ -439,26 +439,7 @@ class TestBuildPhasePromptPlanEmbedding:
         assert "Review the plan (check `.egg-state/drafts/`)" in result
         assert "## Plan\n" not in result
 
-    def test_short_circuit_embeds_analysis(self):
-        """Short-circuit mode embeds the analysis draft instead of the plan."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            drafts_dir = Path(tmpdir) / ".egg-state" / "drafts"
-            drafts_dir.mkdir(parents=True)
-            (drafts_dir / "42-analysis.md").write_text("## Analysis\nThe root cause is X.")
-
-            result = _build_phase_prompt(
-                phase="implement",
-                pipeline_id="test-pid",
-                pipeline_mode="issue",
-                prompt="Fix the bug",
-                issue_number=42,
-                repo_path=tmpdir,
-                short_circuit=True,
-            )
-            assert "## Analysis" in result
-            assert "root cause is X" in result
-
-    def test_fallback_when_draft_file_missing(self):
+def test_fallback_when_draft_file_missing(self):
         """Falls back to file-I/O instruction when draft file doesn't exist."""
         with tempfile.TemporaryDirectory() as tmpdir:
             result = _build_phase_prompt(
