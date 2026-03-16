@@ -24,17 +24,6 @@
     },
     {
       "id": "decision-2",
-      "question": "Should we clean up coordinator artifacts left over from PR #1169?",
-      "options": [
-        "Yes, include coordinator cleanup in this issue",
-        "No, coordinator cleanup is out of scope (track separately)"
-      ],
-      "phase": "refine",
-      "status": "pending",
-      "answer": null
-    },
-    {
-      "id": "decision-3",
       "question": "What should happen to open PR #1171 (docs: add integrator to concurrent implement phase roles)?",
       "options": [
         "Close #1171 \u2014 integrator is being removed anyway",
@@ -46,7 +35,7 @@
       "answer": null
     },
     {
-      "id": "decision-4",
+      "id": "decision-3",
       "question": "After removal, should concurrent_execution and concurrent_phases config flags also be removed (since BRC is now the only mode)?",
       "options": [
         "Yes, remove them too \u2014 they are now always-on",

@@ -14,7 +14,7 @@ The desired outcome: collapse all execution paths so that **every phase always r
 
 The implement phase dispatch works as follows (pipelines.py:6468-6883):
 
-1. **Coordinator mode** (lines 6493-6678): Spawns `CoordinatorExecutor` — **already removed by PR #1169** (issue #1164). Some artifacts may linger (e.g., `coordinator_executor.py` still exists on disk, `sandbox/.claude/rules/coordinator.md` still present).
+1. **Coordinator mode**: Spawns `CoordinatorExecutor` — **fully removed by PR #1169** (issue #1164). No artifacts remain.
 2. **Concurrent BRC** (lines 6680-6723): Calls `_run_concurrent_phase()` — spawns all agents simultaneously with consensus polling. **This is the keeper.**
 3. **Tier 3 phase-level dispatch** (lines 6725-6766): Calls `_run_tier3_implement()` (lines 3667-4385) — for HIGH complexity, iterates plan phases in dependency order, spawning CODER → TESTER → DOCUMENTER → CHECKER → REVIEWER_CODE per phase, with an integrator pass at the end.
 4. **Multi-agent wave execution** (lines 6768-6813): Calls `_run_multi_agent_phase()` (lines 4386-4579) — wave-based execution using `MultiAgentExecutor`.
@@ -29,7 +29,7 @@ Supporting infrastructure:
 
 ## Constraints
 
-- **Dependency on #1164**: PR #1169 (Remove coordinator agent) is merged, but some coordinator artifacts remain on disk (e.g., `coordinator_executor.py`, `sandbox/.claude/rules/coordinator.md`). This issue should clean up any stragglers or assume #1169 handled them.
+- **Dependency on #1164**: PR #1169 (Remove coordinator agent) is merged and fully landed. `coordinator_executor.py`, `sandbox/.claude/rules/coordinator.md`, and all coordinator routes/tests are removed. No cleanup needed.
 - **No backward compatibility**: The issue explicitly states old `.egg-state/pipelines/*.json` files with removed fields will fail validation intentionally. Clean break.
 - **signals.py refactoring required first**: `orchestrator/routes/signals.py` imports `create_dispatcher` and `map_agent_role_to_contract_role` from `dispatch.py` (lines 339-345, 489-494). These must be inlined using direct `egg_contracts.Orchestrator` calls before `dispatch.py` can be deleted.
 - **`is_concurrent_execution()` relocation**: Must move from `multi_agent.py` to `concurrent_executor.py` before deleting `multi_agent.py`.
@@ -98,17 +98,7 @@ All questions below are registered in the contract as decisions or feedback item
 - [ ] **Option C**: Two PRs — prep refactor + main removal (recommended)
 - [ ] Other (explain in reply)
 
-### Decision 2: Coordinator artifact cleanup
-
-> Should we clean up coordinator artifacts left over from PR #1169?
-
-PR #1169 merged but `coordinator_executor.py` and `sandbox/.claude/rules/coordinator.md` still exist on disk.
-
-- [ ] Yes, include coordinator cleanup in this issue
-- [ ] No, coordinator cleanup is out of scope (track separately)
-- [ ] Other (explain in reply)
-
-### Decision 3: Open PR #1171
+### Decision 2: Open PR #1171
 
 > What should happen to open PR #1171 (docs: add integrator to concurrent implement phase roles)?
 
@@ -119,7 +109,7 @@ This PR adds integrator documentation that #1165 will remove.
 - [ ] Ignore — this issue will supersede it
 - [ ] Other (explain in reply)
 
-### Decision 4: concurrent_execution config flags
+### Decision 3: concurrent_execution config flags
 
 > After removal, should `concurrent_execution` and `concurrent_phases` config flags also be removed (since BRC is now the only mode)?
 
