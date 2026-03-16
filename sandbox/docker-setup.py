@@ -8,6 +8,7 @@ For additional packages, configure extra_packages in ~/.config/egg/repositories.
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -161,7 +162,7 @@ def get_build_commands(config: dict[str, Any]) -> list[dict[str, Any]]:
     """Extract build_commands from all repo_settings entries.
 
     Returns:
-        List of dicts with 'repo', 'watch_files', and 'commands' keys.
+        List of dicts with 'repo', 'watch_files', 'commands', and 'persist_dirs' keys.
         Only includes repos that have non-empty commands lists.
     """
     repo_settings = config.get("repo_settings", {})
@@ -181,11 +182,15 @@ def get_build_commands(config: dict[str, Any]) -> list[dict[str, Any]]:
         watch_files = build_cmds.get("watch_files", [])
         if not isinstance(watch_files, list):
             watch_files = []
+        persist_dirs = build_cmds.get("persist_dirs", [])
+        if not isinstance(persist_dirs, list):
+            persist_dirs = []
         result.append(
             {
                 "repo": repo_name,
                 "watch_files": [str(f) for f in watch_files],
                 "commands": [str(c) for c in commands],
+                "persist_dirs": [str(d) for d in persist_dirs],
             }
         )
     return result
@@ -316,6 +321,59 @@ def run_build_commands(build_commands: list[dict[str, Any]]) -> None:
                 print(f"  Warning: Command failed: {cmd}: {e}")
 
     print("\n=== Build commands complete ===")
+
+    persist_build_dirs(build_commands)
+
+
+def persist_build_dirs(
+    build_commands: list[dict[str, Any]],
+    repo_deps_base: Path = Path("/tmp/repo-deps"),
+    prebuilt_base: Path = Path("/opt/prebuilt-deps"),
+) -> None:
+    """Persist directories from build context into the Docker image.
+
+    After build commands run, specified directories (e.g. node_modules) are
+    copied to a persistent location so they survive the /tmp/repo-deps cleanup.
+    They are restored into mounted repos at container startup by entrypoint.py.
+
+    Args:
+        build_commands: List of dicts with 'repo', 'commands', and 'persist_dirs' keys.
+        repo_deps_base: Base path for repo build contexts (default: /tmp/repo-deps).
+        prebuilt_base: Destination base for persisted directories (default: /opt/prebuilt-deps).
+    """
+    persist_count = 0
+    for entry in build_commands:
+        repo = entry["repo"]
+        persist_dirs = entry.get("persist_dirs", [])
+        if not persist_dirs:
+            continue
+
+        repo_dir_name = repo.replace("/", "--")
+        work_dir = repo_deps_base / repo_dir_name
+        dest_base = prebuilt_base / repo_dir_name
+
+        for rel_dir in persist_dirs:
+            src_dir = work_dir / rel_dir
+
+            # Defense-in-depth: validate path stays within work_dir
+            try:
+                src_dir.resolve().relative_to(work_dir.resolve())
+            except ValueError:
+                print(f"  Warning: persist_dirs: {rel_dir} escapes build context, skipping")
+                continue
+
+            if not src_dir.is_dir():
+                print(f"  Warning: persist_dirs: {rel_dir} does not exist after build, skipping")
+                continue
+
+            dest_dir = dest_base / rel_dir
+            dest_dir.parent.mkdir(parents=True, exist_ok=True)
+            print(f"  Persisting {repo}/{rel_dir} -> {dest_dir}")
+            shutil.copytree(src_dir, dest_dir, symlinks=True)
+            persist_count += 1
+
+    if persist_count:
+        print(f"\n=== Persisted {persist_count} directories ===")
 
 
 def configure_system(distro: str) -> None:

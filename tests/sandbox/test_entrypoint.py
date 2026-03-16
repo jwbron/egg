@@ -720,6 +720,105 @@ class TestSetupWorktrees:
         assert "3 repo" in captured.out
 
 
+class TestRestorePrebuiltDeps:
+    """Tests for the restore_prebuilt_deps function."""
+
+    def test_noop_when_no_prebuilt_dir(self, temp_dir, capsys):
+        """Does nothing if prebuilt dir doesn't exist."""
+        config = MagicMock()
+        config.repos_dir = temp_dir / "repos"
+        logger = entrypoint.Logger(quiet=False)
+
+        entrypoint.restore_prebuilt_deps(config, logger, prebuilt_base=temp_dir / "nonexistent")
+
+        captured = capsys.readouterr()
+        assert "Restored" not in captured.out
+
+    def test_restores_deps_into_repo(self, temp_dir, capsys):
+        """Copies prebuilt deps into the mounted repo directory."""
+        # Set up prebuilt deps
+        prebuilt = temp_dir / "prebuilt-deps" / "Khan--webapp"
+        nm = prebuilt / "services" / "perseus" / "node_modules" / "express"
+        nm.mkdir(parents=True)
+        (nm / "index.js").write_text("module.exports = {}")
+
+        # Set up mounted repos
+        repos_dir = temp_dir / "repos"
+        webapp = repos_dir / "webapp"
+        (webapp / "services" / "perseus").mkdir(parents=True)
+
+        config = MagicMock()
+        config.repos_dir = repos_dir
+        logger = entrypoint.Logger(quiet=False)
+
+        entrypoint.restore_prebuilt_deps(config, logger, prebuilt_base=temp_dir / "prebuilt-deps")
+
+        assert (webapp / "services" / "perseus" / "node_modules" / "express" / "index.js").exists()
+        assert (
+            webapp / "services" / "perseus" / "node_modules" / "express" / "index.js"
+        ).read_text() == "module.exports = {}"
+        captured = capsys.readouterr()
+        assert "Restored" in captured.out
+
+    def test_skips_existing_files(self, temp_dir):
+        """Does not overwrite files that already exist in the repo."""
+        prebuilt = temp_dir / "prebuilt-deps" / "Khan--webapp"
+        nm = prebuilt / "node_modules"
+        nm.mkdir(parents=True)
+        (nm / "pkg.json").write_text("prebuilt")
+
+        repos_dir = temp_dir / "repos"
+        webapp = repos_dir / "webapp"
+        webapp_nm = webapp / "node_modules"
+        webapp_nm.mkdir(parents=True)
+        (webapp_nm / "pkg.json").write_text("existing")
+
+        config = MagicMock()
+        config.repos_dir = repos_dir
+        logger = entrypoint.Logger(quiet=True)
+
+        entrypoint.restore_prebuilt_deps(config, logger, prebuilt_base=temp_dir / "prebuilt-deps")
+
+        # Existing file should not be overwritten
+        assert (webapp_nm / "pkg.json").read_text() == "existing"
+
+    def test_matches_repo_by_suffix(self, temp_dir, capsys):
+        """Matches prebuilt repo dir Khan--webapp to mounted dir webapp."""
+        prebuilt = temp_dir / "prebuilt-deps"
+        (prebuilt / "Khan--webapp").mkdir(parents=True)
+        (prebuilt / "Khan--webapp" / "test.txt").write_text("hello")
+
+        repos_dir = temp_dir / "repos"
+        (repos_dir / "webapp").mkdir(parents=True)
+
+        config = MagicMock()
+        config.repos_dir = repos_dir
+        logger = entrypoint.Logger(quiet=False)
+
+        entrypoint.restore_prebuilt_deps(config, logger, prebuilt_base=prebuilt)
+
+        assert (repos_dir / "webapp" / "test.txt").exists()
+        assert (repos_dir / "webapp" / "test.txt").read_text() == "hello"
+
+    def test_warns_on_unmatched_repo(self, temp_dir, capsys):
+        """Warns when no mounted repo matches the prebuilt dir name."""
+        prebuilt = temp_dir / "prebuilt-deps"
+        (prebuilt / "Khan--unknown").mkdir(parents=True)
+        (prebuilt / "Khan--unknown" / "file.txt").write_text("data")
+
+        repos_dir = temp_dir / "repos"
+        repos_dir.mkdir(parents=True)
+
+        config = MagicMock()
+        config.repos_dir = repos_dir
+        logger = entrypoint.Logger(quiet=False)
+
+        entrypoint.restore_prebuilt_deps(config, logger, prebuilt_base=prebuilt)
+
+        captured = capsys.readouterr()
+        assert "No mounted repo found" in captured.out
+
+
 class TestSetupAgentRules:
     """Tests for the setup_agent_rules function."""
 

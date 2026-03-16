@@ -777,6 +777,154 @@ class TestLoadExtraPackagesManifest:
         assert dnf == []
 
 
+class TestPersistDirs:
+    """Tests for persist_dirs in build_commands."""
+
+    def test_get_build_commands_includes_persist_dirs(self):
+        """persist_dirs is extracted from config."""
+        config = {
+            "repo_settings": {
+                "org/app": {
+                    "build_commands": {
+                        "watch_files": ["package.json"],
+                        "commands": ["npm ci"],
+                        "persist_dirs": ["node_modules", "dist"],
+                    }
+                }
+            }
+        }
+        result = get_build_commands(config)
+        assert len(result) == 1
+        assert result[0]["persist_dirs"] == ["node_modules", "dist"]
+
+    def test_get_build_commands_defaults_persist_dirs_to_empty(self):
+        """Missing persist_dirs defaults to empty list."""
+        config = {
+            "repo_settings": {
+                "org/app": {
+                    "build_commands": {
+                        "commands": ["npm ci"],
+                    }
+                }
+            }
+        }
+        result = get_build_commands(config)
+        assert result[0]["persist_dirs"] == []
+
+    def test_get_build_commands_handles_non_list_persist_dirs(self):
+        """Non-list persist_dirs defaults to empty list."""
+        config = {
+            "repo_settings": {
+                "org/app": {
+                    "build_commands": {
+                        "commands": ["npm ci"],
+                        "persist_dirs": "not-a-list",
+                    }
+                }
+            }
+        }
+        result = get_build_commands(config)
+        assert result[0]["persist_dirs"] == []
+
+    def test_persist_dirs_copies_to_prebuilt(self, tmp_path, capsys):
+        """persist_dirs copies directories to prebuilt destination."""
+        from docker_setup import persist_build_dirs
+
+        # Create the work directory with node_modules
+        repo_deps = tmp_path / "repo-deps"
+        work_dir = repo_deps / "org--app"
+        nm_dir = work_dir / "node_modules"
+        nm_dir.mkdir(parents=True)
+        (nm_dir / "pkg.json").write_text('{"name": "test"}')
+
+        prebuilt = tmp_path / "prebuilt-deps"
+
+        persist_build_dirs(
+            [
+                {
+                    "repo": "org/app",
+                    "commands": ["npm ci"],
+                    "persist_dirs": ["node_modules"],
+                }
+            ],
+            repo_deps_base=repo_deps,
+            prebuilt_base=prebuilt,
+        )
+
+        assert (prebuilt / "org--app" / "node_modules" / "pkg.json").exists()
+        assert (
+            prebuilt / "org--app" / "node_modules" / "pkg.json"
+        ).read_text() == '{"name": "test"}'
+        captured = capsys.readouterr()
+        assert "Persisting" in captured.out
+        assert "Persisted 1 directories" in captured.out
+
+    def test_persist_dirs_skips_missing_dirs(self, tmp_path, capsys):
+        """persist_dirs skips directories that don't exist after build."""
+        from docker_setup import persist_build_dirs
+
+        repo_deps = tmp_path / "repo-deps"
+        (repo_deps / "org--app").mkdir(parents=True)
+
+        persist_build_dirs(
+            [
+                {
+                    "repo": "org/app",
+                    "commands": ["npm ci"],
+                    "persist_dirs": ["nonexistent_dir"],
+                }
+            ],
+            repo_deps_base=repo_deps,
+            prebuilt_base=tmp_path / "prebuilt",
+        )
+
+        captured = capsys.readouterr()
+        assert "does not exist after build" in captured.out
+
+    def test_persist_dirs_blocks_path_traversal(self, tmp_path, capsys):
+        """persist_dirs rejects paths that escape the build context."""
+        from docker_setup import persist_build_dirs
+
+        repo_deps = tmp_path / "repo-deps"
+        (repo_deps / "org--app").mkdir(parents=True)
+
+        persist_build_dirs(
+            [
+                {
+                    "repo": "org/app",
+                    "commands": ["npm ci"],
+                    "persist_dirs": ["../../../etc"],
+                }
+            ],
+            repo_deps_base=repo_deps,
+            prebuilt_base=tmp_path / "prebuilt",
+        )
+
+        captured = capsys.readouterr()
+        assert "escapes build context" in captured.out
+
+    def test_manifest_preserves_persist_dirs(self, tmp_path):
+        """Test that persist_dirs is preserved through manifest loading."""
+        import json
+
+        manifest = {
+            "build_commands": [
+                {
+                    "repo": "org/app",
+                    "commands": ["npm ci"],
+                    "watch_files": ["package.json"],
+                    "persist_dirs": ["node_modules"],
+                }
+            ]
+        }
+        manifest_file = tmp_path / "manifest.json"
+        manifest_file.write_text(json.dumps(manifest))
+
+        result = load_build_commands_manifest(str(manifest_file))
+        assert len(result) == 1
+        assert result[0]["persist_dirs"] == ["node_modules"]
+
+
 class TestMain:
     """Tests for main entry point."""
 
