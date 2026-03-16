@@ -17,6 +17,11 @@ if _shared_path.exists() and str(_shared_path) not in sys.path:
     sys.path.insert(0, str(_shared_path))
 
 try:
+    from egg_config import GATEWAY_PORT
+except ImportError:
+    GATEWAY_PORT = 9848  # noqa: EGG002
+
+try:
     from egg_logging import get_logger
 except ImportError:
     import logging
@@ -407,7 +412,7 @@ class PipelineToolHandler:
         gateway_url: str | None = None,
     ):
         self.orchestrator_url = orchestrator_url
-        self.gateway_url = gateway_url or os.environ.get("GATEWAY_URL", "http://egg-gateway:9848")
+        self.gateway_url = gateway_url or os.environ.get("GATEWAY_URL", f"http://egg-gateway:{GATEWAY_PORT}")
         self._gateway_session_token: str | None = None
 
     def handle_tool_call(self, tool_name: str, arguments: dict[str, Any]) -> dict[str, Any]:
@@ -864,7 +869,7 @@ class PipelineToolHandler:
 
         parsed = urlparse(self.gateway_url)
         host = parsed.hostname or "egg-gateway"
-        port = parsed.port or 9848
+        port = parsed.port or GATEWAY_PORT
 
         client = GatewayClient(gateway_host=host, gateway_port=port)
         session = client.register_session(
@@ -938,7 +943,7 @@ class PipelineToolHandler:
             parsed = urlparse(self.gateway_url)
             client = GatewayClient(
                 gateway_host=parsed.hostname or "egg-gateway",
-                gateway_port=parsed.port or 9848,
+                gateway_port=parsed.port or GATEWAY_PORT,
             )
             health = client.check_health()
             result["gateway"] = {

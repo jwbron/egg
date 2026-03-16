@@ -9,6 +9,7 @@ Tests cover the 10 new tools added for comprehensive platform interface:
 from unittest.mock import MagicMock, patch
 
 import pytest
+from egg_config.constants import TEST_GATEWAY_PORT
 from mcp_tools import PipelineToolHandler
 
 
@@ -17,7 +18,7 @@ def handler():
     """Create a PipelineToolHandler with a test gateway URL."""
     return PipelineToolHandler(
         orchestrator_url="http://localhost:9849",
-        gateway_url="http://test-gateway:9848",
+        gateway_url=f"http://test-gateway:{TEST_GATEWAY_PORT}",
     )
 
 
