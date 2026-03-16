@@ -394,6 +394,13 @@ class TestSetupClaude:
         assert result["projects"][repos_key]["hasTrustDialogAccepted"] is True
         assert result["projects"][repos_key]["hasCompletedProjectOnboarding"] is True
 
+        # Verify settings.json was created with expected keys
+        settings_file = claude_dir / "settings.json"
+        settings = json.loads(settings_file.read_text())
+        assert settings["memory"] == {"enabled": False}
+        assert settings["defaultPermissionMode"] == "bypassPermissions"
+        assert settings["autoUpdate"] is False
+
     @patch.object(entrypoint, "chown_recursive")
     @patch("os.chown")
     @patch("os.chmod")
