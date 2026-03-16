@@ -64,7 +64,7 @@
     "agent_type": {
       "type": "string",
       "description": "Agent role classification",
-      "enum": ["coder", "tester", "documenter", "integrator", "reviewer", "architect", "task_planner", "risk_analyst", "refiner", "unknown"],
+      "enum": ["coder", "tester", "documenter", "integrator", "checker", "reviewer", "architect", "task_planner", "risk_analyst", "refiner", "unknown"],
       "default": "unknown"
     },
     "pipeline_phase": {

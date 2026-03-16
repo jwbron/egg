@@ -158,6 +158,8 @@ class AgentType(StrEnum):
     CODER = "coder"
     TESTER = "tester"
     DOCUMENTER = "documenter"
+    INTEGRATOR = "integrator"
+    CHECKER = "checker"
     REVIEWER = "reviewer"
     ARCHITECT = "architect"
     TASK_PLANNER = "task_planner"
