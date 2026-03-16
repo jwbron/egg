@@ -1818,8 +1818,8 @@ def _build_review_prompt(
         )
         lines.append(
             "6. Research when uncertain — use WebSearch and WebFetch (when available) "
-            "to look up library behavior, check official documentation, and verify "
-            "that API usage patterns in the code are correct"
+            "to look up library behavior, check official documentation, verify "
+            "API usage patterns, and confirm the code follows current best practices"
         )
         lines.append("7. Consider edge cases the author may not have tested")
         lines.append("8. Evaluate against the criteria below")
@@ -2860,7 +2860,7 @@ def _build_phase_prompt(
                 [
                     "Implement the required changes — when working with third-party "
                     "libraries or APIs, use WebSearch and WebFetch (when available) to "
-                    "look up current documentation and usage examples",
+                    "look up current documentation, usage examples, and best practices",
                     "Run tests to verify correctness",
                     "Commit with descriptive messages",
                 ]
@@ -3322,8 +3322,9 @@ def _build_agent_prompt(
                 "2. Research the current codebase to understand existing patterns",
                 "3. Research externally when the task involves third-party libraries, APIs, "
                 "or frameworks — use WebSearch and WebFetch (when available) to verify "
-                "assumptions, check current documentation, and review architectural patterns. "
-                "Skip external research for purely internal changes.",
+                "assumptions, check current documentation, review architectural patterns, "
+                "and look up current best practices. Skip external research for purely "
+                "internal changes.",
                 "4. Identify key files, constraints, and dependencies",
                 "5. Consider multiple implementation approaches",
                 "6. Recommend an approach with justification and document technical decisions",
