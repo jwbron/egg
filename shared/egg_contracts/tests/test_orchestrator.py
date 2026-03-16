@@ -146,12 +146,12 @@ class TestLoadAgentOutputErrorHandling:
         """All agent roles produce correctly-prefixed filenames."""
         outputs_dir = tmp_path / ".egg-state" / "agent-outputs"
         outputs_dir.mkdir(parents=True)
-        for role in [AgentRole.CODER, AgentRole.TESTER, AgentRole.DOCUMENTER, AgentRole.INTEGRATOR]:
+        for role in [AgentRole.CODER, AgentRole.TESTER, AgentRole.DOCUMENTER]:
             (outputs_dir / f"42-{role.value}-output.json").write_text(
                 json.dumps({"role": role.value})
             )
 
-        for role in [AgentRole.CODER, AgentRole.TESTER, AgentRole.DOCUMENTER, AgentRole.INTEGRATOR]:
+        for role in [AgentRole.CODER, AgentRole.TESTER, AgentRole.DOCUMENTER]:
             result = load_agent_output(tmp_path, role, identifier=42)
             assert result == {"role": role.value}
 
