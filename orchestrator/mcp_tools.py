@@ -17,6 +17,11 @@ if _shared_path.exists() and str(_shared_path) not in sys.path:
     sys.path.insert(0, str(_shared_path))
 
 try:
+    from egg_config import GATEWAY_PORT
+except ImportError:
+    GATEWAY_PORT = 9848  # noqa: EGG002
+
+try:
     from egg_logging import get_logger
 except ImportError:
     import logging
@@ -152,14 +157,265 @@ PIPELINE_TOOLS = [
             "required": ["task_id"],
         },
     },
+    # --- Orchestrator-backed diagnostic tools ---
+    {
+        "name": "check_health",
+        "description": "Check health of the orchestrator and gateway services. Returns combined status.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {},
+        },
+    },
+    {
+        "name": "list_containers",
+        "description": "List containers (agents) for a pipeline, including their status, role, and timing.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "task_id": {
+                    "type": "string",
+                    "description": "Pipeline/task ID",
+                },
+                "include_stopped": {
+                    "type": "boolean",
+                    "description": "Include stopped/exited containers",
+                    "default": True,
+                },
+            },
+            "required": ["task_id"],
+        },
+    },
+    {
+        "name": "get_container_logs",
+        "description": (
+            "Get logs from a pipeline container. If container_id is omitted, "
+            "auto-selects the best container (filtered by agent_role if given, "
+            "preferring running containers)."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "task_id": {
+                    "type": "string",
+                    "description": "Pipeline/task ID",
+                },
+                "container_id": {
+                    "type": "string",
+                    "description": "Specific container ID (optional — auto-selects if omitted)",
+                },
+                "agent_role": {
+                    "type": "string",
+                    "description": "Filter by agent role (e.g. 'coder', 'tester') when auto-selecting",
+                },
+                "lines": {
+                    "type": "integer",
+                    "description": "Number of log lines to return",
+                    "default": 100,
+                },
+            },
+            "required": ["task_id"],
+        },
+    },
+    {
+        "name": "send_message",
+        "description": "Send a message to an agent in a pipeline. Sent as the 'overseer' role.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "task_id": {
+                    "type": "string",
+                    "description": "Pipeline/task ID",
+                },
+                "to_role": {
+                    "type": "string",
+                    "description": "Target agent role (e.g. 'coder', 'tester', 'all')",
+                },
+                "body": {
+                    "type": "string",
+                    "description": "Message body text",
+                },
+                "message_type": {
+                    "type": "string",
+                    "description": "Message type",
+                    "default": "STATUS",
+                },
+                "subject": {
+                    "type": "string",
+                    "description": "Optional message subject",
+                },
+            },
+            "required": ["task_id", "to_role", "body"],
+        },
+    },
+    {
+        "name": "get_consensus_status",
+        "description": (
+            "Get BRC consensus status for a pipeline. Shows which agents have "
+            "proposed, ACKed, NACKed, or confirmed. Falls back to message-based "
+            "inference when structured consensus data is unavailable."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "task_id": {
+                    "type": "string",
+                    "description": "Pipeline/task ID",
+                },
+            },
+            "required": ["task_id"],
+        },
+    },
+    {
+        "name": "get_phase",
+        "description": "Get current phase details for a pipeline, including execution timing and review cycles.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "task_id": {
+                    "type": "string",
+                    "description": "Pipeline/task ID",
+                },
+            },
+            "required": ["task_id"],
+        },
+    },
+    {
+        "name": "get_pipeline_snapshot",
+        "description": (
+            "Get a comprehensive pipeline snapshot combining pipeline state, "
+            "phase details, containers, messages, consensus, and decisions "
+            "into a single response. Replaces egg-pipeline-watch --once."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "task_id": {
+                    "type": "string",
+                    "description": "Pipeline/task ID",
+                },
+                "include_messages": {
+                    "type": "boolean",
+                    "description": "Include recent messages",
+                    "default": True,
+                },
+                "include_containers": {
+                    "type": "boolean",
+                    "description": "Include container list",
+                    "default": True,
+                },
+            },
+            "required": ["task_id"],
+        },
+    },
+    # --- Gateway-backed tools ---
+    {
+        "name": "list_checkpoints",
+        "description": (
+            "List agent checkpoints (transcripts, tool calls, token usage). "
+            "Filter by issue, pipeline, agent_type, phase, or status."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "issue": {
+                    "type": "integer",
+                    "description": "Filter by GitHub issue number",
+                },
+                "pipeline": {
+                    "type": "string",
+                    "description": "Filter by pipeline ID",
+                },
+                "agent_type": {
+                    "type": "string",
+                    "description": "Filter by agent type (coder, tester, documenter, reviewer)",
+                },
+                "phase": {
+                    "type": "string",
+                    "description": "Filter by pipeline phase",
+                },
+                "status": {
+                    "type": "string",
+                    "description": "Filter by session status",
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Maximum checkpoints to return",
+                    "default": 20,
+                },
+            },
+        },
+    },
+    {
+        "name": "search_checkpoints",
+        "description": (
+            "Search checkpoint metadata for matching text. Searches agent_type, "
+            "pipeline_phase, pipeline_id, branch, repo, and status fields. "
+            "Note: full-text transcript search is not supported — this searches metadata only."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "text": {
+                    "type": "string",
+                    "description": "Text to search for in checkpoint metadata",
+                },
+                "issue": {
+                    "type": "integer",
+                    "description": "Filter by GitHub issue number",
+                },
+                "pipeline": {
+                    "type": "string",
+                    "description": "Filter by pipeline ID",
+                },
+                "agent_type": {
+                    "type": "string",
+                    "description": "Filter by agent type",
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Maximum checkpoints to search",
+                    "default": 10,
+                },
+            },
+            "required": ["text"],
+        },
+    },
+    {
+        "name": "get_contract",
+        "description": (
+            "Get the SDLC contract state for a pipeline. Provide either "
+            "issue_number directly or task_id to look it up."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "task_id": {
+                    "type": "string",
+                    "description": "Pipeline/task ID (used to look up issue_number if not provided)",
+                },
+                "issue_number": {
+                    "type": "integer",
+                    "description": "GitHub issue number",
+                },
+            },
+        },
+    },
 ]
 
 
 class PipelineToolHandler:
     """Handles MCP tool calls by proxying to orchestrator APIs."""
 
-    def __init__(self, orchestrator_url: str = "http://localhost:9849"):
+    def __init__(
+        self,
+        orchestrator_url: str = "http://localhost:9849",
+        gateway_url: str | None = None,
+    ):
         self.orchestrator_url = orchestrator_url
+        self.gateway_url = gateway_url or os.environ.get(
+            "GATEWAY_URL", f"http://egg-gateway:{GATEWAY_PORT}"
+        )
+        self._gateway_session_token: str | None = None
 
     def handle_tool_call(self, tool_name: str, arguments: dict[str, Any]) -> dict[str, Any]:
         """Route a tool call to the appropriate handler.
@@ -177,6 +433,16 @@ class PipelineToolHandler:
             "provide_input": self._handle_provide_input,
             "list_tasks": self._handle_list_tasks,
             "cancel_task": self._handle_cancel_task,
+            "check_health": self._handle_check_health,
+            "list_containers": self._handle_list_containers,
+            "get_container_logs": self._handle_get_container_logs,
+            "send_message": self._handle_send_message,
+            "get_consensus_status": self._handle_get_consensus_status,
+            "get_phase": self._handle_get_phase,
+            "get_pipeline_snapshot": self._handle_get_pipeline_snapshot,
+            "list_checkpoints": self._handle_list_checkpoints,
+            "search_checkpoints": self._handle_search_checkpoints,
+            "get_contract": self._handle_get_contract,
         }
 
         handler = handlers.get(tool_name)
@@ -591,3 +857,393 @@ class PipelineToolHandler:
             }
 
         return result
+
+    # --- Gateway request infrastructure ---
+
+    def _get_gateway_client(self, **kwargs: Any) -> "GatewayClient":  # noqa: F821
+        """Create a GatewayClient from the configured gateway URL.
+
+        Extra kwargs are forwarded to the GatewayClient constructor
+        (e.g. launcher_secret).
+        """
+        from urllib.parse import urlparse
+
+        from orchestrator.gateway_client import GatewayClient
+
+        parsed = urlparse(self.gateway_url)
+        host = parsed.hostname or "egg-gateway"
+        port = parsed.port or GATEWAY_PORT
+        return GatewayClient(gateway_host=host, gateway_port=port, **kwargs)
+
+    def _ensure_gateway_session(self) -> str:
+        """Ensure we have a valid gateway session token, creating one if needed."""
+        if self._gateway_session_token:
+            return self._gateway_session_token
+
+        launcher_secret = os.environ.get("EGG_LAUNCHER_SECRET")
+        if not launcher_secret:
+            raise RuntimeError("EGG_LAUNCHER_SECRET required for gateway session registration")
+
+        client = self._get_gateway_client(launcher_secret=launcher_secret)
+        session = client.register_session(
+            container_id="mcp-server",
+            container_ip=client.self_ip,
+            mode="public",
+        )
+        self._gateway_session_token = session.session_token
+        return session.session_token
+
+    def _make_gateway_request(
+        self,
+        endpoint: str,
+        method: str = "GET",
+        data: dict[str, Any] | None = None,
+        timeout: int = 30,
+    ) -> dict[str, Any]:
+        """Make HTTP request to the gateway with session auth.
+
+        Automatically registers a session if needed and retries once on 401.
+        """
+        import json
+        from urllib.error import HTTPError
+        from urllib.request import ProxyHandler, Request, build_opener
+
+        def _do_request(token: str) -> dict[str, Any]:
+            url = f"{self.gateway_url}{endpoint}"
+            headers = {
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {token}",
+            }
+            body = json.dumps(data).encode() if data else None
+            opener = build_opener(ProxyHandler({}))
+            req = Request(url, data=body, headers=headers, method=method)
+            with opener.open(req, timeout=timeout) as response:
+                return json.loads(response.read().decode())
+
+        token = self._ensure_gateway_session()
+        try:
+            return _do_request(token)
+        except HTTPError as e:
+            if e.code == 401:
+                # Session expired — clear cache and retry once
+                self._gateway_session_token = None
+                token = self._ensure_gateway_session()
+                return _do_request(token)
+            raise
+
+    # --- Orchestrator-backed tools ---
+
+    def _handle_check_health(self, args: dict[str, Any]) -> dict[str, Any]:
+        """Check orchestrator and gateway health."""
+        result: dict[str, Any] = {}
+
+        # Orchestrator health
+        try:
+            orch = self._make_request("/api/v1/health")
+            result["orchestrator"] = {
+                "healthy": orch.get("status") == "healthy",
+                "status": orch.get("status", "unknown"),
+            }
+        except Exception as e:
+            result["orchestrator"] = {"healthy": False, "status": "unreachable", "error": str(e)}
+
+        # Gateway health
+        try:
+            client = self._get_gateway_client()
+            health = client.check_health()
+            result["gateway"] = {
+                "healthy": health.healthy,
+                "status": health.status,
+                "version": health.version,
+            }
+        except Exception as e:
+            result["gateway"] = {"healthy": False, "status": "unreachable", "error": str(e)}
+
+        result["healthy"] = result.get("orchestrator", {}).get("healthy", False) and result.get(
+            "gateway", {}
+        ).get("healthy", False)
+        return result
+
+    def _handle_list_containers(self, args: dict[str, Any]) -> dict[str, Any]:
+        """List containers for a pipeline."""
+        task_id = quote(args["task_id"], safe="")
+        include_stopped = args.get("include_stopped", True)
+        all_param = "true" if include_stopped else "false"
+        return self._make_request(f"/api/v1/pipelines/{task_id}/containers?all={all_param}")
+
+    def _handle_get_container_logs(self, args: dict[str, Any]) -> dict[str, Any]:
+        """Get container logs, with auto-selection if container_id not specified."""
+        task_id = quote(args["task_id"], safe="")
+        container_id = args.get("container_id")
+        agent_role = args.get("agent_role")
+        lines = args.get("lines", 100)
+
+        selected: dict[str, Any] = {}
+        if not container_id:
+            # Auto-select: list containers, filter by role, pick best match
+            containers_result = self._make_request(
+                f"/api/v1/pipelines/{task_id}/containers?all=true"
+            )
+            containers = containers_result.get("data", {}).get("containers", [])
+            if not containers:
+                return {"error": "No containers found for this pipeline"}
+
+            # Filter by agent_role if specified
+            if agent_role:
+                filtered = [c for c in containers if c.get("agent_role") == agent_role]
+                if filtered:
+                    containers = filtered
+
+            # Prefer running containers, then most recently started
+            running = [c for c in containers if c.get("status") == "running"]
+            if running:
+                selected = running[0]
+            else:
+                containers.sort(key=lambda c: c.get("started_at", ""), reverse=True)
+                selected = containers[0]
+
+            container_id = selected.get("container_id", "")
+
+        cid = quote(container_id, safe="")
+        logs_result = self._make_request(
+            f"/api/v1/pipelines/{task_id}/containers/{cid}/logs?tail={lines}"
+        )
+
+        return {
+            "container_id": container_id,
+            "agent_role": agent_role or selected.get("agent_role") or None,
+            "status": selected.get("status") or None,
+            "logs": logs_result.get("data", {}).get("logs", ""),
+        }
+
+    def _handle_send_message(self, args: dict[str, Any]) -> dict[str, Any]:
+        """Send a message to an agent in a pipeline."""
+        task_id = quote(args["task_id"], safe="")
+        data: dict[str, Any] = {
+            "from_role": "overseer",
+            "to_role": args["to_role"],
+            "message_type": args.get("message_type", "STATUS"),
+            "body": args["body"],
+        }
+        if args.get("subject"):
+            data["subject"] = args["subject"]
+        return self._make_request(
+            f"/api/v1/pipelines/{task_id}/messages",
+            method="POST",
+            data=data,
+        )
+
+    def _handle_get_consensus_status(self, args: dict[str, Any]) -> dict[str, Any]:
+        """Get consensus status for a pipeline's current phase."""
+        task_id = quote(args["task_id"], safe="")
+
+        result: dict[str, Any] = {}
+
+        # Get pipeline base info
+        pipeline_result = self._make_request(f"/api/v1/pipelines/{task_id}")
+        pipeline_data = pipeline_result.get("data", {}).get("pipeline", {})
+        result["pipeline_id"] = pipeline_data.get("id", "")
+        result["current_phase"] = pipeline_data.get("current_phase", "")
+        result["status"] = pipeline_data.get("status", "")
+
+        # Try to get structured consensus from status endpoint
+        try:
+            status_result = self._make_request(f"/api/v1/pipelines/{task_id}/status")
+            concurrent = status_result.get("data", {}).get("concurrent", {})
+        except Exception:
+            concurrent = {}
+
+        consensus = concurrent.get("consensus", {})
+
+        if consensus:
+            result["consensus"] = {
+                "is_complete": consensus.get("is_complete", False),
+                "blocking_agents": consensus.get("blocking_agents", []),
+                "has_unresolved_nacks": consensus.get("has_unresolved_nacks", False),
+                "unresolved_nacks": consensus.get("unresolved_nacks", []),
+                "agents": consensus.get("agents", {}),
+            }
+        else:
+            # Fall back to message-based inference
+            try:
+                messages_result = self._make_request(
+                    f"/api/v1/pipelines/{task_id}/messages?limit=50"
+                )
+                messages = messages_result.get("data", {}).get("messages", [])
+                result["consensus"] = self._infer_consensus_from_messages(messages)
+                result["consensus"]["note"] = (
+                    "Inferred from messages — structured consensus data not available"
+                )
+            except Exception:
+                result["consensus"] = {"error": "Could not retrieve consensus data"}
+
+        return result
+
+    def _infer_consensus_from_messages(self, messages: list[dict[str, Any]]) -> dict[str, Any]:
+        """Infer consensus state from message history.
+
+        Note: uses last-write-wins semantics, so messages must be in
+        chronological order (as returned by the orchestrator messages endpoint).
+        """
+        roles: dict[str, str] = {}  # role -> last consensus message type
+        nacks: dict[str, dict[str, str]] = {}  # key -> {reviewer, producer, reason}
+
+        for msg in messages:
+            msg_type = msg.get("message_type", "")
+            from_role = msg.get("from_role", "")
+
+            if msg_type == "CONSENSUS_CONFIRMED":
+                roles[from_role] = "confirmed"
+            elif msg_type == "CONSENSUS_PROPOSE":
+                roles[from_role] = "proposed"
+                # Clear NACKs targeting this producer
+                nacks = {k: v for k, v in nacks.items() if not k.endswith(f"->{from_role}")}
+            elif msg_type == "CONSENSUS_ACK":
+                if from_role not in roles or roles[from_role] != "confirmed":
+                    roles[from_role] = "acked"
+            elif msg_type == "CONSENSUS_NACK":
+                to_role = msg.get("to_role", "unknown")
+                nacks[f"{from_role}->{to_role}"] = {
+                    "reviewer": from_role,
+                    "producer": to_role,
+                    "reason": msg.get("body", "") or msg.get("subject", ""),
+                }
+
+        confirmed = [r for r, s in roles.items() if s == "confirmed"]
+        blocking = [r for r, s in roles.items() if s != "confirmed"]
+
+        return {
+            "is_complete": len(blocking) == 0 and len(confirmed) > 0,
+            "confirmed_agents": confirmed,
+            "blocking_agents": blocking,
+            "has_unresolved_nacks": len(nacks) > 0,
+            "unresolved_nacks": list(nacks.values()),
+        }
+
+    def _handle_get_phase(self, args: dict[str, Any]) -> dict[str, Any]:
+        """Get current phase details for a pipeline."""
+        task_id = quote(args["task_id"], safe="")
+        return self._make_request(f"/api/v1/pipelines/{task_id}/phase")
+
+    def _handle_get_pipeline_snapshot(self, args: dict[str, Any]) -> dict[str, Any]:
+        """Get a comprehensive pipeline snapshot combining multiple data sources."""
+        task_id = quote(args["task_id"], safe="")
+        include_messages = args.get("include_messages", True)
+        include_containers = args.get("include_containers", True)
+
+        # Pipeline state (always included)
+        pipeline_result = self._make_request(f"/api/v1/pipelines/{task_id}")
+        pipeline_data = pipeline_result.get("data", {}).get("pipeline", {})
+
+        snapshot: dict[str, Any] = {"pipeline": pipeline_data}
+
+        # Phase details
+        try:
+            phase_result = self._make_request(f"/api/v1/pipelines/{task_id}/phase")
+            snapshot["phase"] = phase_result.get("data", {})
+        except Exception:
+            pass
+
+        # Status with concurrent/consensus info
+        try:
+            status_result = self._make_request(f"/api/v1/pipelines/{task_id}/status")
+            status_data = status_result.get("data", {})
+            if "concurrent" in status_data:
+                snapshot["concurrent"] = status_data["concurrent"]
+            if "pending_decision" in status_data:
+                snapshot["pending_decision"] = status_data["pending_decision"]
+        except Exception:
+            pass
+
+        # Containers
+        if include_containers:
+            try:
+                containers_result = self._make_request(
+                    f"/api/v1/pipelines/{task_id}/containers?all=true"
+                )
+                snapshot["containers"] = containers_result.get("data", {}).get("containers", [])
+            except Exception:
+                pass
+
+        # Messages
+        if include_messages:
+            try:
+                messages_result = self._make_request(
+                    f"/api/v1/pipelines/{task_id}/messages?limit=20"
+                )
+                snapshot["recent_messages"] = messages_result.get("data", {}).get("messages", [])
+            except Exception:
+                pass
+
+        # Decisions
+        decisions = pipeline_data.get("decisions", [])
+        snapshot["pending_decisions"] = [d for d in decisions if d.get("status") == "pending"]
+
+        return snapshot
+
+    # --- Gateway-backed tools ---
+
+    def _handle_list_checkpoints(self, args: dict[str, Any]) -> dict[str, Any]:
+        """List checkpoints with optional filters."""
+        params = []
+        for key in ("issue", "pipeline", "agent_type", "phase", "status"):
+            if args.get(key) is not None:
+                params.append(f"{key}={quote(str(args[key]), safe='')}")
+        limit = args.get("limit", 20)
+        params.append(f"limit={limit}")
+
+        query = "&".join(params)
+        return self._make_gateway_request(f"/api/v1/checkpoints?{query}")
+
+    def _handle_search_checkpoints(self, args: dict[str, Any]) -> dict[str, Any]:
+        """Search checkpoints by text in metadata/summaries."""
+        params = []
+        for key in ("issue", "pipeline", "agent_type"):
+            if args.get(key) is not None:
+                params.append(f"{key}={quote(str(args[key]), safe='')}")
+        limit = args.get("limit", 10)
+        params.append(f"limit={limit}")
+
+        query = "&".join(params)
+        result = self._make_gateway_request(f"/api/v1/checkpoints?{query}")
+
+        # Client-side text filter on checkpoint metadata
+        search_text = args["text"].lower()
+        checkpoints = result.get("data", {}).get("checkpoints", [])
+        filtered = []
+        for cp in checkpoints:
+            searchable = " ".join(
+                str(cp.get(f, ""))
+                for f in (
+                    "session_id",
+                    "agent_type",
+                    "pipeline_phase",
+                    "pipeline_id",
+                    "branch",
+                    "repo",
+                    "session_status",
+                )
+            ).lower()
+            if search_text in searchable:
+                filtered.append(cp)
+
+        return {
+            "checkpoints": filtered,
+            "total": len(filtered),
+            "note": "Searched checkpoint metadata only — full-text transcript search not supported via this tool",
+        }
+
+    def _handle_get_contract(self, args: dict[str, Any]) -> dict[str, Any]:
+        """Get SDLC contract state."""
+        issue_number = args.get("issue_number")
+
+        if not issue_number and args.get("task_id"):
+            # Look up issue_number from pipeline data
+            task_id = quote(args["task_id"], safe="")
+            pipeline_result = self._make_request(f"/api/v1/pipelines/{task_id}")
+            issue_number = pipeline_result.get("data", {}).get("pipeline", {}).get("issue_number")
+
+        if not issue_number:
+            return {"error": "Either issue_number or task_id (with linked issue) is required"}
+
+        return self._make_gateway_request(f"/api/v1/contract/{int(issue_number)}")

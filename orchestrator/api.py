@@ -154,8 +154,10 @@ def _start_mcp_server() -> None:
 
         mcp_port = int(os.environ.get("EGG_MCP_SERVER_PORT", "9850"))
         mcp_rate_limit = int(os.environ.get("EGG_MCP_RATE_LIMIT", "30"))
+        gateway_url = os.environ.get("GATEWAY_URL")
         start_mcp_server(
             port=mcp_port,
+            gateway_url=gateway_url,
             rate_limit=mcp_rate_limit,
         )
         logger.info("MCP server started", port=mcp_port)
