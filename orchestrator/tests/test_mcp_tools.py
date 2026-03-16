@@ -95,6 +95,8 @@ class TestGetContainerLogs:
         )
         assert result["logs"] == "test output"
         assert result["container_id"] == "abc123"
+        assert result["agent_role"] is None
+        assert result["status"] is None
 
     def test_auto_select_running(self, handler):
         containers_response = {
@@ -517,7 +519,10 @@ class TestGatewayAuth:
     def test_session_cleared_on_none(self, handler):
         """Verify new session is created when cache is empty."""
         assert handler._gateway_session_token is None
-        with patch("orchestrator.gateway_client.GatewayClient") as MockGW:
+        with (
+            patch.dict("os.environ", {"EGG_LAUNCHER_SECRET": "test-secret"}),
+            patch("orchestrator.gateway_client.GatewayClient") as MockGW,
+        ):
             mock_client = MagicMock()
             mock_session = MagicMock()
             mock_session.session_token = "new-token"
@@ -529,6 +534,68 @@ class TestGatewayAuth:
 
         assert token == "new-token"
         assert handler._gateway_session_token == "new-token"
+        MockGW.assert_called_once_with(
+            gateway_host="test-gateway",
+            gateway_port=TEST_GATEWAY_PORT,
+            launcher_secret="test-secret",
+        )
+
+    def test_missing_launcher_secret(self, handler):
+        """Verify RuntimeError when EGG_LAUNCHER_SECRET is not set."""
+        assert handler._gateway_session_token is None
+        with (
+            patch.dict("os.environ", {}, clear=False),
+            pytest.raises(RuntimeError, match="EGG_LAUNCHER_SECRET required"),
+        ):
+            # Ensure the env var is absent
+            import os
+
+            os.environ.pop("EGG_LAUNCHER_SECRET", None)
+            handler._ensure_gateway_session()
+
+    def test_401_retry(self, handler):
+        """Verify 401 triggers session re-registration and retry."""
+        from urllib.error import HTTPError
+
+        handler._gateway_session_token = "stale-token"
+
+        mock_response = MagicMock()
+        mock_response.read.return_value = b'{"data": "ok"}'
+        mock_response.__enter__ = MagicMock(return_value=mock_response)
+        mock_response.__exit__ = MagicMock(return_value=False)
+
+        http_401 = HTTPError(url="http://test", code=401, msg="Unauthorized", hdrs={}, fp=None)
+        calls = []
+
+        def mock_open(req, timeout=None):
+            calls.append(req.get_header("Authorization"))
+            if len(calls) == 1:
+                raise http_401
+            return mock_response
+
+        with (
+            patch("urllib.request.build_opener") as mock_opener,
+            patch.dict("os.environ", {"EGG_LAUNCHER_SECRET": "test-secret"}),
+            patch("orchestrator.gateway_client.GatewayClient") as MockGW,
+        ):
+            mock_opener_inst = MagicMock()
+            mock_opener_inst.open = mock_open
+            mock_opener.return_value = mock_opener_inst
+
+            mock_client = MagicMock()
+            mock_session = MagicMock()
+            mock_session.session_token = "fresh-token"
+            mock_client.self_ip = "127.0.0.1"
+            mock_client.register_session.return_value = mock_session
+            MockGW.return_value = mock_client
+
+            result = handler._make_gateway_request("/api/v1/test")
+
+        assert result == {"data": "ok"}
+        assert len(calls) == 2
+        assert calls[0] == "Bearer stale-token"
+        assert calls[1] == "Bearer fresh-token"
+        assert handler._gateway_session_token == "fresh-token"
 
 
 class TestToolRouting:

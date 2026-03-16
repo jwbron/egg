@@ -860,11 +860,12 @@ class PipelineToolHandler:
 
     # --- Gateway request infrastructure ---
 
-    def _ensure_gateway_session(self) -> str:
-        """Ensure we have a valid gateway session token, creating one if needed."""
-        if self._gateway_session_token:
-            return self._gateway_session_token
+    def _get_gateway_client(self, **kwargs: Any) -> "GatewayClient":  # noqa: F821
+        """Create a GatewayClient from the configured gateway URL.
 
+        Extra kwargs are forwarded to the GatewayClient constructor
+        (e.g. launcher_secret).
+        """
         from urllib.parse import urlparse
 
         from orchestrator.gateway_client import GatewayClient
@@ -872,8 +873,18 @@ class PipelineToolHandler:
         parsed = urlparse(self.gateway_url)
         host = parsed.hostname or "egg-gateway"
         port = parsed.port or GATEWAY_PORT
+        return GatewayClient(gateway_host=host, gateway_port=port, **kwargs)
 
-        client = GatewayClient(gateway_host=host, gateway_port=port)
+    def _ensure_gateway_session(self) -> str:
+        """Ensure we have a valid gateway session token, creating one if needed."""
+        if self._gateway_session_token:
+            return self._gateway_session_token
+
+        launcher_secret = os.environ.get("EGG_LAUNCHER_SECRET")
+        if not launcher_secret:
+            raise RuntimeError("EGG_LAUNCHER_SECRET required for gateway session registration")
+
+        client = self._get_gateway_client(launcher_secret=launcher_secret)
         session = client.register_session(
             container_id="mcp-server",
             container_ip=client.self_ip,
@@ -938,15 +949,7 @@ class PipelineToolHandler:
 
         # Gateway health
         try:
-            from urllib.parse import urlparse
-
-            from orchestrator.gateway_client import GatewayClient
-
-            parsed = urlparse(self.gateway_url)
-            client = GatewayClient(
-                gateway_host=parsed.hostname or "egg-gateway",
-                gateway_port=parsed.port or GATEWAY_PORT,
-            )
+            client = self._get_gateway_client()
             health = client.check_health()
             result["gateway"] = {
                 "healthy": health.healthy,
@@ -1008,8 +1011,8 @@ class PipelineToolHandler:
 
         return {
             "container_id": container_id,
-            "agent_role": agent_role or selected.get("agent_role", ""),
-            "status": selected.get("status", ""),
+            "agent_role": agent_role or selected.get("agent_role") or None,
+            "status": selected.get("status") or None,
             "logs": logs_result.get("data", {}).get("logs", ""),
         }
 
@@ -1077,7 +1080,11 @@ class PipelineToolHandler:
         return result
 
     def _infer_consensus_from_messages(self, messages: list[dict[str, Any]]) -> dict[str, Any]:
-        """Infer consensus state from message history."""
+        """Infer consensus state from message history.
+
+        Note: uses last-write-wins semantics, so messages must be in
+        chronological order (as returned by the orchestrator messages endpoint).
+        """
         roles: dict[str, str] = {}  # role -> last consensus message type
         nacks: dict[str, dict[str, str]] = {}  # key -> {reviewer, producer, reason}
 
@@ -1180,7 +1187,7 @@ class PipelineToolHandler:
         """List checkpoints with optional filters."""
         params = []
         for key in ("issue", "pipeline", "agent_type", "phase", "status"):
-            if args.get(key):
+            if args.get(key) is not None:
                 params.append(f"{key}={quote(str(args[key]), safe='')}")
         limit = args.get("limit", 20)
         params.append(f"limit={limit}")
@@ -1192,7 +1199,7 @@ class PipelineToolHandler:
         """Search checkpoints by text in metadata/summaries."""
         params = []
         for key in ("issue", "pipeline", "agent_type"):
-            if args.get(key):
+            if args.get(key) is not None:
                 params.append(f"{key}={quote(str(args[key]), safe='')}")
         limit = args.get("limit", 10)
         params.append(f"limit={limit}")
@@ -1239,4 +1246,4 @@ class PipelineToolHandler:
         if not issue_number:
             return {"error": "Either issue_number or task_id (with linked issue) is required"}
 
-        return self._make_gateway_request(f"/api/v1/contract/{issue_number}")
+        return self._make_gateway_request(f"/api/v1/contract/{int(issue_number)}")
