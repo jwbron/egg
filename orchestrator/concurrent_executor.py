@@ -252,11 +252,12 @@ class ConcurrentPhaseExecutor:
 
         # Remove from consensus
         tracker = get_peer_consensus_tracker(self.pipeline.id)
+        crash_result = None
         if tracker:
-            result = tracker.handle_agent_crash(role)
-            if result.get("action") == "escalate":
+            crash_result = tracker.handle_agent_crash(role)
+            if crash_result.get("action") == "escalate":
                 logger.warning(
-                    "Agent crash requires escalation", role=role, reason=result.get("reason")
+                    "Agent crash requires escalation", role=role, reason=crash_result.get("reason")
                 )
 
         emit_event(
@@ -265,12 +266,22 @@ class ConcurrentPhaseExecutor:
             data={"role": role, "error": error},
         )
 
+        # Build context-aware HITL question
+        question = f"Agent '{role}' failed: {error}."
+        if crash_result and crash_result.get("blocking_producers"):
+            blocking = crash_result["blocking_producers"]
+            question += f" Reviewer had pending reviews for: {blocking}."
+        question += " How to proceed?"
+
         # Create HITL decision
         decision = self.pipeline.add_decision(
-            question=f"Agent '{role}' failed: {error}. How to proceed?",
+            question=question,
             options=["Retry (respawn agent)", "Abort phase", "Continue without"],
             phase=self.pipeline.current_phase,
         )
+        # Store failed role in context so the resolution handler can call
+        # excuse_reviewer() when "Continue without" is selected.
+        decision.context = f"failed_role:{role}"
 
         logger.warning(
             "Single agent failure, HITL decision created",
@@ -284,6 +295,7 @@ class ConcurrentPhaseExecutor:
             "action": "hitl_decision",
             "decision_id": decision.id,
             "failed_role": role,
+            "crash_result": crash_result,
         }
 
     def _abort_phase(self, error: str, recent_failures: int) -> dict[str, Any]:

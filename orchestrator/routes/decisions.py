@@ -37,6 +37,7 @@ from decision_queue import (
 )
 from events import EventType, emit_event
 from models import PipelinePhase
+from peer_consensus import get_peer_consensus_tracker
 from state_store import InvalidPipelineIdError
 
 logger = get_logger("orchestrator.decisions")
@@ -341,6 +342,32 @@ def resolve_decision(pipeline_id: str, decision_id: str) -> tuple[Response, int]
                 decision_id=decision_id,
                 exc_info=True,
             )
+
+        # Handle "Continue without" resolution for failed reviewer decisions.
+        # The concurrent executor stores "failed_role:<role>" in the decision
+        # context when a reviewer crashes. Excuse the reviewer so consensus
+        # can proceed without their ACK.
+        if decision.resolution == "Continue without" and decision.context.startswith(
+            "failed_role:"
+        ):
+            failed_role = decision.context.removeprefix("failed_role:")
+            tracker = get_peer_consensus_tracker(pipeline_id)
+            if tracker:
+                try:
+                    excuse_result = tracker.excuse_reviewer(failed_role)
+                    logger.info(
+                        "Excused reviewer after 'Continue without' decision",
+                        pipeline_id=pipeline_id,
+                        failed_role=failed_role,
+                        affected_producers=excuse_result.get("affected_producers"),
+                    )
+                except Exception:
+                    logger.warning(
+                        "Failed to excuse reviewer",
+                        pipeline_id=pipeline_id,
+                        failed_role=failed_role,
+                        exc_info=True,
+                    )
 
         return make_success_response(
             "Decision resolved",
