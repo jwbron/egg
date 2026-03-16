@@ -76,7 +76,6 @@ class TestAgentRole:
         assert AgentRole.CHECKER == "checker"
         assert AgentRole.TESTER == "tester"
         assert AgentRole.DOCUMENTER == "documenter"
-        assert AgentRole.INTEGRATOR == "integrator"
 
 
 class TestProgressData:

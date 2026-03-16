@@ -265,7 +265,6 @@ class TestAgentType:
         assert AgentType.CODER == "coder"
         assert AgentType.TESTER == "tester"
         assert AgentType.DOCUMENTER == "documenter"
-        assert AgentType.INTEGRATOR == "integrator"
         assert AgentType.REVIEWER == "reviewer"
         assert AgentType.UNKNOWN == "unknown"
 
