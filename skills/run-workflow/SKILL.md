@@ -178,12 +178,12 @@ Handle each response:
 - **Header**: "Escalate"
 - **Options**:
   - **"View full agent logs"** — description: "Show extended logs (`egg-orch container logs` with `--lines 200`) to diagnose the issue"
-  - **"Restart agent"** — description: "Cancel this pipeline and re-submit the task to get a fresh agent"
+  - **"Restart pipeline"** — description: "Cancel this pipeline and re-submit the task to get a fresh agent"
   - **"Continue waiting"** — description: "Reset the counter and keep monitoring"
 
 Handle each response:
 - **View full agent logs** → Run `egg-orch container list <task_id>` to find the container, then `egg-orch container logs <task_id> <container_id> --lines 200`. Show the output and let the user decide next steps.
-- **Restart agent** → Confirm with the user, then call `cancel_task` with `task_id` and `cleanup: true`, followed by `submit_task` with the original parameters. Resume from Phase 3 with the new `task_id`.
+- **Restart pipeline** → Confirm with the user, then call `cancel_task` with `task_id` and `cleanup: true`, followed by `submit_task` with the original parameters. Resume from Phase 3 with the new `task_id`.
 - **Continue waiting** → Reset the stall counter. Resume monitoring.
 
 **State tracking** — Maintain a simple in-memory map of `{role: {phase, polls_in_phase, nudged}}` across poll cycles. Reset a role's counter whenever its phase changes or new messages appear from it in `recent_messages`. This is lightweight — no persistence needed since it only matters during the active monitoring session.
@@ -425,7 +425,7 @@ When the pipeline is stuck, failing, or behaving unexpectedly, use these tools t
 | Message bus stats | Via `get_status` MCP tool | `concurrent.consensus` field in response |
 
 **When to use these during the workflow:**
-- **Phase 3 (Monitor)**: If status appears stuck for multiple polls, run `egg-orch pipeline status` and `egg-orch container list` to check for failed containers. If the pipeline uses concurrent agents (`EGG_CONCURRENT_MODE`), check `egg-orch consensus status` to see which agents are blocking — a stuck agent may be waiting on a NACK resolution or haven't proposed yet. Show the user a summary of what you find.
+- **Phase 3 (Monitor)**: If status appears stuck for multiple polls, run `egg-orch pipeline status` and `egg-orch container list` to check for failed containers. If the pipeline uses concurrent agents (`EGG_CONCURRENT_MODE`), check `egg-orch consensus status` to see which agents are blocking — a stuck agent may be waiting on a NACK resolution or hasn't proposed yet. Show the user a summary of what you find.
 - **Phase 4 (HITL)**: If `provide_input` fails, check `egg-orch health` first. If the orchestrator is healthy, verify the `decision_id` is still valid with `egg-orch decision list`.
 - **Phase 5 (Failure)**: Before offering re-run options, check `egg-orch container logs` for the failed agent to give the user context on what went wrong.
 
