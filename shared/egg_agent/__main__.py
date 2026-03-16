@@ -15,6 +15,12 @@ import sys
 from egg_agent.client import run_agent
 
 
+def _stream_to_stdout(text: str) -> None:
+    """Write text to stdout immediately, flushing to avoid buffering delays."""
+    sys.stdout.write(text)
+    sys.stdout.flush()
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         prog="egg_agent",
@@ -49,10 +55,9 @@ def main() -> int:
         max_turns=args.max_turns,
         system_prompt=args.system_prompt,
         timeout=args.timeout,
+        on_output=_stream_to_stdout,
     )
 
-    if result.stdout:
-        print(result.stdout)
     if result.stderr:
         print(result.stderr, file=sys.stderr)
 
