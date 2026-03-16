@@ -953,6 +953,71 @@ class TestSelfIpResolution:
             assert registered_ip != "127.0.0.1" or gateway_client.self_ip == "127.0.0.1"
 
 
+class TestGetRepoVisibility:
+    """Tests for get_repo_visibility method."""
+
+    def test_get_repo_visibility_public(self, gateway_client):
+        """Test detecting a public repo."""
+        with patch.object(gateway_client, "_make_request") as mock_request:
+            mock_request.return_value = {
+                "data": {"visibilities": {"owner/repo": "public"}},
+            }
+            result = gateway_client.get_repo_visibility("owner/repo")
+            assert result == "public"
+            mock_request.assert_called_once_with(
+                "/api/v1/repos/visibility?repos=owner%2Frepo",
+                use_launcher_auth=True,
+            )
+
+    def test_get_repo_visibility_private(self, gateway_client):
+        """Test detecting a private repo."""
+        with patch.object(gateway_client, "_make_request") as mock_request:
+            mock_request.return_value = {
+                "data": {"visibilities": {"owner/repo": "private"}},
+            }
+            result = gateway_client.get_repo_visibility("owner/repo")
+            assert result == "private"
+
+    def test_get_repo_visibility_internal(self, gateway_client):
+        """Test detecting an internal repo."""
+        with patch.object(gateway_client, "_make_request") as mock_request:
+            mock_request.return_value = {
+                "data": {"visibilities": {"owner/repo": "internal"}},
+            }
+            result = gateway_client.get_repo_visibility("owner/repo")
+            assert result == "internal"
+
+    def test_get_repo_visibility_gateway_error(self, gateway_client):
+        """Test graceful fallback when gateway returns an error."""
+        with patch.object(gateway_client, "_make_request") as mock_request:
+            mock_request.side_effect = GatewayError("Connection refused")
+            result = gateway_client.get_repo_visibility("owner/repo")
+            assert result is None
+
+    def test_get_repo_visibility_missing_repo(self, gateway_client):
+        """Test when repo is not in the response."""
+        with patch.object(gateway_client, "_make_request") as mock_request:
+            mock_request.return_value = {
+                "data": {"visibilities": {}},
+            }
+            result = gateway_client.get_repo_visibility("owner/repo")
+            assert result is None
+
+    def test_get_repo_visibility_empty_data(self, gateway_client):
+        """Test when response has no data field."""
+        with patch.object(gateway_client, "_make_request") as mock_request:
+            mock_request.return_value = {}
+            result = gateway_client.get_repo_visibility("owner/repo")
+            assert result is None
+
+    def test_get_repo_visibility_null_data(self, gateway_client):
+        """Test graceful handling when data field is None (would cause AttributeError)."""
+        with patch.object(gateway_client, "_make_request") as mock_request:
+            mock_request.return_value = {"data": None}
+            result = gateway_client.get_repo_visibility("owner/repo")
+            assert result is None
+
+
 class TestSingletonClient:
     """Tests for singleton client."""
 
