@@ -806,22 +806,33 @@ def restore_prebuilt_deps(
             logger.warn(f"No mounted repo found for prebuilt deps: {repo_dir_name}")
             continue
 
-        # Copy prebuilt tree into repo, skipping files that already exist
+        # Copy prebuilt tree into repo, skipping files that already exist.
+        # We use symlinks=False so that all entries (including symlinks) go
+        # through copy_function. With symlinks=True, copytree handles symlinks
+        # directly via os.symlink() which raises FileExistsError if the
+        # destination already exists — making the restore non-idempotent.
         def _copy_if_missing(src: str, dst: str, **kwargs: Any) -> None:
             if os.path.exists(dst) or os.path.islink(dst):
                 return
             try:
-                shutil.copy2(src, dst, **kwargs)
+                if os.path.islink(src):
+                    linkto = os.readlink(src)
+                    os.symlink(linkto, dst)
+                else:
+                    shutil.copy2(src, dst, **kwargs)
             except OSError as e:
                 logger.warn(f"  Failed to restore {dst}: {e}")
 
-        shutil.copytree(
-            repo_dir,
-            target_repo,
-            copy_function=_copy_if_missing,
-            dirs_exist_ok=True,
-            symlinks=True,
-        )
+        try:
+            shutil.copytree(
+                repo_dir,
+                target_repo,
+                copy_function=_copy_if_missing,
+                dirs_exist_ok=True,
+                symlinks=False,
+            )
+        except shutil.Error as e:
+            logger.warn(f"  Some files could not be restored for {repo_dir_name}: {e}")
 
         restored += 1
         logger.info(f"  Restored prebuilt deps for {repo_dir_name} -> {target_repo}")
