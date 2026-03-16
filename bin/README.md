@@ -25,8 +25,6 @@ Start and manage egg sandbox sessions.
 | `--compose` | Use Docker Compose to manage the gateway stack |
 | `--down` | Stop the Docker Compose stack (use with `--compose`) |
 | `--build` | Rebuild compose images before starting (no-op — `--compose` auto-rebuilds by default) |
-| `--multi-agent` / `--no-multi-agent` | Enable/disable multi-agent execution (wave-based parallel agents) |
-| `--max-parallel <n>` | Maximum parallel agents per wave (default: 10) |
 | `--exec <cmd>` | Execute command in new ephemeral container |
 | `--timeout <min>` | Timeout for `--exec` commands (default: 30) |
 | `--auth <method>` | Anthropic auth method for `--exec`: `oauth-token` (default) or `api-key` |

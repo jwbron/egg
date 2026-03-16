@@ -2,7 +2,7 @@
 Tests for checkpoint discovery hints in pipeline prompts.
 
 Validates that egg-checkpoint CLI references are correctly injected into
-agent prompts for tester, documenter, integrator, and coder (revision) roles.
+agent prompts for tester, documenter, and coder (revision) roles.
 See issue #887.
 """
 
@@ -16,7 +16,6 @@ sys.modules.setdefault("docker.types", _docker_mock.types)
 
 from routes.pipelines import (
     _build_agent_prompt,
-    _build_phase_scoped_prompt,
     _build_role_context,
 )
 
@@ -36,11 +35,6 @@ class TestRoleContextCheckpointPointer:
     def test_documenter_has_checkpoint_pointer(self):
         """Documenter context includes egg-checkpoint pointer."""
         result = _build_role_context("documenter", "# Issue\n\nBody.", issue_number=1)
-        assert "egg-checkpoint context --pipeline $EGG_PIPELINE_ID" in result
-
-    def test_integrator_has_checkpoint_pointer(self):
-        """Integrator context includes egg-checkpoint pointer."""
-        result = _build_role_context("integrator", "# Issue\n\nBody.", issue_number=1)
         assert "egg-checkpoint context --pipeline $EGG_PIPELINE_ID" in result
 
     def test_checkpoint_pointer_mentions_checkpoint_rule(self):
@@ -123,19 +117,6 @@ class TestAgentPromptCheckpointHints:
         )
         assert "egg-checkpoint context --pipeline $EGG_PIPELINE_ID --files" in result
 
-    def test_integrator_prompt_has_context_and_cost_commands(self):
-        """Integrator prompt includes both context and cost checkpoint commands."""
-        result = _build_agent_prompt(
-            role_value="integrator",
-            phase="implement",
-            pipeline_id="pid-1",
-            pipeline_mode="issue",
-            prompt="# Feature\n\nDetail.",
-            issue_number=1,
-        )
-        assert "egg-checkpoint context --pipeline $EGG_PIPELINE_ID --files" in result
-        assert "egg-checkpoint cost --pipeline $EGG_PIPELINE_ID" in result
-
     def test_architect_prompt_has_no_checkpoint_commands(self):
         """Architect prompt does not include checkpoint discovery hints."""
         result = _build_agent_prompt(
@@ -210,169 +191,6 @@ class TestAgentPromptCheckpointHints:
         )
         assert "egg-checkpoint context --pipeline $EGG_PIPELINE_ID --files" in result
 
-    def test_integrator_with_all_phases_still_gets_checkpoint_hint(self):
-        """Integrator with all_phases still gets checkpoint hints."""
-        p1 = MagicMock()
-        p1.id = "phase-1"
-        p1.name = "Core"
-        p1.tasks = []
-        p1.status = "complete"
-
-        result = _build_agent_prompt(
-            role_value="integrator",
-            phase="implement",
-            pipeline_id="pid-1",
-            pipeline_mode="issue",
-            prompt="# Feature",
-            issue_number=1,
-            all_phases=[p1],
-        )
-        assert "egg-checkpoint context --pipeline $EGG_PIPELINE_ID --files" in result
-        assert "egg-checkpoint cost --pipeline $EGG_PIPELINE_ID" in result
-
-
-# ---------------------------------------------------------------------------
-# _build_phase_scoped_prompt: failed session checkpoint hint in revision
-# ---------------------------------------------------------------------------
-
-
-class TestPhaseScopedPromptCheckpointHint:
-    """Failed-session checkpoint hint in revision checklist."""
-
-    def _make_phase(self, phase_id="phase-1", name="Core", tasks=None, status="pending"):
-        phase = MagicMock()
-        phase.id = phase_id
-        phase.name = name
-        phase.tasks = tasks or []
-        phase.status = status
-        return phase
-
-    def _make_task(self, task_id="task-1", desc="Fix bug", files=None):
-        task = MagicMock()
-        task.id = task_id
-        task.description = desc
-        task.status = "pending"
-        task.acceptance_criteria = "Tests pass"
-        task.files_affected = files or []
-        return task
-
-    def test_revision_checklist_has_failed_session_hint(self, tmp_path):
-        """Revision checklist includes egg-checkpoint for failed sessions."""
-        from models import Pipeline
-
-        phase = self._make_phase(tasks=[self._make_task()])
-        pipeline = Pipeline(id="test-1", issue_number=42, repo="owner/repo", branch="egg/test")
-
-        result = _build_phase_scoped_prompt(
-            phase_obj=phase,
-            pipeline_id="test-1",
-            pipeline_mode="issue",
-            pipeline=pipeline,
-            worktree_repo_path=tmp_path,
-            review_feedback="Fix the naming convention",
-            review_cycle=1,
-        )
-
-        assert "egg-checkpoint list --issue $EGG_ISSUE_NUMBER --status failed" in result
-
-    def test_revision_checklist_failed_hint_inside_checklist(self, tmp_path):
-        """Failed session hint appears within the Revision Checklist section."""
-        from models import Pipeline
-
-        phase = self._make_phase(tasks=[self._make_task()])
-        pipeline = Pipeline(id="test-1", issue_number=42, repo="owner/repo", branch="egg/test")
-
-        result = _build_phase_scoped_prompt(
-            phase_obj=phase,
-            pipeline_id="test-1",
-            pipeline_mode="issue",
-            pipeline=pipeline,
-            worktree_repo_path=tmp_path,
-            review_feedback="Fix the bugs",
-            review_cycle=1,
-        )
-
-        checklist_pos = result.find("### Revision Checklist")
-        failed_hint_pos = result.find(
-            "egg-checkpoint list --issue $EGG_ISSUE_NUMBER --status failed"
-        )
-        # The hint must appear after the checklist heading
-        assert checklist_pos < failed_hint_pos
-
-    def test_cycle_0_no_failed_session_hint(self, tmp_path):
-        """Cycle 0 (first run) does not include the failed session hint."""
-        from models import Pipeline
-
-        phase = self._make_phase(tasks=[self._make_task()])
-        pipeline = Pipeline(id="test-1", issue_number=42, repo="owner/repo", branch="egg/test")
-
-        result = _build_phase_scoped_prompt(
-            phase_obj=phase,
-            pipeline_id="test-1",
-            pipeline_mode="issue",
-            pipeline=pipeline,
-            worktree_repo_path=tmp_path,
-            review_cycle=0,
-        )
-
-        assert "egg-checkpoint list --issue $EGG_ISSUE_NUMBER --status failed" not in result
-
-    def test_revision_no_feedback_no_failed_session_hint(self, tmp_path):
-        """Revision without feedback does not include failed session hint."""
-        from models import Pipeline
-
-        phase = self._make_phase(tasks=[self._make_task()])
-        pipeline = Pipeline(id="test-1", issue_number=42, repo="owner/repo", branch="egg/test")
-
-        result = _build_phase_scoped_prompt(
-            phase_obj=phase,
-            pipeline_id="test-1",
-            pipeline_mode="issue",
-            pipeline=pipeline,
-            worktree_repo_path=tmp_path,
-            review_feedback=None,
-            review_cycle=1,
-        )
-
-        assert "egg-checkpoint list --issue $EGG_ISSUE_NUMBER --status failed" not in result
-
-    def test_revision_with_empty_feedback_no_failed_session_hint(self, tmp_path):
-        """Revision with empty string feedback does not include failed session hint."""
-        from models import Pipeline
-
-        phase = self._make_phase(tasks=[self._make_task()])
-        pipeline = Pipeline(id="test-1", issue_number=42, repo="owner/repo", branch="egg/test")
-
-        result = _build_phase_scoped_prompt(
-            phase_obj=phase,
-            pipeline_id="test-1",
-            pipeline_mode="issue",
-            pipeline=pipeline,
-            worktree_repo_path=tmp_path,
-            review_feedback="",
-            review_cycle=1,
-        )
-
-        # Empty string is falsy, so no revision checklist
-        assert "egg-checkpoint list --issue $EGG_ISSUE_NUMBER --status failed" not in result
-
-    def test_default_review_cycle_no_failed_session_hint(self, tmp_path):
-        """Default review_cycle (0) does not include failed session hint."""
-        from models import Pipeline
-
-        phase = self._make_phase(tasks=[self._make_task()])
-        pipeline = Pipeline(id="test-1", issue_number=42, repo="owner/repo", branch="egg/test")
-
-        result = _build_phase_scoped_prompt(
-            phase_obj=phase,
-            pipeline_id="test-1",
-            pipeline_mode="issue",
-            pipeline=pipeline,
-            worktree_repo_path=tmp_path,
-        )
-
-        assert "egg-checkpoint list --issue $EGG_ISSUE_NUMBER --status failed" not in result
-
 
 # ---------------------------------------------------------------------------
 # Cross-cutting: checkpoint hints flow through _build_agent_prompt end-to-end
@@ -384,7 +202,7 @@ class TestCheckpointHintsEndToEnd:
 
     def test_all_execution_roles_get_general_checkpoint_pointer(self):
         """All execution roles get the general checkpoint pointer in context."""
-        for role in ("tester", "documenter", "integrator"):
+        for role in ("tester", "documenter"):
             result = _build_agent_prompt(
                 role_value=role,
                 phase="implement",
@@ -429,22 +247,6 @@ class TestCheckpointHintsEndToEnd:
         assert "egg-checkpoint context --pipeline $EGG_PIPELINE_ID" in result
         # Specific command (note: same command in both, but appears in different sections)
         assert "egg-checkpoint context --pipeline $EGG_PIPELINE_ID --files" in result
-
-    def test_integrator_gets_both_general_and_specific_checkpoint_hints(self):
-        """Integrator gets the general pointer plus context+cost commands."""
-        result = _build_agent_prompt(
-            role_value="integrator",
-            phase="implement",
-            pipeline_id="pid-1",
-            pipeline_mode="issue",
-            prompt="# Feature\n\nDetail.",
-            issue_number=1,
-        )
-        # General pointer
-        assert "egg-checkpoint context --pipeline $EGG_PIPELINE_ID" in result
-        # Specific commands
-        assert "egg-checkpoint context --pipeline $EGG_PIPELINE_ID --files" in result
-        assert "egg-checkpoint cost --pipeline $EGG_PIPELINE_ID" in result
 
     def test_no_analysis_roles_get_checkpoint_hints(self):
         """No analysis role gets any checkpoint hint."""

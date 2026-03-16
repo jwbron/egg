@@ -68,8 +68,8 @@ class OrchestrationState:
     to determine which agents to run next.
 
     Supports two keying modes:
-    - Role-only (Tier 2): executions keyed by (None, role) for backward compatibility
-    - Composite (Tier 3): executions keyed by (phase_id, role) for phase-level dispatch
+    - Role-only: executions keyed by (None, role) for backward compatibility
+    - Composite: executions keyed by (phase_id, role) for phase-level dispatch
     """
 
     executions: dict[AgentRole, AgentExecutionModel] = field(default_factory=dict)
@@ -115,7 +115,7 @@ class OrchestrationState:
             List of AgentExecutionModel objects
         """
         # If phase_executions has entries that aren't in executions,
-        # include them too (Tier 3 mode)
+        # include them too (phase-scoped mode)
         seen = set()
         result = []
         for execution in self.executions.values():
@@ -319,7 +319,7 @@ class OrchestrationState:
         """Check if all enabled agents have completed (successfully or skipped).
 
         Checks both role-level executions and phase-scoped executions to
-        ensure Tier 3 phase-level dispatch is visible.
+        ensure phase-level dispatch is visible.
         """
         # If no executions configured in either dict, consider complete
         if not self.executions and not self.phase_executions:
@@ -360,14 +360,13 @@ def initialize_orchestration(
     """Initialize orchestration state for a contract.
 
     Creates pending executions for the specified agent roles (or defaults
-    based on contract configuration).
+    to the implement-phase roles).
 
     Args:
         contract: The contract to initialize orchestration for
-        roles: Specific roles to use. If None, uses the contract's
-            multi_agent_config.roles_enabled or defaults to the 4
-            implement-phase roles for backward compatibility.
-        phase_id: Optional plan phase ID for Tier 3 composite keying.
+        roles: Specific roles to use. If None, defaults to the
+            implement-phase roles.
+        phase_id: Optional plan phase ID for composite keying.
             When set, executions are keyed by (phase_id, role).
 
     Returns:
@@ -378,15 +377,11 @@ def initialize_orchestration(
 
     if roles is not None:
         enabled_roles = roles
-    elif contract.multi_agent_config is not None:
-        enabled_roles = [AgentRole(r.value) for r in contract.multi_agent_config.roles_enabled]
     else:
-        # Default: implement-phase roles for backward compatibility
         enabled_roles = [
             AgentRole.CODER,
             AgentRole.TESTER,
             AgentRole.DOCUMENTER,
-            AgentRole.INTEGRATOR,
         ]
 
     # Create pending execution for each enabled role

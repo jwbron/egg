@@ -2,8 +2,8 @@
 Tests for signal handler contract-role guards.
 
 Verifies that handle_complete_signal and handle_error_signal skip
-contract dispatcher interaction for non-contract roles (e.g. REFINER)
-and interact with the dispatcher for contract-mapped roles (e.g. CODER).
+contract interaction for non-contract roles (e.g. REFINER)
+and interact with the contract orchestrator for contract-mapped roles (e.g. CODER).
 """
 
 import json
@@ -48,21 +48,31 @@ def mock_pipeline():
     )
 
 
+def _mock_contract_orchestrator(is_complete: bool = False):
+    """Create a mock contract orchestrator with standard responses."""
+    mock_orch = MagicMock()
+    mock_decision = MagicMock()
+    mock_decision.all_complete = is_complete
+    mock_orch.get_next_dispatch.return_value = mock_decision
+    mock_orch.apply_to_contract.return_value = MagicMock()
+    return mock_orch
+
+
 class TestCompleteSignalNonContractRole:
-    """handle_complete_signal with a non-contract role skips dispatcher."""
+    """handle_complete_signal with a non-contract role skips contract interaction."""
 
     @patch("routes.signals.resolve_worktree_path")
     @patch("routes.signals.get_state_store")
-    @patch("routes.signals.create_dispatcher")
-    def test_refiner_skips_dispatcher(
+    @patch("routes.signals.load_contract")
+    def test_refiner_skips_contract(
         self,
-        mock_create_dispatcher,
+        mock_load_contract,
         mock_get_store,
         mock_resolve_wt,
         app,
         mock_pipeline,
     ):
-        """REFINER role should not create or interact with dispatcher."""
+        """REFINER role should not load or interact with contract."""
         mock_store = MagicMock()
         mock_store.load_pipeline.return_value = mock_pipeline
         mock_get_store.return_value = mock_store
@@ -81,30 +91,33 @@ class TestCompleteSignalNonContractRole:
         data = json.loads(response.data)
         assert data["success"] is True
         assert data["data"]["all_complete"] is True
-        mock_create_dispatcher.assert_not_called()
+        mock_load_contract.assert_not_called()
 
     @patch("routes.signals.save_agent_output")
     @patch("routes.signals.resolve_worktree_path")
     @patch("routes.signals.get_state_store")
-    @patch("routes.signals.create_dispatcher")
-    def test_coder_uses_dispatcher(
+    @patch("routes.signals.save_contract")
+    @patch("routes.signals.create_orchestrator")
+    @patch("routes.signals.load_contract")
+    def test_coder_uses_contract(
         self,
-        mock_create_dispatcher,
+        mock_load_contract,
+        mock_create_orchestrator,
+        mock_save_contract,
         mock_get_store,
         mock_resolve_wt,
         mock_save_output,
         app,
         mock_pipeline,
     ):
-        """CODER role should create dispatcher and record completion."""
+        """CODER role should load contract and record completion."""
         mock_store = MagicMock()
         mock_store.load_pipeline.return_value = mock_pipeline
         mock_get_store.return_value = mock_store
         mock_resolve_wt.return_value = Path("/tmp/worktree")
 
-        mock_dispatcher = MagicMock()
-        mock_dispatcher.is_complete.return_value = False
-        mock_create_dispatcher.return_value = mock_dispatcher
+        mock_orch = _mock_contract_orchestrator(is_complete=False)
+        mock_create_orchestrator.return_value = mock_orch
 
         with app.app_context():
             from routes.signals import handle_complete_signal
@@ -118,26 +131,26 @@ class TestCompleteSignalNonContractRole:
         assert status_code == 200
         data = json.loads(response.data)
         assert data["data"]["all_complete"] is False
-        mock_create_dispatcher.assert_called_once()
-        mock_dispatcher.complete_agent.assert_called_once()
-        mock_dispatcher.save_contract.assert_called_once()
+        mock_load_contract.assert_called_once()
+        mock_orch.complete_agent.assert_called_once()
+        mock_save_contract.assert_called_once()
 
 
 class TestErrorSignalNonContractRole:
-    """handle_error_signal with a non-contract role skips dispatcher."""
+    """handle_error_signal with a non-contract role skips contract interaction."""
 
     @patch("routes.signals.resolve_worktree_path")
     @patch("routes.signals.get_state_store")
-    @patch("routes.signals.create_dispatcher")
-    def test_refiner_skips_dispatcher(
+    @patch("routes.signals.load_contract")
+    def test_refiner_skips_contract(
         self,
-        mock_create_dispatcher,
+        mock_load_contract,
         mock_get_store,
         mock_resolve_wt,
         app,
         mock_pipeline,
     ):
-        """REFINER error signal should not create or interact with dispatcher."""
+        """REFINER error signal should not load or interact with contract."""
         mock_store = MagicMock()
         mock_store.load_pipeline.return_value = mock_pipeline
         mock_get_store.return_value = mock_store
@@ -156,27 +169,31 @@ class TestErrorSignalNonContractRole:
         data = json.loads(response.data)
         assert data["success"] is True
         assert data["data"]["error"] == "Something failed"
-        mock_create_dispatcher.assert_not_called()
+        mock_load_contract.assert_not_called()
 
     @patch("routes.signals.resolve_worktree_path")
     @patch("routes.signals.get_state_store")
-    @patch("routes.signals.create_dispatcher")
-    def test_coder_uses_dispatcher(
+    @patch("routes.signals.save_contract")
+    @patch("routes.signals.create_orchestrator")
+    @patch("routes.signals.load_contract")
+    def test_coder_uses_contract(
         self,
-        mock_create_dispatcher,
+        mock_load_contract,
+        mock_create_orchestrator,
+        mock_save_contract,
         mock_get_store,
         mock_resolve_wt,
         app,
         mock_pipeline,
     ):
-        """CODER error signal should create dispatcher and record failure."""
+        """CODER error signal should load contract and record failure."""
         mock_store = MagicMock()
         mock_store.load_pipeline.return_value = mock_pipeline
         mock_get_store.return_value = mock_store
         mock_resolve_wt.return_value = Path("/tmp/worktree")
 
-        mock_dispatcher = MagicMock()
-        mock_create_dispatcher.return_value = mock_dispatcher
+        mock_orch = _mock_contract_orchestrator()
+        mock_create_orchestrator.return_value = mock_orch
 
         with app.app_context():
             from routes.signals import handle_error_signal
@@ -190,9 +207,9 @@ class TestErrorSignalNonContractRole:
         assert status_code == 200
         data = json.loads(response.data)
         assert data["data"]["error"] == "Build failed"
-        mock_create_dispatcher.assert_called_once()
-        mock_dispatcher.fail_agent.assert_called_once()
-        mock_dispatcher.save_contract.assert_called_once()
+        mock_load_contract.assert_called_once()
+        mock_orch.fail_agent.assert_called_once()
+        mock_save_contract.assert_called_once()
 
 
 class TestErrorSignalContractNotFound:
@@ -200,10 +217,10 @@ class TestErrorSignalContractNotFound:
 
     @patch("routes.signals.resolve_worktree_path")
     @patch("routes.signals.get_state_store")
-    @patch("routes.signals.create_dispatcher")
+    @patch("routes.signals.load_contract")
     def test_contract_not_found_returns_200(
         self,
-        mock_create_dispatcher,
+        mock_load_contract,
         mock_get_store,
         mock_resolve_wt,
         app,
@@ -217,7 +234,7 @@ class TestErrorSignalContractNotFound:
         mock_get_store.return_value = mock_store
         mock_resolve_wt.return_value = Path("/tmp/worktree")
 
-        mock_create_dispatcher.side_effect = ContractNotFoundError(42, Path("/tmp/worktree"))
+        mock_load_contract.side_effect = ContractNotFoundError(42, Path("/tmp/worktree"))
 
         with app.app_context():
             from routes.signals import handle_error_signal
@@ -370,25 +387,28 @@ class TestCompletionBranchVerification:
     @patch("routes.signals.subprocess.run")
     @patch("routes.signals.resolve_worktree_path")
     @patch("routes.signals.get_state_store")
-    @patch("routes.signals.create_dispatcher")
+    @patch("routes.signals.save_contract")
+    @patch("routes.signals.create_orchestrator")
+    @patch("routes.signals.load_contract")
     def test_commit_on_correct_branch_accepted(
         self,
-        mock_create_dispatcher,
+        mock_load_contract,
+        mock_create_orchestrator,
+        mock_save_contract,
         mock_get_store,
         mock_resolve_wt,
         mock_subprocess_run,
         app,
         mock_pipeline,
     ):
-        """(a) completion with commit on correct branch → accepted."""
+        """(a) completion with commit on correct branch -> accepted."""
         mock_store = MagicMock()
         mock_store.load_pipeline.return_value = mock_pipeline
         mock_get_store.return_value = mock_store
         mock_resolve_wt.return_value = Path("/tmp/worktree")
 
-        mock_dispatcher = MagicMock()
-        mock_dispatcher.is_complete.return_value = False
-        mock_create_dispatcher.return_value = mock_dispatcher
+        mock_orch = _mock_contract_orchestrator(is_complete=False)
+        mock_create_orchestrator.return_value = mock_orch
 
         # subprocess.run calls: fetch succeeds, branch --contains returns origin/egg/issue-42
         # (no rev-parse for progress check — mock_pipeline has no phase_start_sha)
@@ -419,7 +439,7 @@ class TestCompletionBranchVerification:
         app,
         mock_pipeline,
     ):
-        """(b) completion with commit NOT on correct branch → 409 rejected."""
+        """(b) completion with commit NOT on correct branch -> 409 rejected."""
         mock_store = MagicMock()
         mock_store.load_pipeline.return_value = mock_pipeline
         mock_get_store.return_value = mock_store
@@ -446,24 +466,27 @@ class TestCompletionBranchVerification:
 
     @patch("routes.signals.resolve_worktree_path")
     @patch("routes.signals.get_state_store")
-    @patch("routes.signals.create_dispatcher")
+    @patch("routes.signals.save_contract")
+    @patch("routes.signals.create_orchestrator")
+    @patch("routes.signals.load_contract")
     def test_commit_none_accepted_without_check(
         self,
-        mock_create_dispatcher,
+        mock_load_contract,
+        mock_create_orchestrator,
+        mock_save_contract,
         mock_get_store,
         mock_resolve_wt,
         app,
         mock_pipeline,
     ):
-        """(c) completion with commit=None → accepted without check."""
+        """(c) completion with commit=None -> accepted without check."""
         mock_store = MagicMock()
         mock_store.load_pipeline.return_value = mock_pipeline
         mock_get_store.return_value = mock_store
         mock_resolve_wt.return_value = Path("/tmp/worktree")
 
-        mock_dispatcher = MagicMock()
-        mock_dispatcher.is_complete.return_value = True
-        mock_create_dispatcher.return_value = mock_dispatcher
+        mock_orch = _mock_contract_orchestrator(is_complete=True)
+        mock_create_orchestrator.return_value = mock_orch
 
         with app.app_context():
             from routes.signals import handle_complete_signal
@@ -479,25 +502,28 @@ class TestCompletionBranchVerification:
     @patch("routes.signals.subprocess.run")
     @patch("routes.signals.resolve_worktree_path")
     @patch("routes.signals.get_state_store")
-    @patch("routes.signals.create_dispatcher")
+    @patch("routes.signals.save_contract")
+    @patch("routes.signals.create_orchestrator")
+    @patch("routes.signals.load_contract")
     def test_branch_fetch_fails_accepted_with_warning(
         self,
-        mock_create_dispatcher,
+        mock_load_contract,
+        mock_create_orchestrator,
+        mock_save_contract,
         mock_get_store,
         mock_resolve_wt,
         mock_subprocess_run,
         app,
         mock_pipeline,
     ):
-        """(d) branch fetch fails → signal accepted with warning."""
+        """(d) branch fetch fails -> signal accepted with warning."""
         mock_store = MagicMock()
         mock_store.load_pipeline.return_value = mock_pipeline
         mock_get_store.return_value = mock_store
         mock_resolve_wt.return_value = Path("/tmp/worktree")
 
-        mock_dispatcher = MagicMock()
-        mock_dispatcher.is_complete.return_value = False
-        mock_create_dispatcher.return_value = mock_dispatcher
+        mock_orch = _mock_contract_orchestrator(is_complete=False)
+        mock_create_orchestrator.return_value = mock_orch
 
         # fetch fails
         mock_subprocess_run.side_effect = [
@@ -519,16 +545,20 @@ class TestCompletionBranchVerification:
     @patch("routes.signals.subprocess.run")
     @patch("routes.signals.resolve_worktree_path")
     @patch("routes.signals.get_state_store")
-    @patch("routes.signals.create_dispatcher")
+    @patch("routes.signals.save_contract")
+    @patch("routes.signals.create_orchestrator")
+    @patch("routes.signals.load_contract")
     def test_no_new_commits_warns_but_accepts(
         self,
-        mock_create_dispatcher,
+        mock_load_contract,
+        mock_create_orchestrator,
+        mock_save_contract,
         mock_get_store,
         mock_resolve_wt,
         mock_subprocess_run,
         app,
     ):
-        """(e) no new commits since phase start → warning logged but accepted."""
+        """(e) no new commits since phase start -> warning logged but accepted."""
         from models import PhaseExecution, Pipeline, PipelinePhase, PipelineStatus
 
         pipeline = Pipeline(
@@ -550,9 +580,8 @@ class TestCompletionBranchVerification:
         mock_get_store.return_value = mock_store
         mock_resolve_wt.return_value = Path("/tmp/worktree")
 
-        mock_dispatcher = MagicMock()
-        mock_dispatcher.is_complete.return_value = False
-        mock_create_dispatcher.return_value = mock_dispatcher
+        mock_orch = _mock_contract_orchestrator(is_complete=False)
+        mock_create_orchestrator.return_value = mock_orch
 
         # fetch ok, branch --contains ok, rev-parse returns same as phase_start_sha
         mock_subprocess_run.side_effect = [
@@ -578,10 +607,14 @@ class TestCompletionBranchVerificationEdgeCases:
 
     @patch("routes.signals.resolve_worktree_path")
     @patch("routes.signals.get_state_store")
-    @patch("routes.signals.create_dispatcher")
+    @patch("routes.signals.save_contract")
+    @patch("routes.signals.create_orchestrator")
+    @patch("routes.signals.load_contract")
     def test_pipeline_without_branch_skips_verification(
         self,
-        mock_create_dispatcher,
+        mock_load_contract,
+        mock_create_orchestrator,
+        mock_save_contract,
         mock_get_store,
         mock_resolve_wt,
         app,
@@ -600,9 +633,8 @@ class TestCompletionBranchVerificationEdgeCases:
         mock_get_store.return_value = mock_store
         mock_resolve_wt.return_value = Path("/tmp/worktree")
 
-        mock_dispatcher = MagicMock()
-        mock_dispatcher.is_complete.return_value = True
-        mock_create_dispatcher.return_value = mock_dispatcher
+        mock_orch = _mock_contract_orchestrator(is_complete=True)
+        mock_create_orchestrator.return_value = mock_orch
 
         with app.app_context():
             from routes.signals import handle_complete_signal
@@ -625,7 +657,7 @@ class TestCompletionBranchVerificationEdgeCases:
         app,
         mock_pipeline,
     ):
-        """Non-contract role (refiner) with commit completes without dispatcher."""
+        """Non-contract role (refiner) with commit completes without contract interaction."""
         mock_store = MagicMock()
         mock_store.load_pipeline.return_value = mock_pipeline
         mock_get_store.return_value = mock_store
@@ -640,6 +672,6 @@ class TestCompletionBranchVerificationEdgeCases:
                 Path("/tmp/repo"),
             )
 
-        # Refiner does not use dispatcher, so it succeeds directly.
-        # Branch verification applies before the dispatcher check.
+        # Refiner does not use contract, so it succeeds directly.
+        # Branch verification applies before the contract check.
         assert status_code == 200

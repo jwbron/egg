@@ -9,7 +9,6 @@ Agent roles:
 - CODER: Implements code changes based on the plan tasks
 - TESTER: Writes tests for the implemented changes
 - DOCUMENTER: Updates documentation for the changes
-- INTEGRATOR: Runs full test suite and validates integration
 - CHECKER: Runs lint/type-check/tests (auto-fix in sequential, reviewer in concurrent)
 - REFINER: Analyzes tasks and produces structured analysis in the refine phase
 
@@ -30,7 +29,7 @@ class AgentRole(StrEnum):
     Each role has a focused responsibility and specific file access patterns.
     The orchestrator uses these roles to parallelize work where dependencies allow.
 
-    Implement-phase roles: CODER, TESTER, DOCUMENTER, INTEGRATOR
+    Implement-phase roles: CODER, TESTER, DOCUMENTER
     Implement-phase checker: CHECKER (dual-mode: auto-fix in sequential, reviewer in concurrent)
     Plan-phase roles: ARCHITECT, TASK_PLANNER, RISK_ANALYST
     Refine-phase roles: REFINER
@@ -41,7 +40,6 @@ class AgentRole(StrEnum):
     CODER = "coder"
     TESTER = "tester"
     DOCUMENTER = "documenter"
-    INTEGRATOR = "integrator"
     CHECKER = "checker"
     # Plan-phase roles
     ARCHITECT = "architect"
@@ -289,38 +287,6 @@ DOCUMENTER_ROLE = AgentRoleDefinition(
     requires_inputs=["changed_files"],
 )
 
-INTEGRATOR_ROLE = AgentRoleDefinition(
-    role=AgentRole.INTEGRATOR,
-    description="Runs full test suite and validates integration",
-    responsibilities=[
-        "Run the full test suite",
-        "Validate all changes work together",
-        "Check for integration issues",
-        "Produce integration report",
-    ],
-    dependencies=[AgentRole.CODER, AgentRole.TESTER],  # Waits for code and tests
-    file_access=FileAccessPattern(
-        allowed_read=[],  # Can read all files
-        allowed_write=[
-            ".egg-state/agent-outputs/",  # For integration report
-        ],
-        blocked_write=[
-            # Use directory-based blocks instead of "**/*" which breaks
-            # can_write() by always matching before allowed_write is checked.
-            "src/",
-            "lib/",
-            "docs/",
-            "tests/",
-            "test/",
-            ".egg-state/contracts/",
-        ],
-    ),
-    can_run_in_parallel=False,  # Runs after others complete
-    produces_outputs=["integration_report"],
-    requires_inputs=["changed_files", "test_files"],
-)
-
-
 # Plan-phase agent role definitions
 
 ARCHITECT_ROLE = AgentRoleDefinition(
@@ -480,7 +446,7 @@ REVIEWER_CODE_ROLE = AgentRoleDefinition(
         "Check for OWASP top 10 vulnerabilities",
         "Verify error handling and edge cases",
     ],
-    dependencies=[AgentRole.INTEGRATOR, AgentRole.TASK_PLANNER, AgentRole.RISK_ANALYST],
+    dependencies=[AgentRole.TASK_PLANNER, AgentRole.RISK_ANALYST],
     file_access=FileAccessPattern(
         allowed_read=[],
         allowed_write=[
@@ -490,7 +456,7 @@ REVIEWER_CODE_ROLE = AgentRoleDefinition(
         blocked_write=_REVIEWER_BLOCKED_WRITE,
     ),
     produces_outputs=["review_verdict"],
-    requires_inputs=["integration_report"],
+    requires_inputs=[],
 )
 
 # Contract reviewer needs write access to .egg-state/contracts/ to mark
@@ -512,7 +478,7 @@ REVIEWER_CONTRACT_ROLE = AgentRoleDefinition(
         "Check task completion status",
         "Validate contract consistency",
     ],
-    dependencies=[AgentRole.INTEGRATOR, AgentRole.TASK_PLANNER, AgentRole.RISK_ANALYST],
+    dependencies=[AgentRole.TASK_PLANNER, AgentRole.RISK_ANALYST],
     file_access=FileAccessPattern(
         allowed_read=[],
         allowed_write=[
@@ -641,7 +607,6 @@ AGENT_ROLES: dict[AgentRole, AgentRoleDefinition] = {
     AgentRole.CODER: CODER_ROLE,
     AgentRole.TESTER: TESTER_ROLE,
     AgentRole.DOCUMENTER: DOCUMENTER_ROLE,
-    AgentRole.INTEGRATOR: INTEGRATOR_ROLE,
     AgentRole.CHECKER: CHECKER_ROLE,
     # Plan-phase roles
     AgentRole.ARCHITECT: ARCHITECT_ROLE,
@@ -660,15 +625,11 @@ AGENT_ROLES: dict[AgentRole, AgentRoleDefinition] = {
 
 def get_role_definition(
     role: AgentRole | str,
-    complexity_tier: str | None = None,
 ) -> AgentRoleDefinition:
     """Get the definition for an agent role.
 
     Args:
         role: The role to get (string or AgentRole enum)
-        complexity_tier: Optional complexity tier ('low', 'mid', 'high').
-            When 'high', the INTEGRATOR role gets write access to source,
-            test, and doc files for integration fixes.
 
     Returns:
         The AgentRoleDefinition for this role
@@ -678,52 +639,7 @@ def get_role_definition(
     """
     if isinstance(role, str):
         role = AgentRole(role)
-    role_def = AGENT_ROLES[role]
-
-    # In Tier 3 (high complexity), the integrator gets write access
-    # to source, test, and doc files to fix integration issues
-    if role == AgentRole.INTEGRATOR and complexity_tier == "high":
-        return AgentRoleDefinition(
-            role=role_def.role,
-            description=role_def.description
-            + " (Tier 3: can modify source/tests/docs to fix integration issues)",
-            responsibilities=[
-                *role_def.responsibilities,
-                "Fix integration issues across phase boundaries",
-                "Resolve merge conflicts between phase implementations",
-                "Ensure all tests pass end-to-end",
-            ],
-            dependencies=role_def.dependencies,
-            file_access=FileAccessPattern(
-                allowed_read=[],  # Can read all files
-                allowed_write=[
-                    ".egg-state/agent-outputs/",
-                    "src/",
-                    "lib/",
-                    "docs/",
-                    "tests/",
-                    "test/",
-                    # Allow writing to common source directories
-                    "shared/",
-                    "orchestrator/",
-                    "action/",
-                    "bin/",
-                    "config/",
-                    "scripts/",
-                    "integration_tests/",
-                ],
-                blocked_write=[
-                    ".egg-state/contracts/",
-                    "gateway/",
-                    "sandbox/",
-                ],
-            ),
-            can_run_in_parallel=role_def.can_run_in_parallel,
-            produces_outputs=role_def.produces_outputs,
-            requires_inputs=role_def.requires_inputs,
-        )
-
-    return role_def
+    return AGENT_ROLES[role]
 
 
 def get_all_roles() -> list[AgentRoleDefinition]:
@@ -806,7 +722,7 @@ class AgentExecution:
 # Phase-to-role mappings for multi-agent execution
 
 _PHASE_ROLES: dict[str, list[AgentRole]] = {
-    "implement": [AgentRole.CODER, AgentRole.TESTER, AgentRole.DOCUMENTER, AgentRole.INTEGRATOR],
+    "implement": [AgentRole.CODER, AgentRole.TESTER, AgentRole.DOCUMENTER],
     "plan": [AgentRole.ARCHITECT, AgentRole.TASK_PLANNER, AgentRole.RISK_ANALYST],
     "refine": [AgentRole.REFINER],
 }

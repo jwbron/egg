@@ -209,7 +209,6 @@ class TestPipelineConfig:
     def test_defaults(self):
         """Test default configuration values."""
         config = PipelineConfig()
-        assert config.multi_agent is True
         assert config.parallel_agents is True
         assert config.max_review_cycles == 3
         assert config.hitl_gates is True
@@ -218,10 +217,8 @@ class TestPipelineConfig:
     def test_custom_config(self):
         """Test custom configuration."""
         config = PipelineConfig(
-            multi_agent=False,
             max_review_cycles=5,
         )
-        assert config.multi_agent is False
         assert config.max_review_cycles == 5
 
 
@@ -494,7 +491,6 @@ class TestAgentRole:
         assert AgentRole.CHECKER in roles
         assert AgentRole.TESTER in roles
         assert AgentRole.DOCUMENTER in roles
-        assert AgentRole.INTEGRATOR in roles
         assert AgentRole.ARCHITECT in roles
         assert AgentRole.TASK_PLANNER in roles
         assert AgentRole.RISK_ANALYST in roles
@@ -506,7 +502,7 @@ class TestAgentRole:
         assert AgentRole.REVIEWER_REFINE in roles
         assert AgentRole.REVIEWER_PLAN in roles
         assert AgentRole.REVIEWER_UNIFIED in roles
-        assert len(roles) == 17
+        assert len(roles) == 16
 
 
 class TestBackwardCompatibility:

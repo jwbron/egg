@@ -1,0 +1,621 @@
+{
+  "schemaVersion": "1.0",
+  "issue": {
+    "number": 1165,
+    "title": "Issue #1165",
+    "url": "https://github.com/jwbron/egg/issues/1165"
+  },
+  "pipeline_id": null,
+  "current_phase": "refine",
+  "acceptance_criteria": [],
+  "phases": [
+    {
+      "id": "phase-1",
+      "name": "Prerequisite Relocations and Refactors",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-1-1",
+          "description": "Relocate is_concurrent_execution() from orchestrator/multi_agent.py to orchestrator/concurrent_executor.py and update all import sites",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Function in concurrent_executor.py, old imports updated, make test passes, no references to multi_agent.is_concurrent_execution",
+          "files_affected": [
+            "orchestrator/multi_agent.py",
+            "orchestrator/concurrent_executor.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-2",
+          "description": "Refactor orchestrator/routes/signals.py to inline dispatch calls from orchestrator/dispatch.py using direct egg_contracts.Orchestrator calls",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "signals.py has zero imports from dispatch.py, signal handling behavior unchanged, make test passes",
+          "files_affected": [
+            "orchestrator/routes/signals.py",
+            "orchestrator/dispatch.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-3",
+          "description": "Remove integrator from reviewer dependency lists in shared/egg_contracts/agent_roles.py and from ROLE_MAP in orchestrator/handoffs.py",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Integrator not in any dependency list or role map, concurrent BRC execution unblocked, make test passes",
+          "files_affected": [
+            "shared/egg_contracts/agent_roles.py",
+            "orchestrator/handoffs.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        }
+      ],
+      "dependencies": [],
+      "review_feedback": []
+    },
+    {
+      "id": "phase-2",
+      "name": "Core Orchestrator Removal",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-2-1",
+          "description": "Delete orchestrator/multi_agent.py entirely (~674 lines)",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "File deleted, no remaining imports from orchestrator.multi_agent, make test passes",
+          "files_affected": [
+            "orchestrator/multi_agent.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-2-2",
+          "description": "Delete orchestrator/dispatch.py entirely",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "File deleted, no remaining imports from orchestrator.dispatch, make test passes",
+          "files_affected": [
+            "orchestrator/dispatch.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-2-3",
+          "description": "Remove from orchestrator/routes/pipelines.py: _run_tier3_implement(), _run_single_phase_cycle(), _build_phase_scoped_prompt(), _run_multi_agent_phase(), single-agent fallback, decision tree (collapse to always-BRC), post-tier3 handling",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "All conditional paths removed, implement phase always routes to concurrent BRC, make test passes",
+          "files_affected": [
+            "orchestrator/routes/pipelines.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-2-4",
+          "description": "Remove short-circuit mode: _check_short_circuit_signal(), short_circuit parameter/branches in _build_phase_prompt() (in pipelines.py), PipelineConfig.allow_short_circuit and Pipeline.short_circuit model fields (in models.py)",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "No references to short_circuit anywhere in orchestrator, model fields removed, make test passes",
+          "files_affected": [
+            "orchestrator/routes/pipelines.py",
+            "orchestrator/models.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-2-5",
+          "description": "Remove complexity tier: _check_high_complexity_signal() and post-refine processing (in pipelines.py), ComplexityTier enum and Pipeline.complexity_tier field (in models.py)",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "No references to complexity_tier in orchestrator models or logic, make test passes",
+          "files_affected": [
+            "orchestrator/routes/pipelines.py",
+            "orchestrator/models.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        }
+      ],
+      "dependencies": [],
+      "review_feedback": []
+    },
+    {
+      "id": "phase-3",
+      "name": "Configuration, Gateway, and Role Cleanup",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-3-1",
+          "description": "Remove INTEGRATOR_ROLE from shared/egg_contracts/agent_roles.py and INTEGRATOR_TIER3_PATTERNS from gateway/agent_restrictions.py",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "No INTEGRATOR_ROLE references, no integrator patterns in gateway, make test passes",
+          "files_affected": [
+            "shared/egg_contracts/agent_roles.py",
+            "gateway/agent_restrictions.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-3-2",
+          "description": "Remove MultiAgentConfig class, Contract.multi_agent_config field, is_multi_agent_enabled(), exports, initialize_orchestration() references, and contract schema definition",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "No MultiAgentConfig references in contracts or schema, make test passes",
+          "files_affected": [
+            "shared/egg_contracts/models.py",
+            "shared/egg_contracts/__init__.py",
+            "shared/egg_contracts/orchestration.py",
+            ".egg/schemas/contract.schema.json"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-3-2",
+          "description": "Remove PhaseDependencyGraph and PhaseWave classes from shared/egg_contracts/dependency_graph.py and their imports from orchestrator/routes/pipelines.py",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "No PhaseDependencyGraph or PhaseWave references outside deleted test files, make test passes",
+          "files_affected": [
+            "shared/egg_contracts/dependency_graph.py",
+            "orchestrator/routes/pipelines.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-3-3",
+          "description": "Remove complexity_tier from gateway (agent_restrictions.py, phase_filter.py, session_manager.py, gateway.py) and container spawner (container_spawner.py, gateway_client.py)",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "No complexity_tier references in gateway or container spawner, make test passes",
+          "files_affected": [
+            "gateway/agent_restrictions.py",
+            "gateway/phase_filter.py",
+            "gateway/session_manager.py",
+            "gateway/gateway.py",
+            "orchestrator/container_spawner.py",
+            "orchestrator/gateway_client.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-3-4",
+          "description": "Remove config flags: enable_parallel_phases, plan_phase_waves, plan_phase_names, max_parallel_agents/EGG_MAX_PARALLEL_AGENTS. Remove concurrent_execution/concurrent_phases flags (pending Decision 3 \u2014 if keep, retain as no-ops)",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Dead config flags removed (or retained per Decision 3), max_parallel_agents replaced with len(reviewer_roles), make test passes",
+          "files_affected": [
+            "orchestrator/models.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-3-5",
+          "description": "Remove sandbox integrator artifacts: integrator.md rule, integrator-mode.md command, references in README.md and mission.md, docs/reference/integrator-agent.md",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "No integrator artifacts in sandbox or docs, make test passes",
+          "files_affected": [
+            "sandbox/.claude/rules/integrator.md",
+            "sandbox/.claude/commands/integrator-mode.md",
+            "sandbox/.claude/commands/README.md",
+            "sandbox/.claude/rules/mission.md",
+            "docs/reference/integrator-agent.md"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-3-6",
+          "description": "Remove multi-agent CLI/runtime: --multi-agent arg in cli.py, multi_agent param + EGG_MULTI_AGENT in runtime.py, multi_agent_config output in contract_cli.py",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "No multi_agent references in CLI or runtime, make test passes",
+          "files_affected": [
+            "sandbox/egg_lib/cli.py",
+            "sandbox/egg_lib/runtime.py",
+            "sandbox/egg_lib/contract_cli.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-3-7",
+          "description": "Remove _render_tier3_implement() from orchestrator/dag_visualizer.py",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "No tier3 rendering in DAG visualizer, make test passes",
+          "files_affected": [
+            "orchestrator/dag_visualizer.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        }
+      ],
+      "dependencies": [],
+      "review_feedback": []
+    },
+    {
+      "id": "phase-4",
+      "name": "Documentation and Test Cleanup",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-4-1",
+          "description": "Delete 9 dead test files: test_tier3_execute.py, test_tier3_dispatch.py, test_multi_agent.py, test_dispatch.py, test_short_circuit.py, test_phase_dependency_graph.py, test_multi_agent_orchestration.py, test_integrator_tier3.py, test_agent_roles_tier3.py",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "All 9 files deleted, no test imports reference them, make test passes",
+          "files_affected": [
+            "orchestrator/tests/test_tier3_execute.py",
+            "orchestrator/tests/test_tier3_dispatch.py",
+            "orchestrator/tests/test_multi_agent.py",
+            "orchestrator/tests/test_dispatch.py",
+            "orchestrator/tests/test_short_circuit.py",
+            "shared/egg_contracts/tests/test_phase_dependency_graph.py",
+            "integration_tests/sdlc/test_multi_agent_orchestration.py",
+            "gateway/tests/test_integrator_tier3.py",
+            "shared/egg_contracts/tests/test_agent_roles_tier3.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-4-2",
+          "description": "Update 6 surviving test files: remove Tier 3 tests from dag_visualizer tests, remove agent wave tests, remove tier3 filter tests, remove short_circuit tests from test_start_pipeline.py and test_pipeline_prompts.py",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "All 6 files updated, no references to removed code paths, make test passes",
+          "files_affected": [
+            "orchestrator/tests/test_dag_visualizer.py",
+            "orchestrator/tests/test_dag_visualizer_extended.py",
+            "orchestrator/tests/test_dag_visualizer_review_fixes.py",
+            "gateway/tests/test_phase_filter_tier3.py",
+            "orchestrator/tests/test_start_pipeline.py",
+            "orchestrator/tests/test_pipeline_prompts.py"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-4-3",
+          "description": "Delete docs/guides/tier3-dispatch.md. Update docs: sdlc-pipeline.md, agent-teams.md, orchestrator.md, agent-roles.md, index.md, README.md, both CLAUDE.md files, analysis.md template, gateway/README.md",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "No documentation references to removed concepts, docs accurately describe always-BRC architecture",
+          "files_affected": [
+            "docs/guides/tier3-dispatch.md",
+            "docs/guides/sdlc-pipeline.md",
+            "docs/guides/agent-teams.md",
+            "docs/reference/orchestrator.md",
+            "docs/reference/agent-roles.md",
+            "docs/index.md",
+            "README.md",
+            "CLAUDE.md",
+            "sandbox/.claude/CLAUDE.md",
+            "docs/templates/analysis.md",
+            "gateway/README.md"
+          ],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-4-4",
+          "description": "Final verification: make test, make lint, grep codebase for stale references (tier3, tier_3, multi_agent_phase, short_circuit, complexity_tier, INTEGRATOR, MultiAgentConfig, enable_parallel_phases, plan_phase_waves)",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "make test passes, make lint passes, grep finds zero stale references excluding git history and this plan",
+          "files_affected": [],
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        }
+      ],
+      "dependencies": [],
+      "review_feedback": []
+    }
+  ],
+  "decisions": [
+    {
+      "id": "decision-1",
+      "question": "How should this be split into PRs?",
+      "type": "hitl",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Option A: Single large PR (~5000-6000 lines, atomic change)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Option B: 3-4 smaller PRs following dependency order",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Option C: Two PRs \u2014 prep refactor + main removal (recommended)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-2",
+      "question": "What should happen to open PR #1171 (docs: add integrator to concurrent implement phase roles)?",
+      "type": "hitl",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Close #1171 \u2014 integrator is being removed anyway",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Merge #1171 first, then remove in this issue",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Ignore \u2014 this issue will supersede it",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-3",
+      "question": "Should concurrent_execution and concurrent_phases config flags be removed (since BRC is now the only mode)?",
+      "type": "hitl",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Yes, remove them \u2014 they are now always-on dead config",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "No, keep them as kill switches for operational safety",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    }
+  ],
+  "workflow_owner": null,
+  "audit_log": [],
+  "refine_review_cycles": 0,
+  "refine_review_feedback": "",
+  "plan_review_cycles": 0,
+  "plan_review_feedback": "",
+  "pr": null,
+  "feedback": {
+    "id": "feedback-1",
+    "phase": "refine",
+    "questions": [
+      {
+        "id": "Q1",
+        "question": "Are there any in-flight pipelines using Tier 3 or multi-agent wave execution that need to complete before this lands?",
+        "answer": null
+      },
+      {
+        "id": "Q2",
+        "question": "Should we add a migration script for old .egg-state/pipelines/*.json files, or is intentional failure on stale state acceptable?",
+        "answer": null
+      }
+    ],
+    "submitted": false,
+    "submitted_by": null,
+    "submitted_at": null,
+    "comment_id": null,
+    "debounce_until": null
+  },
+  "phase_configs": null,
+  "agent_executions": [
+    {
+      "role": "coder",
+      "phase_id": null,
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "commit": null,
+      "checkpoint_id": null,
+      "outputs": {},
+      "error": null,
+      "retry_count": 0,
+      "conflicts": []
+    },
+    {
+      "role": "tester",
+      "phase_id": null,
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "commit": null,
+      "checkpoint_id": null,
+      "outputs": {},
+      "error": null,
+      "retry_count": 0,
+      "conflicts": []
+    },
+    {
+      "role": "documenter",
+      "phase_id": null,
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "commit": null,
+      "checkpoint_id": null,
+      "outputs": {},
+      "error": null,
+      "retry_count": 0,
+      "conflicts": []
+    },
+    {
+      "role": "integrator",
+      "phase_id": null,
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "commit": null,
+      "checkpoint_id": null,
+      "outputs": {},
+      "error": null,
+      "retry_count": 0,
+      "conflicts": []
+    },
+    {
+      "role": "reviewer_agent_design",
+      "phase_id": null,
+      "status": "complete",
+      "started_at": null,
+      "completed_at": "2026-03-16T02:38:20.209497Z",
+      "commit": null,
+      "checkpoint_id": null,
+      "outputs": {},
+      "error": "Container exited with code 143",
+      "retry_count": 0,
+      "conflicts": []
+    },
+    {
+      "role": "task_planner",
+      "phase_id": null,
+      "status": "failed",
+      "started_at": null,
+      "completed_at": "2026-03-16T03:10:40.314646Z",
+      "commit": null,
+      "checkpoint_id": null,
+      "outputs": {},
+      "error": "Container exited with code 143",
+      "retry_count": 0,
+      "conflicts": []
+    },
+    {
+      "role": "architect",
+      "phase_id": null,
+      "status": "failed",
+      "started_at": null,
+      "completed_at": "2026-03-16T03:10:40.023591Z",
+      "commit": null,
+      "checkpoint_id": null,
+      "outputs": {},
+      "error": "Container exited with code 143",
+      "retry_count": 0,
+      "conflicts": []
+    },
+    {
+      "role": "risk_analyst",
+      "phase_id": null,
+      "status": "failed",
+      "started_at": null,
+      "completed_at": "2026-03-16T03:10:39.718138Z",
+      "commit": null,
+      "checkpoint_id": null,
+      "outputs": {},
+      "error": "Container exited with code 143",
+      "retry_count": 0,
+      "conflicts": []
+    }
+  ],
+  "multi_agent_config": null
+}

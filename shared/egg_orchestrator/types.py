@@ -102,7 +102,6 @@ class AgentRole(StrEnum):
     CHECKER = "checker"
     TESTER = "tester"
     DOCUMENTER = "documenter"
-    INTEGRATOR = "integrator"
     # Plan-phase roles
     ARCHITECT = "architect"
     TASK_PLANNER = "task_planner"

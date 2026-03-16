@@ -22,7 +22,6 @@ from routes.pipelines import (
     _build_check_and_fix_prompt,
     _build_checker_prompt,
     _build_phase_prompt,
-    _build_phase_scoped_prompt,
     _build_review_prompt,
     _build_role_context,
     _extract_plan_overview,
@@ -439,25 +438,6 @@ class TestBuildPhasePromptPlanEmbedding:
         )
         assert "Review the plan (check `.egg-state/drafts/`)" in result
         assert "## Plan\n" not in result
-
-    def test_short_circuit_embeds_analysis(self):
-        """Short-circuit mode embeds the analysis draft instead of the plan."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            drafts_dir = Path(tmpdir) / ".egg-state" / "drafts"
-            drafts_dir.mkdir(parents=True)
-            (drafts_dir / "42-analysis.md").write_text("## Analysis\nThe root cause is X.")
-
-            result = _build_phase_prompt(
-                phase="implement",
-                pipeline_id="test-pid",
-                pipeline_mode="issue",
-                prompt="Fix the bug",
-                issue_number=42,
-                repo_path=tmpdir,
-                short_circuit=True,
-            )
-            assert "## Analysis" in result
-            assert "root cause is X" in result
 
     def test_fallback_when_draft_file_missing(self):
         """Falls back to file-I/O instruction when draft file doesn't exist."""
@@ -907,12 +887,6 @@ class TestBuildRoleContext:
         assert "## Task Description" not in result
         assert "## For More Context" in result
 
-    def test_integrator_gets_summary_not_full_body(self):
-        """Integrator receives a summary, not the full issue body."""
-        result = _build_role_context("integrator", "# Feature\n\nDetail.", issue_number=10)
-        assert "## Background" in result
-        assert "## Task Description" not in result
-
     def test_tester_with_phase_obj_includes_tasks(self):
         """Tester with phase_obj includes phase-scoped task details."""
         task = self._make_task("TASK-1-1", "Add validation", ["models.py"], "Tests pass")
@@ -935,19 +909,6 @@ class TestBuildRoleContext:
         assert "TASK-2-1" in result
         assert "Focus your documentation" in result
 
-    def test_integrator_with_all_phases_includes_summary(self):
-        """Integrator with all_phases includes implementation summary."""
-        phases = [
-            self._make_phase("phase-1", "Core", [self._make_task()]),
-            self._make_phase("phase-2", "Tests", [self._make_task("t2", "Test")]),
-        ]
-        result = _build_role_context(
-            "integrator", "# Issue\n\nBody.", issue_number=1, all_phases=phases
-        )
-        assert "## Implementation Summary" in result
-        assert "phase-1" in result
-        assert "phase-2" in result
-
     def test_tester_with_all_phases_shows_other_phases(self):
         """Tester sees other phases listed for orientation."""
         task = self._make_task()
@@ -965,7 +926,7 @@ class TestBuildRoleContext:
 
     def test_context_pointers_always_present_for_execution_roles(self):
         """All execution roles get 'For More Context' pointers."""
-        for role in ("tester", "documenter", "integrator"):
+        for role in ("tester", "documenter"):
             result = _build_role_context(role, "# Issue\n\nBody.", issue_number=1)
             assert "## For More Context" in result
             assert "gh issue view 1" in result
@@ -1009,19 +970,6 @@ class TestBuildAgentPromptRoleContext:
         assert "## Background" in result
         assert "## Task Description" not in result
         assert "DOCUMENTER" in result
-
-    def test_integrator_prompt_has_background_not_task_description(self):
-        """Integrator prompt uses Background section, not Task Description."""
-        result = _build_agent_prompt(
-            role_value="integrator",
-            phase="implement",
-            pipeline_id="pid-1",
-            pipeline_mode="issue",
-            prompt="# Feature\n\nDetail.",
-            issue_number=10,
-        )
-        assert "## Background" in result
-        assert "## Task Description" not in result
 
     def test_architect_prompt_retains_full_task_description(self):
         """Architect still gets full Task Description."""
@@ -1076,7 +1024,7 @@ class TestBuildAgentPromptRoleContext:
 
     def test_every_prompt_has_context_section(self):
         """All role prompts include the Context metadata section."""
-        for role in ("tester", "documenter", "integrator", "architect"):
+        for role in ("tester", "documenter", "architect"):
             result = _build_agent_prompt(
                 role_value=role,
                 phase="implement",
@@ -1090,104 +1038,6 @@ class TestBuildAgentPromptRoleContext:
             assert "## Context" in result
             assert "Pipeline ID: pid-1" in result
             assert f"Agent Role: {role}" in result
-
-
-class TestBuildPhaseScopedPromptOverview:
-    """Tests for plan overview in _build_phase_scoped_prompt()."""
-
-    def _make_phase(self, phase_id="phase-1", name="Core", tasks=None, status="pending"):
-        """Create a mock phase object."""
-        phase = MagicMock()
-        phase.id = phase_id
-        phase.name = name
-        phase.tasks = tasks or []
-        phase.status = status
-        return phase
-
-    def _make_task(self, task_id="task-1", desc="Fix bug", files=None):
-        """Create a mock task."""
-        task = MagicMock()
-        task.id = task_id
-        task.description = desc
-        task.status = "pending"
-        task.acceptance_criteria = "Tests pass"
-        task.files_affected = files or []
-        return task
-
-    def test_plan_overview_not_full_plan(self, tmp_path):
-        """Phase-scoped prompt embeds plan overview, not the full plan."""
-        # Lazy import to avoid circular — Pipeline model is in orchestrator/models.py
-        from models import Pipeline
-
-        drafts = tmp_path / ".egg-state" / "drafts"
-        drafts.mkdir(parents=True)
-        (drafts / "42-plan.md").write_text(
-            "# Plan: Auth\n\n## Summary\n\nAdd auth to API.\n\n"
-            "## Implementation Phases\n\n"
-            "### Phase 1: JWT support\n\n**Tasks**:\n- Add JWT\n\n"
-            "### Phase 2: Middleware\n\n**Tasks**:\n- Add middleware\n",
-            encoding="utf-8",
-        )
-
-        phase = self._make_phase("phase-1", "JWT support", [self._make_task()])
-        pipeline = Pipeline(id="test-1", issue_number=42, repo="owner/repo", branch="egg/test")
-
-        result = _build_phase_scoped_prompt(
-            phase_obj=phase,
-            pipeline_id="test-1",
-            pipeline_mode="issue",
-            pipeline=pipeline,
-            worktree_repo_path=tmp_path,
-        )
-
-        assert "## Plan Overview" in result
-        assert "Add auth to API" in result
-        # Should NOT contain individual phase task details from the plan text
-        assert "Add middleware" not in result
-        assert "## Parallel Execution with Subagents" in result
-
-    def test_other_phases_listed_for_orientation(self, tmp_path):
-        """Other phases appear as one-line summaries."""
-        from models import Pipeline
-
-        phase1 = self._make_phase("phase-1", "Core", [self._make_task()])
-        phase2 = self._make_phase("phase-2", "Tests", status="complete")
-        pipeline = Pipeline(id="test-1", issue_number=42, repo="owner/repo", branch="egg/test")
-
-        result = _build_phase_scoped_prompt(
-            phase_obj=phase1,
-            pipeline_id="test-1",
-            pipeline_mode="issue",
-            pipeline=pipeline,
-            worktree_repo_path=tmp_path,
-            all_phases=[phase1, phase2],
-        )
-
-        assert "Other Phases" in result
-        assert "phase-2" in result
-        assert "Tests" in result
-
-    def test_full_plan_pointer_present(self, tmp_path):
-        """Prompt includes pointer to full plan file."""
-        from models import Pipeline
-
-        drafts = tmp_path / ".egg-state" / "drafts"
-        drafts.mkdir(parents=True)
-        (drafts / "42-plan.md").write_text("# Plan\n\n## Summary\n\nOverview.\n")
-
-        phase = self._make_phase()
-        pipeline = Pipeline(id="test-1", issue_number=42, repo="owner/repo", branch="egg/test")
-
-        result = _build_phase_scoped_prompt(
-            phase_obj=phase,
-            pipeline_id="test-1",
-            pipeline_mode="issue",
-            pipeline=pipeline,
-            worktree_repo_path=tmp_path,
-        )
-
-        assert "For full plan details" in result
-        assert "42-plan.md" in result
 
 
 # ── Additional tester-authored coverage ──────────────────────────────────────
@@ -1371,35 +1221,6 @@ class TestBuildRoleContextEdgeCases:
         assert "Task two" in result
         assert "Task three" in result
 
-    def test_integrator_phase_with_no_tasks(self):
-        """Integrator handles phases with empty task lists."""
-        phase = self._make_phase("phase-1", "Empty phase", tasks=[])
-        result = _build_role_context(
-            "integrator",
-            "# Issue",
-            issue_number=1,
-            all_phases=[phase],
-        )
-        assert "## Implementation Summary" in result
-        assert "0 tasks" in result
-
-    def test_integrator_collects_files_across_tasks(self):
-        """Integrator summary includes files from all tasks in each phase."""
-        tasks = [
-            self._make_task("t-1", "A", files=["x.py", "y.py"]),
-            self._make_task("t-2", "B", files=["y.py", "z.py"]),
-        ]
-        phase = self._make_phase("phase-1", "Core", tasks=tasks)
-        result = _build_role_context(
-            "integrator",
-            "# Issue",
-            issue_number=1,
-            all_phases=[phase],
-        )
-        assert "x.py" in result
-        assert "y.py" in result
-        assert "z.py" in result
-
     def test_no_issue_number_omits_gh_command(self):
         """When issue_number is None, no gh issue view command appears."""
         result = _build_role_context("tester", "# Issue", issue_number=None)
@@ -1439,8 +1260,8 @@ class TestBuildRoleContextEdgeCases:
         """Non-tester/non-documenter execution roles get generic phase intro."""
         task = self._make_task("t-1", "Fix thing")
         phase = self._make_phase(tasks=[task])
-        # Use integrator with phase_obj (not typical, but exercises the else branch)
-        result = _build_role_context("integrator", "# Issue", phase_obj=phase)
+        # Use a generic execution role with phase_obj to exercise the else branch
+        result = _build_role_context("some_new_role", "# Issue", phase_obj=phase)
         assert "The following tasks were implemented in this phase" in result
         assert "Focus your testing" not in result
         assert "Focus your documentation" not in result
@@ -1522,32 +1343,6 @@ class TestBuildAgentPromptEdgeCases:
         # Should contain phase-prompt style content
         assert "implement" in result.lower()
 
-    def test_integrator_with_all_phases(self):
-        """Integrator prompt via _build_agent_prompt includes phase summary."""
-        p1 = MagicMock()
-        p1.id = "phase-1"
-        p1.name = "Core"
-        p1.tasks = []
-        p1.status = "complete"
-        p2 = MagicMock()
-        p2.id = "phase-2"
-        p2.name = "Polish"
-        p2.tasks = []
-        p2.status = "in_progress"
-
-        result = _build_agent_prompt(
-            role_value="integrator",
-            phase="implement",
-            pipeline_id="pid-1",
-            pipeline_mode="issue",
-            prompt="# Feature",
-            issue_number=1,
-            all_phases=[p1, p2],
-        )
-        assert "## Implementation Summary" in result
-        assert "phase-1" in result
-        assert "phase-2" in result
-
     def test_no_repo_or_branch_omits_those_lines(self):
         """When repo and branch are None, those lines are omitted from context."""
         result = _build_agent_prompt(
@@ -1605,18 +1400,6 @@ class TestNamespacedOutputFilenames:
         )
         assert "871-risk_analyst-output.json" in result
 
-    def test_integrator_prompt_uses_issue_number(self):
-        """Integrator prompt references {issue_number}-integrator-output.json."""
-        result = _build_agent_prompt(
-            role_value="integrator",
-            phase="implement",
-            pipeline_id="issue-871",
-            pipeline_mode="issue",
-            prompt="# Feature",
-            issue_number=871,
-        )
-        assert "871-integrator-output.json" in result
-
     def test_prompt_falls_back_to_pipeline_id(self):
         """Without issue_number, prompt uses pipeline_id as identifier."""
         result = _build_agent_prompt(
@@ -1628,163 +1411,6 @@ class TestNamespacedOutputFilenames:
             issue_number=None,
         )
         assert "local-abc123-architect-output.json" in result
-
-
-class TestBuildPhaseScopedPromptEdgeCases:
-    """Edge cases for _build_phase_scoped_prompt() plan overview behavior."""
-
-    def _make_phase(self, phase_id="phase-1", name="Core", tasks=None, status="pending"):
-        phase = MagicMock()
-        phase.id = phase_id
-        phase.name = name
-        phase.tasks = tasks or []
-        phase.status = status
-        return phase
-
-    def _make_task(self, task_id="task-1", desc="Fix bug", files=None):
-        task = MagicMock()
-        task.id = task_id
-        task.description = desc
-        task.status = "pending"
-        task.acceptance_criteria = "Tests pass"
-        task.files_affected = files or []
-        return task
-
-    def test_no_draft_file_omits_plan_overview(self, tmp_path):
-        """When no draft file exists, Plan Overview section is absent."""
-        from models import Pipeline
-
-        phase = self._make_phase(tasks=[self._make_task()])
-        pipeline = Pipeline(id="test-1", issue_number=42, repo="owner/repo", branch="egg/test")
-
-        result = _build_phase_scoped_prompt(
-            phase_obj=phase,
-            pipeline_id="test-1",
-            pipeline_mode="issue",
-            pipeline=pipeline,
-            worktree_repo_path=tmp_path,
-        )
-
-        assert "## Plan Overview" not in result
-        # But still has the scope section
-        assert "Your Scope" in result
-
-    def test_review_cycle_skips_plan_embedding(self, tmp_path):
-        """Review cycle > 0 does not embed plan overview."""
-        from models import Pipeline
-
-        drafts = tmp_path / ".egg-state" / "drafts"
-        drafts.mkdir(parents=True)
-        (drafts / "42-plan.md").write_text(
-            "# Plan\n\n## Summary\n\nOverview.\n\n### Phase 1: Core\n\nDetails.\n"
-        )
-
-        phase = self._make_phase(tasks=[self._make_task()])
-        pipeline = Pipeline(id="test-1", issue_number=42, repo="owner/repo", branch="egg/test")
-
-        result = _build_phase_scoped_prompt(
-            phase_obj=phase,
-            pipeline_id="test-1",
-            pipeline_mode="issue",
-            pipeline=pipeline,
-            worktree_repo_path=tmp_path,
-            review_cycle=1,
-        )
-
-        assert "## Plan Overview" not in result
-        assert "For full plan details" not in result
-
-    def test_all_phases_none_omits_other_phases(self, tmp_path):
-        """When all_phases is None, no Other Phases section appears."""
-        from models import Pipeline
-
-        phase = self._make_phase(tasks=[self._make_task()])
-        pipeline = Pipeline(id="test-1", issue_number=42, repo="owner/repo", branch="egg/test")
-
-        result = _build_phase_scoped_prompt(
-            phase_obj=phase,
-            pipeline_id="test-1",
-            pipeline_mode="issue",
-            pipeline=pipeline,
-            worktree_repo_path=tmp_path,
-            all_phases=None,
-        )
-
-        assert "Other Phases" not in result
-
-    def test_single_phase_in_all_phases_no_others(self, tmp_path):
-        """When all_phases has only the current phase, no Other Phases section."""
-        from models import Pipeline
-
-        phase = self._make_phase("phase-1", "Core", [self._make_task()])
-        pipeline = Pipeline(id="test-1", issue_number=42, repo="owner/repo", branch="egg/test")
-
-        result = _build_phase_scoped_prompt(
-            phase_obj=phase,
-            pipeline_id="test-1",
-            pipeline_mode="issue",
-            pipeline=pipeline,
-            worktree_repo_path=tmp_path,
-            all_phases=[phase],
-        )
-
-        assert "Other Phases" not in result
-
-    def test_other_phases_show_task_count_and_status(self, tmp_path):
-        """Other phases show task count and status for orientation."""
-        from models import Pipeline
-
-        phase1 = self._make_phase("phase-1", "Core", [self._make_task()])
-        tasks2 = [self._make_task("t-a", "A"), self._make_task("t-b", "B")]
-        phase2 = self._make_phase("phase-2", "Polish", tasks2, status="complete")
-        pipeline = Pipeline(id="test-1", issue_number=42, repo="owner/repo", branch="egg/test")
-
-        result = _build_phase_scoped_prompt(
-            phase_obj=phase1,
-            pipeline_id="test-1",
-            pipeline_mode="issue",
-            pipeline=pipeline,
-            worktree_repo_path=tmp_path,
-            all_phases=[phase1, phase2],
-        )
-
-        assert "phase-2" in result
-        assert "2 tasks" in result
-        assert "complete" in result
-
-    def test_plan_overview_excludes_phase_details(self, tmp_path):
-        """Plan overview stops before ### Phase headings (phase detail isolation)."""
-        from models import Pipeline
-
-        drafts = tmp_path / ".egg-state" / "drafts"
-        drafts.mkdir(parents=True)
-        (drafts / "42-plan.md").write_text(
-            "# Auth Plan\n\n"
-            "## Goals\n\nAdd authentication.\n\n"
-            "## Constraints\n\nMust use JWT.\n\n"
-            "### Phase 1: JWT tokens\n\n"
-            "- task-1-1: Implement JWT generation\n\n"
-            "### Phase 2: Middleware\n\n"
-            "- task-2-1: Add auth middleware\n"
-        )
-
-        phase = self._make_phase("phase-1", "JWT tokens", [self._make_task()])
-        pipeline = Pipeline(id="test-1", issue_number=42, repo="owner/repo", branch="egg/test")
-
-        result = _build_phase_scoped_prompt(
-            phase_obj=phase,
-            pipeline_id="test-1",
-            pipeline_mode="issue",
-            pipeline=pipeline,
-            worktree_repo_path=tmp_path,
-        )
-
-        assert "## Plan Overview" in result
-        assert "Add authentication" in result
-        assert "Must use JWT" in result
-        # Phase detail from the plan text should NOT be embedded
-        assert "Implement JWT generation" not in result
-        assert "Add auth middleware" not in result
 
 
 class TestReadTesterGaps:
@@ -1986,80 +1612,6 @@ class TestTesterGapFindingPrompts:
         assert "Missing error handling" in result
         assert "Boundary conditions" in result
         assert "Uncovered code paths" in result
-
-    def test_phase_scoped_prompt_revision_mentions_tester(self, tmp_path):
-        """Phase-scoped prompt on revision cycle mentions tester output."""
-        from models import Pipeline
-
-        phase = MagicMock()
-        phase.id = "phase-1"
-        phase.name = "Core"
-        phase.tasks = []
-        phase.status = "pending"
-
-        pipeline = Pipeline(id="test-1", issue_number=42, repo="owner/repo", branch="egg/test")
-
-        result = _build_phase_scoped_prompt(
-            phase_obj=phase,
-            pipeline_id="test-1",
-            pipeline_mode="issue",
-            pipeline=pipeline,
-            worktree_repo_path=tmp_path,
-            review_feedback="Fix the naming convention",
-            review_cycle=1,
-        )
-
-        assert "reviewer and tester" in result
-        assert "tester-output.json" in result
-        assert "Revision Checklist" in result
-
-    def test_phase_scoped_prompt_cycle_0_no_revision_checklist(self, tmp_path):
-        """Phase-scoped prompt on cycle 0 does not have revision checklist."""
-        from models import Pipeline
-
-        phase = MagicMock()
-        phase.id = "phase-1"
-        phase.name = "Core"
-        phase.tasks = []
-        phase.status = "pending"
-
-        pipeline = Pipeline(id="test-1", issue_number=42, repo="owner/repo", branch="egg/test")
-
-        result = _build_phase_scoped_prompt(
-            phase_obj=phase,
-            pipeline_id="test-1",
-            pipeline_mode="issue",
-            pipeline=pipeline,
-            worktree_repo_path=tmp_path,
-            review_cycle=0,
-        )
-
-        assert "Revision Checklist" not in result
-
-    def test_phase_scoped_prompt_revision_no_feedback_no_checklist(self, tmp_path):
-        """Revision checklist is not shown when review_cycle > 0 but no feedback."""
-        from models import Pipeline
-
-        phase = MagicMock()
-        phase.id = "phase-1"
-        phase.name = "Core"
-        phase.tasks = []
-        phase.status = "pending"
-
-        pipeline = Pipeline(id="test-1", issue_number=42, repo="owner/repo", branch="egg/test")
-
-        result = _build_phase_scoped_prompt(
-            phase_obj=phase,
-            pipeline_id="test-1",
-            pipeline_mode="issue",
-            pipeline=pipeline,
-            worktree_repo_path=tmp_path,
-            review_feedback=None,
-            review_cycle=1,
-        )
-
-        assert "Revision Checklist" not in result
-        assert "Prior Review Feedback" not in result
 
     def test_phase_prompt_revision_reviewer_only_no_tester_language(self):
         """Phase prompt with reviewer-only feedback uses reviewer-only language."""

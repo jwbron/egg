@@ -11,7 +11,6 @@ Security model:
 - Coder: Can write source code, blocked from docs and contracts
 - Tester: Can write test files only
 - Documenter: Can write docs and markdown only
-- Integrator: Can only write handoff output (read-only otherwise)
 - Refiner: Can write drafts and agent-outputs only, blocked from source code and contracts
 - Reviewers: Can write reviews and agent-outputs only
 
@@ -40,7 +39,6 @@ class AgentRole:
     CODER = "coder"
     TESTER = "tester"
     DOCUMENTER = "documenter"
-    INTEGRATOR = "integrator"
     CHECKER = "checker"
     # Plan-phase roles
     ARCHITECT = "architect"
@@ -295,61 +293,6 @@ DOCUMENTER_PATTERNS = AgentFilePattern(
     ],
 )
 
-INTEGRATOR_PATTERNS = AgentFilePattern(
-    role=AgentRole.INTEGRATOR,
-    description="Integrator agent: handoff output only (read-only otherwise)",
-    allowed_patterns=[
-        # Only handoff output
-        ".egg-state/agent-outputs/",
-    ],
-    blocked_patterns=[
-        # Block specific directories as defense-in-depth.
-        # Extension-based blocks (e.g., **/*.json) are intentionally omitted
-        # because they conflict with writing JSON handoff files to the allowed
-        # output directory (.egg-state/agent-outputs/). The allowed_patterns
-        # already restrict writes to the output directory only.
-        "src/",
-        "lib/",
-        "shared/",
-        "gateway/",
-        "sandbox/",
-        "action/",
-        "docs/",
-        "tests/",
-        "test/",
-        ".egg-state/contracts/",
-        ".github/",
-    ],
-)
-
-# Tier 3 (high complexity) integrator pattern — has write access to source,
-# tests, and docs to fix integration issues across phase boundaries.
-INTEGRATOR_TIER3_PATTERNS = AgentFilePattern(
-    role=AgentRole.INTEGRATOR,
-    description="Integrator agent (Tier 3): can modify source/tests/docs for integration fixes",
-    allowed_patterns=[
-        ".egg-state/agent-outputs/",
-        "src/",
-        "lib/",
-        "shared/",
-        "action/",
-        "docs/",
-        "tests/",
-        "test/",
-        "bin/",
-        "config/",
-        "scripts/",
-        "orchestrator/",
-        "integration_tests/",
-    ],
-    blocked_patterns=[
-        ".egg-state/contracts/",
-        ".github/",
-        "gateway/",
-        "sandbox/",
-    ],
-)
-
 # Plan-phase agent patterns
 # These agents can only write to drafts and agent-outputs directories.
 
@@ -527,7 +470,6 @@ AGENT_PATTERNS: dict[str, AgentFilePattern] = {
     AgentRole.CODER: CODER_PATTERNS,
     AgentRole.TESTER: TESTER_PATTERNS,
     AgentRole.DOCUMENTER: DOCUMENTER_PATTERNS,
-    AgentRole.INTEGRATOR: INTEGRATOR_PATTERNS,
     AgentRole.ARCHITECT: ARCHITECT_PATTERNS,
     AgentRole.TASK_PLANNER: TASK_PLANNER_PATTERNS,
     AgentRole.RISK_ANALYST: RISK_ANALYST_PATTERNS,
@@ -542,43 +484,32 @@ AGENT_PATTERNS: dict[str, AgentFilePattern] = {
 }
 
 
-def get_agent_pattern(
-    role: str,
-    complexity_tier: str | None = None,
-) -> AgentFilePattern | None:
+def get_agent_pattern(role: str) -> AgentFilePattern | None:
     """Get the file pattern for an agent role.
 
     Args:
         role: The agent role identifier
-        complexity_tier: Optional complexity tier ('low', 'mid', 'high').
-            When 'high', the INTEGRATOR role uses expanded write permissions.
 
     Returns:
         AgentFilePattern for the role, or None if not found
     """
-    role_lower = role.lower()
-    # In Tier 3, integrator gets expanded write access
-    if role_lower == AgentRole.INTEGRATOR and complexity_tier == "high":
-        return INTEGRATOR_TIER3_PATTERNS
-    return AGENT_PATTERNS.get(role_lower)
+    return AGENT_PATTERNS.get(role.lower())
 
 
 def check_agent_file_access(
     role: str,
     files: list[str],
-    complexity_tier: str | None = None,
 ) -> tuple[bool, list[str], str]:
     """Check if an agent can modify the given files.
 
     Args:
         role: The agent role identifier
         files: List of file paths being modified
-        complexity_tier: Optional complexity tier for tier-aware access
 
     Returns:
         Tuple of (allowed, blocked_files, reason)
     """
-    pattern = get_agent_pattern(role, complexity_tier=complexity_tier)
+    pattern = get_agent_pattern(role)
     if pattern is None:
         # Unknown role - allow for backwards compatibility
         return True, [], f"Unknown agent role: {role}"
@@ -632,7 +563,6 @@ class AgentRestrictionResult:
 def validate_agent_push(
     role: str,
     files: list[str],
-    complexity_tier: str | None = None,
 ) -> AgentRestrictionResult:
     """Validate that an agent can push changes to the given files.
 
@@ -641,7 +571,6 @@ def validate_agent_push(
     Args:
         role: The agent role identifier (e.g., "coder", "tester")
         files: List of file paths being modified in the push
-        complexity_tier: Optional complexity tier for tier-aware access
 
     Returns:
         AgentRestrictionResult indicating whether the push is allowed
@@ -652,9 +581,7 @@ def validate_agent_push(
     if not files:
         return AgentRestrictionResult.allow(role, "No files to validate")
 
-    allowed, blocked_files, reason = check_agent_file_access(
-        role, files, complexity_tier=complexity_tier
-    )
+    allowed, blocked_files, reason = check_agent_file_access(role, files)
 
     if allowed:
         return AgentRestrictionResult.allow(role, reason)
@@ -715,7 +642,6 @@ AGENT_GH_RESTRICTIONS: dict[str, AgentGHRestriction] = {
         AgentRole.CODER,
         AgentRole.TESTER,
         AgentRole.DOCUMENTER,
-        AgentRole.INTEGRATOR,
         AgentRole.CHECKER,
         AgentRole.ARCHITECT,
         AgentRole.TASK_PLANNER,

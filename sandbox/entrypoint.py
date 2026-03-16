@@ -808,7 +808,6 @@ def setup_agent_rules(config: Config, logger: Logger) -> None:
         "orchestrator.md",
         "contract.md",
         "checkpoint.md",
-        "integrator.md",
     ]
 
     if not (rules_dir / "mission.md").exists():

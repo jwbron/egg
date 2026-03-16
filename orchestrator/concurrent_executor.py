@@ -44,7 +44,7 @@ from review_graph import get_review_graph_for_phase
 
 logger = get_logger("orchestrator.concurrent_executor")
 
-# Type alias for spawn function (matches multi_agent.py pattern)
+# Type alias for spawn function
 SpawnFn = Callable[..., Any]
 
 # Failure detection window: multiple failures within this window trigger abort
@@ -335,3 +335,26 @@ class ConcurrentPhaseExecutor:
         if tracker:
             return tracker.evaluate()
         return {"is_complete": False, "blocking_agents": [], "has_objections": False, "agents": {}}
+
+
+def is_concurrent_execution(pipeline: Pipeline, phase: str | None = None) -> bool:
+    """Check if a pipeline is configured for concurrent execution.
+
+    When ``concurrent_execution`` is ``True``, BRC is active for every phase.
+    Otherwise, BRC is active only when the given *phase* is listed in
+    ``concurrent_phases`` (which defaults to
+    ``["refine", "plan", "implement"]``).
+
+    Args:
+        pipeline: Pipeline to check.
+        phase: Optional phase name to check against ``concurrent_phases``.
+
+    Returns:
+        True if concurrent execution should be used.
+    """
+    if getattr(pipeline.config, "concurrent_execution", False):
+        return True
+    if phase is None:
+        return False
+    concurrent_phases = getattr(pipeline.config, "concurrent_phases", [])
+    return phase in concurrent_phases

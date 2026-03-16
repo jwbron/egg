@@ -193,7 +193,7 @@ Runner is initialized with all Tier 1 and Tier 2 checks registered. Stored in `a
 
 `set_health_check_runner()` connects the runner to the monitor. RUNTIME_TICK checks fire when container state changes are detected.
 
-### Wave Complete (`multi_agent.py`)
+### Wave Complete (`concurrent_executor.py`)
 
 WAVE_COMPLETE checks run after each agent wave. If `worst_action` returns `FAIL_PIPELINE`, wave execution breaks.
 

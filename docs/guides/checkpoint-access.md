@@ -182,7 +182,7 @@ egg-checkpoint show ckpt-<id>
 
 When re-running after review feedback, checking prior failed sessions helps avoid repeating the same mistakes.
 
-### Integrator: Get full pipeline context
+### Get full pipeline context
 
 ```bash
 # Summary of all agents' work in this pipeline

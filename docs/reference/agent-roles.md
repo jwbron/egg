@@ -13,17 +13,16 @@ All agent roles in egg, their responsibilities, phases, file access permissions,
 | `task_planner` | Plan | Yes (with `risk_analyst`) | architect |
 | `risk_analyst` | Plan | Yes (with `task_planner`) | architect |
 | `reviewer_plan` | Plan | No | task_planner, risk_analyst |
-| `coder` | Implement | No (wave 1) | — |
+| `coder` | Implement | No | — |
 | `tester` | Implement | Yes (with `documenter`) | coder |
 | `documenter` | Implement | Yes (with `tester`) | coder |
-| `checker` | Implement | Yes (reviewer, with `reviewer_code`, `reviewer_contract`) | coder |
-| `integrator` | Implement | No | coder, tester |
-| `reviewer_code` | Implement | Yes (with `reviewer_contract`) | integrator |
-| `reviewer_contract` | Implement | Yes (with `reviewer_code`) | integrator |
+| `checker` | Implement | Yes (with `reviewer_code`, `reviewer_contract`) | coder |
+| `reviewer_code` | Implement | Yes (with `reviewer_contract`) | coder, tester |
+| `reviewer_contract` | Implement | Yes (with `reviewer_code`) | coder, tester |
 | `reviewer_unified` | _(deprecated)_ | — | — |
 | `inspector` | Any | — | — (health checks) |
 
-Reviewer roles always run as a distinct step after all workers and the integrator complete.
+All implement phase agents run concurrently via BRC consensus.
 
 ## Refine Phase
 
@@ -122,7 +121,7 @@ Reviewer roles always run as a distinct step after all workers and the integrato
 - Commits on the worktree branch
 - `.egg-state/agent-outputs/{identifier}-coder-output.json` — Handoff data
 
-**Prompt context**: Plan document (or phase-scoped subset in Tier 3), summarized background.
+**Prompt context**: Plan document, summarized background.
 
 ### `tester`
 
@@ -164,26 +163,6 @@ In concurrent (BRC) mode, `checker` acts as a reviewer in the implement phase al
 
 **Prompt context**: Summarized background, implementation summary.
 
-### `integrator`
-
-**Purpose**: Run the full test suite, validate integration, and produce a completion signal.
-
-**Tier 2 file access**:
-- Allowed writes: `.egg-state/agent-outputs/` only
-- Blocked: `src/`, `lib/`, `shared/`, `gateway/`, `sandbox/`, `action/`, `docs/`, `tests/`, `test/`, `.egg-state/contracts/`, `.github/`
-
-**Tier 3 file access** (when `complexity_tier == "high"`):
-- Allowed writes: `.egg-state/agent-outputs/`, `src/`, `lib/`, `shared/`, `action/`, `docs/`, `tests/`, `test/`, `bin/`, `config/`, `scripts/`, `orchestrator/`, `integration_tests/`
-- Still blocked: `.egg-state/contracts/`, `.github/`, `gateway/`, `sandbox/`
-
-The Tier 3 expanded access is required because the integrator must merge results from multiple phase cycles and fix cross-phase integration issues.
-
-**Outputs**:
-- `.egg-state/agent-outputs/{identifier}-integrator-output.json` — Handoff data including test results
-- `.egg-state/checks/{identifier}-implement-results.json` — Check results
-
-**Prompt context**: Summarized background, all agent handoff data, check results.
-
 ### `reviewer_code`
 
 **Purpose**: Security review, correctness, code quality, test coverage, and documentation quality.
@@ -219,8 +198,7 @@ Agent prompts are scoped to role-relevant context to avoid unnecessary token usa
 | Role group | Context provided |
 |------------|-----------------|
 | Analysis roles (architect, task_planner, risk_analyst) | Full issue body |
-| Execution roles (tester, documenter, integrator) | Summarized background + structured task info + pointers to full context |
-| Tier 3 phase-scoped coders | Plan overview + current phase tasks only (not full multi-phase plan) |
+| Execution roles (tester, documenter, checker) | Summarized background + pointers to full context |
 | Reviewers | Full plan/draft/diff relevant to their review scope |
 
 ## Role-Based Contract Mutations
@@ -242,6 +220,6 @@ For the exact allowed and blocked patterns per role, see `gateway/agent_restrict
 
 ## Related Documentation
 
-- [SDLC Pipeline Guide](../guides/sdlc-pipeline.md) — Phase execution and agent waves
-- [Tier 3 Dispatch Guide](../guides/tier3-dispatch.md) — Integrator Tier 3 permissions
+- [SDLC Pipeline Guide](../guides/sdlc-pipeline.md) — Phase execution and agent orchestration
+- [Concurrent Execution Guide](../guides/concurrent-execution.md) — BRC consensus protocol
 - [Architecture Overview](../architecture/README.md) — Role-based access control

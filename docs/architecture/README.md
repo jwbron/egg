@@ -33,7 +33,7 @@ See the [main README](../../README.md) for the architecture diagram.
 - File-level access restrictions (role-based blocking of sensitive files like contract files)
 - Filesystem-level readonly mounts (phase-protected `.egg-state/` directories mounted readonly)
 - Commit-time validation (staged files checked against phase restrictions before commit)
-- Agent role-based file access (Coder, Tester, Documenter, Integrator have distinct write permissions; default warn-only, configurable to enforce via `EGG_AGENT_RESTRICTIONS_ENFORCE`)
+- Agent role-based file access (Coder, Tester, Documenter, Checker have distinct write permissions; default warn-only, configurable to enforce via `EGG_AGENT_RESTRICTIONS_ENFORCE`)
 - Role-based contract mutations (implementer, reviewer, human roles with field-level permissions)
 - No merge capability (gateway has no merge endpoint)
 - Force push and destructive operations blocked
@@ -49,7 +49,7 @@ See the [main README](../../README.md) for the architecture diagram.
 | **Shared Libraries** | Config, logging, git utilities, orchestrator types | [Shared README](../../shared/README.md) |
 | **egg_contracts** | SDLC contract models, role-based mutation validation, multi-agent orchestration | `shared/egg_contracts/` |
 | **egg_orchestrator** | Shared orchestrator types and sandbox-to-orchestrator communication | `shared/egg_orchestrator/` |
-| **Multi-Agent Orchestration** | Parallel agent execution (Coder, Tester, Documenter, Integrator) | `orchestrator/multi_agent.py`, `orchestrator/container_spawner.py` |
+| **Multi-Agent Orchestration** | Concurrent agent execution (Coder, Tester, Documenter, Checker, Reviewers) | `orchestrator/concurrent_executor.py`, `orchestrator/container_spawner.py` |
 
 ## SDLC Contracts
 
@@ -121,7 +121,7 @@ Browse and query checkpoints via the `egg-checkpoint` CLI:
 - `--session <id>` — Filter by session ID
 - `--trigger <commit|session_end>` — Filter by trigger type
 - `--status <completed|expired|failed>` — Filter by session status
-- `--agent-type <coder|tester|documenter|integrator|reviewer|unknown>` — Filter by agent type
+- `--agent-type <coder|tester|documenter|checker|reviewer|unknown>` — Filter by agent type
 - `--phase <refine|plan|implement|pr>` — Filter by pipeline phase
 
 Checkpoints enable post-hoc analysis of agent behavior, debugging failed sessions, auditing agent decisions, and tracking token usage across issues and PRs.
@@ -164,7 +164,6 @@ Contracts can override phase defaults via the `phase_configs` field, allowing pe
 The SDLC pipeline orchestrates agent-based development with structurally enforced checkpoints through the local orchestrator:
 
 **Core components:**
-- `orchestrator/dispatch.py` - Pipeline phase dispatch and management
 - `orchestrator/container_spawner.py` - Agent container lifecycle management
 - `orchestrator/decision_queue.py` - Human-in-the-loop decision handling with debounce
 - `orchestrator/state_store.py` - Git-backed pipeline state management
