@@ -2858,6 +2858,33 @@ def _build_phase_prompt(
             for i, step in enumerate(steps, 1):
                 lines.append(f"{i}. {step}")
             lines.append("")
+
+            lines.append("## Parallel Execution with Subagents\n")
+            lines.append(
+                "You have access to Claude Code's **Agent tool** for spawning subagents. "
+                "Use it to parallelize independent work:\n"
+            )
+            lines.append(
+                "- If the plan has multiple independent phases or task groups that don't touch "
+                "overlapping files, implement them in parallel by launching one subagent per "
+                "phase/group."
+            )
+            lines.append(
+                "- Each subagent gets a clear, self-contained prompt describing its scope "
+                "(files to modify, tasks to complete, acceptance criteria)."
+            )
+            lines.append(
+                "- Subagents share your working directory and git state. Ensure parallel "
+                "subagents work on **non-overlapping files** to avoid conflicts."
+            )
+            lines.append(
+                "- After subagents complete, verify the combined changes compile, pass tests, "
+                "and integrate correctly."
+            )
+            lines.append(
+                "- For small or sequential tasks, just implement directly — don't over-parallelize."
+            )
+            lines.append("")
         else:
             # Revision cycle: slim delta-focused prompt.
             # Guard: if review_feedback is unexpectedly missing, fall
@@ -3255,6 +3282,13 @@ def _build_agent_prompt(
                 "Before writing tests, review the coder's session for context on what was changed and why:",
                 "`egg-checkpoint list --pipeline $EGG_PIPELINE_ID --agent-type coder --phase implement`",
                 "",
+                "## Parallel Execution with Subagents\n",
+                "If the changes span multiple independent components or modules, you can use "
+                "Claude Code's **Agent tool** to parallelize test writing. Launch one subagent "
+                "per component to write and run tests concurrently. Each subagent should work "
+                "on non-overlapping test files. After all subagents complete, run the full test "
+                "suite to verify everything passes together.",
+                "",
             ]
         )
     elif role_value == "documenter":
@@ -3596,6 +3630,14 @@ def _build_phase_scoped_prompt(
     lines.append("1. Implement the required changes for this phase only")
     lines.append("2. Run tests to verify correctness")
     lines.append("3. Commit with descriptive messages")
+    lines.append("")
+
+    lines.append("## Parallel Execution with Subagents\n")
+    lines.append(
+        "If this phase contains multiple independent tasks that touch non-overlapping "
+        "files, you can use Claude Code's **Agent tool** to implement them in parallel. "
+        "Give each subagent a clear scope and verify the combined result afterward."
+    )
     lines.append("")
 
     # Revision-specific checklist (only when feedback is actually present)
