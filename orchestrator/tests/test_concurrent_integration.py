@@ -622,7 +622,7 @@ class TestSpawnUsesConsensusWrapper:
         command = call_kwargs.kwargs.get("command") or call_kwargs[1].get("command")
         assert command[0] == "bash"
         assert command[1] == "-c"
-        assert "claude" in command[2]
+        assert "egg_agent" in command[2]
         assert "RESTART_COUNT" in command[2]
         assert "CONSENSUS RECOVERY" in command[2]
 
