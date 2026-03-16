@@ -420,7 +420,7 @@
         {
           "cycle": 1,
           "started_at": "2026-03-16T03:04:49.829322",
-          "completed_at": null,
+          "completed_at": "2026-03-16T03:12:17.345780",
           "commit_sha": "16aec69332b0016d0a7400983301e700b821d0af"
         }
       ],
@@ -449,7 +449,7 @@
     }
   ],
   "created_at": "2026-03-16T02:29:02.276729",
-  "updated_at": "2026-03-16T03:12:03.256088",
+  "updated_at": "2026-03-16T03:12:17.346387",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
@@ -457,5 +457,5 @@
   "error": "Pipeline marked FAILED: agent container exited unexpectedly during execution. Restart via POST /pipelines/{id}/start.",
   "plan_phase_waves": null,
   "plan_phase_names": null,
-  "version": 33
+  "version": 34
 }
