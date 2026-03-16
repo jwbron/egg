@@ -999,10 +999,15 @@ def build_image() -> bool:
             str(Config.CONFIG_DIR),
         ]
 
-        # Pass agent SDK version to bust cache if update available
-        if agent_sdk_version:
+        # Pass agent SDK version to bust cache when PyPI has a new version.
+        # Always pass the latest version (not just when an update is detected)
+        # so Docker's layer cache is busted whenever the PyPI version changes.
+        # Falling back to check_agent_sdk_update() handles the case where we
+        # already fetched the latest version during the update check.
+        sdk_version = agent_sdk_version or get_latest_agent_sdk_version()
+        if sdk_version:
             cmd.insert(2, "--build-arg")
-            cmd.insert(3, f"CLAUDE_AGENT_SDK_VERSION={agent_sdk_version}")
+            cmd.insert(3, f"CLAUDE_AGENT_SDK_VERSION={sdk_version}")
 
         # Pass Claude version to bust cache if update available
         if claude_version:

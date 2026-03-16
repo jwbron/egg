@@ -332,6 +332,7 @@ class TestBuildImage:
 
     @patch("egg_lib.docker.subprocess.run")
     @patch("egg_lib.docker.create_dockerfile")
+    @patch("egg_lib.docker.get_latest_agent_sdk_version", return_value=None)
     @patch("egg_lib.docker.check_agent_sdk_update", return_value=None)
     @patch("egg_lib.docker.check_claude_update", return_value=None)
     @patch("egg_lib.docker.should_rebuild_image", return_value=(True, "test"))
@@ -342,6 +343,7 @@ class TestBuildImage:
         mock_should,
         mock_update,
         mock_sdk_update,
+        mock_latest_sdk,
         mock_create,
         mock_run,
         monkeypatch,
@@ -358,6 +360,7 @@ class TestBuildImage:
 
     @patch("egg_lib.docker.subprocess.run")
     @patch("egg_lib.docker.create_dockerfile")
+    @patch("egg_lib.docker.get_latest_agent_sdk_version", return_value=None)
     @patch("egg_lib.docker.check_agent_sdk_update", return_value=None)
     @patch("egg_lib.docker.check_claude_update", return_value=None)
     @patch("egg_lib.docker.should_rebuild_image", return_value=(True, "test"))
@@ -368,6 +371,7 @@ class TestBuildImage:
         mock_should,
         mock_update,
         mock_sdk_update,
+        mock_latest_sdk,
         mock_create,
         mock_run,
         capsys,
@@ -417,3 +421,34 @@ class TestBuildImage:
         build_cmd = mock_run.call_args[0][0]
         assert "--build-arg" in build_cmd
         assert "CLAUDE_AGENT_SDK_VERSION=0.2.0" in build_cmd
+
+    @patch("egg_lib.docker.subprocess.run")
+    @patch("egg_lib.docker.create_dockerfile")
+    @patch("egg_lib.docker.get_latest_agent_sdk_version", return_value="0.3.0")
+    @patch("egg_lib.docker.check_agent_sdk_update", return_value=None)
+    @patch("egg_lib.docker.check_claude_update", return_value=None)
+    @patch("egg_lib.docker.should_rebuild_image", return_value=(True, "test"))
+    @patch("egg_lib.docker.compute_build_hash", return_value="testhash123")
+    def test_build_image_passes_sdk_version_from_pypi_fallback(
+        self,
+        mock_hash,
+        mock_should,
+        mock_update,
+        mock_sdk_update,
+        mock_latest_sdk,
+        mock_create,
+        mock_run,
+        monkeypatch,
+    ):
+        """Test that SDK version from PyPI is passed even when no update is detected."""
+        mock_run.return_value = MagicMock(returncode=0)
+        monkeypatch.setenv("USER", "testuser")
+
+        result = egg.build_image()
+        assert result is True
+
+        # Even though check_agent_sdk_update returned None, the fallback to
+        # get_latest_agent_sdk_version should still pass the version build arg
+        build_cmd = mock_run.call_args[0][0]
+        assert "--build-arg" in build_cmd
+        assert "CLAUDE_AGENT_SDK_VERSION=0.3.0" in build_cmd

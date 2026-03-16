@@ -199,7 +199,9 @@ RUN groupadd -g 1000 egg && \
     mkdir -p /home/egg/.config && chown egg:egg /home/egg/.config
 
 # Install claude-agent-sdk (changes more often than base deps, less often than CLI)
-# ARG allows cache-busting when a new version is detected by the egg script
+# The egg script always passes the specific PyPI version to bust Docker's layer
+# cache when a new version is released. The "latest" fallback only applies if the
+# build-arg is omitted (e.g. manual docker build without the egg script).
 ARG CLAUDE_AGENT_SDK_VERSION=latest
 RUN if [ "$CLAUDE_AGENT_SDK_VERSION" = "latest" ]; then \
         pip3 install --no-cache-dir --upgrade claude-agent-sdk; \
