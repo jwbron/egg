@@ -162,7 +162,7 @@
         { "$ref": "#/$defs/multiAgentConfig" },
         { "type": "null" }
       ],
-      "description": "Configuration for multi-agent orchestration",
+      "description": "Deprecated: multi-agent execution is now always used. Retained for backward compatibility with existing contract files.",
       "default": null
     },
     "autofix_attempts": {
@@ -753,7 +753,7 @@
     },
     "multiAgentConfig": {
       "type": "object",
-      "description": "Configuration for multi-agent orchestration",
+      "description": "Deprecated: multi-agent execution is now always used. Retained for backward compatibility with existing contract files.",
       "properties": {
         "enabled": {
           "type": "boolean",

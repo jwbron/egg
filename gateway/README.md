@@ -89,7 +89,7 @@ The gateway enforces file-level access restrictions to prevent certain roles fro
 - Path normalization prevents bypass via `./`, `../`, or `//` manipulation
 - Fail-closed security: if file detection fails, push is blocked with HTTP 500
 - Backwards compatibility: when session role is unavailable, file restrictions are skipped to support legacy sessions
-- **Tier-aware access**: Agent file restrictions accept an optional `complexity_tier` parameter for role-specific access patterns
+
 **Error messages:**
 - `Push denied: Role 'X' cannot modify: <files>. <reason>` (HTTP 403) - File blocked by restriction
 - `Push denied: Could not verify file changes for security check: <error>` (HTTP 500) - Detection failure
@@ -454,7 +454,6 @@ gateway/
 │   ├── test_error_paths.py
 │   ├── test_fork_policy.py
 │   ├── test_transcript_buffer.py
-│   ├── test_integrator_tier3.py  # Legacy tier3 access pattern tests
 │   ├── test_phase_worktree.py
 │   ├── test_assigned_branch.py  # Push-target enforcement and branch lock tests
 │   ├── integration_test.sh
