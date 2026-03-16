@@ -265,10 +265,14 @@ class TestAgentType:
         assert AgentType.CODER == "coder"
         assert AgentType.TESTER == "tester"
         assert AgentType.DOCUMENTER == "documenter"
-        assert AgentType.INTEGRATOR == "integrator"
-        assert AgentType.CHECKER == "checker"
         assert AgentType.REVIEWER == "reviewer"
         assert AgentType.UNKNOWN == "unknown"
+
+    def test_unrecognized_agent_type_falls_back_to_unknown(self):
+        """Test that removed/unrecognized agent types coerce to UNKNOWN."""
+        assert AgentType("integrator") == AgentType.UNKNOWN
+        assert AgentType("checker") == AgentType.UNKNOWN
+        assert AgentType("nonexistent") == AgentType.UNKNOWN
 
     def test_serialization(self):
         """Test AgentType values can be used as strings."""

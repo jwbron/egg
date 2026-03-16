@@ -158,14 +158,17 @@ class AgentType(StrEnum):
     CODER = "coder"
     TESTER = "tester"
     DOCUMENTER = "documenter"
-    INTEGRATOR = "integrator"
-    CHECKER = "checker"
     REVIEWER = "reviewer"
     ARCHITECT = "architect"
     TASK_PLANNER = "task_planner"
     RISK_ANALYST = "risk_analyst"
     REFINER = "refiner"
     UNKNOWN = "unknown"
+
+    @classmethod
+    def _missing_(cls, value: object) -> "AgentType":
+        """Coerce unrecognized agent types to UNKNOWN for backwards compatibility."""
+        return cls.UNKNOWN
 
 
 class InterAgentMessage(BaseModel):
