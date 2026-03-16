@@ -237,7 +237,9 @@ class TestPipelineStatusConcurrentEndpoint:
 
     @patch("routes.pipelines.get_repo_path", return_value="/tmp/test-repo")
     @patch("routes.pipelines._resolve_pipeline")
-    def test_concurrent_consensus_omitted_when_no_tracker(self, mock_resolve, mock_repo_path, client):
+    def test_concurrent_consensus_omitted_when_no_tracker(
+        self, mock_resolve, mock_repo_path, client
+    ):
         """Consensus key is absent when no tracker or evaluator is available.
 
         This allows callers to distinguish "no consensus data" from "consensus

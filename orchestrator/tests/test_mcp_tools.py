@@ -346,9 +346,7 @@ class TestGetConsensusStatus:
                     }
                 },
             ]
-            result = handler.handle_tool_call(
-                "get_consensus_status", {"task_id": "issue-42"}
-            )
+            result = handler.handle_tool_call("get_consensus_status", {"task_id": "issue-42"})
 
         assert result["consensus"]["has_unresolved_nacks"] is True
         assert "refiner" in result["consensus"]["blocking_agents"]
