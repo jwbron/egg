@@ -334,10 +334,10 @@
         },
         {
           "role": "reviewer_plan",
-          "status": "running",
+          "status": "complete",
           "container_id": "e833cfdcbc364320fedd2d8ef1cd8a3e745fadda3cbabfb2e180bbba6d3107e1",
           "started_at": "2026-03-16T03:05:11.383020",
-          "completed_at": null,
+          "completed_at": "2026-03-16T03:10:39.249885",
           "commit": null,
           "outputs": {},
           "error": null,
@@ -347,10 +347,10 @@
         },
         {
           "role": "risk_analyst",
-          "status": "running",
+          "status": "complete",
           "container_id": "dcb2e0d934acb352d7d67ba34df0b2f969b54412cec0d5584b68c6184162c55a",
           "started_at": "2026-03-16T03:05:11.383028",
-          "completed_at": null,
+          "completed_at": "2026-03-16T03:10:39.249896",
           "commit": null,
           "outputs": {},
           "error": null,
@@ -360,10 +360,10 @@
         },
         {
           "role": "architect",
-          "status": "running",
+          "status": "complete",
           "container_id": "c223b6d6ef4e65f96c8ff50e52f6e2341b06de5ea451dfbd1a1ded0e3db5d565",
           "started_at": "2026-03-16T03:05:11.383034",
-          "completed_at": null,
+          "completed_at": "2026-03-16T03:10:39.249902",
           "commit": null,
           "outputs": {},
           "error": null,
@@ -373,10 +373,10 @@
         },
         {
           "role": "task_planner",
-          "status": "running",
+          "status": "complete",
           "container_id": "1a8b097dbc8685c61d116a6f5570d6a84f8513014e56e2ecc35dd83ad7ddee05",
           "started_at": "2026-03-16T03:05:11.383039",
-          "completed_at": null,
+          "completed_at": "2026-03-16T03:10:39.249908",
           "commit": null,
           "outputs": {},
           "error": null,
@@ -426,7 +426,7 @@
     }
   ],
   "created_at": "2026-03-16T02:29:02.276729",
-  "updated_at": "2026-03-16T03:05:11.383111",
+  "updated_at": "2026-03-16T03:10:39.250223",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
@@ -434,5 +434,5 @@
   "error": "Pipeline marked FAILED: agent container exited unexpectedly during execution. Restart via POST /pipelines/{id}/start.",
   "plan_phase_waves": null,
   "plan_phase_names": null,
-  "version": 30
+  "version": 31
 }
