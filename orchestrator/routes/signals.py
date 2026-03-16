@@ -980,7 +980,11 @@ def handle_consensus_confirmed_signal(
         # re-proposal invalidated stale ACKs), return 202 so the agent
         # knows to retry later instead of treating it as an error.
         if result.get("status") == "pending_acks":
-            response: dict[str, Any] = {"success": True, "message": result["message"], "data": result}
+            response: dict[str, Any] = {
+                "success": True,
+                "message": result["message"],
+                "data": result,
+            }
             return jsonify(response), 202
 
         from message_store import Message, MessageType, get_message_store
