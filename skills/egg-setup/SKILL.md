@@ -372,9 +372,10 @@ for port in [9848, 9849, 9850, 3129]:
     s = socket.socket()
     try:
         s.bind(('', port))
-        s.close()
     except OSError:
         conflicts.append(port)
+    finally:
+        s.close()
 if conflicts:
     for p in conflicts:
         print(f'Port {p} in use')
