@@ -1,8 +1,8 @@
 """Build agent commands for container execution.
 
-The orchestrator spawns containers that run the ``claude`` CLI.  This module
-provides :func:`build_agent_command` which returns the command list passed to
-:func:`spawn_agent_container`.
+The orchestrator spawns containers that run the Agent SDK via
+``python3 -m egg_agent``.  This module provides :func:`build_agent_command`
+which returns the command list passed to :func:`spawn_agent_container`.
 """
 
 from __future__ import annotations
@@ -17,8 +17,10 @@ def build_agent_command(
 ) -> list[str]:
     """Build a container command list for running a Claude agent.
 
-    Returns the ``claude`` CLI command that the orchestrator passes to
-    ``spawn_agent_container()``.
+    Returns the ``python3 -m egg_agent`` command that the orchestrator
+    passes to ``spawn_agent_container()``.  The entry point wraps the
+    Agent SDK (``claude_agent_sdk.query()``), so CLI-specific flags like
+    ``--print`` and ``--dangerously-skip-permissions`` are not needed.
 
     Args:
         prompt: The prompt text (passed as the last positional argument).
@@ -30,12 +32,9 @@ def build_agent_command(
         Command list suitable for container execution.
     """
     cmd: list[str] = [
-        "claude",
-        "--dangerously-skip-permissions",
-        "--print",
-        "--verbose",
-        "--output-format",
-        "stream-json",
+        "python3",
+        "-m",
+        "egg_agent",
         "--model",
         model,
         "--max-turns",

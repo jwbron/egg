@@ -10,12 +10,9 @@ class TestBuildAgentCommand:
         """Test command with default arguments."""
         cmd = build_agent_command("Hello world")
         assert cmd == [
-            "claude",
-            "--dangerously-skip-permissions",
-            "--print",
-            "--verbose",
-            "--output-format",
-            "stream-json",
+            "python3",
+            "-m",
+            "egg_agent",
             "--model",
             "opus",
             "--max-turns",
