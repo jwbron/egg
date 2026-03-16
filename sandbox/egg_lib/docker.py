@@ -639,7 +639,7 @@ def get_installed_agent_sdk_version() -> str | None:
         return None
 
     try:
-        result = subprocess.run(
+        result = subprocess.run(  # noqa: EGG100 - version check reads agent-sdk version from sandbox image
             [
                 "docker",
                 "run",
