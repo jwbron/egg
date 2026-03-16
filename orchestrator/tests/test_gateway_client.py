@@ -734,6 +734,23 @@ class TestPushWorktreeBranch:
             # Session should be cleaned up
             mock_delete.assert_called_once_with("test-token-12345")
 
+    def test_push_worktree_branch_registers_session_with_branch(
+        self, gateway_client, mock_gateway_server
+    ):
+        """Test that register_session is called with branch so gateway assigns correct branch."""
+        with patch.object(
+            gateway_client, "register_session", wraps=gateway_client.register_session
+        ) as mock_reg:
+            gateway_client.push_worktree_branch(
+                pipeline_id="issue-42",
+                repo_path="/some/path",
+                branch="egg/issue-42",
+            )
+            mock_reg.assert_called_once()
+            call_kwargs = mock_reg.call_args
+            registered_branch = call_kwargs.kwargs.get("branch") or call_kwargs[1].get("branch")
+            assert registered_branch == "egg/issue-42"
+
 
 class TestDeleteRemoteBranch:
     """Tests for delete_remote_branch method."""
@@ -773,6 +790,23 @@ class TestDeleteRemoteBranch:
             )
             # Session should be cleaned up
             mock_delete.assert_called_once_with("test-token-12345")
+
+    def test_delete_remote_branch_registers_session_with_branch(
+        self, gateway_client, mock_gateway_server
+    ):
+        """Test that register_session is called with branch so gateway assigns correct branch."""
+        with patch.object(
+            gateway_client, "register_session", wraps=gateway_client.register_session
+        ) as mock_reg:
+            gateway_client.delete_remote_branch(
+                pipeline_id="issue-42",
+                repo_path="/some/path",
+                branch="egg/container-abc123/work",
+            )
+            mock_reg.assert_called_once()
+            call_kwargs = mock_reg.call_args
+            registered_branch = call_kwargs.kwargs.get("branch") or call_kwargs[1].get("branch")
+            assert registered_branch == "egg/container-abc123/work"
 
 
 class TestFetchWorktreeBranch:
