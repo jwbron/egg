@@ -29,7 +29,7 @@ Verify all required dependencies are installed and meet minimum versions. Run th
 
 | Dependency | Check command | Minimum version | Install guidance |
 |------------|--------------|-----------------|------------------|
-| **Python** | `python3 --version` | 3.13+ | python.org or system package manager |
+| **Python** | `python3 --version` | 3.11+ | python.org or system package manager |
 | **Docker** | `docker --version` | 20.10+ | docker.com/get-docker |
 | **Docker Compose** | `docker compose version` | 2.0+ | Included with Docker Desktop; Linux: install docker-compose-plugin |
 | **Git** | `git --version` | 2.30+ | git-scm.com |
@@ -128,8 +128,8 @@ Use `AskUserQuestion`:
   - **"API Key"** — description: "Direct Anthropic API access. Get from console.anthropic.com/settings/keys"
 
 Based on selection:
-- **OAuth**: Guide user to run `claude auth status --json | jq -r '.oauthToken'` and paste the token. Validate it starts with `sk-ant-oat`.
-- **API Key**: Ask for the key. Validate it starts with `sk-ant-api`.
+- **OAuth**: Guide user to run `claude auth status --json | jq -r '.oauthToken'` and paste the token. Validate it starts with `sk-ant-oat`. Write to `CLAUDE_CODE_OAUTH_TOKEN` in secrets.env (this is the preferred variable name — the gateway checks it first before the legacy `ANTHROPIC_OAUTH_TOKEN`).
+- **API Key**: Ask for the key. Validate it starts with `sk-ant-api`. Write to `ANTHROPIC_API_KEY` in secrets.env.
 
 ### Step 2: GitHub Authentication
 
@@ -144,17 +144,17 @@ Use `AskUserQuestion`:
 Based on selection:
 
 **GitHub App flow**:
-1. Ask for GitHub App ID (validate it's numeric)
-2. Ask for Installation ID (validate it's numeric)
+1. Ask for GitHub App ID (validate it's numeric). Write to `GITHUB_APP_ID` in secrets.env.
+2. Ask for Installation ID (validate it's numeric). Write to `GITHUB_APP_INSTALLATION_ID` in secrets.env.
 3. Ask for path to the `.pem` private key file. Validate the file exists and ends with `.pem`. Copy it to `~/.config/egg/github-app.pem` with `chmod 600`.
-4. Ask for the bot name (must match the GitHub App name exactly)
-5. Ask for the branch prefix (default: same as bot name, typically `egg`)
+4. Ask for the bot name (must match the GitHub App name exactly). Write to `GATEWAY_BOT_NAME` in secrets.env.
+5. Ask for the branch prefix (default: same as bot name, typically `egg`). Write to `GATEWAY_BOT_BRANCH_PREFIX` in secrets.env.
 
 **PAT flow**:
 1. Ask for the GitHub PAT. Validate it starts with `ghp_` or `github_pat_`.
-2. Set `GITHUB_USER_TOKEN` in secrets.env.
-3. Set `GATEWAY_BOT_NAME=egg` and `GATEWAY_BOT_BRANCH_PREFIX=egg` as defaults.
-4. Ask for the user's GitHub username for `GATEWAY_TRUSTED_USERS`.
+2. Set both `GITHUB_TOKEN` and `GITHUB_USER_TOKEN` to the provided PAT in secrets.env. (`GITHUB_TOKEN` is used by the gateway for all repos by default; `GITHUB_USER_TOKEN` is used for repos with `auth_mode: user`.)
+3. Set `GATEWAY_BOT_NAME=egg` and `GATEWAY_BOT_BRANCH_PREFIX=egg` as defaults in secrets.env.
+4. Ask for the user's GitHub username for `GATEWAY_TRUSTED_USERS` in secrets.env.
 
 **Both flow**: Run GitHub App flow first, then PAT flow for `GITHUB_USER_TOKEN`.
 
@@ -185,6 +185,30 @@ chmod 600 ~/.config/egg/launcher-secret
 
 Write all collected secrets to `~/.config/egg/secrets.env` with `chmod 600`. Group by category with comments. Never overwrite values the user chose to keep.
 
+Reference `config/secrets.template.env` for the complete list of supported variables and their formats. The required variable names are:
+
+| Category | Variable Name | Source |
+|----------|--------------|--------|
+| Anthropic OAuth | `CLAUDE_CODE_OAUTH_TOKEN` | Phase 3 Step 1 (preferred over legacy `ANTHROPIC_OAUTH_TOKEN`) |
+| Anthropic API key | `ANTHROPIC_API_KEY` | Phase 3 Step 1 |
+| GitHub App ID | `GITHUB_APP_ID` | Phase 3 Step 2 |
+| GitHub App Install ID | `GITHUB_APP_INSTALLATION_ID` | Phase 3 Step 2 |
+| GitHub default token | `GITHUB_TOKEN` | Phase 3 Step 2 (PAT flow) |
+| GitHub user PAT | `GITHUB_USER_TOKEN` | Phase 3 Step 2 (PAT or Both flow) |
+| Gateway bot name | `GATEWAY_BOT_NAME` | Phase 3 Step 2 |
+| Gateway branch prefix | `GATEWAY_BOT_BRANCH_PREFIX` | Phase 3 Step 2 |
+| Gateway trusted users | `GATEWAY_TRUSTED_USERS` | Phase 3 Step 2 |
+| Slack bot token | `SLACK_TOKEN` | Phase 3 Step 3 |
+| Slack app token | `SLACK_APP_TOKEN` | Phase 3 Step 3 |
+| Confluence base URL | `CONFLUENCE_BASE_URL` | Phase 3 Step 3 |
+| Confluence username | `CONFLUENCE_USERNAME` | Phase 3 Step 3 |
+| Confluence API token | `CONFLUENCE_API_TOKEN` | Phase 3 Step 3 |
+| Confluence space keys | `CONFLUENCE_SPACE_KEYS` | Phase 3 Step 3 |
+| JIRA base URL | `JIRA_BASE_URL` | Phase 3 Step 3 |
+| JIRA username | `JIRA_USERNAME` | Phase 3 Step 3 |
+| JIRA API token | `JIRA_API_TOKEN` | Phase 3 Step 3 |
+| JIRA JQL query | `JIRA_JQL_QUERY` | Phase 3 Step 3 |
+
 ## Phase 4 — Repository Configuration
 
 Configure `~/.config/egg/repositories.yaml`.
@@ -195,11 +219,12 @@ Ask for the user's GitHub username. Try to auto-detect from `gh api user --jq .l
 
 ### Step 2: Local Repositories
 
-Ask the user to provide paths to local git repositories to mount into the container:
+Collect paths to local git repositories to mount into the container. Use `AskUserQuestion` iteratively:
 
-- **Question**: "Enter paths to local git repositories (these will be mounted into the egg container). Type each path and press Enter. Type 'done' when finished."
-- Validate each path exists and is a git repo (has `.git/` directory)
-- Auto-detect the remote URL to determine `owner/repo` format
+1. Ask: "Enter a path to a local git repository to mount into the egg container (or 'done' if finished)."
+2. Validate the path exists and is a git repo (has `.git/` directory).
+3. Auto-detect the remote URL to determine `owner/repo` format.
+4. Ask: "Add another repository?" with options **"Yes"** / **"No, done adding repos"**. If "Yes", repeat from step 1.
 
 Present the detected repos:
 ```
@@ -236,13 +261,17 @@ Use `AskUserQuestion` (multiSelect):
 If "Custom check commands": collect name/command pairs for each check.
 If "User auth mode": set `auth_mode: user` for this repo.
 
-### Step 5: Default Reviewer
+### Step 5: Bot Username
+
+Set `bot_username` in repositories.yaml. Default to the `GATEWAY_BOT_NAME` value from Phase 3. This is used by the gateway for bot PR identification.
+
+### Step 6: Default Reviewer
 
 Set the default PR reviewer to the GitHub username collected in Step 1.
 
-### Step 6: Write repositories.yaml
+### Step 7: Write repositories.yaml
 
-Write the configuration to `~/.config/egg/repositories.yaml`.
+Write the configuration to `~/.config/egg/repositories.yaml`. Repos marked "Writable" go under `writable_repos`, repos marked "Read-only" go under `readable_repos`.
 
 ## Phase 5 — General Configuration
 
@@ -282,9 +311,11 @@ ls ~/.config/egg/launcher-secret
 
 ### Secrets Validation
 
-Read `~/.config/egg/secrets.env` and verify:
-- At least one Anthropic credential is set (OAuth token or API key)
-- GitHub credentials are configured (App or PAT)
+Parse `~/.config/egg/secrets.env` and verify each required variable is set to a non-empty value. **Never display raw secret values** — only check for presence and validate prefixes (e.g., `sk-ant-oat`, `ghp_`). Do not `cat` or print the file contents.
+
+Verify:
+- At least one Anthropic credential is set (`CLAUDE_CODE_OAUTH_TOKEN` or `ANTHROPIC_API_KEY`)
+- GitHub credentials are configured (`GITHUB_APP_ID` + `GITHUB_APP_INSTALLATION_ID` for App, or `GITHUB_TOKEN` for PAT)
 - `GATEWAY_BOT_NAME` is set
 - `GATEWAY_BOT_BRANCH_PREFIX` is set
 - File permissions are 600
@@ -303,8 +334,22 @@ Parse `~/.config/egg/repositories.yaml` and verify:
 # Check images can build (dry-run is not available, so just check Dockerfile exists)
 ls Dockerfile 2>/dev/null || ls sandbox/Dockerfile 2>/dev/null
 
-# Check for port conflicts
-ss -tlnp 2>/dev/null | grep -E ':(9848|9849|9850|3129) ' || echo "Ports available"
+# Check for port conflicts (cross-platform)
+# Linux:
+ss -tlnp 2>/dev/null | grep -E ':(9848|9849|9850|3129) ' || \
+# macOS:
+lsof -i :9848 -i :9849 -i :9850 -i :3129 2>/dev/null || \
+# Fallback (cross-platform Python):
+python3 -c "
+import socket
+for port in [9848, 9849, 9850, 3129]:
+    s = socket.socket()
+    try:
+        s.bind(('', port))
+        s.close()
+    except OSError:
+        print(f'Port {port} in use')
+" 2>/dev/null || echo "Ports available"
 ```
 
 ### Report
