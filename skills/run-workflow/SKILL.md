@@ -151,7 +151,7 @@ The `get_status` response enriches phase_gate decisions with `draft_content` (th
 
 5. **Present embedded questions from the draft** — Before asking for phase approval, scan `draft_content` for structured decision and feedback blocks that need human input. These are questions the agents embedded in the analysis document.
 
-   **Important: Deduplication** — Some embedded questions may also appear as separate `pending_decisions` (choice/feedback type) that you'll handle individually. To avoid double-prompting, track the IDs of decisions you've already resolved. If a draft block's `id` attribute (from `<!-- egg-hitl-decision id=X -->`) matches an already-resolved decision, skip it.
+   **Important: Deduplication** — Some embedded questions may also appear as separate `pending_decisions` (choice/feedback type) that you'll handle individually. To avoid double-prompting, track the IDs of decisions you've already resolved. For blocks with HTML comment IDs (`<!-- egg-hitl-decision id=X -->`), match the `id` attribute against already-resolved decision IDs. For heading-based blocks without HTML comment IDs (`### Decision N: <title>`), match by comparing the heading's question text against the `question` field of already-resolved decisions (case-insensitive, ignoring leading/trailing whitespace). If a match is found, skip the block.
 
    **5a. Parse decision blocks** — Look for blocks matching this pattern:
    ```
@@ -233,7 +233,11 @@ The `get_status` response enriches phase_gate decisions with `draft_content` (th
      "feedback-1": {"q1": "User's answer", "q2": "User's answer"}
    }
    ```
+   For blocks with HTML comment IDs (`<!-- egg-hitl-decision id=X -->`), use the `id` attribute as the key. For heading-based blocks without IDs (`### Decision N: <title>`), generate a synthetic key using the pattern `heading-decision-<N>` (e.g., `heading-decision-1`). For heading-based feedback blocks (`### Open Questions`, `### Feedback Requested`), use `heading-feedback-<N>`.
+
    If no embedded questions were found, omit this field.
+
+   **Note**: The `decisions` field is persisted as part of the raw resolution string in the decision store, but the orchestrator's `_parse_resolution` does not currently extract it. The data is preserved for future use but is not actively routed to agents.
 
    **7b. Submit based on the user's approval choice**:
 
@@ -263,13 +267,15 @@ The `get_status` response enriches phase_gate decisions with `draft_content` (th
      ```json
      {"action": "change_approach", "feedback": "<user's direction text>", "decisions": <decisions object from 7a or omit>}
      ```
-     This resets the current phase and re-runs it with the new direction.
+     This resets the current phase and re-runs it with the new direction. Note: in the current orchestrator, `change_approach` and `request_changes` both result in `is_approved=False` and trigger a phase reset. The distinct UX framing encourages users to provide different types of feedback (incremental fixes vs. directional pivots), but the orchestrator processing is the same.
 
    - If **"Cancel and re-run pipeline"** → confirm with the user ("This will cancel the current pipeline and start a new one. Proceed?"), then:
      1. Call `cancel_task` with `task_id` and `cleanup: true`
      2. Ask the user if they want to modify the original task description
      3. Call `submit_task` with the (possibly updated) description
      4. Resume from Phase 3 (Monitor) with the new `task_id`
+
+     **Error handling**: If `cancel_task` fails, inform the user and offer to retry. If `cancel_task` succeeds but `submit_task` fails, inform the user that the previous pipeline was cancelled and offer to retry the submission — do not leave the user stranded with a cancelled pipeline and no replacement.
 
    - If **custom text (Other)** → treat as request_changes feedback. Call `provide_input` with:
      ```json
@@ -346,6 +352,8 @@ Phase: <phase where failure occurred>
   2. If "Re-run with changes", ask the user for the updated description
   3. Call `submit_task` with the description (original or updated) and same repo/issue
   4. Resume from Phase 3 (Monitor) with the new `task_id`
+
+  **Error handling**: If `cancel_task` or `submit_task` fails, inform the user and offer to retry the failed step.
 
 ## Critical Rules
 
