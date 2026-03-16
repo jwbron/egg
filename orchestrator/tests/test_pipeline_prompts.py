@@ -18,9 +18,12 @@ sys.modules.setdefault("docker.types", _docker_mock.types)
 
 from routes.pipelines import (
     _build_agent_prompt,
+    _build_agent_roster,
     _build_brc_preamble,
     _build_phase_prompt,
+    _build_producer_orientation,
     _build_review_prompt,
+    _build_reviewer_preparation,
     _build_role_context,
     _extract_plan_overview,
     _get_agent_design_criteria,
@@ -2147,3 +2150,151 @@ class TestReviewerBrcPreamble:
             concurrent=True,
         )
         assert "consensus" in result.lower()
+
+
+class TestAgentRoster:
+    """Tests for _build_agent_roster — active agent listing in BRC preamble."""
+
+    def test_roster_lists_all_roles(self):
+        """Roster includes all provided roles."""
+        roster = _build_agent_roster(
+            ["coder", "reviewer_code", "tester"], "coder", "implement"
+        )
+        assert "coder" in roster
+        assert "reviewer_code" in roster
+        assert "tester" in roster
+
+    def test_roster_marks_current_role(self):
+        """Current agent's role is marked with (you)."""
+        roster = _build_agent_roster(
+            ["coder", "reviewer_code", "tester"], "tester", "implement"
+        )
+        assert "**tester** **(you)**" in roster
+        # Other roles should not be marked
+        assert "**coder** **(you)**" not in roster
+
+    def test_roster_includes_role_descriptions(self):
+        """Roster includes descriptions of what each role produces."""
+        roster = _build_agent_roster(
+            ["coder", "reviewer_code"], "coder", "implement"
+        )
+        assert "Implements code changes" in roster
+        assert "Reviews code quality" in roster
+
+    def test_roster_in_brc_preamble_for_implement(self):
+        """BRC preamble for implement phase includes agent roster."""
+        preamble = _build_brc_preamble("coder", "implement")
+        assert "Active Agents" in preamble
+        assert "coder" in preamble
+        assert "reviewer_code" in preamble
+
+    def test_roster_in_brc_preamble_for_plan(self):
+        """BRC preamble for plan phase includes agent roster."""
+        preamble = _build_brc_preamble("architect", "plan")
+        assert "Active Agents" in preamble
+        assert "architect" in preamble
+
+    def test_unknown_role_gets_generic_description(self):
+        """Unknown roles get a generic fallback description."""
+        roster = _build_agent_roster(
+            ["unknown_agent"], "unknown_agent", "implement"
+        )
+        assert "unknown_agent" in roster
+        assert "Executes assigned role" in roster
+
+
+class TestReviewerPreparation:
+    """Tests for _build_reviewer_preparation — proactive prep instructions."""
+
+    def test_code_reviewer_gets_codebase_exploration(self):
+        """Code reviewer prep includes codebase exploration instructions."""
+        prep = _build_reviewer_preparation("reviewer_code", "implement")
+        assert "egg-contract show" in prep
+        assert "codebase" in prep.lower()
+        assert "grep" in prep.lower() or "exploring" in prep.lower()
+
+    def test_contract_reviewer_gets_acceptance_criteria(self):
+        """Contract reviewer prep focuses on acceptance criteria."""
+        prep = _build_reviewer_preparation("reviewer_contract", "implement")
+        assert "acceptance criteria" in prep.lower()
+        assert "egg-contract show" in prep
+
+    def test_tester_gets_test_scaffolding(self):
+        """Tester prep includes test scaffolding and edge case identification."""
+        prep = _build_reviewer_preparation("tester", "implement")
+        assert "edge case" in prep.lower()
+        assert "test" in prep.lower()
+
+    def test_plan_reviewer_gets_architecture_exploration(self):
+        """Plan reviewer prep includes codebase architecture exploration."""
+        prep = _build_reviewer_preparation("reviewer_plan", "plan")
+        assert "codebase" in prep.lower() or "architecture" in prep.lower()
+
+    def test_refine_reviewer_gets_feedback_focus(self):
+        """Refine reviewer prep focuses on prior review feedback."""
+        prep = _build_reviewer_preparation("reviewer_refine", "refine")
+        assert "feedback" in prep.lower()
+
+    def test_unknown_role_gets_generic_prep(self):
+        """Unknown reviewer role gets generic preparation instructions."""
+        prep = _build_reviewer_preparation("reviewer_unknown", "implement")
+        assert "egg-contract show" in prep
+        assert "Do NOT inspect producer artifacts" in prep
+
+    def test_preparation_in_reviewer_lifecycle(self):
+        """BRC preamble reviewer lifecycle includes PREPARE step."""
+        preamble = _build_brc_preamble("reviewer_code", "implement")
+        assert "**PREPARE**" in preamble
+        assert "egg-contract show" in preamble
+
+
+class TestProducerOrientation:
+    """Tests for _build_producer_orientation — pre-work context gathering."""
+
+    def test_coder_reads_contract_and_codebase(self):
+        """Coder orientation includes contract reading and codebase exploration."""
+        orient = _build_producer_orientation("coder", "implement", ["reviewer_code"])
+        assert "egg-contract show" in orient
+        assert "codebase" in orient.lower()
+        assert "patterns" in orient.lower()
+
+    def test_coder_knows_reviewers(self):
+        """Coder orientation mentions who will review their work."""
+        orient = _build_producer_orientation(
+            "coder", "implement", ["reviewer_code", "reviewer_contract"]
+        )
+        assert "reviewer_code" in orient
+        assert "reviewer_contract" in orient
+
+    def test_tester_checks_test_infrastructure(self):
+        """Tester orientation includes checking test infrastructure."""
+        orient = _build_producer_orientation("tester", "implement", [])
+        assert "test" in orient.lower()
+        assert "edge case" in orient.lower()
+
+    def test_documenter_checks_doc_structure(self):
+        """Documenter orientation includes checking documentation structure."""
+        orient = _build_producer_orientation("documenter", "implement", [])
+        assert "documentation" in orient.lower() or "doc" in orient.lower()
+
+    def test_architect_explores_architecture(self):
+        """Architect orientation includes architecture exploration."""
+        orient = _build_producer_orientation("architect", "plan", ["reviewer_plan"])
+        assert "architecture" in orient.lower()
+        assert "reviewer_plan" in orient
+
+    def test_refiner_reads_feedback(self):
+        """Refiner orientation focuses on prior review feedback."""
+        orient = _build_producer_orientation("refiner", "refine", ["reviewer_refine"])
+        assert "feedback" in orient.lower()
+
+    def test_unknown_role_gets_generic_orientation(self):
+        """Unknown producer role gets generic orientation."""
+        orient = _build_producer_orientation("custom_role", "implement", [])
+        assert "egg-contract show" in orient
+
+    def test_orientation_in_producer_lifecycle(self):
+        """BRC preamble producer lifecycle includes ORIENT step."""
+        preamble = _build_brc_preamble("coder", "implement")
+        assert "**ORIENT**" in preamble
+        assert "egg-contract show" in preamble
