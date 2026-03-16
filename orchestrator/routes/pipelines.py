@@ -2979,7 +2979,7 @@ def _build_brc_preamble(role_value: str, phase: str) -> str:
                 "### Reviewer Lifecycle",
                 "1. **WAIT**: Poll for `CONSENSUS_PROPOSE` from assigned producers "
                 "(`egg-orch message poll --wait 30`). Do NOT inspect the filesystem "
-                "before the proposal arrives.",
+                "for producer artifacts before the proposal arrives.",
                 "2. **REVIEW**: Once a proposal arrives, form independent judgment from "
                 "the referenced code artifacts.",
                 '3. **ACK/NACK**: `egg-orch consensus ack <role> --files-reviewed "f1" "f2"` or '
