@@ -149,17 +149,132 @@ The `get_status` response enriches phase_gate decisions with `draft_content` (th
    ```
    This ensures the human sees blockers before deciding.
 
-5. **Ask for approval** — Use `AskUserQuestion`:
+5. **Present embedded questions from the draft** — Before asking for phase approval, scan `draft_content` for structured decision and feedback blocks that need human input. These are questions the agents embedded in the analysis document.
+
+   **Important: Deduplication** — Some embedded questions may also appear as separate `pending_decisions` (choice/feedback type) that you'll handle individually. To avoid double-prompting, track the IDs of decisions you've already resolved. If a draft block's `id` attribute (from `<!-- egg-hitl-decision id=X -->`) matches an already-resolved decision, skip it.
+
+   **5a. Parse decision blocks** — Look for blocks matching this pattern:
+   ```
+   <!-- egg-hitl-decision id=<id> -->
+   **<question text>**
+   - [ ] <option 1>
+   - [ ] <option 2>
+   ...
+   ```
+   Also look for simpler heading-based patterns:
+   ```
+   ### Decision <N>: <title>
+   - [ ] <option 1>
+   - [ ] <option 2>
+   ```
+
+   For each decision block found, present an `AskUserQuestion`:
+   - **Question**: The decision question text (extracted from the bold line or heading)
+   - **Header**: "Decision" (or "Decision N" if numbered)
+   - **Options**: Each checkbox item as an option (label = the checkbox text, description = "")
+   - Collect the user's selection
+
+   **5b. Parse feedback blocks** — Look for blocks matching this pattern:
+   ```
+   <!-- egg-feedback id=<id> -->
+   ```
+   Within feedback blocks, extract each question:
+   ```
+   **Q<N>: <question text>**
+   > _Your answer here_
+   ```
+   Also look for heading-based patterns:
+   ```
+   ### Feedback Requested
+   ```
+   or
+   ```
+   ### Open Questions
+   ```
+   followed by numbered or bulleted questions.
+
+   For each feedback question found, present an `AskUserQuestion`:
+   - **Question**: The feedback question text
+   - **Header**: "Feedback"
+   - **Options**:
+     - **"Not sure / skip"** — description: "Skip this question for now"
+     - **"N/A"** — description: "This question doesn't apply"
+   - The user will typically type their answer in the "Other" field
+
+   **5c. Collect responses** — Gather all decision selections and feedback answers into a structured summary. Format as:
+   ```
+   ## Resolved Questions
+
+   **Decision 1: <question>**
+   Answer: <selected option>
+
+   **Feedback 1: <question>**
+   Answer: <user's response>
+   ```
+
+   If no embedded decision or feedback blocks are found in the draft content, skip this step entirely.
+
+6. **Ask for approval** — Use `AskUserQuestion`:
    - **Question**: "Phase '<phase>' is complete. Do you approve the output above to proceed?"
    - **Header**: "Approval"
    - **Options**:
      - **"Approve"** — description: "Proceed to the next phase"
-     - **"Request changes"** — description: "Send feedback for the agents to address"
+     - **"Request changes"** — description: "Send feedback for agents to address, then re-review"
+     - **"Change approach"** — description: "Reject this approach entirely and re-run the phase from scratch with new direction"
+     - **"Cancel and re-run pipeline"** — description: "Fundamental issues — cancel this pipeline and start over"
    - The user can also type custom feedback in the "Other" field
 
-6. **Submit the response**:
-   - If "Approve" → call `provide_input` with `response: "approved"`
-   - If "Request changes" or custom text → call `provide_input` with the user's feedback as the `response`
+7. **Submit the response** — Use structured JSON payloads so the orchestrator can properly route the resolution. Build the JSON based on the user's choice:
+
+   **7a. Build the `decisions` object** from step 5c responses (if any). Format as a dict mapping decision/feedback IDs to answers:
+   ```json
+   {
+     "decision-1": "Selected option text",
+     "feedback-1": {"q1": "User's answer", "q2": "User's answer"}
+   }
+   ```
+   If no embedded questions were found, omit this field.
+
+   **7b. Submit based on the user's approval choice**:
+
+   - If **"Approve"** → call `provide_input` with:
+     ```json
+     {"action": "approve", "decisions": <decisions object from 7a or omit>}
+     ```
+
+   - If **"Request changes"** → ask a follow-up `AskUserQuestion`:
+     - **Question**: "What changes should the agents address?"
+     - **Header**: "Feedback"
+     - **Options**:
+       - **"Address reviewer concerns"** — description: "Fix the blocking issues flagged by reviewers above"
+       - **"See my notes below"** — description: "I'll type specific feedback"
+     Then call `provide_input` with:
+     ```json
+     {"action": "request_changes", "feedback": "<user's feedback text>", "decisions": <decisions object from 7a or omit>}
+     ```
+
+   - If **"Change approach"** → ask a follow-up `AskUserQuestion`:
+     - **Question**: "What direction should the agents take instead?"
+     - **Header**: "Direction"
+     - **Options**:
+       - **"Try a completely different approach"** — description: "Let agents explore alternatives"
+       - **"See my notes below"** — description: "I'll describe the approach I want"
+     Then call `provide_input` with:
+     ```json
+     {"action": "change_approach", "feedback": "<user's direction text>", "decisions": <decisions object from 7a or omit>}
+     ```
+     This resets the current phase and re-runs it with the new direction.
+
+   - If **"Cancel and re-run pipeline"** → confirm with the user ("This will cancel the current pipeline and start a new one. Proceed?"), then:
+     1. Call `cancel_task` with `task_id` and `cleanup: true`
+     2. Ask the user if they want to modify the original task description
+     3. Call `submit_task` with the (possibly updated) description
+     4. Resume from Phase 3 (Monitor) with the new `task_id`
+
+   - If **custom text (Other)** → treat as request_changes feedback. Call `provide_input` with:
+     ```json
+     {"action": "request_changes", "feedback": "<user's text>", "decisions": <decisions object from 7a or omit>}
+     ```
 
 After resolving this decision, move to the next pending decision (if any) before resuming monitoring.
 
@@ -175,14 +290,24 @@ Show the decision's `question` and `context` (if non-empty) prominently, then us
 
 ### After handling each `choice` or `feedback` decision:
 
-Call the `provide_input` MCP tool (`phase_gate` decisions already handle this in step 6 above):
+Call the `provide_input` MCP tool (`phase_gate` decisions already handle this in step 7 above):
 
 ```
 Tool: provide_input
 Arguments:
   task_id: <task_id>
   decision_id: <decision_id>
-  response: <user's answer>
+  response: <structured JSON — see below>
+```
+
+For `choice` decisions, send:
+```json
+{"action": "select", "selected": "<chosen option>"}
+```
+
+For `feedback` decisions, send:
+```json
+{"action": "submit_feedback", "answers": {"q1": "<answer>", "q2": "<answer>"}}
 ```
 
 Confirm the input was submitted, then proceed to the next pending decision. Once all decisions are resolved, resume monitoring (Phase 3).
@@ -211,7 +336,16 @@ Phase: <phase where failure occurred>
 
 - Show error information if available
 - List what completed before failure
-- Offer to show agent logs or re-run the task
+- Offer the user a choice via `AskUserQuestion`:
+  - **"Re-run pipeline"** — description: "Cancel this pipeline and start a new one with the same task"
+  - **"Re-run with changes"** — description: "Cancel and start a new pipeline with modified description"
+  - **"Done"** — description: "No further action needed"
+
+  If re-running:
+  1. Call `cancel_task` with the failed `task_id` and `cleanup: true`
+  2. If "Re-run with changes", ask the user for the updated description
+  3. Call `submit_task` with the description (original or updated) and same repo/issue
+  4. Resume from Phase 3 (Monitor) with the new `task_id`
 
 ## Critical Rules
 
