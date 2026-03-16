@@ -1,29 +1,43 @@
 """Tests for egg_agent.__main__ CLI entry point."""
 
 import sys
+from dataclasses import dataclass, field
 from io import StringIO
 from types import ModuleType
+from typing import Any
 from unittest.mock import patch
 
 from egg_agent.result import AgentResult
 
-# Ensure mock SDK module is available (same pattern as test_client.py)
-if "claude_agent_sdk" not in sys.modules:
-    from dataclasses import dataclass, field
-    from typing import Any
+# ── Mock SDK types ──────────────────────────────────────────────────────────
+#
+# claude-agent-sdk is only installed inside sandbox containers, not in CI.
+# Create compatible mock types so tests run in both environments.
+
+try:
+    from claude_agent_sdk import (  # noqa: F401
+        AssistantMessage,
+        ClaudeAgentOptions,
+        ClaudeSDKError,
+        CLINotFoundError,
+        ProcessError,
+        ResultMessage,
+        TextBlock,
+    )
+except ImportError:
 
     @dataclass
-    class TextBlock:
+    class TextBlock:  # type: ignore[no-redef]
         text: str
         type: str = "text"
 
     @dataclass
-    class AssistantMessage:
+    class AssistantMessage:  # type: ignore[no-redef]
         content: list[Any] = field(default_factory=list)
         model: str | None = None
 
     @dataclass
-    class ResultMessage:
+    class ResultMessage:  # type: ignore[no-redef]
         subtype: str = "result"
         duration_ms: int = 0
         duration_api_ms: int = 0
@@ -36,17 +50,17 @@ if "claude_agent_sdk" not in sys.modules:
         result: str | None = None
         structured_output: Any = None
 
-    class ClaudeSDKError(Exception):
+    class ClaudeSDKError(Exception):  # type: ignore[no-redef]
         pass
 
-    class ProcessError(ClaudeSDKError):
+    class ProcessError(ClaudeSDKError):  # type: ignore[no-redef]
         pass
 
-    class CLINotFoundError(ClaudeSDKError):
+    class CLINotFoundError(ClaudeSDKError):  # type: ignore[no-redef]
         pass
 
     @dataclass
-    class ClaudeAgentOptions:
+    class ClaudeAgentOptions:  # type: ignore[no-redef]
         permission_mode: str = ""
         model: str = ""
         cwd: str | None = None
@@ -55,6 +69,7 @@ if "claude_agent_sdk" not in sys.modules:
         system_prompt: str | None = None
         setting_sources: list[str] | None = None
 
+    # Install mock module so __main__.py's lazy import finds it
     _mock_sdk = ModuleType("claude_agent_sdk")
     _mock_sdk.TextBlock = TextBlock  # type: ignore[attr-defined]
     _mock_sdk.AssistantMessage = AssistantMessage  # type: ignore[attr-defined]
@@ -82,8 +97,7 @@ class TestMain:
             returncode=0,
         )
 
-        captured = StringIO()
-        with patch("sys.argv", ["egg_agent", "test prompt"]), patch("sys.stdout", captured):
+        with patch("sys.argv", ["egg_agent", "test prompt"]):
             main()
 
         # Verify on_output was passed to run_agent
