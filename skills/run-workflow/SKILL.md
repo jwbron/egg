@@ -556,7 +556,7 @@ When the pipeline is stuck, failing, or behaving unexpectedly, use MCP tools to 
 
 ## Critical Rules
 
-- **Always use MCP tools** (`submit_task`, `get_status`, `provide_input`, `cancel_task`, `check_health`, `list_containers`, `get_container_logs`, `send_message`, `get_consensus_status`, `get_phase`, `get_pipeline_snapshot`, `list_checkpoints`, `search_checkpoints`, `get_contract`) — never call orchestrator/gateway APIs or CLIs directly
+- **Always use MCP tools** — never call orchestrator/gateway APIs or CLIs directly
 - **Always serialize JSON payloads as strings** for `provide_input` — the `response` parameter is a string, not an object. Pass `'{"action": "approve"}'` not `{"action": "approve"}`
 - **Never skip HITL** — always present decisions to the user and wait for their response
 - **Stop polling on exit** — always exit the monitoring loop when the workflow ends
