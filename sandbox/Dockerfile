@@ -1,10 +1,54 @@
-# Docker Layer Caching Strategy:
-# - Layers are cached by checksum - unchanged layers reuse cache
-# - Order: least-changing (base packages) → most-changing (scripts, configs)
-# - When a layer changes, all subsequent layers rebuild
-# - Copying files with COPY checks file contents, not timestamps
+# Docker Multi-Stage Build Strategy:
+# - Stage 1 (repo-deps): Builds repo dependencies independently of the base image.
+#   Changes to base system packages do NOT invalidate the repo-deps cache.
+# - Stage 2 (base): System packages, Python, pip deps, Claude tools.
+#   Claude agent SDK and CLI are installed last (they change most often).
+# - Stage 3 (final): Combines base + repo-deps, adds runtime scripts and entrypoint.
 
-FROM ubuntu:22.04
+# =============================================================================
+# Stage 1: repo-deps — independent cache for repository dependency installation
+# =============================================================================
+# This stage has its own FROM so its cache is completely independent of the
+# base stage. Changes to base system packages (Stage 2) do NOT invalidate
+# the repo dependency cache, avoiding expensive npm install / go mod download.
+FROM ubuntu:22.04 AS repo-deps
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV PIP_BREAK_SYSTEM_PACKAGES=1
+ARG PIP_IGNORE_INSTALLED=1
+# Point GOMODCACHE at the module cache populated during `docker build`
+# (via build_commands in repositories.yaml). Without this, Go defaults to
+# $HOME/go/pkg/mod at runtime and can't find modules cached under
+# /usr/local/pkg/mod/, causing proxy.golang.org lookups that fail in private mode.
+# Using GOMODCACHE instead of GOPATH avoids side effects on GOBIN/GOPATH/src.
+ENV GOMODCACHE=/usr/local/pkg/mod
+
+# Install minimal tooling needed to run docker-setup.py and build commands
+RUN apt-get update && apt-get install -y \
+    python3 python3-pip \
+    git curl wget make build-essential pkg-config \
+    # Common build deps needed by repo build_commands
+    jq unzip \
+    && pip3 install --no-cache-dir pyyaml \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy watch files and manifest for build_commands
+COPY repo-deps/ /tmp/repo-deps/
+COPY sandbox/docker-setup.py /tmp/docker-setup.py
+
+# Run docker-setup.py: installs extra packages, runs build commands,
+# persists output dirs to /opt/prebuilt-deps/
+RUN chmod +x /tmp/docker-setup.py && \
+    apt-get update && \
+    python3 /tmp/docker-setup.py && \
+    rm /tmp/docker-setup.py && \
+    rm -rf /tmp/repo-deps && \
+    mkdir -p /opt/prebuilt-deps
+
+# =============================================================================
+# Stage 2: base — system packages, Python 3.13, pip deps, Claude tools
+# =============================================================================
+FROM ubuntu:22.04 AS base
 
 ENV DEBIAN_FRONTEND=noninteractive
 # Allow pip to install over distutils-managed system packages (safe in Docker).
@@ -82,19 +126,6 @@ RUN apt-get update && \
 # Install pyyaml early - required by docker-setup.py for reading config
 RUN pip3 install --no-cache-dir pyyaml
 
-# Install development tools (configurable via repositories.yaml)
-# Copy watch files for build_commands BEFORE docker-setup.py so that
-# changes to dependency files (e.g., package-lock.json) invalidate
-# the cache for this layer, triggering a rebuild of dependencies.
-# The repo-deps directory is created by create_dockerfile() from local repo paths.
-COPY repo-deps/ /tmp/repo-deps/
-COPY sandbox/docker-setup.py /tmp/docker-setup.py
-RUN chmod +x /tmp/docker-setup.py && \
-    apt-get update && \
-    python3 /tmp/docker-setup.py && \
-    rm /tmp/docker-setup.py && \
-    rm -rf /tmp/repo-deps
-
 # Install Python dependencies for egg components
 # These are required by scripts in /opt/egg-runtime/ (copied from sandbox/)
 RUN pip3 install --no-cache-dir \
@@ -102,8 +133,6 @@ RUN pip3 install --no-cache-dir \
     requests \
     cryptography \
     PyJWT \
-    # Agent SDK for in-process Claude agent execution
-    claude-agent-sdk \
     # Dev dependencies for linting and testing
     ruff \
     pytest \
@@ -161,7 +190,7 @@ RUN mkdir -p /tmp/agent-tmp && chmod 1777 /tmp/agent-tmp
 
 # Create fixed container user 'egg' with default UID/GID 1000
 # The entrypoint will adjust UID/GID at runtime to match host user for proper file permissions
-# Placed BEFORE the frequently-changing COPY layer so user creation is cached
+# Placed BEFORE the frequently-changing layers so user creation is cached
 RUN groupadd -g 1000 egg && \
     useradd -m -u 1000 -g 1000 -s /bin/bash egg && \
     echo "egg ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/010-egg-nopasswd && \
@@ -169,10 +198,20 @@ RUN groupadd -g 1000 egg && \
     # Create .config directory with proper ownership for uv and other tools
     mkdir -p /home/egg/.config && chown egg:egg /home/egg/.config
 
+# Install claude-agent-sdk (changes more often than base deps, less often than CLI)
+# ARG allows cache-busting when a new version is detected by the egg script
+ARG CLAUDE_AGENT_SDK_VERSION=latest
+RUN if [ "$CLAUDE_AGENT_SDK_VERSION" = "latest" ]; then \
+        pip3 install --no-cache-dir --upgrade claude-agent-sdk; \
+    else \
+        pip3 install --no-cache-dir claude-agent-sdk==${CLAUDE_AGENT_SDK_VERSION}; \
+    fi && \
+    # Save installed version for update checks
+    pip3 show claude-agent-sdk 2>/dev/null | grep '^Version:' | cut -d' ' -f2 > /opt/claude-agent-sdk-version.txt || true
+
 # Install Claude Code CLI (native installer) for the egg user
 # ARG is used (not ENV) so that changing the version busts Docker's cache
 # The egg script checks for new versions and passes the latest version here
-# Placed BEFORE the COPY layer so source changes don't trigger a ~550s reinstall
 ARG CLAUDE_CODE_VERSION=stable
 RUN su - egg -c "curl -fsSL https://claude.ai/install.sh | bash -s -- $CLAUDE_CODE_VERSION" && \
     # Save installed version for update checks
@@ -184,6 +223,26 @@ RUN su - egg -c "curl -fsSL https://claude.ai/install.sh | bash -s -- $CLAUDE_CO
         echo "Patched ripgrep: $CLAUDE_RG -> /usr/bin/rg"; \
     else \
         echo "Note: No bundled ripgrep found to patch (may not be needed)"; \
+    fi
+
+# =============================================================================
+# Stage 3: final — combine base + repo-deps, add runtime scripts
+# =============================================================================
+FROM base AS final
+
+# Pull in cached repo dependencies from Stage 1
+# This is a simple COPY that doesn't re-run any build commands
+COPY --from=repo-deps /opt/prebuilt-deps/ /opt/prebuilt-deps/
+
+# Install extra packages configured via repositories.yaml.
+# docker-setup.py writes the package list to /opt/prebuilt-deps/ in Stage 1,
+# but apt-installed packages don't carry across stages — reinstall them here.
+# Use || true to preserve the old lenient behavior (install_extra_packages used
+# check=False) so that typos or unavailable packages don't fail the build.
+RUN if [ -f /opt/prebuilt-deps/extra-packages-apt.txt ] && [ -s /opt/prebuilt-deps/extra-packages-apt.txt ]; then \
+        apt-get update && \
+        (xargs apt-get install -y < /opt/prebuilt-deps/extra-packages-apt.txt || true) && \
+        rm -rf /var/lib/apt/lists/*; \
     fi
 
 # Copy sandbox runtime scripts and tools to /opt/egg-runtime

@@ -11,6 +11,7 @@ sys.path.insert(0, str(sandbox_path))
 from egg_lib.docker import (
     _create_network,
     build_image,
+    check_agent_sdk_update,
     check_claude_update,
     check_docker,
     check_docker_permissions,
@@ -18,7 +19,9 @@ from egg_lib.docker import (
     ensure_egg_network,
     ensure_gateway_networks,
     get_image_build_hash,
+    get_installed_agent_sdk_version,
     get_installed_claude_version,
+    get_latest_agent_sdk_version,
     get_latest_claude_version,
     hash_directory,
     hash_file,
@@ -180,6 +183,9 @@ class TestGetLatestClaudeVersion:
 class TestCheckClaudeUpdate:
     """Tests for check_claude_update."""
 
+    def setup_method(self):
+        check_claude_update.cache_clear()
+
     def test_update_available(self):
         """Returns new version when update available."""
         with patch("egg_lib.docker.get_installed_claude_version", return_value="2.1.7"):
@@ -207,6 +213,85 @@ class TestCheckClaudeUpdate:
         with patch("egg_lib.docker.get_installed_claude_version", return_value="2.1.7"):
             with patch("egg_lib.docker.get_latest_claude_version", return_value=None):
                 result = check_claude_update()
+                assert result is None
+
+
+class TestGetInstalledAgentSdkVersion:
+    """Tests for get_installed_agent_sdk_version."""
+
+    def test_returns_version(self):
+        """Returns version from image."""
+        with patch("egg_lib.docker.image_exists", return_value=True):
+            with patch("egg_lib.docker.subprocess.run") as mock_run:
+                mock_run.return_value = MagicMock(returncode=0, stdout="0.1.5\n")
+                result = get_installed_agent_sdk_version()
+                assert result == "0.1.5"
+
+    def test_returns_none_no_image(self):
+        """Returns None when image doesn't exist."""
+        with patch("egg_lib.docker.image_exists", return_value=False):
+            assert get_installed_agent_sdk_version() is None
+
+    def test_returns_none_on_failure(self):
+        """Returns None when docker run fails."""
+        with patch("egg_lib.docker.image_exists", return_value=True):
+            with patch("egg_lib.docker.subprocess.run") as mock_run:
+                mock_run.return_value = MagicMock(returncode=1, stdout="")
+                assert get_installed_agent_sdk_version() is None
+
+
+class TestGetLatestAgentSdkVersion:
+    """Tests for get_latest_agent_sdk_version."""
+
+    def test_returns_version(self):
+        """Returns version from PyPI."""
+        mock_response = MagicMock()
+        mock_response.read.return_value = b'{"info": {"version": "0.1.5"}}'
+        mock_response.__enter__ = MagicMock(return_value=mock_response)
+        mock_response.__exit__ = MagicMock(return_value=False)
+        with patch("urllib.request.urlopen", return_value=mock_response):
+            result = get_latest_agent_sdk_version()
+            assert result == "0.1.5"
+
+    def test_returns_none_on_error(self):
+        """Returns None on network error."""
+        with patch("urllib.request.urlopen", side_effect=Exception("timeout")):
+            assert get_latest_agent_sdk_version() is None
+
+
+class TestCheckAgentSdkUpdate:
+    """Tests for check_agent_sdk_update."""
+
+    def setup_method(self):
+        check_agent_sdk_update.cache_clear()
+
+    def test_update_available(self):
+        """Returns new version when update available."""
+        with patch("egg_lib.docker.get_installed_agent_sdk_version", return_value="0.1.3"):
+            with patch("egg_lib.docker.get_latest_agent_sdk_version", return_value="0.1.5"):
+                with patch("egg_lib.docker.get_quiet_mode", return_value=True):
+                    result = check_agent_sdk_update()
+                    assert result == "0.1.5"
+
+    def test_no_update(self):
+        """Returns None when versions match."""
+        with patch("egg_lib.docker.get_installed_agent_sdk_version", return_value="0.1.5"):
+            with patch("egg_lib.docker.get_latest_agent_sdk_version", return_value="0.1.5"):
+                result = check_agent_sdk_update()
+                assert result is None
+
+    def test_no_installed_version(self):
+        """Returns latest when no version installed."""
+        with patch("egg_lib.docker.get_installed_agent_sdk_version", return_value=None):
+            with patch("egg_lib.docker.get_latest_agent_sdk_version", return_value="0.1.5"):
+                result = check_agent_sdk_update()
+                assert result == "0.1.5"
+
+    def test_check_fails(self):
+        """Returns None when version check fails."""
+        with patch("egg_lib.docker.get_installed_agent_sdk_version", return_value="0.1.3"):
+            with patch("egg_lib.docker.get_latest_agent_sdk_version", return_value=None):
+                result = check_agent_sdk_update()
                 assert result is None
 
 
@@ -354,8 +439,9 @@ class TestShouldRebuildImage:
                 with patch("egg_lib.docker.compute_build_hash", return_value=hash_val):
                     with patch("egg_lib.docker.get_image_build_hash", return_value=hash_val):
                         with patch("egg_lib.docker.check_claude_update", return_value=None):
-                            rebuild, reason = should_rebuild_image()
-                            assert rebuild is False
+                            with patch("egg_lib.docker.check_agent_sdk_update", return_value=None):
+                                rebuild, reason = should_rebuild_image()
+                                assert rebuild is False
         finally:
             docker_mod._force_rebuild = original
 
@@ -371,6 +457,28 @@ class TestShouldRebuildImage:
                     with patch("egg_lib.docker.get_image_build_hash", return_value="old-hash"):
                         rebuild, reason = should_rebuild_image()
                         assert rebuild is True
+        finally:
+            docker_mod._force_rebuild = original
+
+    def test_agent_sdk_update_triggers_rebuild(self):
+        """Returns True when agent SDK update is available."""
+        import egg_lib.docker as docker_mod
+
+        original = docker_mod._force_rebuild
+        try:
+            docker_mod._force_rebuild = False
+            hash_val = "abc123" * 10 + "abcd"
+            with patch("egg_lib.docker.image_exists", return_value=True):
+                with patch("egg_lib.docker.compute_build_hash", return_value=hash_val):
+                    with patch("egg_lib.docker.get_image_build_hash", return_value=hash_val):
+                        with patch("egg_lib.docker.check_claude_update", return_value=None):
+                            with patch(
+                                "egg_lib.docker.check_agent_sdk_update",
+                                return_value="0.2.0",
+                            ):
+                                rebuild, reason = should_rebuild_image()
+                                assert rebuild is True
+                                assert "agent-sdk" in reason.lower() or "0.2.0" in reason
         finally:
             docker_mod._force_rebuild = original
 
