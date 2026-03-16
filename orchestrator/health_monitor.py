@@ -134,7 +134,8 @@ class HealthMonitor:
         if event.pipeline_id != self._pipeline_id:
             return
 
-        agent_id = event.data.get("agent_id")
+        # Accept both agent_id and agent_role for compatibility
+        agent_id = event.data.get("agent_id") or event.data.get("agent_role")
         if not agent_id:
             return
 
