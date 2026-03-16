@@ -986,7 +986,6 @@ class GatewayClient:
                 except Exception:
                     pass
 
-
     def get_repo_visibility(self, repo: str) -> str | None:
         """Query repo visibility from gateway.
 
