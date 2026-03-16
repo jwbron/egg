@@ -9,7 +9,84 @@
   "current_phase": "refine",
   "acceptance_criteria": [],
   "phases": [],
-  "decisions": [],
+  "decisions": [
+    {
+      "id": "decision-1",
+      "question": "How should this be split into PRs?",
+      "type": "hitl",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Option A: Single large PR (~5000-6000 lines, atomic change)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Option B: 3-4 smaller PRs following dependency order",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Option C: Two PRs \u2014 prep refactor + main removal (recommended)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-2",
+      "question": "What should happen to open PR #1171 (docs: add integrator to concurrent implement phase roles)?",
+      "type": "hitl",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Close #1171 \u2014 integrator is being removed anyway",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Merge #1171 first, then remove in this issue",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Ignore \u2014 this issue will supersede it",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-3",
+      "question": "Should concurrent_execution and concurrent_phases config flags be removed (since BRC is now the only mode)?",
+      "type": "hitl",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Yes, remove them \u2014 they are now always-on dead config",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "No, keep them as kill switches for operational safety",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    }
+  ],
   "workflow_owner": null,
   "audit_log": [],
   "refine_review_cycles": 0,
@@ -17,7 +94,27 @@
   "plan_review_cycles": 0,
   "plan_review_feedback": "",
   "pr": null,
-  "feedback": null,
+  "feedback": {
+    "id": "feedback-1",
+    "phase": "refine",
+    "questions": [
+      {
+        "id": "Q1",
+        "question": "Are there any in-flight pipelines using Tier 3 or multi-agent wave execution that need to complete before this lands?",
+        "answer": null
+      },
+      {
+        "id": "Q2",
+        "question": "Should we add a migration script for old .egg-state/pipelines/*.json files, or is intentional failure on stale state acceptable?",
+        "answer": null
+      }
+    ],
+    "submitted": false,
+    "submitted_by": null,
+    "submitted_at": null,
+    "comment_id": null,
+    "debounce_until": null
+  },
   "phase_configs": null,
   "agent_executions": [],
   "multi_agent_config": null

@@ -4,7 +4,7 @@
 
 ## Problem Statement
 
-The implement phase has accumulated multiple conditional execution paths: Tier 3 phase-level dispatch, multi-agent wave execution, single-agent fallback, short-circuit mode, and complexity tiers. The decision tree in `orchestrator/routes/pipelines.py` (~line 6468) selects between these paths based on `coordinator_enabled`, `multi_agent`, `complexity_tier`, and `concurrent_execution` flags.
+The implement phase has accumulated multiple conditional execution paths: Tier 3 phase-level dispatch, multi-agent wave execution, single-agent fallback, short-circuit mode, and complexity tiers. The decision tree in `orchestrator/routes/pipelines.py` (~line 6446) selects between these paths based on `multi_agent`, `complexity_tier`, and `concurrent_execution` flags.
 
 This complexity is not justified by the results. The branching logic is hard to reason about, test, and maintain. Different execution paths produce inconsistent behavior.
 
@@ -12,29 +12,28 @@ The desired outcome: collapse all execution paths so that **every phase always r
 
 ## Current Behavior
 
-The implement phase dispatch works as follows (pipelines.py:6468-6883):
+The implement phase dispatch works as follows (pipelines.py:6446-6665):
 
-1. **Coordinator mode**: Spawns `CoordinatorExecutor` — **fully removed by PR #1169** (issue #1164). No artifacts remain.
-2. **Concurrent BRC** (lines 6680-6723): Calls `_run_concurrent_phase()` — spawns all agents simultaneously with consensus polling. **This is the keeper.**
-3. **Tier 3 phase-level dispatch** (lines 6725-6766): Calls `_run_tier3_implement()` (lines 3667-4385) — for HIGH complexity, iterates plan phases in dependency order, spawning CODER → TESTER → DOCUMENTER → CHECKER → REVIEWER_CODE per phase, with an integrator pass at the end.
-4. **Multi-agent wave execution** (lines 6768-6813): Calls `_run_multi_agent_phase()` (lines 4386-4579) — wave-based execution using `MultiAgentExecutor`.
-5. **Single-agent fallback** (lines 6815-6882): Spawns a lone CODER agent.
+1. **Coordinator mode**: Fully removed by PR #1169 (issue #1164, now CLOSED). No artifacts remain.
+2. **Concurrent BRC** (`_run_concurrent_phase()`, line 4563): Spawns all agents simultaneously with consensus polling. **This is the keeper.**
+3. **Tier 3 phase-level dispatch** (`_run_tier3_implement()`): For HIGH complexity, iterates plan phases in dependency order, spawning CODER → TESTER → DOCUMENTER → CHECKER → REVIEWER_CODE per phase, with an integrator pass at the end.
+4. **Multi-agent wave execution** (`_run_multi_agent_phase()`): Wave-based execution using `MultiAgentExecutor` from `orchestrator/multi_agent.py`.
+5. **Single-agent fallback**: Spawns a lone CODER agent.
 
 Supporting infrastructure:
-- **Short-circuit detection** (`_check_short_circuit_signal`, lines 1663-1695): Reads `short_circuit: true` from refine draft YAML to skip the plan phase.
-- **Complexity tier detection** (`_check_high_complexity_signal`, lines 1698-1753): Reads `complexity_tier` and `parallel_phases` from refine draft YAML.
+- **Short-circuit detection** (`_check_short_circuit_signal`, line 1656): Reads `short_circuit: true` from refine draft YAML to skip the plan phase.
+- **Complexity tier detection** (`_check_high_complexity_signal`, line 1691): Reads `complexity_tier` and `parallel_phases` from refine draft YAML.
 - **PhaseDependencyGraph** (`shared/egg_contracts/dependency_graph.py:382-539`): Models plan phase dependencies for Tier 3 wave computation.
-- **PipelineDispatcher** (`orchestrator/dispatch.py`): Bridges orchestrator with egg_contracts dispatch logic for wave coordination. Used by `signals.py` for completion/progress recording.
+- **PipelineDispatcher** (`orchestrator/dispatch.py`): Bridges orchestrator with egg_contracts dispatch logic for wave coordination. Used by `signals.py` (lines 339-345, 489-494) for completion/progress recording.
 - **MultiAgentExecutor** (`orchestrator/multi_agent.py`): Wave-based parallel agent management. Also hosts `is_concurrent_execution()` (lines 653-673).
 
 ## Constraints
 
-- **Dependency on #1164**: PR #1169 (Remove coordinator agent) is merged and fully landed. `coordinator_executor.py`, `sandbox/.claude/rules/coordinator.md`, and all coordinator routes/tests are removed. No cleanup needed.
+- **Dependency on #1164**: PR #1169 (Remove coordinator agent) is merged and fully landed. No cleanup needed.
 - **No backward compatibility**: The issue explicitly states old `.egg-state/pipelines/*.json` files with removed fields will fail validation intentionally. Clean break.
-- **signals.py refactoring required first**: `orchestrator/routes/signals.py` imports `create_dispatcher` and `map_agent_role_to_contract_role` from `dispatch.py` (lines 339-345, 489-494). These must be inlined using direct `egg_contracts.Orchestrator` calls before `dispatch.py` can be deleted.
+- **signals.py refactoring required first**: `orchestrator/routes/signals.py` imports `create_dispatcher` and `map_agent_role_to_contract_role` from `dispatch.py` (line 35). These must be inlined using direct `egg_contracts.Orchestrator` calls before `dispatch.py` can be deleted.
 - **`is_concurrent_execution()` relocation**: Must move from `multi_agent.py` to `concurrent_executor.py` before deleting `multi_agent.py`.
-- **`max_parallel_agents` replacement**: Reviewer spawning (~line 7096) uses `min(len(reviewer_roles), max_parallel_agents)` — after removal, use `len(reviewer_roles)` directly as `max_workers`.
-- **Open PR #1171**: "docs: add integrator to concurrent implement phase roles" is currently open. This PR adds integrator references that #1165 will remove. It should either be closed/superseded or merged before this work begins.
+- **`max_parallel_agents` replacement**: Reviewer spawning (~line 6885) uses `min(len(reviewer_roles), max_parallel_agents)` — after removal, use `len(reviewer_roles)` directly as `max_workers`.
 - **Scope**: ~5000-6000 lines removed across ~25-30 files. 9 test files deleted entirely, 6 test files updated.
 
 ## Options Considered
@@ -87,7 +86,7 @@ The migration order from the issue body is well-structured and should be followe
 
 ## Open Questions
 
-All questions below are registered in the contract as decisions or feedback items.
+All questions below are registered in the contract as decisions (decision-1 through decision-3) and feedback items (feedback-1).
 
 ### Decision 1: PR splitting strategy
 
@@ -113,10 +112,10 @@ This PR adds integrator documentation that #1165 will remove.
 
 > After removal, should `concurrent_execution` and `concurrent_phases` config flags also be removed (since BRC is now the only mode)?
 
-The issue's "Keep" list says to keep these flags. But if BRC is always-on, they become dead config.
+The issue's "Keep" list says to keep these flags. But if BRC is always-on, they become dead config. From an agent-design perspective, keeping dead flags as "kill switches" risks reintroducing conditional dispatch — the exact complexity this issue removes. If a kill switch is ever needed, it could be implemented at the gateway/sandbox level rather than as orchestrator conditional logic.
 
-- [ ] Yes, remove them too — they are now always-on
-- [ ] No, keep them for now — useful as kill switches
+- [ ] Yes, remove them — they are now always-on dead config
+- [ ] No, keep them as kill switches for operational safety
 - [ ] Other (explain in reply)
 
 ### Feedback Requested
