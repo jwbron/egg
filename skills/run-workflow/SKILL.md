@@ -421,7 +421,7 @@ When the pipeline is stuck, failing, or behaving unexpectedly, use these tools t
 | Token usage / cost | `egg-checkpoint cost --pipeline <task_id>` | Breakdown by agent |
 | SDLC contract state | `egg-contract show` | Task progress, pending decisions |
 | BRC consensus state | `egg-orch consensus status <task_id>` | Agent phases, blocking agents, completion |
-| Agent messages | `egg-orch message poll --wait 0` | Check message bus (proposals, ACKs, NACKs) |
+| Agent messages | `egg-orch message poll <task_id> --wait 0` | Check message bus (proposals, ACKs, NACKs) |
 | Message bus stats | Via `get_status` MCP tool | `concurrent.consensus` field in response |
 
 **When to use these during the workflow:**
