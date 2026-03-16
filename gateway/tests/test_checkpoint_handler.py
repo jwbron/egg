@@ -1396,10 +1396,8 @@ class TestPushRetryInStore:
 
         handler._run_git = track_run_git
 
-        try:
-            handler.store_checkpoint_v2(checkpoint, "/fake/repo")
-        except Exception:
-            pass
+        result = handler.store_checkpoint_v2(checkpoint, "/fake/repo")
+        assert result is True, "Expected store to return True on first-attempt success"
 
         push_calls = [c for c in git_calls if "push" in c[1]]
         assert len(push_calls) == 1, f"Expected 1 push attempt, got {len(push_calls)}"
@@ -1427,10 +1425,8 @@ class TestPushRetryInStore:
 
         handler._run_git = track_run_git
 
-        try:
-            handler.store_checkpoint_v2(checkpoint, "/fake/repo")
-        except Exception:
-            pass
+        result = handler.store_checkpoint_v2(checkpoint, "/fake/repo")
+        assert result is True, "Expected store to return True after successful retry"
 
         push_calls = [c for c in git_calls if "push" in c[1]]
         assert len(push_calls) == 2, f"Expected 2 push attempts, got {len(push_calls)}"
