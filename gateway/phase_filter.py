@@ -930,7 +930,6 @@ def check_phase_file_restrictions(
 def check_agent_restrictions(
     agent_role: str,
     files: list[str],
-    complexity_tier: str | None = None,
 ) -> FileRestrictionResult:
     """Check if files are allowed for an agent role (convenience function).
 
@@ -942,14 +941,10 @@ def check_agent_restrictions(
     - Coder: source code and config, blocked from docs/tests/contracts
     - Tester: test files only
     - Documenter: documentation and markdown only
-    - Integrator: handoff output only (read-only for everything else)
-      - Exception: In Tier 3 (high complexity), integrator gets write access
-        to source/tests/docs for fixing integration issues
 
     Args:
         agent_role: The agent role (e.g., "coder", "tester")
         files: List of file paths being modified
-        complexity_tier: Optional complexity tier for tier-aware access
 
     Returns:
         FileRestrictionResult indicating whether the files are allowed
@@ -959,7 +954,7 @@ def check_agent_restrictions(
     except ImportError:
         from agent_restrictions import validate_agent_push  # type: ignore[no-redef, import-untyped]  # noqa: I001
 
-    result = validate_agent_push(agent_role, files, complexity_tier=complexity_tier)
+    result = validate_agent_push(agent_role, files)
 
     if result.allowed:
         return FileRestrictionResult.allow(result.message)

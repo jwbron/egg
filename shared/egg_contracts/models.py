@@ -320,7 +320,6 @@ class AgentRoleType(StrEnum):
     CODER = "coder"
     TESTER = "tester"
     DOCUMENTER = "documenter"
-    INTEGRATOR = "integrator"
     CHECKER = "checker"
     # Plan-phase roles
     ARCHITECT = "architect"

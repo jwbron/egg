@@ -386,7 +386,6 @@ def initialize_orchestration(
             AgentRole.CODER,
             AgentRole.TESTER,
             AgentRole.DOCUMENTER,
-            AgentRole.INTEGRATOR,
         ]
 
     # Create pending execution for each enabled role
