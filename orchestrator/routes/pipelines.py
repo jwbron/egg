@@ -948,9 +948,9 @@ def _get_concurrent_status(pipeline: "Pipeline") -> dict | None:
     imported lazily and degrade gracefully to empty structures when unavailable.
     """
     try:
-        from multi_agent import is_concurrent_execution
+        from concurrent_executor import is_concurrent_execution
     except ImportError:
-        from ..multi_agent import is_concurrent_execution  # type: ignore[no-redef]
+        from ..concurrent_executor import is_concurrent_execution  # type: ignore[no-redef]
 
     current_phase = pipeline.current_phase.value if pipeline.current_phase else None
     if not is_concurrent_execution(pipeline, phase=current_phase):
@@ -6454,9 +6454,9 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                     )
 
                     try:
-                        from multi_agent import is_concurrent_execution
+                        from concurrent_executor import is_concurrent_execution
                     except ImportError:
-                        from ..multi_agent import is_concurrent_execution  # type: ignore[no-redef]
+                        from ..concurrent_executor import is_concurrent_execution  # type: ignore[no-redef]
 
                     use_concurrent = is_concurrent_execution(pipeline, phase=current_phase.value)
 
