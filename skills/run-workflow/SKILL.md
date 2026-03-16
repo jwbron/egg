@@ -126,6 +126,8 @@ NACKs: <reviewer> → <producer>: "<reason>"
 - It has been in `producer_phase: PROPOSED` for 3+ consecutive polls with no reviewer activity (reviewers still in `WORKING`)
 - A NACK has been unresolved for 3+ consecutive polls (producer hasn't re-proposed)
 
+Note: 3 polls × 60s = ~3 minutes is a baseline threshold. Code generation, test execution, and large diffs can legitimately exceed this. Adjust the threshold based on pipeline complexity — for pipelines with heavy test suites or large codebases, consider using 5+ polls before flagging. The "Wait longer" option mitigates false positives.
+
 When a stall is detected, alert the user with context:
 
 ```
@@ -145,7 +147,7 @@ Then use `AskUserQuestion` to offer options:
 Handle each response:
 - **Check agent logs** → Run `egg-orch container list <task_id>` to find the container ID, then `egg-orch container logs <task_id> <container_id> --lines 50`. Show the user the last 50 lines and let them decide next steps.
 - **Wait longer** → Reset the stall counter for this agent. Resume monitoring.
-- **Nudge agent** → Run `egg-orch message send <task_id> --to <role> --type STATUS --body "Overseer check: you appear stalled in <phase>. Please send a heartbeat or progress update."` and resume monitoring. If the agent remains stalled for another 3 polls after the nudge, re-alert the user with stronger options (see escalation below).
+- **Nudge agent** → Run `egg-orch message send <task_id> --role overseer --to <role> --type STATUS --body "Overseer check: you appear stalled in <phase>. Please send a heartbeat or progress update."` and resume monitoring. If the agent remains stalled for another 3 polls after the nudge, re-alert the user with stronger options (see escalation below).
 
 **NACK escalation** — When an unresolved NACK persists for 3+ polls, surface it prominently:
 
@@ -156,15 +158,33 @@ Handle each response:
 This has been unresolved for ~<N> minutes. The producer has not re-proposed.
 ```
 
-Offer options:
-- **"Check producer logs"** — see what the producer is doing about the NACK
-- **"Check reviewer logs"** — see the full reviewer reasoning
-- **"Wait longer"** — the producer may be working on fixes
+Then use `AskUserQuestion` to offer options:
+- **Question**: "Unresolved NACK from <reviewer> → <producer> has persisted for ~<N> minutes. How would you like to proceed?"
+- **Header**: "NACK"
+- **Options**:
+  - **"Check producer logs"** — description: "View the producer's recent logs to see if it's working on fixes"
+  - **"Check reviewer logs"** — description: "View the reviewer's full reasoning for the NACK"
+  - **"Nudge producer"** — description: "Send a message asking the producer to address the NACK and re-propose"
+  - **"Wait longer"** — description: "The producer may be working on fixes — give it more time"
 
-**Post-nudge escalation** — If an agent remains stalled after a nudge (3+ more polls with no change), offer stronger actions:
-- **"View full agent logs"** — `egg-orch container logs` with more lines
-- **"File HITL decision"** — Create a decision via `egg-contract add-decision` asking whether to restart the agent
-- **"Continue waiting"** — reset counter again
+Handle each response:
+- **Check producer logs** → Run `egg-orch container list <task_id>`, find the producer's container, then `egg-orch container logs <task_id> <container_id> --lines 50`. Show the output and let the user decide next steps.
+- **Check reviewer logs** → Same approach, but for the reviewer's container.
+- **Nudge producer** → Run `egg-orch message send <task_id> --role overseer --to <producer_role> --type STATUS --body "Overseer check: unresolved NACK from <reviewer> — please address and re-propose."` and resume monitoring.
+- **Wait longer** → Reset the NACK stall counter. Resume monitoring.
+
+**Post-nudge escalation** — If an agent remains stalled after a nudge (3+ more polls with no change), use `AskUserQuestion` to offer stronger actions:
+- **Question**: "Agent '<role>' is still unresponsive after nudge (~<N> minutes total). How would you like to proceed?"
+- **Header**: "Escalate"
+- **Options**:
+  - **"View full agent logs"** — description: "Show extended logs (`egg-orch container logs` with `--lines 200`) to diagnose the issue"
+  - **"Restart agent"** — description: "Cancel this pipeline and re-submit the task to get a fresh agent"
+  - **"Continue waiting"** — description: "Reset the counter and keep monitoring"
+
+Handle each response:
+- **View full agent logs** → Run `egg-orch container list <task_id>` to find the container, then `egg-orch container logs <task_id> <container_id> --lines 200`. Show the output and let the user decide next steps.
+- **Restart agent** → Confirm with the user, then call `cancel_task` with `task_id` and `cleanup: true`, followed by `submit_task` with the original parameters. Resume from Phase 3 with the new `task_id`.
+- **Continue waiting** → Reset the stall counter. Resume monitoring.
 
 **State tracking** — Maintain a simple in-memory map of `{role: {phase, polls_in_phase, nudged}}` across poll cycles. Reset a role's counter whenever its phase changes or new messages appear from it in `recent_messages`. This is lightweight — no persistence needed since it only matters during the active monitoring session.
 
@@ -330,7 +350,7 @@ After collecting all answers, call `provide_input` with:
 {"action": "submit_feedback", "answers": {"<question_id>": "<answer>", "<question_id>": "<answer>"}}
 ```
 
-Use the `id` field from each question entry as the key (e.g., `"q-1"`, `"q-2"`). If a question has no `id`, use `"q-<1-based index>"` as the fallback key (e.g., `"q-1"` for the first question).
+Use the `id` field from each question entry as the key (e.g., `"Q1"`, `"Q2"` from `egg-contract add-feedback`, or fallback `"q-1"`, `"q-2"` from `sdlc_hitl.py` for questions missing an `id`). If a question has no `id`, use `"q-<1-based index>"` as the fallback key.
 
 ### Submitting choice/feedback responses:
 
