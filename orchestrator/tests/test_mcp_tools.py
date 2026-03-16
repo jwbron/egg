@@ -67,9 +67,7 @@ class TestListContainers:
             }
             result = handler.handle_tool_call("list_containers", {"task_id": "issue-42"})
 
-        mock_req.assert_called_once_with(
-            "/api/v1/pipelines/issue-42/containers?all=true"
-        )
+        mock_req.assert_called_once_with("/api/v1/pipelines/issue-42/containers?all=true")
         assert result["data"]["containers"][0]["container_id"] == "abc"
 
     def test_exclude_stopped(self, handler):
@@ -79,9 +77,7 @@ class TestListContainers:
                 "list_containers", {"task_id": "issue-42", "include_stopped": False}
             )
 
-        mock_req.assert_called_once_with(
-            "/api/v1/pipelines/issue-42/containers?all=false"
-        )
+        mock_req.assert_called_once_with("/api/v1/pipelines/issue-42/containers?all=false")
 
 
 class TestGetContainerLogs:
@@ -103,8 +99,18 @@ class TestGetContainerLogs:
         containers_response = {
             "data": {
                 "containers": [
-                    {"container_id": "stopped1", "status": "exited", "agent_role": "coder", "started_at": "2026-01-01T00:00:00Z"},
-                    {"container_id": "running1", "status": "running", "agent_role": "tester", "started_at": "2026-01-01T01:00:00Z"},
+                    {
+                        "container_id": "stopped1",
+                        "status": "exited",
+                        "agent_role": "coder",
+                        "started_at": "2026-01-01T00:00:00Z",
+                    },
+                    {
+                        "container_id": "running1",
+                        "status": "running",
+                        "agent_role": "tester",
+                        "started_at": "2026-01-01T01:00:00Z",
+                    },
                 ]
             }
         }
@@ -112,9 +118,7 @@ class TestGetContainerLogs:
 
         with patch.object(handler, "_make_request") as mock_req:
             mock_req.side_effect = [containers_response, logs_response]
-            result = handler.handle_tool_call(
-                "get_container_logs", {"task_id": "issue-42"}
-            )
+            result = handler.handle_tool_call("get_container_logs", {"task_id": "issue-42"})
 
         assert result["container_id"] == "running1"
         assert result["agent_role"] == "tester"
@@ -124,8 +128,18 @@ class TestGetContainerLogs:
         containers_response = {
             "data": {
                 "containers": [
-                    {"container_id": "c1", "status": "running", "agent_role": "coder", "started_at": "2026-01-01T00:00:00Z"},
-                    {"container_id": "c2", "status": "running", "agent_role": "tester", "started_at": "2026-01-01T01:00:00Z"},
+                    {
+                        "container_id": "c1",
+                        "status": "running",
+                        "agent_role": "coder",
+                        "started_at": "2026-01-01T00:00:00Z",
+                    },
+                    {
+                        "container_id": "c2",
+                        "status": "running",
+                        "agent_role": "tester",
+                        "started_at": "2026-01-01T01:00:00Z",
+                    },
                 ]
             }
         }
@@ -143,9 +157,7 @@ class TestGetContainerLogs:
     def test_no_containers(self, handler):
         with patch.object(handler, "_make_request") as mock_req:
             mock_req.return_value = {"data": {"containers": []}}
-            result = handler.handle_tool_call(
-                "get_container_logs", {"task_id": "issue-42"}
-            )
+            result = handler.handle_tool_call("get_container_logs", {"task_id": "issue-42"})
 
         assert "error" in result
 
@@ -154,8 +166,18 @@ class TestGetContainerLogs:
         containers_response = {
             "data": {
                 "containers": [
-                    {"container_id": "old", "status": "exited", "agent_role": "coder", "started_at": "2026-01-01T00:00:00Z"},
-                    {"container_id": "new", "status": "exited", "agent_role": "tester", "started_at": "2026-01-02T00:00:00Z"},
+                    {
+                        "container_id": "old",
+                        "status": "exited",
+                        "agent_role": "coder",
+                        "started_at": "2026-01-01T00:00:00Z",
+                    },
+                    {
+                        "container_id": "new",
+                        "status": "exited",
+                        "agent_role": "tester",
+                        "started_at": "2026-01-02T00:00:00Z",
+                    },
                 ]
             }
         }
@@ -163,9 +185,7 @@ class TestGetContainerLogs:
 
         with patch.object(handler, "_make_request") as mock_req:
             mock_req.side_effect = [containers_response, logs_response]
-            result = handler.handle_tool_call(
-                "get_container_logs", {"task_id": "issue-42"}
-            )
+            result = handler.handle_tool_call("get_container_logs", {"task_id": "issue-42"})
 
         assert result["container_id"] == "new"
 
@@ -212,7 +232,15 @@ class TestGetConsensusStatus:
         with patch.object(handler, "_make_request") as mock_req:
             mock_req.side_effect = [
                 # Pipeline GET
-                {"data": {"pipeline": {"id": "issue-42", "current_phase": "implement", "status": "running"}}},
+                {
+                    "data": {
+                        "pipeline": {
+                            "id": "issue-42",
+                            "current_phase": "implement",
+                            "status": "running",
+                        }
+                    }
+                },
                 # Status GET
                 {
                     "data": {
@@ -221,7 +249,13 @@ class TestGetConsensusStatus:
                                 "is_complete": False,
                                 "blocking_agents": ["tester"],
                                 "has_unresolved_nacks": True,
-                                "unresolved_nacks": [{"reviewer": "reviewer_code", "producer": "coder", "reason": "bug"}],
+                                "unresolved_nacks": [
+                                    {
+                                        "reviewer": "reviewer_code",
+                                        "producer": "coder",
+                                        "reason": "bug",
+                                    }
+                                ],
                                 "agents": {"coder": {"producer_phase": "PROPOSED"}},
                             }
                         }
@@ -238,7 +272,15 @@ class TestGetConsensusStatus:
         with patch.object(handler, "_make_request") as mock_req:
             mock_req.side_effect = [
                 # Pipeline GET
-                {"data": {"pipeline": {"id": "issue-42", "current_phase": "implement", "status": "running"}}},
+                {
+                    "data": {
+                        "pipeline": {
+                            "id": "issue-42",
+                            "current_phase": "implement",
+                            "status": "running",
+                        }
+                    }
+                },
                 # Status GET (no concurrent data)
                 {"data": {}},
                 # Messages GET
@@ -272,7 +314,12 @@ class TestInferConsensusFromMessages:
     def test_unresolved_nack(self, handler):
         messages = [
             {"message_type": "CONSENSUS_PROPOSE", "from_role": "coder"},
-            {"message_type": "CONSENSUS_NACK", "from_role": "reviewer", "to_role": "coder", "body": "bug in line 42"},
+            {
+                "message_type": "CONSENSUS_NACK",
+                "from_role": "reviewer",
+                "to_role": "coder",
+                "body": "bug in line 42",
+            },
         ]
         result = handler._infer_consensus_from_messages(messages)
         assert result["has_unresolved_nacks"] is True
@@ -281,7 +328,12 @@ class TestInferConsensusFromMessages:
     def test_nack_resolved_by_repropose(self, handler):
         messages = [
             {"message_type": "CONSENSUS_PROPOSE", "from_role": "coder"},
-            {"message_type": "CONSENSUS_NACK", "from_role": "reviewer", "to_role": "coder", "body": "bug"},
+            {
+                "message_type": "CONSENSUS_NACK",
+                "from_role": "reviewer",
+                "to_role": "coder",
+                "body": "bug",
+            },
             {"message_type": "CONSENSUS_PROPOSE", "from_role": "coder"},
         ]
         result = handler._infer_consensus_from_messages(messages)
@@ -316,9 +368,7 @@ class TestGetPipelineSnapshot:
                 # Messages GET
                 {"data": {"messages": [{"from_role": "coder"}]}},
             ]
-            result = handler.handle_tool_call(
-                "get_pipeline_snapshot", {"task_id": "issue-42"}
-            )
+            result = handler.handle_tool_call("get_pipeline_snapshot", {"task_id": "issue-42"})
 
         assert "pipeline" in result
         assert "phase" in result
@@ -378,14 +428,28 @@ class TestSearchCheckpoints:
             mock_gw.return_value = {
                 "data": {
                     "checkpoints": [
-                        {"session_id": "s1", "agent_type": "coder", "pipeline_phase": "implement", "pipeline_id": "issue-42", "branch": "egg/issue-42", "repo": "org/repo", "session_status": "completed"},
-                        {"session_id": "s2", "agent_type": "tester", "pipeline_phase": "implement", "pipeline_id": "issue-99", "branch": "egg/issue-99", "repo": "org/repo", "session_status": "failed"},
+                        {
+                            "session_id": "s1",
+                            "agent_type": "coder",
+                            "pipeline_phase": "implement",
+                            "pipeline_id": "issue-42",
+                            "branch": "egg/issue-42",
+                            "repo": "org/repo",
+                            "session_status": "completed",
+                        },
+                        {
+                            "session_id": "s2",
+                            "agent_type": "tester",
+                            "pipeline_phase": "implement",
+                            "pipeline_id": "issue-99",
+                            "branch": "egg/issue-99",
+                            "repo": "org/repo",
+                            "session_status": "failed",
+                        },
                     ]
                 }
             }
-            result = handler.handle_tool_call(
-                "search_checkpoints", {"text": "issue-42"}
-            )
+            result = handler.handle_tool_call("search_checkpoints", {"text": "issue-42"})
 
         assert result["total"] == 1
         assert result["checkpoints"][0]["session_id"] == "s1"
@@ -396,13 +460,19 @@ class TestSearchCheckpoints:
             mock_gw.return_value = {
                 "data": {
                     "checkpoints": [
-                        {"session_id": "s1", "agent_type": "CODER", "pipeline_phase": "", "pipeline_id": "", "branch": "", "repo": "", "session_status": ""},
+                        {
+                            "session_id": "s1",
+                            "agent_type": "CODER",
+                            "pipeline_phase": "",
+                            "pipeline_id": "",
+                            "branch": "",
+                            "repo": "",
+                            "session_status": "",
+                        },
                     ]
                 }
             }
-            result = handler.handle_tool_call(
-                "search_checkpoints", {"text": "coder"}
-            )
+            result = handler.handle_tool_call("search_checkpoints", {"text": "coder"})
 
         assert result["total"] == 1
 
@@ -411,22 +481,16 @@ class TestGetContract:
     def test_with_issue_number(self, handler):
         with patch.object(handler, "_make_gateway_request") as mock_gw:
             mock_gw.return_value = {"success": True, "data": {"contract": {}}}
-            handler.handle_tool_call(
-                "get_contract", {"issue_number": 42}
-            )
+            handler.handle_tool_call("get_contract", {"issue_number": 42})
 
         mock_gw.assert_called_once_with("/api/v1/contract/42")
 
     def test_with_task_id_lookup(self, handler):
         with patch.object(handler, "_make_request") as mock_req:
-            mock_req.return_value = {
-                "data": {"pipeline": {"issue_number": 42}}
-            }
+            mock_req.return_value = {"data": {"pipeline": {"issue_number": 42}}}
             with patch.object(handler, "_make_gateway_request") as mock_gw:
                 mock_gw.return_value = {"success": True, "data": {"contract": {}}}
-                handler.handle_tool_call(
-                    "get_contract", {"task_id": "issue-42"}
-                )
+                handler.handle_tool_call("get_contract", {"task_id": "issue-42"})
 
         mock_gw.assert_called_once_with("/api/v1/contract/42")
 
@@ -436,12 +500,8 @@ class TestGetContract:
 
     def test_task_id_without_issue(self, handler):
         with patch.object(handler, "_make_request") as mock_req:
-            mock_req.return_value = {
-                "data": {"pipeline": {"issue_number": None}}
-            }
-            result = handler.handle_tool_call(
-                "get_contract", {"task_id": "prompt-based"}
-            )
+            mock_req.return_value = {"data": {"pipeline": {"issue_number": None}}}
+            result = handler.handle_tool_call("get_contract", {"task_id": "prompt-based"})
 
         assert "error" in result
 
@@ -478,10 +538,21 @@ class TestToolRouting:
 
         tool_names = {t["name"] for t in PIPELINE_TOOLS}
         expected = {
-            "submit_task", "get_status", "provide_input", "list_tasks", "cancel_task",
-            "check_health", "list_containers", "get_container_logs", "send_message",
-            "get_consensus_status", "get_phase", "get_pipeline_snapshot",
-            "list_checkpoints", "search_checkpoints", "get_contract",
+            "submit_task",
+            "get_status",
+            "provide_input",
+            "list_tasks",
+            "cancel_task",
+            "check_health",
+            "list_containers",
+            "get_container_logs",
+            "send_message",
+            "get_consensus_status",
+            "get_phase",
+            "get_pipeline_snapshot",
+            "list_checkpoints",
+            "search_checkpoints",
+            "get_contract",
         }
         assert tool_names == expected
 

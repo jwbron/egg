@@ -407,9 +407,7 @@ class PipelineToolHandler:
         gateway_url: str | None = None,
     ):
         self.orchestrator_url = orchestrator_url
-        self.gateway_url = gateway_url or os.environ.get(
-            "GATEWAY_URL", "http://egg-gateway:9848"
-        )
+        self.gateway_url = gateway_url or os.environ.get("GATEWAY_URL", "http://egg-gateway:9848")
         self._gateway_session_token: str | None = None
 
     def handle_tool_call(self, tool_name: str, arguments: dict[str, Any]) -> dict[str, Any]:
@@ -951,10 +949,9 @@ class PipelineToolHandler:
         except Exception as e:
             result["gateway"] = {"healthy": False, "status": "unreachable", "error": str(e)}
 
-        result["healthy"] = (
-            result.get("orchestrator", {}).get("healthy", False)
-            and result.get("gateway", {}).get("healthy", False)
-        )
+        result["healthy"] = result.get("orchestrator", {}).get("healthy", False) and result.get(
+            "gateway", {}
+        ).get("healthy", False)
         return result
 
     def _handle_list_containers(self, args: dict[str, Any]) -> dict[str, Any]:
@@ -962,9 +959,7 @@ class PipelineToolHandler:
         task_id = quote(args["task_id"], safe="")
         include_stopped = args.get("include_stopped", True)
         all_param = "true" if include_stopped else "false"
-        return self._make_request(
-            f"/api/v1/pipelines/{task_id}/containers?all={all_param}"
-        )
+        return self._make_request(f"/api/v1/pipelines/{task_id}/containers?all={all_param}")
 
     def _handle_get_container_logs(self, args: dict[str, Any]) -> dict[str, Any]:
         """Get container logs, with auto-selection if container_id not specified."""
@@ -1074,9 +1069,7 @@ class PipelineToolHandler:
 
         return result
 
-    def _infer_consensus_from_messages(
-        self, messages: list[dict[str, Any]]
-    ) -> dict[str, Any]:
+    def _infer_consensus_from_messages(self, messages: list[dict[str, Any]]) -> dict[str, Any]:
         """Infer consensus state from message history."""
         roles: dict[str, str] = {}  # role -> last consensus message type
         nacks: dict[str, dict[str, str]] = {}  # key -> {reviewer, producer, reason}
@@ -1090,11 +1083,7 @@ class PipelineToolHandler:
             elif msg_type == "CONSENSUS_PROPOSE":
                 roles[from_role] = "proposed"
                 # Clear NACKs targeting this producer
-                nacks = {
-                    k: v
-                    for k, v in nacks.items()
-                    if not k.endswith(f"->{from_role}")
-                }
+                nacks = {k: v for k, v in nacks.items() if not k.endswith(f"->{from_role}")}
             elif msg_type == "CONSENSUS_ACK":
                 if from_role not in roles or roles[from_role] != "confirmed":
                     roles[from_role] = "acked"
@@ -1158,9 +1147,7 @@ class PipelineToolHandler:
                 containers_result = self._make_request(
                     f"/api/v1/pipelines/{task_id}/containers?all=true"
                 )
-                snapshot["containers"] = containers_result.get("data", {}).get(
-                    "containers", []
-                )
+                snapshot["containers"] = containers_result.get("data", {}).get("containers", [])
             except Exception:
                 pass
 
@@ -1170,17 +1157,13 @@ class PipelineToolHandler:
                 messages_result = self._make_request(
                     f"/api/v1/pipelines/{task_id}/messages?limit=20"
                 )
-                snapshot["recent_messages"] = messages_result.get("data", {}).get(
-                    "messages", []
-                )
+                snapshot["recent_messages"] = messages_result.get("data", {}).get("messages", [])
             except Exception:
                 pass
 
         # Decisions
         decisions = pipeline_data.get("decisions", [])
-        snapshot["pending_decisions"] = [
-            d for d in decisions if d.get("status") == "pending"
-        ]
+        snapshot["pending_decisions"] = [d for d in decisions if d.get("status") == "pending"]
 
         return snapshot
 
@@ -1244,9 +1227,7 @@ class PipelineToolHandler:
             # Look up issue_number from pipeline data
             task_id = quote(args["task_id"], safe="")
             pipeline_result = self._make_request(f"/api/v1/pipelines/{task_id}")
-            issue_number = (
-                pipeline_result.get("data", {}).get("pipeline", {}).get("issue_number")
-            )
+            issue_number = pipeline_result.get("data", {}).get("pipeline", {}).get("issue_number")
 
         if not issue_number:
             return {"error": "Either issue_number or task_id (with linked issue) is required"}
