@@ -64,6 +64,16 @@
           "exit_code": null,
           "agent_role": "reviewer_agent_design",
           "session_token": null
+        },
+        {
+          "container_id": "3896f437881cb74c8fe897967787f2e28eebbd73cee28f6a799267a3244cf72b",
+          "container_name": "egg-sandbox-egg-issue-1165-reviewer_agent_design",
+          "status": "running",
+          "started_at": "2026-03-16T00:37:46.620344",
+          "exited_at": null,
+          "exit_code": null,
+          "agent_role": "reviewer_agent_design",
+          "session_token": null
         }
       ],
       "agents": [
@@ -105,6 +115,19 @@
           "retry_count": 0,
           "conflicts": [],
           "plan_phase_id": null
+        },
+        {
+          "role": "reviewer_agent_design",
+          "status": "running",
+          "container_id": "3896f437881cb74c8fe897967787f2e28eebbd73cee28f6a799267a3244cf72b",
+          "started_at": "2026-03-16T00:37:46.620349",
+          "completed_at": null,
+          "commit": null,
+          "outputs": {},
+          "error": null,
+          "retry_count": 0,
+          "conflicts": [],
+          "plan_phase_id": null
         }
       ],
       "review_cycles": 0,
@@ -125,7 +148,7 @@
   },
   "decisions": [],
   "created_at": "2026-03-16T00:20:26.575379",
-  "updated_at": "2026-03-16T00:37:46.353468",
+  "updated_at": "2026-03-16T00:37:46.620414",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
@@ -133,5 +156,5 @@
   "error": "Pipeline marked FAILED: agent container exited unexpectedly during execution. Restart via POST /pipelines/{id}/start.",
   "plan_phase_waves": null,
   "plan_phase_names": null,
-  "version": 9
+  "version": 10
 }
