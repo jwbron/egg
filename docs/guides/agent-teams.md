@@ -70,7 +70,7 @@ This eliminates circular ACK problems. A coder doesn't ACK a reviewer's review o
 
 The tester has a **dual role**: it is both a producer (proposes test artifacts) and a reviewer (evaluates coder's work by running tests and lint/type-checks against it).
 
-This gives 4 directed review edges for the default implement phase instead of ~20 for full N=5 pairwise review. The edge count varies by phase configuration.
+This gives 5 directed review edges (4 critical + 1 advisory to documenter) for the default implement phase instead of ~20 for full N=5 pairwise review. The edge count varies by phase configuration.
 
 #### BRC Phases
 
@@ -207,7 +207,7 @@ To prevent flip-flopping that destroys signal value:
 
 ## Cost and Latency
 
-Consensus overhead for a sparse review graph (N=5 agents, 4 review edges in default configuration):
+Consensus overhead for a sparse review graph (N=5 agents, 5 review edges in default configuration):
 
 | Item | Estimate |
 |------|----------|

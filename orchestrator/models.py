@@ -10,7 +10,7 @@ from enum import StrEnum
 from typing import Any, Literal, NamedTuple
 
 from egg_contracts.models import PipelinePhase
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class PipelineStatus(StrEnum):
@@ -130,6 +130,22 @@ class ContainerInfo(BaseModel):
     )
     session_token: str | None = Field(default=None, description="Session token for gateway auth")
 
+    @model_validator(mode="before")
+    @classmethod
+    def _migrate_removed_roles(cls, data: Any) -> Any:
+        """Map removed agent_role values for backward compatibility."""
+        if isinstance(data, dict):
+            role = data.get("agent_role")
+            if isinstance(role, str) and role in _REMOVED_ROLE_MIGRATION:
+                data = {**data, "agent_role": _REMOVED_ROLE_MIGRATION[role]}
+        return data
+
+
+_REMOVED_ROLE_MIGRATION: dict[str, str] = {
+    "checker": "tester",
+    "reviewer_unified": "reviewer_code",
+}
+
 
 class AgentExecution(BaseModel):
     """State of a single agent execution."""
@@ -138,6 +154,21 @@ class AgentExecution(BaseModel):
     status: AgentExecutionStatus = Field(
         default=AgentExecutionStatus.PENDING, description="Execution status"
     )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _migrate_removed_roles(cls, data: Any) -> Any:
+        """Map removed role values to their replacements for backward compatibility.
+
+        Persisted pipeline state may contain 'checker' or 'reviewer_unified' roles
+        from before these roles were absorbed into tester/reviewer_code.
+        """
+        if isinstance(data, dict):
+            role = data.get("role")
+            if isinstance(role, str) and role in _REMOVED_ROLE_MIGRATION:
+                data = {**data, "role": _REMOVED_ROLE_MIGRATION[role]}
+        return data
+
     container_id: str | None = Field(default=None, description="Container ID if running")
     started_at: datetime | None = Field(default=None, description="When started")
     completed_at: datetime | None = Field(default=None, description="When completed")

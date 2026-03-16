@@ -506,15 +506,37 @@ class TestAgentRole:
 class TestBackwardCompatibility:
     """Tests for backward compatibility with removed enum values."""
 
-    def test_reviewer_unified_no_longer_valid(self):
+    def test_reviewer_unified_no_longer_in_enum(self):
         """reviewer_unified has been removed from AgentRole enum."""
         assert not hasattr(AgentRole, "REVIEWER_UNIFIED"), (
             "AgentRole.REVIEWER_UNIFIED should be removed"
         )
 
-    def test_checker_no_longer_valid(self):
+    def test_checker_no_longer_in_enum(self):
         """checker has been removed from AgentRole enum."""
         assert not hasattr(AgentRole, "CHECKER"), "AgentRole.CHECKER should be removed"
+
+    def test_checker_deserializes_as_tester(self):
+        """Persisted pipeline state with role='checker' migrates to tester."""
+        agent = AgentExecution.model_validate({"role": "checker"})
+        assert agent.role == AgentRole.TESTER
+
+    def test_reviewer_unified_deserializes_as_reviewer_code(self):
+        """Persisted pipeline state with role='reviewer_unified' migrates to reviewer_code."""
+        agent = AgentExecution.model_validate({"role": "reviewer_unified"})
+        assert agent.role == AgentRole.REVIEWER_CODE
+
+    def test_checker_in_container_info_deserializes(self):
+        """ContainerInfo with agent_role='checker' migrates to tester."""
+        info = ContainerInfo.model_validate(
+            {"container_id": "c1", "container_name": "test", "agent_role": "checker"}
+        )
+        assert info.agent_role == AgentRole.TESTER
+
+    def test_valid_roles_unaffected_by_migration(self):
+        """Existing valid roles are not changed by the migration validator."""
+        agent = AgentExecution.model_validate({"role": "coder"})
+        assert agent.role == AgentRole.CODER
 
     def test_decision_timeout_still_valid(self):
         """Ensure the existing vestigial DecisionStatus.TIMEOUT still works."""

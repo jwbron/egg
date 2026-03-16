@@ -674,6 +674,11 @@ class TestNoStaleStringReferences:
         "PhaseWave",
         "_run_multi_agent_phase",
         "_build_phase_scoped_prompt",
+        # Checker and reviewer_unified roles removed (issue #1199)
+        "AgentRole.CHECKER",
+        "AgentRole.REVIEWER_UNIFIED",
+        '"checker"',
+        '"reviewer_unified"',
     ]
 
     @pytest.mark.parametrize(

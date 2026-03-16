@@ -4772,6 +4772,19 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
         except Exception:
             pass  # Non-fatal — feedback is best-effort
 
+        # Warn if EGG_REPO_CHECKS is set — the checker role has been removed
+        # and repo-specific check commands are no longer consumed. The tester
+        # now discovers check commands from project config files instead.
+        _repo_checks_raw = os.environ.get("EGG_REPO_CHECKS", "{}")
+        if _repo_checks_raw not in ("{}", ""):
+            logger.warning(
+                "EGG_REPO_CHECKS is set but no longer consumed — the checker role "
+                "has been removed and the tester discovers check commands from "
+                "project config files (Makefile, pyproject.toml, package.json). "
+                "Remove EGG_REPO_CHECKS from your configuration.",
+                pipeline_id=pipeline_id,
+            )
+
         while True:
             try:
                 pipeline = store.load_pipeline(pipeline_id)

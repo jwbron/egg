@@ -653,7 +653,9 @@ class TestScaledReEvaluation:
         assert t.matrix.get_entry("reviewer_code", "documenter").state == ApprovalState.ACKED
 
         # reviewer_code re-reviews and ACKs (NACKing reviewer, needs to re-ACK)
-        t.handle_ack("reviewer_code", "coder", {"artifact_references": ["src/main.py"]})
+        t.handle_ack(
+            "reviewer_code", "coder", {"artifact_references": ["src/main.py", "src/utils.py"]}
+        )
         # reviewer_contract re-reviews and ACKs (invalidated, needs to re-ACK)
         t.handle_ack(
             "reviewer_contract", "coder", {"artifact_references": ["src/main.py", "src/utils.py"]}
