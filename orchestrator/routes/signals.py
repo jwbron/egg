@@ -742,6 +742,30 @@ def handle_consensus_propose_signal(
             )
         )
 
+        # Notify stale confirmed reviewers that they need to re-review.
+        # This prevents deadlocks when a producer withdraws and re-proposes
+        # after some reviewers have already confirmed on a prior version.
+        for stale_reviewer in result.get("stale_confirmed_reviewers", []):
+            store.add_message(
+                Message(
+                    pipeline_id=pipeline_id,
+                    from_role="orchestrator",
+                    to_role=stale_reviewer,
+                    message_type=MessageType.CONSENSUS_RE_REVIEW,
+                    subject=f"Re-review required: {agent_role} submitted new proposal v{result.get('version')}",
+                    body=(
+                        f"Producer {agent_role} has submitted a new proposal "
+                        f"(version {result.get('version')}) after withdrawal. "
+                        f"Your previous confirmation was on an earlier version. "
+                        f"Please re-review and ACK/NACK the new proposal."
+                    ),
+                    metadata={
+                        "producer_role": agent_role,
+                        "version": result.get("version"),
+                    },
+                )
+            )
+
         return make_success_response(
             f"Proposal recorded for {agent_role}",
             data=result,

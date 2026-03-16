@@ -34,7 +34,7 @@ except ImportError:
         return logging.getLogger(name)
 
 
-from approval_matrix import ApprovalMatrix
+from approval_matrix import ApprovalMatrix, ApprovalState
 from attestation_schemas import (
     AttestationStrictness,
     ProposalPayload,
@@ -147,6 +147,11 @@ class PeerConsensusTracker:
         self._proposal_timestamps[agent_role] = datetime.now(UTC)
         self._proposal_artifacts[agent_role] = list(proposal.artifacts)
 
+        # Detect reviewers who confirmed on a stale version and need re-review.
+        # This prevents deadlocks where a confirmed reviewer never sees a new
+        # proposal version after the producer withdraws and re-proposes.
+        stale_confirmed_reviewers = self._un_confirm_stale_reviewers(agent_role, version)
+
         emit_event(
             EventType.CONSENSUS_PROPOSE_RECEIVED,
             self.pipeline_id,
@@ -154,6 +159,7 @@ class PeerConsensusTracker:
                 "role": agent_role,
                 "version": version,
                 "artifacts": proposal.artifacts,
+                "stale_confirmed_reviewers": stale_confirmed_reviewers,
             },
         )
 
@@ -161,6 +167,7 @@ class PeerConsensusTracker:
             "version": version,
             "status": "proposed",
             "reviewers": self.graph.reviewers_for(agent_role),
+            "stale_confirmed_reviewers": stale_confirmed_reviewers,
         }
 
     def handle_ack(
@@ -621,6 +628,51 @@ class PeerConsensusTracker:
             self._flip_flop_counts.clear()
             self._proposal_artifacts.clear()
             self._timeout_handled = False
+
+    def _un_confirm_stale_reviewers(
+        self,
+        producer_role: str,
+        new_version: int,
+    ) -> list[str]:
+        """Un-confirm reviewers whose ACK is on an older proposal version.
+
+        When a producer withdraws and re-proposes, reviewers who already
+        confirmed on a prior version must be notified to re-review.
+        Without this, they remain in a terminal CONFIRMED state and the
+        producer can never reach is_fully_acked(), causing a deadlock.
+
+        Returns list of reviewer roles that were un-confirmed.
+        """
+        stale_reviewers: list[str] = []
+        for reviewer in self.graph.reviewers_for(producer_role):
+            entry = self.matrix.get_entry(reviewer, producer_role)
+            if entry is None:
+                continue
+
+            # Check if reviewer is confirmed but their ACK is stale
+            reviewer_confirmed = reviewer in self._confirmed
+            ack_is_stale = (
+                entry.state == ApprovalState.ACKED and entry.version != new_version
+            ) or entry.state == ApprovalState.PENDING
+
+            if reviewer_confirmed and ack_is_stale:
+                # Un-confirm the reviewer so they re-enter the review loop
+                self._confirmed.discard(reviewer)
+                self._reviewer_phases[reviewer] = ConsensusPhase.REVIEWING
+                # Reset the stale ACK to PENDING so is_fully_acked works correctly
+                if entry.state == ApprovalState.ACKED:
+                    self.matrix.invalidate_ack(reviewer, producer_role)
+                stale_reviewers.append(reviewer)
+                logger.info(
+                    "Un-confirmed stale reviewer for re-review",
+                    reviewer=reviewer,
+                    producer=producer_role,
+                    stale_version=entry.version,
+                    new_version=new_version,
+                    pipeline_id=self.pipeline_id,
+                )
+
+        return stale_reviewers
 
     def _check_consensus(self) -> bool:
         """Check if all agents have confirmed. Emit event if so."""
