@@ -1267,9 +1267,7 @@ print(json.dumps({'issue_number': sys.argv[1], 'body': sys.argv[2]}))
             tmpfile = f.name
 
         try:
-            result = self._run_arg_parser_ok(
-                ["issue", "comment", "42", f"--body-file={tmpfile}"]
-            )
+            result = self._run_arg_parser_ok(["issue", "comment", "42", f"--body-file={tmpfile}"])
             assert result["issue_number"] == "42"
             assert result["body"] == content
         finally:
