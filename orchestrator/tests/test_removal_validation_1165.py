@@ -382,7 +382,6 @@ class TestConcurrentBRCOnlyPath:
         assert "coder" in role_values
         assert "tester" in role_values
         assert "documenter" in role_values
-        assert "checker" in role_values
         assert "reviewer_code" in role_values
         assert "reviewer_contract" in role_values
 

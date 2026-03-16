@@ -8,8 +8,6 @@ from egg_contracts.checkpoints import AgentType, CheckpointSummaryV2, Checkpoint
 from egg_contracts.models import (
     AgentRoleType,
     Contract,
-    MultiAgentConfig,
-    PhaseAgentConfig,
 )
 
 
@@ -68,32 +66,6 @@ class TestContractFilterRemovedAgentRoles:
         }
         contract = Contract(**data)
         assert len(contract.agent_executions) == 3
-
-
-class TestPhaseAgentConfigFilterRemovedRoles:
-    """PhaseAgentConfig._filter_removed_roles filters out removed role strings."""
-
-    def test_removed_roles_filtered_from_list(self):
-        config = PhaseAgentConfig(roles=["coder", "integrator", "tester", "checker"])
-        assert len(config.roles) == 2
-        assert AgentRoleType.CODER in config.roles
-        assert AgentRoleType.TESTER in config.roles
-
-    def test_none_roles_preserved(self):
-        config = PhaseAgentConfig(roles=None)
-        assert config.roles is None
-
-
-class TestMultiAgentConfigFilterRemovedRoles:
-    """MultiAgentConfig._filter_removed_roles filters out removed role strings."""
-
-    def test_removed_roles_filtered(self):
-        config = MultiAgentConfig(
-            roles_enabled=["coder", "tester", "integrator", "reviewer_unified"]
-        )
-        assert len(config.roles_enabled) == 2
-        assert AgentRoleType.CODER in config.roles_enabled
-        assert AgentRoleType.TESTER in config.roles_enabled
 
 
 class TestCheckpointV2CoerceRemovedAgentTypes:
