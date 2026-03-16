@@ -818,6 +818,51 @@ class TestRestorePrebuiltDeps:
         captured = capsys.readouterr()
         assert "No mounted repo found" in captured.out
 
+    def test_preserves_file_symlinks(self, temp_dir):
+        """File symlinks survive the restore and point to the correct target."""
+        prebuilt = temp_dir / "prebuilt-deps" / "Khan--webapp"
+        nm = prebuilt / "node_modules"
+        nm.mkdir(parents=True)
+        (nm / "real.js").write_text("content")
+        (nm / "link.js").symlink_to("real.js")
+
+        repos_dir = temp_dir / "repos"
+        (repos_dir / "webapp").mkdir(parents=True)
+
+        config = MagicMock()
+        config.repos_dir = repos_dir
+        logger = entrypoint.Logger(quiet=True)
+
+        entrypoint.restore_prebuilt_deps(config, logger, prebuilt_base=temp_dir / "prebuilt-deps")
+
+        restored_link = repos_dir / "webapp" / "node_modules" / "link.js"
+        assert restored_link.is_symlink()
+        assert os.readlink(str(restored_link)) == "real.js"
+        assert restored_link.read_text() == "content"
+
+    def test_restore_is_idempotent(self, temp_dir):
+        """Calling restore twice does not raise errors or overwrite files."""
+        prebuilt = temp_dir / "prebuilt-deps" / "Khan--webapp"
+        nm = prebuilt / "node_modules"
+        nm.mkdir(parents=True)
+        (nm / "pkg.js").write_text("original")
+        (nm / "link.js").symlink_to("pkg.js")
+
+        repos_dir = temp_dir / "repos"
+        (repos_dir / "webapp").mkdir(parents=True)
+
+        config = MagicMock()
+        config.repos_dir = repos_dir
+        logger = entrypoint.Logger(quiet=True)
+
+        # First restore
+        entrypoint.restore_prebuilt_deps(config, logger, prebuilt_base=temp_dir / "prebuilt-deps")
+        # Second restore — should not raise
+        entrypoint.restore_prebuilt_deps(config, logger, prebuilt_base=temp_dir / "prebuilt-deps")
+
+        assert (repos_dir / "webapp" / "node_modules" / "pkg.js").read_text() == "original"
+        assert (repos_dir / "webapp" / "node_modules" / "link.js").is_symlink()
+
 
 class TestSetupAgentRules:
     """Tests for the setup_agent_rules function."""

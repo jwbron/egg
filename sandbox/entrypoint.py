@@ -807,10 +807,15 @@ def restore_prebuilt_deps(
             continue
 
         # Copy prebuilt tree into repo, skipping files that already exist.
-        # We use symlinks=False so that all entries (including symlinks) go
-        # through copy_function. With symlinks=True, copytree handles symlinks
-        # directly via os.symlink() which raises FileExistsError if the
-        # destination already exists — making the restore non-idempotent.
+        # We use symlinks=False so that file-level entries (including file
+        # symlinks) go through copy_function, where we can skip existing
+        # files and handle symlinks manually. Directory symlinks are followed
+        # and expanded into real directories — this is acceptable since
+        # Node.js module resolution works the same either way.
+        # Note: the persist side uses symlinks=True (preserving symlinks),
+        # so directory symlinks become real directories after restore. This
+        # increases disk usage slightly but avoids copytree's non-idempotent
+        # os.symlink() calls which raise FileExistsError on repeat runs.
         def _copy_if_missing(src: str, dst: str, **kwargs: Any) -> None:
             if os.path.exists(dst) or os.path.islink(dst):
                 return
