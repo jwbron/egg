@@ -18,9 +18,6 @@ sys.modules.setdefault("docker.types", _docker_mock.types)
 
 from routes.pipelines import (
     _build_agent_prompt,
-    _build_autofix_prompt,
-    _build_check_and_fix_prompt,
-    _build_checker_prompt,
     _build_phase_prompt,
     _build_review_prompt,
     _build_role_context,
@@ -35,105 +32,6 @@ from routes.pipelines import (
     _summarize_issue,
     _synthesize_plan_draft,
 )
-
-
-class TestBuildCheckerPrompt:
-    """Tests for _build_checker_prompt with repo_checks parameter."""
-
-    def test_discovery_mode_without_repo_checks(self):
-        """Without repo_checks, prompt uses discovery instructions."""
-        result = _build_checker_prompt("pid-1", "local")
-        assert "Discover and run all project test and lint commands" in result
-        assert "Makefile" in result
-
-    def test_discovery_mode_with_repo(self):
-        """Discovery mode includes repo working directory."""
-        result = _build_checker_prompt("pid-1", "local", repo="acme/web-app")
-        assert "Repository: acme/web-app" in result
-        assert "~/repos/web-app" in result
-        assert "Discover and run all" in result
-
-    def test_explicit_checks_mode(self):
-        """With repo_checks, prompt lists explicit commands instead of discovery."""
-        checks = [
-            {"name": "lint", "command": "make lint"},
-            {"name": "test", "command": "make test"},
-        ]
-        result = _build_checker_prompt("pid-1", "local", repo="acme/web-app", repo_checks=checks)
-        assert "make lint" in result
-        assert "make test" in result
-        assert "**lint**" in result
-        assert "**test**" in result
-        # Should NOT contain discovery instructions
-        assert "Discover and run all" not in result
-        assert "Makefile" not in result
-
-    def test_explicit_checks_without_repo(self):
-        """Explicit checks work even without a repo specified."""
-        checks = [{"name": "build", "command": "npm run build"}]
-        result = _build_checker_prompt("pid-1", "issue", repo_checks=checks)
-        assert "npm run build" in result
-        assert "Repository:" not in result
-
-    def test_always_includes_results_format(self):
-        """Both modes include the namespaced results JSON format."""
-        checks = [{"name": "test", "command": "pytest"}]
-        for prompt in [
-            _build_checker_prompt("pid-1", "local"),
-            _build_checker_prompt("pid-1", "local", repo_checks=checks),
-        ]:
-            assert "pid-1-implement-results.json" in prompt
-            assert "all_passed" in prompt
-
-    def test_results_filename_uses_issue_number(self):
-        """Results filename uses issue_number when provided."""
-        result = _build_checker_prompt("pid-1", "issue", issue_number=871)
-        assert "871-implement-results.json" in result
-
-    def test_includes_pipeline_metadata(self):
-        """Prompt always includes pipeline ID and mode."""
-        result = _build_checker_prompt("pid-42", "issue")
-        assert "pid-42" in result
-        assert "issue" in result
-
-
-class TestBuildAutofixPrompt:
-    """Tests for _build_autofix_prompt with repo parameter."""
-
-    def test_without_repo(self):
-        """Basic autofix prompt without repo context."""
-        results = {"checks": [{"name": "lint", "passed": False, "output": "3 errors"}]}
-        result = _build_autofix_prompt("pid-1", "local", results)
-        assert "lint" in result
-        assert "3 errors" in result
-        assert "Repository:" not in result
-
-    def test_with_repo(self):
-        """Autofix prompt includes repo working directory."""
-        results = {"checks": [{"name": "test", "passed": False, "output": "1 failure"}]}
-        result = _build_autofix_prompt("pid-1", "local", results, repo="acme/web-app")
-        assert "Repository: acme/web-app" in result
-        assert "~/repos/web-app" in result
-
-    def test_no_failures(self):
-        """Prompt handles case with no failing checks."""
-        results = {"checks": [{"name": "lint", "passed": True, "output": "ok"}]}
-        result = _build_autofix_prompt("pid-1", "local", results)
-        assert "No specific failures recorded" in result
-
-    def test_includes_pipeline_metadata(self):
-        """Prompt includes pipeline ID and mode."""
-        results = {"checks": []}
-        result = _build_autofix_prompt("pid-99", "issue", results)
-        assert "pid-99" in result
-        assert "issue" in result
-
-    def test_autofix_includes_shared_rules(self):
-        """Autofix prompt loads rules from shared/prompts/autofixer-rules.md."""
-        results = {"checks": [{"name": "lint", "passed": False, "output": "3 errors"}]}
-        result = _build_autofix_prompt("pid-1", "local", results)
-        # The shared file content should appear in the prompt
-        assert "Auto-fixable" in result or "auto-fixable" in result.lower()
 
 
 class TestReadSharedCriteria:
@@ -344,14 +242,6 @@ class TestReadSharedCriteriaEdgeCases:
             assert content is not None
             assert "Security" in content
 
-    def test_autofix_prompt_falls_back_when_shared_missing(self):
-        """_build_autofix_prompt uses inline fallback when shared file is missing."""
-        results = {"checks": [{"name": "lint", "passed": False, "output": "err"}]}
-        with patch("routes.pipelines._read_shared_criteria", return_value=None):
-            result = _build_autofix_prompt("pid-1", "local", results)
-            assert "Auto-fixable" in result
-            assert "Report only" in result
-
 
 class TestSharedPromptFileContent:
     """Tests that shared prompt files contain expected content and structure."""
@@ -552,68 +442,6 @@ class TestBuildPhasePromptRevisionMode:
         assert "Prior Review Feedback" not in result
         # Should use the no-feedback alternative instructions
         assert "no specific feedback was provided" in result
-
-
-class TestBuildCheckAndFixPrompt:
-    """Tests for the combined check-and-fix prompt."""
-
-    def test_includes_check_commands(self):
-        """Explicit check commands appear in the prompt."""
-        checks = [
-            {"name": "lint", "command": "make lint"},
-            {"name": "test", "command": "make test"},
-        ]
-        result = _build_check_and_fix_prompt("pid-1", "local", repo="acme/app", repo_checks=checks)
-        assert "make lint" in result
-        assert "make test" in result
-        assert "**lint**" in result
-        assert "**test**" in result
-
-    def test_discovery_mode_without_checks(self):
-        """Without repo_checks, uses discovery mode."""
-        result = _build_check_and_fix_prompt("pid-1", "local")
-        assert "Discover" in result
-        assert "Makefile" in result
-
-    def test_includes_fix_rules(self):
-        """Includes autofixer rules."""
-        result = _build_check_and_fix_prompt("pid-1", "local")
-        assert "Auto-fixable" in result or "auto-fixable" in result.lower()
-
-    def test_includes_results_file_format(self):
-        """Includes the namespaced results JSON format."""
-        result = _build_check_and_fix_prompt("pid-1", "local")
-        assert "pid-1-implement-results.json" in result
-        assert "all_passed" in result
-
-    def test_results_filename_uses_issue_number(self):
-        """Results filename uses issue_number when provided."""
-        result = _build_check_and_fix_prompt("pid-1", "issue", issue_number=871)
-        assert "871-implement-results.json" in result
-
-    def test_includes_repeat_workflow(self):
-        """Includes repeat-up-to-3-times workflow."""
-        result = _build_check_and_fix_prompt("pid-1", "local")
-        assert "3 times" in result
-
-    def test_includes_pipeline_metadata(self):
-        """Prompt includes pipeline ID and mode."""
-        result = _build_check_and_fix_prompt("pid-42", "issue")
-        assert "pid-42" in result
-        assert "issue" in result
-
-    def test_with_repo_sets_working_directory(self):
-        """With repo, sets working directory."""
-        result = _build_check_and_fix_prompt("pid-1", "local", repo="acme/web-app")
-        assert "Repository: acme/web-app" in result
-        assert "~/repos/web-app" in result
-
-    def test_inline_fallback_when_shared_missing(self):
-        """Falls back to inline rules when shared file is missing."""
-        with patch("routes.pipelines._read_shared_criteria", return_value=None):
-            result = _build_check_and_fix_prompt("pid-1", "local")
-            assert "Auto-fixable" in result
-            assert "Report only" in result
 
 
 class TestRenderContractTasks:
@@ -1731,30 +1559,6 @@ class TestReadTesterGapsNamespacedEdgeCases:
         result = _read_tester_gaps(tmp_path, identifier="local-xyz")
         assert result is not None
         assert "gap-a" in result
-
-
-class TestAutofixPromptNamespaced:
-    """Tests for _build_autofix_prompt with namespaced results filename."""
-
-    def test_uses_issue_number_in_results_filename(self):
-        """Results filename references issue_number when provided."""
-        result = _build_autofix_prompt(
-            pipeline_id="issue-871",
-            pipeline_mode="issue",
-            check_results={"checks": [{"name": "pytest", "passed": False, "output": "fail"}]},
-            issue_number=871,
-        )
-        assert "871-implement-results.json" in result
-
-    def test_falls_back_to_pipeline_id(self):
-        """Falls back to pipeline_id when issue_number is None."""
-        result = _build_autofix_prompt(
-            pipeline_id="local-abc",
-            pipeline_mode="issue",
-            check_results={"checks": []},
-            issue_number=None,
-        )
-        assert "local-abc-implement-results.json" in result
 
 
 class TestSynthesizePlanDraftNamespaced:

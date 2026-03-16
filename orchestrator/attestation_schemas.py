@@ -31,13 +31,16 @@ class CoderAttestation(BaseModel):
 
 
 class TesterAttestation(BaseModel):
-    """Attestation for tester role proposals."""
+    """Attestation for tester role proposals (includes lint/type-check responsibilities)."""
 
     tests_written: int = Field(default=0, description="Number of tests written")
     tests_run: int = Field(default=0, description="Number of tests run")
     coverage_delta: str = Field(default="", description="Coverage change")
     edge_cases: list[str] = Field(default_factory=list, description="Edge cases covered")
     concern_considered: str = Field(default="", description="One concern considered")
+    lint_results: str = Field(default="", description="Lint results summary")
+    type_results: str = Field(default="", description="Type check results")
+    auto_fixes: list[str] = Field(default_factory=list, description="Auto-fixes applied")
 
 
 class DocumenterAttestation(BaseModel):
@@ -72,15 +75,6 @@ class ReviewerContractAttestation(BaseModel):
     gaps_identified: list[str] = Field(default_factory=list, description="Gaps found")
 
 
-class CheckerAttestation(BaseModel):
-    """Attestation for checker role ACK/NACK."""
-
-    lint_results: str = Field(default="", description="Lint results summary")
-    type_results: str = Field(default="", description="Type check results")
-    test_results: str = Field(default="", description="Test results summary")
-    auto_fixes: list[str] = Field(default_factory=list, description="Auto-fixes applied")
-    remaining_warnings: list[str] = Field(default_factory=list, description="Remaining warnings")
-
 
 # --- Payload wrappers ---
 
@@ -94,8 +88,7 @@ PRODUCER_ATTESTATION_MODELS: dict[str, type[BaseModel]] = {
 REVIEWER_ATTESTATION_MODELS: dict[str, type[BaseModel]] = {
     "reviewer_code": ReviewerCodeAttestation,
     "reviewer_contract": ReviewerContractAttestation,
-    "checker": CheckerAttestation,
-    "tester": TesterAttestation,  # Tester is also a reviewer
+    "tester": TesterAttestation,  # Tester is also a reviewer (includes lint/type-check)
 }
 
 
@@ -225,6 +218,3 @@ def _validate_strict(role: str, instance: BaseModel, is_producer: bool) -> None:
                 raise ValueError(
                     "Contract reviewer attestation requires at least one task verified in strict mode"
                 )
-        elif role == "checker" and isinstance(instance, CheckerAttestation):
-            if not instance.test_results:
-                raise ValueError("Checker attestation requires test_results in strict mode")

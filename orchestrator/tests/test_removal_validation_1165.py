@@ -382,7 +382,6 @@ class TestConcurrentBRCOnlyPath:
         assert "coder" in role_values
         assert "tester" in role_values
         assert "documenter" in role_values
-        assert "checker" in role_values
         assert "reviewer_code" in role_values
         assert "reviewer_contract" in role_values
 
@@ -692,3 +691,90 @@ class TestNoStaleStringReferences:
         source = filepath.read_text()
         for pattern in self._STALE_PATTERNS:
             assert pattern not in source, f"Stale reference '{pattern}' found in {relative_path}"
+
+
+# ---------------------------------------------------------------------------
+# Section 19: Checker and reviewer_unified roles removed
+# ---------------------------------------------------------------------------
+
+
+class TestCheckerRoleRemoval:
+    """Verify checker role is removed from enums and runtime."""
+
+    def test_no_checker_in_agent_role_enum(self):
+        from models import AgentRole
+
+        role_values = [r.value for r in AgentRole]
+        assert "checker" not in role_values, (
+            "AgentRole.CHECKER should be removed from models.AgentRole"
+        )
+
+    def test_no_checker_in_contracts_agent_role(self):
+        from egg_contracts.agent_roles import AgentRole as ContractAgentRole
+
+        role_values = [r.value for r in ContractAgentRole]
+        assert "checker" not in role_values, (
+            "checker should be removed from egg_contracts AgentRole"
+        )
+
+    def test_no_checker_in_shared_types(self):
+        from egg_orchestrator.types import AgentRole as SharedAgentRole
+
+        role_values = [r.value for r in SharedAgentRole]
+        assert "checker" not in role_values, (
+            "checker should be removed from egg_orchestrator.types AgentRole"
+        )
+
+    def test_implement_phase_has_no_checker(self):
+        from egg_contracts.agent_roles import get_roles_for_phase
+
+        roles = get_roles_for_phase("implement", include_reviewers=True)
+        role_values = [r.value for r in roles]
+        assert "checker" not in role_values
+
+    def test_review_graph_has_no_checker(self):
+        from review_graph import get_default_implement_graph
+
+        graph = get_default_implement_graph()
+        for edge in graph.edges:
+            assert edge.reviewer_role != "checker", (
+                f"Review graph still has checker as reviewer: {edge}"
+            )
+            assert edge.producer_role != "checker", (
+                f"Review graph still has checker as producer: {edge}"
+            )
+
+    def test_no_checker_attestation(self):
+        from attestation_schemas import REVIEWER_ATTESTATION_MODELS
+
+        assert "checker" not in REVIEWER_ATTESTATION_MODELS, (
+            "checker should be removed from REVIEWER_ATTESTATION_MODELS"
+        )
+
+
+class TestReviewerUnifiedRoleRemoval:
+    """Verify reviewer_unified role is removed from enums and runtime."""
+
+    def test_no_reviewer_unified_in_agent_role_enum(self):
+        from models import AgentRole
+
+        role_values = [r.value for r in AgentRole]
+        assert "reviewer_unified" not in role_values, (
+            "AgentRole.REVIEWER_UNIFIED should be removed from models.AgentRole"
+        )
+
+    def test_no_reviewer_unified_in_contracts_agent_role(self):
+        from egg_contracts.agent_roles import AgentRole as ContractAgentRole
+
+        role_values = [r.value for r in ContractAgentRole]
+        assert "reviewer_unified" not in role_values, (
+            "reviewer_unified should be removed from egg_contracts AgentRole"
+        )
+
+    def test_no_reviewer_unified_in_shared_types(self):
+        from egg_orchestrator.types import AgentRole as SharedAgentRole
+
+        role_values = [r.value for r in SharedAgentRole]
+        assert "reviewer_unified" not in role_values, (
+            "reviewer_unified should be removed from egg_orchestrator.types AgentRole"
+        )

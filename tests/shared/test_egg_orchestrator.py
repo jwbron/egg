@@ -73,7 +73,6 @@ class TestAgentRole:
         """Test all agent roles exist."""
         assert AgentRole.CODER == "coder"
         assert AgentRole.REVIEWER == "reviewer"
-        assert AgentRole.CHECKER == "checker"
         assert AgentRole.TESTER == "tester"
         assert AgentRole.DOCUMENTER == "documenter"
 

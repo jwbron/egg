@@ -9,7 +9,6 @@ Agent roles:
 - CODER: Implements code changes based on the plan tasks
 - TESTER: Writes tests for the implemented changes
 - DOCUMENTER: Updates documentation for the changes
-- CHECKER: Runs lint/type-check/tests (auto-fix in sequential, reviewer in concurrent)
 - REFINER: Analyzes tasks and produces structured analysis in the refine phase
 
 The orchestrator uses these definitions to:
@@ -30,7 +29,6 @@ class AgentRole(StrEnum):
     The orchestrator uses these roles to parallelize work where dependencies allow.
 
     Implement-phase roles: CODER, TESTER, DOCUMENTER
-    Implement-phase checker: CHECKER (dual-mode: auto-fix in sequential, reviewer in concurrent)
     Plan-phase roles: ARCHITECT, TASK_PLANNER, RISK_ANALYST
     Refine-phase roles: REFINER
     Reviewer roles: REVIEWER_CODE, REVIEWER_CONTRACT,
@@ -40,7 +38,6 @@ class AgentRole(StrEnum):
     CODER = "coder"
     TESTER = "tester"
     DOCUMENTER = "documenter"
-    CHECKER = "checker"
     # Plan-phase roles
     ARCHITECT = "architect"
     TASK_PLANNER = "task_planner"
@@ -53,7 +50,6 @@ class AgentRole(StrEnum):
     REVIEWER_AGENT_DESIGN = "reviewer_agent_design"
     REVIEWER_REFINE = "reviewer_refine"
     REVIEWER_PLAN = "reviewer_plan"
-    REVIEWER_UNIFIED = "reviewer_unified"  # Vestigial: kept for backwards compatibility with persisted pipeline state
 
 
 class AgentStatus(StrEnum):
@@ -215,17 +211,19 @@ CODER_ROLE = AgentRoleDefinition(
 
 TESTER_ROLE = AgentRoleDefinition(
     role=AgentRole.TESTER,
-    description="Validates implementation and finds gaps by writing and running tests",
+    description="Validates implementation by writing tests, running lint/type-checks, and applying auto-fixes",
     responsibilities=[
         "Read the list of changed files from coder",
         "Identify gaps in the implementation (missing error handling, boundary conditions, uncovered branches)",
         "Write or update tests targeting identified gaps",
-        "Report test coverage and document deficiencies found",
+        "Run linters and type checkers, apply auto-fixes where possible",
+        "Report test coverage, lint/type-check results, and document deficiencies found",
     ],
     dependencies=[AgentRole.CODER],  # Must wait for coder
     file_access=FileAccessPattern(
         allowed_read=[],  # Can read all files
         allowed_write=[
+            # Test files
             "tests/",
             "test/",
             "**/tests/",
@@ -241,14 +239,32 @@ TESTER_ROLE = AgentRoleDefinition(
             "**/*.spec.tsx",
             "**/*.spec.js",
             "**/*.spec.jsx",
+            # Source files (for lint/type-check auto-fixes)
+            "**/*.py",
+            "**/*.ts",
+            "**/*.tsx",
+            "**/*.js",
+            "**/*.jsx",
+            "**/*.go",
+            "**/*.java",
+            "**/*.rb",
+            "**/*.rs",
+            "**/*.sh",
+            # Configuration (for auto-fix updates)
+            "**/*.yml",
+            "**/*.yaml",
+            "**/*.json",
+            "**/*.toml",
             ".egg-state/agent-outputs/",  # For handoff data
         ],
         blocked_write=[
             "docs/",
+            "**/README.md",
+            "**/*.md",
             ".egg-state/contracts/",
         ],
     ),
-    produces_outputs=["test_files", "coverage_report", "gaps_found"],
+    produces_outputs=["test_files", "coverage_report", "gaps_found", "check_results"],
     requires_inputs=["changed_files"],
 )
 
@@ -559,47 +575,6 @@ REVIEWER_PLAN_ROLE = AgentRoleDefinition(
     requires_inputs=["task_breakdown", "risk_assessment"],
 )
 
-CHECKER_ROLE = AgentRoleDefinition(
-    role=AgentRole.CHECKER,
-    description="Runs lint, type-check, and test suites to validate implementation",
-    responsibilities=[
-        "Run linters and report errors",
-        "Run type checkers and report errors",
-        "Run test suites and report results",
-        "Apply auto-fixes where possible (sequential mode)",
-        "Report remaining warnings",
-        "Evaluate coder output via BRC protocol (concurrent mode)",
-    ],
-    dependencies=[AgentRole.CODER],
-    file_access=FileAccessPattern(
-        allowed_read=[],
-        allowed_write=[
-            # Source files (sequential check-and-fix mode)
-            "**/*.py",
-            "**/*.ts",
-            "**/*.tsx",
-            "**/*.js",
-            "**/*.jsx",
-            "**/*.go",
-            "**/*.java",
-            "**/*.rb",
-            "**/*.rs",
-            "**/*.sh",
-            # Configuration
-            "**/*.yml",
-            "**/*.yaml",
-            "**/*.json",
-            "**/*.toml",
-            # Review output (BRC concurrent mode)
-            ".egg-state/reviews/",
-            ".egg-state/agent-outputs/",
-        ],
-        blocked_write=["docs/", "**/README.md", "**/*.md", ".egg-state/contracts/"],
-    ),
-    produces_outputs=["check_results"],
-    requires_inputs=["changed_files"],
-)
-
 
 # Registry of all agent roles
 AGENT_ROLES: dict[AgentRole, AgentRoleDefinition] = {
@@ -607,7 +582,6 @@ AGENT_ROLES: dict[AgentRole, AgentRoleDefinition] = {
     AgentRole.CODER: CODER_ROLE,
     AgentRole.TESTER: TESTER_ROLE,
     AgentRole.DOCUMENTER: DOCUMENTER_ROLE,
-    AgentRole.CHECKER: CHECKER_ROLE,
     # Plan-phase roles
     AgentRole.ARCHITECT: ARCHITECT_ROLE,
     AgentRole.TASK_PLANNER: TASK_PLANNER_ROLE,
@@ -731,7 +705,6 @@ _PHASE_REVIEWERS: dict[str, list[AgentRole]] = {
     "implement": [
         AgentRole.REVIEWER_CODE,
         AgentRole.REVIEWER_CONTRACT,
-        AgentRole.CHECKER,
     ],
     "plan": [
         AgentRole.REVIEWER_PLAN,

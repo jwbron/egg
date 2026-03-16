@@ -297,13 +297,12 @@ class TestConcurrentConsensusFlow:
         all_ready = all(s == "READY" for s in agent_states.values())
         assert not all_ready
 
-    def test_six_agent_consensus_requires_all_ready(self):
-        """Consensus with 6 agents requires all 6 to be READY."""
+    def test_five_agent_consensus_requires_all_ready(self):
+        """Consensus with 5 agents requires all 5 to be READY."""
         agent_states = {
             "coder": "WORKING",
             "tester": "WORKING",
             "documenter": "WORKING",
-            "checker": "WORKING",
             "reviewer_code": "WORKING",
             "reviewer_contract": "WORKING",
         }
@@ -314,8 +313,8 @@ class TestConcurrentConsensusFlow:
         # Not ready with any agent still WORKING
         assert not evaluate_consensus()
 
-        # Signal 5 of 6 agents READY — still no consensus
-        for role in ("coder", "tester", "documenter", "checker", "reviewer_code"):
+        # Signal 4 of 5 agents READY — still no consensus
+        for role in ("coder", "tester", "documenter", "reviewer_code"):
             agent_states[role] = "READY"
         assert not evaluate_consensus()
 
@@ -324,7 +323,7 @@ class TestConcurrentConsensusFlow:
         assert evaluate_consensus()
 
         # One agent reverts to WORKING — consensus broken
-        agent_states["checker"] = "WORKING"
+        agent_states["tester"] = "WORKING"
         assert not evaluate_consensus()
 
 
@@ -474,7 +473,6 @@ class TestGetAgentRoles:
         assert AgentRole.CODER in roles
         assert AgentRole.TESTER in roles
         assert AgentRole.DOCUMENTER in roles
-        assert AgentRole.CHECKER in roles
         assert AgentRole.REVIEWER_CODE in roles
         assert AgentRole.REVIEWER_CONTRACT in roles
 

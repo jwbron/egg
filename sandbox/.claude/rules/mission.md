@@ -184,7 +184,7 @@ egg-orch message poll --wait 30  # Blocks until messages arrive (~1s delivery)
 | **Tester** | tests written/run count, coverage delta, edge cases covered, one concern |
 | **Documenter** | sections updated, links verified, one concern considered |
 
-### Reviewer Workflow (reviewer_code, reviewer_contract, checker)
+### Reviewer Workflow (reviewer_code, reviewer_contract)
 
 1. **Detect new commits** from your assigned producers (check `EGG_BRC_PRODUCERS`)
 2. **Form independent judgment** from git artifacts — review actual code, don't wait
@@ -211,7 +211,6 @@ egg-orch message poll --wait 30  # Blocks until messages arrive (~1s delivery)
 |------|---------------------|
 | **Reviewer (code)** | files reviewed (paths), issues found/resolved count, one risk |
 | **Reviewer (contract)** | tasks verified (IDs), acceptance criteria checked, gaps |
-| **Checker** | lint/type/test results, auto-fixes applied, remaining warnings |
 
 ### Anti-Sycophancy Requirements
 
@@ -232,6 +231,6 @@ Both must reach CONFIRMED for the tester to be fully confirmed.
 ### Handling Agent Failures
 
 If you receive an `AGENT_FAILED` message about another agent:
-- **Coder fails**: Tester/documenter/checker/reviewer should continue waiting
+- **Coder fails**: Tester/documenter/reviewer should continue waiting
 - **Tester fails**: Coder/documenter can continue; note the gap in your proposal
 - **Reviewer fails**: Coder can continue; note the review gap in your proposal

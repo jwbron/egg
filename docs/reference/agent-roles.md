@@ -16,10 +16,8 @@ All agent roles in egg, their responsibilities, phases, file access permissions,
 | `coder` | Implement | No | — |
 | `tester` | Implement | Yes (with `documenter`) | coder |
 | `documenter` | Implement | Yes (with `tester`) | coder |
-| `checker` | Implement | Yes (with `reviewer_code`, `reviewer_contract`) | coder |
 | `reviewer_code` | Implement | Yes (with `reviewer_contract`) | coder, tester |
 | `reviewer_contract` | Implement | Yes (with `reviewer_code`) | coder, tester |
-| `reviewer_unified` | _(deprecated)_ | — | — |
 | `inspector` | Any | — | — (health checks) |
 
 All implement phase agents run concurrently via BRC consensus.
@@ -125,7 +123,7 @@ All implement phase agents run concurrently via BRC consensus.
 
 ### `tester`
 
-**Purpose**: Find gaps in the implementation, write and run tests.
+**Purpose**: Find gaps in the implementation, write and run tests, run linters and type checkers, and apply auto-fixes.
 
 **File access**:
 - Allowed writes: `tests/`, `test/`, `**/tests/`, `**/test/`, all test file patterns (`**/*_test.py`, `**/test_*.py`, `**/*.test.ts`, etc.), `.egg-state/agent-outputs/`
@@ -133,7 +131,7 @@ All implement phase agents run concurrently via BRC consensus.
 
 **Outputs**:
 - Test file commits on the worktree branch
-- `.egg-state/agent-outputs/{identifier}-tester-output.json` — Handoff data
+- `.egg-state/agent-outputs/{identifier}-tester-output.json` — Handoff data (includes lint/type-check results and auto-fixes applied)
 
 **Prompt context**: Summarized background, coder handoff data, task list.
 
@@ -150,18 +148,6 @@ All implement phase agents run concurrently via BRC consensus.
 - `.egg-state/agent-outputs/{identifier}-documenter-output.json` — Handoff data
 
 **Prompt context**: Summarized background, task list, pointers to relevant docs.
-
-### `checker`
-
-**Purpose**: Run linters, formatters, and auto-fixers on the code (sequential mode); evaluate coder output via BRC protocol (concurrent mode).
-
-**File access** (defined as `CHECKER_PATTERNS` in `gateway/agent_restrictions.py`):
-- Allowed writes: `**/*.py`, `**/*.ts`, `**/*.tsx`, `**/*.js`, `**/*.jsx`, `**/*.go`, `**/*.java`, `**/*.rb`, `**/*.rs`, `**/*.sh`, `**/*.yml`, `**/*.yaml`, `**/*.json`, `**/*.toml`, `.egg-state/reviews/`, `.egg-state/agent-outputs/`
-- Blocked: `docs/`, `**/README.md`, `**/*.md`, `.egg-state/contracts/`
-
-In concurrent (BRC) mode, `checker` acts as a reviewer in the implement phase alongside `reviewer_code` and `reviewer_contract`.
-
-**Prompt context**: Summarized background, implementation summary.
 
 ### `reviewer_code`
 
@@ -198,7 +184,7 @@ Agent prompts are scoped to role-relevant context to avoid unnecessary token usa
 | Role group | Context provided |
 |------------|-----------------|
 | Analysis roles (architect, task_planner, risk_analyst) | Full issue body |
-| Execution roles (tester, documenter, checker) | Summarized background + pointers to full context |
+| Execution roles (tester, documenter) | Summarized background + pointers to full context |
 | Reviewers | Full plan/draft/diff relevant to their review scope |
 
 ## Role-Based Contract Mutations

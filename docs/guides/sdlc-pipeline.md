@@ -19,7 +19,7 @@ Agents cannot be trusted to self-police via prompts alone. The pipeline enforces
 - **Commit-time validation**: The gateway validates staged files against phase restrictions before allowing `git commit`
 - **Push-time operation filtering**: The gateway blocks operations not permitted in the current phase
 - **Push-target enforcement**: Pipeline agents must push to their assigned branch only—the gateway rejects pushes to any other branch (HTTP 403), preventing agents from improvising branch names on push failure. Killswitch: `PUSH_TARGET_ENFORCEMENT=false`
-- **Agent-role file restrictions**: Each agent role (coder, tester, documenter, checker, etc.) has allowed and blocked file patterns enforced at push time. Controlled by the `EGG_AGENT_RESTRICTIONS_ENFORCE` environment variable (default: warn-only mode with audit logging; set to `true` to block violating pushes)
+- **Agent-role file restrictions**: Each agent role (coder, tester, documenter, etc.) has allowed and blocked file patterns enforced at push time. Controlled by the `EGG_AGENT_RESTRICTIONS_ENFORCE` environment variable (default: warn-only mode with audit logging; set to `true` to block violating pushes)
 - **Role-based field ownership**: Contract mutations are validated against caller role
 - **Completion signal branch verification**: When an agent signals completion with a commit SHA, the orchestrator verifies the commit exists on the pipeline's expected branch (HTTP 409 on mismatch)
 - **Per-command timeout**: Shell commands in the sandbox are wrapped with a configurable timeout (default 300s) to prevent runaway commands like `grep -rn / ` from hanging the container. Configurable via `BASH_COMMAND_TIMEOUT`
@@ -287,9 +287,8 @@ The implement phase uses concurrent BRC execution, where specialized agents run 
 | Role | Responsibilities | Can Write |
 |------|-----------------|-----------|
 | **Coder** | Implement code changes based on plan tasks | Source code files (`**/*.py`, `**/*.ts`, etc.) |
-| **Tester** | Find gaps in implementation and write tests | Test files (`tests/`, `**/*_test.py`, `**/*.test.ts`, etc.) |
+| **Tester** | Find gaps in implementation, write tests, run linters and auto-fixers | Test files (`tests/`, `**/*_test.py`, `**/*.test.ts`, etc.) and source files (for lint fixes) |
 | **Documenter** | Update documentation for the changes | Documentation files (`docs/`, `**/*.md`) |
-| **Checker** | Run linters and auto-fixers | Source and test files |
 | **Reviewer (Code)** | Review code for security, correctness, robustness | Review verdicts only |
 | **Reviewer (Contract)** | Verify task completion and acceptance criteria | Review verdicts only |
 
@@ -539,7 +538,7 @@ Agent prompts include role-appropriate context rather than embedding the full is
 
 **Analysis roles** (architect, task_planner, risk_analyst) receive the full issue body, since they need it for problem understanding and planning.
 
-**Execution roles** (tester, documenter, checker) receive:
+**Execution roles** (tester, documenter) receive:
 - A 1-2 sentence background summary extracted from the issue title and first paragraph
 - Checkpoint discovery hints for reviewing prior agent sessions (`egg-checkpoint`)
 - Pointers to full context on demand (`gh issue view`, handoff data, git diff)
@@ -557,9 +556,8 @@ The implement phase uses concurrent BRC execution to parallelize work across spe
 | Role | Purpose | File Access |
 |------|---------|-------------|
 | **Coder** | Implements code changes | `src/`, `lib/`, `shared/` |
-| **Tester** | Finds gaps in implementation and writes tests | `tests/`, `test_*.py`, `*.test.ts` |
+| **Tester** | Finds gaps, writes tests, runs linters and auto-fixers | `tests/`, `test_*.py`, `*.test.ts`, source files (for lint fixes) |
 | **Documenter** | Updates documentation | `docs/`, `*.md`, `README*` |
-| **Checker** | Runs linters and auto-fixers | Source and test files |
 | **Reviewer (Code)** | Reviews code for security, correctness | Review verdicts only |
 | **Reviewer (Contract)** | Verifies task completion | Review verdicts only |
 
@@ -827,12 +825,12 @@ repo_settings:
         command: npm test
 ```
 
-When configured, the implement phase checker+autofixer agent runs these commands sequentially instead of auto-discovering test/lint commands. This is useful when:
+When configured, the tester runs these commands sequentially instead of auto-discovering test/lint commands. This is useful when:
 - Auto-discovery doesn't find the right commands
 - You want to run checks in a specific order
 - You need to run custom validation scripts
 
-If not configured, the checker+autofixer agent falls back to auto-discovery (scanning for Makefile, package.json, pyproject.toml, etc.). See [Configuration](../../config/README.md#per-repo-check-commands) for setup details.
+If not configured, the tester falls back to auto-discovery (scanning for Makefile, package.json, pyproject.toml, etc.). See [Configuration](../../config/README.md#per-repo-check-commands) for setup details.
 
 ### Built-in Checks
 
@@ -968,19 +966,17 @@ merge-fix ─┬─> lint ──┬─> fixer ─> review
 
 This parallel execution reduces cycle time by running independent checks concurrently. The fixer step allows the agent to attempt automated corrections before requiring human intervention.
 
-### Combined Checker+Autofixer Agent
+### Tester Check and Fix Loop
 
-After the coder completes, the pipeline runs a single combined checker+autofixer agent that:
+The tester handles lint, type-checks, and test execution alongside writing tests. After the coder completes, the tester:
 
 1. **Runs all checks** — Discovers and executes test/lint commands (or uses configured commands)
 2. **Fixes issues inline** — Attempts auto-fixable repairs without leaving the session
 3. **Repeats up to 3 times** — Re-runs checks after each fix attempt until all pass or attempts are exhausted
 
-Running checks and fixes in the same agent session avoids context loss that occurred when separate checker and autofixer containers passed results through intermediate files.
-
 **Flow:**
 ```
-work → checker+autofixer (run checks → fix → re-run, up to 3x) → review
+work → tester (run checks → fix → re-run, up to 3x) → review
 ```
 
 ## Implementation Reference
@@ -1091,7 +1087,7 @@ egg-contract add-feedback --question "What is the expected request volume?" --qu
 ## Concurrent Execution Mode
 
 Concurrent execution mode enables all agents (coder, tester, documenter, reviewer_code,
-reviewer_contract, checker) to run simultaneously during the implement phase,
+reviewer_contract) to run simultaneously during the implement phase,
 collaborating via a polling-based message bus hosted by the orchestrator.
 
 ### Configuration
@@ -1227,9 +1223,6 @@ tests pass.
 solidifies. Polls for `PROGRESS` from coder/tester. Signals `READY` after docs cover
 all changes.
 
-**Checker**: Runs automated checks (tests, linting) and attempts autofixes. Polls for
-`PROGRESS` from coder to know when code is ready. Signals `READY` after checks pass.
-
 **Reviewer (code/contract)**: Reviews committed code or contract artifacts. Polls for
 `PROGRESS` from coder. Signals `READY` after review is complete.
 
@@ -1283,7 +1276,6 @@ Response includes a `concurrent` section:
         "coder": {"state": "READY", "reason": "Implementation complete"},
         "tester": {"state": "WORKING", "reason": null},
         "documenter": {"state": "READY", "reason": "Docs updated"},
-        "checker": {"state": "READY", "reason": "All checks pass"},
         "reviewer_code": {"state": "WORKING", "reason": null},
         "reviewer_contract": {"state": "READY", "reason": "Contract approved"}
       },

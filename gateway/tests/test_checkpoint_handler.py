@@ -716,7 +716,8 @@ class TestResolveAgentType:
         assert _resolve_agent_type("task_planner") == AgentType.TASK_PLANNER
         assert _resolve_agent_type("risk_analyst") == AgentType.RISK_ANALYST
         assert _resolve_agent_type("refiner") == AgentType.REFINER
-        assert _resolve_agent_type("checker") == AgentType.CHECKER
+        # checker role removed from gateway; maps to UNKNOWN
+        assert _resolve_agent_type("checker") == AgentType.UNKNOWN
 
     def test_reviewer_subtypes(self):
         """Reviewer subtypes all map to REVIEWER."""

@@ -24,10 +24,6 @@ The multi-agent system breaks down the implement phase into specialized agents t
     ┌─────────┐         ┌──────────┐        ┌───────────┐
     │  Coder  │         │  Tester  │        │Documenter │
     └─────────┘         └──────────┘        └───────────┘
-                              │
-                       ┌──────┴──────┐
-                       │   Checker   │
-                       └─────────────┘
 ```
 
 ## Adding a New Agent
@@ -268,7 +264,7 @@ Agent prompts are built with role-appropriate context via `_build_role_context()
 
 **Analysis roles** (architect, task_planner, risk_analyst) receive the full issue body in a `## Task Description` section. They need complete context for problem analysis and planning.
 
-**Execution roles** (tester, documenter, checker, and any new execution agents) receive:
+**Execution roles** (tester, documenter, and any new execution agents) receive:
 - A `## Background` section with a 1-2 sentence summary extracted from the issue
 - A `## For More Context` section with pointers to the full issue (`gh issue view`), handoff data, and git diff
 

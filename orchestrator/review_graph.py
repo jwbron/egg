@@ -191,11 +191,10 @@ def get_default_implement_graph() -> ReviewGraph:
     Review adjacency per the BRC spec:
     - reviewer_code reviews coder and tester (critical)
     - reviewer_contract reviews coder (critical)
-    - checker reviews coder (critical)
-    - tester reviews coder (critical, implicitly via tests)
+    - tester reviews coder (critical, implicitly via tests and lint/type-checks)
 
     Producers: coder, tester, documenter
-    Reviewers: reviewer_code, reviewer_contract, checker, tester (dual-role)
+    Reviewers: reviewer_code, reviewer_contract, tester (dual-role)
     """
     return ReviewGraph(
         [
@@ -205,9 +204,7 @@ def get_default_implement_graph() -> ReviewGraph:
             ReviewEdge("reviewer_code", "tester", ReviewCriticality.CRITICAL),
             # reviewer_contract reviews coder (critical)
             ReviewEdge("reviewer_contract", "coder", ReviewCriticality.CRITICAL),
-            # checker reviews coder (critical)
-            ReviewEdge("checker", "coder", ReviewCriticality.CRITICAL),
-            # tester reviews coder (critical — via writing and running tests)
+            # tester reviews coder (critical — via writing/running tests and lint/type-checks)
             ReviewEdge("tester", "coder", ReviewCriticality.CRITICAL),
             # reviewer_code reviews documenter (advisory)
             ReviewEdge("reviewer_code", "documenter", ReviewCriticality.ADVISORY),

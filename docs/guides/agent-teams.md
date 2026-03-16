@@ -56,7 +56,7 @@ BRC is a structured consensus protocol inspired by Interactive Consistency, Ack-
 Not all agents review all other agents. The review graph is **asymmetric by role type**:
 
 - **Producers** (coder, tester, documenter): Create artifacts and propose them for review
-- **Reviewers** (reviewer_code, reviewer_contract, checker): Evaluate producers' proposals and issue ACK/NACK judgments
+- **Reviewers** (reviewer_code, reviewer_contract): Evaluate producers' proposals and issue ACK/NACK judgments
 
 This eliminates circular ACK problems. A coder doesn't ACK a reviewer's review of its own code — it *responds to NACKs* by revising and re-proposing.
 
@@ -66,12 +66,11 @@ This eliminates circular ACK problems. A coder doesn't ACK a reviewer's review o
 |----------|----------------------|
 | reviewer_code | coder, tester |
 | reviewer_contract | coder |
-| checker | coder |
-| tester | coder (implicitly — writes tests against the code, ACKs if tests pass) |
+| tester | coder (implicitly — writes tests against the code, runs lint/type-checks, ACKs if tests and checks pass) |
 
-The tester has a **dual role**: it is both a producer (proposes test artifacts) and a reviewer (evaluates coder's work by running tests against it).
+The tester has a **dual role**: it is both a producer (proposes test artifacts) and a reviewer (evaluates coder's work by running tests and lint/type-checks against it).
 
-This gives 5 directed review edges for the default implement phase instead of ~30 for full N=6 pairwise review. The edge count varies by phase configuration.
+This gives 4 directed review edges for the default implement phase instead of ~20 for full N=5 pairwise review. The edge count varies by phase configuration.
 
 #### BRC Phases
 
@@ -146,7 +145,6 @@ The reasoning layer ensures agents don't just signal states — they make **stru
 |------|---------------------|
 | Reviewer (code) | Files reviewed (specific paths), issues found + resolved count, one risk considered |
 | Reviewer (contract) | Tasks verified (specific IDs), acceptance criteria checked, gaps identified |
-| Checker | Lint/type/test results (pass counts), auto-fixes applied, remaining warnings |
 
 #### Cheap Talk vs Costly Signals
 
@@ -183,7 +181,7 @@ The phase times out with some agents confirmed and others stuck (e.g., 4/6 confi
 
 **Recovery:** The orchestrator evaluates which agents are blocking using the review graph and role criticality:
 
-- **Critical roles unconfirmed** (reviewer_code, checker, tester): Block the phase. Create HITL escalation with the full approval matrix. Human decides whether to override, restart, or intervene.
+- **Critical roles unconfirmed** (reviewer_code, tester): Block the phase. Create HITL escalation with the full approval matrix. Human decides whether to override, restart, or intervene.
 - **Non-critical roles unconfirmed** (documenter): Proceed with HITL notification. Incomplete consensus is noted in the PR description.
 
 Role criticality is configurable per phase in the review adjacency definition.
@@ -209,7 +207,7 @@ To prevent flip-flopping that destroys signal value:
 
 ## Cost and Latency
 
-Consensus overhead for a sparse review graph (N=6 agents, 5 review edges in default configuration):
+Consensus overhead for a sparse review graph (N=5 agents, 4 review edges in default configuration):
 
 | Item | Estimate |
 |------|----------|

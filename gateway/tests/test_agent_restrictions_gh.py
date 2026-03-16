@@ -65,7 +65,6 @@ class TestAgentGHRestrictionsRegistry:
             AgentRole.CODER,
             AgentRole.TESTER,
             AgentRole.DOCUMENTER,
-            AgentRole.CHECKER,
             AgentRole.ARCHITECT,
             AgentRole.TASK_PLANNER,
             AgentRole.RISK_ANALYST,
@@ -75,7 +74,6 @@ class TestAgentGHRestrictionsRegistry:
             AgentRole.REVIEWER_AGENT_DESIGN,
             AgentRole.REVIEWER_REFINE,
             AgentRole.REVIEWER_PLAN,
-            AgentRole.REVIEWER_UNIFIED,
         ]
         for role in expected_roles:
             assert role in AGENT_GH_RESTRICTIONS, f"Missing restriction for role: {role}"
@@ -148,7 +146,6 @@ class TestCheckAgentGHOperation:
             "coder",
             "tester",
             "documenter",
-            "checker",
             "architect",
             "task_planner",
             "risk_analyst",
@@ -158,7 +155,6 @@ class TestCheckAgentGHOperation:
             "reviewer_agent_design",
             "reviewer_refine",
             "reviewer_plan",
-            "reviewer_unified",
         ]
         for role in roles:
             allowed, _ = check_agent_gh_operation(role, "issue comment 123")
