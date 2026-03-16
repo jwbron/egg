@@ -14,7 +14,6 @@
       "id": "decision-1",
       "question": "Should the overseer's deterministic tripwires integrate with the existing HealthCheckRunner framework, or be a separate event-driven module?",
       "type": "hitl",
-      "phase": "refine",
       "options": [
         {
           "id": "opt-1",
@@ -42,7 +41,6 @@
       "id": "decision-2",
       "question": "Should the structured progress API store progress events persistently or in-memory only?",
       "type": "hitl",
-      "phase": "refine",
       "options": [
         {
           "id": "opt-1",
@@ -75,7 +73,6 @@
       "id": "decision-3",
       "question": "How should the orchestrator communicate escalations to the overseer container?",
       "type": "hitl",
-      "phase": "refine",
       "options": [
         {
           "id": "opt-1",
@@ -108,7 +105,6 @@
       "id": "decision-4",
       "question": "Should the overseer auto-file GitHub issues autonomously, or require HITL approval?",
       "type": "hitl",
-      "phase": "refine",
       "options": [
         {
           "id": "opt-1",
@@ -141,7 +137,6 @@
       "id": "decision-5",
       "question": "Should the OVERSEER role be added independently or wait for #1030 (agent team roster)?",
       "type": "hitl",
-      "phase": "refine",
       "options": [
         {
           "id": "opt-1",
@@ -169,7 +164,6 @@
       "id": "decision-6",
       "question": "What default model should the overseer's decision-maker tier use?",
       "type": "hitl",
-      "phase": "refine",
       "options": [
         {
           "id": "opt-1",
@@ -208,5 +202,58 @@
   "pr": null,
   "feedback": null,
   "phase_configs": null,
-  "agent_executions": []
+  "agent_executions": [
+    {
+      "role": "coder",
+      "phase_id": null,
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "commit": null,
+      "checkpoint_id": null,
+      "outputs": {},
+      "error": null,
+      "retry_count": 0,
+      "conflicts": []
+    },
+    {
+      "role": "tester",
+      "phase_id": null,
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "commit": null,
+      "checkpoint_id": null,
+      "outputs": {},
+      "error": null,
+      "retry_count": 0,
+      "conflicts": []
+    },
+    {
+      "role": "documenter",
+      "phase_id": null,
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "commit": null,
+      "checkpoint_id": null,
+      "outputs": {},
+      "error": null,
+      "retry_count": 0,
+      "conflicts": []
+    },
+    {
+      "role": "reviewer_agent_design",
+      "phase_id": null,
+      "status": "failed",
+      "started_at": null,
+      "completed_at": "2026-03-16T23:09:01.071792Z",
+      "commit": null,
+      "checkpoint_id": null,
+      "outputs": {},
+      "error": "Container exited with code 143",
+      "retry_count": 0,
+      "conflicts": []
+    }
+  ]
 }
