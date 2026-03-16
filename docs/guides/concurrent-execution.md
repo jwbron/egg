@@ -197,8 +197,10 @@ Each agent tracks two state machines (producer and reviewer) independently:
 
 1. **Propose**: Producer completes work and sends `CONSENSUS_PROPOSE` signal with a summary and artifact list.
 2. **Review**: Assigned reviewers evaluate the proposal and send `CONSENSUS_ACK` or `CONSENSUS_NACK`.
-3. **Converge**: When all critical reviewers ACK, the producer sends `CONSENSUS_CONFIRMED`. When all agents are confirmed, the phase advances. If the producer calls `confirmed` before reviewer re-ACKs have arrived (e.g., immediately after a re-proposal), the command returns exit code **2** (`pending_acks`) — this is transient, not an error. The producer should poll for messages and retry `confirmed` until it exits 0.
+3. **Converge**: When all critical reviewers ACK, the producer sends `CONSENSUS_CONFIRMED`. When all agents are confirmed, the phase advances.
 4. **Re-propose**: If a NACK is received, the producer addresses the feedback and re-proposes (with `changed_artifacts` to scope re-evaluation). Flip-flop cycles are capped at `max_flip_flops` (default: 3). If any reviewer had already confirmed on a prior proposal version, they automatically receive a `CONSENSUS_RE_REVIEW` message and are un-confirmed so they re-enter the review loop — preventing a deadlock where a stale-confirmed reviewer can never see the new proposal.
+
+> **Note — `pending_acks` (exit code 2):** After a re-proposal, previously-confirmed reviewers are un-confirmed and must re-ACK. If the producer calls `confirmed` before those re-ACKs arrive, the command returns exit code **2** (`pending_acks`) — this is transient, not an error. The producer should poll for messages and retry `confirmed` until it exits 0.
 
 Use `egg-orch consensus` commands to participate in the BRC protocol:
 
@@ -216,7 +218,7 @@ egg-orch consensus nack coder --reason "Missing error handling in edge case" --f
 egg-orch consensus withdraw --reason "Addressing NACK: adding error handling"
 
 # Producer: confirm after all reviewers ACK
-# Exit 0 = confirmed. Exit 2 = waiting for reviewer re-ACKs (retry after polling).
+# Exit 0 = confirmed. Exit 1 = error. Exit 2 = waiting for reviewer re-ACKs (retry after polling).
 egg-orch consensus confirmed
 
 # Check overall consensus status
