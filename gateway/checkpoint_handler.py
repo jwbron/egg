@@ -884,7 +884,7 @@ class CheckpointHandler:
                             break
                         except (
                             subprocess.TimeoutExpired,
-                            subprocess.CalledProcessError,
+                            CheckpointError,
                         ) as exc:
                             if attempt < max_fetch_attempts:
                                 backoff = 2**attempt
@@ -969,12 +969,43 @@ class CheckpointHandler:
                         ["commit", "--no-verify", "-m", commit_msg],
                     )
 
-                    self._run_git(
-                        str(temp_path),
-                        ["push", target, f"HEAD:{CHECKPOINT_BRANCH}"],
-                        timeout=120,
-                        github_token=github_token,
-                    )
+                    # Retry push with pull-rebase on non-fast-forward rejection.
+                    # Multiple checkpoint stores can race: they fetch the same base,
+                    # commit locally, then the second push fails because the first
+                    # already advanced the remote branch.
+                    max_push_attempts = 3
+                    for push_attempt in range(1, max_push_attempts + 1):
+                        try:
+                            self._run_git(
+                                str(temp_path),
+                                ["push", target, f"HEAD:{CHECKPOINT_BRANCH}"],
+                                timeout=120,
+                                github_token=github_token,
+                            )
+                            break
+                        except CheckpointError as push_err:
+                            if "non-fast-forward" not in str(push_err):
+                                raise
+                            if push_attempt >= max_push_attempts:
+                                raise
+                            logger.warning(
+                                "Checkpoint push rejected (non-fast-forward), rebasing and retrying",
+                                attempt=push_attempt,
+                                max_attempts=max_push_attempts,
+                                checkpoint_id=checkpoint.id,
+                            )
+                            time.sleep(1)
+                            # Pull remote changes and rebase our commit on top
+                            self._run_git(
+                                str(temp_path),
+                                ["fetch", target, f"+{CHECKPOINT_BRANCH}:{CHECKPOINT_BRANCH}"],
+                                timeout=60,
+                                github_token=github_token,
+                            )
+                            self._run_git(
+                                str(temp_path),
+                                ["rebase", CHECKPOINT_BRANCH],
+                            )
 
                     logger.info(
                         "Checkpoint stored",
@@ -982,6 +1013,7 @@ class CheckpointHandler:
                         branch=CHECKPOINT_BRANCH,
                         trigger_type=checkpoint.trigger_type.value,
                         checkpoint_repo=checkpoint_repo or "(same repo)",
+                        push_attempts=push_attempt,
                     )
 
                     # Update usage aggregates (graceful degradation on failure)
