@@ -716,10 +716,13 @@ _PHASE_REVIEWERS: dict[str, list[AgentRole]] = {
 }
 
 
-_EGG_REPO = "jwbron/egg"
+EGG_REPO = "jwbron/egg"
 
 # Reviewer roles that only apply to the egg repo itself
-_EGG_ONLY_REVIEWERS: set[AgentRole] = {AgentRole.REVIEWER_AGENT_DESIGN}
+EGG_ONLY_REVIEWERS: set[AgentRole] = {AgentRole.REVIEWER_AGENT_DESIGN}
+
+# String values for use by review_graph and other modules
+EGG_ONLY_REVIEWER_NAMES: set[str] = {r.value for r in EGG_ONLY_REVIEWERS}
 
 
 def get_roles_for_phase(
@@ -748,8 +751,8 @@ def get_roles_for_phase(
     result = list(roles)
     if include_reviewers:
         reviewers = _PHASE_REVIEWERS.get(phase, [])
-        if repo is not None and repo != _EGG_REPO:
-            reviewers = [r for r in reviewers if r not in _EGG_ONLY_REVIEWERS]
+        if repo is not None and repo != EGG_REPO:
+            reviewers = [r for r in reviewers if r not in EGG_ONLY_REVIEWERS]
         result.extend(reviewers)
     return result
 

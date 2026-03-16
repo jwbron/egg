@@ -3715,7 +3715,7 @@ def _run_concurrent_phase(
     from egg_contracts.agent_roles import get_roles_for_phase as _get_roles_for_phase
 
     roles: list[AgentRole] = []
-    for r in _get_roles_for_phase(phase_str, include_reviewers=True):
+    for r in _get_roles_for_phase(phase_str, include_reviewers=True, repo=pipeline.repo):
         try:
             roles.append(AgentRole(r.value))
         except ValueError:

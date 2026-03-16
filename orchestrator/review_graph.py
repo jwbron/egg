@@ -223,10 +223,8 @@ _DEFAULT_PHASE_GRAPH_FACTORIES: dict[str, Callable[[], ReviewGraph]] = {
 }
 
 
-_EGG_REPO = "jwbron/egg"
-
-# Reviewer roles that only apply to the egg repo itself
-_EGG_ONLY_REVIEWERS: set[str] = {"reviewer_agent_design"}
+from egg_contracts.agent_roles import EGG_ONLY_REVIEWER_NAMES as _EGG_ONLY_REVIEWERS
+from egg_contracts.agent_roles import EGG_REPO as _EGG_REPO
 
 
 def get_review_graph_for_phase(phase: str, repo: str | None = None) -> ReviewGraph:
@@ -246,8 +244,10 @@ def get_review_graph_for_phase(phase: str, repo: str | None = None) -> ReviewGra
         factory = _DEFAULT_PHASE_GRAPH_FACTORIES.get(phase)
         graph = factory() if factory is not None else ReviewGraph()
 
-    # Strip egg-specific reviewers for non-egg repos
+    # Strip egg-specific reviewers for non-egg repos.
+    # Work on a copy to avoid mutating a registered singleton from _PHASE_GRAPHS.
     if repo is not None and repo != _EGG_REPO:
+        graph = ReviewGraph(list(graph.edges))
         for role in _EGG_ONLY_REVIEWERS:
             for producer in graph.producers_for(role):
                 graph.remove_edge(role, producer)
