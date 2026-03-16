@@ -2905,6 +2905,11 @@ def _build_brc_preamble(role_value: str, phase: str) -> str:
     Returns a formatted string block that can be appended to any agent prompt
     to inject BRC protocol instructions. Used by both the coder/refiner path
     (which delegates to _build_phase_prompt) and the generic multi-agent path.
+
+    Includes:
+    - Agent roster showing all active agents and what they produce
+    - Role-specific proactive preparation instructions
+    - Full BRC lifecycle steps
     """
     try:
         from review_graph import get_review_graph_for_phase
@@ -2914,6 +2919,7 @@ def _build_brc_preamble(role_value: str, phase: str) -> str:
         is_reviewer = graph.is_reviewer(role_value)
         reviewers = graph.reviewers_for(role_value) if is_producer else []
         producers = graph.producers_for(role_value) if is_reviewer else []
+        all_roles = sorted(graph.all_roles())
     except Exception:
         is_producer = role_value in (
             "coder",
@@ -2934,6 +2940,7 @@ def _build_brc_preamble(role_value: str, phase: str) -> str:
         )
         reviewers = []
         producers = []
+        all_roles = []
 
     lines: list[str] = [
         "\n\n## CRITICAL: BRC Consensus Protocol\n",
@@ -2958,17 +2965,25 @@ def _build_brc_preamble(role_value: str, phase: str) -> str:
         lines.append(f"Your assigned producers: {', '.join(producers)}")
     lines.append("")
 
+    # Agent roster: show all active agents and what they do
+    if all_roles:
+        roster = _build_agent_roster(all_roles, role_value, phase)
+        if roster:
+            lines.append(roster)
+
     if is_producer:
         lines.extend(
             [
                 "### Producer Lifecycle",
-                "1. **WORK**: Complete your assigned task (see Your Task below).",
-                "2. **PROPOSE**: When done, run: "
+                "1. **ORIENT**: Before starting work, "
+                + _build_producer_orientation(role_value, phase, reviewers),
+                "2. **WORK**: Complete your assigned task (see Your Task below).",
+                "3. **PROPOSE**: When done, run: "
                 '`egg-orch consensus propose --summary "..." --artifacts "file1" "file2"`',
-                "3. **RESPOND TO REVIEWS**: Poll for ACK/NACK from reviewers. "
+                "4. **RESPOND TO REVIEWS**: Poll for ACK/NACK from reviewers. "
                 "Handle NACKs by fixing issues and re-proposing.",
-                "4. **CONFIRM**: When all reviewers ACK: `egg-orch consensus confirmed`",
-                "5. **STAY ALIVE**: Keep polling `egg-orch message poll --wait 30` "
+                "5. **CONFIRM**: When all reviewers ACK: `egg-orch consensus confirmed`",
+                "6. **STAY ALIVE**: Keep polling `egg-orch message poll --wait 30` "
                 "until the orchestrator stops you.\n",
             ]
         )
@@ -2977,16 +2992,18 @@ def _build_brc_preamble(role_value: str, phase: str) -> str:
         lines.extend(
             [
                 "### Reviewer Lifecycle",
-                "1. **WAIT**: Poll for `CONSENSUS_PROPOSE` from assigned producers "
-                "(`egg-orch message poll --wait 30`). Do NOT inspect the filesystem "
-                "for producer artifacts before the proposal arrives.",
-                "2. **REVIEW**: Once a proposal arrives, form independent judgment from "
-                "the referenced code artifacts.",
-                '3. **ACK/NACK**: `egg-orch consensus ack <role> --files-reviewed "f1" "f2"` or '
+                "1. **PREPARE** (while waiting): " + _build_reviewer_preparation(role_value, phase),
+                "2. **POLL**: Wait for `CONSENSUS_PROPOSE` from assigned producers "
+                "(`egg-orch message poll --wait 30`). Do NOT inspect producer "
+                "artifacts or form judgments before the proposal arrives.",
+                "3. **REVIEW**: Once a proposal arrives, form independent judgment from "
+                "the referenced code artifacts. Read the actual files — do not rely "
+                "solely on the proposal summary.",
+                '4. **ACK/NACK**: `egg-orch consensus ack <role> --files-reviewed "f1" "f2"` or '
                 '`egg-orch consensus nack <role> --reason "..." --files-reviewed "f1" "f2"`',
-                "4. **CONFIRM**: When all assigned producers reviewed: "
+                "5. **CONFIRM**: When all assigned producers reviewed: "
                 "`egg-orch consensus confirmed`",
-                "5. **STAY ALIVE**: Keep polling `egg-orch message poll --wait 30` "
+                "6. **STAY ALIVE**: Keep polling `egg-orch message poll --wait 30` "
                 "until the orchestrator stops you.\n",
             ]
         )
@@ -3001,6 +3018,235 @@ def _build_brc_preamble(role_value: str, phase: str) -> str:
     )
 
     return "\n".join(lines)
+
+
+# Role descriptions for agent roster — maps role names to (short description,
+# what artifacts they produce).
+_ROLE_DESCRIPTIONS: dict[str, tuple[str, str]] = {
+    "coder": (
+        "Implements code changes",
+        "commits with source files, tests may be included",
+    ),
+    "tester": (
+        "Writes and runs tests (dual role: also reviews coder)",
+        "test files, coverage reports, test pass/fail results",
+    ),
+    "documenter": (
+        "Updates documentation for changes",
+        "doc files, README updates, inline documentation",
+    ),
+    "refiner": (
+        "Refines implementation based on review feedback",
+        "updated source files addressing review concerns",
+    ),
+    "architect": (
+        "Designs architecture and component structure",
+        "architecture analysis, component breakdown",
+    ),
+    "task_planner": (
+        "Breaks work into implementation tasks",
+        "task list with acceptance criteria",
+    ),
+    "risk_analyst": (
+        "Assesses technical risks",
+        "risk assessment with mitigations",
+    ),
+    "reviewer_code": (
+        "Reviews code quality, correctness, and security",
+        "ACK/NACK with file-level feedback",
+    ),
+    "reviewer_contract": (
+        "Verifies implementation matches contract/requirements",
+        "ACK/NACK with task-level verification",
+    ),
+    "reviewer_refine": (
+        "Reviews refinement changes",
+        "ACK/NACK on refined implementation",
+    ),
+    "reviewer_agent_design": (
+        "Reviews agent design and architecture decisions",
+        "ACK/NACK on design choices",
+    ),
+    "reviewer_plan": (
+        "Reviews plan phase outputs",
+        "ACK/NACK on architecture, tasks, and risk assessment",
+    ),
+}
+
+
+def _build_agent_roster(all_roles: list[str], current_role: str, phase: str) -> str:
+    """Build a roster of all active agents for the current phase.
+
+    Shows each agent's role, what they do, and what they produce so that
+    every agent understands who else is running and what to expect.
+    """
+    roster_lines = ["### Active Agents in This Phase\n"]
+    roster_lines.append(
+        "The following agents are running **simultaneously**. "
+        "Each must complete their task AND reach CONFIRMED via BRC.\n"
+    )
+    for role in all_roles:
+        desc, artifacts = _ROLE_DESCRIPTIONS.get(
+            role, ("Executes assigned role", "role-specific artifacts")
+        )
+        marker = " **(you)**" if role == current_role else ""
+        roster_lines.append(f"- **{role}**{marker}: {desc}. Produces: {artifacts}.")
+    roster_lines.append("")
+    return "\n".join(roster_lines)
+
+
+def _build_reviewer_preparation(role_value: str, phase: str) -> str:
+    """Build proactive preparation instructions for reviewer agents.
+
+    Tells reviewers what to do while waiting for proposals — e.g., reading
+    the contract, familiarizing themselves with the codebase, preparing
+    review criteria. This avoids idle waiting and produces better reviews.
+    """
+    if phase == "implement":
+        if role_value == "reviewer_code":
+            return (
+                "While waiting for proposals, prepare by: "
+                "(a) reading the contract with `egg-contract show` to understand "
+                "what was planned, "
+                "(b) reviewing the issue/PR description for context, "
+                "(c) exploring the codebase areas likely to be changed "
+                "(grep for relevant classes, read key files), "
+                "(d) noting existing test patterns and code conventions. "
+                "This background research will make your review faster "
+                "and more thorough once proposals arrive."
+            )
+        elif role_value == "reviewer_contract":
+            return (
+                "While waiting for proposals, prepare by: "
+                "(a) reading the contract with `egg-contract show` to understand "
+                "every task and its acceptance criteria, "
+                "(b) reviewing the issue description for original requirements, "
+                "(c) noting which tasks are marked as must-have vs nice-to-have. "
+                "When proposals arrive, you will verify each task's acceptance "
+                "criteria is met — prepare a checklist now."
+            )
+        elif role_value == "tester":
+            return (
+                "While waiting for the coder's proposal, prepare by: "
+                "(a) reading the contract with `egg-contract show` to understand "
+                "what's being implemented, "
+                "(b) identifying edge cases and boundary conditions from the "
+                "requirements, "
+                "(c) checking the existing test infrastructure (test frameworks, "
+                "fixtures, test utilities). "
+                "Start writing test scaffolding for known requirements while "
+                "waiting — you can finalize once you see the actual implementation."
+            )
+    elif phase == "plan":
+        if role_value == "reviewer_plan":
+            return (
+                "While waiting for proposals, prepare by: "
+                "(a) reading the issue description to understand the original "
+                "request, "
+                "(b) exploring the codebase to understand the current architecture "
+                "and components that may be affected, "
+                "(c) identifying potential risks or constraints the planners "
+                "should address. "
+                "Form your own mental model of how you would approach this — "
+                "then compare against the proposals when they arrive."
+            )
+    elif phase == "refine":
+        if role_value in ("reviewer_refine", "reviewer_agent_design"):
+            return (
+                "While waiting for the refiner's proposal, prepare by: "
+                "(a) reading the prior review feedback that triggered this "
+                "refinement cycle, "
+                "(b) checking the current state of the code to understand "
+                "what was already implemented, "
+                "(c) verifying which review concerns are still outstanding. "
+                "When the proposal arrives, focus on whether the specific "
+                "feedback items were addressed."
+            )
+
+    # Generic fallback
+    return (
+        "While waiting for proposals, read the contract "
+        "(`egg-contract show`), explore the codebase for context, "
+        "and prepare your review criteria. "
+        "Do NOT inspect producer artifacts before proposals arrive."
+    )
+
+
+def _build_producer_orientation(role_value: str, phase: str, reviewers: list[str]) -> str:
+    """Build orientation instructions for producer agents.
+
+    Tells producers what to research before starting work — understanding
+    context, knowing what reviewers will check, and checking existing code
+    patterns. This produces higher-quality first proposals and fewer NACKs.
+    """
+    reviewer_awareness = ""
+    if reviewers:
+        reviewer_names = ", ".join(reviewers)
+        reviewer_awareness = (
+            f" Your work will be reviewed by **{reviewer_names}** — "
+            "keep their review criteria in mind as you work."
+        )
+
+    if phase == "implement":
+        if role_value == "coder":
+            return (
+                "read the contract (`egg-contract show`) to understand all tasks "
+                "and acceptance criteria. Explore the codebase to find existing "
+                "patterns, conventions, and the files you will modify. Check for "
+                "existing tests that cover the areas you will change — do not "
+                "break them." + reviewer_awareness
+            )
+        elif role_value == "tester":
+            return (
+                "read the contract (`egg-contract show`) to understand what is "
+                "being implemented. Check the existing test infrastructure — "
+                "test frameworks, fixtures, conftest files, and naming conventions. "
+                "Identify edge cases from the requirements before writing tests."
+                + reviewer_awareness
+            )
+        elif role_value == "documenter":
+            return (
+                "read the contract (`egg-contract show`) to understand what is "
+                "being implemented. Check existing documentation structure — "
+                "README files, doc directories, inline documentation patterns. "
+                "Identify which docs will need updating once the implementation "
+                "is complete." + reviewer_awareness
+            )
+    elif phase == "plan":
+        if role_value == "architect":
+            return (
+                "read the issue/task description carefully. Explore the codebase "
+                "to understand the current architecture, component boundaries, "
+                "and dependencies. Identify the areas that will be affected by "
+                "the proposed changes." + reviewer_awareness
+            )
+        elif role_value == "task_planner":
+            return (
+                "read the issue/task description carefully. Review the codebase "
+                "structure to understand the scope of work. Break the work into "
+                "tasks with clear acceptance criteria that reviewers can verify."
+                + reviewer_awareness
+            )
+        elif role_value == "risk_analyst":
+            return (
+                "read the issue/task description carefully. Research the affected "
+                "areas of the codebase for potential risks — security, "
+                "performance, backwards compatibility, and third-party "
+                "dependencies." + reviewer_awareness
+            )
+    elif phase == "refine":
+        if role_value == "refiner":
+            return (
+                "read the prior review feedback carefully. Understand exactly "
+                "what concerns were raised and what changes are expected. Check "
+                "the current state of the code before making modifications." + reviewer_awareness
+            )
+
+    # Generic fallback
+    return (
+        "read the contract (`egg-contract show`) and explore the codebase "
+        "to understand context, patterns, and conventions before starting." + reviewer_awareness
+    )
 
 
 def _build_agent_prompt(
@@ -3308,7 +3554,7 @@ def _build_agent_prompt(
     elif role_value.startswith("reviewer_"):
         # Delegate to the detailed review prompt with criteria and verdict format
         reviewer_type = role_value.replace("reviewer_", "", 1).replace("_", "-")
-        return _build_review_prompt(
+        review_prompt = _build_review_prompt(
             phase=phase,
             pipeline_id=pipeline_id,
             pipeline_mode=pipeline_mode,
@@ -3318,6 +3564,9 @@ def _build_agent_prompt(
             prior_feedback=review_feedback,
             repo_path=repo_path,
         )
+        if concurrent:
+            review_prompt += "\n" + _build_brc_preamble(role_value, phase)
+        return review_prompt
     else:
         lines.extend(
             [
