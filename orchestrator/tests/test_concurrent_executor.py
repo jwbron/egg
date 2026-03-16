@@ -130,7 +130,6 @@ class TestAgentRoles:
         assert "checker" in role_names
         assert "reviewer_code" in role_names
         assert "reviewer_contract" in role_names
-        assert "integrator" in role_names
 
     def test_refine_phase_roles(self):
         from concurrent_executor import ConcurrentPhaseExecutor

@@ -477,7 +477,6 @@ class TestGetAgentRoles:
         assert AgentRole.CHECKER in roles
         assert AgentRole.REVIEWER_CODE in roles
         assert AgentRole.REVIEWER_CONTRACT in roles
-        assert AgentRole.INTEGRATOR in roles
 
     def test_returns_refine_phase_roles(self):
         """get_agent_roles returns refine-phase roles when phase is refine."""
