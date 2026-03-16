@@ -689,10 +689,7 @@ class TestWaveGrouping:
         ]
 
         # Coder should be on its own line (wave 1)
-        assert any(
-            "coder" in line and "tester" not in line
-            for line in agent_lines
-        )
+        assert any("coder" in line and "tester" not in line for line in agent_lines)
         # Tester and documenter should be on the same line (wave 2)
         assert any("tester" in line and "documenter" in line for line in agent_lines)
         # Reviewers should appear

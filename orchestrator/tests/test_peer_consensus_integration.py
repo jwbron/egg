@@ -629,7 +629,7 @@ class TestScaledReEvaluation:
         assert not t.matrix.is_fully_acked("coder")
 
         # Coder re-proposes changing only utils.py
-        result = t.handle_re_propose(
+        t.handle_re_propose(
             "coder",
             {"summary": "Fixed utils", "artifacts": ["src/main.py", "src/utils.py"]},
             changed_artifacts=["src/utils.py"],

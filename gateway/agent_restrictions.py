@@ -433,7 +433,6 @@ REVIEWER_PLAN_PATTERNS = AgentFilePattern(
 )
 
 
-
 # Registry of all agent patterns
 AGENT_PATTERNS: dict[str, AgentFilePattern] = {
     AgentRole.CODER: CODER_PATTERNS,

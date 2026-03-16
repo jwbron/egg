@@ -193,7 +193,6 @@ class TestAgentPromptCheckpointHints:
         assert "egg-checkpoint context --pipeline $EGG_PIPELINE_ID --files" in result
 
 
-
 # ---------------------------------------------------------------------------
 # _build_phase_scoped_prompt: failed session checkpoint hint in revision
 # ---------------------------------------------------------------------------
