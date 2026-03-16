@@ -54,10 +54,10 @@
         {
           "container_id": "dcea67f6dbbe01f09e5617bae9eb1b1d377e131366906765a6177d9605492ed0",
           "container_name": "issue-1032-reviewer_agent_design",
-          "status": "running",
+          "status": "failed",
           "started_at": "2026-03-16T22:49:50.237039",
-          "exited_at": null,
-          "exit_code": null,
+          "exited_at": "2026-03-16T22:53:26.500771",
+          "exit_code": -1,
           "agent_role": "reviewer_agent_design",
           "session_token": null
         }
@@ -89,13 +89,13 @@
         },
         {
           "role": "reviewer_agent_design",
-          "status": "running",
+          "status": "failed",
           "container_id": "dcea67f6dbbe01f09e5617bae9eb1b1d377e131366906765a6177d9605492ed0",
           "started_at": "2026-03-16T22:49:50.237042",
-          "completed_at": null,
+          "completed_at": "2026-03-16T22:53:26.502841",
           "commit": null,
           "outputs": {},
-          "error": null,
+          "error": "Container exited with code -1",
           "retry_count": 0,
           "conflicts": []
         }
@@ -118,9 +118,9 @@
   },
   "decisions": [],
   "created_at": "2026-03-16T22:49:38.531932",
-  "updated_at": "2026-03-16T22:53:24.749238",
+  "updated_at": "2026-03-16T22:53:26.503204",
   "contract_synced": true,
   "network_mode": null,
   "error": null,
-  "version": 8
+  "version": 9
 }
