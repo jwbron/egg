@@ -86,7 +86,9 @@ class ConcurrentPhaseExecutor:
         from egg_contracts.agent_roles import get_roles_for_phase
 
         phase = self.pipeline.current_phase.value
-        contract_roles = get_roles_for_phase(phase, include_reviewers=True)
+        contract_roles = get_roles_for_phase(
+            phase, include_reviewers=True, repo=self.pipeline.repo
+        )
         return [AgentRole(r.value) for r in contract_roles]
 
     def get_worktree_branch(self, role: AgentRole) -> str:
@@ -110,7 +112,9 @@ class ConcurrentPhaseExecutor:
             "EGG_MESSAGE_POLL_INTERVAL": str(poll_interval),
         }
         # Add review graph info for BRC protocol
-        graph = get_review_graph_for_phase(self.pipeline.current_phase.value)
+        graph = get_review_graph_for_phase(
+            self.pipeline.current_phase.value, repo=self.pipeline.repo
+        )
         if graph.is_producer(role.value):
             env["EGG_BRC_ROLE_TYPE"] = "producer"
             env["EGG_BRC_REVIEWERS"] = ",".join(graph.reviewers_for(role.value))
@@ -136,7 +140,9 @@ class ConcurrentPhaseExecutor:
             List of AgentExecution records for spawned agents.
         """
         roles = self.get_agent_roles()
-        graph = get_review_graph_for_phase(self.pipeline.current_phase.value)
+        graph = get_review_graph_for_phase(
+            self.pipeline.current_phase.value, repo=self.pipeline.repo
+        )
         tracker = create_peer_consensus_tracker(self.pipeline.id, graph)
         executions: list[AgentExecution] = []
 

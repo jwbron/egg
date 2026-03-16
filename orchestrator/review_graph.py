@@ -223,18 +223,36 @@ _DEFAULT_PHASE_GRAPH_FACTORIES: dict[str, Callable[[], ReviewGraph]] = {
 }
 
 
-def get_review_graph_for_phase(phase: str) -> ReviewGraph:
+_EGG_REPO = "jwbron/egg"
+
+# Reviewer roles that only apply to the egg repo itself
+_EGG_ONLY_REVIEWERS: set[str] = {"reviewer_agent_design"}
+
+
+def get_review_graph_for_phase(phase: str, repo: str | None = None) -> ReviewGraph:
     """Get the review graph for a pipeline phase.
 
     Returns the default review graph for refine, plan, and implement phases.
     Other phases return an empty graph unless a custom graph has been registered.
+
+    Args:
+        phase: Pipeline phase name.
+        repo: Repository in owner/name format. When provided, egg-specific
+            reviewer roles are excluded for non-egg repos.
     """
     if phase in _PHASE_GRAPHS:
-        return _PHASE_GRAPHS[phase]
-    factory = _DEFAULT_PHASE_GRAPH_FACTORIES.get(phase)
-    if factory is not None:
-        return factory()
-    return ReviewGraph()
+        graph = _PHASE_GRAPHS[phase]
+    else:
+        factory = _DEFAULT_PHASE_GRAPH_FACTORIES.get(phase)
+        graph = factory() if factory is not None else ReviewGraph()
+
+    # Strip egg-specific reviewers for non-egg repos
+    if repo is not None and repo != _EGG_REPO:
+        for role in _EGG_ONLY_REVIEWERS:
+            for producer in graph.producers_for(role):
+                graph.remove_edge(role, producer)
+
+    return graph
 
 
 def register_phase_graph(phase: str, graph: ReviewGraph) -> None:
