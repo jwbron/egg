@@ -1,0 +1,232 @@
+{
+  "issue_number": 1059,
+  "agent_role": "risk_analyst",
+  "phase": "plan",
+  "timestamp": "2026-03-16T23:15:00Z",
+  "summary": "Risk assessment for two-tier pipeline health monitoring (orchestrator tripwires + overseer agent). 11 risks identified: 2 high, 5 medium, 4 low. Key concerns: overseer container resource footprint on every pipeline, hallucination risk in multi-tier LLM architecture, and the 6298-line pipelines.py becoming even larger. All dependencies (#1027, #1088, #1164) are merged. No blocking external vulnerability issues found.",
+  "dependencies_status": {
+    "1027_cross_agent_communication": "CLOSED/MERGED",
+    "1088_agent_sdk_migration": "CLOSED/MERGED",
+    "1164_coordinator_removal": "CLOSED/MERGED"
+  },
+  "external_research": {
+    "claude_agent_sdk": {
+      "version_installed": "0.1.48",
+      "haiku_support": "Supported via model='haiku' on AgentDefinition. Known issue #515 (exit code 1) was RESOLVED — caused by invalid model name, not SDK bug. Correct model: claude-haiku-4-5-20251001.",
+      "known_vulnerabilities": "None found",
+      "deprecation_notices": "None found"
+    }
+  },
+  "risks": [
+    {
+      "id": "RISK-01",
+      "title": "Overseer container resource footprint on every pipeline",
+      "category": "performance",
+      "severity": "high",
+      "likelihood": "high",
+      "impact": "medium",
+      "description": "The overseer is always-on for ALL pipelines, meaning every pipeline spawns an additional long-running container. This is a persistent Docker container with the sandbox image running for the pipeline's entire lifecycle. On a busy system with multiple concurrent pipelines, this adds significant memory and CPU pressure. The sandbox image is not lightweight — it includes Python, Node.js, Go, Java, and all dev tooling.",
+      "affected_components": [
+        "orchestrator/container_spawner.py",
+        "orchestrator/routes/pipelines.py",
+        "Docker host resources"
+      ],
+      "mitigation": "1. Use a minimal container image for the overseer (no repo mount, no build tools — just Python + egg CLIs + gh). 2. Add a config flag `overseer_enabled` (already specified) but default to true only for concurrent pipelines, not simple single-agent runs. 3. Set strict memory/CPU limits on overseer containers (e.g., 512MB RAM, 0.5 CPU). 4. Implement graceful shutdown of the overseer when pipeline enters terminal state to avoid zombie containers.",
+      "rollback_plan": "Set overseer_enabled=false in PipelineConfig to disable spawning. Existing pipelines continue without overseer — the orchestrator tier (deterministic) still runs in-process.",
+      "requires_human_review": true,
+      "human_review_reason": "Cost-benefit decision: always-on overseer for simple pipelines may not justify the resource cost. Consider tiered enablement."
+    },
+    {
+      "id": "RISK-02",
+      "title": "Multi-tier LLM hallucination: Opus acting on fabricated Haiku results",
+      "category": "security",
+      "severity": "high",
+      "likelihood": "medium",
+      "impact": "high",
+      "description": "The issue explicitly acknowledges this risk: 'Anthropic has observed that in multi-tier agent architectures, a parent agent can fabricate child results before they arrive and act on the fabrication.' If the Sonnet/Opus decision-maker fabricates Haiku classification outputs, it could take inappropriate corrective actions — sending misleading redirect messages to working agents, filing false GitHub issues, or escalating to HITL unnecessarily. This could disrupt healthy pipelines.",
+      "affected_components": [
+        "Overseer agent (new)",
+        "Haiku classification tier",
+        "Sonnet/Opus decision tier"
+      ],
+      "mitigation": "1. Enforce structured data flow: Haiku outputs must be serialized to a verifiable artifact (e.g., JSON file or structured message) before Opus reads them — never pass Haiku results through the same LLM context window. 2. Implement a validation layer: the orchestrator (deterministic code) receives Haiku's classification, validates it has expected schema, then passes it to Sonnet/Opus as a separate invocation. 3. Add checksums or unique request IDs to Haiku outputs that the orchestrator verifies before forwarding. 4. Log all Haiku-to-Opus handoffs for audit trail.",
+      "rollback_plan": "Disable the Sonnet/Opus tier and fall back to deterministic-only responses (auto-nudge, HITL escalation). The Haiku tier can operate independently for classification without the decision-maker.",
+      "requires_human_review": true,
+      "human_review_reason": "Architecture decision: how to enforce the Haiku-to-Opus data flow boundary. The issue acknowledges the risk but doesn't specify the enforcement mechanism."
+    },
+    {
+      "id": "RISK-03",
+      "title": "pipelines.py complexity explosion (6298 lines already)",
+      "category": "maintainability",
+      "severity": "medium",
+      "likelihood": "high",
+      "impact": "medium",
+      "description": "orchestrator/routes/pipelines.py is already 6298 lines — the single largest file in the codebase. Adding overseer auto-spawn logic, structured progress handling, and health alert integration into this file will make it even harder to maintain, test, and review. The issue specifies adding overseer spawning 'alongside the concurrent/multi-agent spawn logic' which lives in _run_concurrent_phase() at line ~3669.",
+      "affected_components": [
+        "orchestrator/routes/pipelines.py"
+      ],
+      "mitigation": "1. Create new dedicated modules (as specified in issue): orchestrator/routes/progress.py for progress endpoints, orchestrator/health_monitor.py for tripwires. 2. Extract the overseer spawn logic into a separate function/module rather than inlining in _run_concurrent_phase(). 3. Consider a future refactoring task to break pipelines.py into smaller modules (pipeline_crud.py, pipeline_execution.py, pipeline_review.py).",
+      "rollback_plan": "Revert overseer-related additions from pipelines.py. Since existing functionality is unchanged, this is a clean revert.",
+      "requires_human_review": false,
+      "human_review_reason": null
+    },
+    {
+      "id": "RISK-04",
+      "title": "Structured progress API adds a new data ingestion surface to the orchestrator",
+      "category": "security",
+      "severity": "medium",
+      "likelihood": "medium",
+      "impact": "medium",
+      "description": "The new POST /progress endpoint accepts structured data from agent containers. A compromised or malfunctioning agent could flood the endpoint with progress events, consume orchestrator memory (in-memory storage like MessageStore), or send misleading progress data that causes the overseer to make incorrect decisions. The orchestrator processes these events for deterministic tripwires, so bad data affects all downstream monitoring.",
+      "affected_components": [
+        "orchestrator/routes/progress.py (new)",
+        "orchestrator/health_monitor.py (new)",
+        "orchestrator/message_store.py (pattern reference)"
+      ],
+      "mitigation": "1. Rate-limit the progress endpoint per agent per pipeline (align with orchestrator_message_rate_limit config, e.g., 20/min). 2. Validate progress event schema strictly — reject malformed events. 3. Bound storage: keep only the last N progress events per agent (e.g., 100), evicting oldest. 4. Authenticate progress events via session token (same pattern as existing signal endpoints). 5. Add size limits on progress detail fields (e.g., 1KB max per event).",
+      "rollback_plan": "Disable the progress endpoint. Agents fall back to heartbeat-only signaling. Deterministic tripwires degrade to heartbeat-timeout-only detection.",
+      "requires_human_review": false,
+      "human_review_reason": null
+    },
+    {
+      "id": "RISK-05",
+      "title": "Overseer self-monitoring creates potential infinite loops",
+      "category": "performance",
+      "severity": "medium",
+      "likelihood": "low",
+      "impact": "high",
+      "description": "The overseer must monitor itself (poll cycle timing, message volume, LLM call costs). If the self-monitoring logic is flawed, the overseer could: (a) detect its own monitoring messages as anomalies, triggering more monitoring; (b) file issues about itself endlessly; (c) signal BLOCKED, causing the pipeline to stall waiting for a component that monitors the pipeline. The issue says 'if it detects it's malfunctioning, file an issue about itself and signal BLOCKED' — but a BLOCKED overseer means no agent monitoring for the rest of the pipeline.",
+      "affected_components": [
+        "Overseer agent (new)",
+        "orchestrator pipeline state management"
+      ],
+      "mitigation": "1. Implement a hard circuit breaker: after 1 self-report per pipeline, the overseer stops self-monitoring and relies on the orchestrator's deterministic tier only. 2. The overseer BLOCKED state should NOT block pipeline progression — it should be informational. The orchestrator should continue the pipeline with deterministic monitoring only. 3. Rate-limit self-filed issues (max 1 per pipeline). 4. Exclude the overseer's own messages from its message volume analysis.",
+      "rollback_plan": "Remove self-monitoring entirely. The orchestrator's existing container_monitor.py already tracks container health for the overseer container itself.",
+      "requires_human_review": false,
+      "human_review_reason": null
+    },
+    {
+      "id": "RISK-06",
+      "title": "Haiku/Sonnet/Opus cost accumulation without budget tracking",
+      "category": "performance",
+      "severity": "medium",
+      "likelihood": "medium",
+      "impact": "medium",
+      "description": "Token budget tracking is explicitly deferred. The overseer makes LLM calls (Haiku for classification, Sonnet/Opus for decisions) but there's no mechanism to track or cap costs. A pathological pipeline (many agents, many anomalies) could drive excessive LLM spend. The AgentResult from egg_agent captures cost_usd per call, but nothing aggregates or limits it.",
+      "affected_components": [
+        "Overseer agent (new)",
+        "shared/egg_agent/client.py"
+      ],
+      "mitigation": "1. Even without full budget tracking, implement a simple per-pipeline call counter in the overseer: max N Haiku calls and M Sonnet/Opus calls per pipeline (configurable). 2. Log cost_usd from each AgentResult for post-hoc analysis. 3. Set max_turns=1 on all LLM calls (as specified in issue) to prevent runaway conversations. 4. Track cumulative cost in-memory within the overseer and reduce poll frequency if approaching a soft limit.",
+      "rollback_plan": "If costs are excessive, set overseer_enabled=false. The deterministic orchestrator tier handles the most common failure modes (heartbeat timeout, container exit, error repeats) with zero LLM cost.",
+      "requires_human_review": false,
+      "human_review_reason": null
+    },
+    {
+      "id": "RISK-07",
+      "title": "Autonomous GitHub issue filing may create noise",
+      "category": "security",
+      "severity": "medium",
+      "likelihood": "medium",
+      "impact": "low",
+      "description": "The overseer can autonomously file GitHub issues with the overseer-alert label. If the classification is wrong (false positive from Haiku) or the overseer is overeager, it could flood the repository with diagnostic issues. This is especially concerning because the Sonnet/Opus tier decides whether to file — and it's called only on anomalies, which may have a high false-positive rate in early deployment.",
+      "affected_components": [
+        "Overseer agent (new)",
+        "GitHub repository issue tracker"
+      ],
+      "mitigation": "1. Rate-limit issue filing: max 1 issue per agent per pipeline, max 3 issues per pipeline total. 2. Check for duplicate open issues before filing (search by label + pipeline ID). 3. Start with issue filing disabled (config flag) during initial rollout — use Slack notifications only. 4. Require the overseer to include confidence level in its issue filing decisions, and only file above a threshold.",
+      "rollback_plan": "Disable autonomous issue filing via config. Fall back to Slack notifications and HITL decision queue only.",
+      "requires_human_review": false,
+      "human_review_reason": null
+    },
+    {
+      "id": "RISK-08",
+      "title": "Race conditions between orchestrator auto-nudge and overseer redirect",
+      "category": "compatibility",
+      "severity": "low",
+      "likelihood": "medium",
+      "impact": "medium",
+      "description": "The orchestrator tier auto-nudges agents for deterministic failures (e.g., heartbeat timeout). Simultaneously, the overseer may detect the same stall and send a redirect message. An agent could receive both a nudge and a redirect for the same issue, causing confusion or duplicate actions. The escalation flow (orchestrator -> overseer) implies sequencing, but both tiers run concurrently.",
+      "affected_components": [
+        "orchestrator/health_monitor.py (new)",
+        "Overseer agent (new)",
+        "orchestrator/routes/messages.py"
+      ],
+      "mitigation": "1. Use a deduplication mechanism: when the orchestrator auto-nudges, it marks the agent+issue combination as 'handled' with a timestamp. The overseer checks this mark before sending its own message. 2. Include a 'triggered_by' field in nudge/redirect messages so agents can distinguish. 3. Add a cooldown period after auto-nudge before the overseer can act on the same agent (e.g., 60 seconds).",
+      "rollback_plan": "Disable the overseer redirect capability and rely on orchestrator auto-nudge only. The escalation path becomes: auto-nudge -> HITL.",
+      "requires_human_review": false,
+      "human_review_reason": null
+    },
+    {
+      "id": "RISK-09",
+      "title": "Overseer CLAUDE.md instructions could conflict with BRC protocol",
+      "category": "compatibility",
+      "severity": "low",
+      "likelihood": "low",
+      "impact": "medium",
+      "description": "The overseer runs as a continuously polling agent with its own monitoring loop, but all agents currently follow the BRC consensus protocol (propose/ACK/NACK/confirm). The overseer's lifecycle (always-on, no proposal, no consensus) is fundamentally different from BRC agents. If the orchestrator's concurrent execution logic expects all agents in a phase to participate in BRC, the overseer could block consensus by never proposing or confirming.",
+      "affected_components": [
+        "orchestrator/routes/pipelines.py (_run_concurrent_phase)",
+        "orchestrator/consensus_wrapper.py",
+        "Overseer CLAUDE.md"
+      ],
+      "mitigation": "1. Exempt the overseer from BRC consensus — it should NOT be included in the consensus agent list. 2. The overseer is spawned by the orchestrator but not tracked as a phase agent in PhaseExecution.agents. 3. Use a separate lifecycle manager for the overseer (start at pipeline creation, stop at pipeline completion) independent of phase transitions.",
+      "rollback_plan": "If the overseer interferes with BRC, remove it from the agent spawn list and run it as a sidecar process instead.",
+      "requires_human_review": false,
+      "human_review_reason": null
+    },
+    {
+      "id": "RISK-10",
+      "title": "No repo mount for overseer limits diagnostic capability",
+      "category": "compatibility",
+      "severity": "low",
+      "likelihood": "low",
+      "impact": "low",
+      "description": "The overseer has no git repository access by design. However, some diagnostic scenarios (e.g., verifying agent output quality, checking if a coder's changes match the contract) require access to actual code diffs. The overseer must rely entirely on structured logs and orchestrator APIs, which may not always provide sufficient context for accurate classification.",
+      "affected_components": [
+        "Overseer agent (new)"
+      ],
+      "mitigation": "1. Enrich the structured progress API to include relevant context (e.g., files changed, test results) so the overseer doesn't need repo access. 2. Expose a read-only git diff API endpoint on the orchestrator that the overseer can query. 3. Accept this as a known limitation and document it — the overseer detects behavioral anomalies (stalls, loops, errors), not code quality issues (that's the reviewer's job).",
+      "rollback_plan": "No rollback needed — this is a design limitation, not a failure mode.",
+      "requires_human_review": false,
+      "human_review_reason": null
+    },
+    {
+      "id": "RISK-11",
+      "title": "Mediator handoff boundary is ambiguous for edge cases",
+      "category": "compatibility",
+      "severity": "low",
+      "likelihood": "low",
+      "impact": "low",
+      "description": "The issue defines a boundary table for overseer vs. mediator responsibilities, but edge cases exist: e.g., an agent that's both stalled AND in a disagreement with another agent, or a contradictory loop that's also a stall. If the mediator doesn't exist in a phase, the overseer escalates to human, but the escalation path isn't well-defined for concurrent failures across both domains.",
+      "affected_components": [
+        "Overseer agent (new)",
+        "Mediator agent (if exists)"
+      ],
+      "mitigation": "1. Define a clear priority: overseer handles infrastructure issues first (stall, crash), mediator handles content issues (disagreements). If both overlap, overseer takes precedence. 2. Log all handoff decisions for debugging. 3. For the initial implementation, have the overseer escalate all ambiguous cases to HITL rather than trying to coordinate with the mediator.",
+      "rollback_plan": "Simplify to: overseer handles everything that isn't a clear inter-agent disagreement. Mediator integration can be added later.",
+      "requires_human_review": false,
+      "human_review_reason": null
+    }
+  ],
+  "risk_matrix": {
+    "high_severity": ["RISK-01", "RISK-02"],
+    "medium_severity": ["RISK-03", "RISK-04", "RISK-05", "RISK-06", "RISK-07"],
+    "low_severity": ["RISK-08", "RISK-09", "RISK-10", "RISK-11"]
+  },
+  "overall_assessment": {
+    "recommendation": "PROCEED_WITH_MITIGATIONS",
+    "rationale": "The two-tier architecture is well-conceived and aligns with existing patterns (Tier 1/2 health checks, BRC protocol). All external dependencies are merged. The primary risks are operational (container resource footprint, LLM cost accumulation) and architectural (hallucination in multi-tier LLM flow). None are blocking, but RISK-01 (always-on container cost) and RISK-02 (hallucination safeguards) require explicit design decisions before implementation.",
+    "critical_mitigations_before_implementation": [
+      "Define lightweight overseer container image to minimize resource footprint (RISK-01)",
+      "Design the Haiku-to-Opus data flow enforcement mechanism to prevent hallucination (RISK-02)",
+      "Implement per-pipeline LLM call limits even without full budget tracking (RISK-06)",
+      "Exempt overseer from BRC consensus to avoid blocking phase completion (RISK-09)"
+    ],
+    "areas_requiring_human_review": [
+      "Whether overseer should be always-on for ALL pipelines vs. concurrent-only (RISK-01)",
+      "How to enforce the structured data boundary between Haiku and Sonnet/Opus tiers (RISK-02)"
+    ]
+  },
+  "architect_output_note": "Architect output was not available at time of analysis. This assessment is based on the issue specification (#1059) and direct codebase exploration. Will update if architect provides additional architectural context."
+}
