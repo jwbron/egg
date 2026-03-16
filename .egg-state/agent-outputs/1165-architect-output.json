@@ -1,0 +1,433 @@
+{
+  "issue": 1165,
+  "phase": "plan",
+  "agent": "architect",
+  "revision": 1,
+
+  "title": "Architecture analysis: Remove per-phase/task breakdown delegation from implement phase",
+
+  "summary": "Collapse all conditional execution paths in the implement phase to always use concurrent BRC execution. Remove Tier 3 phase-level dispatch, multi-agent wave execution, single-agent fallback, short-circuit mode, complexity tiers, integrator role, and all associated plumbing. ~5000-6000 lines removed across ~25-30 files. Dependency on #1164 (coordinator removal) is satisfied — PR #1169 merged. Recommended approach: two PRs (prep refactor + main removal).",
+
+  "problem_statement": {
+    "description": "The implement phase has accumulated multiple conditional execution paths: Tier 3 phase-level dispatch (_run_tier3_implement), multi-agent wave execution (_run_multi_agent_phase), single-agent fallback, short-circuit mode, and complexity tiers. The decision tree in orchestrator/routes/pipelines.py (line ~6446) selects between these paths based on multi_agent, complexity_tier, and concurrent_execution flags. This branching logic is hard to reason about, test, and maintain, and different paths produce inconsistent behavior.",
+    "root_causes": [
+      {
+        "id": "RC-1",
+        "title": "Multiple parallel execution models coexist",
+        "description": "Four execution paths exist: concurrent BRC (_run_concurrent_phase at line 4563), Tier 3 phase-level dispatch (_run_tier3_implement at line 3640), multi-agent wave execution (_run_multi_agent_phase at line 4359), and single-agent fallback (line 6598). The decision tree at line 6446 uses priority ordering: concurrent > tier3 > multi_agent > single-agent.",
+        "location": "orchestrator/routes/pipelines.py:6440-6665"
+      },
+      {
+        "id": "RC-2",
+        "title": "Short-circuit mode adds conditional plan-phase skip logic",
+        "description": "_check_short_circuit_signal (line 1656) reads short_circuit: true from refine draft YAML to skip the plan phase. This threads a short_circuit parameter through ~10 call sites in _build_phase_prompt (lines 2566-2856) and affects phase progression logic (lines 7392, 7633, 7658).",
+        "location": "orchestrator/routes/pipelines.py:1656-1688"
+      },
+      {
+        "id": "RC-3",
+        "title": "Complexity tiers drive Tier 3 eligibility and gateway behavior",
+        "description": "ComplexityTier enum (models.py:233) with LOW/MID/HIGH drives dispatch selection. HIGH triggers Tier 3. The tier value threads through container_spawner.py, gateway_client.py, agent_restrictions.py (INTEGRATOR_TIER3_PATTERNS), phase_filter.py, and session_manager.py.",
+        "location": "orchestrator/models.py:233-238, orchestrator/routes/pipelines.py:6452"
+      },
+      {
+        "id": "RC-4",
+        "title": "Integrator role only used by Tier 3 dispatch",
+        "description": "The INTEGRATOR role is spawned as the final pass in _run_tier3_implement. It has dedicated gateway patterns (INTEGRATOR_TIER3_PATTERNS in agent_restrictions.py:325-359), sandbox artifacts (integrator.md, integrator-mode.md), and reviewer dependency entries (REVIEWER_CODE and REVIEWER_CONTRACT depend on INTEGRATOR in agent_roles.py:483, 515). With Tier 3 removed, the role has no purpose.",
+        "location": "shared/egg_contracts/agent_roles.py:292-321"
+      }
+    ]
+  },
+
+  "current_architecture": {
+    "dispatch_decision_tree": {
+      "file": "orchestrator/routes/pipelines.py",
+      "lines": "6440-6665",
+      "description": "Priority-ordered dispatch: (1) if is_concurrent_execution() → _run_concurrent_phase(), (2) if complexity_tier==HIGH and multi_agent → _run_tier3_implement(), (3) if multi_agent → _run_multi_agent_phase(), (4) else → single-agent _spawn_and_wait(). Coordinator branch already removed by PR #1169.",
+      "conditionals": {
+        "use_concurrent": "is_concurrent_execution(pipeline, phase) — checks pipeline.config.concurrent_execution or phase in concurrent_phases",
+        "use_tier3": "current_phase == 'implement' AND complexity_tier == HIGH AND multi_agent",
+        "use_multi_agent": "pipeline.config.multi_agent AND phase in {'implement', 'plan'}"
+      }
+    },
+    "execution_paths": {
+      "concurrent_brc": {
+        "function": "_run_concurrent_phase",
+        "lines": "4563-5096",
+        "description": "Spawns all agents simultaneously via ConcurrentPhaseExecutor. Consensus-driven polling. This is the KEEPER.",
+        "file": "orchestrator/routes/pipelines.py"
+      },
+      "tier3_dispatch": {
+        "function": "_run_tier3_implement",
+        "lines": "3640-4330",
+        "description": "Loads contract phases, builds PhaseDependencyGraph, iterates phases in dependency order running CODER → TESTER → DOCUMENTER → CHECKER → REVIEWER_CODE per phase. Final INTEGRATOR pass. Falls back to _run_multi_agent_phase if no phases.",
+        "file": "orchestrator/routes/pipelines.py"
+      },
+      "multi_agent_wave": {
+        "function": "_run_multi_agent_phase",
+        "lines": "4359-4552",
+        "description": "Uses MultiAgentExecutor for wave-based execution. Gets roles from get_roles_for_phase(), creates PipelineDispatcher, builds per-role prompts.",
+        "file": "orchestrator/routes/pipelines.py"
+      },
+      "single_agent_fallback": {
+        "lines": "6598-6665",
+        "description": "Builds phase prompt, spawns lone CODER agent via _spawn_and_wait(). No contract/dispatcher involvement.",
+        "file": "orchestrator/routes/pipelines.py"
+      }
+    },
+    "supporting_modules": {
+      "multi_agent_py": {
+        "file": "orchestrator/multi_agent.py",
+        "description": "MultiAgentExecutor class, AgentWave class, wave orchestration. Also hosts is_concurrent_execution() at lines 653-673 which must be relocated before deletion."
+      },
+      "dispatch_py": {
+        "file": "orchestrator/dispatch.py",
+        "description": "PipelineDispatcher wrapping egg_contracts.Orchestrator. create_dispatcher() factory. map_agent_role_to_contract_role() mapping. signals.py imports create_dispatcher (line 35) — must be inlined first."
+      },
+      "dependency_graph": {
+        "file": "shared/egg_contracts/dependency_graph.py",
+        "description": "PhaseDependencyGraph class (line 382) and PhaseWave class (line 364). Only used by _run_tier3_implement."
+      }
+    }
+  },
+
+  "removal_categories": {
+    "A_orchestrator_core": {
+      "description": "Tier 3 dispatch, multi-agent wave execution, decision tree collapse",
+      "items": [
+        {"id": "A1", "target": "_run_tier3_implement(), _run_single_phase_cycle(), _build_phase_scoped_prompt()", "file": "orchestrator/routes/pipelines.py", "lines": "3640-4330"},
+        {"id": "A2", "target": "_run_multi_agent_phase()", "file": "orchestrator/routes/pipelines.py", "lines": "4359-4552"},
+        {"id": "A3", "target": "MultiAgentExecutor, AgentWave (entire file after is_concurrent_execution relocation)", "file": "orchestrator/multi_agent.py"},
+        {"id": "A4", "target": "PipelineDispatcher, create_dispatcher (entire file after signals.py refactor)", "file": "orchestrator/dispatch.py"},
+        {"id": "A5", "target": "Single-agent fallback path", "file": "orchestrator/routes/pipelines.py", "lines": "6598-6665"},
+        {"id": "A6", "target": "Decision tree collapse to always call _run_concurrent_phase()", "file": "orchestrator/routes/pipelines.py", "lines": "6440-6598"},
+        {"id": "A7", "target": "PhaseDependencyGraph", "file": "shared/egg_contracts/dependency_graph.py", "lines": "364-539"},
+        {"id": "A8", "target": "Post-tier3 special handling (skip-checker guards, reviewer exclusions)", "file": "orchestrator/routes/pipelines.py", "lines": "~6697-6999"},
+        {"id": "A9", "target": "INTEGRATOR from ROLE_MAP/REVERSE_ROLE_MAP", "file": "orchestrator/handoffs.py", "lines": "46-51"}
+      ]
+    },
+    "B_short_circuit": {
+      "description": "Short-circuit mode detection, prompt parameters, model fields",
+      "items": [
+        {"id": "B1", "target": "_check_short_circuit_signal()", "file": "orchestrator/routes/pipelines.py", "lines": "1656-1688"},
+        {"id": "B2", "target": "short_circuit parameter in _build_phase_prompt() and ~10 call sites", "file": "orchestrator/routes/pipelines.py", "lines": "2566-2856"},
+        {"id": "B3", "target": "PipelineConfig.allow_short_circuit, Pipeline.short_circuit", "file": "orchestrator/models.py", "lines": "267, 343"},
+        {"id": "B4", "target": "Phase skip logic", "file": "orchestrator/routes/pipelines.py", "lines": "7038-7047, 7392, 7633, 7658"}
+      ]
+    },
+    "C_complexity_tier": {
+      "description": "Complexity tier detection, enum, gateway threading",
+      "items": [
+        {"id": "C1", "target": "_check_high_complexity_signal()", "file": "orchestrator/routes/pipelines.py", "lines": "1691-1746"},
+        {"id": "C2", "target": "Post-refine complexity processing", "file": "orchestrator/routes/pipelines.py", "lines": "7020-7049"},
+        {"id": "C3", "target": "ComplexityTier enum, Pipeline.complexity_tier", "file": "orchestrator/models.py", "lines": "233-238, 347"},
+        {"id": "C4", "target": "complexity_tier in gateway: agent_restrictions.py, phase_filter.py, session_manager.py, gateway.py", "files": ["gateway/agent_restrictions.py", "gateway/phase_filter.py", "gateway/session_manager.py"]},
+        {"id": "C5", "target": "complexity_tier in container_spawner.py and gateway_client.py", "files": ["orchestrator/container_spawner.py", "orchestrator/gateway_client.py"]}
+      ]
+    },
+    "D_integrator_role": {
+      "description": "Integrator role definition, gateway patterns, sandbox artifacts, docs",
+      "items": [
+        {"id": "D1", "target": "INTEGRATOR_ROLE definition", "file": "shared/egg_contracts/agent_roles.py", "lines": "292-321, 644"},
+        {"id": "D2", "target": "INTEGRATOR in REVIEWER_CODE and REVIEWER_CONTRACT dependencies", "file": "shared/egg_contracts/agent_roles.py", "lines": "483, 515"},
+        {"id": "D3", "target": "INTEGRATOR_PATTERNS, INTEGRATOR_TIER3_PATTERNS", "file": "gateway/agent_restrictions.py", "lines": "298-359"},
+        {"id": "D4", "target": "sandbox/.claude/rules/integrator.md, sandbox/.claude/commands/integrator-mode.md"},
+        {"id": "D5", "target": "docs/reference/integrator-agent.md"}
+      ]
+    },
+    "E_multi_agent_config": {
+      "description": "MultiAgentConfig class, CLI, runtime, schema",
+      "items": [
+        {"id": "E1", "target": "MultiAgentConfig class, Contract.multi_agent_config, is_multi_agent_enabled()", "file": "shared/egg_contracts/models.py", "lines": "390-528"},
+        {"id": "E2", "target": "MultiAgentConfig exports", "file": "shared/egg_contracts/__init__.py"},
+        {"id": "E3", "target": "multi_agent_config in initialize_orchestration()", "file": "shared/egg_contracts/orchestration.py", "lines": "381-382"},
+        {"id": "E4", "target": "--multi-agent CLI argument", "file": "sandbox/egg_lib/cli.py", "lines": "117-121"},
+        {"id": "E5", "target": "multi_agent parameter + EGG_MULTI_AGENT env var", "file": "sandbox/egg_lib/runtime.py", "lines": "448-635"},
+        {"id": "E6", "target": "multi_agent_config in contract display", "file": "sandbox/egg_lib/contract_cli.py", "lines": "593"},
+        {"id": "E7", "target": "MultiAgentConfig in contract.schema.json", "file": ".egg/schemas/contract.schema.json"}
+      ]
+    },
+    "F_config_flags": {
+      "description": "Configuration fields that become dead after removal",
+      "items": [
+        {"id": "F1", "target": "PipelineConfig.enable_parallel_phases", "file": "orchestrator/models.py", "lines": "271"},
+        {"id": "F2", "target": "Pipeline.plan_phase_waves", "file": "orchestrator/models.py", "lines": "352"},
+        {"id": "F3", "target": "Pipeline.plan_phase_names", "file": "orchestrator/models.py", "lines": "358"},
+        {"id": "F4", "target": "PipelineConfig.max_parallel_agents (replace reviewer spawning with len(reviewer_roles))", "file": "orchestrator/models.py", "lines": "254"}
+      ]
+    },
+    "G_dag_visualizer": {
+      "description": "Tier 3 rendering code",
+      "items": [
+        {"id": "G1", "target": "_render_tier3_implement() and tier3 conditional in render()", "file": "orchestrator/dag_visualizer.py", "lines": "751-762, 951"}
+      ]
+    },
+    "H_documentation": {
+      "description": "Documentation files to delete or update",
+      "items": [
+        {"id": "H1", "action": "delete", "target": "docs/guides/tier3-dispatch.md"},
+        {"id": "H2", "action": "update", "target": "docs/guides/sdlc-pipeline.md"},
+        {"id": "H3", "action": "update", "target": "docs/guides/agent-teams.md"},
+        {"id": "H4", "action": "update", "target": "docs/architecture/orchestrator.md"},
+        {"id": "H5", "action": "update", "target": "docs/reference/agent-roles.md"},
+        {"id": "H6", "action": "update", "target": "docs/index.md"},
+        {"id": "H7", "action": "update", "target": "README.md"},
+        {"id": "H8", "action": "update", "target": "CLAUDE.md"},
+        {"id": "H9", "action": "update", "target": "docs/templates/analysis.md"},
+        {"id": "H10", "action": "update", "target": "gateway/README.md"}
+      ]
+    },
+    "I_test_files": {
+      "description": "Test files to delete or update",
+      "delete": [
+        "orchestrator/tests/test_tier3_execute.py",
+        "orchestrator/tests/test_tier3_dispatch.py",
+        "orchestrator/tests/test_multi_agent.py",
+        "orchestrator/tests/test_dispatch.py",
+        "orchestrator/tests/test_short_circuit.py",
+        "shared/egg_contracts/tests/test_phase_dependency_graph.py",
+        "integration_tests/sdlc/test_multi_agent_orchestration.py",
+        "gateway/tests/test_integrator_tier3.py",
+        "shared/egg_contracts/tests/test_agent_roles_tier3.py"
+      ],
+      "update": [
+        "orchestrator/tests/test_dag_visualizer.py",
+        "orchestrator/tests/test_dag_visualizer_extended.py",
+        "orchestrator/tests/test_dag_visualizer_review_fixes.py",
+        "gateway/tests/test_phase_filter_tier3.py",
+        "orchestrator/tests/test_start_pipeline.py",
+        "orchestrator/tests/test_pipeline_prompts.py"
+      ]
+    }
+  },
+
+  "recommended_approach": {
+    "strategy": "Two PRs — prep refactor followed by main removal (Option C from analysis)",
+    "rationale": "The prep PR unblocks the main removal by eliminating cross-module dependencies (signals.py → dispatch.py, pipelines.py → multi_agent.py). The main PR is then mostly deletions and simplifications which are straightforward to review even at ~5000 lines. This matches the analysis recommendation and the migration order from the issue.",
+
+    "pr1_prep_refactor": {
+      "title": "Prep: relocate is_concurrent_execution and inline dispatch calls in signals.py",
+      "scope": "Behavioral no-op — pure refactoring",
+      "tasks": [
+        {
+          "id": "T1",
+          "description": "Move is_concurrent_execution() from orchestrator/multi_agent.py to orchestrator/concurrent_executor.py. Update all call sites (pipelines.py:6461, pipelines.py:951).",
+          "risk": "Low — function relocation only"
+        },
+        {
+          "id": "T2",
+          "description": "Refactor orchestrator/routes/signals.py to replace create_dispatcher and map_agent_role_to_contract_role imports with direct egg_contracts.Orchestrator calls. Inline the dispatcher logic for completion/progress recording (lines 339-345, 489-494).",
+          "risk": "Medium — signal handling is critical path. Must preserve exact behavior."
+        }
+      ],
+      "validation": "All existing tests pass. No behavior change."
+    },
+
+    "pr2_main_removal": {
+      "title": "Remove conditional dispatch, integrator, short-circuit, complexity tiers, multi-agent config",
+      "scope": "~5000-6000 lines removed across ~25-30 files",
+      "migration_order": [
+        {
+          "step": 1,
+          "description": "Remove integrator from reviewer dependency lists in agent_roles.py (lines 483, 515) and role maps in handoffs.py (lines 46-51)",
+          "rationale": "Unblocks integrator role deletion without breaking reviewer role definitions"
+        },
+        {
+          "step": 2,
+          "description": "Remove orchestrator core: _run_tier3_implement, _run_multi_agent_phase, single-agent fallback. Collapse decision tree to always call _run_concurrent_phase(). Remove post-phase tier3 conditional logic.",
+          "rationale": "Central change — eliminates all alternate execution paths"
+        },
+        {
+          "step": 3,
+          "description": "Delete orchestrator/multi_agent.py and orchestrator/dispatch.py entirely (dependencies removed in PR1)",
+          "rationale": "Clean up modules that no longer have callers"
+        },
+        {
+          "step": 4,
+          "description": "Remove short-circuit mode: _check_short_circuit_signal, short_circuit parameter threading, model fields (allow_short_circuit, short_circuit), phase skip logic",
+          "rationale": "Independent removal — no other code depends on short-circuit"
+        },
+        {
+          "step": 5,
+          "description": "Remove complexity tier: _check_high_complexity_signal, ComplexityTier enum, complexity_tier model field, gateway threading (agent_restrictions.py INTEGRATOR_TIER3_PATTERNS, phase_filter.py, session_manager.py, container_spawner.py, gateway_client.py)",
+          "rationale": "Requires integrator removal first (INTEGRATOR_TIER3_PATTERNS references both)"
+        },
+        {
+          "step": 6,
+          "description": "Remove integrator role: INTEGRATOR_ROLE definition, INTEGRATOR enum values (4 locations: egg_contracts agent_roles, orchestrator models, gateway agent_restrictions), gateway patterns (INTEGRATOR_PATTERNS, INTEGRATOR_TIER3_PATTERNS), sandbox artifacts (integrator.md, integrator-mode.md), reference doc",
+          "rationale": "All consumers removed in prior steps"
+        },
+        {
+          "step": 7,
+          "description": "Remove multi-agent config: MultiAgentConfig class, Contract.multi_agent_config, is_multi_agent_enabled(), exports, initialize_orchestration() refs, CLI --multi-agent arg, runtime EGG_MULTI_AGENT env var, contract display, schema",
+          "rationale": "With only BRC execution, multi-agent config is dead"
+        },
+        {
+          "step": 8,
+          "description": "Remove config flags: enable_parallel_phases, plan_phase_waves, plan_phase_names, max_parallel_agents (replace reviewer spawning at ~line 6885 with len(reviewer_roles) as max_workers)",
+          "rationale": "All consumers removed — these were Tier 3/wave-specific"
+        },
+        {
+          "step": 9,
+          "description": "Remove PhaseDependencyGraph from shared/egg_contracts/dependency_graph.py",
+          "rationale": "Only used by _run_tier3_implement which is gone"
+        },
+        {
+          "step": 10,
+          "description": "Remove DAG visualizer tier3 code (_render_tier3_implement, tier3 conditional)",
+          "rationale": "Tier 3 no longer exists"
+        },
+        {
+          "step": 11,
+          "description": "Delete dead test files (9 files), update remaining test files (6 files) to remove dead branches",
+          "rationale": "Tests for removed code"
+        },
+        {
+          "step": 12,
+          "description": "Update documentation: delete tier3-dispatch.md, update sdlc-pipeline.md, agent-teams.md, orchestrator.md, agent-roles.md, index.md, README.md, CLAUDE.md, analysis template, gateway README",
+          "rationale": "Documentation references removed concepts"
+        }
+      ],
+      "validation": "All remaining tests pass. Concurrent BRC execution works end-to-end for all phases (refine, plan, implement)."
+    }
+  },
+
+  "risk_assessment": [
+    {
+      "id": "R1",
+      "risk": "signals.py refactoring breaks signal handling",
+      "severity": "high",
+      "mitigation": "PR1 is a behavioral no-op. Test signal handling paths thoroughly. The existing test_signals.py tests must all pass unchanged."
+    },
+    {
+      "id": "R2",
+      "risk": "Incomplete removal leaves orphaned code or broken imports",
+      "severity": "medium",
+      "mitigation": "After removal, grep for all removed identifiers (ComplexityTier, INTEGRATOR, short_circuit, multi_agent, max_parallel_agents, PhaseDependencyGraph, MultiAgentConfig, etc.) to verify zero remaining references. Run full test suite."
+    },
+    {
+      "id": "R3",
+      "risk": "Old pipeline state files fail validation after model field removal",
+      "severity": "low",
+      "mitigation": "Issue explicitly states intentional clean break. No backward compatibility. This is accepted risk per issue author."
+    },
+    {
+      "id": "R4",
+      "risk": "Merge conflicts with concurrent work",
+      "severity": "medium",
+      "mitigation": "The two-PR strategy limits the window. PR1 is small. PR2 should be merged promptly after approval."
+    },
+    {
+      "id": "R5",
+      "risk": "Gateway behavior changes break running pipelines",
+      "severity": "medium",
+      "mitigation": "Verify no in-flight pipelines use Tier 3 or wave execution before deploying. The gateway changes (removing complexity_tier parameter, INTEGRATOR patterns) are safe only when no agent sessions reference them."
+    }
+  ],
+
+  "key_files_affected": {
+    "orchestrator": [
+      "orchestrator/routes/pipelines.py",
+      "orchestrator/routes/signals.py",
+      "orchestrator/models.py",
+      "orchestrator/multi_agent.py",
+      "orchestrator/dispatch.py",
+      "orchestrator/handoffs.py",
+      "orchestrator/container_spawner.py",
+      "orchestrator/gateway_client.py",
+      "orchestrator/dag_visualizer.py",
+      "orchestrator/concurrent_executor.py"
+    ],
+    "gateway": [
+      "gateway/agent_restrictions.py",
+      "gateway/phase_filter.py",
+      "gateway/session_manager.py"
+    ],
+    "shared": [
+      "shared/egg_contracts/models.py",
+      "shared/egg_contracts/agent_roles.py",
+      "shared/egg_contracts/dependency_graph.py",
+      "shared/egg_contracts/orchestration.py",
+      "shared/egg_contracts/__init__.py"
+    ],
+    "sandbox": [
+      "sandbox/egg_lib/cli.py",
+      "sandbox/egg_lib/runtime.py",
+      "sandbox/egg_lib/contract_cli.py",
+      "sandbox/.claude/rules/integrator.md",
+      "sandbox/.claude/commands/integrator-mode.md"
+    ],
+    "docs": [
+      "docs/guides/tier3-dispatch.md",
+      "docs/guides/sdlc-pipeline.md",
+      "docs/guides/agent-teams.md",
+      "docs/architecture/orchestrator.md",
+      "docs/reference/agent-roles.md",
+      "docs/reference/integrator-agent.md",
+      "docs/index.md",
+      "docs/templates/analysis.md",
+      "gateway/README.md",
+      "README.md",
+      "CLAUDE.md"
+    ]
+  },
+
+  "dependency_analysis": {
+    "prerequisite_satisfied": {
+      "issue": 1164,
+      "pr": 1169,
+      "status": "merged",
+      "description": "Coordinator mode fully removed. Zero remaining coordinator references in codebase."
+    },
+    "internal_dependencies": [
+      {
+        "blocker": "T1 (relocate is_concurrent_execution)",
+        "blocked": "Deletion of multi_agent.py",
+        "reason": "is_concurrent_execution is called from pipelines.py and must have a new home before its current module is deleted"
+      },
+      {
+        "blocker": "T2 (inline dispatch calls in signals.py)",
+        "blocked": "Deletion of dispatch.py",
+        "reason": "signals.py imports create_dispatcher and map_agent_role_to_contract_role from dispatch.py"
+      },
+      {
+        "blocker": "Step 1 (remove integrator from reviewer deps)",
+        "blocked": "Step 6 (remove integrator role definition)",
+        "reason": "REVIEWER_CODE and REVIEWER_CONTRACT roles list INTEGRATOR as a dependency"
+      },
+      {
+        "blocker": "Step 2 (remove execution paths)",
+        "blocked": "Step 3 (delete multi_agent.py and dispatch.py)",
+        "reason": "Execution paths import from these modules"
+      }
+    ]
+  },
+
+  "open_decisions": [
+    {
+      "id": "decision-1",
+      "question": "PR splitting strategy: single large PR vs 3-4 smaller PRs vs two PRs (prep + main)?",
+      "recommendation": "Two PRs (Option C)",
+      "status": "pending_human_input"
+    },
+    {
+      "id": "decision-2",
+      "question": "What to do with open PR #1171 (integrator docs)?",
+      "recommendation": "Close #1171 — integrator is being removed",
+      "status": "pending_human_input"
+    },
+    {
+      "id": "decision-3",
+      "question": "Should concurrent_execution and concurrent_phases config flags be removed since BRC is now always-on?",
+      "recommendation": "Remove them — dead config risks reintroducing conditional dispatch",
+      "status": "pending_human_input"
+    }
+  ],
+
+  "scope_estimate": {
+    "lines_removed": "~5000-6000",
+    "files_modified": "~25-30",
+    "files_deleted": "~12 (multi_agent.py, dispatch.py, 9 test files, tier3-dispatch.md)",
+    "test_files_deleted": 9,
+    "test_files_updated": 6
+  }
+}
