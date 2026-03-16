@@ -192,7 +192,6 @@ class TestAgentPromptCheckpointHints:
         assert "egg-checkpoint context --pipeline $EGG_PIPELINE_ID --files" in result
 
 
-
 # ---------------------------------------------------------------------------
 # Cross-cutting: checkpoint hints flow through _build_agent_prompt end-to-end
 # ---------------------------------------------------------------------------

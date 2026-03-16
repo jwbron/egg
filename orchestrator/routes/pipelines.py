@@ -5039,8 +5039,6 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                     store.save_pipeline(pipeline)
                 return
 
-        hitl_revision_feedback: str | None = None
-
         # Check for feedback preserved by the recovery path in start_pipeline.
         # When AWAITING_HUMAN recovery handles request_changes, it stores the
         # reviewer's feedback in phase_execution.hitl_feedback so the freshly
@@ -5052,7 +5050,6 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                     _recovery_pipeline.current_phase
                 )
                 if _recovery_phase.hitl_feedback:
-                    hitl_revision_feedback = _recovery_phase.hitl_feedback
                     _recovery_phase.hitl_feedback = None
                     store.save_pipeline(_recovery_pipeline)
         except Exception:
@@ -5158,7 +5155,6 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                 repos = []
 
             phase_failed = False
-            hitl_revision_feedback = None
             tester_gap_summary: str | None = None
 
             # --- Auto PR creation: skip agent spawn for PR phase ---
@@ -5759,7 +5755,6 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                             store.save_pipeline(pipeline)
                             # Fall through to the approval path below
                         else:
-                            hitl_revision_feedback = _revision_feedback
                             store.save_pipeline(pipeline)
                             report_pipeline_status(
                                 pipeline,
