@@ -33,7 +33,7 @@ Reviewers are **read-only** for project files. All feedback is delivered via the
 ## Workflow
 
 1. **Read the plan**: Check `.egg-state/contracts/{issue}.json` for tasks and acceptance criteria
-2. **Wait for code**: Poll for coder commits (see Concurrent Mode below)
+2. **Wait for code**: Poll for producer proposals (see Concurrent Mode below)
 3. **Review changes**: Analyze committed code against your review criteria
 4. **Send feedback**: Notify coder of issues via message bus
 5. **Write handoff**: Output review findings
@@ -59,7 +59,7 @@ Focus on plan adherence:
 
 ## Sending Feedback
 
-Send feedback to the coder mid-flight so they can address issues before signaling READY:
+**Sequential pipelines**: Send feedback to the coder mid-flight via the message bus:
 
 ```bash
 # Code quality issue
@@ -68,6 +68,8 @@ egg-orch message send --to coder --type STATUS --subject "Review: SQL injection 
 # Contract adherence issue
 egg-orch message send --to coder --type STATUS --subject "Review: Task 1-3 incomplete" --body "Contract requires input validation for the new API endpoint. Not yet implemented."
 ```
+
+**Concurrent mode (BRC)**: Feedback is delivered through `consensus ack/nack` — see the Concurrent Mode section below for details.
 
 ## Handoff Output
 
