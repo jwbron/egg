@@ -729,7 +729,7 @@ class TestMultiAgentConfig:
         config = MultiAgentConfig()
         assert config.enabled is True
         assert config.parallel_execution is True
-        assert len(config.roles_enabled) == 15  # All roles
+        assert len(config.roles_enabled) == 16  # All roles
         assert len(config.phase_overrides) == 0
 
     def test_phase_override(self):
