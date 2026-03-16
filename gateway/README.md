@@ -489,6 +489,8 @@ curl -X POST -H "Authorization: Bearer $(cat ~/.config/egg/launcher-secret)" \
 
 Both methods clear all in-memory config caches so the next access re-reads from disk.
 
+**Note:** `GATEWAY_TRUSTED_USERS` is read from the process environment, which is fixed at container start time. Changing trusted users requires a container restart — SIGHUP will re-read the same environment value.
+
 ## Design Decisions
 
 1. **No merge capability**: Gateway does not expose a merge endpoint. Human must merge via GitHub UI. This maintains the existing safety model.

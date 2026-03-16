@@ -536,6 +536,12 @@ def _reload_all_config() -> None:
     """Reload all cached configuration from disk/environment.
 
     Called by the SIGHUP handler and the /api/v1/config/reload endpoint.
+
+    Thread safety: all cached values are immutable types (frozenset, tuple,
+    None) and global variable assignment is atomic under CPython's GIL, so
+    concurrent readers see either the old or new value, never a torn state.
+    Avoid replacing any cache with a mutable type (e.g. dict) without adding
+    synchronisation.
     """
     try:
         from config.repo_config import reload_config as reload_repo_config
@@ -547,8 +553,11 @@ def _reload_all_config() -> None:
 
     if reload_repo_config is not None:
         reload_repo_config()
-    reload_policy_caches()
-    logger.info("Configuration reloaded")
+        reload_policy_caches()
+        logger.info("Configuration reloaded")
+    else:
+        reload_policy_caches()
+        logger.warning("Policy caches reloaded (repo_config unavailable)")
 
 
 @app.route("/api/v1/config/reload", methods=["POST"])
