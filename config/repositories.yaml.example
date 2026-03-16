@@ -90,6 +90,11 @@ readable_repos:
 #       the Docker build context so Docker layer caching works correctly.
 #     - commands: Shell commands to run during build (e.g., npm ci, pip install).
 #       Commands run as root in a directory seeded with the watch files.
+#     - persist_dirs: List of directories (relative to repo root) to preserve
+#       from the build context into the Docker image. These are restored into
+#       the mounted repo at container startup. Use this for local dependencies
+#       like node_modules that would otherwise be lost when the build context
+#       is cleaned up. (e.g., node_modules, .venv)
 repo_settings:
   # Example:
   # YOUR_USERNAME/egg:
@@ -115,6 +120,8 @@ repo_settings:
   #       - package-lock.json
   #     commands:
   #       - npm ci
+  #     persist_dirs:
+  #       - node_modules
   # YOUR_USERNAME/python-service:
   #   build_commands:
   #     watch_files:

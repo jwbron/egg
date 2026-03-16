@@ -445,6 +445,11 @@ def get_repo_build_commands(repo: str) -> dict[str, Any]:
         result["commands"] = [str(c) for c in commands]
     else:
         result["commands"] = []
+    persist_dirs = build_cmds.get("persist_dirs", [])
+    if isinstance(persist_dirs, list):
+        result["persist_dirs"] = [str(d) for d in persist_dirs]
+    else:
+        result["persist_dirs"] = []
     return result
 
 

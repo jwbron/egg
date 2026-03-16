@@ -761,6 +761,91 @@ def setup_worktrees(config: Config, logger: Logger) -> bool:
     return True
 
 
+def restore_prebuilt_deps(
+    config: Config,
+    logger: Logger,
+    prebuilt_base: Path | None = None,
+) -> None:
+    """Restore pre-built dependencies from Docker image into mounted repos.
+
+    During Docker image build, build_commands may produce artifacts (e.g. node_modules)
+    in /tmp/repo-deps/ which gets deleted. The persist_dirs config causes those
+    directories to be saved to /opt/prebuilt-deps/ instead.
+
+    This function copies them into the actual repo mounts at startup so that
+    private-mode containers have dependencies available without network access.
+    """
+    if prebuilt_base is None:
+        prebuilt_base = Path("/opt/prebuilt-deps")
+    if not prebuilt_base.exists():
+        return
+
+    repos_dir = config.repos_dir
+    restored = 0
+
+    for repo_dir in prebuilt_base.iterdir():
+        if not repo_dir.is_dir():
+            continue
+        # repo_dir is like /opt/prebuilt-deps/Khan--webapp
+        # Convert back to repo name to find mount point
+        # Try each mounted repo to find a match
+        repo_dir_name = repo_dir.name  # e.g. "Khan--webapp"
+
+        # Find the matching mounted repo directory
+        target_repo = None
+        for mounted in repos_dir.iterdir():
+            if not mounted.is_dir():
+                continue
+            # The repo mount name is typically just the repo name (e.g. "webapp")
+            # Match by checking if repo_dir_name ends with --<mount_name>
+            if repo_dir_name.endswith(f"--{mounted.name}"):
+                target_repo = mounted
+                break
+
+        if target_repo is None:
+            logger.warn(f"No mounted repo found for prebuilt deps: {repo_dir_name}")
+            continue
+
+        # Copy prebuilt tree into repo, skipping files that already exist.
+        # We use symlinks=False so that file-level entries (including file
+        # symlinks) go through copy_function, where we can skip existing
+        # files and handle symlinks manually. Directory symlinks are followed
+        # and expanded into real directories — this is acceptable since
+        # Node.js module resolution works the same either way.
+        # Note: the persist side uses symlinks=True (preserving symlinks),
+        # so directory symlinks become real directories after restore. This
+        # increases disk usage slightly but avoids copytree's non-idempotent
+        # os.symlink() calls which raise FileExistsError on repeat runs.
+        def _copy_if_missing(src: str, dst: str, **kwargs: Any) -> None:
+            if os.path.exists(dst) or os.path.islink(dst):
+                return
+            try:
+                if os.path.islink(src):
+                    linkto = os.readlink(src)
+                    os.symlink(linkto, dst)
+                else:
+                    shutil.copy2(src, dst, **kwargs)
+            except OSError as e:
+                logger.warn(f"  Failed to restore {dst}: {e}")
+
+        try:
+            shutil.copytree(
+                repo_dir,
+                target_repo,
+                copy_function=_copy_if_missing,
+                dirs_exist_ok=True,
+                symlinks=False,
+            )
+        except shutil.Error as e:
+            logger.warn(f"  Some files could not be restored for {repo_dir_name}: {e}")
+
+        restored += 1
+        logger.info(f"  Restored prebuilt deps for {repo_dir_name} -> {target_repo}")
+
+    if restored:
+        logger.success(f"Restored prebuilt dependencies for {restored} repo(s)")
+
+
 def setup_egg_symlink(config: Config, logger: Logger) -> None:
     """Create ~/egg symlink to runtime scripts.
 
@@ -1932,6 +2017,9 @@ def main() -> None:
             logger.error("Container startup aborted due to worktree configuration failure.")
             logger.error("Please check your egg setup and try again.")
             sys.exit(1)
+
+    with timed_phase("restore_prebuilt_deps", logger):
+        restore_prebuilt_deps(config, logger)
 
     with timed_phase("setup_agent_rules", logger):
         setup_agent_rules(config, logger)
