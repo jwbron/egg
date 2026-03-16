@@ -272,7 +272,7 @@ Timeout handling is idempotent — if the timeout fires multiple times (e.g., du
 ### Agent Failure During Consensus
 
 When an agent crashes, `PeerConsensusTracker.handle_agent_crash()` assesses impact:
-- Escalation occurs when a crashed reviewer was the **sole reviewer** for a producer, **or** when the reviewer had pending (non-ACKed) reviews for a producer that has already proposed. Both cases create a HITL decision with a context-aware question that lists the affected producers.
+- Escalation occurs when a crashed reviewer was the **sole reviewer** for a producer, **or** when the reviewer had pending (non-ACKed) reviews for a producer that has already proposed. Both cases create a HITL decision. When the reviewer had pending reviews, the question lists the affected producers.
 - When the human selects **"Continue without"** for a failed reviewer, `excuse_reviewer()` removes all of that reviewer's edges from the review graph. This allows affected producers to reach `is_fully_acked()` and call `confirmed` without the excused reviewer's ACK.
 - Otherwise, the agent is removed from consensus tracking and treated as a single-agent failure (see failure recovery below).
 
