@@ -183,6 +183,9 @@ class TestGetLatestClaudeVersion:
 class TestCheckClaudeUpdate:
     """Tests for check_claude_update."""
 
+    def setup_method(self):
+        check_claude_update.cache_clear()
+
     def test_update_available(self):
         """Returns new version when update available."""
         with patch("egg_lib.docker.get_installed_claude_version", return_value="2.1.7"):
@@ -258,6 +261,9 @@ class TestGetLatestAgentSdkVersion:
 
 class TestCheckAgentSdkUpdate:
     """Tests for check_agent_sdk_update."""
+
+    def setup_method(self):
+        check_agent_sdk_update.cache_clear()
 
     def test_update_available(self):
         """Returns new version when update available."""

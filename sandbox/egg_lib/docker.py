@@ -12,6 +12,7 @@ import subprocess
 import sys
 import time
 import uuid
+from functools import cache
 from pathlib import Path
 from typing import Any
 
@@ -602,6 +603,7 @@ def get_latest_claude_version() -> str | None:
         return None
 
 
+@cache
 def check_claude_update() -> str | None:
     """Check if a Claude Code update is available.
 
@@ -680,6 +682,7 @@ def get_latest_agent_sdk_version() -> str | None:
         return None
 
 
+@cache
 def check_agent_sdk_update() -> str | None:
     """Check if a claude-agent-sdk update is available.
 
@@ -969,10 +972,9 @@ def build_image() -> bool:
     # Sync files to build context
     create_dockerfile()
 
-    # Check for Claude Code updates
+    # Check for version updates (cached — no duplicate network calls when
+    # should_rebuild_image() already checked these)
     claude_version = check_claude_update()
-
-    # Check for claude-agent-sdk updates
     agent_sdk_version = check_agent_sdk_update()
 
     # Compute the build hash to store as a label
