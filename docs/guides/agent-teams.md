@@ -265,7 +265,7 @@ The protocol design draws on research across three domains.
 |----------|-----|---------------|
 | Interactive Consistency | High | Every participant agrees on every other's output — adapted for probabilistic rather than crash-stop failures |
 | Ack-All | High | Core primitive: broadcast → collect ACK/NACK from all peers → unanimous ACK required |
-| Two-Phase Commit (2PC) | Moderate | Vote-then-commit structure; coordinator as fallback |
+| Two-Phase Commit (2PC) | Moderate | Vote-then-commit structure; centralized fallback |
 | Barrier Synchronization | Partial | Barriers separate phases (all outputs submitted → review → resolve) |
 | Reliable Broadcast | Already have | The message bus provides this; consensus is layered on top |
 
@@ -321,6 +321,5 @@ The protocol design draws on research across three domains.
 
 - [Concurrent Execution](concurrent-execution.md) — Current concurrent execution mode (operational reference)
 - [SDLC Pipeline](sdlc-pipeline.md) — Standard wave-based execution
-- [Coordinator Agent](coordinator.md) — Dynamic agent orchestration
 - [Agent Roles Reference](../reference/agent-roles.md) — All agent roles and permissions
 - [Orchestrator Architecture](../architecture/orchestrator.md) — Deployment modes and API details

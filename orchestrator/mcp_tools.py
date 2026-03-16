@@ -1,8 +1,8 @@
 """
-MCP tool definitions for coordinator integration.
+MCP tool definitions for pipeline management.
 
 Provides tool schemas and handlers that proxy to orchestrator APIs,
-enabling external Claude Code sessions to interact with the coordinator
+enabling external Claude Code sessions to manage SDLC pipelines
 via the MCP protocol.
 """
 
@@ -29,10 +29,10 @@ logger = get_logger("orchestrator.mcp_tools")
 
 
 # Tool definitions following MCP protocol schema
-COORDINATOR_TOOLS = [
+PIPELINE_TOOLS = [
     {
         "name": "submit_task",
-        "description": "Submit a task for the coordinator to process. Creates a coordinator-enabled pipeline.",
+        "description": "Submit a task for processing. Creates an SDLC pipeline.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -59,9 +59,8 @@ COORDINATOR_TOOLS = [
     {
         "name": "get_status",
         "description": (
-            "Get the current status of a coordinator-managed task. "
-            "Returns coordinator state (current_phase, status, running_agents, "
-            "completed_agents, pending_decisions, guardrail_counters), "
+            "Get the current status of a pipeline task. "
+            "Returns pipeline state (current_phase, status, agents, decisions), "
             "pipeline details (id, repo, issue_number, created_at, mode), "
             "and recent_messages (from_role, type, subject, timestamp)."
         ),
@@ -78,7 +77,7 @@ COORDINATOR_TOOLS = [
     },
     {
         "name": "provide_input",
-        "description": "Provide human input for a coordinator escalation.",
+        "description": "Provide human input for a pipeline decision.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -100,7 +99,7 @@ COORDINATOR_TOOLS = [
     },
     {
         "name": "list_tasks",
-        "description": "List active and recent coordinator-managed pipelines.",
+        "description": "List active and recent pipelines.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -128,7 +127,7 @@ COORDINATOR_TOOLS = [
     },
     {
         "name": "cancel_task",
-        "description": "Cancel a coordinator-managed task. Use cleanup=true to also delete pipeline state, allowing the same issue to be resubmitted.",
+        "description": "Cancel a pipeline task. Use cleanup=true to also delete pipeline state, allowing the same issue to be resubmitted.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -152,7 +151,7 @@ COORDINATOR_TOOLS = [
 ]
 
 
-class CoordinatorToolHandler:
+class PipelineToolHandler:
     """Handles MCP tool calls by proxying to orchestrator APIs."""
 
     def __init__(self, orchestrator_url: str = "http://localhost:9849"):
@@ -208,13 +207,11 @@ class CoordinatorToolHandler:
             return json.loads(response.read().decode())
 
     def _handle_submit_task(self, args: dict[str, Any]) -> dict[str, Any]:
-        """Create a coordinator-enabled pipeline."""
+        """Create an SDLC pipeline."""
         import json
         from urllib.error import HTTPError
 
-        data: dict[str, Any] = {
-            "config": {"coordinator_enabled": True},
-        }
+        data: dict[str, Any] = {}
         if args.get("issue_number"):
             data["issue_number"] = args["issue_number"]
             data["branch"] = args.get("branch") or f"egg/issue-{args['issue_number']}"
@@ -264,33 +261,42 @@ class CoordinatorToolHandler:
         }
 
     def _handle_get_status(self, args: dict[str, Any]) -> dict[str, Any]:
-        """Get enriched coordinator state for a pipeline.
+        """Get enriched pipeline status.
 
-        Fetches coordinator state, pipeline details, and recent messages.
+        Fetches pipeline state, agent executions, decisions, and recent messages.
         For phase_gate decisions, includes draft document content so the
         caller can present it to the user without needing filesystem access.
-        Falls back gracefully if pipeline details or messages fail.
+        Falls back gracefully if messages fail.
         """
         task_id = quote(args["task_id"], safe="")
 
-        # Primary: coordinator state (required)
-        result = self._make_request(f"/api/v1/pipelines/{task_id}/coordinator/state")
-        status = result.get("data", {})
+        # Primary: pipeline state
+        pipeline_result = self._make_request(f"/api/v1/pipelines/{task_id}")
+        pipeline_data = pipeline_result.get("data", {}).get("pipeline", {})
 
-        # Enrichment: pipeline details (optional)
-        pipeline_data: dict[str, Any] = {}
-        try:
-            pipeline_result = self._make_request(f"/api/v1/pipelines/{task_id}")
-            pipeline_data = pipeline_result.get("data", {}).get("pipeline", {})
-            status["pipeline"] = {
+        # Build status from pipeline data
+        status: dict[str, Any] = {
+            "current_phase": pipeline_data.get("current_phase", ""),
+            "status": pipeline_data.get("status", ""),
+            "pipeline": {
                 "id": pipeline_data.get("id", ""),
                 "repo": pipeline_data.get("repo", ""),
                 "issue_number": pipeline_data.get("issue_number"),
                 "created_at": pipeline_data.get("created_at", ""),
-                "mode": pipeline_data.get("mode", ""),
-            }
-        except Exception:
-            logger.debug("Failed to fetch pipeline details", task_id=task_id)
+            },
+        }
+
+        # Extract agent info from phases
+        phases = pipeline_data.get("phases", {})
+        current_phase_key = pipeline_data.get("current_phase", "")
+        phase_data = phases.get(current_phase_key, {})
+        agents = phase_data.get("agents", [])
+        status["running_agents"] = [a for a in agents if a.get("status") == "running"]
+        status["completed_agents"] = [a for a in agents if a.get("status") == "complete"]
+
+        # Extract decisions
+        decisions = pipeline_data.get("decisions", [])
+        status["pending_decisions"] = [d for d in decisions if d.get("status") == "pending"]
 
         # Enrichment: recent messages (optional)
         try:
@@ -495,21 +501,16 @@ class CoordinatorToolHandler:
         return result
 
     def _handle_list_tasks(self, args: dict[str, Any]) -> dict[str, Any]:
-        """List coordinator-managed pipelines."""
+        """List pipelines."""
         result = self._make_request("/api/v1/pipelines")
         pipelines = result.get("data", {}).get("pipelines", [])
 
-        # Filter to coordinator-enabled pipelines
         status_filter = args.get("status_filter", "active")
         repo_filter = args.get("repo")
         issue_filter = args.get("issue_number")
 
-        coordinator_pipelines = []
+        filtered_pipelines = []
         for p in pipelines:
-            config = p.get("config", {})
-            if not config.get("coordinator_enabled"):
-                continue
-
             # Apply repo filter
             if repo_filter and p.get("repo") != repo_filter:
                 continue
@@ -521,26 +522,26 @@ class CoordinatorToolHandler:
             # Apply status filter
             p_status = p.get("status", "")
             if status_filter == "all":
-                coordinator_pipelines.append(p)
+                filtered_pipelines.append(p)
             elif status_filter == "active" and p_status in (
                 "pending",
                 "running",
                 "awaiting_human",
             ):
-                coordinator_pipelines.append(p)
+                filtered_pipelines.append(p)
             elif status_filter == "completed" and p_status == "complete":
-                coordinator_pipelines.append(p)
+                filtered_pipelines.append(p)
             elif status_filter == "failed" and p_status == "failed":
-                coordinator_pipelines.append(p)
+                filtered_pipelines.append(p)
 
         limit = args.get("limit", 10)
         return {
-            "tasks": coordinator_pipelines[:limit],
-            "total": len(coordinator_pipelines),
+            "tasks": filtered_pipelines[:limit],
+            "total": len(filtered_pipelines),
         }
 
     def _handle_cancel_task(self, args: dict[str, Any]) -> dict[str, Any]:
-        """Cancel a coordinator pipeline.
+        """Cancel a pipeline.
 
         When cleanup=True, also deletes the pipeline state (containers,
         sessions, worktrees, state files) so the same issue can be

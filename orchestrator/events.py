@@ -79,12 +79,6 @@ class EventType(StrEnum):
     DECISION_CREATED = "decision.created"
     DECISION_RESOLVED = "decision.resolved"
 
-    # Coordinator events
-    COORDINATOR_DECISION = "coordinator.decision"
-    COORDINATOR_SPAWN = "coordinator.spawn"
-    COORDINATOR_ESCALATION = "coordinator.escalation"
-    COORDINATOR_LOOPBACK = "coordinator.loopback"
-
     # System events — health check framework (see health_checks/runner.py)
     HEALTH_CHECK = "system.health_check"
     HEALTH_CHECK_STARTED = "system.health_check.started"  # Run begins
