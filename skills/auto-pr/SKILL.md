@@ -93,13 +93,33 @@ Recent: <latest message subject from recent_messages>
 
 Keep the dashboard output concise. Only show changes from the previous poll when possible.
 
+### Stall detection
+
+Track the `current_phase` and latest `recent_messages` entry across polls. If **10 consecutive polls** (~10 minutes) pass with no phase change and no new messages, surface a warning:
+
+```
+### Potential Stall Detected
+
+Pipeline has shown no progress for ~10 minutes.
+```
+
+Then offer three options via `AskUserQuestion`:
+
+- **"Check logs"** — description: "Run diagnostic commands to investigate" — run `egg-orch container list <task_id>` followed by `egg-orch container logs <task_id> <container_id> --lines 50` for the agent container
+- **"Wait longer"** — description: "Give the agent more time (resets the stall counter)"
+- **"Cancel"** — description: "Cancel this pipeline"
+
+If "Wait longer" is selected, reset the stall counter and resume monitoring. If "Cancel", call `cancel_task` and move to Phase 4 failure handling.
+
 ### Handling unexpected decisions
 
 With `hitl_gates: false`, decisions should not appear. But if they do, handle them gracefully:
 
 - For `choice` type: present the options via `AskUserQuestion`, then call `provide_input` with `{"action": "select", "selected": "<chosen option>"}` serialized as a JSON string.
 - For `feedback` type: present the questions, collect answers, then call `provide_input` with `{"action": "submit_feedback", "answers": {"<id>": "<answer>"}}` serialized as a JSON string.
-- For `phase_gate` type: auto-approve by calling `provide_input` with `{"action": "approve"}` serialized as a JSON string. Inform the user that a gate was auto-approved.
+- For `phase_gate` type: auto-approve by calling `provide_input` with `{"action": "approve"}` serialized as a JSON string. Log the phase and decision ID, and inform the user:
+
+  > **Auto-approved phase gate** — Phase: `<phase>`, Decision ID: `<decision_id>`. This should not occur with `hitl_gates: false`; if it recurs, investigate the pipeline configuration.
 
 After resolving any decisions, resume monitoring.
 
@@ -135,6 +155,19 @@ Phase: <phase where failure occurred>
   4. Resume from Phase 3 (Monitor) with the new `task_id`
 
   **Error handling**: If `cancel_task` or `submit_task` fails, inform the user and offer to retry the failed step.
+
+## Troubleshooting
+
+When investigating a stuck or failed pipeline, use these diagnostic commands:
+
+| Scenario | Command |
+|----------|---------|
+| Pipeline status / current phase | `egg-orch pipeline status <task_id>` |
+| List agent containers | `egg-orch container list <task_id>` |
+| View agent logs | `egg-orch container logs <task_id> <container_id> --lines 100` |
+| Orchestrator + gateway health | `egg-orch health` |
+| Live pipeline visualization | `egg-pipeline-watch <task_id> --once` |
+| Prior agent sessions | `egg-checkpoint list --pipeline <task_id>` |
 
 ## Critical Rules
 
