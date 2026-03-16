@@ -337,7 +337,14 @@ class TestBuildImage:
     @patch("egg_lib.docker.should_rebuild_image", return_value=(True, "test"))
     @patch("egg_lib.docker.compute_build_hash", return_value="testhash123")
     def test_build_image_success(
-        self, mock_hash, mock_should, mock_update, mock_sdk_update, mock_create, mock_run, monkeypatch
+        self,
+        mock_hash,
+        mock_should,
+        mock_update,
+        mock_sdk_update,
+        mock_create,
+        mock_run,
+        monkeypatch,
     ):
         """Test successful Docker build."""
         mock_run.return_value = MagicMock(returncode=0)
@@ -356,7 +363,15 @@ class TestBuildImage:
     @patch("egg_lib.docker.should_rebuild_image", return_value=(True, "test"))
     @patch("egg_lib.docker.compute_build_hash", return_value="testhash123")
     def test_build_image_failure(
-        self, mock_hash, mock_should, mock_update, mock_sdk_update, mock_create, mock_run, capsys, monkeypatch
+        self,
+        mock_hash,
+        mock_should,
+        mock_update,
+        mock_sdk_update,
+        mock_create,
+        mock_run,
+        capsys,
+        monkeypatch,
     ):
         """Test Docker build failure."""
         mock_run.side_effect = subprocess.CalledProcessError(1, "docker build")
