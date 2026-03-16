@@ -4,7 +4,7 @@
   "repo": "jwbron/egg",
   "branch": "egg/issue-1165",
   "prompt": null,
-  "status": "awaiting_human",
+  "status": "running",
   "current_phase": "refine",
   "config": {
     "auto_create_pr": true,
@@ -30,7 +30,7 @@
   "phases": {
     "refine": {
       "phase": "refine",
-      "status": "awaiting_human",
+      "status": "complete",
       "started_at": "2026-03-16T02:29:06.896541",
       "work_started_at": "2026-03-16T02:29:06.907172",
       "completed_at": "2026-03-16T02:39:02.020837",
@@ -188,7 +188,7 @@
     }
   ],
   "created_at": "2026-03-16T02:29:02.276729",
-  "updated_at": "2026-03-16T02:50:34.099681",
+  "updated_at": "2026-03-16T02:50:35.201653",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
@@ -196,5 +196,5 @@
   "error": "Pipeline marked FAILED: agent container exited unexpectedly during execution. Restart via POST /pipelines/{id}/start.",
   "plan_phase_waves": null,
   "plan_phase_names": null,
-  "version": 18
+  "version": 19
 }
