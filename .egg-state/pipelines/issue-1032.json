@@ -121,8 +121,98 @@
       "started_at": "2026-03-16T22:24:34.199467",
       "work_started_at": "2026-03-16T22:24:34.215215",
       "completed_at": null,
-      "containers": [],
-      "agents": [],
+      "containers": [
+        {
+          "container_id": "965d16505de186e5ac5c2231714aa11d47a88b7dbb03275163b00e48c134f9cf",
+          "container_name": "issue-1032-risk_analyst",
+          "status": "running",
+          "started_at": "2026-03-16T22:24:35.713007",
+          "exited_at": null,
+          "exit_code": null,
+          "agent_role": "risk_analyst",
+          "session_token": null
+        },
+        {
+          "container_id": "28718c134986a2201da848c28666cb5946343ff737625acfd834c8095d0b8868",
+          "container_name": "issue-1032-architect",
+          "status": "running",
+          "started_at": "2026-03-16T22:24:35.713036",
+          "exited_at": null,
+          "exit_code": null,
+          "agent_role": "architect",
+          "session_token": null
+        },
+        {
+          "container_id": "2b8ebfb23b2b8b530ae6f380c155fccd58bdfa3fcfc32fa2f0e96e56b0f3563a",
+          "container_name": "issue-1032-task_planner",
+          "status": "running",
+          "started_at": "2026-03-16T22:24:35.713053",
+          "exited_at": null,
+          "exit_code": null,
+          "agent_role": "task_planner",
+          "session_token": null
+        },
+        {
+          "container_id": "f87ecea3a31a416e73d34f88ec5fc8766b60df79391ea7e139c6bb3ed2d006b4",
+          "container_name": "issue-1032-reviewer_plan",
+          "status": "running",
+          "started_at": "2026-03-16T22:24:35.713069",
+          "exited_at": null,
+          "exit_code": null,
+          "agent_role": "reviewer_plan",
+          "session_token": null
+        }
+      ],
+      "agents": [
+        {
+          "role": "risk_analyst",
+          "status": "running",
+          "container_id": "965d16505de186e5ac5c2231714aa11d47a88b7dbb03275163b00e48c134f9cf",
+          "started_at": "2026-03-16T22:24:35.713024",
+          "completed_at": null,
+          "commit": null,
+          "outputs": {},
+          "error": null,
+          "retry_count": 0,
+          "conflicts": []
+        },
+        {
+          "role": "architect",
+          "status": "running",
+          "container_id": "28718c134986a2201da848c28666cb5946343ff737625acfd834c8095d0b8868",
+          "started_at": "2026-03-16T22:24:35.713044",
+          "completed_at": null,
+          "commit": null,
+          "outputs": {},
+          "error": null,
+          "retry_count": 0,
+          "conflicts": []
+        },
+        {
+          "role": "task_planner",
+          "status": "running",
+          "container_id": "2b8ebfb23b2b8b530ae6f380c155fccd58bdfa3fcfc32fa2f0e96e56b0f3563a",
+          "started_at": "2026-03-16T22:24:35.713061",
+          "completed_at": null,
+          "commit": null,
+          "outputs": {},
+          "error": null,
+          "retry_count": 0,
+          "conflicts": []
+        },
+        {
+          "role": "reviewer_plan",
+          "status": "running",
+          "container_id": "f87ecea3a31a416e73d34f88ec5fc8766b60df79391ea7e139c6bb3ed2d006b4",
+          "started_at": "2026-03-16T22:24:35.713077",
+          "completed_at": null,
+          "commit": null,
+          "outputs": {},
+          "error": null,
+          "retry_count": 0,
+          "conflicts": []
+        }
+      ],
       "review_cycles": 0,
       "hitl_review_cycles": 0,
       "cycle_timings": [
@@ -158,9 +248,9 @@
     }
   ],
   "created_at": "2026-03-16T22:08:17.913214",
-  "updated_at": "2026-03-16T22:24:34.216779",
+  "updated_at": "2026-03-16T22:24:35.713259",
   "contract_synced": true,
   "network_mode": null,
   "error": null,
-  "version": 16
+  "version": 17
 }
