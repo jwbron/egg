@@ -60,7 +60,9 @@ COPY shared/egg_config/ ./egg_config/
 COPY shared/egg_contracts/ ./egg_contracts/
 
 # Copy config module (repo_config needed by github_client for user mode)
+# Copy to both /config/ (for package-style imports) and /app/ (for PYTHONPATH)
 COPY config/repo_config.py /config/
+COPY config/repo_config.py /app/
 
 # Copy Squid configuration for network lockdown
 # squid.conf is the restrictive allowlist-based config (used in private mode)
