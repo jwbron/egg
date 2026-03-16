@@ -5158,7 +5158,6 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                 repos = []
 
             phase_failed = False
-            review_feedback: str | None = hitl_revision_feedback
             hitl_revision_feedback = None
             tester_gap_summary: str | None = None
 
