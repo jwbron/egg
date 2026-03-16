@@ -153,7 +153,8 @@
       "ckpt-b917855c22cdf629",
       "ckpt-3cd727f83d60aa69",
       "ckpt-7750042c50cfdbd7",
-      "ckpt-f36f0f8ca60b91b5"
+      "ckpt-f36f0f8ca60b91b5",
+      "ckpt-c01b8023f02ed1e5"
     ]
   },
   "by_commit": {},
@@ -204,7 +205,8 @@
       "ckpt-b917855c22cdf629",
       "ckpt-3cd727f83d60aa69",
       "ckpt-7750042c50cfdbd7",
-      "ckpt-f36f0f8ca60b91b5"
+      "ckpt-f36f0f8ca60b91b5",
+      "ckpt-c01b8023f02ed1e5"
     ],
     "local-0a770e0f": [
       "ckpt-241ef0fa799dd61d"
@@ -405,6 +407,9 @@
     ],
     "issue-1059-failsafe-push": [
       "ckpt-bcfcaf576389c696"
+    ],
+    "issue-1165-branch-cleanup-egg-6e11ccbd358d92557fabeb199d2c930e25573ef7e62a686c4049ea643937a0ef-work": [
+      "ckpt-c01b8023f02ed1e5"
     ],
     "issue-1165-failsafe-fetch": [
       "ckpt-66f71a424c875a71",
@@ -688,7 +693,8 @@
       "ckpt-b917855c22cdf629",
       "ckpt-3cd727f83d60aa69",
       "ckpt-7750042c50cfdbd7",
-      "ckpt-f36f0f8ca60b91b5"
+      "ckpt-f36f0f8ca60b91b5",
+      "ckpt-c01b8023f02ed1e5"
     ]
   },
   "by_trigger": {
@@ -845,7 +851,8 @@
       "ckpt-b917855c22cdf629",
       "ckpt-3cd727f83d60aa69",
       "ckpt-7750042c50cfdbd7",
-      "ckpt-f36f0f8ca60b91b5"
+      "ckpt-f36f0f8ca60b91b5",
+      "ckpt-c01b8023f02ed1e5"
     ]
   },
   "checkpoints": [
@@ -3755,8 +3762,27 @@
       "tool_call_count": 0,
       "total_tokens": 0,
       "trigger_type": "session_end"
+    },
+    {
+      "agent_type": "unknown",
+      "branch": null,
+      "commit_sha": null,
+      "created_at": "2026-03-16T00:17:31.951990Z",
+      "files_touched_count": 0,
+      "id": "ckpt-c01b8023f02ed1e5",
+      "issue_number": null,
+      "message_count": 0,
+      "pipeline_id": "issue-1165",
+      "pipeline_phase": null,
+      "pr_number": null,
+      "repo": null,
+      "session_id": "issue-1165-branch-cleanup-egg-6e11ccbd358d92557fabeb199d2c930e25573ef7e62a686c4049ea643937a0ef-work",
+      "session_status": "completed",
+      "tool_call_count": 0,
+      "total_tokens": 0,
+      "trigger_type": "session_end"
     }
   ],
-  "last_updated": "2026-03-16T00:17:19.183342Z",
+  "last_updated": "2026-03-16T00:17:32.715681Z",
   "schemaVersion": "2.0"
 }
