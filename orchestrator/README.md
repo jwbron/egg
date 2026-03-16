@@ -250,9 +250,6 @@ orchestrator/
 │   ├── pipelines.py        # Pipeline CRUD endpoints
 │   ├── progress.py         # Structured progress ingestion and query endpoints
 │   └── signals.py          # Sandbox signal callback endpoints
-├── cli/
-│   ├── progress.py         # egg-orch progress emit/query commands
-│   └── health.py           # egg-orch health alerts command
 └── tests/                  # Unit and integration tests (30+ files, including health check and concurrent execution tests)
 ```
 

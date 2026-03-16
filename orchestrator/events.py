@@ -79,6 +79,9 @@ class EventType(StrEnum):
     DECISION_CREATED = "decision.created"
     DECISION_RESOLVED = "decision.resolved"
 
+    # Progress monitoring
+    PROGRESS_EMITTED = "progress.emitted"
+
     # System events — health check framework (see health_checks/runner.py)
     HEALTH_CHECK = "system.health_check"
     HEALTH_CHECK_STARTED = "system.health_check.started"  # Run begins

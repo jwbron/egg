@@ -122,20 +122,6 @@ Before PR: Tests pass, linters pass, no debug code.
 
 **GitHub comments**: When `EGG_PIPELINE_ID` is set, sign with `— Authored by egg`. In interactive mode, omit the signature.
 
-## Structured Progress Reporting
-
-When running in a pipeline (`EGG_PIPELINE_ID` is set), emit structured progress events
-to help the orchestrator monitor your health:
-
-- **At task start**: `egg-orch progress emit --step "Starting task-1-1" --state working`
-- **On blocker**: `egg-orch progress emit --step "Blocked on dependency" --state blocked --blocker "waiting for API response"`
-- **On completion**: `egg-orch progress emit --step "Completed task-1-1" --state complete`
-- **During long operations** (every 1-2 minutes): `egg-orch progress emit --step "Running test suite" --state working --detail "450/1200 tests passed"`
-
-Progress events enable automatic stall detection and health monitoring. If you stop
-emitting progress for an extended period, you may receive a nudge message from the
-health monitor.
-
 ## Concurrent Execution Mode
 
 When `EGG_CONCURRENT_MODE=true` is set, you are running alongside other agents

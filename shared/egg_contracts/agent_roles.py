@@ -50,6 +50,8 @@ class AgentRole(StrEnum):
     REVIEWER_AGENT_DESIGN = "reviewer_agent_design"
     REVIEWER_REFINE = "reviewer_refine"
     REVIEWER_PLAN = "reviewer_plan"
+    # Oversight roles
+    OVERSEER = "overseer"
 
 
 class AgentStatus(StrEnum):
@@ -576,6 +578,48 @@ REVIEWER_PLAN_ROLE = AgentRoleDefinition(
 )
 
 
+# Overseer role — monitors pipeline health, classifies anomalies, escalates issues
+OVERSEER_ROLE = AgentRoleDefinition(
+    role=AgentRole.OVERSEER,
+    description="Monitors pipeline health, classifies anomalies, and escalates issues",
+    responsibilities=[
+        "Monitor agent progress events and heartbeats",
+        "Classify stalls, errors, and loops using Haiku tier",
+        "Decide corrective actions using Sonnet/Opus tier",
+        "Send redirect messages to stuck agents",
+        "Escalate to HITL when redirects are exhausted",
+        "File diagnostic GitHub issues for persistent problems",
+        "Track self-monitoring metrics (poll timing, LLM costs)",
+    ],
+    dependencies=[],
+    file_access=FileAccessPattern(
+        allowed_read=[],
+        allowed_write=[
+            ".egg-state/oversight/",
+            ".egg-state/agent-outputs/",
+        ],
+        blocked_write=[
+            "src/",
+            "lib/",
+            "shared/",
+            "gateway/",
+            "sandbox/",
+            "action/",
+            "orchestrator/",
+            "docs/",
+            "tests/",
+            "test/",
+            ".egg-state/contracts/",
+            ".egg-state/drafts/",
+            ".egg-state/reviews/",
+            ".github/",
+        ],
+    ),
+    can_run_in_parallel=True,
+    produces_outputs=["health_report", "oversight_logs"],
+)
+
+
 # Registry of all agent roles
 AGENT_ROLES: dict[AgentRole, AgentRoleDefinition] = {
     # Implement-phase roles
@@ -594,6 +638,8 @@ AGENT_ROLES: dict[AgentRole, AgentRoleDefinition] = {
     AgentRole.REVIEWER_AGENT_DESIGN: REVIEWER_AGENT_DESIGN_ROLE,
     AgentRole.REVIEWER_REFINE: REVIEWER_REFINE_ROLE,
     AgentRole.REVIEWER_PLAN: REVIEWER_PLAN_ROLE,
+    # Oversight roles
+    AgentRole.OVERSEER: OVERSEER_ROLE,
 }
 
 
@@ -719,12 +765,15 @@ _PHASE_REVIEWERS: dict[str, list[AgentRole]] = {
 def get_roles_for_phase(
     phase: str,
     include_reviewers: bool = True,
+    include_overseer: bool = False,
 ) -> list[AgentRole]:
     """Return the agent roles for a given pipeline phase.
 
     Args:
         phase: Pipeline phase name (e.g., "implement", "plan")
         include_reviewers: Whether to include reviewer roles (default True)
+        include_overseer: Whether to include the overseer role (default False).
+            The overseer is cross-phase, so it's opt-in.
 
     Returns:
         List of AgentRole values for that phase.
@@ -738,6 +787,8 @@ def get_roles_for_phase(
     result = list(roles)
     if include_reviewers:
         result.extend(_PHASE_REVIEWERS.get(phase, []))
+    if include_overseer:
+        result.append(AgentRole.OVERSEER)
     return result
 
 

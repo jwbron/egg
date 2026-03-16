@@ -68,6 +68,8 @@ class AgentRole(StrEnum):
     REFINER = "refiner"
     # Health check roles
     INSPECTOR = "inspector"
+    # Oversight roles
+    OVERSEER = "overseer"
     # Reviewer roles (specific subtypes)
     REVIEWER_CODE = "reviewer_code"
     REVIEWER_CONTRACT = "reviewer_contract"
@@ -296,6 +298,28 @@ class PipelineConfig(BaseModel):
     agent_idle_timeout_minutes: int = Field(
         default=60, ge=1, description="Timeout for idle agents before termination"
     )
+    # Overseer and tripwire configuration
+    overseer_enabled: bool = Field(
+        default=True, description="Enable the overseer agent for pipeline health monitoring"
+    )
+    orchestrator_heartbeat_timeout_seconds: int = Field(
+        default=120, ge=10, description="Seconds without heartbeat/progress before auto-nudge"
+    )
+    orchestrator_error_repeat_threshold: int = Field(
+        default=3, ge=1, description="Identical error count before escalation"
+    )
+    orchestrator_message_rate_limit: int = Field(
+        default=20, ge=1, description="Max messages per minute before auto-throttle"
+    )
+    overseer_poll_interval_seconds: int = Field(
+        default=30, ge=5, description="Overseer polling interval in seconds"
+    )
+    overseer_max_redirects_before_escalation: int = Field(
+        default=2, ge=1, description="Max redirect attempts before HITL escalation"
+    )
+    overseer_decision_maker_model: str = Field(
+        default="sonnet", description="LLM model for overseer decision-making tier"
+    )
 
     @field_validator("concurrent_phases")
     @classmethod
@@ -402,3 +426,24 @@ class PipelineEvent(BaseModel):
     agent_role: AgentRole | None = Field(default=None, description="Agent if applicable")
     container_id: str | None = Field(default=None, description="Container if applicable")
     data: dict[str, Any] = Field(default_factory=dict, description="Event data")
+
+
+class ProgressState(StrEnum):
+    """State of a structured progress event."""
+
+    WORKING = "working"
+    BLOCKED = "blocked"
+    COMPLETE = "complete"
+
+
+class ProgressEvent(BaseModel):
+    """Structured progress event emitted by agents."""
+
+    id: str = Field(..., description="Unique event ID")
+    pipeline_id: str = Field(..., description="Pipeline ID")
+    agent_role: str = Field(..., description="Agent role that emitted this event")
+    step: str = Field(..., description="Current step description")
+    state: ProgressState = Field(..., description="Progress state")
+    detail: str = Field(default="", description="Optional detail text")
+    blocker: str = Field(default="", description="Blocker description if state is blocked")
+    timestamp: datetime = Field(default_factory=datetime.utcnow, description="Event timestamp")
