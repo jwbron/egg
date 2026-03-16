@@ -303,6 +303,55 @@ class TestGetConsensusStatus:
         assert result["consensus"]["is_complete"] is True
         assert "note" in result["consensus"]
 
+    def test_fallback_when_consensus_has_empty_agents(self, handler):
+        """Regression test for #1229: empty agents dict should trigger fallback."""
+        with patch.object(handler, "_make_request") as mock_req:
+            mock_req.side_effect = [
+                # Pipeline GET
+                {
+                    "data": {
+                        "pipeline": {
+                            "id": "issue-42",
+                            "current_phase": "refine",
+                            "status": "running",
+                        }
+                    }
+                },
+                # Status GET — concurrent enabled but consensus has empty agents
+                # (tracker lost after restart)
+                {
+                    "data": {
+                        "concurrent": {
+                            "enabled": True,
+                            "consensus": {
+                                "agents": {},
+                                "is_complete": False,
+                                "blocking_agents": [],
+                            },
+                        }
+                    }
+                },
+                # Messages GET — BRC messages still in Redis
+                {
+                    "data": {
+                        "messages": [
+                            {"message_type": "CONSENSUS_PROPOSE", "from_role": "refiner"},
+                            {
+                                "message_type": "CONSENSUS_NACK",
+                                "from_role": "reviewer_refine",
+                                "to_role": "refiner",
+                                "body": "Missing test coverage",
+                            },
+                        ]
+                    }
+                },
+            ]
+            result = handler.handle_tool_call("get_consensus_status", {"task_id": "issue-42"})
+
+        assert result["consensus"]["has_unresolved_nacks"] is True
+        assert "refiner" in result["consensus"]["blocking_agents"]
+        assert "note" in result["consensus"]
+
 
 class TestInferConsensusFromMessages:
     def test_all_confirmed(self, handler):
