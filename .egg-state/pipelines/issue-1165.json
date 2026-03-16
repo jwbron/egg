@@ -38,10 +38,10 @@
         {
           "container_id": "bc1643a818e4d0a84a7860d04cdbfd9aac48acf9d7b9ec8f4dce105ab19b9373",
           "container_name": "issue-1165-reviewer_agent_design",
-          "status": "running",
+          "status": "failed",
           "started_at": "2026-03-16T00:14:10.656193",
-          "exited_at": null,
-          "exit_code": null,
+          "exited_at": "2026-03-16T00:17:17.956746",
+          "exit_code": -1,
           "agent_role": "reviewer_agent_design",
           "session_token": null
         },
@@ -69,13 +69,13 @@
       "agents": [
         {
           "role": "reviewer_agent_design",
-          "status": "running",
+          "status": "failed",
           "container_id": "bc1643a818e4d0a84a7860d04cdbfd9aac48acf9d7b9ec8f4dce105ab19b9373",
           "started_at": "2026-03-16T00:14:10.656203",
-          "completed_at": null,
+          "completed_at": "2026-03-16T00:17:17.960400",
           "commit": null,
           "outputs": {},
-          "error": null,
+          "error": "Container exited with code -1",
           "retry_count": 0,
           "conflicts": [],
           "plan_phase_id": null
@@ -125,7 +125,7 @@
   },
   "decisions": [],
   "created_at": "2026-03-16T00:14:01.681153",
-  "updated_at": "2026-03-16T00:17:02.926364",
+  "updated_at": "2026-03-16T00:17:17.963378",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
@@ -133,5 +133,5 @@
   "error": null,
   "plan_phase_waves": null,
   "plan_phase_names": null,
-  "version": 10
+  "version": 11
 }
