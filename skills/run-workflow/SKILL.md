@@ -150,7 +150,7 @@ The `concurrent.consensus` object may not be present in all `get_status` respons
 1. **Classify messages using the `type` field** (primary) — each `recent_messages` entry includes a `type` field with reliable enum values: `CONSENSUS_PROPOSE`, `CONSENSUS_ACK`, `CONSENSUS_NACK`, `CONSENSUS_CONFIRMED`. Use these for classification, not subject parsing.
 2. **Identify roles using the `from_role` field** — each message includes `from_role` indicating which agent sent it.
 3. Maintain an in-memory map of `{role: {last_message_type, last_message_time, message_count}}` built from `recent_messages`
-4. Infer consensus state: if all expected roles have sent `CONSENSUS_CONFIRMED` messages, consensus is likely complete
+4. Infer consensus state: if all roles listed in `running_agents` have sent `CONSENSUS_CONFIRMED` messages, consensus is likely complete
 5. For the enhanced dashboard, approximate the fields:
    - Confirmed count: roles with `CONSENSUS_CONFIRMED` messages
    - Blocking: roles with no `CONSENSUS_CONFIRMED` message
