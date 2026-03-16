@@ -42,6 +42,24 @@ def tracker(simple_graph):
     return t
 
 
+@pytest.fixture
+def two_reviewer_tracker():
+    """Tracker with two critical reviewers for coder (for premature-confirm tests)."""
+    graph = ReviewGraph(
+        [
+            ReviewEdge("reviewer_code", "coder", ReviewCriticality.CRITICAL),
+            ReviewEdge("reviewer_contract", "coder", ReviewCriticality.CRITICAL),
+            ReviewEdge("reviewer_code", "tester", ReviewCriticality.ADVISORY),
+        ]
+    )
+    t = PeerConsensusTracker("test-pipeline", graph, cooldown_seconds=0)
+    t.register_agent("coder")
+    t.register_agent("tester")
+    t.register_agent("reviewer_code")
+    t.register_agent("reviewer_contract")
+    return t
+
+
 class TestHappyPath:
     """Test the full BRC happy path: propose -> ACK -> confirm."""
 
@@ -963,10 +981,10 @@ class TestPrematureConfirmReturnsPending:
     """Test that handle_confirmed returns pending_acks instead of raising
     when a producer tries to confirm before being fully ACKed (issue #1178)."""
 
-    def test_confirm_before_acked_returns_pending(self, tracker):
+    def test_confirm_before_acked_returns_pending(self, two_reviewer_tracker):
         """Producer confirming without full ACKs gets pending_acks, not ValueError."""
         # Coder proposes
-        tracker.handle_propose(
+        two_reviewer_tracker.handle_propose(
             "coder",
             {
                 "summary": "Implemented feature",
@@ -974,8 +992,8 @@ class TestPrematureConfirmReturnsPending:
             },
         )
 
-        # Only reviewer_code ACKs, but checker hasn't ACKed yet
-        tracker.handle_ack(
+        # Only reviewer_code ACKs, but reviewer_contract hasn't ACKed yet
+        two_reviewer_tracker.handle_ack(
             "reviewer_code",
             "coder",
             {
@@ -989,85 +1007,85 @@ class TestPrematureConfirmReturnsPending:
             },
         )
 
-        # Coder tries to confirm before checker ACKs — should return pending, not raise
-        result = tracker.handle_confirmed("coder")
+        # Coder tries to confirm before reviewer_contract ACKs — should return pending, not raise
+        result = two_reviewer_tracker.handle_confirmed("coder")
         assert result["status"] == "pending_acks"
         assert "pending reviewers" in result["message"].lower()
 
         # Coder should NOT be in confirmed set
-        assert "coder" not in tracker._confirmed
+        assert "coder" not in two_reviewer_tracker._confirmed
 
-    def test_confirm_after_re_propose_invalidates_stale_acks(self, tracker):
+    def test_confirm_after_re_propose_invalidates_stale_acks(self, two_reviewer_tracker):
         """After re-proposal un-confirms stale reviewers, premature confirm returns pending."""
         # Full happy path first: propose, ACK, but then re-propose
-        tracker.handle_propose(
+        two_reviewer_tracker.handle_propose(
             "coder",
             {"summary": "v1", "artifacts": ["src/auth.py"]},
         )
-        tracker.handle_ack(
+        two_reviewer_tracker.handle_ack(
             "reviewer_code",
             "coder",
             {"artifact_references": ["src/auth.py"]},
         )
-        tracker.handle_ack(
-            "checker",
+        two_reviewer_tracker.handle_ack(
+            "reviewer_contract",
             "coder",
             {"artifact_references": ["src/auth.py"]},
         )
 
         # Coder re-proposes (invalidating stale ACKs)
-        tracker.handle_re_propose(
+        two_reviewer_tracker.handle_re_propose(
             "coder",
             {"summary": "v2", "artifacts": ["src/auth.py"]},
             changed_artifacts=["src/auth.py"],
         )
 
         # Now coder tries to confirm — should get pending_acks
-        result = tracker.handle_confirmed("coder")
+        result = two_reviewer_tracker.handle_confirmed("coder")
         assert result["status"] == "pending_acks"
 
 
 class TestReProposalGuard:
     """Test that re-proposing when fully ACKed is rejected (issue #1185)."""
 
-    def test_propose_rejected_when_fully_acked(self, tracker):
+    def test_propose_rejected_when_fully_acked(self, two_reviewer_tracker):
         """Producer cannot re-propose after being fully ACKed."""
         # Coder proposes
-        tracker.handle_propose(
+        two_reviewer_tracker.handle_propose(
             "coder",
             {"summary": "v1", "artifacts": ["src/auth.py"]},
         )
 
         # Both reviewers ACK
-        tracker.handle_ack("reviewer_code", "coder", {"artifact_references": ["src/auth.py"]})
-        tracker.handle_ack("checker", "coder", {"artifact_references": ["src/auth.py"]})
+        two_reviewer_tracker.handle_ack("reviewer_code", "coder", {"artifact_references": ["src/auth.py"]})
+        two_reviewer_tracker.handle_ack("reviewer_contract", "coder", {"artifact_references": ["src/auth.py"]})
 
         # Verify fully ACKed
-        assert tracker.matrix.is_fully_acked("coder")
+        assert two_reviewer_tracker.matrix.is_fully_acked("coder")
 
         # Re-proposing should raise ValueError
         with pytest.raises(ValueError, match="already fully ACKed"):
-            tracker.handle_propose(
+            two_reviewer_tracker.handle_propose(
                 "coder",
                 {"summary": "v2", "artifacts": ["src/auth.py"]},
             )
 
-    def test_re_propose_allowed_after_nack(self, tracker):
+    def test_re_propose_allowed_after_nack(self, two_reviewer_tracker):
         """handle_re_propose is allowed after NACK (producer phase is WORKING)."""
-        tracker.handle_propose(
+        two_reviewer_tracker.handle_propose(
             "coder",
             {"summary": "v1", "artifacts": ["src/auth.py"]},
         )
-        tracker.handle_ack("reviewer_code", "coder", {"artifact_references": ["src/auth.py"]})
-        # Checker NACKs instead of ACKing
-        tracker.handle_nack(
-            "checker",
+        two_reviewer_tracker.handle_ack("reviewer_code", "coder", {"artifact_references": ["src/auth.py"]})
+        # reviewer_contract NACKs instead of ACKing
+        two_reviewer_tracker.handle_nack(
+            "reviewer_contract",
             "coder",
             {"artifact_references": ["src/auth.py"], "reason": "issues found"},
         )
 
         # Re-proposing after NACK should work (producer phase is WORKING)
-        result = tracker.handle_re_propose(
+        result = two_reviewer_tracker.handle_re_propose(
             "coder",
             {"summary": "v2", "artifacts": ["src/auth.py"]},
             changed_artifacts=["src/auth.py"],
@@ -1268,20 +1286,20 @@ class TestRemoveEdge:
 class TestConfirmErrorListsPendingReviewers:
     """Test improved error message for premature confirm (issue #1185)."""
 
-    def test_confirm_error_lists_pending_reviewers(self, tracker):
+    def test_confirm_error_lists_pending_reviewers(self, two_reviewer_tracker):
         """Premature confirm message lists which reviewers haven't ACKed."""
-        tracker.handle_propose(
+        two_reviewer_tracker.handle_propose(
             "coder",
             {"summary": "v1", "artifacts": ["src/auth.py"]},
         )
 
         # Only reviewer_code ACKs
-        tracker.handle_ack("reviewer_code", "coder", {"artifact_references": ["src/auth.py"]})
+        two_reviewer_tracker.handle_ack("reviewer_code", "coder", {"artifact_references": ["src/auth.py"]})
 
-        # Try to confirm — message should list checker as pending
-        result = tracker.handle_confirmed("coder")
+        # Try to confirm — message should list reviewer_contract as pending
+        result = two_reviewer_tracker.handle_confirmed("coder")
         assert result["status"] == "pending_acks"
-        assert "checker" in result["message"]
+        assert "reviewer_contract" in result["message"]
         assert "Pending reviewers" in result["message"]
 
 
