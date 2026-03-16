@@ -1057,8 +1057,12 @@ class TestReProposalGuard:
         )
 
         # Both reviewers ACK
-        two_reviewer_tracker.handle_ack("reviewer_code", "coder", {"artifact_references": ["src/auth.py"]})
-        two_reviewer_tracker.handle_ack("reviewer_contract", "coder", {"artifact_references": ["src/auth.py"]})
+        two_reviewer_tracker.handle_ack(
+            "reviewer_code", "coder", {"artifact_references": ["src/auth.py"]}
+        )
+        two_reviewer_tracker.handle_ack(
+            "reviewer_contract", "coder", {"artifact_references": ["src/auth.py"]}
+        )
 
         # Verify fully ACKed
         assert two_reviewer_tracker.matrix.is_fully_acked("coder")
@@ -1076,7 +1080,9 @@ class TestReProposalGuard:
             "coder",
             {"summary": "v1", "artifacts": ["src/auth.py"]},
         )
-        two_reviewer_tracker.handle_ack("reviewer_code", "coder", {"artifact_references": ["src/auth.py"]})
+        two_reviewer_tracker.handle_ack(
+            "reviewer_code", "coder", {"artifact_references": ["src/auth.py"]}
+        )
         # reviewer_contract NACKs instead of ACKing
         two_reviewer_tracker.handle_nack(
             "reviewer_contract",
@@ -1294,7 +1300,9 @@ class TestConfirmErrorListsPendingReviewers:
         )
 
         # Only reviewer_code ACKs
-        two_reviewer_tracker.handle_ack("reviewer_code", "coder", {"artifact_references": ["src/auth.py"]})
+        two_reviewer_tracker.handle_ack(
+            "reviewer_code", "coder", {"artifact_references": ["src/auth.py"]}
+        )
 
         # Try to confirm — message should list reviewer_contract as pending
         result = two_reviewer_tracker.handle_confirmed("coder")
