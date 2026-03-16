@@ -116,6 +116,12 @@ If no existing configuration is found, proceed directly to Phase 3.
 
 ## Phase 3 — Secrets Configuration
 
+Create the configuration directory if it doesn't exist:
+
+```bash
+mkdir -p ~/.config/egg/
+```
+
 Configure credentials in `~/.config/egg/secrets.env`. For each secret category, check if already configured and only prompt for missing or explicitly updated values.
 
 ### Step 1: Anthropic Authentication
@@ -149,6 +155,7 @@ Based on selection:
 3. Ask for path to the `.pem` private key file. Validate the file exists and ends with `.pem`. Copy it to `~/.config/egg/github-app.pem` with `chmod 600`.
 4. Ask for the bot name (must match the GitHub App name exactly). Write to `GATEWAY_BOT_NAME` in secrets.env.
 5. Ask for the branch prefix (default: same as bot name, typically `egg`). Write to `GATEWAY_BOT_BRANCH_PREFIX` in secrets.env.
+6. Ask for the user's GitHub username for `GATEWAY_TRUSTED_USERS` in secrets.env (comma-separated list of GitHub usernames allowed to interact with the bot).
 
 **PAT flow**:
 1. Ask for the GitHub PAT. Validate it starts with `ghp_` or `github_pat_`.
@@ -156,7 +163,11 @@ Based on selection:
 3. Set `GATEWAY_BOT_NAME=egg` and `GATEWAY_BOT_BRANCH_PREFIX=egg` as defaults in secrets.env.
 4. Ask for the user's GitHub username for `GATEWAY_TRUSTED_USERS` in secrets.env.
 
-**Both flow**: Run GitHub App flow first, then PAT flow for `GITHUB_USER_TOKEN`.
+**Both flow**:
+1. Run GitHub App flow steps 1–6.
+2. Ask for a GitHub PAT. Validate it starts with `ghp_` or `github_pat_`.
+3. Set `GITHUB_USER_TOKEN` to the provided PAT in secrets.env. Do **NOT** set `GITHUB_TOKEN` — the App's token refresher manages default authentication at runtime via `GITHUB_APP_ID` and the `.pem` key.
+4. Verify `GATEWAY_TRUSTED_USERS` was set in step 1 (App flow step 6). If not, ask for the user's GitHub username.
 
 ### Step 3: Optional Integrations
 
@@ -170,7 +181,13 @@ Use `AskUserQuestion` (multiSelect):
   - **"JIRA"** — description: "Sync tickets, requirements, and sprint info"
   - **"None"** — description: "Skip optional integrations"
 
-For each selected integration, collect the required credentials (see `config/secrets.template.env` for the fields).
+For each selected integration, collect the required credentials:
+
+- **Slack**: Collect `SLACK_TOKEN` (bot token, starts with `xoxb-`) and `SLACK_APP_TOKEN` (app-level token, starts with `xapp-`).
+- **Confluence**: Collect `CONFLUENCE_BASE_URL` (e.g., `https://yoursite.atlassian.net`), `CONFLUENCE_USERNAME` (email), `CONFLUENCE_API_TOKEN`, and `CONFLUENCE_SPACE_KEYS` (comma-separated space keys).
+- **JIRA**: Collect `JIRA_BASE_URL` (e.g., `https://yoursite.atlassian.net`), `JIRA_USERNAME` (email), `JIRA_API_TOKEN`, and `JIRA_JQL_QUERY` (default: `project = <KEY> AND status != Done`).
+
+See `config/secrets.template.env` for additional details on field formats.
 
 ### Step 4: Generate Launcher Secret
 
@@ -195,6 +212,7 @@ Reference `config/secrets.template.env` for the complete list of supported varia
 | GitHub App Install ID | `GITHUB_APP_INSTALLATION_ID` | Phase 3 Step 2 |
 | GitHub default token | `GITHUB_TOKEN` | Phase 3 Step 2 (PAT flow) |
 | GitHub user PAT | `GITHUB_USER_TOKEN` | Phase 3 Step 2 (PAT or Both flow) |
+| GitHub read-only token | `GITHUB_READONLY_TOKEN` | Phase 3 Step 2 (optional — for separate read-only credentials) |
 | Gateway bot name | `GATEWAY_BOT_NAME` | Phase 3 Step 2 |
 | Gateway branch prefix | `GATEWAY_BOT_BRANCH_PREFIX` | Phase 3 Step 2 |
 | Gateway trusted users | `GATEWAY_TRUSTED_USERS` | Phase 3 Step 2 |
@@ -221,7 +239,7 @@ Ask for the user's GitHub username. Try to auto-detect from `gh api user --jq .l
 
 Collect paths to local git repositories to mount into the container. Use `AskUserQuestion` iteratively:
 
-1. Ask: "Enter a path to a local git repository to mount into the egg container (or 'done' if finished)."
+1. Ask: "Enter a path to a local git repository to mount into the egg container."
 2. Validate the path exists and is a git repo (has `.git/` directory).
 3. Auto-detect the remote URL to determine `owner/repo` format.
 4. Ask: "Add another repository?" with options **"Yes"** / **"No, done adding repos"**. If "Yes", repeat from step 1.
