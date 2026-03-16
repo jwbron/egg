@@ -23,14 +23,11 @@ The multi-agent system breaks down the implement phase into specialized agents t
          ▼                    ▼                    ▼
     ┌─────────┐         ┌──────────┐        ┌───────────┐
     │  Coder  │         │  Tester  │        │Documenter │
-    │ (wave 1)│         │ (wave 2) │        │ (wave 2)  │
     └─────────┘         └──────────┘        └───────────┘
                               │
-                              ▼
-                       ┌────────────┐
-                       │ Integrator │
-                       │  (wave 3)  │
-                       └────────────┘
+                       ┌──────┴──────┐
+                       │   Checker   │
+                       └─────────────┘
 ```
 
 ## Adding a New Agent
@@ -44,7 +41,6 @@ class AgentRole(StrEnum):
     CODER = "coder"
     TESTER = "tester"
     DOCUMENTER = "documenter"
-    INTEGRATOR = "integrator"
     MY_NEW_AGENT = "my_new_agent"  # Add your role
 ```
 
@@ -87,7 +83,6 @@ AGENT_ROLES: dict[AgentRole, AgentRoleDefinition] = {
     AgentRole.CODER: CODER_ROLE,
     AgentRole.TESTER: TESTER_ROLE,
     AgentRole.DOCUMENTER: DOCUMENTER_ROLE,
-    AgentRole.INTEGRATOR: INTEGRATOR_ROLE,
     AgentRole.MY_NEW_AGENT: MY_NEW_AGENT_ROLE,
 }
 ```
@@ -215,8 +210,7 @@ by the issue number or pipeline ID to prevent merge conflicts:
 .egg-state/agent-outputs/
 ├── {identifier}-coder-output.json
 ├── {identifier}-tester-output.json
-├── {identifier}-documenter-output.json
-└── {identifier}-integrator-output.json
+└── {identifier}-documenter-output.json
 ```
 
 For example, issue #871 produces `871-coder-output.json`, `871-tester-output.json`, etc.
@@ -248,13 +242,11 @@ plan = compute_execution_plan([
     AgentRole.TESTER,
     AgentRole.DOCUMENTER,
     AgentRole.MY_NEW_AGENT,
-    AgentRole.INTEGRATOR,
 ])
 
 # Returns execution waves:
 # Wave 1: [CODER]
 # Wave 2: [TESTER, DOCUMENTER, MY_NEW_AGENT]  # Parallel
-# Wave 3: [INTEGRATOR]
 ```
 
 ## Testing Your Agent
@@ -276,14 +268,11 @@ Agent prompts are built with role-appropriate context via `_build_role_context()
 
 **Analysis roles** (architect, task_planner, risk_analyst) receive the full issue body in a `## Task Description` section. They need complete context for problem analysis and planning.
 
-**Execution roles** (tester, documenter, integrator, and any new execution agents) receive:
+**Execution roles** (tester, documenter, checker, and any new execution agents) receive:
 - A `## Background` section with a 1-2 sentence summary extracted from the issue
-- A `## Phase Scope` section with task details when running in Tier 3 (descriptions, acceptance criteria, affected files)
 - A `## For More Context` section with pointers to the full issue (`gh issue view`), handoff data, and git diff
 
 When adding a new execution role, `_build_role_context()` will automatically provide the summarized context. If the role needs phase-specific instructions (like the tester's "Focus your testing on..." or the documenter's "Focus your documentation on..."), add a condition in `_build_role_context()` for the new role.
-
-Phase-scoped coders (Tier 3) use `_build_phase_scoped_prompt()`, which embeds the plan overview (not the full plan) and one-line summaries of other phases. This is separate from `_build_role_context()`.
 
 ## Best Practices
 

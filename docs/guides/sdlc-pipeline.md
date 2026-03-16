@@ -19,7 +19,7 @@ Agents cannot be trusted to self-police via prompts alone. The pipeline enforces
 - **Commit-time validation**: The gateway validates staged files against phase restrictions before allowing `git commit`
 - **Push-time operation filtering**: The gateway blocks operations not permitted in the current phase
 - **Push-target enforcement**: Pipeline agents must push to their assigned branch only—the gateway rejects pushes to any other branch (HTTP 403), preventing agents from improvising branch names on push failure. Killswitch: `PUSH_TARGET_ENFORCEMENT=false`
-- **Agent-role file restrictions**: Each agent role (coder, tester, documenter, integrator, etc.) has allowed and blocked file patterns enforced at push time. Controlled by the `EGG_AGENT_RESTRICTIONS_ENFORCE` environment variable (default: warn-only mode with audit logging; set to `true` to block violating pushes)
+- **Agent-role file restrictions**: Each agent role (coder, tester, documenter, checker, etc.) has allowed and blocked file patterns enforced at push time. Controlled by the `EGG_AGENT_RESTRICTIONS_ENFORCE` environment variable (default: warn-only mode with audit logging; set to `true` to block violating pushes)
 - **Role-based field ownership**: Contract mutations are validated against caller role
 - **Completion signal branch verification**: When an agent signals completion with a commit SHA, the orchestrator verifies the commit exists on the pipeline's expected branch (HTTP 409 on mismatch)
 - **Per-command timeout**: Shell commands in the sandbox are wrapped with a configurable timeout (default 300s) to prevent runaway commands like `grep -rn / ` from hanging the container. Configurable via `BASH_COMMAND_TIMEOUT`
@@ -74,7 +74,7 @@ The pipeline pauses for human approval at phase transitions (refine and plan). T
 │   │ Approve │ ╎      │ Approve │                                        │
 │   └─────────┘ ╎      └─────────┘                                        │
 │               ╎                                                         │
-│   ╎ short-circuit: REFINE ·····▶ IMPLEMENT (skips PLAN when approved)   │
+│                                                                        │
 │                                                                         │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
@@ -214,42 +214,6 @@ Returns a Server-Sent Events (SSE) stream for real-time updates across all activ
 - `✗` - Failed
 - `⊘` - Cancelled
 
-**Tier 3 DAG visualization**:
-
-For Tier 3 (high-complexity) pipelines, the Implement phase is expanded into individual sub-phase boxes instead of a single box. Sub-phases are arranged by dependency wave with fan-out/fan-in connectors for parallel phases:
-
-```
->>> ═══ Implement (Tier 3) ═══
-    ┌──────────────────────┐
-    │ ✓ Auth               │
-    │  ✓ coder             │
-    │  ✓ tester            │
-    └──────────────────────┘
-        │
-     ┌──┴──┐
-     │     │
-    ┌──────────────────────┐  ┌──────────────────────┐
-    │ ▶ API                │  │ ○ UI                  │
-    │  ▶ coder             │  │                       │
-    └──────────────────────┘  └──────────────────────┘
-     │     │
-     └──┬──┘
-        │
-    ┌──────────────────────┐
-    │ ○ Pipeline agents    │
-    │  ○ integrator        │
-    │  ○ reviewer_contract │
-    └──────────────────────┘
-```
-
-Each sub-phase box shows its aggregate status, phase name, and agent sequence with per-agent status symbols. Top-level agents (integrator, contract reviewer) that are not scoped to a specific plan phase appear in a separate "Pipeline agents" box after all sub-phases.
-
-The Tier 3 visualization is driven by two fields on the `Pipeline` model:
-- `plan_phase_waves`: Ordered list of dependency waves, where each wave is a list of plan phase IDs that can run in parallel
-- `plan_phase_names`: Mapping of plan phase ID to human-readable name
-
-When `plan_phase_waves` is absent or empty, the standard single-box Implement rendering is used (backward compatible with Tier 1/2 pipelines).
-
 **Timing display**:
 
 The DAG visualization tracks per-cycle and total phase timing:
@@ -274,31 +238,6 @@ Timing starts when actual work begins (`work_started_at`), excluding setup and H
 | **Plan** | Create implementation plan with tasks | `git push`, `egg-contract add-decision` | Auto-review pass + Human approval |
 | **Implement** | Execute tasks on draft PR with CI and review feedback | `git push`, `egg-contract add-commit/update-notes` | All checks pass (CI + PR review) |
 | **PR** | Finalize PR for human review and merge | `gh pr edit`, `git push` | Human merge (closes issue automatically) |
-
-### Complexity Tiers
-
-The refine agent assesses task complexity and signals a tier in its analysis metadata block. The pipeline adapts its dispatch strategy accordingly:
-
-| Tier | Signal | Dispatch Strategy | Use Case |
-|------|--------|-------------------|----------|
-| **Tier 1 (low)** | `complexity_tier: low` + `short_circuit: true` | Skip plan phase, single coder implements directly | Single-file fixes, typos, small config changes |
-| **Tier 2 (mid)** | `complexity_tier: mid` (default) | Full plan + single coder, wave-based multi-agent dispatch | Standard features, bug fixes, multi-file changes |
-| **Tier 3 (high)** | `complexity_tier: high` | Per-phase implement cycles with optional parallel execution | Large features, cross-cutting changes, multiple independent work items |
-
-**Tier 1 (short-circuit)**: The refine agent includes `short_circuit: true` and `complexity_tier: low` in its analysis. After refine completes and internal review approves, the pipeline advances directly from refine to implement, using the analysis as guidance instead of a formal plan. If reviewers request revision, the signal is rechecked after the next cycle. This optimization is enabled by default and can be disabled via `allow_short_circuit`.
-
-**Tier 2 (standard)**: The default. A full plan phase produces tasks, then a single implement phase dispatches agents in waves: Coder -> Tester/Documenter -> Integrator.
-
-**Tier 3 (phase-level dispatch)**: For high-complexity tasks, the plan decomposes work into phases with a dependency graph. Each plan phase becomes its own implement cycle (Coder -> Tester -> Agentic Review), with independent phases optionally running in parallel. After all phase cycles complete, an Integrator with write access merges results and fixes integration issues. See [Tier 3 Phase-Level Dispatch](#tier-3-phase-level-dispatch) for details.
-
-The refine agent's metadata block format:
-```yaml
-# metadata
-complexity_tier: high
-parallel_phases: true
-```
-
-Set `parallel_phases: true` only when plan phases are truly independent and can be implemented concurrently without conflicts.
 
 ### Multi-Reviewer Architecture
 
@@ -341,83 +280,27 @@ The contract tracks per-reviewer verdicts for debugging:
 
 ### Multi-Agent Orchestration
 
-The implement phase supports multi-agent orchestration, where specialized agents (Coder, Tester, Documenter, Integrator) execute in parallel waves based on dependencies. Multi-agent orchestration is enabled by default; single-agent execution can be selected by explicitly disabling it in the contract's `multi_agent_config`.
+The implement phase uses concurrent BRC execution, where specialized agents run simultaneously and coordinate via the message bus.
 
 **Agent Roles:**
 
-| Role | Responsibilities | Depends On | Can Write |
-|------|-----------------|------------|-----------|
-| **Coder** | Implement code changes based on plan tasks | — | Source code files (`**/*.py`, `**/*.ts`, etc.) |
-| **Tester** | Find gaps in implementation and write tests | Coder | Test files (`tests/`, `**/*_test.py`, `**/*.test.ts`, etc.) |
-| **Documenter** | Update documentation for the changes | Coder | Documentation files (`docs/`, `**/*.md`) |
-| **Integrator** | Run full test suite and validate integration | Coder, Tester | Handoff output only (read-only otherwise); **Tier 3 exception below** |
-
-> **Tier 3 Integrator access**: In Tier 3 (high complexity) pipelines, the Integrator role gains write access to source, test, and documentation files (`src/`, `lib/`, `shared/`, `orchestrator/`, `gateway/`, `tests/`, `docs/`, etc.) so it can fix integration issues across phase boundaries. This expanded access is enforced by `get_role_definition(role, complexity_tier="high")` and the corresponding `INTEGRATOR_TIER3_PATTERNS` in `gateway/agent_restrictions.py`. Contract files (`.egg-state/contracts/`) remain blocked.
-
-**Execution Waves (Tier 2):**
-- Wave 1: Coder runs first (no dependencies)
-- Wave 2: Tester and Documenter run in parallel (both depend on Coder)
-- Wave 3: Integrator runs last (depends on Coder + Tester)
+| Role | Responsibilities | Can Write |
+|------|-----------------|-----------|
+| **Coder** | Implement code changes based on plan tasks | Source code files (`**/*.py`, `**/*.ts`, etc.) |
+| **Tester** | Find gaps in implementation and write tests | Test files (`tests/`, `**/*_test.py`, `**/*.test.ts`, etc.) |
+| **Documenter** | Update documentation for the changes | Documentation files (`docs/`, `**/*.md`) |
+| **Checker** | Run linters and auto-fixers | Source and test files |
+| **Reviewer (Code)** | Review code for security, correctness, robustness | Review verdicts only |
+| **Reviewer (Contract)** | Verify task completion and acceptance criteria | Review verdicts only |
 
 **File Access Enforcement:**
-The gateway enforces file access patterns for each agent role via `gateway/agent_restrictions.py`. For example, the Coder agent cannot modify documentation files, and the Tester agent cannot modify source code. This prevents agents from overstepping their responsibilities. Access patterns are tier-aware: `check_agent_file_access()` and `validate_agent_push()` accept an optional `complexity_tier` parameter.
+The gateway enforces file access patterns for each agent role via `gateway/agent_restrictions.py`. For example, the Coder agent cannot modify documentation files, and the Tester agent cannot modify source code. This prevents agents from overstepping their responsibilities.
 
 **Handoff Data:**
 Agents communicate via handoff data stored in `.egg-state/agent-outputs/{identifier}-{role}-output.json` (where `{identifier}` is the issue number or pipeline ID). For example, the Coder agent outputs a list of changed files, which the Tester and Documenter agents read to focus their work. The identifier prefix prevents merge conflicts when concurrent pipelines merge to main.
 
 **Orchestration:**
 Multi-agent orchestration is managed by the local orchestrator (`orchestrator/container_spawner.py`). The orchestrator reads the contract state, determines which agents can run based on dependencies, and dispatches them in parallel where possible.
-
-### Tier 3 Phase-Level Dispatch
-
-For high-complexity tasks (Tier 3), the implement phase uses phase-level dispatch instead of a single wave-based pass. Each plan phase becomes its own implement cycle, and independent phases can optionally run in parallel.
-
-**Execution model:**
-```
-Plan produces phases with dependency ordering:
-  Phase 1 (tasks 1-3)  ──┐
-  Phase 2 (tasks 4-5)  ──┼── independent, run in parallel
-  Phase 3 (tasks 6-7)  ──┘
-  Phase 4 (tasks 8-9)  ──── depends on Phase 1, runs after it
-
-Each implement cycle (per phase):
-  1. Coder: implements tasks scoped to this phase
-  2. Tester: finds gaps and writes/runs tests for this phase's changes
-  3. Documenter: updates documentation for this phase's changes
-  4. Checker: runs linters and auto-fixers on this phase's code
-  5. Code Reviewer: checks this phase's diff for security and correctness
-     - If revision needed → coder retries within this phase
-     - If approved → phase marked complete
-
-After all phases complete:
-  6. Integrator: runs full test suite, fixes integration issues
-```
-
-**Phase dependency graph**: The `PhaseDependencyGraph` class (`shared/egg_contracts/dependency_graph.py`) computes execution waves from the plan's phase dependencies. Independent phases are grouped into the same wave for parallel execution. Dependencies are declared in the contract's `Phase.dependencies` field (e.g., `["phase-1", "phase-2"]`).
-
-**Composite execution tracking**: Agent executions are keyed by `(phase_id, role)` instead of just `role`. The `OrchestrationState` maintains both `executions` (role-only, backward compatible) and `phase_executions` (composite key) dicts. Functions like `can_agent_run()`, `get_runnable_agents()`, and `get_next_wave()` accept an optional `phase_id` parameter for phase-scoped dispatch.
-
-**Phase-scoped prompts**: Each coder in a phase cycle receives a prompt scoped to that phase's tasks only (`_build_phase_scoped_prompt()`), preventing cross-phase context leakage. The prompt embeds the plan overview (goals, approach, constraints) rather than the full plan, with other phases shown as one-line summaries for orientation. A pointer to the full plan file is included for on-demand access.
-
-**Parallel execution**: When `parallel_phases: true` is signaled by the refine agent and `PipelineConfig.enable_parallel_phases` is set, independent phases within the same wave run concurrently using `ThreadPoolExecutor`. The `PipelineConfig.max_parallel_agents` controls concurrency.
-
-**Pipeline model changes**: The `Pipeline` model tracks `complexity_tier` (a `ComplexityTier` enum: `low`, `mid`, `high`), and `PipelineConfig` has an `enable_parallel_phases` flag. For DAG visualization, the model also stores `plan_phase_waves` (dependency-ordered list of wave groups) and `plan_phase_names` (phase ID to human-readable name mapping), populated at Tier 3 implement start by `_run_tier3_implement()`.
-
-**Key files:**
-
-| File | Purpose |
-|------|---------|
-| `shared/egg_contracts/dependency_graph.py` | `PhaseDependencyGraph`, `PhaseWave` — phase-level DAG and wave computation |
-| `shared/egg_contracts/orchestration.py` | Composite key `(phase_id, role)` execution tracking |
-| `shared/egg_contracts/orchestrator.py` | Phase-scoped dispatch via `Orchestrator(contract, phase_id=...)` |
-| `shared/egg_contracts/agent_roles.py` | `get_role_definition(role, complexity_tier=...)` for Tier 3 integrator |
-| `shared/egg_contracts/models.py` | `Phase.dependencies`, `AgentExecutionModel.phase_id` |
-| `shared/egg_contracts/plan_parser.py` | Dependency normalization in `ParsedPhase.to_contract_phase()` |
-| `orchestrator/models.py` | `ComplexityTier` enum, `PipelineConfig.enable_parallel_phases`, `Pipeline.plan_phase_waves`, `Pipeline.plan_phase_names` |
-| `orchestrator/routes/pipelines.py` | `_run_tier3_implement()`, `_check_high_complexity_signal()` |
-| `orchestrator/dag_visualizer.py` | Tier 3 sub-phase rendering (`_render_tier3_implement`, fan-out/fan-in connectors) |
-| `gateway/agent_restrictions.py` | `INTEGRATOR_TIER3_PATTERNS`, tier-aware `get_agent_pattern()` |
-| `gateway/worktree_manager.py` | `create_phase_worktree()`, `cleanup_phase_worktrees()` |
 
 ### Refine and Plan Phase Review Cycles
 
@@ -656,19 +539,10 @@ Agent prompts include role-appropriate context rather than embedding the full is
 
 **Analysis roles** (architect, task_planner, risk_analyst) receive the full issue body, since they need it for problem understanding and planning.
 
-**Execution roles** (tester, documenter, integrator) receive:
+**Execution roles** (tester, documenter, checker) receive:
 - A 1-2 sentence background summary extracted from the issue title and first paragraph
-- Phase-scoped task details with descriptions, acceptance criteria, and affected files (Tier 3)
-- An implementation summary across all phases (integrator only)
-- One-line orientation summaries of other phases (tester/documenter in Tier 3)
 - Checkpoint discovery hints for reviewing prior agent sessions (`egg-checkpoint`)
 - Pointers to full context on demand (`gh issue view`, handoff data, git diff)
-
-**Phase-scoped coders** (Tier 3) receive:
-- The plan overview section (goals, approach, constraints) instead of the full plan
-- The current phase's task details in full
-- One-line summaries of other phases for orientation
-- A pointer to the full plan file
 
 This approach follows a "focus, don't starve" philosophy: agents get enough context to make good decisions without being distracted by irrelevant detail. Full context is always accessible on demand via CLI commands and file paths.
 
@@ -676,63 +550,29 @@ The context is built by `_build_role_context()` in `orchestrator/routes/pipeline
 
 ## Multi-Agent Orchestration
 
-The implement phase can use multi-agent orchestration to parallelize work across specialized agents. This reduces context window pollution and improves first-pass implementation quality.
+The implement phase uses concurrent BRC execution to parallelize work across specialized agents. All agents run simultaneously, communicating via the orchestrator message bus and reaching consensus through the BRC protocol. This reduces context window pollution and improves first-pass implementation quality.
 
 ### Agent Roles
 
-| Role | Purpose | Dependencies | File Access |
-|------|---------|--------------|-------------|
-| **Coder** | Implements code changes | None | `src/`, `lib/`, `shared/` |
-| **Tester** | Finds gaps in implementation and writes tests | Coder | `tests/`, `test_*.py`, `*.test.ts` |
-| **Documenter** | Updates documentation | Coder | `docs/`, `*.md`, `README*` |
-| **Integrator** | Final validation and integration | Coder, Tester | Read-only except `.egg-state/` (Tier 2); source/tests/docs writable (Tier 3) |
+| Role | Purpose | File Access |
+|------|---------|-------------|
+| **Coder** | Implements code changes | `src/`, `lib/`, `shared/` |
+| **Tester** | Finds gaps in implementation and writes tests | `tests/`, `test_*.py`, `*.test.ts` |
+| **Documenter** | Updates documentation | `docs/`, `*.md`, `README*` |
+| **Checker** | Runs linters and auto-fixers | Source and test files |
+| **Reviewer (Code)** | Reviews code for security, correctness | Review verdicts only |
+| **Reviewer (Contract)** | Verifies task completion | Review verdicts only |
 
-### Execution Waves (Tier 2)
+### Configuration
 
-Agents execute in waves based on dependencies:
-
-```
-Wave 1:  [Coder]           ─── Must complete first
-Wave 2:  [Tester, Documenter] ─── Run in parallel
-Wave 3:  [Integrator]      ─── Final validation
-```
-
-### Phase Waves (Tier 3)
-
-In Tier 3 pipelines, plan phases execute in dependency-ordered waves. Each wave contains phases that can run in parallel:
-
-```
-Plan Phase Wave 1:  [phase-1, phase-2, phase-3]  ─── independent, run in parallel
-Plan Phase Wave 2:  [phase-4]                     ─── depends on phase-1, runs after wave 1
-
-Per phase: Coder → Tester → Agentic Review (with retry on rejection)
-After all phases: Integrator (with write access)
-```
-
-Execution tracking uses composite keys `(phase_id, role)` so each phase's agents are tracked independently.
-
-### Enabling Multi-Agent Mode
-
-Multi-agent mode is **enabled by default**. When `multi_agent_config` is absent from the contract, or when `multi_agent_config.enabled` is not specified, the system defaults to multi-agent orchestration.
-
-To explicitly configure multi-agent mode, use the contract's `multi_agent_config`:
+The implement phase agent configuration is managed via the contract's `multi_agent_config`:
 
 ```json
 {
   "multi_agent_config": {
     "enabled": true,
-    "roles_enabled": ["coder", "tester", "documenter", "integrator"],
+    "roles_enabled": ["coder", "tester", "documenter", "checker", "reviewer_code", "reviewer_contract"],
     "parallel_execution": true
-  }
-}
-```
-
-To disable multi-agent mode and use single-agent execution:
-
-```json
-{
-  "multi_agent_config": {
-    "enabled": false
   }
 }
 ```
@@ -774,17 +614,14 @@ egg-contract agent-fail --role tester --error "Tests failed"
 
 | File | Purpose |
 |------|---------|
-| `orchestrator/container_spawner.py` | Multi-agent container lifecycle |
-| `orchestrator/multi_agent.py` | Multi-agent orchestration |
-| `orchestrator/models.py` | Pipeline model with `ComplexityTier` enum and `PipelineConfig` |
-| `shared/egg_contracts/agent_roles.py` | Agent role definitions and file access (tier-aware) |
-| `shared/egg_contracts/orchestration.py` | Orchestration state management (composite key support) |
-| `shared/egg_contracts/dependency_graph.py` | Task and phase dependency graphs, wave computation |
-| `shared/egg_contracts/orchestrator.py` | Dispatch logic and handoff management (phase-scoped) |
-| `shared/egg_contracts/models.py` | Contract models (`Phase.dependencies`, `AgentExecutionModel.phase_id`) |
-| `shared/egg_contracts/plan_parser.py` | Plan parsing with phase dependency extraction |
-| `gateway/agent_restrictions.py` | File access validation per role (tier-aware) |
-| `gateway/worktree_manager.py` | Git worktree lifecycle (phase worktrees for Tier 3) |
+| `orchestrator/container_spawner.py` | Agent container lifecycle |
+| `orchestrator/concurrent_executor.py` | BRC concurrent execution |
+| `orchestrator/peer_consensus.py` | Peer consensus tracking |
+| `shared/egg_contracts/agent_roles.py` | Agent role definitions and file access |
+| `shared/egg_contracts/orchestration.py` | Orchestration state management |
+| `shared/egg_contracts/dependency_graph.py` | Task dependency graphs |
+| `shared/egg_contracts/orchestrator.py` | Dispatch logic and handoff management |
+| `gateway/agent_restrictions.py` | File access validation per role |
 
 ## Circuit Breaker and Escalation
 
@@ -1310,9 +1147,7 @@ Or pass it in the pipeline config JSON (e.g. via the API):
 | `consensus_timeout_minutes` | int | `30` | Timeout before HITL escalation |
 | `agent_idle_timeout_minutes` | int | `60` | Agent idle timeout |
 
-When `concurrent_execution` is `false` (default), the pipeline uses the existing
-wave-based sequential model (Coder → Tester+Documenter → Integrator) and all
-concurrent features are inactive.
+All phases use concurrent BRC execution by default.
 
 ### Message Protocol
 
@@ -1422,10 +1257,6 @@ to a single shared history. Agents coordinate via the message bus to sequence co
 and avoid conflicts — for example, the coder signals `HANDOFF` when its changes are
 committed so downstream agents (tester, documenter) know it is safe to pull and build
 on top.
-
-After all concurrent agents reach consensus, the integrator runs in a separate
-(non-concurrent) step to validate integration, run the full test suite, and confirm
-the shared branch is ready for merge.
 
 ### Failure Handling
 

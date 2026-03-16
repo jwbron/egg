@@ -88,7 +88,7 @@ orchestrator/
 ├── attestation_schemas.py  # Attestation payload validation for BRC proposals
 ├── consensus.py            # Legacy READY-tallying consensus (deprecated, kept for transition)
 ├── consensus_wrapper.py    # Shell wrapper that keeps containers alive polling for consensus after Claude exits
-├── dag_visualizer.py       # ASCII DAG visualization for pipeline status (incl. Tier 3 sub-phase rendering)
+├── dag_visualizer.py       # ASCII DAG visualization for pipeline status
 ├── decision_queue.py       # HITL decision queue
 ├── devserver.py            # Devserver lifecycle manager for deployment validation (DinD)
 ├── dispatch.py             # Agent dispatch logic
@@ -216,8 +216,8 @@ shared/
 │   ├── deployment.py       # Deployment validation configuration models (.egg/deployment.yml)
 │   ├── agent_roles.py      # Multi-agent role definitions (all agent and reviewer roles)
 │   ├── orchestrator.py     # Multi-agent orchestration dispatch logic
-│   ├── orchestration.py    # Agent execution state management (Tier 2 role-key + Tier 3 composite key)
-│   ├── dependency_graph.py # Agent and phase dependency resolution for parallel execution (Tier 2 DependencyGraph + Tier 3 PhaseDependencyGraph)
+│   ├── orchestration.py    # Agent execution state management
+│   ├── dependency_graph.py # Agent dependency resolution for parallel execution
 │   ├── plan_parser.py      # Plan document parsing with task extraction and phase dependency normalization
 │   ├── agent_recovery.py   # Failed agent recovery logic
 │   ├── checkpoints.py      # Checkpoint data models

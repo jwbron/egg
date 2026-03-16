@@ -40,11 +40,6 @@ Switch to Documenter agent mode for documentation-focused work.
 
 **File**: `documenter-mode.md`
 
-### /integrator-mode
-Switch to Integrator agent mode for integration-focused work.
-
-**File**: `integrator-mode.md`
-
 ### /tester-mode
 Switch to Tester agent mode for testing-focused work.
 
