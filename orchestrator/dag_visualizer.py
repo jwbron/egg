@@ -150,6 +150,7 @@ def _deduplicate_agents(
 def _compute_wave_order(
     phase: PipelinePhase,
     agents: list[AgentExecution],
+    repo: str | None = None,
 ) -> list[list[AgentExecution]]:
     """Group agents by execution wave for display.
 
@@ -166,7 +167,7 @@ def _compute_wave_order(
         return [agents]
 
     try:
-        roles = get_roles_for_phase(phase.value, include_reviewers=True)
+        roles = get_roles_for_phase(phase.value, include_reviewers=True, repo=repo)
     except ValueError:
         return [agents]
 
@@ -285,6 +286,7 @@ def _render_phase_box(
     duration: str = "",
     total_duration: str = "",
     use_ascii: bool = False,
+    repo: str | None = None,
 ) -> list[str]:
     """Render a single phase box.
 
@@ -313,7 +315,7 @@ def _render_phase_box(
         mult = "x" if use_ascii else "\u00d7"
 
         deduped, run_counts = _deduplicate_agents(agents)
-        wave_groups = _compute_wave_order(phase, deduped)
+        wave_groups = _compute_wave_order(phase, deduped, repo=repo)
         for wave in wave_groups:
             entries = []
             for agent in wave:
@@ -458,6 +460,7 @@ def render_pipeline_dag(
             duration=duration,
             total_duration=total_duration,
             use_ascii=use_ascii,
+            repo=pipeline.repo,
         )
         lines.extend(box_lines)
 
