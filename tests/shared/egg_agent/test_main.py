@@ -76,12 +76,14 @@ class TestMain:
     def test_streams_output_in_realtime(self, mock_run_agent):
         """Verify on_output callback is passed so output streams to stdout."""
         mock_run_agent.return_value = AgentResult(
-            success=True, stdout="Hello", stderr="", returncode=0,
+            success=True,
+            stdout="Hello",
+            stderr="",
+            returncode=0,
         )
 
         captured = StringIO()
-        with patch("sys.argv", ["egg_agent", "test prompt"]), \
-             patch("sys.stdout", captured):
+        with patch("sys.argv", ["egg_agent", "test prompt"]), patch("sys.stdout", captured):
             main()
 
         # Verify on_output was passed to run_agent
@@ -93,7 +95,6 @@ class TestMain:
     @patch("egg_agent.__main__.run_agent")
     def test_on_output_writes_to_stdout(self, mock_run_agent):
         """Verify the on_output callback writes text to stdout."""
-        written: list[str] = []
 
         def capturing_run_agent(prompt, **kwargs):
             # Invoke the callback during run_agent (while sys.stdout is patched)
@@ -101,14 +102,16 @@ class TestMain:
             if cb:
                 cb("streaming text")
             return AgentResult(
-                success=True, stdout="", stderr="", returncode=0,
+                success=True,
+                stdout="",
+                stderr="",
+                returncode=0,
             )
 
         mock_run_agent.side_effect = capturing_run_agent
 
         captured = StringIO()
-        with patch("sys.argv", ["egg_agent", "test prompt"]), \
-             patch("sys.stdout", captured):
+        with patch("sys.argv", ["egg_agent", "test prompt"]), patch("sys.stdout", captured):
             main()
 
         assert "streaming text" in captured.getvalue()
@@ -117,12 +120,14 @@ class TestMain:
     def test_no_duplicate_stdout(self, mock_run_agent):
         """Output should not be printed twice (once via callback, once at end)."""
         mock_run_agent.return_value = AgentResult(
-            success=True, stdout="already streamed", stderr="", returncode=0,
+            success=True,
+            stdout="already streamed",
+            stderr="",
+            returncode=0,
         )
 
         captured = StringIO()
-        with patch("sys.argv", ["egg_agent", "test prompt"]), \
-             patch("sys.stdout", captured):
+        with patch("sys.argv", ["egg_agent", "test prompt"]), patch("sys.stdout", captured):
             main()
 
         # stdout should NOT contain the result.stdout since it was already
@@ -133,12 +138,14 @@ class TestMain:
     def test_stderr_still_printed(self, mock_run_agent):
         """Stderr should still be printed at the end."""
         mock_run_agent.return_value = AgentResult(
-            success=False, stdout="", stderr="error msg", returncode=1,
+            success=False,
+            stdout="",
+            stderr="error msg",
+            returncode=1,
         )
 
         captured_err = StringIO()
-        with patch("sys.argv", ["egg_agent", "test prompt"]), \
-             patch("sys.stderr", captured_err):
+        with patch("sys.argv", ["egg_agent", "test prompt"]), patch("sys.stderr", captured_err):
             code = main()
 
         assert code == 1
