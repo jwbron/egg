@@ -35,7 +35,7 @@ class TestDependencyGraph:
     def test_build_graph_all_roles(self):
         """Build graph includes all agent roles."""
         graph = build_dependency_graph()
-        assert len(graph.nodes) == 13
+        assert len(graph.nodes) == 15
         assert AgentRole.CODER in graph.nodes
         assert AgentRole.TESTER in graph.nodes
         assert AgentRole.DOCUMENTER in graph.nodes
@@ -46,7 +46,7 @@ class TestDependencyGraph:
         assert AgentRole.REFINER in graph.nodes
 
     def test_build_graph_implement_roles(self):
-        """Build graph with implement-phase roles only."""
+        """Build graph with implement-phase execution roles only."""
         from egg_contracts.agent_roles import get_roles_for_phase
 
         roles = get_roles_for_phase("implement", include_reviewers=False)
@@ -464,7 +464,7 @@ class TestPlanPhaseRoles:
     """Tests for plan-phase agent roles."""
 
     def test_get_roles_for_plan_phase(self):
-        """Get roles for plan phase returns architect, task_planner, risk_analyst."""
+        """Get execution roles for plan phase returns architect, task_planner, risk_analyst."""
         from egg_contracts.agent_roles import get_roles_for_phase
 
         roles = get_roles_for_phase("plan", include_reviewers=False)
@@ -474,7 +474,7 @@ class TestPlanPhaseRoles:
         assert AgentRole.RISK_ANALYST in roles
 
     def test_get_roles_for_implement_phase(self):
-        """Get roles for implement phase returns coder, tester, documenter, integrator."""
+        """Get execution roles for implement phase returns coder, tester, documenter, integrator."""
         from egg_contracts.agent_roles import get_roles_for_phase
 
         roles = get_roles_for_phase("implement", include_reviewers=False)
@@ -483,15 +483,6 @@ class TestPlanPhaseRoles:
         assert AgentRole.TESTER in roles
         assert AgentRole.DOCUMENTER in roles
         assert AgentRole.INTEGRATOR in roles
-
-    def test_default_includes_reviewers(self):
-        """Default include_reviewers=True returns execution and reviewer roles."""
-        from egg_contracts.agent_roles import get_roles_for_phase
-
-        roles = get_roles_for_phase("implement")
-        assert AgentRole.CODER in roles
-        assert AgentRole.REVIEWER_CODE in roles
-        assert AgentRole.REVIEWER_CONTRACT in roles
 
     def test_get_roles_for_unknown_phase_raises(self):
         """Unknown phase raises ValueError."""
@@ -502,7 +493,7 @@ class TestPlanPhaseRoles:
             get_roles_for_phase("unknown")
 
     def test_plan_phase_dependency_graph(self):
-        """Plan-phase roles have correct dependency structure."""
+        """Plan-phase execution roles have correct dependency structure."""
         from egg_contracts.agent_roles import get_roles_for_phase
 
         roles = get_roles_for_phase("plan", include_reviewers=False)
@@ -549,9 +540,24 @@ class TestPlanPhaseRoles:
         from egg_contracts.agent_roles import get_roles_for_phase
 
         roles = get_roles_for_phase("implement", include_reviewers=True)
-        assert len(roles) == 6  # 4 implement + 2 reviewers
+        assert len(roles) == 7  # 4 implement + 3 reviewers
+        assert AgentRole.CODER in roles
+        assert AgentRole.TESTER in roles
+        assert AgentRole.DOCUMENTER in roles
+        assert AgentRole.INTEGRATOR in roles
         assert AgentRole.REVIEWER_CODE in roles
         assert AgentRole.REVIEWER_CONTRACT in roles
+        assert AgentRole.CHECKER in roles
+
+    def test_default_includes_reviewers(self):
+        """Default call to get_roles_for_phase includes reviewer roles."""
+        from egg_contracts.agent_roles import get_roles_for_phase
+
+        roles = get_roles_for_phase("implement")
+        assert AgentRole.REVIEWER_CODE in roles
+        assert AgentRole.REVIEWER_CONTRACT in roles
+        assert AgentRole.CHECKER in roles
+        assert len(roles) == 7  # 4 implement + 3 reviewers
 
     def test_get_plan_roles_with_reviewers(self):
         """Get plan roles with reviewers included."""
@@ -581,7 +587,7 @@ class TestRefinePhaseRoles:
     """Tests for refine-phase agent roles."""
 
     def test_get_roles_for_refine_phase(self):
-        """Get roles for refine phase returns refiner."""
+        """Get execution roles for refine phase returns refiner."""
         from egg_contracts.agent_roles import get_roles_for_phase
 
         roles = get_roles_for_phase("refine", include_reviewers=False)
@@ -714,7 +720,7 @@ class TestMultiAgentConfig:
         config = MultiAgentConfig()
         assert config.enabled is True
         assert config.parallel_execution is True
-        assert len(config.roles_enabled) == 13  # All roles
+        assert len(config.roles_enabled) == 16  # All roles
         assert len(config.phase_overrides) == 0
 
     def test_phase_override(self):
