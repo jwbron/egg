@@ -127,17 +127,17 @@
       ],
       "decision_type": "phase_gate",
       "questions": [],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-03-16T22:21:08.919137",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-03-16T22:24:29.376261",
+      "resolution": "{\"action\": \"approve\", \"context\": \"## Resolved Questions\\n\\n**Redis Namespace**: Same DB, dedicated prefix `anchor:{pipeline_id}:{agent_id}` — consistent with existing message store pattern.\\n\\n**Auto-Pruning at Soft Limit**: Warn only, agent decides what to prune.\\n\\n**Non-Pipeline Mode**: Yes, support non-pipeline mode with `pipeline_id: null`. Redis TTL handles orphan cleanup.\\n\\n**Anchor Init Location**: Container spawner (orchestrator-side) — anchor exists before agent starts, simpler recovery for early crashes.\"}",
       "phase": "refine"
     }
   ],
   "created_at": "2026-03-16T22:08:17.913214",
-  "updated_at": "2026-03-16T22:21:08.935858",
+  "updated_at": "2026-03-16T22:24:29.378945",
   "contract_synced": true,
   "network_mode": null,
   "error": null,
-  "version": 11
+  "version": 12
 }
