@@ -360,14 +360,13 @@ def initialize_orchestration(
     """Initialize orchestration state for a contract.
 
     Creates pending executions for the specified agent roles (or defaults
-    based on contract configuration).
+    to the implement-phase roles).
 
     Args:
         contract: The contract to initialize orchestration for
-        roles: Specific roles to use. If None, uses the contract's
-            multi_agent_config.roles_enabled or defaults to the 4
-            implement-phase roles for backward compatibility.
-        phase_id: Optional plan phase ID for Tier 3 composite keying.
+        roles: Specific roles to use. If None, defaults to the
+            implement-phase roles.
+        phase_id: Optional plan phase ID for composite keying.
             When set, executions are keyed by (phase_id, role).
 
     Returns:
@@ -378,10 +377,7 @@ def initialize_orchestration(
 
     if roles is not None:
         enabled_roles = roles
-    elif contract.multi_agent_config is not None:
-        enabled_roles = [AgentRole(r.value) for r in contract.multi_agent_config.roles_enabled]
     else:
-        # Default: implement-phase roles for backward compatibility
         enabled_roles = [
             AgentRole.CODER,
             AgentRole.TESTER,

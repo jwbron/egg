@@ -3,11 +3,6 @@ ASCII DAG visualization for pipeline execution status.
 
 Generates visual representations of the SDLC pipeline DAG showing
 phases, their status, review cycles, and agent execution state.
-
-For Tier 3 (high-complexity) pipelines, the Implement phase is expanded
-into individual sub-phase boxes arranged by dependency wave, with
-fan-out/fan-in connectors for parallel phases. Sub-phase rendering is
-driven by ``Pipeline.plan_phase_waves`` and ``Pipeline.plan_phase_names``.
 """
 
 import sys
@@ -313,53 +308,29 @@ def _render_phase_box(
     # Build optional agent info lines, grouped by execution wave.
     # Agents that ran multiple times are collapsed into a single entry
     # with a run count (e.g. "✓ checker ×2").
-    # For Tier 3, agents with a plan_phase_id are grouped by sub-phase
-    # first, then by wave within each sub-phase.  Agents without a
-    # plan_phase_id (e.g. reviewer_contract, integrator) are rendered
-    # after all sub-phase groups.
     agent_lines: list[str] = []
     if agents:
         mult = "x" if use_ascii else "\u00d7"
 
-        def _render_wave_group(group_agents: list) -> None:
-            deduped, run_counts = _deduplicate_agents(group_agents)
-            wave_groups = _compute_wave_order(phase, deduped)
-            for wave in wave_groups:
-                entries = []
-                for agent in wave:
-                    agent_symbol = _get_agent_status_symbol(agent.status, use_ascii)
-                    count = run_counts.get(agent.role.value, 1)
-                    if count > 1:
-                        entries.append(f"{agent_symbol} {agent.role.value} {mult}{count}")
-                    else:
-                        entries.append(f"{agent_symbol} {agent.role.value}")
-                # Wrap within wave if 4+ agents (3 per line)
-                if len(entries) <= 3:
-                    agent_lines.append("   " + "  ".join(entries))
+        deduped, run_counts = _deduplicate_agents(agents)
+        wave_groups = _compute_wave_order(phase, deduped)
+        for wave in wave_groups:
+            entries = []
+            for agent in wave:
+                agent_symbol = _get_agent_status_symbol(agent.status, use_ascii)
+                count = run_counts.get(agent.role.value, 1)
+                if count > 1:
+                    entries.append(f"{agent_symbol} {agent.role.value} {mult}{count}")
                 else:
-                    per_line = 3
-                    for i in range(0, len(entries), per_line):
-                        chunk = entries[i : i + per_line]
-                        agent_lines.append("   " + "  ".join(chunk))
-
-        # Partition into sub-phase buckets (preserving insertion order)
-        sub_phase_buckets: dict[str, list] = {}
-        top_level_agents: list = []
-        for agent in agents:
-            pid = getattr(agent, "plan_phase_id", None)
-            if pid:
-                sub_phase_buckets.setdefault(pid, []).append(agent)
+                    entries.append(f"{agent_symbol} {agent.role.value}")
+            # Wrap within wave if 4+ agents (3 per line)
+            if len(entries) <= 3:
+                agent_lines.append("   " + "  ".join(entries))
             else:
-                top_level_agents.append(agent)
-
-        if sub_phase_buckets:
-            for pid, bucket in sub_phase_buckets.items():
-                agent_lines.append(f"   {pid}:")
-                _render_wave_group(bucket)
-            if top_level_agents:
-                _render_wave_group(top_level_agents)
-        else:
-            _render_wave_group(agents)
+                per_line = 3
+                for i in range(0, len(entries), per_line):
+                    chunk = entries[i : i + per_line]
+                    agent_lines.append("   " + "  ".join(chunk))
 
     # Build duration line
     if duration and total_duration and total_duration != duration:
@@ -421,474 +392,6 @@ def _render_arrow(use_ascii: bool = False) -> list[str]:
         return ["        │", "        │", "        ▼"]
 
 
-# --- Tier 3 sub-phase rendering ---
-
-
-def _derive_subphase_status(
-    agents: list[AgentExecution],
-) -> PipelineStatus:
-    """Derive aggregate status for a sub-phase from its agents.
-
-    Priority: FAILED > RUNNING > PENDING > COMPLETE.
-    Empty agent list returns PENDING.
-    """
-    if not agents:
-        return PipelineStatus.PENDING
-
-    statuses = {a.status for a in agents}
-    if AgentExecutionStatus.FAILED in statuses:
-        return PipelineStatus.FAILED
-    if AgentExecutionStatus.RUNNING in statuses:
-        return PipelineStatus.RUNNING
-    if AgentExecutionStatus.PENDING in statuses:
-        return PipelineStatus.PENDING
-    return PipelineStatus.COMPLETE
-
-
-def _render_subphase_box(
-    phase_id: str,
-    phase_name: str | None,
-    agents: list[AgentExecution],
-    use_ascii: bool = False,
-    min_width: int = 20,
-) -> list[str]:
-    """Render a compact box for a single Tier 3 sub-phase.
-
-    Shows the phase name, aggregate status, and agent sequence
-    with status symbols.
-
-    Args:
-        phase_id: Plan phase identifier (e.g. 'phase-1')
-        phase_name: Human-readable name (fallback to phase_id)
-        agents: Agent executions belonging to this sub-phase
-        use_ascii: Use ASCII-only characters
-        min_width: Minimum box content width
-
-    Returns:
-        List of lines for the sub-phase box.
-    """
-    display_name = phase_name or phase_id
-    status = _derive_subphase_status(agents)
-    symbol = _get_status_symbol(status, use_ascii)
-
-    # Build agent entries
-    mult = "x" if use_ascii else "\u00d7"
-    agent_entries: list[str] = []
-    if agents:
-        deduped, run_counts = _deduplicate_agents(agents)
-        for agent in deduped:
-            agent_symbol = _get_agent_status_symbol(agent.status, use_ascii)
-            count = run_counts.get(agent.role.value, 1)
-            if count > 1:
-                agent_entries.append(f" {agent_symbol} {agent.role.value} {mult}{count}")
-            else:
-                agent_entries.append(f" {agent_symbol} {agent.role.value}")
-
-    # Compute content width
-    name_line = f" {symbol} {display_name}"
-    content_widths = [len(name_line), min_width]
-    for entry in agent_entries:
-        content_widths.append(len(entry))
-    content_width = max(content_widths)
-    box_width = content_width + 2  # borders
-
-    # Build box
-    border_h = "-" if use_ascii else "─"
-    border_v = "|" if use_ascii else "│"
-    corner_tl = "+" if use_ascii else "┌"
-    corner_tr = "+" if use_ascii else "┐"
-    corner_bl = "+" if use_ascii else "└"
-    corner_br = "+" if use_ascii else "┘"
-
-    lines = []
-    lines.append(f"{corner_tl}{border_h * (box_width - 2)}{corner_tr}")
-    lines.append(f"{border_v}{name_line:<{box_width - 2}}{border_v}")
-    for entry in agent_entries:
-        lines.append(f"{border_v}{entry:<{box_width - 2}}{border_v}")
-    lines.append(f"{corner_bl}{border_h * (box_width - 2)}{corner_br}")
-
-    return lines
-
-
-def _render_side_by_side(
-    boxes: list[list[str]],
-    spacing: int = 2,
-) -> list[str]:
-    """Concatenate multiple box line-lists horizontally.
-
-    Normalizes heights by padding shorter boxes with blank lines
-    and concatenates them with horizontal spacing.
-
-    Args:
-        boxes: List of box line-lists to join side-by-side
-        spacing: Number of spaces between boxes
-
-    Returns:
-        Combined lines with all boxes side-by-side.
-    """
-    if not boxes:
-        return []
-    if len(boxes) == 1:
-        return list(boxes[0])
-
-    # Normalize heights
-    max_height = max(len(box) for box in boxes)
-    widths = [max(len(line) for line in box) if box else 0 for box in boxes]
-
-    normalized: list[list[str]] = []
-    for box, width in zip(boxes, widths, strict=True):
-        padded = [line.ljust(width) for line in box]
-        while len(padded) < max_height:
-            padded.append(" " * width)
-        normalized.append(padded)
-
-    # Concatenate line-by-line
-    spacer = " " * spacing
-    result = []
-    for row_idx in range(max_height):
-        parts = [normalized[box_idx][row_idx] for box_idx in range(len(normalized))]
-        result.append(spacer.join(parts))
-
-    return result
-
-
-def _render_fan_out(
-    box_widths: list[int],
-    spacing: int = 2,
-    use_ascii: bool = False,
-) -> list[str]:
-    """Render a fan-out connector from a single stem to multiple branches.
-
-    Produces a visual like::
-
-          │              ← vertical stem (line 1)
-       ┌──┴──┐           ← horizontal bar with junction (line 2)
-       │     │           ← branch stems dropping to boxes (line 3)
-
-    The stem and horizontal bar center are both computed from the
-    midpoint of the leftmost and rightmost branch centers, ensuring
-    the vertical stem aligns with the bar junction character.
-
-    When 3+ equal-width boxes cause the bar center to coincide with
-    an intermediate branch position, a cross junction (``┼``) is used
-    instead of overlapping the stem junction with a branch tee.
-
-    Args:
-        box_widths: Widths of each box being fanned out to
-        spacing: Spacing between boxes
-        use_ascii: Use ASCII-only characters
-
-    Returns:
-        List of lines (3) for the fan-out connector.
-    """
-    if len(box_widths) < 2:
-        return []
-
-    # Characters — named by their visual role on the horizontal bar:
-    # stem_junction: where the vertical stem meets the bar (opens upward ┴)
-    # branch_tee: where a branch drops down to a box below (opens downward ┬)
-    v_line = "|" if use_ascii else "│"
-    h_line = "-" if use_ascii else "─"
-    stem_junction = "+" if use_ascii else "┴"  # ┴ opens upward: connects stem from above
-    corner_l = "+" if use_ascii else "┌"
-    corner_r = "+" if use_ascii else "┐"
-    branch_tee = "+" if use_ascii else "┬"  # ┬ opens downward: branch drops to box below
-
-    # Total width of all boxes + spacing
-    total_width = sum(box_widths) + spacing * (len(box_widths) - 1)
-
-    # Centers of each box within the total width
-    centers = []
-    offset = 0
-    for w in box_widths:
-        centers.append(offset + w // 2)
-        offset += w + spacing
-
-    # Compute bar extents and center once for consistent alignment
-    left_edge = centers[0]
-    right_edge = centers[-1]
-    bar_center = (left_edge + right_edge) // 2
-
-    # Line 1: single vertical stem at bar_center
-    line1 = " " * bar_center + v_line
-
-    # Line 2: horizontal bar with junction at center, corners at edges
-    bar = [" "] * total_width
-    for i in range(left_edge, right_edge + 1):
-        bar[i] = h_line
-    bar[left_edge] = corner_l
-    bar[right_edge] = corner_r
-    # Place intermediate branch tees first
-    for c in centers[1:-1]:
-        bar[c] = branch_tee
-    # Place center junction last so it wins if it coincides with a branch
-    if bar_center in centers[1:-1]:
-        bar[bar_center] = "+" if use_ascii else "┼"
-    else:
-        bar[bar_center] = stem_junction
-
-    line2 = "".join(bar)
-
-    # Line 3: vertical stems at each branch center
-    stems = [" "] * total_width
-    for c in centers:
-        stems[c] = v_line
-    line3 = "".join(stems)
-
-    return [line1, line2, line3]
-
-
-def _render_fan_in(
-    box_widths: list[int],
-    spacing: int = 2,
-    use_ascii: bool = False,
-) -> list[str]:
-    """Render a fan-in connector from multiple branches to a single stem.
-
-    Produces a visual like::
-
-       │     │           ← branch stems arriving from boxes (line 1)
-       └──┬──┘           ← horizontal bar with junction (line 2)
-          │              ← vertical stem (line 3)
-
-    Mirror of ``_render_fan_out``. The stem and bar center use the
-    same midpoint calculation for consistent alignment. Cross junction
-    (``┼``) is used when the bar center coincides with an intermediate
-    branch.
-
-    Args:
-        box_widths: Widths of each box being fanned in from
-        spacing: Spacing between boxes
-        use_ascii: Use ASCII-only characters
-
-    Returns:
-        List of lines (3) for the fan-in connector.
-    """
-    if len(box_widths) < 2:
-        return []
-
-    # Characters — named by their visual role on the horizontal bar:
-    # stem_junction: where the vertical stem meets the bar (opens downward ┬)
-    # branch_tee: where a branch arrives from a box above (opens upward ┴)
-    v_line = "|" if use_ascii else "│"
-    h_line = "-" if use_ascii else "─"
-    stem_junction = "+" if use_ascii else "┬"  # ┬ opens downward: connects stem below
-    corner_l = "+" if use_ascii else "└"
-    corner_r = "+" if use_ascii else "┘"
-    branch_tee = "+" if use_ascii else "┴"  # ┴ opens upward: branch arrives from box above
-
-    # Total width of all boxes + spacing
-    total_width = sum(box_widths) + spacing * (len(box_widths) - 1)
-
-    # Centers of each box within the total width
-    centers = []
-    offset = 0
-    for w in box_widths:
-        centers.append(offset + w // 2)
-        offset += w + spacing
-
-    # Compute bar extents and center once for consistent alignment
-    left_edge = centers[0]
-    right_edge = centers[-1]
-    bar_center = (left_edge + right_edge) // 2
-
-    # Line 1: vertical stems at each branch center
-    stems = [" "] * total_width
-    for c in centers:
-        stems[c] = v_line
-    line1 = "".join(stems)
-
-    # Line 2: horizontal bar with junction at center, corners at edges
-    bar = [" "] * total_width
-    for i in range(left_edge, right_edge + 1):
-        bar[i] = h_line
-    bar[left_edge] = corner_l
-    bar[right_edge] = corner_r
-    # Place intermediate branch tees first
-    for c in centers[1:-1]:
-        bar[c] = branch_tee
-    # Place center junction last so it wins if it coincides with a branch
-    if bar_center in centers[1:-1]:
-        bar[bar_center] = "+" if use_ascii else "┼"
-    else:
-        bar[bar_center] = stem_junction
-
-    line2 = "".join(bar)
-
-    # Line 3: single vertical stem at bar_center
-    line3 = " " * bar_center + v_line
-
-    return [line1, line2, line3]
-
-
-def _render_tier3_implement(
-    pipeline: Pipeline,
-    phase_exec: PhaseExecution | None,
-    is_current: bool,
-    use_ascii: bool = False,
-) -> list[str]:
-    """Render the expanded Tier 3 Implement section with sub-phase boxes.
-
-    Replaces the single Implement box with individual sub-phase boxes
-    arranged by dependency wave, connected with fan-out/fan-in connectors.
-
-    Agent partitioning:
-    - Agents whose ``plan_phase_id`` matches a wave entry are grouped
-      into their corresponding sub-phase box.
-    - Agents whose ``plan_phase_id`` does not match any wave entry
-      (orphaned) are treated as top-level agents so they remain visible.
-    - Agents without a ``plan_phase_id`` (e.g. integrator,
-      reviewer_contract) are rendered in a separate "Pipeline agents"
-      box after all sub-phases.
-
-    Wave rendering:
-    - Single-phase waves render as a centered box.
-    - Multi-phase waves render side-by-side with fan-out/fan-in
-      connectors. Waves with more than ``max_side_by_side`` (4) phases
-      wrap onto additional rows.
-
-    Args:
-        pipeline: Pipeline with ``plan_phase_waves`` and
-            ``plan_phase_names`` data populated by
-            ``_run_tier3_implement()`` at implement start.
-        phase_exec: Phase execution data for implement phase
-        is_current: Whether implement is the current phase
-        use_ascii: Use ASCII-only characters
-
-    Returns:
-        List of lines for the full expanded Implement section.
-    """
-    waves = pipeline.plan_phase_waves or []
-    phase_names = pipeline.plan_phase_names or {}
-
-    # Partition agents by plan_phase_id
-    agents_by_phase: dict[str, list[AgentExecution]] = {}
-    top_level_agents: list[AgentExecution] = []
-
-    # Collect all phase IDs present in waves for orphan detection
-    wave_phase_ids: set[str] = set()
-    for wave in waves:
-        wave_phase_ids.update(wave)
-
-    if phase_exec and phase_exec.agents:
-        for agent in phase_exec.agents:
-            pid = agent.plan_phase_id
-            if pid and pid in wave_phase_ids:
-                agents_by_phase.setdefault(pid, []).append(agent)
-            elif pid:
-                # Orphaned: plan_phase_id doesn't match any wave entry
-                top_level_agents.append(agent)
-            else:
-                top_level_agents.append(agent)
-
-    lines: list[str] = []
-
-    # Current phase indicator for the section header
-    current_marker = ">>>" if is_current else "   "
-    border_h = "=" if use_ascii else "═"
-    lines.append(f"{current_marker} {border_h * 3} Implement (Tier 3) {border_h * 3}")
-
-    spacing = 2
-    max_side_by_side = 4  # wrap onto additional rows beyond this
-
-    for wave_idx, wave_phases in enumerate(waves):
-        if not wave_phases:
-            continue
-
-        # Build sub-phase boxes for this wave
-        wave_boxes: list[list[str]] = []
-        for pid in wave_phases:
-            phase_agents = agents_by_phase.get(pid, [])
-            box = _render_subphase_box(
-                phase_id=pid,
-                phase_name=phase_names.get(pid),
-                agents=phase_agents,
-                use_ascii=use_ascii,
-            )
-            wave_boxes.append(box)
-
-        if len(wave_phases) == 1:
-            # Single phase in wave — render centered with indent
-            for line in wave_boxes[0]:
-                lines.append(f"    {line}")
-        else:
-            # Multiple phases — render side-by-side with connectors
-            # Handle wrapping if too many boxes
-            for chunk_start in range(0, len(wave_boxes), max_side_by_side):
-                chunk = wave_boxes[chunk_start : chunk_start + max_side_by_side]
-                chunk_widths = [max(len(line) for line in box) if box else 0 for box in chunk]
-
-                if chunk_start > 0:
-                    # Arrow between wrapped rows
-                    v_line = "|" if use_ascii else "│"
-                    lines.append(f"    {v_line}")
-
-                # Fan-out connector
-                fan_out = _render_fan_out(chunk_widths, spacing, use_ascii)
-                for line in fan_out:
-                    lines.append(f"    {line}")
-
-                # Side-by-side boxes
-                side_by_side = _render_side_by_side(chunk, spacing)
-                for line in side_by_side:
-                    lines.append(f"    {line}")
-
-                # Fan-in connector
-                fan_in = _render_fan_in(chunk_widths, spacing, use_ascii)
-                for line in fan_in:
-                    lines.append(f"    {line}")
-
-        # Arrow between waves (except after last wave)
-        if wave_idx < len(waves) - 1:
-            v_line = "|" if use_ascii else "│"
-            arrow = "v" if use_ascii else "▼"
-            lines.append(f"        {v_line}")
-            lines.append(f"        {arrow}")
-
-    # Render top-level agents (integrator, reviewer_contract, etc.) in a separate box
-    if top_level_agents:
-        v_line = "|" if use_ascii else "│"
-        arrow = "v" if use_ascii else "▼"
-        lines.append(f"        {v_line}")
-        lines.append(f"        {arrow}")
-
-        # Build a compact box for top-level agents
-        status = _derive_subphase_status(top_level_agents)
-        symbol = _get_status_symbol(status, use_ascii)
-        mult = "x" if use_ascii else "\u00d7"
-
-        deduped, run_counts = _deduplicate_agents(top_level_agents)
-        agent_entries: list[str] = []
-        for agent in deduped:
-            agent_symbol = _get_agent_status_symbol(agent.status, use_ascii)
-            count = run_counts.get(agent.role.value, 1)
-            if count > 1:
-                agent_entries.append(f" {agent_symbol} {agent.role.value} {mult}{count}")
-            else:
-                agent_entries.append(f" {agent_symbol} {agent.role.value}")
-
-        name_line = f" {symbol} Pipeline agents"
-        content_widths = [len(name_line), 20]
-        for entry in agent_entries:
-            content_widths.append(len(entry))
-        content_width = max(content_widths)
-        box_width = content_width + 2
-
-        border_h_box = "-" if use_ascii else "─"
-        border_v = "|" if use_ascii else "│"
-        corner_tl = "+" if use_ascii else "┌"
-        corner_tr = "+" if use_ascii else "┐"
-        corner_bl = "+" if use_ascii else "└"
-        corner_br = "+" if use_ascii else "┘"
-
-        lines.append(f"    {corner_tl}{border_h_box * (box_width - 2)}{corner_tr}")
-        lines.append(f"    {border_v}{name_line:<{box_width - 2}}{border_v}")
-        for entry in agent_entries:
-            lines.append(f"    {border_v}{entry:<{box_width - 2}}{border_v}")
-        lines.append(f"    {corner_bl}{border_h_box * (box_width - 2)}{corner_br}")
-
-    return lines
-
 
 def render_pipeline_dag(
     pipeline: Pipeline,
@@ -947,26 +450,16 @@ def render_pipeline_dag(
 
         is_current = pipeline.current_phase == phase
 
-        # Use Tier 3 expanded rendering for Implement phase when wave data exists
-        if phase == PipelinePhase.IMPLEMENT and pipeline.plan_phase_waves:
-            box_lines = _render_tier3_implement(
-                pipeline=pipeline,
-                phase_exec=phase_exec,
-                is_current=is_current,
-                use_ascii=use_ascii,
-            )
-        else:
-            # Render standard phase box
-            box_lines = _render_phase_box(
-                phase=phase,
-                status=status,
-                review_cycles=review_cycles,
-                is_current=is_current,
-                agents=agents,
-                duration=duration,
-                total_duration=total_duration,
-                use_ascii=use_ascii,
-            )
+        box_lines = _render_phase_box(
+            phase=phase,
+            status=status,
+            review_cycles=review_cycles,
+            is_current=is_current,
+            agents=agents,
+            duration=duration,
+            total_duration=total_duration,
+            use_ascii=use_ascii,
+        )
         lines.extend(box_lines)
 
         # Arrow between phases (except after last)
