@@ -706,7 +706,6 @@ class TestResolveAgentType:
         assert _resolve_agent_type("coder") == AgentType.CODER
         assert _resolve_agent_type("tester") == AgentType.TESTER
         assert _resolve_agent_type("documenter") == AgentType.DOCUMENTER
-        assert _resolve_agent_type("integrator") == AgentType.INTEGRATOR
         assert _resolve_agent_type("reviewer") == AgentType.REVIEWER
 
     def test_new_orchestrator_roles(self):

@@ -494,7 +494,6 @@ class TestAgentRole:
         assert AgentRole.CHECKER in roles
         assert AgentRole.TESTER in roles
         assert AgentRole.DOCUMENTER in roles
-        assert AgentRole.INTEGRATOR in roles
         assert AgentRole.ARCHITECT in roles
         assert AgentRole.TASK_PLANNER in roles
         assert AgentRole.RISK_ANALYST in roles
@@ -506,7 +505,7 @@ class TestAgentRole:
         assert AgentRole.REVIEWER_REFINE in roles
         assert AgentRole.REVIEWER_PLAN in roles
         assert AgentRole.REVIEWER_UNIFIED in roles
-        assert len(roles) == 17
+        assert len(roles) == 16
 
 
 class TestBackwardCompatibility:

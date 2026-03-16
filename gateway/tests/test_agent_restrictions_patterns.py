@@ -268,35 +268,6 @@ class TestDocumenterRole:
         assert pattern.can_write(".egg-state/agent-outputs/doc-out.json") is True
 
 
-class TestIntegratorRole:
-    """Verify integrator agent is read-only except handoff output."""
-
-    @pytest.fixture
-    def pattern(self):
-        return get_agent_pattern(AgentRole.INTEGRATOR)
-
-    def test_can_write_agent_outputs(self, pattern):
-        assert pattern.can_write(".egg-state/agent-outputs/integrator-out.json") is True
-
-    def test_cannot_write_source(self, pattern):
-        assert pattern.can_write("src/app.py") is False
-
-    def test_cannot_write_gateway(self, pattern):
-        assert pattern.can_write("gateway/gateway.py") is False
-
-    def test_cannot_write_tests(self, pattern):
-        assert pattern.can_write("tests/test_foo.py") is False
-
-    def test_cannot_write_docs(self, pattern):
-        assert pattern.can_write("docs/guide.md") is False
-
-    def test_cannot_write_contracts(self, pattern):
-        assert pattern.can_write(".egg-state/contracts/123.json") is False
-
-    def test_cannot_write_github(self, pattern):
-        assert pattern.can_write(".github/workflows/ci.yml") is False
-
-
 class TestArchitectRole:
     """Verify architect agent can only write drafts and agent-outputs."""
 
