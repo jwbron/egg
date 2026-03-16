@@ -508,6 +508,7 @@ class TestBuildPhasePromptRevisionMode:
         )
         assert "## Task Description" not in result
         assert "Build a widget with many features" not in result
+        assert "## Parallel Execution with Subagents" not in result
 
     def test_revision_cycle_contains_revision_instructions(self):
         """Cycle 2+ contains revision-focused instructions."""
@@ -547,6 +548,7 @@ class TestBuildPhasePromptRevisionMode:
         )
         assert "## Task Description" in result
         assert "Build a widget with many features" in result
+        assert "## Parallel Execution with Subagents" in result
 
     def test_revision_cycle_without_feedback_includes_task_description(self):
         """Cycle 2+ with no feedback falls back to including the task description."""
@@ -992,6 +994,7 @@ class TestBuildAgentPromptRoleContext:
         assert "## Task Description" not in result
         assert "## For More Context" in result
         assert "TESTER" in result
+        assert "## Parallel Execution with Subagents" in result
 
     def test_documenter_prompt_has_background_not_task_description(self):
         """Documenter prompt uses Background section, not Task Description."""
@@ -1141,6 +1144,7 @@ class TestBuildPhaseScopedPromptOverview:
         assert "Add auth to API" in result
         # Should NOT contain individual phase task details from the plan text
         assert "Add middleware" not in result
+        assert "## Parallel Execution with Subagents" in result
 
     def test_other_phases_listed_for_orientation(self, tmp_path):
         """Other phases appear as one-line summaries."""
@@ -2638,3 +2642,95 @@ class TestBuildReviewPrompt:
         assert "Trace data flow" in prompt
         assert "edge cases" in prompt.lower()
         assert "Research when uncertain" in prompt
+
+    def test_code_reviewer_includes_external_research(self):
+        """Code reviewer prompt includes WebSearch/WebFetch instructions."""
+        prompt = _build_review_prompt(
+            phase="implement",
+            pipeline_id="test-pipe",
+            pipeline_mode="issue",
+            reviewer_type="code",
+            issue_number=100,
+        )
+        assert "WebSearch" in prompt
+        assert "WebFetch" in prompt
+
+
+class TestExternalResearchInstructions:
+    """Verify all roles include WebSearch/WebFetch external research instructions."""
+
+    def test_refine_prompt_includes_external_research(self):
+        """Refine phase prompt includes external research instructions."""
+        prompt = _build_phase_prompt(
+            phase="refine",
+            pipeline_id="test-pipe",
+            pipeline_mode="issue",
+            prompt="Analyze this issue.",
+            issue_number=100,
+        )
+        assert "WebSearch" in prompt
+        assert "WebFetch" in prompt
+
+    def test_coder_prompt_includes_external_research(self):
+        """Coder (implement phase) prompt includes external research instructions."""
+        prompt = _build_phase_prompt(
+            phase="implement",
+            pipeline_id="test-pipe",
+            pipeline_mode="issue",
+            prompt="Implement this feature.",
+            issue_number=100,
+        )
+        assert "WebSearch" in prompt
+        assert "WebFetch" in prompt
+
+    def test_architect_prompt_includes_external_research(self):
+        """Architect agent prompt includes external research instructions."""
+        prompt = _build_agent_prompt(
+            role_value="architect",
+            phase="plan",
+            pipeline_id="test-pipe",
+            pipeline_mode="issue",
+            prompt="Design the architecture.",
+            issue_number=100,
+        )
+        assert "WebSearch" in prompt
+        assert "WebFetch" in prompt
+
+    def test_risk_analyst_prompt_includes_external_research(self):
+        """Risk analyst agent prompt includes external research instructions."""
+        prompt = _build_agent_prompt(
+            role_value="risk_analyst",
+            phase="plan",
+            pipeline_id="test-pipe",
+            pipeline_mode="issue",
+            prompt="Assess the risks.",
+            issue_number=100,
+        )
+        assert "WebSearch" in prompt
+        assert "WebFetch" in prompt
+
+    def test_tester_prompt_includes_external_research(self):
+        """Tester agent prompt includes external research instructions."""
+        prompt = _build_agent_prompt(
+            role_value="tester",
+            phase="implement",
+            pipeline_id="test-pipe",
+            pipeline_mode="issue",
+            prompt="Test the implementation.",
+            issue_number=100,
+        )
+        assert "WebSearch" in prompt
+        assert "WebFetch" in prompt
+
+    def test_documenter_prompt_includes_external_research(self):
+        """Documenter agent prompt includes external research instructions."""
+        prompt = _build_agent_prompt(
+            role_value="documenter",
+            phase="implement",
+            pipeline_id="test-pipe",
+            pipeline_mode="issue",
+            prompt="Document the changes.",
+            issue_number=100,
+        )
+        assert "WebSearch" in prompt
+        assert "WebFetch" in prompt

@@ -93,18 +93,40 @@ Agents: <running count> running, <completed count> completed
 Recent: <latest message subject from recent_messages>
 ```
 
-3. **Check consensus health** (if `concurrent.consensus` is present in the response) — see [Consensus Monitoring](#consensus-monitoring) below.
+3. **Check consensus health** — see [Consensus Monitoring](#consensus-monitoring) below. Use `concurrent.consensus` if present; otherwise fall back to message-based tracking (see [Consensus Fallback](#consensus-fallback-when-concurrentconsensus-is-missing)).
 
 4. Check for state transitions:
    - If `pending_decisions` is non-empty → move to Phase 4 (HITL)
    - If `status` is `complete` → exit the loop, move to Phase 5
-   - If `status` is `failed` → exit the loop, move to Phase 5
+   - If `status` is `failed` → apply the **failed status grace period** (see below) before exiting
+
+5. **Track elapsed time** — Record the wall-clock time when the current phase started. Use this for [Long-Running Phase Detection](#long-running-phase-detection).
+
+**Important: Run polling sleeps in the foreground (blocking).** Do not use background sleeps or `run_in_background` for the 60-second poll interval. Background sleeps provide no benefit since the next action (polling) depends on the sleep completing, and they cause notification spam if the user interrupts.
 
 Keep the dashboard output concise. Only show changes from the previous poll when possible.
 
+### Failed Status Grace Period
+
+During phase cycle transitions (e.g., plan phase review cycles), the orchestrator may briefly report `status: failed` while spawning new containers. Treating this as terminal prematurely ends monitoring.
+
+**Before treating `failed` as terminal, apply these checks:**
+
+1. If `status` is `failed` but `running_agents` is non-empty → treat as "transitioning", not failed. Log: `"Status shows failed but agents still running — treating as cycle transition."` Continue polling.
+2. If `status` is `failed` and `running_agents` is empty → run `egg-pipeline-watch <task_id> --once --compact` to confirm actual state before exiting. If the pipeline watch shows active work, continue polling.
+3. Only exit to Phase 5 when `status` is `failed`, `running_agents` is empty, **and** the secondary check confirms the pipeline is genuinely stopped.
+
+### Post-Consensus Reviewer Behavior
+
+After BRC consensus completes in a phase, the orchestrator may spawn a **post-consensus reviewer** for a final review pass. If this reviewer requests changes, it triggers a new review cycle (new containers are spawned). This is a known pattern — track it as a cycle transition, not a failure. To detect this, compare the `running_agents` count between consecutive polls — if new agents appear after consensus was complete, a post-consensus review cycle has started. Update the dashboard:
+
+```
+Note: Post-consensus review triggered — new review cycle started.
+```
+
 ### Consensus Monitoring
 
-When the pipeline uses concurrent agents (BRC protocol), the `get_status` response includes a `concurrent.consensus` object. On each poll cycle, check this data for red flags and surface problems to the user before they escalate.
+When the pipeline uses concurrent agents (BRC protocol), the `get_status` response may include a `concurrent.consensus` object. On each poll cycle, check this data for red flags and surface problems to the user before they escalate.
 
 **Enhanced dashboard** — When consensus data is present, extend the status display:
 
@@ -121,12 +143,40 @@ If `has_unresolved_nacks` is true, add:
 NACKs: <reviewer> → <producer>: "<reason>"
 ```
 
+### Consensus Fallback (when `concurrent.consensus` is missing)
+
+The `concurrent.consensus` object may not be present in all `get_status` responses. When it is absent, **fall back to message-based consensus tracking** by classifying entries in `recent_messages`:
+
+1. **Classify messages using the `type` field** (primary) — each `recent_messages` entry includes a `type` field with reliable enum values: `CONSENSUS_PROPOSE`, `CONSENSUS_ACK`, `CONSENSUS_NACK`, `CONSENSUS_CONFIRMED`. Use these for classification, not subject parsing.
+2. **Identify roles using the `from_role` field** — each message includes `from_role` indicating which agent sent it.
+3. Maintain an in-memory map of `{role: {last_message_type, last_message_time, message_count}}` built from `recent_messages`
+4. Infer consensus state: if all roles listed in `running_agents` have sent `CONSENSUS_CONFIRMED` messages, consensus is likely complete
+5. For the enhanced dashboard, approximate the fields:
+   - Confirmed count: roles with `CONSENSUS_CONFIRMED` messages
+   - Blocking: roles with no `CONSENSUS_CONFIRMED` message
+   - Unresolved NACKs: `CONSENSUS_NACK` messages not followed by a `CONSENSUS_PROPOSE` from the producer
+6. Use `subject` only for supplementary detail (e.g., extracting NACK reasons or human-readable context for the dashboard)
+
 **Stall detection** — Track agent phase progression across consecutive polls. Flag an agent as potentially stalled when:
 - It has been in `producer_phase: WORKING` for 3+ consecutive polls (~3 minutes) while other agents have progressed
 - It has been in `producer_phase: PROPOSED` for 3+ consecutive polls with no reviewer activity (reviewers still in `WORKING`)
 - A NACK has been unresolved for 3+ consecutive polls (producer hasn't re-proposed)
 
 Note: 3 polls × 60s = ~3 minutes is a baseline threshold. Code generation, test execution, and large diffs can legitimately exceed this. Adjust the threshold based on pipeline complexity — for pipelines with heavy test suites or large codebases, consider using 5+ polls before flagging. The "Wait longer" option mitigates false positives.
+
+**Silent agent detection** — Separately from phase-based stall detection, track agents that never enter the consensus protocol at all. Flag an agent as "silent" when:
+- It has been in `running_agents` for 10+ polls (~10 minutes)
+- It has **zero messages** in `recent_messages` (no proposals, ACKs, NACKs, or confirmations)
+- This catches agents that are running but not participating in BRC — a different failure mode from agents stuck in a specific phase
+
+When a silent agent is detected, include it in the stall alert with distinct framing:
+
+```
+### Silent Agent Detected
+
+**<role>** has been running for ~<N> minutes with no BRC messages.
+This agent may have failed to initialize or enter the consensus protocol.
+```
 
 When a stall is detected, alert the user with context:
 
@@ -186,7 +236,81 @@ Handle each response:
 - **Restart pipeline** → Confirm with the user, then call `cancel_task` with `task_id` and `cleanup: true`, followed by `submit_task` with the original parameters. Resume from Phase 3 with the new `task_id`.
 - **Continue waiting** → Reset the stall counter. Resume monitoring.
 
-**State tracking** — Maintain a simple in-memory map of `{role: {phase, polls_in_phase, nudged}}` across poll cycles. Reset a role's counter whenever its phase changes or new messages appear from it in `recent_messages`. This is lightweight — no persistence needed since it only matters during the active monitoring session.
+**State tracking** — Maintain a simple in-memory map of `{role: {phase, polls_in_phase, nudged, total_polls_seen, has_any_messages}}` across poll cycles, plus a top-level `running_agent_count` to track the number of running agents between polls (for detecting post-consensus reviewer spawns). Reset a role's `polls_in_phase` counter whenever its phase changes or new messages appear from it in `recent_messages`. Increment `total_polls_seen` on every poll. Set `has_any_messages` to true when any message from the role appears in `recent_messages`. This is lightweight — no persistence needed since it only matters during the active monitoring session.
+
+### Long-Running Phase Detection
+
+Track elapsed wall-clock time for each phase. When the **implement phase** has been running for 60+ minutes and consensus appears mostly complete (majority of agents confirmed), proactively offer the user an early exit:
+
+```
+### Long-Running Implement Phase
+
+The implement phase has been running for ~<N> minutes.
+Consensus status: <confirmed_count>/<total> agents confirmed.
+```
+
+Then use `AskUserQuestion`:
+- **Question**: "The implement phase has been running for ~<N> minutes. Most agents have confirmed consensus. How would you like to proceed?"
+- **Header**: "Long run"
+- **Options**:
+  - **"Keep monitoring"** — description: "Continue waiting for full completion"
+  - **"Open PR with current work"** — description: "Extract completed work and create a draft PR"
+  - **"Check what's blocking"** — description: "Investigate which agents haven't confirmed and why"
+
+Handle each response:
+- **Keep monitoring** → Resume polling. Reset the timer threshold (don't re-alert for another 30 minutes).
+- **Open PR with current work** → Proceed to [Stuck Pipeline Rescue](#stuck-pipeline-rescue).
+- **Check what's blocking** → Run `egg-orch consensus status <task_id>` and `egg-orch container list <task_id>`, then show blocking agents and their recent logs. Let the user decide next steps.
+
+This threshold is configurable — adjust based on task complexity. The 60-minute default balances patience for legitimate long-running work against catching stuck pipelines.
+
+### Stuck Pipeline Rescue
+
+When monitoring detects a stuck pipeline (no progress for 10+ polls after consensus appears complete, or the user selects "Open PR with current work"), follow this workflow to extract completed work:
+
+**Step 1: Check for committed work on the branch**
+
+The branch name can be found in the `get_status` response's pipeline details (look for `branch` in the response), or derive it from the pipeline's task description using the `egg/<description>` naming convention.
+
+```bash
+git fetch origin
+git log --oneline origin/egg/<branch> ^origin/main
+```
+If commits exist, the branch has usable work.
+
+**Step 2: Check containers for uncommitted work**
+```bash
+egg-orch container list <task_id>
+```
+For each running container with agent work:
+```bash
+egg-orch container logs <task_id> <container_id> --lines 50
+```
+Look for signs of uncommitted changes (agents mention "modified files" or "working on" in logs).
+
+**Step 3: Offer rescue options via `AskUserQuestion`**
+- **Question**: "Pipeline appears stuck. How would you like to proceed with the completed work?"
+- **Header**: "Rescue"
+- **Options**:
+  - **"Open PR with committed work"** — description: "Create a draft PR from commits already on the branch"
+  - **"Cancel and retry"** — description: "Kill this pipeline and re-submit the task"
+  - **"Keep waiting"** — description: "Continue monitoring — the pipeline may still recover"
+
+Handle each response:
+- **Open PR with committed work** →
+  1. Verify branch has commits: `git log --oneline origin/egg/<branch> ^origin/main`
+  2. Create a draft PR:
+     ```bash
+     gh pr create --head egg/<branch> --title "<task summary>" \
+       --body "Draft PR with work completed before pipeline stall. Manual review recommended." \
+       --base main --draft
+     ```
+  3. Inform the user of the PR link and that manual review is recommended since not all agents completed.
+  4. Call `cancel_task` with `task_id` and `cleanup: true` to clean up the pipeline. If `cancel_task` fails, inform the user and offer to retry — the draft PR is already created so work is preserved.
+
+- **Cancel and retry** → Confirm with the user, then call `cancel_task` with `task_id` and `cleanup: true`, followed by `submit_task` with the original parameters. Resume from Phase 3 with the new `task_id`. If `cancel_task` fails, inform the user and offer to retry. If `cancel_task` succeeds but `submit_task` fails, inform the user that the previous pipeline was cancelled and offer to retry the submission.
+
+- **Keep waiting** → Resume monitoring. Reset the rescue counter.
 
 ## Phase 4 — HITL (Human-in-the-Loop)
 

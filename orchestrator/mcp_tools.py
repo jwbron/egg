@@ -305,7 +305,7 @@ class PipelineToolHandler:
             status["recent_messages"] = [
                 {
                     "from_role": m.get("from_role", ""),
-                    "type": m.get("type", ""),
+                    "type": m.get("message_type", ""),
                     "subject": m.get("subject", ""),
                     "timestamp": m.get("timestamp", ""),
                 }
