@@ -4,7 +4,7 @@
   "repo": "jwbron/egg",
   "branch": "egg/issue-1032",
   "prompt": null,
-  "status": "cancelled",
+  "status": "pending",
   "current_phase": "refine",
   "config": {
     "auto_create_pr": true,
@@ -15,7 +15,7 @@
     "max_hitl_review_cycles": 3,
     "hitl_gates": true,
     "allow_short_circuit": true,
-    "enable_parallel_phases": false,
+    "enable_parallel_phases": true,
     "concurrent_execution": false,
     "concurrent_phases": [
       "refine",
@@ -25,132 +25,18 @@
     "max_concurrent_agents": 6,
     "message_poll_hint_seconds": 30,
     "consensus_timeout_minutes": 30,
-    "agent_idle_timeout_minutes": 60,
-    "coordinator_enabled": true,
-    "coordinator_max_agents": 10,
-    "coordinator_max_retries_per_role": 2,
-    "coordinator_max_respawns": 2
+    "agent_idle_timeout_minutes": 60
   },
-  "phases": {
-    "refine": {
-      "phase": "refine",
-      "status": "awaiting_human",
-      "started_at": "2026-03-15T22:53:51.166951",
-      "work_started_at": "2026-03-15T22:53:51.181554",
-      "completed_at": "2026-03-15T23:07:20.699542",
-      "containers": [
-        {
-          "container_id": "6c8c49215e5111c06ec7bf3c699c25d6178c8a863afe2c23053b1f543531dfcf",
-          "container_name": "egg-sandbox-egg-issue-1032-coordinator",
-          "status": "exited",
-          "started_at": "2026-03-15T22:53:54.456269",
-          "exited_at": "2026-03-15T23:07:05.339508",
-          "exit_code": 0,
-          "agent_role": "coordinator",
-          "session_token": null
-        }
-      ],
-      "agents": [
-        {
-          "role": "coordinator",
-          "status": "complete",
-          "container_id": "6c8c49215e5111c06ec7bf3c699c25d6178c8a863afe2c23053b1f543531dfcf",
-          "started_at": "2026-03-15T22:53:54.456276",
-          "completed_at": "2026-03-15T23:07:05.340285",
-          "commit": null,
-          "outputs": {},
-          "error": null,
-          "retry_count": 0,
-          "conflicts": [],
-          "plan_phase_id": null
-        }
-      ],
-      "review_cycles": 0,
-      "hitl_review_cycles": 0,
-      "cycle_timings": [
-        {
-          "cycle": 0,
-          "started_at": "2026-03-15T22:53:51.181554",
-          "completed_at": "2026-03-15T23:07:20.690271",
-          "commit_sha": "19f0528a9564e6ca00fc4888fa125a749c9663c2"
-        }
-      ],
-      "artifacts": {},
-      "error": null,
-      "hitl_feedback": null,
-      "phase_start_sha": "4d576cbb398f8c29ff275633d5c8f086cc3605b7"
-    }
-  },
-  "decisions": [
-    {
-      "id": "decision-1",
-      "question": "The refine phase has completed. Please review the analysis and approve to continue, or provide feedback to request changes.",
-      "context": "",
-      "options": [
-        "approve",
-        "request changes"
-      ],
-      "decision_type": "phase_gate",
-      "questions": [],
-      "status": "cancelled",
-      "created_at": "2026-03-15T23:02:33.214558",
-      "resolved_at": "2026-03-15T23:14:16.095784",
-      "resolution": null,
-      "phase": "refine"
-    }
-  ],
-  "created_at": "2026-03-15T22:53:46.316302",
-  "updated_at": "2026-03-15T23:14:16.106341",
-  "contract_synced": true,
+  "phases": {},
+  "decisions": [],
+  "created_at": "2026-03-16T01:30:46.404293",
+  "updated_at": "2026-03-16T01:30:46.404472",
+  "contract_synced": false,
   "network_mode": null,
   "short_circuit": false,
   "complexity_tier": "mid",
   "error": null,
-  "coordinator_state": {
-    "workflow_type": "",
-    "agents_spawned": [
-      {
-        "role": "refiner",
-        "spawned_at": "2026-03-15T22:54:49.357798",
-        "completed_at": "2026-03-15T23:01:44.020433Z",
-        "status": "complete",
-        "container_id": "b5b59d8b12556101bd8179318996cc8151da3dcc093d46f28d584b31bf9b6702",
-        "task_context": "Issue #1032: Agent anchor mechanism for post-compaction state recovery. This is a well-specified enhancement issue that defines a persistent anchor mechanism so agents maintain coherent state after context compaction. The issue includes detailed design decisions (JSON format, 2KB/3KB size budget, self-report + orchestrator enrichment, anchor-as-floor recovery, lifecycle-based cleanup, gateway enforcement). Key deliverables: JSON schema at .egg/schemas/agent-anchor.schema.json, Python library at shared/egg_anchor/, egg-orch anchor CLI subcommands, orchestrator API endpoints, gateway phase filter additions, sandbox recovery rules, checkpoint integration. 4 implementation phases defined. Dependencies: soft on #1027 (cross-agent comms) and #1030 (agent roster). 3 open questions on Redis namespace, auto-pruning, and non-pipeline mode. Your job: refine the requirements, validate completeness, identify gaps or ambiguities, and produce a refined specification ready for planning.",
-        "retry_number": 0
-      },
-      {
-        "role": "reviewer_refine",
-        "spawned_at": "2026-03-15T22:55:07.691681",
-        "completed_at": "2026-03-15T23:00:37.042727Z",
-        "status": "complete",
-        "container_id": "3ee8785914adc4c096d5aab712ba6bdb2d773c185b447e8fba7745009dbc6d8d",
-        "task_context": "Issue #1032: Agent anchor mechanism for post-compaction state recovery. Review the refiner's output for completeness, correctness, and clarity. The issue defines a persistent anchor mechanism (JSON files at .egg-state/agent-anchors/) for agents to recover working state after context compaction. Key areas to validate: schema design, size budgets (2KB/3KB soft/hard), recovery protocol (pull-based with message catch-up), storage architecture (local files + Redis + orchestrator API), lifecycle management, gateway enforcement (session-scoped writes). Check for gaps in error handling, edge cases (concurrent writes in shared worktree, network partitions), and integration points with existing systems (egg-contract, checkpoints, BRC consensus, cross-agent messaging). 3 open questions need resolution: Redis namespace, auto-pruning, non-pipeline mode.",
-        "retry_number": 0
-      },
-      {
-        "role": "reviewer_agent_design",
-        "spawned_at": "2026-03-15T22:55:08.071983",
-        "completed_at": "2026-03-15T22:57:55.191619Z",
-        "status": "complete",
-        "container_id": "38468086c44a47fa9a6eaba007ac8c0dd40d0d71532b370c4f67b3702b46a23a",
-        "task_context": "Issue #1032: Agent anchor mechanism for post-compaction state recovery. Review the agent design aspects of this feature. Focus on: 1) Agent-level state management patterns - is the anchor schema capturing the right state for recovery? 2) Recovery protocol - is pull-based recovery with standing instructions in sandbox/.claude/rules/anchor-recovery.md sufficient given Claude Code's opaque compaction? 3) BRC integration - does the brc_state section in anchors properly mirror PeerConsensusTracker? 4) Team anchor design - is orchestrator-generated projection the right approach vs agent-written? 5) Size budgets - is 2KB sufficient for complex multi-agent coordination state? 6) Cross-agent reads - filesystem in shared worktree vs API - security and consistency implications. 7) Consensus wrapper integration for recovery prompt extension. Validate the design against the async team model from issues #1027, #1028, #1030.",
-        "retry_number": 0
-      }
-    ],
-    "phase_decisions": [],
-    "escalations": [],
-    "guardrail_counters": {
-      "total_agents_spawned": 3,
-      "retries_by_role": {
-        "refiner": 1,
-        "reviewer_refine": 1,
-        "reviewer_agent_design": 1
-      },
-      "coordinator_respawns": 0,
-      "started_at": "2026-03-15T22:53:51.198914"
-    }
-  },
   "plan_phase_waves": null,
   "plan_phase_names": null,
-  "version": 23
+  "version": 2
 }
