@@ -68,8 +68,8 @@ class OrchestrationState:
     to determine which agents to run next.
 
     Supports two keying modes:
-    - Role-only (Tier 2): executions keyed by (None, role) for backward compatibility
-    - Composite (Tier 3): executions keyed by (phase_id, role) for phase-level dispatch
+    - Role-only: executions keyed by (None, role) for backward compatibility
+    - Composite: executions keyed by (phase_id, role) for phase-level dispatch
     """
 
     executions: dict[AgentRole, AgentExecutionModel] = field(default_factory=dict)
@@ -115,7 +115,7 @@ class OrchestrationState:
             List of AgentExecutionModel objects
         """
         # If phase_executions has entries that aren't in executions,
-        # include them too (Tier 3 mode)
+        # include them too (phase-scoped mode)
         seen = set()
         result = []
         for execution in self.executions.values():
@@ -319,7 +319,7 @@ class OrchestrationState:
         """Check if all enabled agents have completed (successfully or skipped).
 
         Checks both role-level executions and phase-scoped executions to
-        ensure Tier 3 phase-level dispatch is visible.
+        ensure phase-level dispatch is visible.
         """
         # If no executions configured in either dict, consider complete
         if not self.executions and not self.phase_executions:

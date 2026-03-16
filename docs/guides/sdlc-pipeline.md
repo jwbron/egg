@@ -1106,7 +1106,7 @@ egg-contract add-feedback --question "What is the expected request volume?" --qu
 
 ## Concurrent Execution Mode
 
-Concurrent execution mode enables all agents (coder, tester, documenter, integrator, reviewer_code,
+Concurrent execution mode enables all agents (coder, tester, documenter, reviewer_code,
 reviewer_contract, checker) to run simultaneously during the implement phase,
 collaborating via a polling-based message bus hosted by the orchestrator.
 

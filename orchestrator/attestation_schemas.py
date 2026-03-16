@@ -2,7 +2,7 @@
 
 Attestations are structured claims that agents include in their proposals
 and reviews. They serve as costly signals — harder to produce without
-actually doing the work — and enable cross-verification by the integrator.
+actually doing the work — and enable cross-verification by reviewers.
 """
 
 from enum import StrEnum

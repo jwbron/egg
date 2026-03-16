@@ -235,12 +235,10 @@ class PipelineConfig(BaseModel):
     )
     multi_agent: bool = Field(
         default=True,
-        description="Use multi-agent execution in implement and plan phases",
+        description="Deprecated: multi-agent execution is now always used. "
+        "This field is retained for backwards compatibility with existing pipeline configs.",
     )
     parallel_agents: bool = Field(default=True, description="Run independent agents in parallel")
-    max_parallel_agents: int = Field(
-        default=10, ge=1, description="Maximum parallel agents per wave"
-    )
     max_review_cycles: int = Field(default=3, ge=1, description="Max review cycles per phase")
     max_hitl_review_cycles: int = Field(
         default=3,

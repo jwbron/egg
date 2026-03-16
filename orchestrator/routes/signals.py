@@ -378,7 +378,7 @@ def handle_complete_signal(
                 handoff_data=outputs,
                 metrics=data.get("metrics", {}),
             )
-            # Derive pipeline identifier matching PipelineDispatcher.contract_key
+            # Derive pipeline identifier matching _pipeline_identifier() convention
             identifier: int | str = (
                 pipeline.issue_number if pipeline.issue_number is not None else pipeline_id
             )

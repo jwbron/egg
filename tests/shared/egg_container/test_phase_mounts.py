@@ -167,7 +167,7 @@ class TestEnsureEggStateDirs:
             marker = tmp_path / ".egg-state" / dirname / ".egg-readonly"
             assert marker.exists(), f"Missing marker in {dirname}"
 
-    @pytest.mark.parametrize("role", ["coder", "tester", "integrator", "documenter"])
+    @pytest.mark.parametrize("role", ["coder", "tester", "documenter"])
     def test_non_reviewer_keeps_reviews_marker(self, role, tmp_path):
         """Non-reviewer agents still get .egg-readonly marker in reviews/."""
         repo_volumes = {"repo": str(tmp_path)}
@@ -352,7 +352,7 @@ class TestPhaseReadonlyMounts:
         assert "/home/egg/repos/myrepo/.egg-state/pipelines" in destinations
         assert len(mounts) == len(_IMPLEMENT_READONLY_DIRS) - 1
 
-    @pytest.mark.parametrize("role", ["coder", "tester", "integrator", "documenter"])
+    @pytest.mark.parametrize("role", ["coder", "tester", "documenter"])
     def test_non_reviewer_roles_keep_reviews_readonly(self, role, tmp_path):
         """Non-reviewer agents still get reviews/ mounted readonly."""
         for dirname in _IMPLEMENT_READONLY_DIRS:

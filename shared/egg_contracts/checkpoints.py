@@ -164,6 +164,8 @@ class AgentType(StrEnum):
     RISK_ANALYST = "risk_analyst"
     REFINER = "refiner"
     CHECKER = "checker"
+    # Kept for backward compatibility: historical checkpoint data may reference this value
+    INTEGRATOR = "integrator"
     UNKNOWN = "unknown"
 
 

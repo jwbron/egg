@@ -112,21 +112,6 @@ Note: --exec spawns a new container for each execution (automatic cleanup with -
         "Note: the default egg startup path already rebuilds automatically.",
     )
 
-    # Multi-agent execution options
-    parser.add_argument(
-        "--multi-agent",
-        dest="multi_agent",
-        action=argparse.BooleanOptionalAction,
-        default=None,
-        help="Enable/disable multi-agent execution (--multi-agent / --no-multi-agent)",
-    )
-    parser.add_argument(
-        "--max-parallel",
-        type=int,
-        default=None,
-        help="Maximum parallel agents per wave (default: 10)",
-    )
-
     # Private mode arguments (mutually exclusive)
     mode_group = parser.add_mutually_exclusive_group()
     mode_group.add_argument(
@@ -229,8 +214,6 @@ Note: --exec spawns a new container for each execution (automatic cleanup with -
     # Normal run
     if not run_claude(
         repo_mode=repo_mode,
-        multi_agent=args.multi_agent,
-        max_parallel=args.max_parallel,
     ):
         return 1
 

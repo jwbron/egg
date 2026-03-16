@@ -1417,7 +1417,7 @@ def _read_phase_draft(
 def _summarize_issue(prompt: str | None, issue_number: int | None = None) -> str:
     """Extract a 1-2 sentence summary from the issue title and first paragraph.
 
-    Used to give execution agents (tester, documenter, integrator) a brief
+    Used to give execution agents (tester, documenter) a brief
     orientation without embedding the full issue body. Analysis agents
     (architect, task_planner, risk_analyst) still receive the full issue.
 
@@ -1511,15 +1511,15 @@ def _build_role_context(
     Analysis roles (architect, task_planner, risk_analyst) receive the full
     issue body since they need it for problem understanding and planning.
 
-    Execution roles (tester, documenter, integrator) receive a brief summary
+    Execution roles (tester, documenter) receive a brief summary
     with structured task information and pointers to full context.
 
     Args:
         role_value: Agent role string
         prompt: Original task prompt (full issue body)
         issue_number: GitHub issue number
-        phase_obj: Current plan phase object (Tier 3 context)
-        all_phases: All contract phases (Tier 3 context)
+        phase_obj: Current plan phase object (phase context)
+        all_phases: All contract phases (phase context)
 
     Returns:
         Role-appropriate context string to embed in the agent prompt
@@ -1562,21 +1562,7 @@ def _build_role_context(
                 lines.append(f"  - Files: {', '.join(task.files_affected)}")
         lines.append("")
 
-    # All-phases summary for integrator
-    if all_phases and role_value == "integrator":
-        lines.append("## Implementation Summary\n")
-        for phase in all_phases:
-            status = getattr(phase, "status", "unknown")
-            task_count = len(phase.tasks) if phase.tasks else 0
-            files: set[str] = set()
-            for t in phase.tasks or []:
-                files.update(getattr(t, "files_affected", None) or [])
-            files_str = f" — files: {', '.join(sorted(files))}" if files else ""
-            lines.append(
-                f"- **{phase.id}** ({phase.name}): {task_count} tasks [{status}]{files_str}"
-            )
-        lines.append("")
-    elif all_phases and phase_obj is not None and role_value in ("tester", "documenter"):
+    if all_phases and phase_obj is not None and role_value in ("tester", "documenter"):
         # Brief orientation about other phases for context
         other_phases = [p for p in all_phases if p.id != phase_obj.id]
         if other_phases:
@@ -3111,7 +3097,7 @@ def _build_agent_prompt(
 
     # Include role-appropriate context instead of the raw issue body.
     # Analysis roles (architect, task_planner, risk_analyst) receive the full
-    # issue body. Execution roles (tester, documenter, integrator) receive a
+    # issue body. Execution roles (tester, documenter) receive a
     # brief summary with structured task information and context pointers.
     role_context = _build_role_context(
         role_value=role_value,
@@ -3191,24 +3177,6 @@ def _build_agent_prompt(
                 "",
                 "Find all changed files across agents:",
                 "`egg-checkpoint context --pipeline $EGG_PIPELINE_ID --files`",
-                "",
-            ]
-        )
-    elif role_value == "integrator":
-        lines.extend(
-            [
-                "Verify integration of all changes from CODER and TESTER agents:",
-                "",
-                "1. Run the full test suite to verify all tests pass",
-                "2. Check for integration issues between the changes",
-                "3. Verify no regressions were introduced",
-                "4. Produce an integration report",
-                "",
-                f"Write your integration report to `.egg-state/agent-outputs/{_identifier}-integrator-output.json`.",
-                "",
-                "Review pipeline overview and costs before integrating:",
-                "`egg-checkpoint context --pipeline $EGG_PIPELINE_ID --files` and "
-                "`egg-checkpoint cost --pipeline $EGG_PIPELINE_ID`",
                 "",
             ]
         )
@@ -4837,22 +4805,6 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
         pipeline_mode = "issue" if pipeline.issue_number is not None else "prompt"
         transitions = PHASE_TRANSITIONS
 
-        # Apply environment variable overrides for multi-agent config.
-        # These come from CLI flags (--multi-agent, --max-parallel) passed
-        # as env vars to the container.
-        env_multi_agent = os.environ.get("EGG_MULTI_AGENT")
-        if env_multi_agent is not None:
-            pipeline.config.multi_agent = env_multi_agent == "1"
-        env_max_parallel = os.environ.get("EGG_MAX_PARALLEL_AGENTS")
-        if env_max_parallel is not None:
-            try:
-                pipeline.config.max_parallel_agents = int(env_max_parallel)
-            except ValueError:
-                logger.warning(
-                    "Invalid EGG_MAX_PARALLEL_AGENTS value: %r, ignoring",
-                    env_max_parallel,
-                )
-
         # Map pipeline to gateway session mode.
         # If the pipeline has an explicit network_mode (e.g. "private"), use it;
         # otherwise default to "public".
@@ -5457,198 +5409,9 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                                 phase=current_phase,
                             )
 
-                    # 3. Spawn reviewers and read verdicts (reviewed phases)
-                    # Reviewers always run as a separate step after workers +
-                    # checker.
-                    from egg_contracts.agent_roles import (
-                        _PHASE_REVIEWERS as _phase_reviewer_roles,
-                    )
-
-                    reviewer_roles = _phase_reviewer_roles.get(current_phase.value, [])
-                    # BRC concurrent phases already include reviewers in the consensus
-                    # protocol. Spawning separate reviewers would duplicate the review
-                    # and trigger unnecessary retry cycles (see issue #1178).
-                    break  # Reviewers already handled in BRC — advance to next phase
-
-                    # Clean stale verdict files
-                    for role in reviewer_roles:
-                        rtype = role.value.replace("reviewer_", "", 1).replace("_", "-")
-                        verdict_rel = _verdict_path_for_type(
-                            current_phase.value,
-                            rtype,
-                            issue_number=pipeline.issue_number,
-                            pipeline_id=pipeline_id,
-                        )
-                        verdict_path = worktree_repo_path / verdict_rel
-                        if verdict_path.exists():
-                            try:
-                                verdict_path.unlink()
-                            except OSError:
-                                pass
-
-                    # Determine last_reviewed_commit for delta reviews.
-                    # If this is a re-review (cycle > 0), use the commit_sha
-                    # from the current cycle's start as the baseline.
-                    # Note: review_cycle is 0-indexed here; _build_review_prompt
-                    # receives _review_cycle + 1 (1-indexed), so cycle > 0 here
-                    # corresponds to review_cycle > 1 in the prompt builder.
-                    _last_reviewed_commit: str | None = None
-                    if review_cycle > 0 and phase_execution.cycle_timings:
-                        current_timing = phase_execution.cycle_timings[-1]
-                        _last_reviewed_commit = current_timing.commit_sha
-
-                    # Spawn reviewers in parallel (up to max_parallel_agents)
-                    from concurrent.futures import ThreadPoolExecutor
-
-                    def _spawn_reviewer(  # type: ignore[no-untyped-def]
-                        role,
-                        *,
-                        _phase=current_phase,
-                        _pipeline=pipeline,
-                        _review_cycle=review_cycle,
-                        _review_feedback=review_feedback,
-                        _sandbox_env=sandbox_env,
-                        _repos=repos,
-                        _repo_path=worktree_repo_path,
-                        _last_commit=_last_reviewed_commit,
-                    ):
-                        role_str = role.value
-                        rtype = role_str.replace("reviewer_", "", 1).replace("_", "-")
-                        reviewer_prompt = _build_review_prompt(
-                            phase=_phase.value,
-                            pipeline_id=pipeline_id,
-                            pipeline_mode=pipeline_mode,
-                            reviewer_type=rtype,
-                            issue_number=_pipeline.issue_number,
-                            review_cycle=_review_cycle + 1,
-                            prior_feedback=_review_feedback,
-                            repo_path=str(_repo_path),
-                            last_reviewed_commit=_last_commit,
-                        )
-                        reviewer_command = build_agent_command(reviewer_prompt, max_turns=50)
-                        reviewer_env = {
-                            **_sandbox_env,
-                            "EGG_AGENT_ROLE": role_str,
-                        }
-                        try:
-                            orch_role = AgentRole(role_str)
-                        except ValueError:
-                            return
-                        try:
-                            _spawn_and_wait(
-                                spawner=spawner,
-                                pipeline_id=pipeline_id,
-                                agent_role=orch_role,
-                                issue_number=_pipeline.issue_number,
-                                repo_volumes=repo_volumes,
-                                gateway_mode=gateway_mode,
-                                repos=_repos,
-                                phase=_phase.value,
-                                sandbox_env=reviewer_env,
-                                sandbox_command=reviewer_command,
-                                timeout=1800,
-                                store=store,
-                                certs_volume=certs_volume,
-                                branch=_pipeline.branch,
-                            )
-                        except Exception as e:
-                            logger.warning(
-                                "Reviewer failed, skipping",
-                                pipeline_id=pipeline_id,
-                                reviewer=role_str,
-                                error=str(e),
-                            )
-
-                    max_workers = min(
-                        len(reviewer_roles),
-                        pipeline.config.max_parallel_agents,
-                    )
-                    with ThreadPoolExecutor(max_workers=max_workers) as rev_executor:
-                        futures = [
-                            rev_executor.submit(_spawn_reviewer, role) for role in reviewer_roles
-                        ]
-                        for future in futures:
-                            future.result()
-
-                    all_verdicts: dict[str, ReviewVerdict | None] = {}
-                    for role in reviewer_roles:
-                        rtype = role.value.replace("reviewer_", "", 1).replace("_", "-")
-                        all_verdicts[rtype] = _read_review_verdict(
-                            worktree_repo_path,
-                            current_phase.value,
-                            reviewer_type=rtype,
-                            pipeline_mode=pipeline_mode,
-                            issue_number=pipeline.issue_number,
-                            pipeline_id=pipeline_id,
-                        )
-
-                    agg_result = _aggregate_review_verdicts(all_verdicts)
-
-                    if agg_result.advisory_content:
-                        logger.info(
-                            "Review advisory content (non-blocking)",
-                            pipeline_id=pipeline_id,
-                            phase=current_phase,
-                            advisory_preview=agg_result.advisory_content[:500],
-                        )
-
-                    if agg_result.verdict == "approved":
-                        logger.info(
-                            "All reviewers approved",
-                            pipeline_id=pipeline_id,
-                            phase=current_phase,
-                            review_cycle=review_cycle + 1,
-                        )
-                        with get_pipeline_state_lock(pipeline_id):
-                            pipeline = store.load_pipeline(pipeline_id)
-                            phase_execution = pipeline.get_phase_execution(current_phase)
-                            if phase_execution.cycle_timings:
-                                phase_execution.cycle_timings[-1].completed_at = datetime.utcnow()
-                                store.save_pipeline(pipeline)
-                        break  # Advance to next phase
-
-                    # needs_revision — check circuit breaker
-                    max_cycles = pipeline.config.max_review_cycles
-                    if review_cycle + 1 >= max_cycles:
-                        logger.warning(
-                            "Review circuit breaker — advancing despite needs_revision",
-                            pipeline_id=pipeline_id,
-                            phase=current_phase,
-                            review_cycles=review_cycle + 1,
-                            max_review_cycles=max_cycles,
-                        )
-                        with get_pipeline_state_lock(pipeline_id):
-                            pipeline = store.load_pipeline(pipeline_id)
-                            phase_execution = pipeline.get_phase_execution(current_phase)
-                            if phase_execution.cycle_timings:
-                                phase_execution.cycle_timings[-1].completed_at = datetime.utcnow()
-                                store.save_pipeline(pipeline)
-                        break
-
-                    # Store feedback and loop — merge tester gaps with reviewer
-                    # feedback so the coder sees both on the next cycle.
-                    if tester_gap_summary and agg_result.blocking_feedback:
-                        review_feedback = f"{agg_result.blocking_feedback}\n\n{tester_gap_summary}"
-                    elif tester_gap_summary:
-                        review_feedback = tester_gap_summary
-                    else:
-                        review_feedback = agg_result.blocking_feedback
-                    with get_pipeline_state_lock(pipeline_id):
-                        pipeline = store.load_pipeline(pipeline_id)
-                        phase_execution = pipeline.get_phase_execution(current_phase)
-                        if phase_execution.cycle_timings:
-                            phase_execution.cycle_timings[-1].completed_at = datetime.utcnow()
-                        phase_execution.review_cycles = review_cycle + 1
-                        store.save_pipeline(pipeline)
-
-                    logger.info(
-                        "Review needs revision — looping",
-                        pipeline_id=pipeline_id,
-                        phase=current_phase,
-                        review_cycle=review_cycle + 1,
-                        feedback_preview=review_feedback[:200] if review_feedback else "",
-                    )
-                    continue  # Re-run while loop with feedback
+                    # Reviewers are handled within the BRC consensus protocol
+                    # (see issue #1178) — advance to next phase.
+                    break
 
             # If the phase failed, emit the failure event so the SSE stream
             # terminates, then break out of the outer loop.
@@ -5688,9 +5451,6 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                 phase_execution.status = PipelineStatus.COMPLETE
                 phase_execution.completed_at = datetime.utcnow()
 
-                # Check for short-circuit signal after refine phase.
-                # Reset first so a HITL revision that removes the signal
-                # correctly clears a previously-detected short-circuit.
                 store.save_pipeline(pipeline)  # Persist phase completion before HITL gate
 
             # Report phase completion to collaborator
@@ -5702,11 +5462,6 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
             _emit_pipeline_event(pipeline, "phase.completed")
 
             # After plan phase: populate contract with task structure.
-            # NOTE: In short-circuit mode the plan phase is skipped, so the
-            # contract will have no task structure.  This is intentional —
-            # low-complexity tasks go straight to implement with only the
-            # refine analysis as guidance.  The implement agent does not
-            # require a populated contract to function.
             # NOTE: worktree_repo_path is used for both draft reads and
             # contract load/save inside _populate_contract_from_plan.
             # The contract was created at worktree_repo_path above, so

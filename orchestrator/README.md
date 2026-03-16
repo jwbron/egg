@@ -32,9 +32,9 @@ The orchestrator manages the end-to-end SDLC pipeline that turns GitHub issues i
 │         │    ┌──────────────┼──────────────┐                   │
 │         ▼    ▼              ▼              ▼                   │
 │   ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐       │
-│   │ Sandbox  │  │ Sandbox  │  │ Sandbox  │  │ Sandbox  │       │
-│   │ (Coder)  │  │ (Tester) │  │(Docmter) │  │(Integr.) │       │
-│   └──────────┘  └──────────┘  └──────────┘  └──────────┘       │
+│   │ Sandbox  │  │ Sandbox  │  │ Sandbox  │       │
+│   │ (Coder)  │  │ (Tester) │  │(Docmter) │       │
+│   └──────────┘  └──────────┘  └──────────┘       │
 └────────────────────────────────────────────────────────────────┘
 ```
 
@@ -48,7 +48,7 @@ Pipelines progress through four SDLC phases:
 |-------|---------|--------|
 | **refine** | Analyze task, evaluate options | Refiner, reviewers |
 | **plan** | Break work into tasks, assess risks | Architect, Task Planner, Risk Analyst, reviewers |
-| **implement** | Write code, tests, docs | Coder, Tester, Documenter, Checker, Integrator, reviewers |
+| **implement** | Write code, tests, docs | Coder, Tester, Documenter, Checker, reviewers |
 | **pr** | Create pull request | Single agent |
 
 Each phase transition requires human approval (except implement → pr when all checks pass).
@@ -61,8 +61,8 @@ Pipeline state is stored on a dedicated `egg/pipeline-state` orphan branch acces
 
 Agents execute in dependency-ordered waves:
 
-- **Tier 2** (standard): Coder → Tester + Documenter (parallel) → Integrator
-- **Tier 3** (high complexity): Each plan phase gets its own implement cycle (Coder → Tester → Documenter → Checker → Code Reviewer), with independent phases running in parallel. An Integrator with expanded write access runs after all phase cycles complete. The DAG visualization renders Tier 3 pipelines with individual sub-phase boxes arranged by dependency wave, connected by fan-out/fan-in connectors for parallel phases.
+- **Tier 2** (standard): Coder → Tester + Documenter (parallel)
+- **Tier 3** (high complexity): Each plan phase gets its own implement cycle (Coder → Tester → Documenter → Checker → Code Reviewer), with independent phases running in parallel. The DAG visualization renders Tier 3 pipelines with individual sub-phase boxes arranged by dependency wave, connected by fan-out/fan-in connectors for parallel phases.
 
 Reviewers always run as a separate step after all workers complete, spawning in parallel with a configurable concurrency limit.
 
@@ -205,7 +205,7 @@ orchestrator/
 ├── container_spawner.py    # Container spawning with gateway session integration
 ├── container_monitor.py    # Container state monitoring and lifecycle tracking
 ├── multi_agent.py          # Wave-based parallel agent execution
-├── dispatch.py             # Dispatch logic bridging orchestrator and egg_contracts
+├── dispatch.py             # Dispatch logic bridging orchestrator and egg_contracts (legacy, minimal)
 ├── decision_queue.py       # HITL decision queue management (supports typed decisions)
 ├── handoffs.py             # Agent-to-agent data handoff mechanism
 ├── devserver.py            # Docker-in-Docker devserver management
