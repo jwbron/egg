@@ -1,0 +1,212 @@
+{
+  "schemaVersion": "1.0",
+  "issue": {
+    "number": 1059,
+    "title": "Issue #1059",
+    "url": "https://github.com/jwbron/egg/issues/1059"
+  },
+  "pipeline_id": "issue-1059",
+  "current_phase": "refine",
+  "acceptance_criteria": [],
+  "phases": [],
+  "decisions": [
+    {
+      "id": "decision-1",
+      "question": "Should the overseer's deterministic tripwires integrate with the existing HealthCheckRunner framework, or be a separate event-driven module?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Extend existing HealthCheckRunner with real-time event support",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "New separate health_monitor.py module (recommended)",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-2",
+      "question": "Should the structured progress API store progress events persistently or in-memory only?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Persistent (stored in pipeline state)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "In-memory with configurable retention window (recommended)",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Hybrid \u2014 in-memory for processing, periodic snapshot to disk",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-3",
+      "question": "How should the orchestrator communicate escalations to the overseer container?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Existing message bus \u2014 overseer polls /messages like other agents (recommended)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Dedicated escalation endpoint",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Overseer polls health alerts endpoint",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-4",
+      "question": "Should the overseer auto-file GitHub issues autonomously, or require HITL approval?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Fully autonomous issue filing (as specified in issue)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Issue filing requires HITL approval (safer)",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Autonomous for high-confidence, HITL for low-confidence (recommended)",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-5",
+      "question": "Should the OVERSEER role be added independently or wait for #1030 (agent team roster)?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Add OVERSEER independently (recommended)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Wait for #1030 to land first",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-6",
+      "question": "What default model should the overseer's decision-maker tier use?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Sonnet by default (recommended \u2014 cheaper, sufficient)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Opus by default (better reasoning)",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Configurable per-pipeline via PipelineConfig",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    }
+  ],
+  "workflow_owner": null,
+  "audit_log": [],
+  "refine_review_cycles": 0,
+  "refine_review_feedback": "",
+  "plan_review_cycles": 0,
+  "plan_review_feedback": "",
+  "pr": null,
+  "feedback": null,
+  "phase_configs": null,
+  "agent_executions": []
+}
