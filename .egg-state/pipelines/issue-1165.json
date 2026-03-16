@@ -174,8 +174,102 @@
       "started_at": "2026-03-16T00:59:52.135427",
       "work_started_at": "2026-03-16T00:59:52.154189",
       "completed_at": null,
-      "containers": [],
-      "agents": [],
+      "containers": [
+        {
+          "container_id": "93501d4f2b72226e81fcfd9d6dcc96b1f1e7a92985e05125bab7f7a724d4cff6",
+          "container_name": "issue-1165-reviewer_plan",
+          "status": "running",
+          "started_at": "2026-03-16T00:59:53.165543",
+          "exited_at": null,
+          "exit_code": null,
+          "agent_role": "reviewer_plan",
+          "session_token": null
+        },
+        {
+          "container_id": "f82e9b8fe01638c3bdf22bf53a90bcf64703639c7214655da7a2c6682ea0f582",
+          "container_name": "issue-1165-task_planner",
+          "status": "running",
+          "started_at": "2026-03-16T00:59:53.165554",
+          "exited_at": null,
+          "exit_code": null,
+          "agent_role": "task_planner",
+          "session_token": null
+        },
+        {
+          "container_id": "57fd7cd6283080bf27d043dc625babf1ea1576f059247ceabba6de23cb0354a7",
+          "container_name": "issue-1165-architect",
+          "status": "running",
+          "started_at": "2026-03-16T00:59:53.165560",
+          "exited_at": null,
+          "exit_code": null,
+          "agent_role": "architect",
+          "session_token": null
+        },
+        {
+          "container_id": "363c4ae3a61122cdea6b4eddcdc8a2bdf40ef955d8d45ab922cab9b1a60a25b2",
+          "container_name": "issue-1165-risk_analyst",
+          "status": "running",
+          "started_at": "2026-03-16T00:59:53.165565",
+          "exited_at": null,
+          "exit_code": null,
+          "agent_role": "risk_analyst",
+          "session_token": null
+        }
+      ],
+      "agents": [
+        {
+          "role": "reviewer_plan",
+          "status": "running",
+          "container_id": "93501d4f2b72226e81fcfd9d6dcc96b1f1e7a92985e05125bab7f7a724d4cff6",
+          "started_at": "2026-03-16T00:59:53.165549",
+          "completed_at": null,
+          "commit": null,
+          "outputs": {},
+          "error": null,
+          "retry_count": 0,
+          "conflicts": [],
+          "plan_phase_id": null
+        },
+        {
+          "role": "task_planner",
+          "status": "running",
+          "container_id": "f82e9b8fe01638c3bdf22bf53a90bcf64703639c7214655da7a2c6682ea0f582",
+          "started_at": "2026-03-16T00:59:53.165557",
+          "completed_at": null,
+          "commit": null,
+          "outputs": {},
+          "error": null,
+          "retry_count": 0,
+          "conflicts": [],
+          "plan_phase_id": null
+        },
+        {
+          "role": "architect",
+          "status": "running",
+          "container_id": "57fd7cd6283080bf27d043dc625babf1ea1576f059247ceabba6de23cb0354a7",
+          "started_at": "2026-03-16T00:59:53.165563",
+          "completed_at": null,
+          "commit": null,
+          "outputs": {},
+          "error": null,
+          "retry_count": 0,
+          "conflicts": [],
+          "plan_phase_id": null
+        },
+        {
+          "role": "risk_analyst",
+          "status": "running",
+          "container_id": "363c4ae3a61122cdea6b4eddcdc8a2bdf40ef955d8d45ab922cab9b1a60a25b2",
+          "started_at": "2026-03-16T00:59:53.165567",
+          "completed_at": null,
+          "commit": null,
+          "outputs": {},
+          "error": null,
+          "retry_count": 0,
+          "conflicts": [],
+          "plan_phase_id": null
+        }
+      ],
       "review_cycles": 0,
       "hitl_review_cycles": 0,
       "cycle_timings": [
@@ -211,7 +305,7 @@
     }
   ],
   "created_at": "2026-03-16T00:20:26.575379",
-  "updated_at": "2026-03-16T00:59:52.155496",
+  "updated_at": "2026-03-16T00:59:53.165637",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
@@ -219,5 +313,5 @@
   "error": "Pipeline marked FAILED: agent container exited unexpectedly during execution. Restart via POST /pipelines/{id}/start.",
   "plan_phase_waves": null,
   "plan_phase_names": null,
-  "version": 23
+  "version": 24
 }
