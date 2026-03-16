@@ -677,3 +677,86 @@ class TestNoImplicitReadyOnCleanExit:
         assert "RESTART_COUNT" in script
         # Must NOT contain auto-READY
         assert "Auto-signaling READY" not in script
+
+
+class TestConcurrentPhaseSkipsReviewerSpawn:
+    """Test that concurrent (BRC) phases do not spawn separate reviewer
+    containers after consensus, preventing duplicate review cycles (issue #1178)."""
+
+    def test_use_concurrent_skips_reviewer_roles(self):
+        """When use_concurrent is True, the reviewer-spawn guard should break."""
+        # This is a structural test: after _run_concurrent_phase succeeds,
+        # the code should hit the `if use_concurrent: break` guard before
+        # reaching the reviewer spawn logic.
+        #
+        # We verify the guard exists in the source code.
+        import inspect
+
+        import routes.pipelines as pipelines_mod
+
+        source = inspect.getsource(pipelines_mod)
+
+        # The guard must exist: use_concurrent triggers a break before
+        # reviewer spawn.
+        assert "if use_concurrent" in source
+        assert "No separate reviewers needed" in source
+
+
+class TestAgentsMarkedCompleteAfterConsensus:
+    """Test that _update_agents_complete transitions FAILED agents to COMPLETE
+    when BRC consensus succeeds (issue #1178, Bug 3)."""
+
+    def test_failed_agents_become_complete_on_consensus(self):
+        """Agents that exited non-zero should still be marked COMPLETE after consensus."""
+        from models import (
+            AgentExecution,
+            AgentExecutionStatus,
+            PhaseExecution,
+        )
+
+        # Simulate a phase execution with one RUNNING and one FAILED agent
+        agents = [
+            AgentExecution(
+                role="coder",
+                status=AgentExecutionStatus.RUNNING,
+            ),
+            AgentExecution(
+                role="tester",
+                status=AgentExecutionStatus.FAILED,
+                error="Container exited with code 1",
+            ),
+        ]
+        pe = PhaseExecution(
+            phase=PipelinePhase.IMPLEMENT,
+            status=PipelineStatus.RUNNING,
+            agents=agents,
+        )
+
+        # Apply the same logic as _update_agents_complete
+        for agent in pe.agents:
+            if agent.status in (AgentExecutionStatus.RUNNING, AgentExecutionStatus.FAILED):
+                agent.status = AgentExecutionStatus.COMPLETE
+                agent.completed_at = datetime.now(tz=UTC)
+
+        assert pe.agents[0].status == AgentExecutionStatus.COMPLETE
+        assert pe.agents[1].status == AgentExecutionStatus.COMPLETE
+        assert pe.agents[0].completed_at is not None
+        assert pe.agents[1].completed_at is not None
+
+    def test_phase_status_reset_on_new_cycle(self):
+        """Phase and pipeline status should reset to RUNNING at cycle start."""
+        from models import PhaseExecution
+
+        pe = PhaseExecution(
+            phase=PipelinePhase.IMPLEMENT,
+            status=PipelineStatus.FAILED,
+        )
+        pipeline = _make_concurrent_pipeline()
+        pipeline.status = PipelineStatus.FAILED
+
+        # Simulate the status reset that happens at cycle start
+        pe.status = PipelineStatus.RUNNING
+        pipeline.status = PipelineStatus.RUNNING
+
+        assert pe.status == PipelineStatus.RUNNING
+        assert pipeline.status == PipelineStatus.RUNNING

@@ -4798,7 +4798,7 @@ def _run_concurrent_phase(
                 pip = store.load_pipeline(pipeline_id)
                 pe = pip.get_phase_execution(PipelinePhase(phase_str))
                 for agent in pe.agents:
-                    if agent.status == StateAgentStatus.RUNNING:
+                    if agent.status in (StateAgentStatus.RUNNING, StateAgentStatus.FAILED):
                         agent.status = StateAgentStatus.COMPLETE
                         agent.completed_at = datetime.utcnow()
                 store.save_pipeline(pip)
@@ -6409,6 +6409,13 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                         phase_execution = pipeline.get_phase_execution(current_phase)
                         review_cycle = phase_execution.review_cycles
 
+                        # Reset status to RUNNING at cycle start so that a
+                        # previous cycle's FAILED status doesn't persist and
+                        # cause _derive_subphase_status() to misreport (see
+                        # issue #1178).
+                        phase_execution.status = PipelineStatus.RUNNING
+                        pipeline.status = PipelineStatus.RUNNING
+
                         # Record when actual agent work begins (excludes sandbox setup
                         # and HITL waiting time from the phase duration).
                         phase_execution.work_started_at = datetime.utcnow()
@@ -6788,8 +6795,11 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                     reviewer_roles = _phase_reviewer_roles.get(current_phase.value, [])
                     if use_tier3:
                         reviewer_roles = [r for r in reviewer_roles if r != AgentRole.REVIEWER_CODE]
-                    if not reviewer_roles:
-                        break  # No reviewers for this phase — advance
+                    # BRC concurrent phases already include reviewers in the consensus
+                    # protocol. Spawning separate reviewers would duplicate the review
+                    # and trigger unnecessary retry cycles (see issue #1178).
+                    if use_concurrent or not reviewer_roles:
+                        break  # No separate reviewers needed — advance to next phase
 
                     # Clean stale verdict files
                     for role in reviewer_roles:

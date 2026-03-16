@@ -976,6 +976,13 @@ def handle_consensus_confirmed_signal(
     try:
         result = tracker.handle_confirmed(agent_role)
 
+        # If the producer is waiting for reviewer re-ACKs (e.g. after a
+        # re-proposal invalidated stale ACKs), return 202 so the agent
+        # knows to retry later instead of treating it as an error.
+        if result.get("status") == "pending_acks":
+            response: dict[str, Any] = {"success": True, "message": result["message"], "data": result}
+            return jsonify(response), 202
+
         from message_store import Message, MessageType, get_message_store
 
         store = get_message_store()
