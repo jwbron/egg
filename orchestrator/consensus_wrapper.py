@@ -242,20 +242,18 @@ def build_consensus_wrapped_command(
     Returns:
         Command list suitable for container spawning (bash -c "...").
     """
-    # Build the claude command prefix (everything except the prompt argument)
-    claude_prefix_parts = [
-        "claude",
-        "--dangerously-skip-permissions",
-        "--print",
-        "--verbose",
-        "--output-format",
-        "stream-json",
+    # Build the agent command prefix (everything except the prompt argument).
+    # Uses the Agent SDK entry point instead of the claude CLI.
+    agent_prefix_parts = [
+        "python3",
+        "-m",
+        "egg_agent",
         "--model",
         model,
         "--max-turns",
         str(max_turns),
     ]
-    claude_command_prefix = " ".join(shlex.quote(p) for p in claude_prefix_parts)
+    claude_command_prefix = " ".join(shlex.quote(p) for p in agent_prefix_parts)
     initial_prompt = shlex.quote(prompt_text)
 
     script = _CONSENSUS_WRAPPER_TEMPLATE.format(

@@ -23,13 +23,12 @@ class TestBuildConsensusWrappedCommand:
         assert cmd[1] == "-c"
         assert len(cmd) == 3
 
-    def test_contains_claude_invocation(self):
-        """The wrapper script should contain the full claude command."""
+    def test_contains_agent_invocation(self):
+        """The wrapper script should contain the Agent SDK command."""
         cmd = build_consensus_wrapped_command("Test prompt")
         script = cmd[2]
-        assert "claude" in script
-        assert "--dangerously-skip-permissions" in script
-        assert "--print" in script
+        assert "python3" in script
+        assert "egg_agent" in script
         assert "--max-turns" in script
         assert "200" in script
 
@@ -151,26 +150,35 @@ class TestBuildConsensusWrappedCommand:
         assert f"MAX_READY_POLLS={MAX_READY_POLL_CYCLES}" in script
 
 
-def _make_mock_claude(tmpdir: str, claude_log_file: str | None = None, exit_code: int = 0) -> None:
-    """Create a mock claude script.
+def _make_mock_agent(tmpdir: str, agent_log_file: str | None = None, exit_code: int = 0) -> None:
+    """Create a mock python3 script that intercepts ``-m egg_agent`` calls.
+
+    Non-egg_agent ``python3`` invocations (used by the wrapper for JSON
+    parsing) fall through to the real ``python3``.
 
     Args:
         tmpdir: Directory to create the mock in (must be on PATH).
-        claude_log_file: File to log calls to. If None, logs to tmpdir/claude.log.
+        agent_log_file: File to log calls to. If None, logs to tmpdir/claude.log.
         exit_code: Exit code for the mock. When 0, logs call details;
             when non-zero, exits immediately with that code.
     """
-    mock_claude = os.path.join(tmpdir, "claude")
-    claude_log = claude_log_file or os.path.join(tmpdir, "claude.log")
-    with open(mock_claude, "w") as f:
+    mock_python = os.path.join(tmpdir, "python3")
+    agent_log = agent_log_file or os.path.join(tmpdir, "claude.log")
+    real_python = "/usr/bin/python3"
+    with open(mock_python, "w") as f:
         f.write("#!/bin/bash\n")
+        # Intercept only -m egg_agent calls; pass everything else to real python3
+        f.write('if [ "$1" = "-m" ] && [ "$2" = "egg_agent" ]; then\n')
         if exit_code != 0:
-            f.write(f"exit {exit_code}\n")
+            f.write(f"  exit {exit_code}\n")
         else:
-            f.write(f'echo "---CLAUDE_CALL_START---" >> {shlex.quote(claude_log)}\n')
-            f.write(f'echo "${{@: -1}}" >> {shlex.quote(claude_log)}\n')
-            f.write(f'echo "---CLAUDE_CALL_END---" >> {shlex.quote(claude_log)}\n')
-    os.chmod(mock_claude, 0o755)  # nosec B103
+            f.write(f'  echo "---CLAUDE_CALL_START---" >> {shlex.quote(agent_log)}\n')
+            f.write(f'  echo "${{@: -1}}" >> {shlex.quote(agent_log)}\n')
+            f.write(f'  echo "---CLAUDE_CALL_END---" >> {shlex.quote(agent_log)}\n')
+        f.write("else\n")
+        f.write(f'  exec {shlex.quote(real_python)} "$@"\n')
+        f.write("fi\n")
+    os.chmod(mock_python, 0o755)  # nosec B103
 
 
 class TestConsensusWrapperBehavior:
@@ -196,12 +204,12 @@ class TestConsensusWrapperBehavior:
             f.write('echo \'{"data": {"concurrent": {"consensus": {"is_complete": true}}}}\'\n')
         os.chmod(mock_orch, 0o755)  # nosec B103
 
-        _make_mock_claude(tmpdir, claude_log_file)
+        _make_mock_agent(tmpdir, claude_log_file)
 
     @staticmethod
-    def _make_failing_claude(tmpdir: str, exit_code: int = 1) -> None:
-        """Create a mock claude that exits with a non-zero code."""
-        _make_mock_claude(tmpdir, exit_code=exit_code)
+    def _make_failing_agent(tmpdir: str, exit_code: int = 1) -> None:
+        """Create a mock agent that exits with a non-zero code."""
+        _make_mock_agent(tmpdir, exit_code=exit_code)
 
     @staticmethod
     def _run_wrapper_command(
@@ -237,7 +245,7 @@ class TestConsensusWrapperBehavior:
         with tempfile.TemporaryDirectory() as tmpdir:
             log_file = os.path.join(tmpdir, "egg-orch.log")
             self._make_mock_tools(tmpdir, log_file)
-            self._make_failing_claude(tmpdir, exit_code=1)
+            self._make_failing_agent(tmpdir, exit_code=1)
 
             cmd = build_consensus_wrapped_command("Do the work", max_restarts=2)
             result = self._run_wrapper_command(cmd, tmpdir)
@@ -283,7 +291,7 @@ class TestConsensusWrapperBehavior:
             f.write("fi\n")
         os.chmod(mock_orch, 0o755)  # nosec B103
 
-        _make_mock_claude(tmpdir, claude_log_file)
+        _make_mock_agent(tmpdir, claude_log_file)
 
     def test_clean_exit_triggers_restart(self):
         """A zero Claude exit should trigger a restart, not auto-signal READY."""
@@ -316,7 +324,7 @@ class TestConsensusWrapperBehavior:
         with tempfile.TemporaryDirectory() as tmpdir:
             log_file = os.path.join(tmpdir, "egg-orch.log")
             self._make_mock_tools(tmpdir, log_file)
-            self._make_failing_claude(tmpdir, exit_code=42)
+            self._make_failing_agent(tmpdir, exit_code=42)
 
             cmd = build_consensus_wrapped_command("Prompt", max_restarts=2)
             result = self._run_wrapper_command(cmd, tmpdir)
@@ -357,12 +365,17 @@ class TestConsensusWrapperBehavior:
                 )
             os.chmod(mock_orch, 0o755)  # nosec B103
 
-            # Mock claude that always exits cleanly — uses a delimiter to count calls
-            mock_claude = os.path.join(tmpdir, "claude")
-            with open(mock_claude, "w") as f:
+            # Mock python3 that intercepts egg_agent calls and exits cleanly
+            real_python = "/usr/bin/python3"
+            mock_python = os.path.join(tmpdir, "python3")
+            with open(mock_python, "w") as f:
                 f.write("#!/bin/bash\n")
-                f.write(f'echo "---CLAUDE_CALL---" >> {shlex.quote(claude_log)}\n')
-            os.chmod(mock_claude, 0o755)  # nosec B103
+                f.write('if [ "$1" = "-m" ] && [ "$2" = "egg_agent" ]; then\n')
+                f.write(f'  echo "---CLAUDE_CALL---" >> {shlex.quote(claude_log)}\n')
+                f.write("else\n")
+                f.write(f'  exec {shlex.quote(real_python)} "$@"\n')
+                f.write("fi\n")
+            os.chmod(mock_python, 0o755)  # nosec B103
 
             cmd = build_consensus_wrapped_command("Do the work", max_restarts=2)
             result = self._run_wrapper_command(cmd, tmpdir, timeout=30)
@@ -423,7 +436,7 @@ class TestConsensusWrapperBehavior:
             f.write("fi\n")
         os.chmod(mock_orch, 0o755)  # nosec B103
 
-        _make_mock_claude(tmpdir, claude_log_file)
+        _make_mock_agent(tmpdir, claude_log_file)
 
     def test_confirmed_agent_skips_restart_and_polls(self):
         """Agent already CONFIRMED should skip restart and poll for consensus."""
