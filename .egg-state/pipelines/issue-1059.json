@@ -127,17 +127,17 @@
       ],
       "decision_type": "phase_gate",
       "questions": [],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-03-16T23:09:04.919202",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-03-16T23:11:18.775132",
+      "resolution": "{\"action\": \"approve\", \"context\": \"Resolved Questions:\\n1. Tripwire Integration: Separate health_monitor.py module (not extending HealthCheckRunner)\\n2. Progress Data Persistence: In-memory with configurable retention window\\n3. Orchestrator-to-Overseer Communication: Existing message bus (overseer polls /messages like other agents)\\n4. Autonomous Issue Filing: Confidence-based (autonomous for high-confidence, HITL for low-confidence)\\n5. OVERSEER Role: Add independently, don't wait for #1030\\n6. Default Decision-Maker Model: Sonnet by default\"}",
       "phase": "refine"
     }
   ],
   "created_at": "2026-03-16T22:56:28.560355",
-  "updated_at": "2026-03-16T23:09:04.934793",
+  "updated_at": "2026-03-16T23:11:18.777664",
   "contract_synced": true,
   "network_mode": null,
   "error": "Pipeline marked FAILED: agent container exited unexpectedly during execution. Restart via POST /pipelines/{id}/start.",
-  "version": 12
+  "version": 13
 }
