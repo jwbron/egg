@@ -4,7 +4,7 @@
   "repo": "jwbron/egg",
   "branch": "egg/issue-1165",
   "prompt": null,
-  "status": "cancelled",
+  "status": "failed",
   "current_phase": "refine",
   "config": {
     "auto_create_pr": true,
@@ -30,10 +30,10 @@
   "phases": {
     "refine": {
       "phase": "refine",
-      "status": "running",
+      "status": "failed",
       "started_at": "2026-03-16T00:14:05.999469",
       "work_started_at": "2026-03-16T00:14:06.017077",
-      "completed_at": null,
+      "completed_at": "2026-03-16T00:17:17.978705",
       "containers": [
         {
           "container_id": "bc1643a818e4d0a84a7860d04cdbfd9aac48acf9d7b9ec8f4dce105ab19b9373",
@@ -113,25 +113,25 @@
         {
           "cycle": 0,
           "started_at": "2026-03-16T00:14:06.017077",
-          "completed_at": null,
+          "completed_at": "2026-03-16T00:17:17.978674",
           "commit_sha": "5d4494e2493492e9db3c6def3360d9b0da07661c"
         }
       ],
       "artifacts": {},
-      "error": null,
+      "error": "Container exited with code 1\n--- container logs (last 10 lines) ---\n--- reviewer_refine (exit=-1) ---\n\n--- refiner (exit=137) ---\n\n--- reviewer_agent_design (exit=-1) ---",
       "hitl_feedback": null,
       "phase_start_sha": null
     }
   },
   "decisions": [],
   "created_at": "2026-03-16T00:14:01.681153",
-  "updated_at": "2026-03-16T00:17:17.963378",
+  "updated_at": "2026-03-16T00:17:17.978808",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
   "complexity_tier": "mid",
-  "error": null,
+  "error": "Container exited with code 1\n--- container logs (last 10 lines) ---\n--- reviewer_refine (exit=-1) ---\n\n--- refiner (exit=137) ---\n\n--- reviewer_agent_design (exit=-1) ---",
   "plan_phase_waves": null,
   "plan_phase_names": null,
-  "version": 11
+  "version": 12
 }
