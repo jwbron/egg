@@ -3308,7 +3308,7 @@ def _build_agent_prompt(
     elif role_value.startswith("reviewer_"):
         # Delegate to the detailed review prompt with criteria and verdict format
         reviewer_type = role_value.replace("reviewer_", "", 1).replace("_", "-")
-        return _build_review_prompt(
+        review_prompt = _build_review_prompt(
             phase=phase,
             pipeline_id=pipeline_id,
             pipeline_mode=pipeline_mode,
@@ -3318,6 +3318,9 @@ def _build_agent_prompt(
             prior_feedback=review_feedback,
             repo_path=repo_path,
         )
+        if concurrent:
+            review_prompt += "\n" + _build_brc_preamble(role_value, phase)
+        return review_prompt
     else:
         lines.extend(
             [

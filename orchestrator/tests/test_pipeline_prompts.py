@@ -18,6 +18,7 @@ sys.modules.setdefault("docker.types", _docker_mock.types)
 
 from routes.pipelines import (
     _build_agent_prompt,
+    _build_brc_preamble,
     _build_phase_prompt,
     _build_review_prompt,
     _build_role_context,
@@ -2090,3 +2091,59 @@ class TestExternalResearchInstructions:
         )
         assert "WebSearch" in prompt
         assert "WebFetch" in prompt
+
+
+class TestReviewerBrcPreamble:
+    """Tests that reviewer agents receive BRC preamble in concurrent mode."""
+
+    def test_reviewer_gets_brc_preamble_when_concurrent(self):
+        """Reviewer prompt includes BRC consensus instructions in concurrent mode."""
+        result = _build_agent_prompt(
+            role_value="reviewer_code",
+            phase="implement",
+            pipeline_id="pid-brc",
+            pipeline_mode="issue",
+            issue_number=42,
+            concurrent=True,
+        )
+        assert "consensus" in result.lower()
+        assert "CONSENSUS_PROPOSE" in result or "consensus propose" in result.lower()
+        assert "confirmed" in result.lower()
+
+    def test_reviewer_no_brc_preamble_when_not_concurrent(self):
+        """Reviewer prompt omits BRC consensus instructions in sequential mode."""
+        result = _build_agent_prompt(
+            role_value="reviewer_code",
+            phase="implement",
+            pipeline_id="pid-seq",
+            pipeline_mode="issue",
+            issue_number=42,
+            concurrent=False,
+        )
+        # BRC preamble should not be present in sequential mode
+        brc_preamble = _build_brc_preamble("reviewer_code", "implement")
+        assert brc_preamble not in result
+
+    def test_reviewer_agent_design_gets_brc_preamble(self):
+        """reviewer_agent_design also receives BRC preamble in concurrent mode."""
+        result = _build_agent_prompt(
+            role_value="reviewer_agent_design",
+            phase="implement",
+            pipeline_id="pid-brc",
+            pipeline_mode="issue",
+            issue_number=42,
+            concurrent=True,
+        )
+        assert "consensus" in result.lower()
+
+    def test_reviewer_contract_gets_brc_preamble(self):
+        """reviewer_contract also receives BRC preamble in concurrent mode."""
+        result = _build_agent_prompt(
+            role_value="reviewer_contract",
+            phase="implement",
+            pipeline_id="pid-brc",
+            pipeline_mode="issue",
+            issue_number=42,
+            concurrent=True,
+        )
+        assert "consensus" in result.lower()
