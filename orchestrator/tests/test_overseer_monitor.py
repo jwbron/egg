@@ -5,7 +5,6 @@ hallucination guard, and health summary generation.
 """
 
 import asyncio
-import json
 import sys
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch

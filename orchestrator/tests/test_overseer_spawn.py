@@ -15,7 +15,7 @@ Related: issue #1059
 import sys
 from datetime import datetime, timedelta
 from pathlib import Path
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -119,12 +119,12 @@ def spawner(mock_docker_client, mock_gateway_client):
 
 def _make_config(**overrides) -> PipelineConfig:
     """Build a PipelineConfig with test-friendly defaults."""
-    defaults = dict(
-        overseer_enabled=True,
-        overseer_poll_interval_seconds=30,
-        overseer_decision_maker_model="sonnet",
-        overseer_max_redirects_before_escalation=2,
-    )
+    defaults = {
+        "overseer_enabled": True,
+        "overseer_poll_interval_seconds": 30,
+        "overseer_decision_maker_model": "sonnet",
+        "overseer_max_redirects_before_escalation": 2,
+    }
     defaults.update(overrides)
     return PipelineConfig(**defaults)
 

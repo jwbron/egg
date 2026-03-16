@@ -19,9 +19,8 @@ Related: issue #1059 - Phase 5 two-tier integration
 import asyncio
 import sys
 import time
-from datetime import datetime, timedelta
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch, call
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -66,13 +65,14 @@ except ImportError:
 
 # Try importing overseer classifier and decision maker
 try:
-    from overseer.classifier import classify_stall, clear_cache as clear_classifier_cache
+    from overseer.classifier import classify_stall
+    from overseer.classifier import clear_cache as clear_classifier_cache
 except (ImportError, ModuleNotFoundError):
     classify_stall = None
     clear_classifier_cache = None
 
 try:
-    from overseer.decision_maker import decide_corrective_action, compose_redirect_message
+    from overseer.decision_maker import compose_redirect_message, decide_corrective_action
 except (ImportError, ModuleNotFoundError):
     decide_corrective_action = None
     compose_redirect_message = None
@@ -88,15 +88,15 @@ AGENT_ID_TESTER = "tester-def456"
 
 def _make_config(**overrides) -> PipelineConfig:
     """Build a PipelineConfig with test-friendly thresholds."""
-    defaults = dict(
-        orchestrator_heartbeat_timeout_seconds=60,
-        orchestrator_error_repeat_threshold=3,
-        orchestrator_message_rate_limit=20,
-        overseer_enabled=True,
-        overseer_max_redirects_before_escalation=2,
-        overseer_poll_interval_seconds=10,
-        overseer_decision_maker_model="sonnet",
-    )
+    defaults = {
+        "orchestrator_heartbeat_timeout_seconds": 60,
+        "orchestrator_error_repeat_threshold": 3,
+        "orchestrator_message_rate_limit": 20,
+        "overseer_enabled": True,
+        "overseer_max_redirects_before_escalation": 2,
+        "overseer_poll_interval_seconds": 10,
+        "overseer_decision_maker_model": "sonnet",
+    }
     defaults.update(overrides)
     return PipelineConfig(**defaults)
 
@@ -195,7 +195,7 @@ class TestFullEscalationChain:
         # Step 3: Stall persists (no new progress) -> escalation to overseer
         with patch("health_monitor.time") as mock_time:
             mock_time.time.return_value = time.time() + 122
-            escalate_actions = monitor.check_progress()
+            monitor.check_progress()
 
         assert len(escalations) >= 1, "Should have escalated after persistent stall"
         assert escalations[0]["type"] == "overseer"
@@ -524,7 +524,7 @@ class TestMultipleAgentsStalling:
         # Second check: coder OK, tester still stalled -> tester escalates
         with patch("health_monitor.time") as mock_time:
             mock_time.time.return_value = time.time() + 122
-            actions = monitor.check_progress()
+            monitor.check_progress()
 
         # Tester should have been escalated
         escalated_agents = {e["agent_id"] for e in escalations}
@@ -689,8 +689,8 @@ class TestOverseerDisabledFallback:
                 config=config,
             )
 
-            escalations = []
-            monitor.on_escalation(lambda e: escalations.append(e))
+            escalations: list = []
+            monitor.on_escalation(lambda e, _esc=escalations: _esc.append(e))
 
             bus.emit(
                 EventType.CONTAINER_STOPPED,
@@ -722,7 +722,7 @@ class TestTwoTierEventBusWiring:
         """PROGRESS_EMITTED events are received by the health monitor."""
         bus = _make_event_bus()
         config = _make_config()
-        monitor = HealthMonitor(
+        HealthMonitor(
             event_bus=bus,
             pipeline_id=PIPELINE_ID,
             config=config,

@@ -13,9 +13,8 @@ Related: issue #1059
 
 import sys
 import time
-from datetime import datetime, timedelta
 from pathlib import Path
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -59,13 +58,13 @@ AGENT_ID_2 = "tester-def456"
 
 def _make_config(**overrides) -> PipelineConfig:
     """Build a PipelineConfig with optional overrides."""
-    defaults = dict(
-        orchestrator_heartbeat_timeout_seconds=120,
-        orchestrator_error_repeat_threshold=3,
-        orchestrator_message_rate_limit=20,
-        overseer_enabled=True,
-        overseer_max_redirects_before_escalation=2,
-    )
+    defaults = {
+        "orchestrator_heartbeat_timeout_seconds": 120,
+        "orchestrator_error_repeat_threshold": 3,
+        "orchestrator_message_rate_limit": 20,
+        "overseer_enabled": True,
+        "overseer_max_redirects_before_escalation": 2,
+    }
     defaults.update(overrides)
     return PipelineConfig(**defaults)
 

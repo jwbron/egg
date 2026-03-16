@@ -6,8 +6,7 @@ clear, max retention/pruning, thread safety, pipeline isolation, and combined fi
 """
 
 import threading
-import time
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -32,12 +31,12 @@ def _make_event(
     event_id=None,
 ):
     """Helper to build a ProgressEvent with sensible defaults."""
-    kwargs = dict(
-        pipeline_id=pipeline_id,
-        agent_role=agent_role,
-        step=step,
-        state=state,
-    )
+    kwargs = {
+        "pipeline_id": pipeline_id,
+        "agent_role": agent_role,
+        "step": step,
+        "state": state,
+    }
     if detail is not None:
         kwargs["detail"] = detail
     if blocker is not None:
@@ -158,22 +157,22 @@ class TestFilterBySince:
     """Test filtering events by since timestamp."""
 
     def test_since_filters_old_events(self, store):
-        old_time = datetime.now(timezone.utc) - timedelta(hours=1)
-        recent_time = datetime.now(timezone.utc) - timedelta(seconds=5)
+        old_time = datetime.now(UTC) - timedelta(hours=1)
+        recent_time = datetime.now(UTC) - timedelta(seconds=5)
 
         store.add_event(_make_event(detail="old", timestamp=old_time))
         store.add_event(_make_event(detail="recent", timestamp=recent_time))
 
-        cutoff = datetime.now(timezone.utc) - timedelta(minutes=1)
+        cutoff = datetime.now(UTC) - timedelta(minutes=1)
         events = store.get_events("issue-100", since=cutoff)
         assert len(events) == 1
         assert events[0].detail == "recent"
 
     def test_since_with_no_matching_events(self, store):
-        old_time = datetime.now(timezone.utc) - timedelta(hours=2)
+        old_time = datetime.now(UTC) - timedelta(hours=2)
         store.add_event(_make_event(timestamp=old_time))
 
-        cutoff = datetime.now(timezone.utc)
+        cutoff = datetime.now(UTC)
         events = store.get_events("issue-100", since=cutoff)
         assert events == []
 
@@ -455,9 +454,9 @@ class TestCombinedFilters:
         assert all(e.agent_role == "coder" for e in events)
 
     def test_agent_role_and_since(self, store):
-        old_time = datetime.now(timezone.utc) - timedelta(hours=1)
-        recent_time = datetime.now(timezone.utc) - timedelta(seconds=5)
-        cutoff = datetime.now(timezone.utc) - timedelta(minutes=1)
+        old_time = datetime.now(UTC) - timedelta(hours=1)
+        recent_time = datetime.now(UTC) - timedelta(seconds=5)
+        cutoff = datetime.now(UTC) - timedelta(minutes=1)
 
         store.add_event(
             _make_event(agent_role="coder", detail="old", timestamp=old_time)
@@ -478,9 +477,9 @@ class TestCombinedFilters:
         assert events[0].detail == "recent"
 
     def test_all_filters_combined(self, store):
-        old_time = datetime.now(timezone.utc) - timedelta(hours=1)
-        recent_time = datetime.now(timezone.utc) - timedelta(seconds=5)
-        cutoff = datetime.now(timezone.utc) - timedelta(minutes=1)
+        old_time = datetime.now(UTC) - timedelta(hours=1)
+        recent_time = datetime.now(UTC) - timedelta(seconds=5)
+        cutoff = datetime.now(UTC) - timedelta(minutes=1)
 
         # Old coder event (filtered by since)
         store.add_event(

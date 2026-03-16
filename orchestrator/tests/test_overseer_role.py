@@ -13,7 +13,6 @@ Covers:
 """
 
 import json
-from datetime import datetime
 
 import pytest
 from models import (
@@ -21,7 +20,6 @@ from models import (
     AgentRole,
     PipelineConfig,
 )
-
 
 # ── Orchestrator AgentRole enum tests ──────────────────────────────
 
@@ -88,6 +86,8 @@ class TestOverseerRoleDefinition:
         try:
             from egg_contracts.agent_roles import (
                 AGENT_ROLES,
+            )
+            from egg_contracts.agent_roles import (
                 AgentRole as SharedAgentRole,
             )
             self.AGENT_ROLES = AGENT_ROLES
@@ -173,8 +173,8 @@ class TestOverseerAsInfrastructureRole:
     def test_not_in_phase_specific_roles(self):
         """OVERSEER should NOT be in phase-specific role lists."""
         try:
-            from egg_contracts.agent_roles import get_roles_for_phase
             from egg_contracts.agent_roles import AgentRole as SharedAgentRole
+            from egg_contracts.agent_roles import get_roles_for_phase
 
             for phase in ["implement", "plan", "refine"]:
                 try:
