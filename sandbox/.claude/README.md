@@ -27,6 +27,14 @@ These define how Claude operates within egg.
 - `pr-descriptions.md` - PR writing guidelines
 - `test-workflow.md` - Test workflow and execution
 
+### skills/ (installed at startup)
+Skills installed into Claude Code from `skills/` at the repo root. Each subdirectory is a skill with a `SKILL.md` file.
+
+**Available skills:**
+- `/auto-pr` - Submit a task to the orchestrator as a lightweight single-agent pipeline (no HITL gates) and surface the resulting PR link
+- `/egg-setup` - Walk through initial egg setup or update an existing configuration
+- `/run-workflow` - Guide a full egg pipeline lifecycle: seed prompt, submit, monitor, HITL handling, and completion
+
 ## Usage
 
 Claude Code automatically loads these files when running in the container.
@@ -34,6 +42,13 @@ Claude Code automatically loads these files when running in the container.
 **Slash Commands:**
 ```
 /show-metrics
+```
+
+**Skills:**
+```
+/auto-pr <task description> [--repo owner/name]
+/egg-setup [--check | --update secrets | --update repos | --update config]
+/run-workflow [issue# or description] [--repo owner/name]
 ```
 
 **Rules:**

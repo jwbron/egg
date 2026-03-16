@@ -1125,6 +1125,9 @@ Or pass it in the pipeline config JSON (e.g. via the API):
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
+| `multi_agent` | bool | `true` | Use multi-agent execution (Coder, Tester, Documenter, Integrator) in implement and plan phases |
+| `hitl_gates` | bool | `true` | Pause for human approval after refine and plan phases |
+| `allow_short_circuit` | bool | `true` | Allow refine agent to skip plan phase for low-complexity tasks |
 | `concurrent_execution` | bool | `false` | Enable concurrent mode (opt-in) |
 | `max_concurrent_agents` | int | `6` | Maximum agents running simultaneously |
 | `message_poll_hint_seconds` | int | `30` | Suggested polling interval for agents |
