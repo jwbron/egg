@@ -439,7 +439,7 @@ class TestBuildPhasePromptPlanEmbedding:
         assert "Review the plan (check `.egg-state/drafts/`)" in result
         assert "## Plan\n" not in result
 
-def test_fallback_when_draft_file_missing(self):
+    def test_fallback_when_draft_file_missing(self):
         """Falls back to file-I/O instruction when draft file doesn't exist."""
         with tempfile.TemporaryDirectory() as tmpdir:
             result = _build_phase_prompt(
