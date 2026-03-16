@@ -113,7 +113,7 @@ WORKING → REVIEWING → CONFIRMED
              └───┘  (producer re-proposes → re-review if affected)
 ```
 
-Reviewers transition from WORKING to REVIEWING when they detect new commits from a producer they're assigned to review (via `git log` or branch inspection), not when they receive a PROPOSE message on the stream.
+Reviewers transition from WORKING to REVIEWING when they receive a `CONSENSUS_PROPOSE` message from a producer they're assigned to review. While waiting, reviewers may read the contract/plan to prepare, but MUST NOT inspect the filesystem for producer artifacts — the producer may not have started yet. Once the proposal arrives, reviewers examine the referenced git artifacts (commits, files) to form their independent judgment. The producer's self-assessment metadata is held back by the server until the reviewer submits their evaluation (Delphi-style ordering).
 
 #### Delphi-Style Ordering
 

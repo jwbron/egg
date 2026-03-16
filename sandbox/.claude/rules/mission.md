@@ -186,9 +186,13 @@ egg-orch message poll --wait 30  # Blocks until messages arrive (~1s delivery)
 
 ### Reviewer Workflow (reviewer_code, reviewer_contract)
 
-1. **Detect new commits** from your assigned producers (check `EGG_BRC_PRODUCERS`)
-2. **Form independent judgment** from git artifacts — review actual code, don't wait
-   for the producer's self-assessment (it's held back until you submit your evaluation)
+1. **Wait for proposals** — poll the message bus (`egg-orch message poll --wait 30`) until you
+   receive a `CONSENSUS_PROPOSE` message from each assigned producer (check `EGG_BRC_PRODUCERS`).
+   **Do NOT inspect the filesystem or review artifacts before the proposal arrives.**
+   While waiting, read the contract/plan to prepare your review criteria.
+2. **Form independent judgment** from git artifacts — once a proposal arrives, review the actual
+   code/artifacts referenced in it. The producer's self-assessment is held back by the server
+   until you submit your evaluation.
 3. **ACK or NACK** each assigned producer:
    ```bash
    # ACK with artifact references
