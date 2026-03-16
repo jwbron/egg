@@ -191,21 +191,28 @@ repo_settings:
       commands:
         - npm ci
         - pip install -r requirements.txt
+      persist_dirs:
+        - node_modules    # restored into repo mount at container startup
 ```
 
 Each `build_commands` entry has:
 - `watch_files`: Files that trigger a rebuild when changed. These are copied into the Docker build context so Docker layer caching invalidates correctly — only a change to these files triggers a dependency rebuild.
 - `commands`: Shell commands to run during the image build (e.g., `npm ci`, `pip install`, `make deps`). Commands run as root in a directory seeded with the watch files.
+- `persist_dirs`: Directories (relative to repo root) to preserve from the build context into the Docker image. After `commands` run, these directories are copied to `/opt/prebuilt-deps/<repo>/` and restored into the mounted repo at container startup by `entrypoint.py`. Use this for local dependencies like `node_modules` that would otherwise be lost when the build context is cleaned up.
 
 **How it works:**
 1. `create_dockerfile()` copies each repo's watch files from `local_repos.paths` into the build context at `~/.config/egg/repo-deps/<repo-name>/`
 2. `compute_build_hash()` includes watch file contents, so the image rebuilds automatically when dependency files change
 3. During `docker build`, the `docker-setup.py` script reads both `build_commands` and `extra_packages` from `manifest.json` (since `repositories.yaml` is unavailable in the build context) and executes them in order
 4. All repos' dependencies are installed into the **same image** — no per-repo images
+5. After commands run, `persist_build_dirs()` copies `persist_dirs` entries from the build context to `/opt/prebuilt-deps/<repo>/` inside the image
+6. At container startup, `restore_prebuilt_deps()` in `entrypoint.py` copies those directories into the mounted repo (skipping files that already exist)
 
 **Key properties:**
 - Repos without `build_commands` are unaffected (backwards compatible)
 - Docker layer caching means no rebuild when dependencies are unchanged
+- `persist_dirs` is optional — omit it for Python venvs installed into a fixed path; use it for JS `node_modules` or other repo-relative directories
+- Changing `persist_dirs` alone does not trigger a rebuild — add or modify a `watch_files` entry or use `egg --rebuild`
 - The existing `docker_setup.extra_packages` (apt/dnf) remains for OS-level packages; `build_commands` is for project-level dependencies
 - Both `build_commands` and `extra_packages` are included in `manifest.json` for the Docker build context
 
