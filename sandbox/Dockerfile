@@ -237,9 +237,11 @@ COPY --from=repo-deps /opt/prebuilt-deps/ /opt/prebuilt-deps/
 # Install extra packages configured via repositories.yaml.
 # docker-setup.py writes the package list to /opt/prebuilt-deps/ in Stage 1,
 # but apt-installed packages don't carry across stages — reinstall them here.
+# Use || true to preserve the old lenient behavior (install_extra_packages used
+# check=False) so that typos or unavailable packages don't fail the build.
 RUN if [ -f /opt/prebuilt-deps/extra-packages-apt.txt ] && [ -s /opt/prebuilt-deps/extra-packages-apt.txt ]; then \
         apt-get update && \
-        xargs apt-get install -y < /opt/prebuilt-deps/extra-packages-apt.txt && \
+        (xargs apt-get install -y < /opt/prebuilt-deps/extra-packages-apt.txt || true) && \
         rm -rf /var/lib/apt/lists/*; \
     fi
 
