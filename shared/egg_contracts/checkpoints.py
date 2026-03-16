@@ -165,6 +165,11 @@ class AgentType(StrEnum):
     REFINER = "refiner"
     UNKNOWN = "unknown"
 
+    @classmethod
+    def _missing_(cls, value: object) -> "AgentType":
+        """Coerce unrecognized agent types to UNKNOWN for backwards compatibility."""
+        return cls.UNKNOWN
+
 
 class InterAgentMessage(BaseModel):
     """A message exchanged between agents via the orchestrator message bus.
