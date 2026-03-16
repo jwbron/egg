@@ -105,6 +105,17 @@ class ReviewGraph:
                 return e
         return None
 
+    def remove_edge(self, reviewer: str, producer: str) -> bool:
+        """Remove a review edge. Returns True if edge was found and removed."""
+        for i, e in enumerate(self._edges):
+            if e.reviewer_role == reviewer and e.producer_role == producer:
+                self._edges.pop(i)
+                # Recalculate role sets
+                self._producer_roles = {e.producer_role for e in self._edges}
+                self._reviewer_roles = {e.reviewer_role for e in self._edges}
+                return True
+        return False
+
     def all_roles(self) -> set[str]:
         """Get all roles participating in the graph."""
         return self._producer_roles | self._reviewer_roles
