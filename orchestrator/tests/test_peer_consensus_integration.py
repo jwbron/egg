@@ -835,17 +835,17 @@ class TestWithdrawReProposalDeadlock:
         # refiner withdraws (e.g., realized more changes needed)
         t.handle_withdraw("refiner", "Need to incorporate additional feedback")
 
-        # refiner re-proposes v4 (new proposal after withdrawal)
-        result = t.handle_propose("refiner", {"summary": "v4 - final", "artifacts": ["design.md"]})
+        # refiner re-proposes v3 (new proposal after withdrawal)
+        result = t.handle_propose("refiner", {"summary": "v3 - final", "artifacts": ["design.md"]})
 
         # The fix: reviewer_agent_design was already un-confirmed during
         # handle_re_propose(v2) because their ACK on design.md overlapped
-        # the changed artifacts. By v4, they're already un-confirmed.
+        # the changed artifacts. By v3, they're already un-confirmed.
         assert "reviewer_agent_design" not in t._confirmed, (
             "Stale confirmed reviewer should have been un-confirmed"
         )
 
-        # reviewer_refine confirmed on v2, now stale on v4 — un-confirmed here
+        # reviewer_refine confirmed on v2, now stale on v3 — un-confirmed here
         assert "reviewer_refine" not in t._confirmed
         assert "reviewer_refine" in result["stale_confirmed_reviewers"]
 
@@ -938,3 +938,50 @@ class TestWithdrawReProposalDeadlock:
         t.handle_ack("reviewer_agent_design", "refiner", {"artifact_references": ["design.md"]})
         t.handle_ack("reviewer_refine", "refiner", {"artifact_references": ["design.md"]})
         t.handle_confirmed("refiner")
+
+    def test_nacked_then_confirmed_reviewer_is_unconfirmed_on_reproposal(self, refine_tracker):
+        """A reviewer who NACKed and then confirmed must be un-confirmed
+        when the producer withdraws and re-proposes.
+
+        Regression test for: NACKED entries were not caught by
+        _un_confirm_stale_reviewers, leaving the reviewer in _confirmed
+        with a stale NACK and causing a deadlock.
+        """
+        t = refine_tracker
+
+        # v1: refiner proposes
+        t.handle_propose("refiner", {"summary": "v1", "artifacts": ["design.md"]})
+
+        # reviewer_agent_design ACKs v1 and confirms
+        t.handle_ack("reviewer_agent_design", "refiner", {"artifact_references": ["design.md"]})
+        t.handle_confirmed("reviewer_agent_design")
+
+        # reviewer_refine NACKs v1 and confirms (has_reviewed returns True for NACK)
+        t.handle_nack(
+            "reviewer_refine",
+            "refiner",
+            {"artifact_references": ["design.md"], "reason": "Needs rework"},
+        )
+        t.handle_confirmed("reviewer_refine")
+        assert "reviewer_refine" in t._confirmed
+
+        # refiner withdraws and re-proposes v2
+        t.handle_withdraw("refiner", "Addressing NACK feedback")
+        result = t.handle_propose("refiner", {"summary": "v2", "artifacts": ["design.md"]})
+
+        # Both reviewers must be un-confirmed — reviewer_refine had a stale NACK
+        assert "reviewer_refine" not in t._confirmed, (
+            "Reviewer with stale NACK should have been un-confirmed"
+        )
+        assert "reviewer_refine" in result["stale_confirmed_reviewers"]
+        assert "reviewer_agent_design" not in t._confirmed
+
+        # Both re-review, ACK, and confirm — no deadlock
+        t.handle_ack("reviewer_agent_design", "refiner", {"artifact_references": ["design.md"]})
+        t.handle_ack("reviewer_refine", "refiner", {"artifact_references": ["design.md"]})
+        assert t.matrix.is_fully_acked("refiner")
+
+        t.handle_confirmed("refiner")
+        t.handle_confirmed("reviewer_agent_design")
+        result = t.handle_confirmed("reviewer_refine")
+        assert result["consensus_reached"] is True

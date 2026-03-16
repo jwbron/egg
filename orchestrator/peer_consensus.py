@@ -649,11 +649,13 @@ class PeerConsensusTracker:
             if entry is None:
                 continue
 
-            # Check if reviewer is confirmed but their ACK is stale
+            # Check if reviewer is confirmed but their review is stale.
+            # Since record_proposal just incremented to new_version, no
+            # reviewer can have ACKed it yet. Any state other than
+            # ACKED-on-new_version is stale (covers ACKED-on-old, PENDING,
+            # and NACKED).
             reviewer_confirmed = reviewer in self._confirmed
-            ack_is_stale = (
-                entry.state == ApprovalState.ACKED and entry.version != new_version
-            ) or entry.state == ApprovalState.PENDING
+            ack_is_stale = not (entry.state == ApprovalState.ACKED and entry.version == new_version)
 
             if reviewer_confirmed and ack_is_stale:
                 # Un-confirm the reviewer so they re-enter the review loop
