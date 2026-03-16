@@ -2157,27 +2157,21 @@ class TestAgentRoster:
 
     def test_roster_lists_all_roles(self):
         """Roster includes all provided roles."""
-        roster = _build_agent_roster(
-            ["coder", "reviewer_code", "tester"], "coder", "implement"
-        )
+        roster = _build_agent_roster(["coder", "reviewer_code", "tester"], "coder", "implement")
         assert "coder" in roster
         assert "reviewer_code" in roster
         assert "tester" in roster
 
     def test_roster_marks_current_role(self):
         """Current agent's role is marked with (you)."""
-        roster = _build_agent_roster(
-            ["coder", "reviewer_code", "tester"], "tester", "implement"
-        )
+        roster = _build_agent_roster(["coder", "reviewer_code", "tester"], "tester", "implement")
         assert "**tester** **(you)**" in roster
         # Other roles should not be marked
         assert "**coder** **(you)**" not in roster
 
     def test_roster_includes_role_descriptions(self):
         """Roster includes descriptions of what each role produces."""
-        roster = _build_agent_roster(
-            ["coder", "reviewer_code"], "coder", "implement"
-        )
+        roster = _build_agent_roster(["coder", "reviewer_code"], "coder", "implement")
         assert "Implements code changes" in roster
         assert "Reviews code quality" in roster
 
@@ -2196,9 +2190,7 @@ class TestAgentRoster:
 
     def test_unknown_role_gets_generic_description(self):
         """Unknown roles get a generic fallback description."""
-        roster = _build_agent_roster(
-            ["unknown_agent"], "unknown_agent", "implement"
-        )
+        roster = _build_agent_roster(["unknown_agent"], "unknown_agent", "implement")
         assert "unknown_agent" in roster
         assert "Executes assigned role" in roster
 
