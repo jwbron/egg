@@ -4,7 +4,7 @@
   "repo": "jwbron/egg",
   "branch": "egg/issue-1032",
   "prompt": null,
-  "status": "running",
+  "status": "failed",
   "current_phase": "plan",
   "config": {
     "auto_create_pr": true,
@@ -34,30 +34,30 @@
         {
           "container_id": "79be1dbab5e643cfd1201670d7b77616a976d1e5ba283169c37f371aa97abdee",
           "container_name": "issue-1032-reviewer_refine",
-          "status": "running",
+          "status": "failed",
           "started_at": "2026-03-16T22:08:35.330281",
-          "exited_at": null,
-          "exit_code": null,
+          "exited_at": "2026-03-16T22:36:28.900140",
+          "exit_code": -1,
           "agent_role": "reviewer_refine",
           "session_token": null
         },
         {
           "container_id": "af8f2aa2c30fa0783f9fcea2a7b6d14eb1eca6d42fb1409c2fc9583a94f9887d",
           "container_name": "issue-1032-refiner",
-          "status": "running",
+          "status": "failed",
           "started_at": "2026-03-16T22:08:35.330299",
-          "exited_at": null,
-          "exit_code": null,
+          "exited_at": "2026-03-16T22:36:28.900380",
+          "exit_code": -1,
           "agent_role": "refiner",
           "session_token": null
         },
         {
           "container_id": "eb4d0432b8d67f968e806f6b33b7c15f586a59b3587a581bec8351cbb4f77a09",
           "container_name": "issue-1032-reviewer_agent_design",
-          "status": "running",
+          "status": "failed",
           "started_at": "2026-03-16T22:08:35.330307",
-          "exited_at": null,
-          "exit_code": null,
+          "exited_at": "2026-03-16T22:36:28.900466",
+          "exit_code": -1,
           "agent_role": "reviewer_agent_design",
           "session_token": null
         }
@@ -248,9 +248,9 @@
     }
   ],
   "created_at": "2026-03-16T22:08:17.913214",
-  "updated_at": "2026-03-16T22:24:35.713259",
+  "updated_at": "2026-03-16T22:36:28.900729",
   "contract_synced": true,
   "network_mode": null,
-  "error": null,
-  "version": 17
+  "error": "Pipeline marked FAILED at orchestrator startup: one or more agent containers were not found. Restart via POST /pipelines/{id}/start.",
+  "version": 18
 }
