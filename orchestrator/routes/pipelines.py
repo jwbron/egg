@@ -1364,19 +1364,13 @@ def _verdict_path_for_type(
     reviewer_type: str,
     issue_number: int | None = None,
     pipeline_id: str | None = None,
-    plan_phase_id: str | None = None,
 ) -> str:
     """Return the relative verdict file path for a given reviewer type.
 
     Uses issue_number as prefix when available, otherwise pipeline_id.
-
-    When plan_phase_id is provided (Tier 3 phase-level dispatch), it is included
-    in the path to avoid race conditions between parallel phase reviewers:
-    e.g., 123-implement-phase-1-code-review.json.
     """
-    phase_segment = f"{phase}-{plan_phase_id}" if plan_phase_id else phase
     prefix = _pipeline_identifier(issue_number, pipeline_id or "unknown")
-    return f".egg-state/reviews/{prefix}-{phase_segment}-{reviewer_type}-review.json"
+    return f".egg-state/reviews/{prefix}-{phase}-{reviewer_type}-review.json"
 
 
 def _get_draft_path(
@@ -1662,7 +1656,6 @@ def _build_review_prompt(
     prior_feedback: str | None = None,
     repo_path: str | None = None,
     last_reviewed_commit: str | None = None,
-    plan_phase_id: str | None = None,
 ) -> str:
     """Build a review prompt for the reviewer agent.
 
@@ -1676,7 +1669,6 @@ def _build_review_prompt(
         reviewer_type,
         issue_number=issue_number,
         pipeline_id=pipeline_id,
-        plan_phase_id=plan_phase_id,
     )
 
     lines = [
@@ -1890,7 +1882,6 @@ def _read_review_verdict(
     pipeline_mode: str = "local",
     issue_number: int | None = None,
     pipeline_id: str | None = None,
-    plan_phase_id: str | None = None,
 ) -> ReviewVerdict | None:
     """Read a typed review verdict JSON from the repo.
 
@@ -1902,7 +1893,6 @@ def _read_review_verdict(
         reviewer_type,
         issue_number=issue_number,
         pipeline_id=pipeline_id,
-        plan_phase_id=plan_phase_id,
     )
     verdict_file = repo_path / verdict_rel
 
@@ -3414,7 +3404,7 @@ def _run_concurrent_phase(
     phase_str = phase if isinstance(phase, str) else phase.value
     pipeline_mode = "issue" if pipeline.issue_number is not None else "prompt"
 
-    # Build per-role prompts (matches _run_multi_agent_phase pattern).
+    # Build per-role prompts for concurrent phase execution.
     from egg_contracts.agent_roles import get_roles_for_phase as _get_roles_for_phase
 
     roles: list[AgentRole] = []
@@ -3922,7 +3912,6 @@ def _spawn_and_wait(
     store=None,
     certs_volume: str | None = None,
     branch: str | None = None,
-    plan_phase_id: str | None = None,
     extra_mounts: "list[MountSpec] | None" = None,
 ) -> tuple[int, str]:
     """Spawn a container, wait for it to exit, clean up, return (exit_code, logs).
@@ -3987,7 +3976,6 @@ def _spawn_and_wait(
                     status=AgentExecutionStatus.RUNNING,
                     container_id=spawned.container_info.container_id,
                     started_at=datetime.utcnow(),
-                    plan_phase_id=plan_phase_id,
                 )
                 phase_execution.agents.append(agent_execution)
 
