@@ -547,6 +547,7 @@ class TestBuildPhasePromptRevisionMode:
         )
         assert "## Task Description" in result
         assert "Build a widget with many features" in result
+        assert "## Parallel Execution with Subagents" in result
 
     def test_revision_cycle_without_feedback_includes_task_description(self):
         """Cycle 2+ with no feedback falls back to including the task description."""
@@ -992,6 +993,7 @@ class TestBuildAgentPromptRoleContext:
         assert "## Task Description" not in result
         assert "## For More Context" in result
         assert "TESTER" in result
+        assert "## Parallel Execution with Subagents" in result
 
     def test_documenter_prompt_has_background_not_task_description(self):
         """Documenter prompt uses Background section, not Task Description."""
@@ -1141,6 +1143,7 @@ class TestBuildPhaseScopedPromptOverview:
         assert "Add auth to API" in result
         # Should NOT contain individual phase task details from the plan text
         assert "Add middleware" not in result
+        assert "## Parallel Execution with Subagents" in result
 
     def test_other_phases_listed_for_orientation(self, tmp_path):
         """Other phases appear as one-line summaries."""

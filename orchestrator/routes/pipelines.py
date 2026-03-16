@@ -2878,6 +2878,10 @@ def _build_phase_prompt(
                 "subagents work on **non-overlapping files** to avoid conflicts."
             )
             lines.append(
+                "- Subagents should only edit files — do NOT stage or commit from subagents. "
+                "After all subagents complete, stage and commit the combined changes yourself."
+            )
+            lines.append(
                 "- After subagents complete, verify the combined changes compile, pass tests, "
                 "and integrate correctly."
             )
@@ -3286,8 +3290,9 @@ def _build_agent_prompt(
                 "If the changes span multiple independent components or modules, you can use "
                 "Claude Code's **Agent tool** to parallelize test writing. Launch one subagent "
                 "per component to write and run tests concurrently. Each subagent should work "
-                "on non-overlapping test files. After all subagents complete, run the full test "
-                "suite to verify everything passes together.",
+                "on non-overlapping test files. Subagents should only write files — do NOT "
+                "stage or commit from subagents. After all subagents complete, run the full "
+                "test suite to verify everything passes together, then stage and commit yourself.",
                 "",
             ]
         )
@@ -3636,7 +3641,8 @@ def _build_phase_scoped_prompt(
     lines.append(
         "If this phase contains multiple independent tasks that touch non-overlapping "
         "files, you can use Claude Code's **Agent tool** to implement them in parallel. "
-        "Give each subagent a clear scope and verify the combined result afterward."
+        "Give each subagent a clear scope. Subagents should only edit files — do NOT "
+        "stage or commit from subagents. Verify the combined result afterward and commit yourself."
     )
     lines.append("")
 
