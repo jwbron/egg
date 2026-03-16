@@ -393,6 +393,15 @@ GET /api/v1/health
   Response: {status, github_token_valid}
 ```
 
+### Configuration
+
+```
+POST /api/v1/config/reload
+  Auth: Bearer {launcher_secret}
+  Description: Reload all cached configuration from disk/environment
+  Response: {status: "ok", message: "Configuration reloaded"}
+```
+
 ## Files
 
 ```
@@ -460,6 +469,25 @@ gateway/
 │   └── README-integration.md
 └── README.md               # This file
 ```
+
+## Configuration Reload
+
+The gateway picks up changes to `repositories.yaml` without a restart via two mechanisms:
+
+**Directory mount (automatic):** The config directory is bind-mounted (not the individual file), so inode-replacing editors (vim, nano, VS Code) are reflected immediately. The next request that reads the config will see the updated content.
+
+**Explicit cache reload:** Some config values are cached in memory (bot identities, trusted users, checkpoint repos). To force an immediate reload:
+
+```bash
+# Via signal
+docker kill -s HUP egg-gateway
+
+# Via API (requires launcher secret)
+curl -X POST -H "Authorization: Bearer $(cat ~/.config/egg/launcher-secret)" \
+  http://localhost:9848/api/v1/config/reload
+```
+
+Both methods clear all in-memory config caches so the next access re-reads from disk.
 
 ## Design Decisions
 

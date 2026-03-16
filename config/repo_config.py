@@ -348,6 +348,16 @@ _checkpoint_repos_cache: tuple[float, frozenset[str]] | None = None
 _CHECKPOINT_REPOS_TTL = 60  # seconds
 
 
+def reload_config() -> None:
+    """Clear all cached config state so the next access re-reads from disk.
+
+    Called by the gateway's SIGHUP handler and /api/v1/config/reload endpoint
+    to pick up changes to repositories.yaml without a restart.
+    """
+    global _checkpoint_repos_cache
+    _checkpoint_repos_cache = None
+
+
 def get_all_checkpoint_repos() -> frozenset[str]:
     """Get the set of all configured checkpoint repositories.
 

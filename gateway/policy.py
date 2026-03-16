@@ -80,10 +80,9 @@ def _get_branch_prefix() -> str:
 
 
 def _reset_bot_config_caches() -> None:
-    """Reset bot configuration caches. For testing only.
+    """Reset bot configuration caches.
 
-    This allows tests to verify behavior with different configurations
-    without restarting the process.
+    Called during config reload (SIGHUP / reload endpoint) and by tests.
     """
     global _bot_identities_cache, _bot_branch_prefixes_cache, _reviewer_identities_cache
     _bot_identities_cache = None
@@ -205,6 +204,24 @@ def _load_trusted_users() -> frozenset[str]:
 
 
 TRUSTED_BRANCH_OWNERS: frozenset[str] = _load_trusted_users()
+
+
+def reload_trusted_users() -> None:
+    """Reload TRUSTED_BRANCH_OWNERS from environment.
+
+    Called by the gateway's SIGHUP handler and /api/v1/config/reload endpoint.
+    """
+    global TRUSTED_BRANCH_OWNERS
+    TRUSTED_BRANCH_OWNERS = _load_trusted_users()
+
+
+def reload_policy_caches() -> None:
+    """Clear all policy caches so the next access re-reads config.
+
+    Called by the gateway's SIGHUP handler and /api/v1/config/reload endpoint.
+    """
+    _reset_bot_config_caches()
+    reload_trusted_users()
 
 
 @dataclass
