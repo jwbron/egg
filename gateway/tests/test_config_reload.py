@@ -9,16 +9,15 @@ Tests cover:
 """
 
 import os
-import signal
-from unittest.mock import MagicMock, patch
 
 import pytest
 
 # conftest.py sets up the module loading and TEST_LAUNCHER_SECRET
 TEST_LAUNCHER_SECRET = os.environ.get("EGG_LAUNCHER_SECRET", "test-launcher-secret-12345")
 
-import gateway
 import policy
+
+import gateway
 
 
 @pytest.fixture
@@ -41,7 +40,6 @@ class TestRepoConfigReload:
     def test_reload_clears_checkpoint_repos_cache(self):
         """reload_config() should clear the checkpoint repos cache."""
         from config.repo_config import (
-            _checkpoint_repos_cache,
             get_all_checkpoint_repos,
             reload_config,
         )
@@ -61,7 +59,7 @@ class TestRepoConfigReload:
         from config.repo_config import get_all_checkpoint_repos, reload_config
 
         # Prime cache
-        result1 = get_all_checkpoint_repos()
+        get_all_checkpoint_repos()
         reload_config()
         # Should not raise — re-reads config
         result2 = get_all_checkpoint_repos()
