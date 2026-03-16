@@ -1373,6 +1373,5 @@ class TestSoleReviewerCrashIncludesBlockingProducers:
         result = t.handle_agent_crash("reviewer_code")
         assert result["action"] == "escalate"
         assert "sole reviewer" in result["reason"]
-        # Should include blocking_producers for tester
-        assert "blocking_producers" in result
-        assert "tester" in result["blocking_producers"]
+        # Should include blocking_producers for tester (but NOT coder, which is in sole_reviewer_for)
+        assert result["blocking_producers"] == ["tester"]

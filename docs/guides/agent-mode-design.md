@@ -229,10 +229,12 @@ verdict = resp.json()
 **Right approach:**
 ```python
 # Delegate to a sandbox container running claude --print
+from egg_agent import build_agent_command
+
 spawner.spawn_agent_container(
     pipeline_id=f"{pipeline_id}-inspect",
     agent_role=AgentRole.INSPECTOR,
-    command=["claude", "--print", "--max-turns", "1", ...],
+    command=build_agent_command(max_turns=1, ...),
 )
 ```
 
