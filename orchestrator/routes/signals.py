@@ -49,7 +49,6 @@ _AGENT_ROLE_TO_CONTRACT_ROLE: dict[AgentRole, ContractAgentRole] = {
     AgentRole.CODER: ContractAgentRole.CODER,
     AgentRole.TESTER: ContractAgentRole.TESTER,
     AgentRole.DOCUMENTER: ContractAgentRole.DOCUMENTER,
-    AgentRole.INTEGRATOR: ContractAgentRole.INTEGRATOR,
     AgentRole.ARCHITECT: ContractAgentRole.ARCHITECT,
     AgentRole.TASK_PLANNER: ContractAgentRole.TASK_PLANNER,
     AgentRole.RISK_ANALYST: ContractAgentRole.RISK_ANALYST,
