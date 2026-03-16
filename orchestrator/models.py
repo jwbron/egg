@@ -233,11 +233,6 @@ class PipelineConfig(BaseModel):
         description="Deprecated: PR creation is now always handled by the orchestrator. "
         "This field is retained for backwards compatibility with existing pipeline configs.",
     )
-    multi_agent: bool = Field(
-        default=True,
-        description="Deprecated: multi-agent execution is now always used. "
-        "This field is retained for backwards compatibility with existing pipeline configs.",
-    )
     parallel_agents: bool = Field(default=True, description="Run independent agents in parallel")
     max_review_cycles: int = Field(default=3, ge=1, description="Max review cycles per phase")
     max_hitl_review_cycles: int = Field(

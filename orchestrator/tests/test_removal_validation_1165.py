@@ -6,7 +6,7 @@ These tests verify that the following concepts have been fully removed:
 - Single-agent fallback
 - Short-circuit mode
 - Complexity tiers
-- Integrator role (from runtime; retained in checkpoint modules for backward compat)
+- Integrator role
 - MultiAgentConfig
 
 And that the surviving code path (concurrent BRC) works correctly as the

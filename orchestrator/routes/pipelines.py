@@ -3029,10 +3029,6 @@ def _build_agent_prompt(
     body. Analysis roles (architect, task_planner, risk_analyst) receive
     the full issue body.
 
-    Note: Handoff data from prior waves is passed via the EGG_HANDOFF_DATA
-    environment variable (set in _execute_wave_with_spawn_fn), not via
-    the prompt — prompts are built once before execution starts.
-
     Args:
         role_value: Agent role string (e.g. "coder", "tester")
         phase: Pipeline phase name
@@ -4777,8 +4773,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
     """Run a pipeline by spawning containers for each phase.
 
     This runs in a background thread. For each phase it:
-    1. Spawns a worker (CODER) container — or multi-agent wave execution
-       for implement and plan phases when multi_agent is enabled
+    1. Spawns worker containers via concurrent BRC execution
     2. For reviewed phases (refine, implement, plan): spawns reviewers
        as a separate step after all workers (and checkers) complete,
        then reads reviewer verdicts and loops back with feedback if

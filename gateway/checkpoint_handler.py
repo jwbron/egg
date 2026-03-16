@@ -231,8 +231,6 @@ _ROLE_TO_AGENT_TYPE = {
     "risk_analyst": AgentType.RISK_ANALYST,
     "refiner": AgentType.REFINER,
     "checker": AgentType.CHECKER,
-    # Kept for backward compatibility: historical checkpoints may use this role
-    "integrator": AgentType.INTEGRATOR,
 }
 
 
