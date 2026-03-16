@@ -110,17 +110,17 @@ if my_nacks:
 
 # --- Initial run ---
 run_agent {initial_prompt}
-CLAUDE_EXIT=$?
+AGENT_EXIT=$?
 
 # If not in concurrent mode, exit normally
 if [ "${{EGG_CONCURRENT_MODE:-}}" != "true" ]; then
-    exit $CLAUDE_EXIT
+    exit $AGENT_EXIT
 fi
 
 # Non-zero exit means the agent crashed — do not restart.
-if [ "$CLAUDE_EXIT" -ne 0 ]; then
-    echo "[consensus-wrapper] Agent failed (code $CLAUDE_EXIT). NOT restarting."
-    exit $CLAUDE_EXIT
+if [ "$AGENT_EXIT" -ne 0 ]; then
+    echo "[consensus-wrapper] Agent failed (code $AGENT_EXIT). NOT restarting."
+    exit $AGENT_EXIT
 fi
 
 # --- Check if consensus is already complete or agent already CONFIRMED ---
@@ -192,11 +192,11 @@ for old, key in [("{{restart_number}}", "_CW_RESTART"), ("{{max_restarts}}", "_C
 sys.stdout.write(template)' <<< "$RECOVERY_PROMPT")
 
     run_agent "$RECOVERY_PROMPT"
-    CLAUDE_EXIT=$?
+    AGENT_EXIT=$?
 
-    if [ "$CLAUDE_EXIT" -ne 0 ]; then
-        echo "[consensus-wrapper] Agent failed on restart $RESTART_COUNT (code $CLAUDE_EXIT). Stopping."
-        exit $CLAUDE_EXIT
+    if [ "$AGENT_EXIT" -ne 0 ]; then
+        echo "[consensus-wrapper] Agent failed on restart $RESTART_COUNT (code $AGENT_EXIT). Stopping."
+        exit $AGENT_EXIT
     fi
 
     # Check if consensus was reached during the restart
@@ -224,16 +224,16 @@ def build_consensus_wrapped_command(
     max_restarts: int = MAX_CONSENSUS_RESTARTS,
     max_ready_polls: int = MAX_READY_POLL_CYCLES,
 ) -> list[str]:
-    """Build a shell command that runs Claude with a BRC consensus restart wrapper.
+    """Build a shell command that runs the agent with a BRC consensus restart wrapper.
 
-    The wrapper detects when Claude exits without reaching CONFIRMED state
+    The wrapper detects when the agent exits without reaching CONFIRMED state
     in the BRC protocol and restarts it with a recovery prompt. This ensures
     agents explicitly participate in the Broadcast-Review-Converge consensus
     rather than having it faked.
 
     Args:
-        prompt_text: The prompt to pass to the Claude CLI.
-        model: Claude model to use.
+        prompt_text: The prompt to pass to the agent.
+        model: Agent model to use.
         max_turns: Maximum number of tool-call turns.
         max_restarts: Maximum restart attempts before exiting with failure.
         max_ready_polls: Maximum poll cycles to wait when agent already

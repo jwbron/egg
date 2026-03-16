@@ -63,7 +63,7 @@ class TestBuildConsensusWrappedCommand:
         cmd = build_consensus_wrapped_command("Do something")
         script = cmd[2]
         assert "EGG_CONCURRENT_MODE" in script
-        assert "exit $CLAUDE_EXIT" in script
+        assert "exit $AGENT_EXIT" in script
 
     def test_custom_model_and_max_turns(self):
         """Should support custom model and max_turns."""
@@ -90,10 +90,10 @@ class TestBuildConsensusWrappedCommand:
         assert "MAX_RESTARTS" in script
 
     def test_nonzero_exit_does_not_restart(self):
-        """On non-zero Claude exit, wrapper must NOT restart."""
+        """On non-zero agent exit, wrapper must NOT restart."""
         cmd = build_consensus_wrapped_command("Prompt")
         script = cmd[2]
-        assert 'if [ "$CLAUDE_EXIT" -ne 0 ]' in script
+        assert 'if [ "$AGENT_EXIT" -ne 0 ]' in script
         assert "NOT restarting" in script
 
     def test_contains_recovery_prompt(self):
