@@ -163,6 +163,9 @@ def _make_mock_agent(tmpdir: str, agent_log_file: str | None = None, exit_code: 
     Non-egg_agent ``python3`` invocations (used by the wrapper for JSON
     parsing) fall through to the real ``python3``.
 
+    The mock logs all arguments so tests can verify both the user prompt
+    (last positional arg) and flags like ``--system-prompt``.
+
     Args:
         tmpdir: Directory to create the mock in (must be on PATH).
         agent_log_file: File to log calls to. If None, logs to tmpdir/claude.log.
@@ -180,7 +183,7 @@ def _make_mock_agent(tmpdir: str, agent_log_file: str | None = None, exit_code: 
             f.write(f"  exit {exit_code}\n")
         else:
             f.write(f'  echo "---CLAUDE_CALL_START---" >> {shlex.quote(agent_log)}\n')
-            f.write(f'  echo "${{@: -1}}" >> {shlex.quote(agent_log)}\n')
+            f.write(f'  echo "ARGS: $*" >> {shlex.quote(agent_log)}\n')
             f.write(f'  echo "---CLAUDE_CALL_END---" >> {shlex.quote(agent_log)}\n')
         f.write("else\n")
         f.write(f'  exec {shlex.quote(real_python)} "$@"\n')
@@ -325,6 +328,13 @@ class TestConsensusWrapperBehavior:
             assert call_count >= 2
             # Second call should contain the benign recovery user prompt
             assert "Continue the BRC consensus protocol" in log_content
+            # Verify --system-prompt is passed on restart calls but not on the
+            # initial call (reviewer feedback #1).
+            calls = log_content.split("---CLAUDE_CALL_START---")[1:]  # skip leading empty
+            initial_call = calls[0]
+            restart_call = calls[1]
+            assert "--system-prompt" not in initial_call
+            assert "--system-prompt" in restart_call
 
     def test_nonzero_exit_propagates_exit_code(self):
         """Wrapper must propagate the original non-zero exit code."""

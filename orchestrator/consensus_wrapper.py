@@ -45,7 +45,10 @@ _RECOVERY_SYSTEM_PROMPT = (
     "If WORKING, complete work and propose. "
     "If PROPOSED, check for ACKs/NACKs and respond. If all ACKed, confirm.\n"
     "   - **Reviewer**: Check for proposals from assigned producers. Review "
-    "artifacts in git, then ACK or NACK. Once all reviewed, confirm.\n"
+    "artifacts in git, then ACK (`egg-orch consensus ack <role>`) or "
+    'NACK (`egg-orch consensus nack <role> --reason "..."`).\n'
+    "     Once all assigned producers reviewed, confirm "
+    "(`egg-orch consensus confirmed`).\n"
     "4. **Stay alive** — keep polling with `egg-orch message poll --wait 30`. "
     "The orchestrator will send SIGTERM when consensus is reached.\n\n"
     "If the agent exits again without reaching CONFIRMED, it will be restarted "
@@ -197,16 +200,17 @@ while [ "$RESTART_COUNT" -lt "$MAX_RESTARTS" ]; do
 {recovery_system_prompt_template}
 RECOVERY_EOF
 )
-    # Use Python for safe template substitution (avoids sed/awk special character
-    # issues with backslashes, ampersands, and other chars in NACK feedback text)
+    # Use Python regex for single-pass template substitution. This avoids both
+    # sed/awk special-character issues and the order-dependency of sequential
+    # str.replace() (where an earlier substituted value could contain a later
+    # placeholder, causing incorrect replacement).
     RECOVERY_SYS=$(_CW_RESTART="$RESTART_COUNT" _CW_MAX="$MAX_RESTARTS" \
         _CW_BRC="$BRC_STATE" _CW_NACK="$NACK_FEEDBACK" \
-        python3 -c 'import sys, os
-template = sys.stdin.read()
-for old, key in [("{{restart_number}}", "_CW_RESTART"), ("{{max_restarts}}", "_CW_MAX"),
-                 ("{{brc_state}}", "_CW_BRC"), ("{{nack_feedback}}", "_CW_NACK")]:
-    template = template.replace(old, os.environ[key])
-sys.stdout.write(template)' <<< "$RECOVERY_SYS")
+        python3 -c 'import sys, os, re
+t = sys.stdin.read()
+m = {{"restart_number": os.environ["_CW_RESTART"], "max_restarts": os.environ["_CW_MAX"],
+     "brc_state": os.environ["_CW_BRC"], "nack_feedback": os.environ["_CW_NACK"]}}
+sys.stdout.write(re.sub(r"\{{(\w+)\}}", lambda x: m.get(x.group(1), x.group(0)), t))' <<< "$RECOVERY_SYS")
 
     run_agent {recovery_user_prompt} "$RECOVERY_SYS"
     AGENT_EXIT=$?
