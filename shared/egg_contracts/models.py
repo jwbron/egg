@@ -417,6 +417,7 @@ class MultiAgentConfig(BaseModel):
             return v
         valid = {r.value for r in AgentRoleType}
         return [r for r in v if not isinstance(r, str) or r in valid]
+
     phase_overrides: dict[str, PhaseAgentConfig] = Field(
         default_factory=dict,
         description="Per-phase agent configuration overrides",
@@ -482,11 +483,8 @@ class Contract(BaseModel):
         if not isinstance(v, list):
             return v
         valid_roles = {r.value for r in AgentRoleType}
-        return [
-            item
-            for item in v
-            if not isinstance(item, dict) or item.get("role") in valid_roles
-        ]
+        return [item for item in v if not isinstance(item, dict) or item.get("role") in valid_roles]
+
     multi_agent_config: MultiAgentConfig | None = Field(
         default=None,
         description="Configuration for multi-agent orchestration",
