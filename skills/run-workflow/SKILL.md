@@ -149,70 +149,29 @@ The `get_status` response enriches phase_gate decisions with `draft_content` (th
    ```
    This ensures the human sees blockers before deciding.
 
-5. **Present embedded questions from the draft** — Before asking for phase approval, scan `draft_content` for structured decision and feedback blocks that need human input. These are questions the agents embedded in the analysis document.
+5. **Present open questions to the user** — After reviewing the draft content, reviewer feedback, and key concerns, determine whether there are unresolved questions, decisions, or areas where the user's input would be valuable before proceeding. This is a judgment call — use the full context of the draft document, not pattern matching.
 
-   **Important: Deduplication** — Some embedded questions may also appear as separate `pending_decisions` (choice/feedback type) that you'll handle individually. To avoid double-prompting, track the IDs of decisions you've already resolved. If a draft block's `id` attribute (from `<!-- egg-hitl-decision id=X -->`) matches an already-resolved decision, skip it.
+   Common situations where you should prompt the user:
+   - The draft proposes multiple options/approaches without a clear recommendation
+   - The draft explicitly asks for human input on trade-offs or priorities
+   - Reviewers raised concerns that require a human judgment call (not just a code fix)
+   - The draft mentions risks, unknowns, or assumptions that the user should validate
+   - There are scope or strategy decisions that affect downstream phases
 
-   **5a. Parse decision blocks** — Look for blocks matching this pattern:
-   ```
-   <!-- egg-hitl-decision id=<id> -->
-   **<question text>**
-   - [ ] <option 1>
-   - [ ] <option 2>
-   ...
-   ```
-   Also look for simpler heading-based patterns:
-   ```
-   ### Decision <N>: <title>
-   - [ ] <option 1>
-   - [ ] <option 2>
-   ```
+   For each question or decision you identify, present an `AskUserQuestion`:
+   - For **decisions with discrete options**: list the options from the draft as choices
+   - For **open-ended questions**: use options like "Not sure / skip" and "N/A", letting the user type their answer in the "Other" field
+   - Group related questions into a single multi-question `AskUserQuestion` call when possible (up to 4 questions per call)
 
-   For each decision block found, present an `AskUserQuestion`:
-   - **Question**: The decision question text (extracted from the bold line or heading)
-   - **Header**: "Decision" (or "Decision N" if numbered)
-   - **Options**: Each checkbox item as an option (label = the checkbox text, description = "")
-   - Collect the user's selection
-
-   **5b. Parse feedback blocks** — Look for blocks matching this pattern:
-   ```
-   <!-- egg-feedback id=<id> -->
-   ```
-   Within feedback blocks, extract each question:
-   ```
-   **Q<N>: <question text>**
-   > _Your answer here_
-   ```
-   Also look for heading-based patterns:
-   ```
-   ### Feedback Requested
-   ```
-   or
-   ```
-   ### Open Questions
-   ```
-   followed by numbered or bulleted questions.
-
-   For each feedback question found, present an `AskUserQuestion`:
-   - **Question**: The feedback question text
-   - **Header**: "Feedback"
-   - **Options**:
-     - **"Not sure / skip"** — description: "Skip this question for now"
-     - **"N/A"** — description: "This question doesn't apply"
-   - The user will typically type their answer in the "Other" field
-
-   **5c. Collect responses** — Gather all decision selections and feedback answers into a structured summary. Format as:
+   **Collect all responses** into a structured summary:
    ```
    ## Resolved Questions
 
-   **Decision 1: <question>**
-   Answer: <selected option>
-
-   **Feedback 1: <question>**
+   **<question>**
    Answer: <user's response>
    ```
 
-   If no embedded decision or feedback blocks are found in the draft content, skip this step entirely.
+   If nothing in the draft requires user input beyond the approval itself, skip this step entirely — do not manufacture questions.
 
 6. **Ask for approval** — Use `AskUserQuestion`:
    - **Question**: "Phase '<phase>' is complete. Do you approve the output above to proceed?"
@@ -226,20 +185,13 @@ The `get_status` response enriches phase_gate decisions with `draft_content` (th
 
 7. **Submit the response** — Use structured JSON payloads so the orchestrator can properly route the resolution. Build the JSON based on the user's choice:
 
-   **7a. Build the `decisions` object** from step 5c responses (if any). Format as a dict mapping decision/feedback IDs to answers:
-   ```json
-   {
-     "decision-1": "Selected option text",
-     "feedback-1": {"q1": "User's answer", "q2": "User's answer"}
-   }
-   ```
-   If no embedded questions were found, omit this field.
+   **7a. Build the `context` string** from step 5 responses (if any). Include the "Resolved Questions" summary as a readable string. If no questions were asked in step 5, omit this field.
 
    **7b. Submit based on the user's approval choice**:
 
    - If **"Approve"** → call `provide_input` with:
      ```json
-     {"action": "approve", "decisions": <decisions object from 7a or omit>}
+     {"action": "approve", "context": "<resolved questions from 7a, or omit>"}
      ```
 
    - If **"Request changes"** → ask a follow-up `AskUserQuestion`:
@@ -250,7 +202,7 @@ The `get_status` response enriches phase_gate decisions with `draft_content` (th
        - **"See my notes below"** — description: "I'll type specific feedback"
      Then call `provide_input` with:
      ```json
-     {"action": "request_changes", "feedback": "<user's feedback text>", "decisions": <decisions object from 7a or omit>}
+     {"action": "request_changes", "feedback": "<user's feedback text>", "context": "<resolved questions from 7a, or omit>"}
      ```
 
    - If **"Change approach"** → ask a follow-up `AskUserQuestion`:
@@ -261,7 +213,7 @@ The `get_status` response enriches phase_gate decisions with `draft_content` (th
        - **"See my notes below"** — description: "I'll describe the approach I want"
      Then call `provide_input` with:
      ```json
-     {"action": "change_approach", "feedback": "<user's direction text>", "decisions": <decisions object from 7a or omit>}
+     {"action": "change_approach", "feedback": "<user's direction text>", "context": "<resolved questions from 7a, or omit>"}
      ```
      This resets the current phase and re-runs it with the new direction.
 
@@ -273,7 +225,7 @@ The `get_status` response enriches phase_gate decisions with `draft_content` (th
 
    - If **custom text (Other)** → treat as request_changes feedback. Call `provide_input` with:
      ```json
-     {"action": "request_changes", "feedback": "<user's text>", "decisions": <decisions object from 7a or omit>}
+     {"action": "request_changes", "feedback": "<user's text>", "context": "<resolved questions from 7a, or omit>"}
      ```
 
 After resolving this decision, move to the next pending decision (if any) before resuming monitoring.
