@@ -101,7 +101,10 @@ Pipelines can specify an explicit network mode that controls internet access for
 **How it works:**
 
 1. Network mode is stored in the pipeline model (`orchestrator/models.py:Pipeline.network_mode`)
-2. When spawning containers, if `network_mode` is explicitly set, the orchestrator uses that value. If not set, the orchestrator queries the gateway for the pipeline's repo visibility (`GatewayClient.get_repo_visibility()`): private/internal repos get `"private"` mode, public repos get `"public"` mode. If no repo is associated with the pipeline, defaults to `"public"`.
+2. When spawning containers:
+   - If `network_mode` is explicitly set, the orchestrator uses that value
+   - If not set, the orchestrator queries the gateway for the pipeline's repo visibility (`GatewayClient.get_repo_visibility()`): private/internal repos get `"private"` mode, public repos get `"public"` mode
+   - If no repo is associated with the pipeline, defaults to `"public"`
 3. The gateway enforces network policy based on the session mode (see `gateway/README.md`)
 
 **Special case: PR phase**
