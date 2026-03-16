@@ -56,8 +56,6 @@ This index helps both humans and LLMs navigate the documentation efficiently.
 | [Concurrent Execution](guides/concurrent-execution.md) | Concurrent agent execution: message bus, readiness signaling, consensus protocol |
 | [Tier 3 Dispatch](guides/tier3-dispatch.md) | Phase-level parallel dispatch for high-complexity tasks |
 | [Checkpoint Access](guides/checkpoint-access.md) | Querying cross-agent checkpoints in multi-agent pipelines |
-| [Coordinator Agent](guides/coordinator.md) | Dynamic agent orchestration via conversational coordinator with MCP server |
-
 ### Reference
 
 | Document | Description |
@@ -69,7 +67,6 @@ This index helps both humans and LLMs navigate the documentation efficiently.
 | [Orchestrator CLI](reference/orchestrator-cli.md) | Full `egg-orch` command reference for pipelines, phases, decisions, containers |
 | [Checkpoint Browser](reference/checkpoint-browser.md) | Full `egg-checkpoint` command reference for browsing agent session history |
 | [SDLC Contract](reference/sdlc-contract.md) | Full `egg-contract` command reference for tracking tasks, commits, decisions |
-| [Coordinator Agent](reference/coordinator-agent.md) | Coordinator role: spawning agents, phase advancement, HITL gates, guardrails |
 | [Integrator Agent](reference/integrator-agent.md) | Integrator role: attestation verification, cross-referencing artifacts |
 
 ### SDLC Pipeline Templates
@@ -122,7 +119,6 @@ Each major component has detailed documentation:
 | **Agent teams / Deliberative Consensus** | [Agent Teams Guide](guides/agent-teams.md) | [Concurrent Execution Guide](guides/concurrent-execution.md), [SDLC Pipeline Guide](guides/sdlc-pipeline.md) |
 | **Concurrent execution mode** | [Concurrent Execution Guide](guides/concurrent-execution.md) | [SDLC Pipeline Guide](guides/sdlc-pipeline.md), [Checkpoint Access](guides/checkpoint-access.md), [Orchestrator Architecture](architecture/orchestrator.md) |
 | **Tier 3 / phase-level dispatch** | [Tier 3 Dispatch Guide](guides/tier3-dispatch.md) | [SDLC Pipeline Guide](guides/sdlc-pipeline.md), [Agent Roles Reference](reference/agent-roles.md) |
-| **Coordinator / dynamic orchestration** | [Coordinator Agent Guide](guides/coordinator.md) | [SDLC Pipeline Guide](guides/sdlc-pipeline.md), [Agent-Mode Design](guides/agent-mode-design.md), [Orchestrator Architecture](architecture/orchestrator.md) |
 | **Agent roles and file permissions** | [Agent Roles Reference](reference/agent-roles.md) | [SDLC Pipeline Guide](guides/sdlc-pipeline.md), [Tier 3 Dispatch Guide](guides/tier3-dispatch.md), [Architecture Overview](architecture/README.md) |
 | **Agent failure recovery** | [Agent Recovery Reference](reference/agent-recovery.md) | [Concurrent Execution Guide](guides/concurrent-execution.md), [Orchestrator Architecture](architecture/orchestrator.md) |
 | **Post-agent auto-commit** | [Post-Agent Commit Reference](reference/post-agent-commit.md) | [Architecture Overview](architecture/README.md) |

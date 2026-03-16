@@ -21,7 +21,6 @@ All agent roles in egg, their responsibilities, phases, file access permissions,
 | `reviewer_code` | Implement | Yes (with `reviewer_contract`) | integrator |
 | `reviewer_contract` | Implement | Yes (with `reviewer_code`) | integrator |
 | `reviewer_unified` | _(deprecated)_ | — | — |
-| `coordinator` | Coordinator | — | — |
 | `inspector` | Any | — | — (health checks) |
 
 Reviewer roles always run as a distinct step after all workers and the integrator complete.
@@ -205,23 +204,7 @@ The Tier 3 expanded access is required because the integrator must merge results
 **Outputs**:
 - `.egg-state/reviews/{identifier}-implement-reviewer_contract-review.json` — Verdict file
 
-## Coordinator Mode
-
-### `coordinator`
-
-**Purpose**: Orchestrates a dynamic pipeline. Analyzes the task, determines the appropriate workflow, spawns agents on demand, and escalates to the human when needed.
-
-**File access**:
-- Allowed writes: `.egg-state/agent-outputs/` only
-- Blocked: All source code, docs, tests, contracts, drafts, reviews
-
-**Runs with**: `phase="coordinator"` — a special phase value distinct from the standard SDLC phases.
-
-**Environment variables**:
-- `EGG_COORDINATOR_MODE=true`
-- `EGG_COORDINATOR_TOOLS=true`
-
-See [Coordinator Guide](../guides/coordinator.md) for complete documentation.
+## Other Roles
 
 ### `inspector`
 

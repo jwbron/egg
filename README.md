@@ -92,12 +92,6 @@ BRC concurrent execution runs all agents for a phase simultaneously — all shar
 
 See [Concurrent Execution Guide](docs/guides/concurrent-execution.md) for the full protocol.
 
-### Coordinator Agent
-
-An optional dynamic orchestration mode where a `coordinator` agent — rather than fixed-phase dispatch — analyzes each task and determines the appropriate workflow: skipping unnecessary phases, spawning agents on demand, and adapting based on results. The coordinator interacts with a human via a Claude Code session connected to the MCP server (port 9850).
-
-See [Coordinator Agent Guide](docs/guides/coordinator.md) for full documentation.
-
 ### Two Modes
 
 - **Issue mode** (`egg-sdlc -r <repo> -i <issue>`): Pulls context from github issues, HITL via terminal prompts
@@ -188,7 +182,6 @@ See [action/README.md](action/README.md) for full documentation and [GitHub Auto
 | **SDLC pipeline details** | [SDLC Pipeline Guide](docs/guides/sdlc-pipeline.md) |
 | **Concurrent execution mode** | [Concurrent Execution Guide](docs/guides/concurrent-execution.md) |
 | **Tier 3 / phase-level dispatch** | [Tier 3 Dispatch Guide](docs/guides/tier3-dispatch.md) |
-| **Coordinator agent** | [Coordinator Agent Guide](docs/guides/coordinator.md) |
 | **Agent roles & permissions** | [Agent Roles Reference](docs/reference/agent-roles.md) |
 | **Agent recovery & circuit breaker** | [Agent Recovery Reference](docs/reference/agent-recovery.md) |
 | **Post-agent auto-commit** | [Post-Agent Commit Reference](docs/reference/post-agent-commit.md) |

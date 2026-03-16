@@ -18,7 +18,6 @@ Operational guides for specific features.
 - **[SDLC Pipeline](guides/sdlc-pipeline.md)** - Full pipeline operation
 - **[Concurrent Execution](guides/concurrent-execution.md)** - Message bus, readiness signaling, consensus
 - **[Tier 3 Dispatch](guides/tier3-dispatch.md)** - Phase-level parallel execution for high-complexity tasks
-- **[Coordinator Agent](guides/coordinator.md)** - Dynamic orchestration via MCP server
 - **[Checkpoint Access](guides/checkpoint-access.md)** - Querying agent checkpoints
 
 ### [Reference](reference/)
