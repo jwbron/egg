@@ -85,9 +85,9 @@ Each reviewer evaluates proposals from its assigned producers and sends `CONSENS
 
 Producers can also withdraw their own proposal by sending `CONSENSUS_WITHDRAW`, which returns them to WORKING. Withdrawal must cite specific new information justifying the retraction (e.g., discovering a failing test or a design flaw after proposing). This is a commitment device — withdrawal without justification is rejected.
 
-Scoped re-evaluation: a NACK targets a specific proposal version. Re-proposal only triggers re-review from the NACKing reviewer. Other reviewers' prior ACKs stand unless the revision affected artifacts they referenced.
+Scoped re-evaluation: a NACK targets a specific proposal version. Re-proposal only triggers re-review from the NACKing reviewer. Other reviewers' prior ACKs whose referenced artifacts were unaffected remain valid. However, any reviewer that had already *confirmed* on a prior proposal version is automatically un-confirmed and receives a `CONSENSUS_RE_REVIEW` message, requiring them to re-review the new proposal — this prevents deadlocks where a stale-confirmed reviewer never sees updated artifacts.
 
-For example: `reviewer_code` NACKs `coder` citing a bug in `auth.py`. The coder fixes the bug and re-proposes. `reviewer_code` must re-review. The tester's prior ACK (which referenced test results, not `auth.py`) stands unless the fix changed test behavior.
+For example: `reviewer_code` NACKs `coder` citing a bug in `auth.py`. The coder fixes the bug and re-proposes. `reviewer_code` must re-review. The tester's prior ACK (which referenced test results, not `auth.py`) stands — but if the tester had already *confirmed*, they are un-confirmed and must re-review the new proposal version.
 
 Revision rounds are bounded: max 2 rounds (`max_revision_rounds`) per producer-reviewer pair before HITL escalation.
 
