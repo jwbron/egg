@@ -469,10 +469,10 @@
         {
           "container_id": "8f6899d14a0886da66911db24b7c6942b66794dbfcd70e6f4bf7f70d4466b36e",
           "container_name": "issue-1165-reviewer_contract",
-          "status": "running",
+          "status": "exited",
           "started_at": "2026-03-16T03:14:26.217246",
-          "exited_at": null,
-          "exit_code": null,
+          "exited_at": "2026-03-16T03:48:06.712872",
+          "exit_code": 1,
           "agent_role": "reviewer_contract",
           "session_token": null
         },
@@ -549,13 +549,13 @@
         },
         {
           "role": "reviewer_contract",
-          "status": "running",
+          "status": "failed",
           "container_id": "8f6899d14a0886da66911db24b7c6942b66794dbfcd70e6f4bf7f70d4466b36e",
           "started_at": "2026-03-16T03:14:26.217249",
-          "completed_at": null,
+          "completed_at": "2026-03-16T03:48:06.744083",
           "commit": null,
           "outputs": {},
-          "error": null,
+          "error": "Container exited with code 1",
           "retry_count": 0,
           "conflicts": [],
           "plan_phase_id": null
@@ -651,7 +651,7 @@
     }
   ],
   "created_at": "2026-03-16T02:29:02.276729",
-  "updated_at": "2026-03-16T03:14:26.217343",
+  "updated_at": "2026-03-16T03:48:06.744191",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
@@ -659,5 +659,5 @@
   "error": "Pipeline marked FAILED: agent container exited unexpectedly during execution. Restart via POST /pipelines/{id}/start.",
   "plan_phase_waves": null,
   "plan_phase_names": null,
-  "version": 43
+  "version": 44
 }
