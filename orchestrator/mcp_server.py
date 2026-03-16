@@ -1,7 +1,7 @@
 """
-MCP server for coordinator integration with Claude Code.
+MCP server for pipeline management integration with Claude Code.
 
-Provides an MCP-compatible server that exposes coordinator tools
+Provides an MCP-compatible server that exposes pipeline management tools
 via Streamable HTTP transport using the official mcp Python SDK.
 Runs as a sidecar alongside the orchestrator.
 """
@@ -59,9 +59,9 @@ class RateLimiter:
 
 
 class MCPServer:
-    """MCP server with Streamable HTTP transport for coordinator tools.
+    """MCP server with Streamable HTTP transport for pipeline management tools.
 
-    Uses the official mcp Python SDK (FastMCP) to expose coordinator tools
+    Uses the official mcp Python SDK (FastMCP) to expose pipeline tools
     over the Streamable HTTP transport protocol.
 
     Provides:
@@ -83,14 +83,14 @@ class MCPServer:
         self.port = port
         self.rate_limiter = RateLimiter(max_requests=rate_limit)
 
-        from mcp_tools import COORDINATOR_TOOLS, CoordinatorToolHandler
+        from mcp_tools import PIPELINE_TOOLS, PipelineToolHandler
 
-        self.tool_handler = CoordinatorToolHandler(orchestrator_url=orchestrator_url)
-        self.tools_config = COORDINATOR_TOOLS
+        self.tool_handler = PipelineToolHandler(orchestrator_url=orchestrator_url)
+        self.tools_config = PIPELINE_TOOLS
         self._mcp = None
 
     def create_app(self):
-        """Create the FastMCP application with coordinator tools."""
+        """Create the FastMCP application with pipeline management tools."""
         from mcp.server.fastmcp import FastMCP
 
         mcp = FastMCP(
@@ -112,8 +112,8 @@ class MCPServer:
 
             return JSONResponse({"status": "healthy", "service": "egg-mcp-server"})
 
-        # Register each coordinator tool with FastMCP.
-        # We create wrapper functions that delegate to CoordinatorToolHandler.
+        # Register each pipeline tool with FastMCP.
+        # We create wrapper functions that delegate to PipelineToolHandler.
         def _make_tool_fn(tool_name: str, tool_schema: dict):
             """Build an async tool function for FastMCP from a tool schema."""
             required = set(tool_schema.get("required", []))

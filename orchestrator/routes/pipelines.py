@@ -582,7 +582,7 @@ def _mark_pipeline_records_terminated(
     Called when a pipeline transitions to a terminal state (cancelled or failed).
     After Docker containers are force-removed, the pipeline state still shows
     them as "running". This reloads the latest state from the store (to avoid
-    overwriting coordinator updates made between the status change and container
+    overwriting updates made between the status change and container
     cleanup), marks running records as stopped, and saves.
 
     Returns the updated pipeline so the caller can use it in the response.
@@ -610,13 +610,6 @@ def _mark_pipeline_records_terminated(
                 agent.status = AgentExecutionStatus.FAILED
                 agent.completed_at = now
                 agent.error = f"Pipeline {pipeline.status.value}"
-                changed = True
-
-    if pipeline.coordinator_state:
-        for spawn_record in pipeline.coordinator_state.agents_spawned:
-            if spawn_record.status == "running":
-                spawn_record.status = "cancelled"
-                spawn_record.completed_at = now
                 changed = True
 
     if changed:
@@ -707,7 +700,7 @@ def update_pipeline(pipeline_id: str) -> tuple[Response, int]:
                     exc_info=True,
                 )
 
-            # Sync pipeline state: reload latest state (coordinator may have
+            # Sync pipeline state: reload latest state (agents may have
             # written updates between status change and container cleanup),
             # mark all running records as stopped, and re-save.
             try:
@@ -3405,26 +3398,6 @@ def _build_agent_prompt(
             review_cycle=review_cycle + 1,
             prior_feedback=review_feedback,
             repo_path=repo_path,
-        )
-    elif role_value == "coordinator":
-        lines.extend(
-            [
-                "You are the COORDINATOR agent. Your mission: analyze the task, "
-                "determine the optimal workflow, and drive the pipeline to completion "
-                "by spawning and orchestrating specialized agents.",
-                "",
-                "**CRITICAL: You are an ORCHESTRATOR, not an implementer.**",
-                "Do NOT read files, edit code, write documentation, or do any implementation work yourself.",
-                "ALL implementation must be delegated to specialized agents (coder, tester, documenter, etc.).",
-                "",
-                "1. Run `egg-orch coordinator state $EGG_PIPELINE_ID` to check current state",
-                "2. Choose a workflow based on the task type (see coordinator.md in your CLAUDE.md)",
-                '3. Spawn agents using `egg-orch coordinator spawn $EGG_PIPELINE_ID --role <role> --context "<task>"`',
-                "4. Wait for agents to complete, then advance or complete the pipeline",
-                "",
-                "Follow the detailed coordinator instructions in your CLAUDE.md.",
-                "",
-            ]
         )
     else:
         lines.extend(
@@ -6470,9 +6443,6 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                     # Use multi-agent wave-based execution when enabled for
                     # implement and plan phases; single-CODER path otherwise.
                     # Tier 3 (high complexity) uses phase-level dispatch for implement.
-                    # Coordinator mode delegates all dispatch to the coordinator agent.
-                    use_coordinator = pipeline.config.coordinator_enabled
-
                     use_multi_agent = pipeline.config.multi_agent and current_phase.value in {
                         "implement",
                         "plan",
@@ -6490,194 +6460,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
 
                     use_concurrent = is_concurrent_execution(pipeline, phase=current_phase.value)
 
-                    if use_coordinator:
-                        logger.info(
-                            "Routing to coordinator executor",
-                            pipeline_id=pipeline_id,
-                            phase=current_phase,
-                            review_cycle=review_cycle,
-                            mode=gateway_mode,
-                        )
-
-                        try:
-                            from coordinator_executor import CoordinatorExecutor
-                        except ImportError:
-                            from ..coordinator_executor import (
-                                CoordinatorExecutor,  # type: ignore[no-redef]
-                            )
-
-                        coord_executor = CoordinatorExecutor(
-                            repo_path=worktree_repo_path,
-                            docker_client=spawner.docker,
-                        )
-                        coord_executor.init_coordinator_state(pipeline_id)
-
-                        coordinator_env = {
-                            **sandbox_env,
-                            "EGG_COORDINATOR_MODE": "true",
-                            "EGG_COORDINATOR_TOOLS": "true",
-                        }
-
-                        coordinator_prompt = _build_agent_prompt(
-                            role_value="coordinator",
-                            phase=current_phase.value,
-                            pipeline_id=pipeline_id,
-                            pipeline_mode=pipeline_mode,
-                            prompt=pipeline.prompt,
-                            issue_number=pipeline.issue_number,
-                            repo=pipeline.repo,
-                            branch=pipeline.branch,
-                            review_cycle=review_cycle,
-                            review_feedback=review_feedback,
-                        )
-                        coordinator_command = build_agent_command(coordinator_prompt)
-
-                        try:
-                            from egg_container import MountSpec
-
-                            # Coordinator is a pure orchestrator — it should not read or
-                            # modify repository files. Empty repo_volumes + tmpfs over
-                            # ~/repos enforces this: the coordinator can only interact
-                            # via egg-orch CLI commands, not the filesystem.
-                            exit_code, container_logs = _spawn_and_wait(
-                                spawner=spawner,
-                                pipeline_id=pipeline_id,
-                                agent_role=AgentRole.COORDINATOR,
-                                issue_number=pipeline.issue_number,
-                                repo_volumes={},
-                                gateway_mode=gateway_mode,
-                                repos=repos,
-                                phase=current_phase,
-                                sandbox_env=coordinator_env,
-                                sandbox_command=coordinator_command,
-                                store=store,
-                                certs_volume=certs_volume,
-                                branch=pipeline.branch,
-                                extra_mounts=[
-                                    MountSpec(
-                                        mount_type="tmpfs",
-                                        source=None,
-                                        destination="/home/egg/repos",
-                                    )
-                                ],
-                            )
-
-                            # Handle coordinator completion (crash recovery, etc.)
-                            result = coord_executor.handle_coordinator_completion(
-                                pipeline_id, exit_code
-                            )
-                            if result == "respawn":
-                                # Coordinator will be respawned — retry this phase
-                                continue
-                            elif result == "failed":
-                                phase_failed = True
-                                break
-
-                            # Coordinator completed ("complete" or "drained") —
-                            # read review verdicts instead of breaking immediately.
-                            all_verdicts: dict[str, ReviewVerdict | None] = {}
-                            for rtype in ["code", "contract"]:
-                                all_verdicts[rtype] = _read_review_verdict(
-                                    worktree_repo_path,
-                                    current_phase.value,
-                                    reviewer_type=rtype,
-                                    pipeline_mode=pipeline_mode,
-                                    issue_number=pipeline.issue_number,
-                                    pipeline_id=pipeline_id,
-                                )
-
-                            agg_result = _aggregate_review_verdicts(all_verdicts)
-
-                            if agg_result.advisory_content:
-                                logger.info(
-                                    "Coordinator review advisory content (non-blocking)",
-                                    pipeline_id=pipeline_id,
-                                    phase=current_phase,
-                                    advisory_preview=agg_result.advisory_content[:500],
-                                )
-
-                            if agg_result.verdict == "approved":
-                                logger.info(
-                                    "Coordinator: reviewers approved",
-                                    pipeline_id=pipeline_id,
-                                    phase=current_phase,
-                                    review_cycle=review_cycle + 1,
-                                )
-                                with get_pipeline_state_lock(pipeline_id):
-                                    pipeline = store.load_pipeline(pipeline_id)
-                                    phase_execution = pipeline.get_phase_execution(current_phase)
-                                    if phase_execution.cycle_timings:
-                                        phase_execution.cycle_timings[
-                                            -1
-                                        ].completed_at = datetime.utcnow()
-                                        store.save_pipeline(pipeline)
-                                break  # Advance to next phase
-
-                            # needs_revision — check circuit breaker
-                            coord_max_review_cycles = pipeline.config.max_review_cycles
-                            if review_cycle + 1 >= coord_max_review_cycles:
-                                logger.warning(
-                                    "Coordinator review circuit breaker — advancing",
-                                    pipeline_id=pipeline_id,
-                                    phase=current_phase,
-                                    review_cycles=review_cycle + 1,
-                                    max_review_cycles=coord_max_review_cycles,
-                                )
-                                with get_pipeline_state_lock(pipeline_id):
-                                    pipeline = store.load_pipeline(pipeline_id)
-                                    phase_execution = pipeline.get_phase_execution(current_phase)
-                                    if phase_execution.cycle_timings:
-                                        phase_execution.cycle_timings[
-                                            -1
-                                        ].completed_at = datetime.utcnow()
-                                        store.save_pipeline(pipeline)
-                                break
-
-                            # Store feedback and loop — respawn coordinator with
-                            # reviewer feedback
-                            review_feedback = agg_result.blocking_feedback
-                            with get_pipeline_state_lock(pipeline_id):
-                                pipeline = store.load_pipeline(pipeline_id)
-                                phase_execution = pipeline.get_phase_execution(current_phase)
-                                if phase_execution.cycle_timings:
-                                    phase_execution.cycle_timings[
-                                        -1
-                                    ].completed_at = datetime.utcnow()
-                                phase_execution.review_cycles = review_cycle + 1
-                                store.save_pipeline(pipeline)
-
-                            logger.info(
-                                "Coordinator: review needs revision — looping",
-                                pipeline_id=pipeline_id,
-                                phase=current_phase,
-                                review_cycle=review_cycle + 1,
-                                feedback_preview=(review_feedback[:200] if review_feedback else ""),
-                            )
-                            continue  # Re-run while loop with feedback
-
-                        except ContainerSpawnError as e:
-                            with get_pipeline_state_lock(pipeline_id):
-                                pipeline = store.load_pipeline(pipeline_id)
-                                phase_execution = pipeline.get_phase_execution(current_phase)
-                                if phase_execution.cycle_timings:
-                                    phase_execution.cycle_timings[
-                                        -1
-                                    ].completed_at = datetime.utcnow()
-                                phase_execution.status = PipelineStatus.FAILED
-                                phase_execution.error = str(e)
-                                phase_execution.completed_at = datetime.utcnow()
-                                pipeline.status = PipelineStatus.FAILED
-                                pipeline.error = str(e)
-                                store.save_pipeline(pipeline)
-                            logger.error(
-                                "Failed to spawn coordinator",
-                                pipeline_id=pipeline_id,
-                                error=str(e),
-                            )
-                            phase_failed = True
-                            break
-
-                    elif use_concurrent:
+                    if use_concurrent:
                         logger.info(
                             "Spawning concurrent phase execution",
                             pipeline_id=pipeline_id,
@@ -7338,7 +7121,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
             # --- HITL gate: pause for human approval ---
             if pipeline.config.hitl_gates and current_phase.value in _HITL_GATE_PHASES:
                 # Check for an existing pending phase_gate decision for this
-                # phase.  The coordinator path or a prior agent-exit event may
+                # phase.  A prior agent-exit event may
                 # have already created one — creating a duplicate confuses the
                 # human reviewer.  See #1152.
                 existing_pending_gate = any(

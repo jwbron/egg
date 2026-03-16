@@ -38,7 +38,6 @@ class PipelinePhase(StrEnum):
     PLAN = "plan"
     IMPLEMENT = "implement"
     PR = "pr"
-    COORDINATOR = "coordinator"
 
 
 class DecisionType(StrEnum):
@@ -336,8 +335,6 @@ class AgentRoleType(StrEnum):
     REVIEWER_REFINE = "reviewer_refine"
     REVIEWER_PLAN = "reviewer_plan"
     REVIEWER_UNIFIED = "reviewer_unified"  # Vestigial: kept for backwards compatibility with persisted pipeline state
-    # Coordination role
-    COORDINATOR = "coordinator"
 
 
 class AgentExecutionModel(BaseModel):

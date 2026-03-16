@@ -294,24 +294,6 @@ def create_unified_sse_stream(
                         if full_dag:
                             payload["dag"] = render_pipeline_dag(pipeline, use_ascii=use_ascii)
 
-                        # Include coordinator state summary for coordinator events
-                        evt = payload.get("event_type", "")
-                        if (
-                            evt.startswith("coordinator.")
-                            and pipeline.coordinator_state is not None
-                        ):
-                            cs = pipeline.coordinator_state
-                            payload["coordinator"] = {
-                                "workflow_type": cs.workflow_type,
-                                "agents_running": len(
-                                    [a for a in cs.agents_spawned if a.status == "running"]
-                                ),
-                                "agents_total": len(cs.agents_spawned),
-                                "escalations_pending": len(
-                                    [e for e in cs.escalations if e.resolved_at is None]
-                                ),
-                            }
-
                         # Include BRC consensus data in status events
                         try:
                             from peer_consensus import get_peer_consensus_tracker

@@ -158,7 +158,6 @@ readonly_mounts = phase_readonly_mounts(repo_volumes, phase="implement")
 Shared orchestrator types and utilities for sandbox-to-orchestrator communication.
 
 - Typed orchestrator API client (OrchestratorClient)
-- Coordinator API methods (`coordinator_spawn_agent`, `coordinator_get_state`, `coordinator_advance_phase`, `coordinator_escalate`, `coordinator_cancel_agent`)
 - Orchestrator mode detection (is_orchestrator_mode)
 - Deployment mode enum (LOCAL, REMOTE_SINGLE, DISTRIBUTED)
 - Signal types for completion reporting (complete, progress, error, heartbeat)
@@ -258,7 +257,7 @@ loaded = load_checkpoint(checkpoint_path)
 - `roles.py` - Role-based field ownership validation
 - `audit.py` - Audit log utilities
 - `agent_recovery.py` - Multi-agent recovery (retry manager, circuit breaker, conflict detector)
-- `agent_roles.py` - Agent role definitions and file access patterns (tier-aware integrator access for Tier 3, coordinator role for dynamic orchestration)
+- `agent_roles.py` - Agent role definitions and file access patterns (tier-aware integrator access for Tier 3)
 - `checkpoints.py` - Checkpoint models (Checkpoint, SessionMetadata, Transcript, ToolCall, TokenUsage, InterAgentMessage)
 - `checkpoint_loader.py` - Checkpoint I/O (atomic save, load, indexing)
 - `checkpoint_cli.py` - CLI for browsing and querying checkpoints

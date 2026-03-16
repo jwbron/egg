@@ -38,11 +38,6 @@ Run `egg-orch --help` for full usage. All commands support `--json` for machine-
 | `egg-orch message poll [<id>] [--since <id>] [--limit <n>]` | Poll for messages from other agents (concurrent mode) |
 | `egg-orch message status [<id>]` | Get message bus status (concurrent mode) |
 | `egg-orch signal readiness [<id>] --state <WORKING\|READY\|BLOCKED\|OBJECTING> [--reason "..."]` | Signal readiness state (concurrent mode) |
-| `egg-orch coordinator spawn <id> --role <role> [--context "..."]` | Spawn agent via coordinator |
-| `egg-orch coordinator state <id>` | Get coordinator state (agents, phases, guardrails) |
-| `egg-orch coordinator phase <id> --reason "..." [--target <phase>]` | Advance/skip phase via coordinator |
-| `egg-orch coordinator escalate <id> --question "..." [--type choice] [--options "A" "B"]` | Create HITL escalation |
-| `egg-orch coordinator cancel <id> --role <role>` | Cancel a running agent by role |
 
 Pipeline ID can be omitted when `EGG_PIPELINE_ID` is set (auto-set in orchestrated mode).
 Agent role can be omitted when `EGG_AGENT_ROLE` is set.

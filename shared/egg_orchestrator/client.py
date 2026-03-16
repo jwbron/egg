@@ -578,69 +578,6 @@ class OrchestratorClient:
         endpoint = f"/api/v1/pipelines/{pipeline_id}/messages/status"
         return self._make_request(endpoint)
 
-    def coordinator_spawn_agent(
-        self,
-        pipeline_id: str,
-        role: str,
-        task_context: str = "",
-        extra_env: dict[str, Any] | None = None,
-    ) -> dict[str, Any]:
-        """Spawn an agent via coordinator API."""
-        endpoint = f"/api/v1/pipelines/{pipeline_id}/coordinator/spawn"
-        data: dict[str, Any] = {"role": role}
-        if task_context:
-            data["task_context"] = task_context
-        if extra_env:
-            data["extra_env"] = extra_env
-        return self._make_request(endpoint, method="POST", data=data)
-
-    def coordinator_get_state(self, pipeline_id: str) -> dict[str, Any]:
-        """Get comprehensive coordinator state."""
-        endpoint = f"/api/v1/pipelines/{pipeline_id}/coordinator/state"
-        return self._make_request(endpoint)
-
-    def coordinator_advance_phase(
-        self,
-        pipeline_id: str,
-        reason: str,
-        target_phase: str | None = None,
-    ) -> dict[str, Any]:
-        """Advance or skip to a specific phase."""
-        endpoint = f"/api/v1/pipelines/{pipeline_id}/coordinator/phase"
-        data: dict[str, Any] = {"reason": reason}
-        if target_phase:
-            data["target_phase"] = target_phase
-        return self._make_request(endpoint, method="POST", data=data)
-
-    def coordinator_escalate(
-        self,
-        pipeline_id: str,
-        question: str,
-        escalation_type: str = "choice",
-        options: list[str] | None = None,
-        questions: list[dict[str, str]] | None = None,
-    ) -> dict[str, Any]:
-        """Create a HITL escalation."""
-        endpoint = f"/api/v1/pipelines/{pipeline_id}/coordinator/escalate"
-        data: dict[str, Any] = {
-            "question": question,
-            "escalation_type": escalation_type,
-        }
-        if options:
-            data["options"] = options
-        if questions:
-            data["questions"] = questions
-        return self._make_request(endpoint, method="POST", data=data)
-
-    def coordinator_cancel_agent(
-        self,
-        pipeline_id: str,
-        role: str,
-    ) -> dict[str, Any]:
-        """Cancel a running agent."""
-        endpoint = f"/api/v1/pipelines/{pipeline_id}/coordinator/agents/{role}"
-        return self._make_request(endpoint, method="DELETE")
-
     def send_signal(
         self,
         pipeline_id: str,
