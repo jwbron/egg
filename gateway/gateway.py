@@ -552,8 +552,10 @@ def _reload_all_config() -> None:
             reload_repo_config = None  # type: ignore[assignment]
 
     if reload_repo_config is not None:
-        reload_repo_config()
-        reload_policy_caches()
+        try:
+            reload_repo_config()
+        finally:
+            reload_policy_caches()
         logger.info("Configuration reloaded")
     else:
         reload_policy_caches()
