@@ -78,10 +78,10 @@
         {
           "container_id": "941293e9d437a4ca1e0216f46586466f4ebf2d24f472c0b26b566cb86f712cf6",
           "container_name": "egg-sandbox-egg-issue-1165-reviewer_refine",
-          "status": "running",
+          "status": "exited",
           "started_at": "2026-03-16T00:38:02.552446",
-          "exited_at": null,
-          "exit_code": null,
+          "exited_at": "2026-03-16T00:40:34.305464",
+          "exit_code": 0,
           "agent_role": "reviewer_refine",
           "session_token": null
         }
@@ -141,10 +141,10 @@
         },
         {
           "role": "reviewer_refine",
-          "status": "running",
+          "status": "complete",
           "container_id": "941293e9d437a4ca1e0216f46586466f4ebf2d24f472c0b26b566cb86f712cf6",
           "started_at": "2026-03-16T00:38:02.552452",
-          "completed_at": null,
+          "completed_at": "2026-03-16T00:40:34.306427",
           "commit": null,
           "outputs": {},
           "error": null,
@@ -171,7 +171,7 @@
   },
   "decisions": [],
   "created_at": "2026-03-16T00:20:26.575379",
-  "updated_at": "2026-03-16T00:38:45.526682",
+  "updated_at": "2026-03-16T00:40:34.306613",
   "contract_synced": true,
   "network_mode": null,
   "short_circuit": false,
@@ -179,5 +179,5 @@
   "error": "Pipeline marked FAILED: agent container exited unexpectedly during execution. Restart via POST /pipelines/{id}/start.",
   "plan_phase_waves": null,
   "plan_phase_names": null,
-  "version": 12
+  "version": 13
 }
