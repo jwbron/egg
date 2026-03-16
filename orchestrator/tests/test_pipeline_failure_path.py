@@ -38,6 +38,7 @@ def _make_running_pipeline(branch="egg/issue-42"):
         mode="issue",
         status=PipelineStatus.RUNNING,
         current_phase=PipelinePhase.REFINE,
+        network_mode="public",
     )
     pipeline.contract_synced = True  # Skip contract creation
     execution = pipeline.get_phase_execution(PipelinePhase.REFINE)
@@ -711,10 +712,17 @@ class TestNetworkModeAutoDetection:
         with (
             patch.dict(os.environ, {"EGG_HOST_REPO_MAP": '{"repo": "/host/repo"}'}, clear=False),
             patch("pathlib.Path.exists", return_value=True),
+            patch("routes.pipelines.logger") as mock_logger,
         ):
             _run_pipeline("issue-42", Path("/repo"))
 
         mock_get_gw.return_value.get_repo_visibility.assert_called_once_with("owner/repo")
+        mock_logger.info.assert_any_call(
+            "Auto-detected network mode from repo visibility",
+            repo="owner/repo",
+            visibility="private",
+            gateway_mode="private",
+        )
 
     @patch("routes.pipelines.get_gateway_client")
     @patch(_COMMON_PATCHES[7])
@@ -759,10 +767,17 @@ class TestNetworkModeAutoDetection:
         with (
             patch.dict(os.environ, {"EGG_HOST_REPO_MAP": '{"repo": "/host/repo"}'}, clear=False),
             patch("pathlib.Path.exists", return_value=True),
+            patch("routes.pipelines.logger") as mock_logger,
         ):
             _run_pipeline("issue-42", Path("/repo"))
 
         mock_get_gw.return_value.get_repo_visibility.assert_called_once_with("owner/repo")
+        mock_logger.info.assert_any_call(
+            "Auto-detected network mode from repo visibility",
+            repo="owner/repo",
+            visibility=None,
+            gateway_mode="public",
+        )
 
     @patch("routes.pipelines.get_gateway_client")
     @patch(_COMMON_PATCHES[7])
