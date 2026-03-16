@@ -433,9 +433,7 @@ class TestShouldRebuildImage:
                 with patch("egg_lib.docker.compute_build_hash", return_value=hash_val):
                     with patch("egg_lib.docker.get_image_build_hash", return_value=hash_val):
                         with patch("egg_lib.docker.check_claude_update", return_value=None):
-                            with patch(
-                                "egg_lib.docker.check_agent_sdk_update", return_value=None
-                            ):
+                            with patch("egg_lib.docker.check_agent_sdk_update", return_value=None):
                                 rebuild, reason = should_rebuild_image()
                                 assert rebuild is False
         finally:
