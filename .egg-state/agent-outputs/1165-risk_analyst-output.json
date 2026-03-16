@@ -2,8 +2,9 @@
   "issue": 1165,
   "agent": "risk_analyst",
   "phase": "plan",
-  "timestamp": "2026-03-16T03:00:00Z",
-  "summary": "Risk assessment for removing per-phase/task breakdown delegation from the implement phase. 7 risks identified: 2 HIGH, 3 MEDIUM, 2 LOW. Primary concerns are import chain breakage during incremental removal and stale persisted pipeline state. The clean-break approach is viable given the 'no backward compatibility' decision, but ordering matters.",
+  "revision": 2,
+  "timestamp": "2026-03-16T04:15:00Z",
+  "summary": "Risk assessment v2 for removing per-phase/task breakdown delegation from the implement phase. 9 risks identified: 2 HIGH, 4 MEDIUM, 3 LOW. Updated to incorporate plan review findings: added RISK-8 (INTEGRATOR enum in checkpoint/types modules not addressed by plan) and RISK-9 (incomplete test file coverage in plan). Primary concerns remain import chain breakage ordering (RISK-1) and stale persisted state (RISK-2).",
 
   "risks": [
     {
@@ -23,8 +24,8 @@
         "orchestrator/tests/test_health_check_integration.py",
         "orchestrator/tests/test_concurrent_phases.py"
       ],
-      "mitigation": "Follow the issue's migration order strictly: (1) Relocate is_concurrent_execution() to concurrent_executor.py, (2) Refactor signals.py to inline dispatch calls using direct egg_contracts.Orchestrator, (3) Only then delete dispatch.py and multi_agent.py. The two-PR strategy (Option C from analysis) naturally enforces this — prep PR does steps 1-2, main PR does step 3.",
-      "rollback_plan": "If the prep PR breaks imports, revert it. Since it's a refactor-only change with no behavior modification, revert is clean. Run full test suite after the prep PR to catch any missed imports.",
+      "mitigation": "Follow the issue's migration order strictly: (1) Relocate is_concurrent_execution() to concurrent_executor.py, (2) Refactor signals.py to inline dispatch calls using direct egg_contracts.Orchestrator, (3) Only then delete dispatch.py and multi_agent.py. The phase ordering in the plan (Phase 1 prereqs before Phase 2 deletion) enforces this correctly.",
+      "rollback_plan": "If the prep changes break imports, revert them. Since they are refactor-only with no behavior modification, revert is clean. Run full test suite after each step to catch any missed imports.",
       "human_review_needed": true,
       "human_review_reason": "The signals.py refactoring replaces dispatcher abstraction with direct egg_contracts.Orchestrator calls. This changes how agent completion/progress is recorded. A human should verify the inlined logic is semantically equivalent."
     },
@@ -42,10 +43,10 @@
         "shared/egg_contracts/orchestration.py (phase_executions composite keying)",
         ".egg-state/pipelines/*.json (persisted state)"
       ],
-      "mitigation": "The 'intentional failure' approach is acceptable IF: (1) No in-flight pipelines use Tier 3 or short-circuit at deploy time (feedback-1/Q1 in contract addresses this), (2) The egg-orch CLI handles deserialization errors gracefully for historical pipeline queries (e.g., `egg-orch pipeline status <old-id>` should return an error message, not a stack trace). Add a try/except with a clear error message around Pipeline model loading for old state files.",
+      "mitigation": "The 'intentional failure' approach is acceptable IF: (1) No in-flight pipelines use Tier 3 or short-circuit at deploy time, (2) The egg-orch CLI handles deserialization errors gracefully for historical pipeline queries (e.g., `egg-orch pipeline status <old-id>` should return an error message, not a stack trace). Add a try/except with a clear error message around Pipeline model loading for old state files.",
       "rollback_plan": "If old pipelines need to be queryable post-removal, add a migration script that strips removed fields from .egg-state/pipelines/*.json. Alternatively, keep ComplexityTier enum with a deprecation marker and map all values to a single 'standard' tier.",
       "human_review_needed": true,
-      "human_review_reason": "Decision on whether intentional failure is acceptable or if a migration script is needed (feedback-1/Q2 in contract). This is a product decision, not a technical one."
+      "human_review_reason": "Decision on whether intentional failure is acceptable or if a migration script is needed. This is a product decision, not a technical one."
     },
     {
       "id": "RISK-3",
@@ -54,7 +55,7 @@
       "severity": "MEDIUM",
       "likelihood": "HIGH",
       "impact": "MEDIUM",
-      "description": "247 references to ComplexityTier/complexity_tier/short_circuit/INTEGRATOR across 30 files. Beyond the 9 test files marked for deletion, there are references in test_health_check_lifecycle_integration.py (5 imports of MultiAgentExecutor), test_health_check_integration.py (4 imports), test_concurrent_phases.py (1 import of is_concurrent_execution), test_start_pipeline.py (short_circuit tests), and test_pipeline_prompts.py (short_circuit tests). If these are not updated in the same PR as the module deletion, CI breaks.",
+      "description": "247 references to ComplexityTier/complexity_tier/short_circuit/INTEGRATOR across 30 files. Beyond the 9 test files marked for deletion, there are references in test_health_check_lifecycle_integration.py (5 imports of MultiAgentExecutor), test_health_check_integration.py (4 imports), test_concurrent_phases.py (1 import of is_concurrent_execution), test_start_pipeline.py (short_circuit tests), and test_pipeline_prompts.py (short_circuit tests). If these are not updated in the same commit as the module deletion, CI breaks.",
       "affected_components": [
         "orchestrator/tests/test_health_check_lifecycle_integration.py",
         "orchestrator/tests/test_health_check_integration.py",
@@ -63,7 +64,7 @@
         "orchestrator/tests/test_pipeline_prompts.py",
         "orchestrator/tests/test_models.py"
       ],
-      "mitigation": "In the main removal PR, grep for all imports of deleted modules and update or remove them. The issue's test file list covers most cases but misses the health_check_integration test files which also import MultiAgentExecutor. Run `make test` before pushing the PR to catch any remaining import errors.",
+      "mitigation": "In the removal PR, grep for all imports of deleted modules and update or remove them. The issue's test file list covers most cases but misses the health_check_integration test files which also import MultiAgentExecutor. Run `make test` before pushing the PR to catch any remaining import errors.",
       "rollback_plan": "Revert the PR. Since tests catch these immediately, the blast radius is limited to CI — no production impact.",
       "human_review_needed": false,
       "human_review_reason": null
@@ -75,7 +76,7 @@
       "severity": "MEDIUM",
       "likelihood": "MEDIUM",
       "impact": "MEDIUM",
-      "description": "The gateway's agent_restrictions.py uses complexity_tier to select INTEGRATOR_TIER3_PATTERNS. container_spawner.py passes complexity_tier to the gateway (line 205). gateway_client.py passes it at lines 288 and 340-341. If the orchestrator stops sending complexity_tier but the gateway still expects it (or vice versa), there could be a mismatch if orchestrator and gateway are deployed at different times. In this repo they are co-located and deployed together, so this is lower risk than in a microservice architecture, but worth noting.",
+      "description": "The gateway's agent_restrictions.py uses complexity_tier to select INTEGRATOR_TIER3_PATTERNS. container_spawner.py passes complexity_tier to the gateway (line 205). gateway_client.py passes it at lines 288 and 340-341. If the orchestrator stops sending complexity_tier but the gateway still expects it (or vice versa), there could be a mismatch during partial deployment. In this repo they are co-located and deployed together, so this is lower risk than in a microservice architecture.",
       "affected_components": [
         "gateway/agent_restrictions.py",
         "orchestrator/container_spawner.py",
@@ -96,17 +97,17 @@
       "severity": "MEDIUM",
       "likelihood": "MEDIUM",
       "impact": "MEDIUM",
-      "description": "The contract for issue #1165 itself has an agent_execution entry for 'integrator' (line 161-171 of 1165.json). Removing AgentRole.INTEGRATOR from agent_roles.py means existing contracts referencing the integrator role will fail validation. The handoffs.py ROLE_MAP also has an INTEGRATOR entry. Additionally, reviewer_code and reviewer_contract roles list INTEGRATOR in their dependency arrays — removing it changes dependency resolution behavior for those roles.",
+      "description": "The contract for issue #1165 itself has an agent_execution entry for 'integrator'. Removing AgentRole.INTEGRATOR from agent_roles.py means existing contracts referencing the integrator role will fail validation. The handoffs.py ROLE_MAP also has an INTEGRATOR entry. Additionally, reviewer_code and reviewer_contract roles list INTEGRATOR in their dependency arrays — removing it changes dependency resolution behavior for those roles.",
       "affected_components": [
         "shared/egg_contracts/agent_roles.py",
         "shared/egg_contracts/models.py",
         "orchestrator/handoffs.py",
         ".egg-state/contracts/*.json"
       ],
-      "mitigation": "Remove INTEGRATOR from the AgentRole enum but add it to a LEGACY_ROLES set for deserialization compatibility. Or use a Pydantic validator that maps unknown roles to a sentinel value. Remove INTEGRATOR from reviewer dependency lists in agent_roles.py as the issue specifies (items 20, 3). Existing contracts with integrator executions should either skip unknown roles during loading or map them to a 'removed' status.",
+      "mitigation": "Remove INTEGRATOR from the AgentRole enum but add it to a LEGACY_ROLES set for deserialization compatibility. Or use a Pydantic validator that maps unknown roles to a sentinel value. Remove INTEGRATOR from reviewer dependency lists in agent_roles.py as the issue specifies. Existing contracts with integrator executions should either skip unknown roles during loading or map them to a 'removed' status.",
       "rollback_plan": "Revert the PR. Contract files remain valid with the old schema.",
       "human_review_needed": true,
-      "human_review_reason": "The integrator role appears in the 'Keep' agent lists for other pipelines. Verify no active pipelines depend on the integrator role before removing it."
+      "human_review_reason": "The integrator role appears in contracts for other pipelines. Verify no active pipelines depend on the integrator role before removing it."
     },
     {
       "id": "RISK-6",
@@ -142,6 +143,48 @@
       "rollback_plan": "N/A — not a regression.",
       "human_review_needed": false,
       "human_review_reason": null
+    },
+    {
+      "id": "RISK-8",
+      "title": "INTEGRATOR enum values in checkpoint/types modules not addressed by plan",
+      "category": "completeness",
+      "severity": "MEDIUM",
+      "likelihood": "HIGH",
+      "impact": "MEDIUM",
+      "description": "The plan review identified that INTEGRATOR enum values exist in shared/egg_orchestrator/types.py (line 105), shared/egg_contracts/checkpoints.py (line 161), gateway/checkpoint_handler.py (line 223), and orchestrator/models.py (line 64). These are distinct from INTEGRATOR_ROLE in agent_roles.py which the plan covers. No task explicitly addresses whether these enum values should be removed or retained for backward compatibility with checkpoint data. If removed without a plan, historical checkpoint deserialization may fail. If retained, dead code remains.",
+      "affected_components": [
+        "shared/egg_orchestrator/types.py",
+        "shared/egg_contracts/checkpoints.py",
+        "gateway/checkpoint_handler.py",
+        "orchestrator/models.py"
+      ],
+      "mitigation": "The plan should explicitly state the decision: either (a) retain INTEGRATOR in checkpoint/types enums for backward compatibility with historical checkpoint data (recommended — checkpoints are read-only historical records), or (b) remove them and accept that old checkpoint queries may fail. The coder needs this guidance to avoid guessing. TASK-4-4 (stale reference grep) will catch these but that's a verification step, not a design decision.",
+      "rollback_plan": "If removed and checkpoints break, add INTEGRATOR back to checkpoint/types enums only.",
+      "human_review_needed": true,
+      "human_review_reason": "Product decision on whether INTEGRATOR should be retained in checkpoint/types enums for historical data compatibility."
+    },
+    {
+      "id": "RISK-9",
+      "title": "Incomplete test file coverage in plan leads to CI failures",
+      "category": "completeness",
+      "severity": "LOW",
+      "likelihood": "MEDIUM",
+      "impact": "LOW",
+      "description": "The plan review identified ~8 additional test files with INTEGRATOR references that are not listed in TASK-4-1 (deletion) or TASK-4-2 (update): test_models.py, test_agent_restrictions_gh.py, test_agent_restrictions_patterns.py, test_egg_orchestrator.py, test_checkpoints.py, test_orchestrator.py, test_concurrent_integration.py, test_checkpoint_handler.py. Pushing these into TASK-4-4 (verification grep) rather than listing them upfront means the coder discovers them late and may not handle them correctly.",
+      "affected_components": [
+        "orchestrator/tests/test_models.py",
+        "gateway/tests/test_agent_restrictions_gh.py",
+        "gateway/tests/test_agent_restrictions_patterns.py",
+        "shared/egg_orchestrator/tests/test_egg_orchestrator.py",
+        "shared/egg_contracts/tests/test_checkpoints.py",
+        "orchestrator/tests/test_orchestrator.py",
+        "integration_tests/sdlc/test_concurrent_integration.py",
+        "gateway/tests/test_checkpoint_handler.py"
+      ],
+      "mitigation": "TASK-4-2 should be expanded to explicitly list these files. The coder agent will waste less time if the file list is complete upfront rather than relying on a catch-all grep step. This is a plan quality issue, not a code risk — the final grep (TASK-4-4) acts as a safety net.",
+      "rollback_plan": "N/A — TASK-4-4 catches anything missed.",
+      "human_review_needed": false,
+      "human_review_reason": null
     }
   ],
 
@@ -161,7 +204,12 @@
     },
     {
       "concern": "max_parallel_agents replacement",
-      "detail": "Reviewer spawning (~line 6885) uses min(len(reviewer_roles), max_parallel_agents). The issue says to replace with len(reviewer_roles) directly. This is safe because reviewer count is always small (2-3), but verify that no other code path uses max_parallel_agents as a global concurrency limiter. Grep shows it's also in PipelineConfig (models.py line 325-327) and shared/egg_contracts/models.py (line 385-387)."
+      "detail": "Reviewer spawning (~line 6885) uses min(len(reviewer_roles), max_parallel_agents). The issue says to replace with len(reviewer_roles) directly. This is safe because reviewer count is always small (2-3), but verify that no other code path uses max_parallel_agents as a global concurrency limiter."
+    },
+    {
+      "concern": "Plan file path error in TASK-2-3/2-4/2-5",
+      "status": "FLAGGED_BY_REVIEWER",
+      "detail": "The plan review identified that TASK-2-3, TASK-2-4, and TASK-2-5 reference orchestrator/orchestrator.py (non-existent) instead of orchestrator/routes/pipelines.py. This must be fixed before implementation begins. The task_planner should revise these references."
     }
   ],
 
@@ -176,17 +224,18 @@
   },
 
   "recommendations": {
-    "pr_strategy": "Option C (two PRs) is the safest approach and aligns with the analysis recommendation. The prep PR (relocate is_concurrent_execution, refactor signals.py) is low-risk and can be validated independently. The main PR is then straightforward deletions.",
+    "pr_strategy": "Single PR (pipeline constraint) with strict phase ordering. Phase 1 prereqs must be committed and tested before Phase 2 deletions begin.",
     "testing_strategy": "Run `make test` after each logical group of removals. Pay special attention to: (1) orchestrator startup (import chain), (2) signal processing (signals.py refactor), (3) gateway agent restrictions (complexity_tier removal), (4) contract loading for old pipeline state.",
     "deployment_strategy": "Deploy orchestrator and gateway together since complexity_tier threading spans both. No staged rollout needed — this is a clean break by design.",
     "areas_needing_human_review": [
       "RISK-1: signals.py refactoring — verify inlined dispatcher logic is semantically equivalent",
       "RISK-2: Stale state handling — product decision on migration script vs intentional failure",
       "RISK-5: Integrator role removal — verify no active pipelines depend on it",
-      "Decision-3 in contract: Whether to also remove concurrent_execution/concurrent_phases config flags"
+      "RISK-8: INTEGRATOR enum in checkpoint/types — retain for backward compat or remove?",
+      "Plan revision: TASK-2-3/2-4/2-5 file path must be corrected before implementation"
     ]
   },
 
   "overall_risk_rating": "MEDIUM",
-  "overall_risk_rationale": "The change is fundamentally a large-scale deletion with well-defined boundaries. The primary risks are import chain ordering (mitigated by the two-PR strategy) and stale state handling (an explicit product decision). Security risk is net-positive (reduced attack surface). Performance risk is negligible. The migration order in the issue is well-thought-out and should be followed exactly."
+  "overall_risk_rationale": "The change is fundamentally a large-scale deletion with well-defined boundaries. The primary risks are import chain ordering (mitigated by phase ordering) and stale state handling (an explicit product decision). Security risk is net-positive (reduced attack surface). Performance risk is negligible. The migration order in the issue is well-thought-out and should be followed exactly. Two new risks identified from plan review (RISK-8 incomplete INTEGRATOR enum coverage, RISK-9 incomplete test file listing) are mitigated by the catch-all grep in TASK-4-4 but should be addressed in the plan for cleaner implementation."
 }
