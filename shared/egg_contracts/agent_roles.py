@@ -480,7 +480,7 @@ REVIEWER_CODE_ROLE = AgentRoleDefinition(
         "Check for OWASP top 10 vulnerabilities",
         "Verify error handling and edge cases",
     ],
-    dependencies=[AgentRole.INTEGRATOR, AgentRole.TASK_PLANNER, AgentRole.RISK_ANALYST],
+    dependencies=[AgentRole.TASK_PLANNER, AgentRole.RISK_ANALYST],
     file_access=FileAccessPattern(
         allowed_read=[],
         allowed_write=[
@@ -490,7 +490,7 @@ REVIEWER_CODE_ROLE = AgentRoleDefinition(
         blocked_write=_REVIEWER_BLOCKED_WRITE,
     ),
     produces_outputs=["review_verdict"],
-    requires_inputs=["integration_report"],
+    requires_inputs=[],
 )
 
 # Contract reviewer needs write access to .egg-state/contracts/ to mark
@@ -512,7 +512,7 @@ REVIEWER_CONTRACT_ROLE = AgentRoleDefinition(
         "Check task completion status",
         "Validate contract consistency",
     ],
-    dependencies=[AgentRole.INTEGRATOR, AgentRole.TASK_PLANNER, AgentRole.RISK_ANALYST],
+    dependencies=[AgentRole.TASK_PLANNER, AgentRole.RISK_ANALYST],
     file_access=FileAccessPattern(
         allowed_read=[],
         allowed_write=[

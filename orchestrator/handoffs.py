@@ -47,7 +47,6 @@ ROLE_MAP = {
     AgentRole.CODER: ContractAgentRole.CODER,
     AgentRole.TESTER: ContractAgentRole.TESTER,
     AgentRole.DOCUMENTER: ContractAgentRole.DOCUMENTER,
-    AgentRole.INTEGRATOR: ContractAgentRole.INTEGRATOR,
 }
 
 REVERSE_ROLE_MAP = {v: k for k, v in ROLE_MAP.items()}
