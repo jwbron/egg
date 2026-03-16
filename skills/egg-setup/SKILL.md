@@ -76,7 +76,7 @@ If "Show install instructions", detect the platform and show appropriate command
 
 After showing instructions, ask if the user has installed the dependencies and wants to re-check.
 
-If running `/egg-setup --check`, stop here after reporting the results. Do not proceed to other phases.
+If running `/egg-setup --check`, skip to Phase 6 (Validation) after reporting dependency results. Do not run Phases 2–5.
 
 ## Phase 2 — Existing Configuration Detection
 
@@ -229,6 +229,12 @@ Reference `config/secrets.template.env` for the complete list of supported varia
 
 ## Phase 4 — Repository Configuration
 
+Ensure the configuration directory exists:
+
+```bash
+mkdir -p ~/.config/egg/
+```
+
 Configure `~/.config/egg/repositories.yaml`.
 
 ### Step 1: GitHub Username
@@ -293,6 +299,12 @@ Write the configuration to `~/.config/egg/repositories.yaml`. Repos marked "Writ
 
 ## Phase 5 — General Configuration
 
+Ensure the configuration directory exists:
+
+```bash
+mkdir -p ~/.config/egg/
+```
+
 Create or update `~/.config/egg/config.yaml` with system-detected defaults.
 
 Auto-detect these values (do not prompt unless detection fails):
@@ -352,22 +364,24 @@ Parse `~/.config/egg/repositories.yaml` and verify:
 # Check images can build (dry-run is not available, so just check Dockerfile exists)
 ls Dockerfile 2>/dev/null || ls sandbox/Dockerfile 2>/dev/null
 
-# Check for port conflicts (cross-platform)
-# Linux:
-ss -tlnp 2>/dev/null | grep -E ':(9848|9849|9850|3129) ' || \
-# macOS:
-lsof -i :9848 -i :9849 -i :9850 -i :3129 2>/dev/null || \
-# Fallback (cross-platform Python):
+# Check for port conflicts (cross-platform Python):
 python3 -c "
-import socket
+import socket, sys
+conflicts = []
 for port in [9848, 9849, 9850, 3129]:
     s = socket.socket()
     try:
         s.bind(('', port))
         s.close()
     except OSError:
-        print(f'Port {port} in use')
-" 2>/dev/null || echo "Ports available"
+        conflicts.append(port)
+if conflicts:
+    for p in conflicts:
+        print(f'Port {p} in use')
+    sys.exit(1)
+else:
+    print('All ports available')
+"
 ```
 
 ### Report
