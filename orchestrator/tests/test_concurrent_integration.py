@@ -621,7 +621,7 @@ class TestSpawnUsesConsensusWrapper:
         assert command[1] == "-c"
         assert "egg_agent" in command[2]
         assert "RESTART_COUNT" in command[2]
-        assert "CONSENSUS RECOVERY" in command[2]
+        assert "BRC Consensus Recovery" in command[2]
 
 
 class TestNoImplicitReadyOnCleanExit:
