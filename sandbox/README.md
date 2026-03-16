@@ -80,10 +80,7 @@ sandbox/
 │   ├── commands/           # Custom slash commands
 │   │   ├── README.md       # Commands documentation
 │   │   ├── sdlc.md         # /sdlc — SDLC pipeline initialization
-│   │   ├── show-metrics.md # /show-metrics — Activity monitoring report
-│   │   ├── coder-mode.md   # /coder-mode — Coder agent mode
-│   │   ├── documenter-mode.md # /documenter-mode — Documenter agent mode
-│   │   └── tester-mode.md  # /tester-mode — Tester agent mode
+│   │   └── show-metrics.md # /show-metrics — Activity monitoring report
 │   └── rules/              # Agent behavior rules
 │       ├── README.md       # Rules documentation
 │       ├── mission.md      # Agent mission and workflow

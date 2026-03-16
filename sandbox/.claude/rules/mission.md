@@ -128,93 +128,18 @@ When `EGG_CONCURRENT_MODE=true` is set, you are running alongside other agents
 simultaneously. Agents coordinate through the **Broadcast-Review-Converge (BRC)**
 peer consensus protocol.
 
-### BRC Protocol Overview
+Your server-side prompt contains your **full BRC lifecycle instructions** —
+including your role type (producer/reviewer), active agent roster, assigned
+reviewers or producers, preparation steps, and the exact consensus commands
+to run. Follow those instructions exactly.
 
-Instead of signaling READY to the orchestrator, agents:
-1. **Broadcast** — Producers complete work and propose it with attestations
-2. **Review** — Reviewers evaluate proposals and ACK/NACK with artifact references
-3. **Converge** — All agents confirm when satisfied → orchestrator observes consensus
+### Key Principles
 
-The orchestrator *observes* consensus, it doesn't *decide* it. Agents reach
-agreement with each other through structured peer review.
-
-### Environment Variables
-
-| Variable | Purpose |
-|----------|---------|
-| `EGG_CONCURRENT_MODE` | `true` when running in concurrent execution mode |
-| `EGG_MESSAGE_POLL_INTERVAL` | Suggested polling interval in seconds (default: 30) |
-| `EGG_BRC_ROLE_TYPE` | Your role type: `producer`, `reviewer`, or `producer,reviewer` |
-| `EGG_BRC_REVIEWERS` | Comma-separated reviewer roles assigned to review your work (producers) |
-| `EGG_BRC_PRODUCERS` | Comma-separated producer roles you are assigned to review (reviewers) |
-
-### Message Polling
-
-Use long-polling instead of sleep loops:
-```bash
-egg-orch message poll --wait 30  # Blocks until messages arrive (~1s delivery)
-```
-
-### Producer Workflow (coder, tester, documenter)
-
-1. **Do your work** — implement, test, or document as assigned
-2. **Propose** when done:
-   ```bash
-   egg-orch consensus propose --summary "Implemented feature X" \
-     --artifacts "src/auth.py" "src/auth_test.py" \
-     --risk "Rate limiting not yet implemented"
-   ```
-3. **Wait for reviews** — poll for ACK/NACK messages from reviewers
-4. **Handle NACKs** — if a reviewer NACKs, address their concern, then re-propose:
-   ```bash
-   egg-orch consensus propose --summary "Fixed auth bug per review" \
-     --artifacts "src/auth.py" --changed-artifacts "src/auth.py"
-   ```
-5. **Confirm** when all reviewers have ACKed:
-   ```bash
-   egg-orch consensus confirmed
-   ```
-6. **Stay alive** — keep polling. The orchestrator sends SIGTERM when all agents confirm.
-
-**Attestation requirements by role:**
-
-| Role | Required in proposal |
-|------|---------------------|
-| **Coder** | commit SHAs, files changed, test pass/fail summary, one risk considered |
-| **Tester** | tests written/run count, coverage delta, edge cases covered, one concern |
-| **Documenter** | sections updated, links verified, one concern considered |
-
-### Reviewer Workflow (reviewer_code, reviewer_contract)
-
-1. **Wait for proposals** — poll the message bus (`egg-orch message poll --wait 30`) until you
-   receive a `CONSENSUS_PROPOSE` message from each assigned producer (check `EGG_BRC_PRODUCERS`).
-   **Do NOT review producer artifacts before the proposal arrives.**
-   While waiting, read the contract/plan to prepare your review criteria.
-2. **Form independent judgment** from git artifacts — once a proposal arrives, review the actual
-   code/artifacts referenced in it. The producer's self-assessment is held back by the server
-   until you submit your evaluation.
-3. **ACK or NACK** each assigned producer:
-   ```bash
-   # ACK with artifact references
-   egg-orch consensus ack coder --files-reviewed "src/auth.py" "src/utils.py" \
-     --summary "Code correct, tests pass"
-
-   # NACK with specific, actionable reason
-   egg-orch consensus nack coder --reason "SQL injection in auth.py:42" \
-     --files-reviewed "src/auth.py"
-   ```
-4. **Confirm** when all assigned producers have been reviewed and ACKed:
-   ```bash
-   egg-orch consensus confirmed
-   ```
-5. **Stay alive** — keep polling for re-proposals if you NACKed.
-
-**Attestation requirements by role:**
-
-| Role | Required in ACK/NACK |
-|------|---------------------|
-| **Reviewer (code)** | files reviewed (paths), issues found/resolved count, one risk |
-| **Reviewer (contract)** | tasks verified (IDs), acceptance criteria checked, gaps |
+- The orchestrator *observes* consensus, it doesn't *decide* it
+- **Producers**: orient → work → propose → respond to reviews → confirm → stay alive
+- **Reviewers**: prepare → poll for proposals → review → ACK/NACK → confirm → stay alive
+- **Never exit** before the orchestrator stops you — completing your task is necessary but NOT sufficient
+- Use `egg-orch message poll --wait 30` for long-polling (not sleep loops)
 
 ### Anti-Sycophancy Requirements
 
@@ -223,18 +148,11 @@ egg-orch message poll --wait 30  # Blocks until messages arrive (~1s delivery)
 - **Form independent judgments** before seeing producer self-assessments.
 - **NACKs must be specific and actionable** — cite the exact issue and what needs to change.
 
-### Tester Dual Role
-
-The tester is both a **producer** (proposes test artifacts) and a **reviewer**
-(evaluates coder's work by running tests). You must both:
-- Propose your test artifacts with attestation
-- ACK/NACK the coder's proposal based on test results
-
-Both must reach CONFIRMED for the tester to be fully confirmed.
-
 ### Handling Agent Failures
 
 If you receive an `AGENT_FAILED` message about another agent:
 - **Coder fails**: Tester/documenter/reviewer should continue waiting
 - **Tester fails**: Coder/documenter can continue; note the gap in your proposal
 - **Reviewer fails**: Coder can continue; note the review gap in your proposal
+
+For full protocol reference: `$EGG_REPO_PATH/docs/guides/concurrent-execution.md`
