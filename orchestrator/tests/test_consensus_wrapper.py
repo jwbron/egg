@@ -3,6 +3,7 @@
 import os
 import shlex
 import subprocess
+import sys
 import tempfile
 
 from consensus_wrapper import (
@@ -164,7 +165,7 @@ def _make_mock_agent(tmpdir: str, agent_log_file: str | None = None, exit_code: 
     """
     mock_python = os.path.join(tmpdir, "python3")
     agent_log = agent_log_file or os.path.join(tmpdir, "claude.log")
-    real_python = "/usr/bin/python3"
+    real_python = sys.executable
     with open(mock_python, "w") as f:
         f.write("#!/bin/bash\n")
         # Intercept only -m egg_agent calls; pass everything else to real python3
@@ -366,7 +367,7 @@ class TestConsensusWrapperBehavior:
             os.chmod(mock_orch, 0o755)  # nosec B103
 
             # Mock python3 that intercepts egg_agent calls and exits cleanly
-            real_python = "/usr/bin/python3"
+            real_python = sys.executable
             mock_python = os.path.join(tmpdir, "python3")
             with open(mock_python, "w") as f:
                 f.write("#!/bin/bash\n")

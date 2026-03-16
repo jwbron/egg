@@ -2,12 +2,12 @@
 
 When agents run in concurrent mode, they must stay alive after completing
 their work to participate in BRC (Broadcast-Review-Converge) consensus.
-This module provides a shell wrapper that detects early Claude exits and
+This module provides a shell wrapper that detects early agent exits and
 restarts the agent with a recovery prompt instead of blindly marking
 consensus as approved.
 
 If the agent exits without reaching CONFIRMED state in the BRC protocol,
-the wrapper restarts Claude with a prompt that explains what happened and
+the wrapper restarts the agent with a prompt that explains what happened and
 instructs it to assess state, then continue the BRC protocol. Restarts
 are capped at ``MAX_CONSENSUS_RESTARTS`` (default 2). After exhausting
 restarts the wrapper exits with code 1 so the orchestrator's failure path
@@ -16,7 +16,7 @@ handles escalation.
 
 import shlex
 
-# Default maximum number of times the wrapper will restart Claude after a
+# Default maximum number of times the wrapper will restart the agent after a
 # clean exit without consensus being reached.
 MAX_CONSENSUS_RESTARTS = 2
 
@@ -25,7 +25,7 @@ MAX_CONSENSUS_RESTARTS = 2
 # 10 * 30 = 300 seconds (5 minutes) for other agents to finish.
 MAX_READY_POLL_CYCLES = 10
 
-# Recovery prompt given to Claude when it is restarted by the wrapper.
+# Recovery prompt given to the agent when it is restarted by the wrapper.
 # Placeholders: {restart_number}, {max_restarts}, {brc_state}, {nack_feedback}
 _RECOVERY_PROMPT = (
     "## BRC CONSENSUS RECOVERY — You were restarted by the consensus wrapper\n\n"
@@ -53,10 +53,10 @@ _RECOVERY_PROMPT = (
     "(up to the maximum).**\n"
 )
 
-# Shell script that wraps the Claude CLI invocation. After Claude exits:
+# Shell script that wraps the agent invocation. After the agent exits:
 # - Non-concurrent mode: exit normally.
 # - Non-zero exit: treat as failure, no restart.
-# - Clean exit (code 0): restart Claude with a recovery prompt (up to
+# - Clean exit (code 0): restart the agent with a recovery prompt (up to
 #   MAX_RESTARTS times). After max restarts, exit 1 to trigger the
 #   orchestrator's agent failure path (HITL decision).
 _CONSENSUS_WRAPPER_TEMPLATE = r"""
@@ -66,9 +66,9 @@ set -uo pipefail
 MAX_RESTARTS={max_restarts}
 RESTART_COUNT=0
 
-run_claude() {{
+run_agent() {{
     local prompt="$1"
-    {claude_command_prefix} "$prompt"
+    {agent_command_prefix} "$prompt"
     return $?
 }}
 
@@ -109,7 +109,7 @@ if my_nacks:
 }}
 
 # --- Initial run ---
-run_claude {initial_prompt}
+run_agent {initial_prompt}
 CLAUDE_EXIT=$?
 
 # If not in concurrent mode, exit normally
@@ -191,7 +191,7 @@ for old, key in [("{{restart_number}}", "_CW_RESTART"), ("{{max_restarts}}", "_C
     template = template.replace(old, os.environ[key])
 sys.stdout.write(template)' <<< "$RECOVERY_PROMPT")
 
-    run_claude "$RECOVERY_PROMPT"
+    run_agent "$RECOVERY_PROMPT"
     CLAUDE_EXIT=$?
 
     if [ "$CLAUDE_EXIT" -ne 0 ]; then
@@ -253,11 +253,11 @@ def build_consensus_wrapped_command(
         "--max-turns",
         str(max_turns),
     ]
-    claude_command_prefix = " ".join(shlex.quote(p) for p in agent_prefix_parts)
+    agent_command_prefix = " ".join(shlex.quote(p) for p in agent_prefix_parts)
     initial_prompt = shlex.quote(prompt_text)
 
     script = _CONSENSUS_WRAPPER_TEMPLATE.format(
-        claude_command_prefix=claude_command_prefix,
+        agent_command_prefix=agent_command_prefix,
         initial_prompt=initial_prompt,
         max_restarts=max_restarts,
         max_ready_polls=max_ready_polls,
