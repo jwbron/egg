@@ -430,6 +430,16 @@ def main() -> None:
         # Install user-configured extra packages
         install_extra_packages(distro, apt_packages, dnf_packages)
 
+        # Persist extra packages list for multi-stage Docker builds.
+        # In a multi-stage build, apt packages installed here (Stage 1) don't
+        # carry to the final image. Write the list so Stage 3 can reinstall them.
+        prebuilt_dir = Path("/opt/prebuilt-deps")
+        prebuilt_dir.mkdir(parents=True, exist_ok=True)
+        if apt_packages:
+            (prebuilt_dir / "extra-packages-apt.txt").write_text("\n".join(apt_packages) + "\n")
+        if dnf_packages:
+            (prebuilt_dir / "extra-packages-dnf.txt").write_text("\n".join(dnf_packages) + "\n")
+
         # System configuration
         configure_system(distro)
 

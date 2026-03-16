@@ -42,7 +42,8 @@ RUN chmod +x /tmp/docker-setup.py && \
     apt-get update && \
     python3 /tmp/docker-setup.py && \
     rm /tmp/docker-setup.py && \
-    rm -rf /tmp/repo-deps
+    rm -rf /tmp/repo-deps && \
+    mkdir -p /opt/prebuilt-deps
 
 # =============================================================================
 # Stage 2: base — system packages, Python 3.13, pip deps, Claude tools
@@ -232,6 +233,15 @@ FROM base AS final
 # Pull in cached repo dependencies from Stage 1
 # This is a simple COPY that doesn't re-run any build commands
 COPY --from=repo-deps /opt/prebuilt-deps/ /opt/prebuilt-deps/
+
+# Install extra packages configured via repositories.yaml.
+# docker-setup.py writes the package list to /opt/prebuilt-deps/ in Stage 1,
+# but apt-installed packages don't carry across stages — reinstall them here.
+RUN if [ -f /opt/prebuilt-deps/extra-packages-apt.txt ] && [ -s /opt/prebuilt-deps/extra-packages-apt.txt ]; then \
+        apt-get update && \
+        xargs apt-get install -y < /opt/prebuilt-deps/extra-packages-apt.txt && \
+        rm -rf /var/lib/apt/lists/*; \
+    fi
 
 # Copy sandbox runtime scripts and tools to /opt/egg-runtime
 # This provides container-resident executables available in PATH
