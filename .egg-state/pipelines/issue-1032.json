@@ -4,7 +4,7 @@
   "repo": "jwbron/egg",
   "branch": "egg/issue-1032",
   "prompt": null,
-  "status": "running",
+  "status": "failed",
   "current_phase": "refine",
   "config": {
     "auto_create_pr": true,
@@ -44,10 +44,10 @@
         {
           "container_id": "1dc94bb13516c75c6b9db46a05dab9fa7653ec4d87546dd9f4f0d08a86f6003b",
           "container_name": "issue-1032-reviewer_agent_design",
-          "status": "running",
+          "status": "failed",
           "started_at": "2026-03-16T20:30:02.416771",
-          "exited_at": null,
-          "exit_code": null,
+          "exited_at": "2026-03-16T20:31:23.114331Z",
+          "exit_code": 1,
           "agent_role": "reviewer_agent_design",
           "session_token": null
         },
@@ -77,13 +77,13 @@
         },
         {
           "role": "reviewer_agent_design",
-          "status": "running",
+          "status": "failed",
           "container_id": "1dc94bb13516c75c6b9db46a05dab9fa7653ec4d87546dd9f4f0d08a86f6003b",
           "started_at": "2026-03-16T20:30:02.416774",
-          "completed_at": null,
+          "completed_at": "2026-03-16T20:31:24.907917",
           "commit": null,
           "outputs": {},
-          "error": null,
+          "error": "Container exited unexpectedly during execution — detected by runtime container monitor",
           "retry_count": 0,
           "conflicts": []
         },
@@ -118,9 +118,9 @@
   },
   "decisions": [],
   "created_at": "2026-03-16T20:29:52.365104",
-  "updated_at": "2026-03-16T20:30:02.416847",
+  "updated_at": "2026-03-16T20:31:24.908351",
   "contract_synced": true,
   "network_mode": null,
-  "error": null,
-  "version": 7
+  "error": "Pipeline marked FAILED: agent container exited unexpectedly during execution. Restart via POST /pipelines/{id}/start.",
+  "version": 8
 }
