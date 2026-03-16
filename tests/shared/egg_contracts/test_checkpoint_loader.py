@@ -860,9 +860,7 @@ class TestListCheckpointsV2:
         """Test that an unrecognized agent_type coerces to UNKNOWN and returns empty."""
         with tempfile.TemporaryDirectory() as tmpdir:
             checkpoints_dir, index_path = self._build_index(tmpdir)
-            results = list_checkpoints_v2(
-                checkpoints_dir, index_path, agent_type="bogus"
-            )
+            results = list_checkpoints_v2(checkpoints_dir, index_path, agent_type="bogus")
             assert results == []
 
 
